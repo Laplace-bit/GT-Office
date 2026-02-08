@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop-tauri/src-tauri",
+  "crates/vb-abstractions",
+  "crates/vb-core",
+  "crates/vb-workspace",
+  "crates/vb-filesystem",
+  "crates/vb-terminal",
+  "crates/vb-git",
+  "crates/vb-tools",
+  "crates/vb-changefeed",
+  "crates/vb-settings",
+  "crates/vb-keymap",
+  "crates/vb-ai-config",
+  "crates/vb-task",
+  "crates/vb-storage",
+  "crates/vb-security",
+  "crates/vb-telemetry",
+  "crates/vb-daemon",
+]
+
+[workspace.package]
+edition = "2021"
+authors = ["GT Office Team"]
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }

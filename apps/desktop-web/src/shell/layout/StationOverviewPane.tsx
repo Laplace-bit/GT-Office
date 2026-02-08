@@ -1,0 +1,295 @@
+import { memo, useMemo, useState } from 'react'
+import type { AgentStation, StationRole } from './model'
+import type { Locale } from '../i18n/ui-locale'
+import { t } from '../i18n/ui-locale'
+import { AppIcon } from '../ui/icons'
+import {
+  buildOrganizationSnapshot,
+  defaultStationOverviewState,
+  filterStationsForOverview,
+  organizationDepartmentOrder,
+  type OrganizationDepartment,
+  type StationOverviewState,
+  type StationRuntimeState,
+} from './station-overview-model'
+
+interface StationOverviewPaneProps {
+  locale: Locale
+  stations: AgentStation[]
+  activeStationId: string
+  runtimeStateByStationId: Record<string, string>
+  view: StationOverviewState
+  onViewChange: (patch: Partial<StationOverviewState>) => void
+  onSelectStation: (stationId: string) => void
+  onOpenManageModal: () => void
+  onRemoveStation: (stationId: string) => void
+  onUpdateStationRole: (stationId: string, role: StationRole) => void
+}
+
+interface StationOverviewRowProps {
+  locale: Locale
+  station: AgentStation
+  runtimeState: StationRuntimeState
+  active: boolean
+  onSelectStation: (stationId: string) => void
+  onRemoveStation: (stationId: string) => void
+  onUpdateStationRole: (stationId: string, role: StationRole) => void
+}
+
+const roleOptions: StationRole[] = ['implementation', 'review', 'test', 'release']
+
+const roleKeyMap: Record<StationRole, 'station.role.implementation' | 'station.role.review' | 'station.role.test' | 'station.role.release'> = {
+  implementation: 'station.role.implementation',
+  review: 'station.role.review',
+  test: 'station.role.test',
+  release: 'station.role.release',
+}
+
+const departmentKeyMap: Record<
+  OrganizationDepartment,
+  | 'station.department.product_engineering'
+  | 'station.department.architecture_review'
+  | 'station.department.quality_assurance'
+  | 'station.department.release_operations'
+> = {
+  product_engineering: 'station.department.product_engineering',
+  architecture_review: 'station.department.architecture_review',
+  quality_assurance: 'station.department.quality_assurance',
+  release_operations: 'station.department.release_operations',
+}
+
+const runtimeStateKeyMap: Record<
+  StationRuntimeState,
+  | 'station.runtime.running'
+  | 'station.runtime.idle'
+  | 'station.runtime.blocked'
+  | 'station.runtime.starting'
+  | 'station.runtime.exited'
+  | 'station.runtime.killed'
+> = {
+  running: 'station.runtime.running',
+  idle: 'station.runtime.idle',
+  blocked: 'station.runtime.blocked',
+  starting: 'station.runtime.starting',
+  exited: 'station.runtime.exited',
+  killed: 'station.runtime.killed',
+}
+
+function roleLabel(locale: Locale, role: StationRole): string {
+  return t(locale, roleKeyMap[role])
+}
+
+function departmentLabel(locale: Locale, department: OrganizationDepartment): string {
+  return t(locale, departmentKeyMap[department])
+}
+
+function runtimeStateLabel(locale: Locale, state: StationRuntimeState): string {
+  return t(locale, runtimeStateKeyMap[state])
+}
+
+function normalizeRuntimeState(raw: string | undefined): StationRuntimeState {
+  switch (raw) {
+    case 'running':
+      return 'running'
+    case 'starting':
+      return 'starting'
+    case 'blocked':
+      return 'blocked'
+    case 'exited':
+      return 'exited'
+    case 'killed':
+      return 'killed'
+    default:
+      return 'idle'
+  }
+}
+
+const StationOverviewRow = memo(function StationOverviewRow({
+  locale,
+  station,
+  runtimeState,
+  active,
+  onSelectStation,
+  onRemoveStation,
+  onUpdateStationRole,
+}: StationOverviewRowProps) {
+  return (
+    <li className={active ? 'station-overview-row active' : 'station-overview-row'}>
+      <button
+        type="button"
+        className="station-overview-select"
+        onClick={() => onSelectStation(station.id)}
+      >
+        <strong>{station.name}</strong>
+        <span>{station.agentWorkdirRel}</span>
+      </button>
+      <div className="station-overview-row-actions">
+        <span className="station-overview-state" data-state={runtimeState}>
+          {runtimeStateLabel(locale, runtimeState)}
+        </span>
+        <select
+          value={station.role}
+          onChange={(event) => onUpdateStationRole(station.id, event.target.value as StationRole)}
+          aria-label={t(locale, 'station.filter.role')}
+        >
+          {roleOptions.map((role) => (
+            <option key={role} value={role}>
+              {roleLabel(locale, role)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="station-overview-remove"
+          onClick={() => onRemoveStation(station.id)}
+          aria-label={t(locale, 'workbench.removeStation')}
+          title={t(locale, 'workbench.removeStation')}
+        >
+          <AppIcon name="close" className="vb-icon vb-icon-overview" aria-hidden="true" />
+        </button>
+      </div>
+    </li>
+  )
+})
+
+export function StationOverviewPane({
+  locale,
+  stations,
+  activeStationId,
+  runtimeStateByStationId,
+  view,
+  onViewChange,
+  onSelectStation,
+  onOpenManageModal,
+  onRemoveStation,
+  onUpdateStationRole,
+}: StationOverviewPaneProps) {
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
+  const snapshot = useMemo(
+    () => buildOrganizationSnapshot(stations, runtimeStateByStationId),
+    [runtimeStateByStationId, stations],
+  )
+  const filteredStations = useMemo(
+    () => filterStationsForOverview(stations, runtimeStateByStationId, view),
+    [runtimeStateByStationId, stations, view],
+  )
+
+  const localeIsZh = locale === 'zh-CN'
+
+  return (
+    <aside className="panel station-overview-pane">
+      <header className="station-overview-header">
+        <div>
+          <h2>{t(locale, 'station.overview.title')}</h2>
+          <p>{t(locale, 'station.overview.subtitle')}</p>
+        </div>
+        <button
+          type="button"
+          className="station-overview-toggle"
+          onClick={onOpenManageModal}
+          aria-label={t(locale, 'workbench.addStation')}
+          title={t(locale, 'workbench.addStation')}
+        >
+          <AppIcon name="plus" className="vb-icon vb-icon-overview-toggle" aria-hidden="true" />
+        </button>
+      </header>
+
+      <section className="station-overview-metrics" aria-label={localeIsZh ? '岗位状态概览' : 'Station status overview'}>
+        <article>
+          <strong>{snapshot.total}</strong>
+          <span>{t(locale, 'station.metrics.total')}</span>
+        </article>
+        <article>
+          <strong>{snapshot.running}</strong>
+          <span>{t(locale, 'station.metrics.running')}</span>
+        </article>
+        <article>
+          <strong>{snapshot.blocked}</strong>
+          <span>{t(locale, 'station.metrics.blocked')}</span>
+        </article>
+        <article>
+          <strong>{snapshot.idle}</strong>
+          <span>{t(locale, 'station.metrics.idle')}</span>
+        </article>
+      </section>
+
+      <section className="station-overview-section">
+        <button
+          type="button"
+          className="station-overview-section-toggle"
+          onClick={() => setFiltersExpanded((prev) => !prev)}
+          aria-expanded={filtersExpanded}
+          aria-controls="station-overview-filters"
+        >
+          <span>{localeIsZh ? '岗位筛选' : 'Role Filters'}</span>
+          <small>{localeIsZh ? '仅管理维度' : 'Management only'}</small>
+          <AppIcon
+            name="chevron-right"
+            className="vb-icon vb-icon-overview-toggle"
+            aria-hidden="true"
+          />
+        </button>
+
+        <div className={filtersExpanded ? 'station-overview-collapsible expanded' : 'station-overview-collapsible'}>
+          <section id="station-overview-filters" className="station-overview-filters">
+            <label>
+              {t(locale, 'station.filter.role')}
+              <select
+                value={view.roleFilter}
+                onChange={(event) => onViewChange({ roleFilter: event.target.value as StationRole | 'all' })}
+              >
+                <option value="all">{t(locale, 'station.filter.allRoles')}</option>
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {roleLabel(locale, role)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t(locale, 'station.filter.department')}
+              <select
+                value={view.departmentFilter}
+                onChange={(event) =>
+                  onViewChange({
+                    departmentFilter: event.target.value as OrganizationDepartment | 'all',
+                  })
+                }
+              >
+                <option value="all">{t(locale, 'station.filter.allDepartments')}</option>
+                {organizationDepartmentOrder.map((department) => (
+                  <option key={department} value={department}>
+                    {departmentLabel(locale, department)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                onViewChange(defaultStationOverviewState)
+              }}
+            >
+              {t(locale, 'station.filter.reset')}
+            </button>
+          </section>
+        </div>
+      </section>
+
+      <ul className="station-overview-list">
+        {filteredStations.map((station) => (
+          <StationOverviewRow
+            key={station.id}
+            locale={locale}
+            station={station}
+            runtimeState={normalizeRuntimeState(runtimeStateByStationId[station.id])}
+            active={station.id === activeStationId}
+            onSelectStation={onSelectStation}
+            onRemoveStation={onRemoveStation}
+            onUpdateStationRole={onUpdateStationRole}
+          />
+        ))}
+      </ul>
+    </aside>
+  )
+}

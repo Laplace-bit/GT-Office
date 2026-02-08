@@ -1,0 +1,705 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   Apple-Style Design System
+   Premium, Refined, Performance-Optimized
+   ======================================== */
+
+:root {
+  /* === Apple Color Palette - Light Mode === */
+  --vb-bg: #f5f5f7;
+  --vb-surface: rgba(255, 255, 255, 0.72);
+  --vb-surface-muted: rgba(250, 250, 252, 0.85);
+  --vb-chip: rgba(240, 240, 245, 0.90);
+  
+  /* Glass Effects */
+  --vb-glass-blur: 24px;
+  --vb-glass-light: rgba(255, 255, 255, 0.55);
+  --vb-glass-lighter: rgba(255, 255, 255, 0.42);
+  
+  /* Input & Card Backgrounds */
+  --vb-input-bg: rgba(255, 255, 255, 0.92);
+  --vb-input-border: rgba(0, 0, 0, 0.08);
+  --vb-input-focus-border: #007aff;
+  --vb-card-bg: rgba(255, 255, 255, 0.65);
+  --vb-card-hover-bg: rgba(255, 255, 255, 0.80);
+  
+  /* Borders - Apple-style subtle */
+  --vb-border: rgba(0, 0, 0, 0.06);
+  --vb-border-strong: rgba(0, 0, 0, 0.12);
+  
+  /* Shadows - Multi-layered Apple depth */
+  --vb-shadow: 
+    0 0 0 0.5px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.06);
+  --vb-shadow-sm: 
+    0 0 0 0.5px rgba(0, 0, 0, 0.03),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.04);
+  --vb-shadow-lg: 
+    0 0 0 0.5px rgba(0, 0, 0, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.06),
+    0 20px 48px rgba(0, 0, 0, 0.12);
+  --vb-shadow-inset: inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
+  
+  /* Typography */
+  --vb-text: #1d1d1f;
+  --vb-text-muted: #86868b;
+  --vb-text-subtle: #aeaeb2;
+  
+  /* Accent Colors - Apple Blue */
+  --vb-accent: #007aff;
+  --vb-accent-hover: #0071e3;
+  --vb-accent-light: rgba(0, 122, 255, 0.12);
+  --vb-accent-glow: rgba(0, 122, 255, 0.25);
+
+  /* Ambient Lighting */
+  --vb-ambient-opacity: 0.88;
+  --vb-ambient-opacity-strong: 0.96;
+  --vb-ambient-blur: 5px;
+  --vb-ambient-blur-strong: 7px;
+  --vb-ambient-c1: rgba(255, 106, 120, 0.86);
+  --vb-ambient-c2: rgba(255, 164, 72, 0.84);
+  --vb-ambient-c3: rgba(255, 225, 90, 0.82);
+  --vb-ambient-c4: rgba(74, 224, 179, 0.84);
+  --vb-ambient-c5: rgba(89, 171, 255, 0.9);
+  --vb-ambient-c6: rgba(182, 118, 255, 0.9);
+  --vb-ambient-bg-layer-opacity: 0.66;
+  --vb-ambient-bg-opacity: 0.44;
+  --vb-ambient-bg-blur: 32px;
+  --vb-ambient-bg-saturate: 1.25;
+  --vb-ambient-bg-motion-scale: 1;
+  --vb-ambient-bg-disturbance: 0.24;
+  --vb-ambient-bg-speed-mult: 1;
+  
+  /* Status Colors */
+  --vb-success: #34c759;
+  --vb-success-bg: rgba(52, 199, 89, 0.12);
+  --vb-warning: #ff9500;
+  --vb-warning-bg: rgba(255, 149, 0, 0.12);
+  --vb-error: #ff3b30;
+  --vb-error-bg: rgba(255, 59, 48, 0.12);
+  
+  /* Interaction States */
+  --vb-hover-overlay: rgba(0, 0, 0, 0.03);
+  --vb-active-overlay: rgba(0, 0, 0, 0.06);
+  --vb-pressed-scale: 0.97;
+  
+  /* Terminal Colors */
+  --vb-terminal-bg: #1c1c1e;
+  --vb-terminal-border: rgba(255, 255, 255, 0.08);
+  --vb-terminal-focus: #007aff;
+  --vb-terminal-text: #e5e5e7;
+  --vb-terminal-prompt: #32d74b;
+  --vb-terminal-prefix: #64d2ff;
+  --vb-terminal-hint: #636366;
+  --vb-terminal-caret: #ff9f0a;
+  
+  /* Typography - SF Pro inspired */
+  --vb-font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --vb-font-mono: 'SF Mono', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', monospace;
+  
+  /* Spacing & Sizing */
+  --vb-radius-xs: 6px;
+  --vb-radius-sm: 8px;
+  --vb-radius-md: 12px;
+  --vb-radius-lg: 16px;
+  --vb-radius-xl: 20px;
+  --vb-radius-full: 9999px;
+  
+  /* Animation Timing - Apple's signature curves */
+  --vb-ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --vb-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --vb-ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --vb-duration-fast: 150ms;
+  --vb-duration-normal: 250ms;
+  --vb-duration-slow: 350ms;
+  
+  font-family: var(--vb-font-ui);
+  line-height: 1.47059;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'kern' 1;
+}
+
+/* === Dark Mode - Apple Graphite === */
+:root[data-theme='graphite-dark'] {
+  --vb-bg: #000000;
+  --vb-surface: rgba(28, 28, 30, 0.75);
+  --vb-surface-muted: rgba(44, 44, 46, 0.85);
+  --vb-chip: rgba(58, 58, 60, 0.90);
+  
+  /* Glass Effects - Dark */
+  --vb-glass-light: rgba(44, 44, 46, 0.65);
+  --vb-glass-lighter: rgba(58, 58, 60, 0.55);
+  
+  /* Input & Card Backgrounds */
+  --vb-input-bg: rgba(58, 58, 60, 0.95);
+  --vb-input-border: rgba(255, 255, 255, 0.12);
+  --vb-input-focus-border: #0a84ff;
+  --vb-card-bg: rgba(44, 44, 46, 0.72);
+  --vb-card-hover-bg: rgba(58, 58, 60, 0.82);
+  
+  /* Borders */
+  --vb-border: rgba(255, 255, 255, 0.08);
+  --vb-border-strong: rgba(255, 255, 255, 0.16);
+  
+  /* Shadows - Dark mode depth */
+  --vb-shadow: 
+    0 0 0 0.5px rgba(255, 255, 255, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.20),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+  --vb-shadow-sm: 
+    0 0 0 0.5px rgba(255, 255, 255, 0.03),
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.25);
+  --vb-shadow-lg: 
+    0 0 0 0.5px rgba(255, 255, 255, 0.04),
+    0 4px 8px rgba(0, 0, 0, 0.25),
+    0 20px 48px rgba(0, 0, 0, 0.50);
+  --vb-shadow-inset: inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  
+  /* Typography */
+  --vb-text: #f5f5f7;
+  --vb-text-muted: #98989d;
+  --vb-text-subtle: #6e6e73;
+  
+  /* Accent Colors - Apple Blue (Dark) */
+  --vb-accent: #0a84ff;
+  --vb-accent-hover: #409cff;
+  --vb-accent-light: rgba(10, 132, 255, 0.18);
+  --vb-accent-glow: rgba(10, 132, 255, 0.35);
+
+  /* Ambient Lighting - Dark */
+  --vb-ambient-opacity: 0.96;
+  --vb-ambient-opacity-strong: 1;
+  --vb-ambient-blur: 6px;
+  --vb-ambient-blur-strong: 8px;
+  --vb-ambient-c1: rgba(255, 95, 132, 0.92);
+  --vb-ambient-c2: rgba(255, 152, 66, 0.9);
+  --vb-ambient-c3: rgba(255, 220, 76, 0.88);
+  --vb-ambient-c4: rgba(61, 223, 174, 0.9);
+  --vb-ambient-c5: rgba(72, 164, 255, 0.98);
+  --vb-ambient-c6: rgba(190, 115, 255, 0.98);
+  --vb-ambient-bg-layer-opacity: 0.74;
+  --vb-ambient-bg-opacity: 0.54;
+  --vb-ambient-bg-blur: 36px;
+  --vb-ambient-bg-saturate: 1.38;
+  --vb-ambient-bg-motion-scale: 1.06;
+  --vb-ambient-bg-disturbance: 0.28;
+  --vb-ambient-bg-speed-mult: 0.95;
+  
+  /* Status Colors - Dark Mode */
+  --vb-success: #30d158;
+  --vb-success-bg: rgba(48, 209, 88, 0.18);
+  --vb-warning: #ff9f0a;
+  --vb-warning-bg: rgba(255, 159, 10, 0.18);
+  --vb-error: #ff453a;
+  --vb-error-bg: rgba(255, 69, 58, 0.18);
+  
+  /* Interaction States */
+  --vb-hover-overlay: rgba(255, 255, 255, 0.05);
+  --vb-active-overlay: rgba(255, 255, 255, 0.10);
+  
+  /* Terminal Colors */
+  --vb-terminal-bg: #1c1c1e;
+  --vb-terminal-border: rgba(255, 255, 255, 0.10);
+  --vb-terminal-focus: #0a84ff;
+}
+
+/* ========================================
+   Base Styles & Reset
+   ======================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--vb-bg);
+  color: var(--vb-text);
+  font-family: var(--vb-font-ui);
+  overflow: hidden;
+}
+
+:root[data-ambient-lighting='off'] {
+  --vb-ambient-opacity: 0;
+  --vb-ambient-opacity-strong: 0;
+  --vb-ambient-blur: 0px;
+  --vb-ambient-blur-strong: 0px;
+  --vb-ambient-bg-layer-opacity: 0;
+  --vb-ambient-bg-opacity: 0;
+  --vb-ambient-bg-blur: 0px;
+  --vb-ambient-bg-motion-scale: 0;
+  --vb-ambient-bg-disturbance: 0;
+}
+
+:root[data-ambient-intensity='low'] {
+  --vb-ambient-bg-layer-opacity: 0.42;
+  --vb-ambient-bg-opacity: 0.28;
+  --vb-ambient-bg-blur: 24px;
+  --vb-ambient-bg-saturate: 1.14;
+  --vb-ambient-bg-motion-scale: 0.72;
+  --vb-ambient-bg-disturbance: 0.14;
+  --vb-ambient-bg-speed-mult: 1.2;
+}
+
+:root[data-ambient-intensity='medium'] {
+  --vb-ambient-bg-layer-opacity: 0.66;
+  --vb-ambient-bg-opacity: 0.44;
+  --vb-ambient-bg-blur: 32px;
+  --vb-ambient-bg-saturate: 1.25;
+  --vb-ambient-bg-motion-scale: 1;
+  --vb-ambient-bg-disturbance: 0.24;
+  --vb-ambient-bg-speed-mult: 1;
+}
+
+:root[data-ambient-intensity='high'] {
+  --vb-ambient-bg-layer-opacity: 0.86;
+  --vb-ambient-bg-opacity: 0.6;
+  --vb-ambient-bg-blur: 40px;
+  --vb-ambient-bg-saturate: 1.45;
+  --vb-ambient-bg-motion-scale: 1.24;
+  --vb-ambient-bg-disturbance: 0.38;
+  --vb-ambient-bg-speed-mult: 0.82;
+}
+
+/* ========================================
+   Glassmorphism Components
+   ======================================== */
+
+.glass {
+  backdrop-filter: blur(var(--vb-glass-blur));
+  -webkit-backdrop-filter: blur(var(--vb-glass-blur));
+  background: var(--vb-surface);
+  border: 1px solid var(--vb-border);
+  box-shadow: var(--vb-shadow-inset);
+  transition: 
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out);
+}
+
+.glass-panel {
+  backdrop-filter: blur(var(--vb-glass-blur));
+  -webkit-backdrop-filter: blur(var(--vb-glass-blur));
+  background: var(--vb-surface);
+  border: 1px solid var(--vb-border);
+  border-radius: var(--vb-radius-lg);
+  box-shadow: var(--vb-shadow), var(--vb-shadow-inset);
+  transition: 
+    transform var(--vb-duration-normal) var(--vb-ease-spring),
+    box-shadow var(--vb-duration-normal) var(--vb-ease-out);
+  will-change: transform, box-shadow;
+}
+
+.glass-panel:hover {
+  box-shadow: var(--vb-shadow-lg), var(--vb-shadow-inset);
+  transform: translateY(-1px);
+}
+
+/* ========================================
+   Premium Input Styles
+   ======================================== */
+
+.vb-input,
+input[type="text"]:not([class*="custom"]),
+input[type="search"]:not([class*="custom"]),
+textarea:not([class*="custom"]),
+select:not([class*="custom"]) {
+  background: var(--vb-input-bg);
+  border: 1px solid var(--vb-input-border);
+  color: var(--vb-text);
+  border-radius: var(--vb-radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--vb-font-ui);
+  line-height: 1.4;
+  transition: 
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out),
+    background-color var(--vb-duration-fast) var(--vb-ease-out);
+  outline: none;
+  box-shadow: var(--vb-shadow-inset);
+}
+
+.vb-input:focus,
+input:focus:not([class*="custom"]),
+textarea:focus:not([class*="custom"]),
+select:focus:not([class*="custom"]) {
+  border-color: var(--vb-input-focus-border);
+  box-shadow: 
+    0 0 0 4px var(--vb-accent-light),
+    var(--vb-shadow-inset);
+}
+
+.vb-input:hover:not(:focus),
+input:hover:not(:focus):not([class*="custom"]),
+textarea:hover:not(:focus):not([class*="custom"]),
+select:hover:not(:focus):not([class*="custom"]) {
+  border-color: var(--vb-border-strong);
+  background: var(--vb-card-hover-bg);
+}
+
+/* Dark mode select dropdown rendering */
+:root[data-theme='graphite-dark'] select:not([class*="custom"]) {
+  color-scheme: dark;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgb(152,152,157)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+}
+
+:root:not([data-theme='graphite-dark']) select:not([class*="custom"]) {
+  color-scheme: light;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgb(134,134,139)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+}
+
+select option {
+  background: var(--vb-input-bg);
+  color: var(--vb-text);
+  padding: 8px 12px;
+}
+
+/* ========================================
+   Apple-Style Button System
+   ======================================== */
+
+.vb-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--vb-chip);
+  border: 1px solid var(--vb-border-strong);
+  color: var(--vb-text);
+  border-radius: var(--vb-radius-full);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--vb-font-ui);
+  line-height: 1.2;
+  cursor: pointer;
+  outline: none;
+  transition: 
+    transform var(--vb-duration-fast) var(--vb-ease-spring),
+    background-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
+  box-shadow: var(--vb-shadow-sm), var(--vb-shadow-inset);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.vb-button:hover {
+  background: var(--vb-surface-muted);
+  box-shadow: var(--vb-shadow), var(--vb-shadow-inset);
+  transform: translateY(-1px);
+}
+
+.vb-button:active {
+  transform: scale(var(--vb-pressed-scale));
+  box-shadow: var(--vb-shadow-sm);
+}
+
+.vb-button:focus-visible {
+  box-shadow: 
+    0 0 0 4px var(--vb-accent-light),
+    var(--vb-shadow-sm),
+    var(--vb-shadow-inset);
+}
+
+.vb-button-primary {
+  background: var(--vb-accent);
+  border-color: transparent;
+  color: white;
+  box-shadow: 
+    0 2px 8px var(--vb-accent-light),
+    var(--vb-shadow-inset);
+}
+
+.vb-button-primary:hover {
+  background: var(--vb-accent-hover);
+  box-shadow: 
+    0 4px 16px var(--vb-accent-glow),
+    var(--vb-shadow-inset);
+}
+
+/* ========================================
+   Card Styles
+   ======================================== */
+
+.vb-card {
+  background: var(--vb-card-bg);
+  border: 1px solid var(--vb-border);
+  border-radius: var(--vb-radius-md);
+  padding: 12px;
+  box-shadow: var(--vb-shadow-sm), var(--vb-shadow-inset);
+  transition: 
+    transform var(--vb-duration-normal) var(--vb-ease-spring),
+    box-shadow var(--vb-duration-normal) var(--vb-ease-out),
+    background-color var(--vb-duration-fast) var(--vb-ease-out);
+}
+
+.vb-card:hover {
+  background: var(--vb-card-hover-bg);
+  box-shadow: var(--vb-shadow), var(--vb-shadow-inset);
+  transform: translateY(-2px);
+}
+
+/* ========================================
+   Apple-Style Animations
+   ======================================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes springIn {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes breathe {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--vb-duration-normal) var(--vb-ease-out);
+}
+
+.animate-slide-up {
+  animation: slideUp var(--vb-duration-slow) var(--vb-ease-spring);
+}
+
+.animate-slide-down {
+  animation: slideDown var(--vb-duration-normal) var(--vb-ease-spring);
+}
+
+.animate-scale-in {
+  animation: scaleIn var(--vb-duration-normal) var(--vb-ease-spring);
+}
+
+.animate-spring-in {
+  animation: springIn var(--vb-duration-slow) var(--vb-ease-spring);
+}
+
+.animate-breathe {
+  animation: breathe 2s var(--vb-ease-smooth) infinite;
+}
+
+/* ========================================
+   Smooth Theme Transitions
+   ======================================== */
+
+* {
+  transition-property: background-color, border-color, color, fill, stroke, opacity;
+  transition-duration: var(--vb-duration-fast);
+  transition-timing-function: var(--vb-ease-out);
+}
+
+/* Performance: disable transitions during theme switch */
+.disable-transitions * {
+  transition: none !important;
+}
+
+/* ========================================
+   Scrollbar Styling - Apple-style
+   ======================================== */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vb-border-strong);
+  border-radius: var(--vb-radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vb-text-muted);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Auto-hide scrollbar when not hovering */
+.auto-hide-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.auto-hide-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: var(--vb-border-strong);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* ========================================
+   Performance Optimizations
+   ======================================== */
+
+/* GPU acceleration for interactive elements */
+button,
+input,
+select,
+textarea,
+.glass-panel,
+[class*="card"],
+[class*="pane"] {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ========================================
+   Selection Styling
+   ======================================== */
+
+::selection {
+  background: var(--vb-accent-light);
+  color: var(--vb-text);
+}
+
+::-moz-selection {
+  background: var(--vb-accent-light);
+  color: var(--vb-text);
+}
+
+/* ========================================
+   Focus Visible Styling
+   ======================================== */
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--vb-accent-light);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  box-shadow: 0 0 0 4px var(--vb-accent-light);
+}
+
+/* ========================================
+   Typography Utilities
+   ======================================== */
+
+pre,
+code,
+kbd,
+samp {
+  font-family: var(--vb-font-mono);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}

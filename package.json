@@ -1,0 +1,19 @@
+{
+  "name": "gtoffice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GT Office monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/desktop-web run dev",
+    "dev:tauri": "npm --workspace apps/desktop-tauri run dev",
+    "build:web": "npm --workspace apps/desktop-web run build",
+    "build:tauri": "npm --workspace apps/desktop-tauri run build",
+    "typecheck": "npm --workspace apps/desktop-web run build && npm --workspace packages/shared-types run typecheck",
+    "fmt:rust": "cargo fmt --all",
+    "check:rust": "cargo check --workspace"
+  }
+}

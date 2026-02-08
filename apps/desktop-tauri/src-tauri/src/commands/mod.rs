@@ -1,0 +1,11 @@
+pub mod ai_config;
+pub mod filesystem;
+pub mod git;
+pub mod keymap;
+pub mod security;
+pub mod settings;
+pub mod system;
+pub mod tasks;
+pub mod terminal;
+pub mod tools;
+pub mod workspace;

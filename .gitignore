@@ -1,0 +1,29 @@
+# Node
+node_modules/
+.npm/
+.pnpm-store/
+
+# Frontend build
+apps/desktop-web/dist/
+coverage/
+
+# Rust
+target/
+**/*.rs.bk
+
+# Tauri build artifacts
+apps/desktop-tauri/src-tauri/target/
+apps/desktop-tauri/src-tauri/gen/
+
+# OS/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+.gtoffice/
+_backups/
