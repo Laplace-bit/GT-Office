@@ -47,6 +47,69 @@ export interface GitDiffResponse {
   patch: string
 }
 
+/** Segment within a line for word-level diff highlighting */
+export interface DiffSegment {
+  /** Segment type: 'equal', 'insert', 'delete' */
+  kind: 'equal' | 'insert' | 'delete'
+  /** Text content of this segment */
+  value: string
+}
+
+/** Single line in a diff hunk with word-level diff support */
+export interface GitDiffLine {
+  /** Line type: 'add', 'del', 'ctx' (context) */
+  kind: 'add' | 'del' | 'ctx'
+  /** Content of the line (without +/- prefix) */
+  content: string
+  /** Old line number (null for additions) */
+  oldLine: number | null
+  /** New line number (null for deletions) */
+  newLine: number | null
+  /** Word-level diff segments for precise highlighting (optional) */
+  segments?: DiffSegment[]
+}
+
+/** Diff hunk (contiguous block of changes) */
+export interface GitDiffHunk {
+  /** Header line (e.g., "@@ -1,3 +1,4 @@") */
+  header: string
+  /** Starting line in old file */
+  oldStart: number
+  /** Number of lines in old file */
+  oldLines: number
+  /** Starting line in new file */
+  newStart: number
+  /** Number of lines in new file */
+  newLines: number
+  /** Lines in this hunk */
+  lines: GitDiffLine[]
+}
+
+/** High-performance structured diff response */
+export interface GitDiffStructuredResponse {
+  workspaceId: string
+  /** File path */
+  path: string
+  /** Whether the file is binary */
+  isBinary: boolean
+  /** Whether this is a new file */
+  isNew: boolean
+  /** Whether this is a deleted file */
+  isDeleted: boolean
+  /** Whether this is a renamed file */
+  isRenamed: boolean
+  /** Old file path (for renames) */
+  oldPath: string | null
+  /** Total additions count */
+  additions: number
+  /** Total deletions count */
+  deletions: number
+  /** Diff hunks */
+  hunks: GitDiffHunk[]
+  /** Raw patch (fallback) */
+  patch: string
+}
+
 export interface GitCountResponse {
   workspaceId: string
   staged?: number
@@ -432,6 +495,10 @@ export const desktopApi = {
   gitDiffFile(workspaceId: string, path: string) {
     return invokeCommand<GitDiffResponse>('git_diff_file', { workspaceId, path })
   },
+  /** High-performance structured diff with parsed hunks */
+  gitDiffFileStructured(workspaceId: string, path: string) {
+    return invokeCommand<GitDiffStructuredResponse>('git_diff_file_structured', { workspaceId, path })
+  },
   gitStage(workspaceId: string, paths: string[]) {
     return invokeCommand<GitCountResponse>('git_stage', { workspaceId, paths })
   },
@@ -649,6 +716,16 @@ export const desktopApi = {
       sessionId,
       input,
     })
+  },
+  terminalResize(sessionId: string, cols: number, rows: number) {
+    return invokeCommand<{ sessionId: string; cols: number; rows: number; resized: boolean }>(
+      'terminal_resize',
+      {
+        sessionId,
+        cols,
+        rows,
+      },
+    )
   },
   terminalKill(sessionId: string, signal?: string) {
     return invokeCommand<TerminalKillResponse>('terminal_kill', {

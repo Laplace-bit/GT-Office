@@ -200,6 +200,34 @@ pub fn git_diff_file(
     Ok(build_git_diff_payload(&workspace_id, &path, &patch))
 }
 
+/// High-performance structured diff command
+/// Returns parsed diff hunks for immediate frontend rendering
+#[tauri::command]
+pub fn git_diff_file_structured(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let diff = state
+        .git_service
+        .diff_file_structured(&workspace_id, &path)
+        .map_err(to_command_error)?;
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "path": diff.path,
+        "isBinary": diff.is_binary,
+        "isNew": diff.is_new,
+        "isDeleted": diff.is_deleted,
+        "isRenamed": diff.is_renamed,
+        "oldPath": diff.old_path,
+        "additions": diff.additions,
+        "deletions": diff.deletions,
+        "hunks": diff.hunks,
+        "patch": diff.patch,
+    }))
+}
+
 #[tauri::command]
 pub fn git_stage(
     workspace_id: String,

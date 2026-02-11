@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -54,16 +55,16 @@ interface TreeContextMenuState {
 
 const ROOT_DIR = '.'
 const ROW_HEIGHT = 26
-const OVERSCAN_ROWS = 120
+const OVERSCAN_ROWS = 80
 const CONTENT_MATCH_MAX_RENDER = 1200
-const PRE_RENDER_AHEAD_ROWS = 280
-const PRE_RENDER_BEHIND_ROWS = 60
-const INITIAL_PRELOAD_ROWS = 600
+const PRE_RENDER_AHEAD_ROWS = 200
+const PRE_RENDER_BEHIND_ROWS = 40
+const INITIAL_PRELOAD_ROWS = 400
 const SPEED_TIER_SAMPLE_MS = 32
 const SPEED_MEDIUM_PX_PER_SEC = 900
 const SPEED_FAST_PX_PER_SEC = 1800
-const SPEED_MEDIUM_EXTRA_ROWS = 600
-const SPEED_FAST_EXTRA_ROWS = 1200
+const SPEED_MEDIUM_EXTRA_ROWS = 400
+const SPEED_FAST_EXTRA_ROWS = 800
 const SEARCH_DEBOUNCE_MS = 48
 const INITIAL_EXPANDED: Record<string, boolean> = {
   [ROOT_DIR]: true,
@@ -157,6 +158,98 @@ function isPathUnder(path: string, ancestor: string): boolean {
     normalizedPath === normalizedAncestor || normalizedPath.startsWith(`${normalizedAncestor}/`)
   )
 }
+
+interface TreeRowItemProps {
+  row: TreeRow
+  virtualStart: number
+  virtualSize: number
+  isSelected: boolean
+  animateFromExpansion: boolean
+  animationDelayMs: number
+  loadingText: string
+  onToggleDirectory: (event: MouseEvent<HTMLButtonElement>) => void
+  onSelectFile: (event: MouseEvent<HTMLButtonElement>) => void
+  onContextMenu: (event: MouseEvent<HTMLDivElement>) => void
+}
+
+const TreeRowItem = memo(function TreeRowItem({
+  row,
+  virtualStart,
+  virtualSize,
+  isSelected,
+  animateFromExpansion,
+  animationDelayMs,
+  loadingText,
+  onToggleDirectory,
+  onSelectFile,
+  onContextMenu,
+}: TreeRowItemProps) {
+  return (
+    <div
+      className={`tree-row tree-row-${row.kind} ${
+        row.kind === 'file' && isSelected ? 'tree-row-selected' : ''
+      } ${animateFromExpansion ? 'tree-row-expand-enter' : ''}`}
+      data-path={row.path}
+      data-kind={row.kind}
+      style={{
+        transform: `translate3d(0, ${virtualStart}px, 0)`,
+        height: `${virtualSize}px`,
+        paddingLeft: `${8 + row.depth * 14}px`,
+        animationDelay: animateFromExpansion ? `${animationDelayMs}ms` : undefined,
+      }}
+      onContextMenu={onContextMenu}
+    >
+      {row.kind === 'dir' ? (
+        <button
+          type="button"
+          className="tree-toggle"
+          data-path={row.path}
+          onClick={onToggleDirectory}
+        >
+          <span className="tree-chevron">
+            <AppIcon
+              name={row.expanded ? 'chevron-down' : 'chevron-right'}
+              className="vb-icon vb-icon-tree-chevron"
+              aria-hidden="true"
+            />
+          </span>
+          <AppIcon name="folder-open" className="vb-icon vb-icon-tree-node" aria-hidden="true" />
+          <span>{row.name}</span>
+          {row.loading ? (
+            <span className="tree-loading">{loadingText}</span>
+          ) : null}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="tree-file-button"
+          data-path={row.path}
+          onClick={onSelectFile}
+          title={row.path}
+        >
+          <span className="tree-file">
+            <AppIcon name="file-text" className="vb-icon vb-icon-tree-node" aria-hidden="true" />
+            <span>{row.name}</span>
+          </span>
+        </button>
+      )}
+    </div>
+  )
+}, (prev, next) => {
+  return (
+    prev.row.path === next.row.path &&
+    prev.row.expanded === next.row.expanded &&
+    prev.row.loading === next.row.loading &&
+    prev.row.name === next.row.name &&
+    prev.row.kind === next.row.kind &&
+    prev.row.depth === next.row.depth &&
+    prev.isSelected === next.isSelected &&
+    prev.virtualStart === next.virtualStart &&
+    prev.virtualSize === next.virtualSize &&
+    prev.animateFromExpansion === next.animateFromExpansion &&
+    prev.animationDelayMs === next.animationDelayMs
+  )
+})
 
 export function FileTreePane({
   locale,
@@ -314,10 +407,18 @@ export function FileTreePane({
     return () => window.clearTimeout(timerId)
   }, [expandAnimationNonce, recentExpandedPath])
 
+  // Track the last processed nonce to avoid re-opening on re-renders
+  const lastProcessedNonceRef = useRef(0)
+
   useEffect(() => {
     if (!searchRequest || searchRequest.nonce <= 0) {
       return
     }
+    // Only open if this is a new request (nonce increased)
+    if (searchRequest.nonce <= lastProcessedNonceRef.current) {
+      return
+    }
+    lastProcessedNonceRef.current = searchRequest.nonce
     setSearchMode(searchRequest.mode)
     setIsSearchModalOpen(true)
   }, [searchRequest])
@@ -921,6 +1022,8 @@ export function FileTreePane({
     })
   }, [])
 
+  const loadingText = useMemo(() => t(locale, 'fileTree.loading'), [locale])
+
   return (
     <aside className="panel left-pane file-tree-pane">
       <div className="file-tree-header">
@@ -1020,56 +1123,19 @@ export function FileTreePane({
                 : 0
 
               return (
-                <div
+                <TreeRowItem
                   key={row.path}
-                  className={`tree-row tree-row-${row.kind} ${
-                    row.kind === 'file' && selectedFilePath === row.path ? 'tree-row-selected' : ''
-                  } ${animateFromExpansion ? 'tree-row-expand-enter' : ''}`}
-                  data-path={row.path}
-                  data-kind={row.kind}
-                  style={{
-                    transform: `translate3d(0, ${virtualRow.start}px, 0)`,
-                    height: `${virtualRow.size}px`,
-                    paddingLeft: `${8 + row.depth * 14}px`,
-                    animationDelay: animateFromExpansion ? `${animationDelayMs}ms` : undefined,
-                  }}
+                  row={row}
+                  virtualStart={virtualRow.start}
+                  virtualSize={virtualRow.size}
+                  isSelected={row.kind === 'file' && selectedFilePath === row.path}
+                  animateFromExpansion={animateFromExpansion}
+                  animationDelayMs={animationDelayMs}
+                  loadingText={loadingText}
+                  onToggleDirectory={handleDirectoryToggleClick}
+                  onSelectFile={handleFileButtonClick}
                   onContextMenu={handleRowContextMenu}
-                >
-                  {row.kind === 'dir' ? (
-                    <button
-                      type="button"
-                      className="tree-toggle"
-                      data-path={row.path}
-                      onClick={handleDirectoryToggleClick}
-                    >
-                      <span className="tree-chevron">
-                        <AppIcon
-                          name={row.expanded ? 'chevron-down' : 'chevron-right'}
-                          className="vb-icon vb-icon-tree-chevron"
-                          aria-hidden="true"
-                        />
-                      </span>
-                      <AppIcon name="folder-open" className="vb-icon vb-icon-tree-node" aria-hidden="true" />
-                      <span>{row.name}</span>
-                      {row.loading ? (
-                        <span className="tree-loading">{t(locale, 'fileTree.loading')}</span>
-                      ) : null}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="tree-file-button"
-                      data-path={row.path}
-                      onClick={handleFileButtonClick}
-                      title={row.path}
-                    >
-                      <span className="tree-file">
-                        <AppIcon name="file-text" className="vb-icon vb-icon-tree-node" aria-hidden="true" />
-                        <span>{row.name}</span>
-                      </span>
-                    </button>
-                  )}
-                </div>
+                />
               )
             })}
           </div>

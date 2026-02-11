@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ActivityRail } from './ActivityRail'
 import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
-import { FileContentPane } from './FileContentPane'
+import { FileEditorPane, type OpenedFile } from './FileEditorPane'
 import { FileTreePane } from './FileTreePane'
-import { GitHistoryPane, GitOperationsPane, useGitWorkspaceController } from './GitPane'
+import { GitHistoryPane, GitOperationsPane } from './GitPane'
+import { useGitWorkspaceController } from './useGitWorkspaceController'
 import { LeftBusinessPane } from './LeftBusinessPane'
 import { SettingsModal } from './SettingsModal'
 import { StationManageModal } from './StationManageModal'
@@ -72,7 +73,7 @@ import {
 import { pickDirectory } from '../integration/directory-picker'
 import './shell-layout.css'
 
-type FileReadMode = 'preview' | 'full'
+type FileReadMode = 'full'
 type StationTerminalRuntime = {
   sessionId: string | null
   stateRaw: string
@@ -517,12 +518,11 @@ export function ShellRoot() {
   const shellResizerRef = useRef<HTMLDivElement | null>(null)
   const shellMainPaneRef = useRef<HTMLDivElement | null>(null)
   const localeRef = useRef(uiPreferences.locale)
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
-  const [selectedFileContent, setSelectedFileContent] = useState('')
+  const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([])
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [filePreviewNotice, setFilePreviewNotice] = useState<string | null>(null)
-  const [fileCanLoadFullContent, setFileCanLoadFullContent] = useState(false)
   const [fileCanRenderText, setFileCanRenderText] = useState(false)
-  const [fileReadMode, setFileReadMode] = useState<FileReadMode>('preview')
+  const [fileReadMode, setFileReadMode] = useState<FileReadMode>('full')
   const [fileReadLoading, setFileReadLoading] = useState(false)
   const [fileReadError, setFileReadError] = useState<string | null>(null)
   const [fileSearchRequest, setFileSearchRequest] = useState<{
@@ -898,6 +898,16 @@ export function ShellRoot() {
     [refreshGit],
   )
 
+  // Use refs to avoid circular dependency in useEffect chains
+  const activeWorkspaceNameRef = useRef(activeWorkspaceName)
+  const activeWorkspaceRootRef = useRef(activeWorkspaceRoot)
+  useEffect(() => {
+    activeWorkspaceNameRef.current = activeWorkspaceName
+  }, [activeWorkspaceName])
+  useEffect(() => {
+    activeWorkspaceRootRef.current = activeWorkspaceRoot
+  }, [activeWorkspaceRoot])
+
   const openWorkspaceAtPath = useCallback(
     async (path: string, reason: 'manual' | 'restore' | 'picker' | 'debounce' = 'manual') => {
       const normalized = normalizeFsPath(path)
@@ -915,12 +925,13 @@ export function ShellRoot() {
         return
       }
 
-      const activeRootNormalized = activeWorkspaceRoot ? normalizeFsPath(activeWorkspaceRoot) : null
+      const currentRoot = activeWorkspaceRootRef.current
+      const activeRootNormalized = currentRoot ? normalizeFsPath(currentRoot) : null
       if (activeRootNormalized && normalized === activeRootNormalized) {
         rememberWorkspacePath({
           path: normalized,
-          workspaceId: activeWorkspaceId,
-          name: activeWorkspaceName,
+          workspaceId: activeWorkspaceIdRef.current,
+          name: activeWorkspaceNameRef.current,
         })
         lastAutoOpenedPathRef.current = normalized
         return
@@ -952,13 +963,20 @@ export function ShellRoot() {
         workspaceOpenInFlightRef.current = false
       }
     },
-    [activeWorkspaceId, activeWorkspaceName, activeWorkspaceRoot, refreshGit],
+    [refreshGit],
   )
 
+  // Bootstrap effect - runs only once on mount
+  const bootstrapRanRef = useRef(false)
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
       return
     }
+    // Prevent double execution in React StrictMode
+    if (bootstrapRanRef.current) {
+      return
+    }
+    bootstrapRanRef.current = true
 
     const bootstrapWorkspace = async () => {
       setConnectionState({ code: 'tauri-connected' })
@@ -989,10 +1007,9 @@ export function ShellRoot() {
       }
 
       const remembered = loadRememberedWorkspacePath()
-      const target = remembered ?? workspacePathInput
-      if (target) {
-        setWorkspacePathInput(target)
-        await openWorkspaceAtPath(target, remembered ? 'restore' : 'manual')
+      if (remembered) {
+        setWorkspacePathInput(remembered)
+        await openWorkspaceAtPath(remembered, 'restore')
         return
       }
       setConnectionState({ code: 'input-required' })
@@ -1005,21 +1022,30 @@ export function ShellRoot() {
           detail: describeError(error),
         })
       })
-  }, [openWorkspaceAtPath, refreshGit, workspacePathInput])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
+  // Store openWorkspaceAtPath in a ref to avoid dependency issues
+  const openWorkspaceAtPathRef = useRef(openWorkspaceAtPath)
+  useEffect(() => {
+    openWorkspaceAtPathRef.current = openWorkspaceAtPath
+  }, [openWorkspaceAtPath])
+
+  // Auto-open workspace when path input changes (debounced)
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
       return
     }
     const normalized = normalizeFsPath(workspacePathInput)
-    const activeRootNormalized = activeWorkspaceRoot ? normalizeFsPath(activeWorkspaceRoot) : null
+    const currentRoot = activeWorkspaceRootRef.current
+    const activeRootNormalized = currentRoot ? normalizeFsPath(currentRoot) : null
     if (!normalized || normalized === activeRootNormalized || normalized === lastAutoOpenedPathRef.current) {
       return
     }
     const timerId = window.setTimeout(() => {
       workspaceAutoOpenTimerRef.current = null
       lastAutoOpenedPathRef.current = normalized
-      void openWorkspaceAtPath(normalized, 'debounce')
+      void openWorkspaceAtPathRef.current(normalized, 'debounce')
     }, WORKSPACE_AUTO_OPEN_DEBOUNCE_MS)
     workspaceAutoOpenTimerRef.current = timerId
     return () => {
@@ -1029,7 +1055,7 @@ export function ShellRoot() {
       }
       workspaceAutoOpenTimerRef.current = null
     }
-  }, [activeWorkspaceRoot, openWorkspaceAtPath, workspacePathInput])
+  }, [workspacePathInput])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -1175,12 +1201,11 @@ export function ShellRoot() {
     Object.entries(stationTerminalSinkRef.current).forEach(([stationId, sink]) => {
       sink.reset(stationTerminalOutputCacheRef.current[stationId])
     })
-    setSelectedFilePath(null)
-    setSelectedFileContent('')
+    setOpenedFiles([])
+    setActiveFilePath(null)
     setFilePreviewNotice(null)
-    setFileCanLoadFullContent(false)
     setFileCanRenderText(false)
-    setFileReadMode('preview')
+    setFileReadMode('full')
     setFileReadLoading(false)
     setFileReadError(null)
     setTaskAttachments([])
@@ -1756,6 +1781,23 @@ export function ShellRoot() {
       }
     },
     [appendStationTerminalOutput, ensureStationTerminalSession, locale],
+  )
+
+  const resizeStationTerminal = useMemo(
+    () => (stationId: string, cols: number, rows: number) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      if (!sessionId) {
+        return
+      }
+      // Fire and forget - resize is best effort
+      void desktopApi.terminalResize(sessionId, cols, rows).catch(() => {
+        // Resize failures are non-critical
+      })
+    },
+    [],
   )
 
   const launchStationCliAgent = useMemo(
@@ -2334,13 +2376,23 @@ export function ShellRoot() {
 
 
   const loadFileContent = useMemo(
-    () => async (filePath: string, mode: FileReadMode = 'preview') => {
+    () => async (filePath: string, mode: FileReadMode = 'full') => {
       if (!activeWorkspaceId) {
       setFileReadError(t(locale, 'fileContent.bindWorkspace'))
       return
     }
 
-    setSelectedFilePath(filePath)
+    // 检查文件是否已打开
+    const existingFile = openedFiles.find((f) => f.path === filePath)
+    if (existingFile) {
+      setActiveFilePath(filePath)
+      setFileCanRenderText(true)
+      setFilePreviewNotice(null)
+      setFileReadError(null)
+      return
+    }
+
+    setActiveFilePath(filePath)
     setFileReadLoading(true)
     setFileReadError(null)
       setFilePreviewNotice(null)
@@ -2357,10 +2409,8 @@ export function ShellRoot() {
         }
 
         setFileReadMode(mode)
-        setFileCanLoadFullContent(response.previewable && response.truncated)
         if (!response.previewable) {
           setFileCanRenderText(false)
-          setSelectedFileContent('')
           setFilePreviewNotice(
             t(locale, 'file.previewBinary', {
               size: response.sizeBytes,
@@ -2370,7 +2420,18 @@ export function ShellRoot() {
         }
 
         setFileCanRenderText(true)
-        setSelectedFileContent(response.content)
+        // 添加到已打开文件列表
+        setOpenedFiles((prev) => {
+          const exists = prev.some((f) => f.path === filePath)
+          if (exists) {
+            return prev.map((f) =>
+              f.path === filePath
+                ? { ...f, content: response.content, size: response.sizeBytes }
+                : f
+            )
+          }
+          return [...prev, { path: filePath, content: response.content, size: response.sizeBytes, isModified: false }]
+        })
         if (response.truncated) {
           setFilePreviewNotice(
             t(locale, mode === 'full' ? 'file.previewStillTruncated' : 'file.previewTruncated', {
@@ -2383,10 +2444,8 @@ export function ShellRoot() {
         if (fileReadSeqRef.current !== currentSeq) {
           return
         }
-        setSelectedFileContent('')
         setFilePreviewNotice(null)
-        setFileCanLoadFullContent(false)
-        setFileCanRenderText(false)
+            setFileCanRenderText(false)
         setFileReadError(
           t(locale, 'file.readError', {
             detail: describeError(error),
@@ -2396,6 +2455,33 @@ export function ShellRoot() {
         if (fileReadSeqRef.current === currentSeq) {
           setFileReadLoading(false)
         }
+      }
+    },
+    [activeWorkspaceId, locale, openedFiles],
+  )
+
+  const saveFileContent = useCallback(
+    async (filePath: string, content: string): Promise<boolean> => {
+      if (!activeWorkspaceId) {
+        return false
+      }
+
+      try {
+        await desktopApi.fsWriteFile(activeWorkspaceId, filePath, content)
+        // 更新已打开文件的内容
+        setOpenedFiles((prev) =>
+          prev.map((f) =>
+            f.path === filePath ? { ...f, content, isModified: false } : f
+          )
+        )
+        return true
+      } catch (error) {
+        setFileReadError(
+          t(locale, 'fileContent.saveFailed', {
+            detail: describeError(error),
+          }),
+        )
+        return false
       }
     },
     [activeWorkspaceId, locale],
@@ -2410,7 +2496,7 @@ export function ShellRoot() {
 
       try {
         await desktopApi.fsWriteFile(activeWorkspaceId, filePath, '')
-        await loadFileContent(filePath, 'preview')
+        await loadFileContent(filePath, 'full')
         return true
       } catch (error) {
         setFileReadError(
@@ -2424,6 +2510,35 @@ export function ShellRoot() {
     [activeWorkspaceId, loadFileContent, locale],
   )
 
+  // 关闭文件 tab
+  const closeFile = useCallback(
+    (filePath: string) => {
+      setOpenedFiles((prev) => {
+        const newFiles = prev.filter((f) => f.path !== filePath)
+        // 如果关闭的是当前活动文件，切换到其他文件
+        if (activeFilePath === filePath) {
+          const closedIndex = prev.findIndex((f) => f.path === filePath)
+          const nextFile = newFiles[Math.min(closedIndex, newFiles.length - 1)]
+          setActiveFilePath(nextFile?.path ?? null)
+        }
+        return newFiles
+      })
+    },
+    [activeFilePath],
+  )
+
+  // 选择文件 tab
+  const selectFile = useCallback((filePath: string) => {
+    setActiveFilePath(filePath)
+  }, [])
+
+  // 文件修改状态变化
+  const handleFileModified = useCallback((filePath: string, isModified: boolean) => {
+    setOpenedFiles((prev) =>
+      prev.map((f) => (f.path === filePath ? { ...f, isModified } : f))
+    )
+  }, [])
+
   const deletePathInWorkspace = useMemo(
     () => async (path: string) => {
       if (!activeWorkspaceId) {
@@ -2433,16 +2548,20 @@ export function ShellRoot() {
 
       try {
         await desktopApi.fsDelete(activeWorkspaceId, path)
-        if (selectedFilePath && (selectedFilePath === path || selectedFilePath.startsWith(`${path}/`))) {
-          setSelectedFilePath(null)
-          setSelectedFileContent('')
-          setFilePreviewNotice(null)
-          setFileCanLoadFullContent(false)
-          setFileCanRenderText(false)
-          setFileReadMode('preview')
-          setFileReadError(null)
-          setFileReadLoading(false)
-        }
+        // 关闭被删除的文件
+        setOpenedFiles((prev) => {
+          const newFiles = prev.filter((f) => f.path !== path && !f.path.startsWith(`${path}/`))
+          if (activeFilePath && (activeFilePath === path || activeFilePath.startsWith(`${path}/`))) {
+            const nextFile = newFiles[0]
+            setActiveFilePath(nextFile?.path ?? null)
+          }
+          return newFiles
+        })
+        setFilePreviewNotice(null)
+        setFileCanRenderText(openedFiles.length > 1)
+        setFileReadMode('full')
+        setFileReadError(null)
+        setFileReadLoading(false)
         return true
       } catch (error) {
         setFileReadError(
@@ -2453,7 +2572,7 @@ export function ShellRoot() {
         return false
       }
     },
-    [activeWorkspaceId, locale, selectedFilePath],
+    [activeFilePath, activeWorkspaceId, locale, openedFiles.length],
   )
 
   const movePathInWorkspace = useMemo(
@@ -2468,9 +2587,16 @@ export function ShellRoot() {
         if (!response.moved) {
           return true
         }
-        const remapped = remapSelectedPathAfterMove(selectedFilePath, fromPath, toPath)
-        if (remapped && remapped !== selectedFilePath) {
-          await loadFileContent(remapped, 'preview')
+        // 更新已打开文件的路径
+        const remapped = remapSelectedPathAfterMove(activeFilePath, fromPath, toPath)
+        if (remapped && remapped !== activeFilePath) {
+          setOpenedFiles((prev) =>
+            prev.map((f) => {
+              const newPath = remapSelectedPathAfterMove(f.path, fromPath, toPath)
+              return newPath && newPath !== f.path ? { ...f, path: newPath } : f
+            })
+          )
+          setActiveFilePath(remapped)
         }
         return true
       } catch (error) {
@@ -2482,11 +2608,11 @@ export function ShellRoot() {
         return false
       }
     },
-    [activeWorkspaceId, loadFileContent, locale, selectedFilePath],
+    [activeFilePath, activeWorkspaceId, locale],
   )
 
   useEffect(() => {
-    if (!activeWorkspaceId || !selectedFilePath || !desktopApi.isTauriRuntime()) {
+    if (!activeWorkspaceId || openedFiles.length === 0 || !desktopApi.isTauriRuntime()) {
       return
     }
 
@@ -2497,15 +2623,18 @@ export function ShellRoot() {
         return
       }
       const changedPaths = payload.paths.map((path) => path.replace(/^\.\/+/, ''))
-      if (payload.kind === 'removed' && changedPaths.includes(selectedFilePath)) {
-        setSelectedFilePath(null)
-        setSelectedFileContent('')
-        setFilePreviewNotice(null)
-        setFileCanLoadFullContent(false)
-        setFileCanRenderText(false)
-        setFileReadMode('preview')
-        setFileReadError(null)
-        setFileReadLoading(false)
+
+      if (payload.kind === 'removed') {
+        // 关闭被删除的文件
+        const removedPaths = new Set(changedPaths)
+        setOpenedFiles((prev) => {
+          const newFiles = prev.filter((f) => !removedPaths.has(f.path))
+          if (activeFilePath && removedPaths.has(activeFilePath)) {
+            const nextFile = newFiles[0]
+            setActiveFilePath(nextFile?.path ?? null)
+          }
+          return newFiles
+        })
         return
       }
       if (
@@ -2514,8 +2643,11 @@ export function ShellRoot() {
         payload.kind === 'renamed' ||
         payload.kind === 'other'
       ) {
-        if (changedPaths.includes(selectedFilePath)) {
-          void loadFileContent(selectedFilePath, fileReadMode)
+        // 重新加载已修改的已打开文件
+        for (const file of openedFiles) {
+          if (changedPaths.includes(file.path) && !file.isModified) {
+            void loadFileContent(file.path, fileReadMode)
+          }
         }
       }
     }
@@ -2534,7 +2666,7 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [activeWorkspaceId, fileReadMode, loadFileContent, selectedFilePath])
+  }, [activeFilePath, activeWorkspaceId, fileReadMode, loadFileContent, openedFiles])
 
   const handleSelectNav = useCallback(
     (id: NavItemId) => {
@@ -2728,10 +2860,10 @@ export function ShellRoot() {
               <FileTreePane
                 locale={locale}
                 workspaceId={activeWorkspaceId}
-                selectedFilePath={selectedFilePath}
+                selectedFilePath={activeFilePath}
                 searchRequest={fileSearchRequest}
                 onSelectFile={(filePath) => {
-                  void loadFileContent(filePath, 'preview')
+                  void loadFileContent(filePath, 'full')
                 }}
                 onCreateFile={createFileInWorkspace}
                 onDeletePath={deletePathInWorkspace}
@@ -2741,7 +2873,7 @@ export function ShellRoot() {
               <TaskCenterPane
                 locale={locale}
                 stations={stations}
-                selectedFilePath={selectedFilePath}
+                selectedFilePath={activeFilePath}
                 draft={taskDraft}
                 attachments={taskAttachments}
                 dispatchHistory={taskDispatchHistory}
@@ -2809,29 +2941,19 @@ export function ShellRoot() {
 
         <div ref={shellMainPaneRef} className="shell-pane-shell shell-main-pane">
           {activeNavId === 'files' ? (
-            <FileContentPane
+            <FileEditorPane
               locale={locale}
               workspaceId={activeWorkspaceId}
-              selectedFilePath={selectedFilePath}
-              fileContent={selectedFileContent}
+              openedFiles={openedFiles}
+              activeFilePath={activeFilePath}
               loading={fileReadLoading}
               errorMessage={fileReadError}
               noticeMessage={filePreviewNotice}
-              canLoadFullContent={fileCanLoadFullContent}
               canRenderContent={fileCanRenderText}
-              readMode={fileReadMode}
-              onLoadFullContent={() => {
-                if (!selectedFilePath) {
-                  return
-                }
-                void loadFileContent(selectedFilePath, 'full')
-              }}
-              onSwitchToPreview={() => {
-                if (!selectedFilePath) {
-                  return
-                }
-                void loadFileContent(selectedFilePath, 'preview')
-              }}
+              onSelectFile={selectFile}
+              onCloseFile={closeFile}
+              onSaveFile={saveFileContent}
+              onFileModified={handleFileModified}
             />
           ) : activeNavId === 'git' ? (
             <GitHistoryPane controller={gitController} />
@@ -2848,6 +2970,7 @@ export function ShellRoot() {
               onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
               onLaunchCliAgent={handleCanvasLaunchCliAgent}
               onSendInputData={sendStationTerminalInput}
+              onResizeTerminal={resizeStationTerminal}
               onBindTerminalSink={bindStationTerminalSink}
               onOpenStationManage={handleCanvasOpenStationManage}
               onOpenStationSearch={handleCanvasOpenStationSearch}

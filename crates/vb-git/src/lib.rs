@@ -1,5 +1,6 @@
 use git2::{BranchType, Repository, Status, StatusOptions};
 use serde::{Deserialize, Serialize};
+use similar::{ChangeTag, TextDiff};
 use std::{
     path::{Component, Path, PathBuf},
     process::Command,
@@ -11,6 +12,9 @@ use vb_abstractions::{WorkspaceId, WorkspaceService};
 const MAX_STATUS_FILES: usize = 2000;
 const LOG_FIELD_SEP: char = '\u{001f}';
 const LOG_RECORD_SEP: char = '\u{001e}';
+
+/// Maximum line length for word-level diff computation (performance optimization)
+const MAX_WORD_DIFF_LINE_LENGTH: usize = 500;
 
 pub fn module_name() -> &'static str {
     "vb-git"
@@ -72,6 +76,77 @@ pub struct GitPushResult {
     pub branch: Option<String>,
     pub set_upstream: bool,
     pub force_with_lease: bool,
+}
+
+/// Represents a segment within a line for word-level diff highlighting
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffSegment {
+    /// Segment type: 'equal', 'insert', 'delete'
+    pub kind: String,
+    /// Text content of this segment
+    pub value: String,
+}
+
+/// Represents a single line in a diff hunk with word-level diff support
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffLine {
+    /// Line type: 'add', 'del', 'ctx' (context)
+    pub kind: String,
+    /// Content of the line (without +/- prefix)
+    pub content: String,
+    /// Old line number (None for additions)
+    pub old_line: Option<u32>,
+    /// New line number (None for deletions)
+    pub new_line: Option<u32>,
+    /// Word-level diff segments for precise highlighting (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<DiffSegment>>,
+}
+
+/// Represents a diff hunk (a contiguous block of changes)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffHunk {
+    /// Header line (e.g., "@@ -1,3 +1,4 @@")
+    pub header: String,
+    /// Starting line in old file
+    pub old_start: u32,
+    /// Number of lines in old file
+    pub old_lines: u32,
+    /// Starting line in new file
+    pub new_start: u32,
+    /// Number of lines in new file
+    pub new_lines: u32,
+    /// Lines in this hunk
+    pub lines: Vec<GitDiffLine>,
+}
+
+/// Structured diff result for high-performance rendering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffStructured {
+    /// File path
+    pub path: String,
+    /// Whether the file is binary
+    pub is_binary: bool,
+    /// Whether this is a new file
+    pub is_new: bool,
+    /// Whether this is a deleted file
+    pub is_deleted: bool,
+    /// Whether this is a renamed file
+    pub is_renamed: bool,
+    /// Old file path (for renames)
+    pub old_path: Option<String>,
+    /// Total additions count
+    pub additions: u32,
+    /// Total deletions count
+    pub deletions: u32,
+    /// Diff hunks
+    pub hunks: Vec<GitDiffHunk>,
+    /// Raw patch (fallback)
+    pub patch: String,
 }
 
 #[derive(Clone)]
@@ -293,6 +368,9 @@ where
         let output = Command::new("git")
             .arg("-C")
             .arg(root)
+            // Ensure UTF-8 output encoding
+            .env("LC_ALL", "C.UTF-8")
+            .env("LANG", "C.UTF-8")
             .args(args)
             .output()
             .map_err(|err| AbstractionError::Internal {
@@ -306,7 +384,14 @@ where
             });
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        // Try to decode as UTF-8, fallback to lossy conversion
+        match String::from_utf8(output.stdout.clone()) {
+            Ok(s) => Ok(s),
+            Err(_) => {
+                // Fallback: try to decode with lossy conversion
+                Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            }
+        }
     }
 
     fn status_with_system_git(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
@@ -440,6 +525,428 @@ where
             &["diff", "--no-ext-diff", "--", path],
             "GIT_DIFF_FAILED",
         )
+    }
+
+    /// High-performance structured diff using git2 library
+    /// Returns parsed diff hunks for immediate rendering without frontend parsing
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, path = path))]
+    pub fn diff_file_structured(
+        &self,
+        workspace_id: &WorkspaceId,
+        path: &str,
+    ) -> AbstractionResult<GitDiffStructured> {
+        Self::validate_relative_repo_path(path)?;
+        let root = self.workspace_root(workspace_id)?;
+
+        // Try git2 first for performance, fallback to git command
+        match self.diff_file_with_git2(&root, path) {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                // Fallback to git command and parse the output
+                let patch = self.run_git(
+                    &root,
+                    &["diff", "--no-ext-diff", "--", path],
+                    "GIT_DIFF_FAILED",
+                )?;
+                Ok(self.parse_diff_patch(&patch, path))
+            }
+        }
+    }
+
+    /// Use git2 library for high-performance diff
+    fn diff_file_with_git2(&self, root: &Path, path: &str) -> AbstractionResult<GitDiffStructured> {
+        let repo = Repository::discover(root).map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_DIFF_GIT2_FAILED: repository discovery failed: {err}"),
+        })?;
+
+        let workdir = repo.workdir().ok_or_else(|| AbstractionError::Internal {
+            message: "GIT_DIFF_GIT2_FAILED: no working directory".to_string(),
+        })?;
+
+        let target_path = Path::new(path);
+        let _full_path = workdir.join(target_path);
+
+        // Get the current HEAD tree
+        let head_tree = repo.head().ok().and_then(|head| head.peel_to_tree().ok());
+
+        // Get diff options
+        let mut diff_opts = git2::DiffOptions::new();
+        diff_opts.pathspec(path);
+        diff_opts.include_untracked(true);
+        diff_opts.recurse_untracked_dirs(true);
+        diff_opts.context_lines(3);
+
+        // Get the diff
+        let diff = if let Some(ref tree) = head_tree {
+            repo.diff_tree_to_workdir_with_index(Some(tree), Some(&mut diff_opts))
+        } else {
+            repo.diff_tree_to_workdir_with_index(None, Some(&mut diff_opts))
+        }
+        .map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_DIFF_GIT2_FAILED: diff creation failed: {err}"),
+        })?;
+
+        let mut result = GitDiffStructured {
+            path: path.to_string(),
+            is_binary: false,
+            is_new: false,
+            is_deleted: false,
+            is_renamed: false,
+            old_path: None,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            patch: String::new(),
+        };
+
+        let mut current_hunk: Option<GitDiffHunk> = None;
+
+        // Process the diff
+        let mut additions = 0u32;
+        let mut deletions = 0u32;
+        let mut patch_content = String::new();
+
+        diff.print(git2::DiffFormat::Patch, |delta, hunk, line| {
+            // Capture delta info
+            if let Some(new_file) = delta.new_file().path() {
+                if new_file == target_path {
+                    result.is_new = delta.status() == git2::Delta::Added;
+                    result.is_deleted = delta.status() == git2::Delta::Deleted;
+                    result.is_renamed = delta.status() == git2::Delta::Renamed;
+                    if result.is_renamed {
+                        result.old_path = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
+                    }
+                    result.is_binary = delta.flags().is_binary();
+                }
+            }
+
+            // Capture raw patch
+            if let Ok(content) = std::str::from_utf8(line.content()) {
+                let prefix = match line.origin() {
+                    '+' => "+",
+                    '-' => "-",
+                    ' ' => " ",
+                    '>' | '<' | '=' => "",
+                    'H' | 'F' => "",
+                    _ => "",
+                };
+                if !prefix.is_empty() || line.origin() == 'H' || line.origin() == 'F' {
+                    patch_content.push_str(prefix);
+                    patch_content.push_str(content);
+                }
+            }
+
+            // Process hunks
+            if let Some(hunk_info) = hunk {
+                let header = format!(
+                    "@@ -{},{} +{},{} @@",
+                    hunk_info.old_start(),
+                    hunk_info.old_lines(),
+                    hunk_info.new_start(),
+                    hunk_info.new_lines()
+                );
+
+                // Check if we need to start a new hunk
+                let is_new_hunk = current_hunk.as_ref().map_or(true, |h| h.header != header);
+
+                if is_new_hunk {
+                    // Save previous hunk
+                    if let Some(prev_hunk) = current_hunk.take() {
+                        result.hunks.push(prev_hunk);
+                    }
+
+                    current_hunk = Some(GitDiffHunk {
+                        header: header.clone(),
+                        old_start: hunk_info.old_start(),
+                        old_lines: hunk_info.old_lines(),
+                        new_start: hunk_info.new_start(),
+                        new_lines: hunk_info.new_lines(),
+                        lines: Vec::new(),
+                    });
+                }
+
+                // Add line to current hunk
+                if let Some(ref mut h) = current_hunk {
+                    if let Ok(content) = std::str::from_utf8(line.content()) {
+                        let kind = match line.origin() {
+                            '+' => {
+                                additions += 1;
+                                "add"
+                            }
+                            '-' => {
+                                deletions += 1;
+                                "del"
+                            }
+                            ' ' => "ctx",
+                            _ => return true,
+                        };
+
+                        h.lines.push(GitDiffLine {
+                            kind: kind.to_string(),
+                            content: content.trim_end_matches('\n').to_string(),
+                            old_line: line.old_lineno(),
+                            new_line: line.new_lineno(),
+                            segments: None,
+                        });
+                    }
+                }
+            }
+
+            true
+        })
+        .map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_DIFF_GIT2_FAILED: diff print failed: {err}"),
+        })?;
+
+        // Save last hunk
+        if let Some(hunk) = current_hunk {
+            result.hunks.push(hunk);
+        }
+
+        result.additions = additions;
+        result.deletions = deletions;
+
+        // Enhance with word-level diff
+        Self::enhance_hunks_with_word_diff(&mut result.hunks);
+
+        // If no structured diff available, get raw patch
+        if result.hunks.is_empty() && !result.is_binary {
+            result.patch = self.run_git(
+                root,
+                &["diff", "--no-ext-diff", "--", path],
+                "GIT_DIFF_FAILED",
+            ).unwrap_or_default();
+        } else {
+            result.patch = patch_content;
+        }
+
+        Ok(result)
+    }
+
+    /// Parse raw git diff patch into structured format
+    fn parse_diff_patch(&self, patch: &str, path: &str) -> GitDiffStructured {
+        let mut result = GitDiffStructured {
+            path: path.to_string(),
+            is_binary: patch.contains("Binary files") || patch.contains("GIT binary patch"),
+            is_new: patch.contains("new file mode"),
+            is_deleted: patch.contains("deleted file mode"),
+            is_renamed: patch.contains("rename from"),
+            old_path: None,
+            additions: 0,
+            deletions: 0,
+            hunks: Vec::new(),
+            patch: patch.to_string(),
+        };
+
+        // Parse rename source
+        if result.is_renamed {
+            for line in patch.lines() {
+                if let Some(old) = line.strip_prefix("rename from ") {
+                    result.old_path = Some(old.trim().to_string());
+                    break;
+                }
+            }
+        }
+
+        // Parse hunks
+        let mut current_hunk: Option<GitDiffHunk> = None;
+        let mut old_line: u32 = 0;
+        let mut new_line: u32 = 0;
+
+        for line in patch.lines() {
+            if line.starts_with("@@") {
+                // Save previous hunk
+                if let Some(hunk) = current_hunk.take() {
+                    result.hunks.push(hunk);
+                }
+
+                // Parse hunk header: @@ -start,count +start,count @@
+                if let Some((old_info, new_info)) = Self::parse_hunk_header(line) {
+                    old_line = old_info.0;
+                    new_line = new_info.0;
+                    current_hunk = Some(GitDiffHunk {
+                        header: line.to_string(),
+                        old_start: old_info.0,
+                        old_lines: old_info.1,
+                        new_start: new_info.0,
+                        new_lines: new_info.1,
+                        lines: Vec::new(),
+                    });
+                }
+            } else if let Some(ref mut hunk) = current_hunk {
+                if let Some(content) = line.strip_prefix('+') {
+                    result.additions += 1;
+                    hunk.lines.push(GitDiffLine {
+                        kind: "add".to_string(),
+                        content: content.to_string(),
+                        old_line: None,
+                        new_line: Some(new_line),
+                        segments: None,
+                    });
+                    new_line += 1;
+                } else if let Some(content) = line.strip_prefix('-') {
+                    result.deletions += 1;
+                    hunk.lines.push(GitDiffLine {
+                        kind: "del".to_string(),
+                        content: content.to_string(),
+                        old_line: Some(old_line),
+                        new_line: None,
+                        segments: None,
+                    });
+                    old_line += 1;
+                } else if let Some(content) = line.strip_prefix(' ') {
+                    hunk.lines.push(GitDiffLine {
+                        kind: "ctx".to_string(),
+                        content: content.to_string(),
+                        old_line: Some(old_line),
+                        new_line: Some(new_line),
+                        segments: None,
+                    });
+                    old_line += 1;
+                    new_line += 1;
+                }
+            }
+        }
+
+        // Save last hunk
+        if let Some(hunk) = current_hunk {
+            result.hunks.push(hunk);
+        }
+
+        // Enhance with word-level diff
+        Self::enhance_hunks_with_word_diff(&mut result.hunks);
+
+        result
+    }
+
+    /// Parse hunk header to extract line numbers
+    fn parse_hunk_header(line: &str) -> Option<((u32, u32), (u32, u32))> {
+        // Format: @@ -start,count +start,count @@
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 {
+            return None;
+        }
+
+        let old_part = parts.get(1)?.strip_prefix('-')?;
+        let new_part = parts.get(2)?.strip_prefix('+')?;
+
+        let parse_range = |s: &str| -> (u32, u32) {
+            if let Some((start, count)) = s.split_once(',') {
+                (
+                    start.parse().unwrap_or(1),
+                    count.parse().unwrap_or(0),
+                )
+            } else {
+                (s.parse().unwrap_or(1), 1)
+            }
+        };
+
+        Some((parse_range(old_part), parse_range(new_part)))
+    }
+
+    /// Compute word-level diff between two lines using the similar crate
+    /// Returns segments for both old and new lines
+    fn compute_word_diff(old_line: &str, new_line: &str) -> (Vec<DiffSegment>, Vec<DiffSegment>) {
+        // Skip word diff for very long lines (performance optimization)
+        if old_line.len() > MAX_WORD_DIFF_LINE_LENGTH
+            || new_line.len() > MAX_WORD_DIFF_LINE_LENGTH
+        {
+            return (
+                vec![DiffSegment {
+                    kind: "delete".to_string(),
+                    value: old_line.to_string(),
+                }],
+                vec![DiffSegment {
+                    kind: "insert".to_string(),
+                    value: new_line.to_string(),
+                }],
+            );
+        }
+
+        let diff = TextDiff::from_words(old_line, new_line);
+        let mut old_segments = Vec::new();
+        let mut new_segments = Vec::new();
+
+        for change in diff.iter_all_changes() {
+            let value = change.value().to_string();
+            match change.tag() {
+                ChangeTag::Equal => {
+                    old_segments.push(DiffSegment {
+                        kind: "equal".to_string(),
+                        value: value.clone(),
+                    });
+                    new_segments.push(DiffSegment {
+                        kind: "equal".to_string(),
+                        value,
+                    });
+                }
+                ChangeTag::Delete => {
+                    old_segments.push(DiffSegment {
+                        kind: "delete".to_string(),
+                        value,
+                    });
+                }
+                ChangeTag::Insert => {
+                    new_segments.push(DiffSegment {
+                        kind: "insert".to_string(),
+                        value,
+                    });
+                }
+            }
+        }
+
+        (old_segments, new_segments)
+    }
+
+    /// Post-process hunks to add word-level diff for paired add/del lines
+    fn enhance_hunks_with_word_diff(hunks: &mut [GitDiffHunk]) {
+        for hunk in hunks.iter_mut() {
+            let lines = &mut hunk.lines;
+            let mut i = 0;
+
+            while i < lines.len() {
+                // Look for consecutive del lines followed by add lines
+                let del_start = i;
+                let mut del_count = 0;
+
+                // Count consecutive deletions
+                while del_start + del_count < lines.len()
+                    && lines[del_start + del_count].kind == "del"
+                {
+                    del_count += 1;
+                }
+
+                if del_count == 0 {
+                    i += 1;
+                    continue;
+                }
+
+                // Count consecutive additions after deletions
+                let add_start = del_start + del_count;
+                let mut add_count = 0;
+
+                while add_start + add_count < lines.len()
+                    && lines[add_start + add_count].kind == "add"
+                {
+                    add_count += 1;
+                }
+
+                // Pair deletions with additions for word-level diff
+                let pair_count = del_count.min(add_count);
+                for j in 0..pair_count {
+                    let del_idx = del_start + j;
+                    let add_idx = add_start + j;
+
+                    let (del_segments, add_segments) =
+                        Self::compute_word_diff(&lines[del_idx].content, &lines[add_idx].content);
+
+                    lines[del_idx].segments = Some(del_segments);
+                    lines[add_idx].segments = Some(add_segments);
+                }
+
+                i = add_start + add_count;
+            }
+        }
     }
 
     #[instrument(skip(self, paths), fields(workspace_id = %workspace_id, path_count = paths.len()))]

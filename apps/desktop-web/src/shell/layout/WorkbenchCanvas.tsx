@@ -25,6 +25,7 @@ interface WorkbenchCanvasProps {
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
+  onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
   onOpenStationManage: () => void
   onOpenStationSearch: () => void
@@ -58,6 +59,7 @@ function WorkbenchCanvasView({
   onLaunchStationTerminal,
   onLaunchCliAgent,
   onSendInputData,
+  onResizeTerminal,
   onBindTerminalSink,
   onOpenStationManage,
   onOpenStationSearch,
@@ -211,6 +213,7 @@ function WorkbenchCanvasView({
               onLaunchStationTerminal={onLaunchStationTerminal}
               onLaunchCliAgent={onLaunchCliAgent}
               onSendInputData={onSendInputData}
+              onResizeTerminal={onResizeTerminal}
               onBindTerminalSink={onBindTerminalSink}
               onRemoveStation={onRemoveStation}
               onEnterFullscreen={handleEnterFullscreen}

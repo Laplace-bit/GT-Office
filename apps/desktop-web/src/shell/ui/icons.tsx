@@ -20,12 +20,26 @@ export type AppIconName =
   | 'chevron-right'
   | 'chevron-down'
   | 'chevron-up'
+  | 'chevron-left'
   | 'fullscreen-enter'
   | 'fullscreen-exit'
   | 'refresh'
   | 'command'
   | 'bolt'
   | 'search'
+  // Git-specific icons
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'cloud-download'
+  | 'check'
+  | 'x-mark'
+  | 'git-branch'
+  | 'git-commit'
+  | 'git-merge'
+  | 'clock'
+  | 'archive'
+  | 'trash'
+  | 'sync'
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {
   name: AppIconName
@@ -153,6 +167,12 @@ export function AppIcon({ name, className, ...props }: AppIconProps) {
           <path d="m6.6 8 3.4 4 3.4-4" />
         </svg>
       )
+    case 'chevron-left':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="m12 6.6-4 3.4 4 3.4" />
+        </svg>
+      )
     case 'chevron-up':
       return (
         <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
@@ -195,6 +215,88 @@ export function AppIcon({ name, className, ...props }: AppIconProps) {
         <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
           <circle cx="9" cy="9" r="4.6" />
           <path d="m12.6 12.6 3.1 3.1" />
+        </svg>
+      )
+    case 'arrow-up':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M10 16V4M10 4l4 4M10 4 6 8" />
+        </svg>
+      )
+    case 'arrow-down':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M10 4v12M10 16l4-4M10 16l-4-4" />
+        </svg>
+      )
+    case 'cloud-download':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M6.5 14.5H5.5a3.5 3.5 0 1 1 .5-6.97 4.5 4.5 0 0 1 8.5.97 3.5 3.5 0 0 1 0 6H13" />
+          <path d="M10 10v6M10 16l-2-2M10 16l2-2" />
+        </svg>
+      )
+    case 'check':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M5 10.5l3 3 7-7" />
+        </svg>
+      )
+    case 'x-mark':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M6 6l8 8M14 6l-8 8" />
+        </svg>
+      )
+    case 'git-branch':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <circle cx="7" cy="6" r="1.5" />
+          <circle cx="7" cy="14" r="1.5" />
+          <circle cx="13" cy="8" r="1.5" />
+          <path d="M7 7.5v5M13 9.5v1a2 2 0 0 1-2 2H9" />
+        </svg>
+      )
+    case 'git-commit':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <circle cx="10" cy="10" r="2.5" />
+          <path d="M10 4v3.5M10 12.5V16" />
+        </svg>
+      )
+    case 'git-merge':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <circle cx="7" cy="6" r="1.5" />
+          <circle cx="7" cy="14" r="1.5" />
+          <circle cx="13" cy="14" r="1.5" />
+          <path d="M7 7.5v5M13 12.5V9a2 2 0 0 0-2-2H9" />
+        </svg>
+      )
+    case 'clock':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <circle cx="10" cy="10" r="6" />
+          <path d="M10 7v3l2 1.5" />
+        </svg>
+      )
+    case 'archive':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M4 6h12v2H4V6ZM4.5 8v7.5h11V8" />
+          <path d="M8 11h4" />
+        </svg>
+      )
+    case 'trash':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M5 6h10M8 6V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1M6 6v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6" />
+        </svg>
+      )
+    case 'sync':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M15 7H5l2-2M5 13h10l-2 2" />
         </svg>
       )
     default:

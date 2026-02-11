@@ -10,7 +10,6 @@ import {
   organizationDepartmentOrder,
   type OrganizationDepartment,
   type StationOverviewState,
-  type StationRuntimeState,
 } from './station-overview-model'
 
 interface StationOverviewPaneProps {
@@ -23,17 +22,14 @@ interface StationOverviewPaneProps {
   onSelectStation: (stationId: string) => void
   onOpenManageModal: () => void
   onRemoveStation: (stationId: string) => void
-  onUpdateStationRole: (stationId: string, role: StationRole) => void
 }
 
 interface StationOverviewRowProps {
   locale: Locale
   station: AgentStation
-  runtimeState: StationRuntimeState
   active: boolean
   onSelectStation: (stationId: string) => void
   onRemoveStation: (stationId: string) => void
-  onUpdateStationRole: (stationId: string, role: StationRole) => void
 }
 
 const roleOptions: StationRole[] = ['implementation', 'review', 'test', 'release']
@@ -58,22 +54,6 @@ const departmentKeyMap: Record<
   release_operations: 'station.department.release_operations',
 }
 
-const runtimeStateKeyMap: Record<
-  StationRuntimeState,
-  | 'station.runtime.running'
-  | 'station.runtime.idle'
-  | 'station.runtime.blocked'
-  | 'station.runtime.starting'
-  | 'station.runtime.exited'
-  | 'station.runtime.killed'
-> = {
-  running: 'station.runtime.running',
-  idle: 'station.runtime.idle',
-  blocked: 'station.runtime.blocked',
-  starting: 'station.runtime.starting',
-  exited: 'station.runtime.exited',
-  killed: 'station.runtime.killed',
-}
 
 function roleLabel(locale: Locale, role: StationRole): string {
   return t(locale, roleKeyMap[role])
@@ -83,35 +63,14 @@ function departmentLabel(locale: Locale, department: OrganizationDepartment): st
   return t(locale, departmentKeyMap[department])
 }
 
-function runtimeStateLabel(locale: Locale, state: StationRuntimeState): string {
-  return t(locale, runtimeStateKeyMap[state])
-}
 
-function normalizeRuntimeState(raw: string | undefined): StationRuntimeState {
-  switch (raw) {
-    case 'running':
-      return 'running'
-    case 'starting':
-      return 'starting'
-    case 'blocked':
-      return 'blocked'
-    case 'exited':
-      return 'exited'
-    case 'killed':
-      return 'killed'
-    default:
-      return 'idle'
-  }
-}
 
 const StationOverviewRow = memo(function StationOverviewRow({
   locale,
   station,
-  runtimeState,
   active,
   onSelectStation,
   onRemoveStation,
-  onUpdateStationRole,
 }: StationOverviewRowProps) {
   return (
     <li className={active ? 'station-overview-row active' : 'station-overview-row'}>
@@ -124,20 +83,6 @@ const StationOverviewRow = memo(function StationOverviewRow({
         <span>{station.agentWorkdirRel}</span>
       </button>
       <div className="station-overview-row-actions">
-        <span className="station-overview-state" data-state={runtimeState}>
-          {runtimeStateLabel(locale, runtimeState)}
-        </span>
-        <select
-          value={station.role}
-          onChange={(event) => onUpdateStationRole(station.id, event.target.value as StationRole)}
-          aria-label={t(locale, 'station.filter.role')}
-        >
-          {roleOptions.map((role) => (
-            <option key={role} value={role}>
-              {roleLabel(locale, role)}
-            </option>
-          ))}
-        </select>
         <button
           type="button"
           className="station-overview-remove"
@@ -162,7 +107,6 @@ export function StationOverviewPane({
   onSelectStation,
   onOpenManageModal,
   onRemoveStation,
-  onUpdateStationRole,
 }: StationOverviewPaneProps) {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const snapshot = useMemo(
@@ -282,11 +226,9 @@ export function StationOverviewPane({
             key={station.id}
             locale={locale}
             station={station}
-            runtimeState={normalizeRuntimeState(runtimeStateByStationId[station.id])}
             active={station.id === activeStationId}
             onSelectStation={onSelectStation}
             onRemoveStation={onRemoveStation}
-            onUpdateStationRole={onUpdateStationRole}
           />
         ))}
       </ul>

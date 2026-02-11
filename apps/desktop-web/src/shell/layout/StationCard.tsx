@@ -26,6 +26,7 @@ interface StationCardProps {
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
+  onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
@@ -62,6 +63,7 @@ function StationCardView({
   onLaunchStationTerminal,
   onLaunchCliAgent,
   onSendInputData,
+  onResizeTerminal,
   onBindTerminalSink,
   onRemoveStation,
   onEnterFullscreen,
@@ -69,16 +71,53 @@ function StationCardView({
 }: StationCardProps) {
   const rootRef = useRef<HTMLElement | null>(null)
   const terminalSinkRef = useRef<StationTerminalSink | null>(null)
+  const pendingTerminalFocusRef = useRef(false)
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
   const unreadLabel =
     runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
+  const requestTerminalFocus = useCallback(() => {
+    pendingTerminalFocusRef.current = true
+    if (!active || !renderTerminal) {
+      return
+    }
+    window.requestAnimationFrame(() => {
+      if (!pendingTerminalFocusRef.current) {
+        return
+      }
+      terminalSinkRef.current?.focus()
+      pendingTerminalFocusRef.current = false
+    })
+  }, [active, renderTerminal])
+
   const handleBindSink = useCallback(
     (stationId: string, sink: StationTerminalSink | null) => {
       terminalSinkRef.current = sink
       onBindTerminalSink(stationId, sink)
+      if (sink && pendingTerminalFocusRef.current && active && renderTerminal) {
+        window.requestAnimationFrame(() => {
+          if (!pendingTerminalFocusRef.current) {
+            return
+          }
+          sink.focus()
+          pendingTerminalFocusRef.current = false
+        })
+      }
     },
-    [onBindTerminalSink],
+    [active, onBindTerminalSink, renderTerminal],
   )
+
+  useEffect(() => {
+    if (!active || !renderTerminal || !pendingTerminalFocusRef.current) {
+      return
+    }
+    window.requestAnimationFrame(() => {
+      if (!pendingTerminalFocusRef.current) {
+        return
+      }
+      terminalSinkRef.current?.focus()
+      pendingTerminalFocusRef.current = false
+    })
+  }, [active, renderTerminal])
 
   useEffect(() => {
     const element = rootRef.current
@@ -119,21 +158,21 @@ function StationCardView({
       ]
         .filter(Boolean)
         .join(' ')}
-      onClick={() => {
-        onSelectStation(station.id)
-        terminalSinkRef.current?.focus()
-      }}
-      onDoubleClick={() => {
-        onEnterFullscreen(station.id)
-      }}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelectStation(station.id)
-          terminalSinkRef.current?.focus()
+      onClick={(event) => {
+        // Only handle clicks on the card itself, not on terminal or other interactive elements
+        const target = event.target as HTMLElement
+        if (target.closest('.station-terminal-shell') || target.closest('button')) {
+          return
         }
+        onSelectStation(station.id)
+        requestTerminalFocus()
+      }}
+      onDoubleClick={(event) => {
+        const target = event.target as HTMLElement
+        if (target.closest('.station-terminal-shell')) {
+          return
+        }
+        onEnterFullscreen(station.id)
       }}
     >
       {taskSignal ? (
@@ -229,8 +268,10 @@ function StationCardView({
       {renderTerminal ? (
         <StationXtermTerminal
           stationId={station.id}
+          sessionId={runtime?.sessionId ?? null}
           appearanceVersion={appearanceVersion}
           onData={onSendInputData}
+          onResize={onResizeTerminal}
           onBindSink={handleBindSink}
         />
       ) : (

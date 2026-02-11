@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck:*)",
+      "Bash(npx tsc:*)",
+      "mcp__context7__resolve-library-id",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:microsoft.github.io)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:lib.rs)",
+      "WebFetch(domain:prismjs.com)",
+      "WebFetch(domain:www.npmtrends.com)",
+      "WebFetch(domain:diff2html.xyz)",
+      "WebFetch(domain:stackoverflow.com)",
+      "Bash(npm install:*)",
+      "Bash(cargo check:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:codemirror.net)",
+      "Bash(npm run build:*)",
+      "Bash(npx eslint:*)",
+      "Bash(cargo metadata:*)",
+      "mcp__context7__query-docs"
+    ]
+  }
+}

@@ -10,6 +10,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 git2 = "0.20"
+similar = "2.6"
 vb-abstractions = { path = "../vb-abstractions" }
 
 [dev-dependencies]

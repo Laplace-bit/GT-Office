@@ -61,7 +61,7 @@ export const messages = {
     'en-US': 'No live output yet. Launch a terminal session or start a CLI agent.',
   },
 
-  'fileContent.title': { 'zh-CN': '文件内容预览', 'en-US': 'File Content Preview' },
+  'fileContent.title': { 'zh-CN': '文件编辑器', 'en-US': 'File Editor' },
   'fileContent.noFileSelected': { 'zh-CN': '尚未选择文件', 'en-US': 'No file selected' },
   'fileContent.bindWorkspace': { 'zh-CN': '请先绑定工作区', 'en-US': 'Bind a workspace first' },
   'fileContent.selectFileHint': {
@@ -76,6 +76,18 @@ export const messages = {
   'fileContent.previewNotice': {
     'zh-CN': '预览提示: {detail}',
     'en-US': 'Preview notice: {detail}',
+  },
+  'fileContent.unsaved': { 'zh-CN': '未保存', 'en-US': 'Unsaved' },
+  'fileContent.saving': { 'zh-CN': '保存中...', 'en-US': 'Saving...' },
+  'fileContent.saved': { 'zh-CN': '已保存', 'en-US': 'Saved' },
+  'fileContent.saveFailed': {
+    'zh-CN': '保存失败: {detail}',
+    'en-US': 'Save failed: {detail}',
+  },
+  'fileContent.readOnly': { 'zh-CN': '只读模式', 'en-US': 'Read Only' },
+  'fileContent.readOnlyLargeFile': {
+    'zh-CN': '文件过大，仅支持只读预览',
+    'en-US': 'File too large, read-only preview only',
   },
 
   'fileTree.title': { 'zh-CN': '文件树/搜索/Git 变更', 'en-US': 'Files / Search / Git Changes' },
@@ -513,6 +525,7 @@ export const messages = {
   },
   'git.files.title': { 'zh-CN': '变更文件', 'en-US': 'Changed Files' },
   'git.files.count': { 'zh-CN': '共 {count} 个', 'en-US': '{count} total' },
+  'git.files.countLabel': { 'zh-CN': '个文件', 'en-US': 'files' },
   'git.filter.all': { 'zh-CN': '全部', 'en-US': 'All' },
   'git.filter.staged': { 'zh-CN': '已暂存', 'en-US': 'Staged' },
   'git.filter.unstaged': { 'zh-CN': '未暂存', 'en-US': 'Unstaged' },
@@ -520,10 +533,13 @@ export const messages = {
   'git.diff.none': { 'zh-CN': '未选择文件', 'en-US': 'No file selected' },
   'git.diff.loading': { 'zh-CN': '加载差异中...', 'en-US': 'Loading diff...' },
   'git.diff.empty': { 'zh-CN': '暂无可显示差异', 'en-US': 'No diff to display' },
-  'git.history.title': { 'zh-CN': '提交历史与图谱', 'en-US': 'Commit History & Graph' },
+  'git.diff.binary': { 'zh-CN': '二进制文件，无法显示差异', 'en-US': 'Binary file, cannot display diff' },
+  'git.history.title': { 'zh-CN': '提交历史', 'en-US': 'Commit History' },
   'git.graph.title': { 'zh-CN': 'Git Graph', 'en-US': 'Git Graph' },
   'git.history.loadOlder': { 'zh-CN': '加载更早提交', 'en-US': 'Load Older Commits' },
   'git.history.backToLatest': { 'zh-CN': '回到最新', 'en-US': 'Back To Latest' },
+  'git.view.list': { 'zh-CN': '列表视图', 'en-US': 'List View' },
+  'git.view.graph': { 'zh-CN': '图谱视图', 'en-US': 'Graph View' },
   'git.commit.title': { 'zh-CN': '提交', 'en-US': 'Commit' },
   'git.commit.ready': { 'zh-CN': '可提交', 'en-US': 'Ready to commit' },
   'git.commit.empty': { 'zh-CN': '暂无已暂存文件', 'en-US': 'No staged files' },

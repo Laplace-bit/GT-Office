@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import type { ITheme } from '@xterm/xterm'
 
@@ -10,8 +10,10 @@ export interface StationTerminalSink {
 
 interface StationXtermTerminalProps {
   stationId: string
+  sessionId: string | null
   appearanceVersion: string
   onData: (stationId: string, data: string) => void
+  onResize: (stationId: string, cols: number, rows: number) => void
   onBindSink: (stationId: string, sink: StationTerminalSink | null) => void
 }
 
@@ -52,48 +54,33 @@ function getTerminalTheme(): ITheme {
 
 function StationXtermTerminalView({
   stationId,
+  sessionId,
   appearanceVersion,
   onData,
+  onResize,
   onBindSink,
 }: StationXtermTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
   const onDataRef = useRef(onData)
-  const queueRef = useRef('')
-  const frameRef = useRef<number | null>(null)
+  const onResizeRef = useRef(onResize)
 
   useEffect(() => {
     onDataRef.current = onData
   }, [onData])
 
-  const flushQueuedWrites = useMemo(
-    () => () => {
-      frameRef.current = null
-      const terminal = terminalRef.current
-      const queued = queueRef.current
-      if (!terminal || !queued) {
-        return
-      }
-      queueRef.current = ''
-      terminal.write(queued)
-    },
-    [],
-  )
+  useEffect(() => {
+    onResizeRef.current = onResize
+  }, [onResize])
 
-  const enqueueWrite = useMemo(
-    () => (chunk: string) => {
-      if (!chunk) {
-        return
-      }
-      queueRef.current = `${queueRef.current}${chunk}`
-      if (frameRef.current !== null) {
-        return
-      }
-      frameRef.current = window.requestAnimationFrame(flushQueuedWrites)
-    },
-    [flushQueuedWrites],
-  )
+  useEffect(() => {
+    const terminal = terminalRef.current
+    if (!terminal) {
+      return
+    }
+    terminal.refresh(0, Math.max(0, terminal.rows - 1))
+  }, [sessionId])
 
   useEffect(() => {
     const host = hostRef.current
@@ -103,6 +90,7 @@ function StationXtermTerminalView({
 
     let active = true
     let dataDisposable: { dispose: () => void } | null = null
+    let resizeDisposable: { dispose: () => void } | null = null
     let resizeObserver: ResizeObserver | null = null
     void Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]).then(
       ([xtermModule, fitModule]) => {
@@ -123,6 +111,7 @@ function StationXtermTerminalView({
           theme: getTerminalTheme(),
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1.2,
+          allowProposedApi: true,
         })
         // Keep inactive cursor subtle and slim instead of default thick outline block.
         ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
@@ -136,6 +125,14 @@ function StationXtermTerminalView({
         fitAddonRef.current = fitAddon
 
         dataDisposable = terminal.onData((data) => onDataRef.current(stationId, data))
+
+        // Sync terminal size with backend PTY
+        resizeDisposable = terminal.onResize(({ cols, rows }) => {
+          onResizeRef.current(stationId, cols, rows)
+        })
+        // Send initial size
+        onResizeRef.current(stationId, terminal.cols, terminal.rows)
+
         resizeObserver = new ResizeObserver(() => {
           try {
             fitAddon.fit()
@@ -146,16 +143,22 @@ function StationXtermTerminalView({
         resizeObserver.observe(host)
 
         onBindSink(stationId, {
-          write: enqueueWrite,
+          write: (chunk: string) => {
+            if (!chunk) {
+              return
+            }
+            terminal.write(chunk)
+          },
           reset: (content?: string) => {
             terminal.reset()
-            queueRef.current = ''
             if (content) {
-              enqueueWrite(content)
+              terminal.write(content)
             }
+            terminal.refresh(0, Math.max(0, terminal.rows - 1))
           },
           focus: () => {
             terminal.focus()
+            terminal.refresh(0, Math.max(0, terminal.rows - 1))
           },
         })
       },
@@ -167,17 +170,13 @@ function StationXtermTerminalView({
       active = false
       onBindSink(stationId, null)
       dataDisposable?.dispose()
+      resizeDisposable?.dispose()
       resizeObserver?.disconnect()
-      if (frameRef.current !== null) {
-        window.cancelAnimationFrame(frameRef.current)
-        frameRef.current = null
-      }
-      queueRef.current = ''
       terminalRef.current?.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [enqueueWrite, onBindSink, stationId])
+  }, [onBindSink, stationId])
 
   useEffect(() => {
     const terminal = terminalRef.current
@@ -195,12 +194,21 @@ function StationXtermTerminalView({
     } catch {
       // No-op: fit can fail transiently when the element is hidden.
     }
+    terminal.refresh(0, Math.max(0, terminal.rows - 1))
   }, [appearanceVersion])
 
   return (
     <div
       className="station-terminal-shell"
-      onClick={() => {
+      onClick={(event) => {
+        // Stop propagation to prevent parent handlers from interfering
+        event.stopPropagation()
+        terminalRef.current?.focus()
+      }}
+      onPointerDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return
+        }
         terminalRef.current?.focus()
       }}
     >

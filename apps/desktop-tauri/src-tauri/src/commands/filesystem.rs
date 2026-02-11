@@ -341,16 +341,30 @@ fn resolve_target_path(
         return Ok(canonical);
     }
 
-    let parent = joined.parent().unwrap_or(root);
-    let canonical_parent = parent
-        .canonicalize()
-        .map_err(|error| format!("FS_PATH_INVALID: parent path is not accessible: {error}"))?;
-    if !canonical_parent.starts_with(root) {
-        return Err(format!(
-            "FS_PATH_OUTSIDE_WORKSPACE: '{}' is outside workspace '{}'",
-            canonical_parent.display(),
-            root.display()
-        ));
+    // For non-existing paths, find the nearest existing ancestor to validate
+    // that the path stays within the workspace boundary.
+    let mut check_path = joined.as_path();
+    loop {
+        if check_path.exists() {
+            let canonical_ancestor = check_path.canonicalize().map_err(|error| {
+                format!("FS_PATH_INVALID: ancestor path is not accessible: {error}")
+            })?;
+            if !canonical_ancestor.starts_with(root) {
+                return Err(format!(
+                    "FS_PATH_OUTSIDE_WORKSPACE: '{}' is outside workspace '{}'",
+                    canonical_ancestor.display(),
+                    root.display()
+                ));
+            }
+            break;
+        }
+        match check_path.parent() {
+            Some(parent) => check_path = parent,
+            None => {
+                // Reached filesystem root without finding existing ancestor
+                return Err("FS_PATH_INVALID: no valid ancestor found".to_string());
+            }
+        }
     }
 
     Ok(joined)

@@ -1,0 +1,521 @@
+/**
+ * DiffViewer Styles
+ *
+ * High-performance, Apple-style diff viewer with:
+ * - Split and unified view modes
+ * - Word-level diff highlighting
+ * - Syntax highlighting support
+ * - Dark/light theme support
+ */
+
+/* ========================================
+   Base Container
+   ======================================== */
+
+.diff-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--vb-surface);
+  border-radius: var(--vb-radius-md);
+  overflow: hidden;
+  contain: layout;
+}
+
+/* ========================================
+   Header
+   ======================================== */
+
+.diff-viewer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--vb-surface) 90%, var(--vb-chip));
+  border-bottom: 1px solid var(--vb-border);
+  flex-shrink: 0;
+}
+
+.diff-viewer__path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--vb-text);
+  min-width: 0;
+  flex: 1;
+}
+
+.diff-viewer__path > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-viewer__path-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--vb-text-muted);
+}
+
+.diff-viewer__badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: var(--vb-radius-sm);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.diff-viewer__badge--new {
+  background: color-mix(in srgb, var(--vb-success) 15%, transparent);
+  color: var(--vb-success);
+}
+
+.diff-viewer__badge--deleted {
+  background: color-mix(in srgb, var(--vb-error) 15%, transparent);
+  color: var(--vb-error);
+}
+
+.diff-viewer__badge--renamed {
+  background: color-mix(in srgb, var(--vb-warning) 15%, transparent);
+  color: var(--vb-warning);
+}
+
+.diff-viewer__badge--binary {
+  background: color-mix(in srgb, var(--vb-text-muted) 15%, transparent);
+  color: var(--vb-text-muted);
+}
+
+/* Compact meta section with stats and mode toggle */
+.diff-viewer__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.diff-viewer__stat {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--vb-font-mono);
+}
+
+.diff-viewer__stat--add {
+  color: var(--vb-success);
+}
+
+.diff-viewer__stat--del {
+  color: var(--vb-error);
+}
+
+.diff-viewer__separator {
+  color: var(--vb-border-strong);
+  font-size: 10px;
+}
+
+/* Compact mode chip buttons */
+.diff-viewer__mode-chip {
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--vb-radius-sm);
+  background: transparent;
+  color: var(--vb-text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.diff-viewer__mode-chip:hover {
+  color: var(--vb-text);
+  background: var(--vb-hover-overlay);
+}
+
+.diff-viewer__mode-chip--active {
+  background: var(--vb-accent);
+  color: white;
+}
+
+/* ========================================
+   Loading & Empty States
+   ======================================== */
+
+.diff-viewer__loading,
+.diff-viewer__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  min-height: 120px;
+  color: var(--vb-text-muted);
+  text-align: center;
+}
+
+.diff-viewer__loading span,
+.diff-viewer__empty p {
+  font-size: 12px;
+  margin: 0;
+}
+
+.diff-viewer__empty-icon {
+  width: 32px;
+  height: 32px;
+  opacity: 0.4;
+}
+
+.diff-viewer__spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--vb-border);
+  border-top-color: var(--vb-primary);
+  border-radius: 50%;
+  animation: diff-viewer-spin 0.8s linear infinite;
+}
+
+@keyframes diff-viewer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========================================
+   Diff Body
+   ======================================== */
+
+.diff-viewer__body {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--vb-font-mono);
+  font-size: 12px;
+  line-height: 22px;
+  contain: strict;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--vb-bg);
+}
+
+/* Custom scrollbar */
+.diff-viewer__body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.diff-viewer__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.diff-viewer__body::-webkit-scrollbar-thumb {
+  background: var(--vb-border);
+  border-radius: 4px;
+}
+
+.diff-viewer__body::-webkit-scrollbar-thumb:hover {
+  background: var(--vb-border-strong);
+}
+
+.diff-viewer__body::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ========================================
+   Simple Diff View (Fallback)
+   ======================================== */
+
+.simple-diff {
+  min-width: 100%;
+}
+
+.simple-diff__hunk {
+  border-bottom: 1px solid var(--vb-border);
+}
+
+.simple-diff__hunk:last-child {
+  border-bottom: none;
+}
+
+.simple-diff__hunk-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  height: 28px;
+  background: color-mix(in srgb, var(--vb-primary) 8%, var(--vb-bg));
+  border-bottom: 1px solid var(--vb-border);
+  font-size: 11px;
+  font-family: var(--vb-font-mono);
+  color: var(--vb-primary);
+  font-weight: 500;
+}
+
+.simple-diff__hunk-content {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ========================================
+   Split View
+   ======================================== */
+
+.simple-diff--split .simple-diff__row {
+  display: flex;
+  width: 100%;
+}
+
+.simple-diff--split .simple-diff__side {
+  flex: 0 0 50%;
+  width: 50%;
+  display: flex;
+  min-width: 0;
+  max-width: 50%;
+  height: 22px;
+  overflow: hidden;
+}
+
+.simple-diff--split .simple-diff__side--right {
+  border-left: none;
+}
+
+.simple-diff--split .simple-diff__side--left {
+  border-right: 2px solid var(--vb-border);
+}
+
+/* Side backgrounds */
+.simple-diff__side--del {
+  background: color-mix(in srgb, var(--vb-error) 10%, transparent);
+}
+
+.simple-diff__side--add {
+  background: color-mix(in srgb, var(--vb-success) 10%, transparent);
+}
+
+.simple-diff__side--ctx {
+  background: transparent;
+}
+
+.simple-diff__side--empty {
+  background: color-mix(in srgb, var(--vb-chip) 30%, transparent);
+}
+
+/* Gutter */
+.simple-diff__gutter {
+  flex-shrink: 0;
+  width: 48px;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--vb-text-muted);
+  background: color-mix(in srgb, var(--vb-chip) 50%, transparent);
+  border-right: 1px solid var(--vb-border);
+  user-select: none;
+  font-size: 11px;
+  font-family: var(--vb-font-mono);
+  line-height: 22px;
+}
+
+/* Code */
+.simple-diff__code {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  white-space: pre;
+  font-family: var(--vb-font-mono);
+  font-size: 12px;
+  font-variant-ligatures: none;
+  tab-size: 4;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ========================================
+   Unified View
+   ======================================== */
+
+.simple-diff--unified .simple-diff__line {
+  display: flex;
+  width: 100%;
+  height: 22px;
+  overflow: hidden;
+}
+
+.simple-diff--unified .simple-diff__line--add {
+  background: color-mix(in srgb, var(--vb-success) 10%, transparent);
+}
+
+.simple-diff--unified .simple-diff__line--del {
+  background: color-mix(in srgb, var(--vb-error) 10%, transparent);
+}
+
+.simple-diff--unified .simple-diff__line--ctx {
+  background: transparent;
+}
+
+.simple-diff--unified .simple-diff__gutter--old,
+.simple-diff--unified .simple-diff__gutter--new {
+  width: 48px;
+}
+
+.simple-diff__prefix {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  color: var(--vb-text-muted);
+  font-weight: 600;
+  user-select: none;
+}
+
+.simple-diff__line--add .simple-diff__prefix {
+  color: var(--vb-success);
+}
+
+.simple-diff__line--del .simple-diff__prefix {
+  color: var(--vb-error);
+}
+
+/* ========================================
+   Word-Level Diff Highlighting
+   ======================================== */
+
+.diff-word-highlight {
+  display: inline;
+}
+
+.diff-segment {
+  display: inline;
+}
+
+.diff-segment--insert {
+  background: color-mix(in srgb, var(--vb-success) 30%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.diff-segment--delete {
+  background: color-mix(in srgb, var(--vb-error) 30%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+  text-decoration: line-through;
+  text-decoration-color: var(--vb-error);
+}
+
+/* Enhanced word-level highlighting for split view */
+.simple-diff__side--del .diff-segment--delete {
+  background: color-mix(in srgb, var(--vb-error) 40%, transparent);
+  text-decoration: none;
+}
+
+.simple-diff__side--add .diff-segment--insert {
+  background: color-mix(in srgb, var(--vb-success) 40%, transparent);
+}
+
+/* ========================================
+   Hover Effects
+   ======================================== */
+
+.simple-diff--split .simple-diff__row:hover .simple-diff__side--ctx,
+.simple-diff--unified .simple-diff__line--ctx:hover {
+  background: color-mix(in srgb, var(--vb-chip) 30%, transparent);
+}
+
+.simple-diff--split .simple-diff__row:hover .simple-diff__side--del {
+  background: color-mix(in srgb, var(--vb-error) 15%, transparent);
+}
+
+.simple-diff--split .simple-diff__row:hover .simple-diff__side--add {
+  background: color-mix(in srgb, var(--vb-success) 15%, transparent);
+}
+
+/* ========================================
+   Performance Optimizations
+   ======================================== */
+
+.simple-diff__row,
+.simple-diff__line,
+.simple-diff__hunk-header {
+  will-change: transform;
+  contain: layout style;
+}
+
+.simple-diff__gutter,
+.simple-diff__code {
+  contain: layout style paint;
+}
+
+/* ========================================
+   git-diff-view Library Overrides
+   ======================================== */
+
+/* Override git-diff-view default styles to match our theme */
+.diff-view-wrapper {
+  --diff-add-bg: color-mix(in srgb, var(--vb-success) 10%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--vb-error) 10%, transparent);
+  --diff-add-highlight-bg: color-mix(in srgb, var(--vb-success) 25%, transparent);
+  --diff-del-highlight-bg: color-mix(in srgb, var(--vb-error) 25%, transparent);
+  --diff-hunk-bg: color-mix(in srgb, var(--vb-primary) 8%, var(--vb-bg));
+  --diff-line-num-color: var(--vb-text-muted);
+  --diff-line-num-bg: color-mix(in srgb, var(--vb-chip) 50%, transparent);
+  --diff-border-color: var(--vb-border);
+  --diff-text-color: var(--vb-text);
+  --diff-bg: var(--vb-bg);
+
+  font-family: var(--vb-font-mono);
+  font-size: 12px;
+  line-height: 22px;
+}
+
+/* Ensure proper scrolling */
+.diff-view-wrapper .diff-table-wrapper {
+  overflow: auto;
+}
+
+/* Line number styling */
+.diff-view-wrapper .diff-line-num {
+  color: var(--diff-line-num-color);
+  background: var(--diff-line-num-bg);
+  border-right: 1px solid var(--diff-border-color);
+  padding: 0 8px;
+  min-width: 48px;
+  text-align: right;
+  user-select: none;
+}
+
+/* Code content styling */
+.diff-view-wrapper .diff-line-content {
+  padding: 0 12px;
+  white-space: pre;
+  tab-size: 4;
+}
+
+/* Hunk header styling */
+.diff-view-wrapper .diff-hunk-header {
+  background: var(--diff-hunk-bg);
+  color: var(--vb-primary);
+  font-weight: 500;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--diff-border-color);
+}
+
+/* Add/Delete line backgrounds */
+.diff-view-wrapper .diff-line-add {
+  background: var(--diff-add-bg);
+}
+
+.diff-view-wrapper .diff-line-del {
+  background: var(--diff-del-bg);
+}
+
+/* Word-level highlighting from library */
+.diff-view-wrapper .diff-line-add .diff-highlight {
+  background: var(--diff-add-highlight-bg);
+}
+
+.diff-view-wrapper .diff-line-del .diff-highlight {
+  background: var(--diff-del-highlight-bg);
+}
