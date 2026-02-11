@@ -1,4 +1,4 @@
-import type { AgentStation, StationRole } from './model'
+import type { AgentStation, StationRole } from '@shell/layout/model'
 
 export type OrganizationDepartment =
   | 'product_engineering'

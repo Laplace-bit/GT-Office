@@ -1,17 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
 import { ActivityRail } from './ActivityRail'
 import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
 import { FileEditorPane, type OpenedFile } from './FileEditorPane'
 import { FileTreePane } from './FileTreePane'
 import { GitHistoryPane, GitOperationsPane } from './GitPane'
-import { useGitWorkspaceController } from './useGitWorkspaceController'
+import { useGitWorkspaceController } from '@features/git'
 import { LeftBusinessPane } from './LeftBusinessPane'
 import { SettingsModal } from './SettingsModal'
 import { StationManageModal } from './StationManageModal'
 import { StationOverviewPane } from './StationOverviewPane'
 import { StationSearchModal } from './StationSearchModal'
 import { StatusBar } from './StatusBar'
-import { TaskCenterPane, type TaskCenterNotice } from './TaskCenterPane'
+import { TaskCenterPane } from './TaskCenterPane'
 import { TopControlBar } from './TopControlBar'
 import type { StationTerminalSink } from './StationXtermTerminal'
 import { WorkbenchCanvas } from './WorkbenchCanvas'
@@ -23,37 +32,26 @@ import {
   type CreateStationInput,
   type NavItemId,
 } from './model'
-import { defaultStationOverviewState, filterStationsForOverview } from './station-overview-model'
+import { defaultStationOverviewState, filterStationsForOverview } from '@features/workspace'
 import {
   buildAgentWorkspaceMarkerPath,
   buildRoleWorkdirRel,
   buildStationWorkdirs,
   resolveAgentWorkdirAbs,
-} from './station-workdir-model'
+} from '@features/workspace'
 import {
-  buildAttachmentReferenceMarkdown,
-  buildTaskCenterDraftFilePath,
-  buildTaskCenterStorageKey,
-  buildTaskCenterWorkspaceSnapshot,
-  buildDispatchRecord,
-  buildMarkdownSnippet,
   buildTaskDispatchCommand,
-  buildTaskDocument,
-  buildTaskId,
+  buildTaskCenterDraftFilePath,
   createInitialTaskDraft,
-  createTaskAttachment,
-  parseTaskCenterWorkspaceSnapshot,
-  pushTaskDispatchHistory,
-  replaceTaskDispatchRecord,
   resolveValidTaskTarget,
-  serializeTaskCenterWorkspaceSnapshot,
+  useTaskDispatchActions,
+  useTaskCenterDraftPersistence,
   type StationTaskSignal,
   type TaskAttachment,
-  type TaskCenterWorkspaceSnapshot,
+  type TaskCenterNotice,
   type TaskDispatchRecord,
   type TaskDraftState,
-  type TaskMarkdownSnippet,
-} from './task-center-model'
+} from '@features/task-center'
 import {
   desktopApi,
   type FilesystemChangedPayload,
@@ -447,9 +445,9 @@ export function ShellRoot() {
   const initialStations = useMemo(() => createDefaultStations(), [])
   const stationCounterRef = useRef(nextStationNumber(initialStations))
   const tauriRuntime = desktopApi.isTauriRuntime()
+  const nativeWindowTop = tauriRuntime
   const nativeWindowTopMacOs = tauriRuntime && isMacOsPlatform()
   const nativeWindowTopLinux = tauriRuntime && !nativeWindowTopMacOs && isLinuxPlatform()
-  const nativeWindowTop = nativeWindowTopMacOs || nativeWindowTopLinux
   const [uiPreferences, setUiPreferences] = useState(loadUiPreferences)
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
   const [leftPaneResizing, setLeftPaneResizing] = useState(false)
@@ -470,6 +468,7 @@ export function ShellRoot() {
   const [taskRetryingTaskId, setTaskRetryingTaskId] = useState<string | null>(null)
   const [taskDraftSavedAtMs, setTaskDraftSavedAtMs] = useState<number | null>(null)
   const [taskNotice, setTaskNotice] = useState<TaskCenterNotice | null>(null)
+  const [windowMaximized, setWindowMaximized] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
   const [workspacePathInput, setWorkspacePathInput] = useState(
     () => loadRememberedWorkspacePath() ?? '/mnt/c/project/vbCode',
@@ -507,8 +506,6 @@ export function ShellRoot() {
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
     null,
   )
-  const taskPersistTimerRef = useRef<number | null>(null)
-  const taskSnapshotHydratingRef = useRef(false)
   const shellContainerRef = useRef<HTMLDivElement | null>(null)
   const shellTopRef = useRef<HTMLDivElement | null>(null)
   const shellMainRef = useRef<HTMLElement | null>(null)
@@ -517,6 +514,7 @@ export function ShellRoot() {
   const shellLeftPaneRef = useRef<HTMLDivElement | null>(null)
   const shellResizerRef = useRef<HTMLDivElement | null>(null)
   const shellMainPaneRef = useRef<HTMLDivElement | null>(null)
+  const windowResizeSyncTimerRef = useRef<number | null>(null)
   const localeRef = useRef(uiPreferences.locale)
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
@@ -559,11 +557,6 @@ export function ShellRoot() {
 
   useEffect(() => {
     return () => {
-      const timerId = taskPersistTimerRef.current
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-      taskPersistTimerRef.current = null
       const gitTimerId = gitRefreshTimerRef.current
       if (typeof gitTimerId === 'number') {
         window.clearTimeout(gitTimerId)
@@ -692,13 +685,76 @@ export function ShellRoot() {
     )
   }, [leftPaneWidth])
 
-  useEffect(() => {
-    if (!nativeWindowTopLinux) {
+  const syncWindowFrameState = useCallback(() => {
+    if (!desktopApi.isTauriRuntime()) {
       return
+    }
+    void desktopApi.windowIsMaximized().then((maximized) => {
+      setWindowMaximized((prev) => (prev === maximized ? prev : maximized))
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!nativeWindowTop) {
+      return
+    }
+    let disposed = false
+    let cleanup: (() => void) | null = null
+
+    const syncMaximized = async () => {
+      if (disposed) {
+        return
+      }
+      const maximized = await desktopApi.windowIsMaximized()
+      if (!disposed) {
+        setWindowMaximized((prev) => (prev === maximized ? prev : maximized))
+      }
     }
 
     void desktopApi.windowSetDecorations(false)
-  }, [nativeWindowTopLinux])
+    void syncMaximized()
+    void desktopApi.subscribeWindowResized(() => {
+      const timerId = windowResizeSyncTimerRef.current
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId)
+      }
+      windowResizeSyncTimerRef.current = window.setTimeout(() => {
+        windowResizeSyncTimerRef.current = null
+        void syncMaximized()
+      }, 120)
+    }).then((unlisten) => {
+      cleanup = unlisten
+    })
+
+    return () => {
+      disposed = true
+      const timerId = windowResizeSyncTimerRef.current
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId)
+      }
+      windowResizeSyncTimerRef.current = null
+      if (cleanup) {
+        cleanup()
+      }
+    }
+  }, [nativeWindowTop])
+
+  const handleWindowMinimize = useCallback(() => {
+    void desktopApi.windowMinimize()
+  }, [])
+
+  const handleWindowToggleMaximize = useCallback(() => {
+    void desktopApi.windowToggleMaximize().then((success) => {
+      if (!success) {
+        return
+      }
+      syncWindowFrameState()
+    })
+  }, [syncWindowFrameState])
+
+  const handleWindowClose = useCallback(() => {
+    void desktopApi.windowClose()
+  }, [])
 
   const activePaneModel = useMemo(() => {
     if (activeNavId !== 'git') {
@@ -1216,11 +1272,6 @@ export function ShellRoot() {
     setTaskNotice(null)
     setStationTaskSignals({})
     setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
-    taskSnapshotHydratingRef.current = true
-    if (typeof taskPersistTimerRef.current === 'number') {
-      window.clearTimeout(taskPersistTimerRef.current)
-      taskPersistTimerRef.current = null
-    }
     fileReadSeqRef.current += 1
   }, [activeWorkspaceId])
 
@@ -1378,114 +1429,62 @@ export function ShellRoot() {
     }))
   }, [activeStationId, stations, taskDraft.targetStationId])
 
-  useEffect(() => {
-    if (!activeWorkspaceId) {
-      taskSnapshotHydratingRef.current = false
-      return
-    }
-
-    let cancelled = false
-    const hydrateTaskCenter = async () => {
-      const defaultDraft = createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? '')
-      const storageKey = buildTaskCenterStorageKey(activeWorkspaceId)
-      let selectedSnapshot: TaskCenterWorkspaceSnapshot | null = null
-
+  const readTaskCenterSnapshotFile = useCallback(
+    async (input: { workspaceId: string; taskCenterDraftFilePath: string }) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return null
+      }
       try {
-        if (typeof window !== 'undefined') {
-          const raw = window.localStorage.getItem(storageKey)
-          if (raw) {
-            selectedSnapshot = parseTaskCenterWorkspaceSnapshot(raw)
-          }
+        const file = await desktopApi.fsReadFile(input.workspaceId, input.taskCenterDraftFilePath)
+        if (!file.previewable) {
+          return null
         }
+        return file.content
       } catch {
-        selectedSnapshot = null
+        return null
       }
+    },
+    [],
+  )
 
-      if (desktopApi.isTauriRuntime()) {
-        try {
-          const file = await desktopApi.fsReadFile(activeWorkspaceId, taskCenterDraftFilePath)
-          if (file.previewable && file.content.trim()) {
-            const parsed = parseTaskCenterWorkspaceSnapshot(file.content)
-            if (parsed && (!selectedSnapshot || parsed.updatedAtMs > selectedSnapshot.updatedAtMs)) {
-              selectedSnapshot = parsed
-            }
-          }
-        } catch {
-          // Ignore: draft file may not exist yet.
-        }
-      }
-
-      if (cancelled) {
+  const writeTaskCenterSnapshotFile = useCallback(
+    async (input: {
+      workspaceId: string
+      taskCenterDraftFilePath: string
+      serializedSnapshot: string
+    }) => {
+      if (!desktopApi.isTauriRuntime()) {
         return
       }
+      await desktopApi.fsWriteFile(
+        input.workspaceId,
+        input.taskCenterDraftFilePath,
+        input.serializedSnapshot,
+      )
+    },
+    [],
+  )
 
-      if (selectedSnapshot) {
-        setTaskDraft(selectedSnapshot.draft)
-        setTaskAttachments(selectedSnapshot.attachments)
-        setTaskDispatchHistory(selectedSnapshot.dispatchHistory.slice(0, TASK_DISPATCH_HISTORY_LIMIT))
-        setTaskDraftSavedAtMs(selectedSnapshot.updatedAtMs)
-      } else {
-        setTaskDraft(defaultDraft)
-        setTaskAttachments([])
-        setTaskDispatchHistory([])
-        setTaskDraftSavedAtMs(null)
-      }
-      setTaskSending(false)
-      setTaskRetryingTaskId(null)
-      setTaskNotice(null)
-      taskSnapshotHydratingRef.current = false
-    }
-
-    void hydrateTaskCenter()
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspaceId, taskCenterDraftFilePath])
-
-  useEffect(() => {
-    if (!activeWorkspaceId || taskSnapshotHydratingRef.current) {
-      return
-    }
-
-    if (typeof taskPersistTimerRef.current === 'number') {
-      window.clearTimeout(taskPersistTimerRef.current)
-    }
-
-    const workspaceId = activeWorkspaceId
-    taskPersistTimerRef.current = window.setTimeout(() => {
-      const snapshot = buildTaskCenterWorkspaceSnapshot({
-        updatedAtMs: Date.now(),
-        draft: taskDraft,
-        attachments: taskAttachments,
-        dispatchHistory: taskDispatchHistory.slice(0, TASK_DISPATCH_HISTORY_LIMIT),
-      })
-      const serialized = serializeTaskCenterWorkspaceSnapshot(snapshot)
-
-      try {
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(buildTaskCenterStorageKey(workspaceId), serialized)
-        }
-      } catch {
-        // Ignore local storage quota/runtime errors.
-      }
-
-      if (desktopApi.isTauriRuntime()) {
-        void desktopApi.fsWriteFile(workspaceId, taskCenterDraftFilePath, serialized).catch(() => {
-          // Keep local snapshot as fallback when fs persistence fails.
-        })
-      }
-      setTaskDraftSavedAtMs(snapshot.updatedAtMs)
-      taskPersistTimerRef.current = null
-    }, TASK_DRAFT_PERSIST_DEBOUNCE_MS)
-
-    return () => {
-      const timerId = taskPersistTimerRef.current
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-      taskPersistTimerRef.current = null
-    }
-  }, [activeWorkspaceId, taskAttachments, taskCenterDraftFilePath, taskDispatchHistory, taskDraft])
+  useTaskCenterDraftPersistence({
+    activeWorkspaceId,
+    taskCenterDraftFilePath,
+    stationsRef,
+    activeStationId,
+    taskDraft,
+    taskAttachments,
+    taskDispatchHistory,
+    taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
+    persistDebounceMs: TASK_DRAFT_PERSIST_DEBOUNCE_MS,
+    setTaskDraft,
+    setTaskAttachments,
+    setTaskDispatchHistory,
+    setTaskSending,
+    setTaskRetryingTaskId,
+    setTaskDraftSavedAtMs,
+    setTaskNotice,
+    onReadTaskSnapshotFile: readTaskCenterSnapshotFile,
+    onWriteTaskSnapshotFile: writeTaskCenterSnapshotFile,
+  })
 
   const handlePickWorkspaceDirectory = useMemo(
     () => async () => {
@@ -1541,19 +1540,6 @@ export function ShellRoot() {
     },
     [activeWorkspaceId, activeWorkspaceRoot, locale, workspacePathInput],
   )
-
-  const activeWorkspaceLabel = useMemo(() => {
-    if (!activeWorkspaceId) {
-      return t(locale, 'workspace.label.unbound')
-    }
-    if (!activeWorkspaceName || activeWorkspaceName === activeWorkspaceId) {
-      return t(locale, 'workspace.label.id', { id: activeWorkspaceId })
-    }
-    return t(locale, 'workspace.label.nameId', {
-      name: activeWorkspaceName,
-      id: activeWorkspaceId,
-    })
-  }, [activeWorkspaceId, activeWorkspaceName, locale])
 
   const connectionLabel = useMemo(() => {
     switch (connectionState.code) {
@@ -1812,326 +1798,96 @@ export function ShellRoot() {
     [ensureStationTerminalSession, sendStationTerminalInput],
   )
 
-  const updateTaskDraft = useMemo(
-    () => (patch: Partial<TaskDraftState>) => {
-      setTaskDraft((prev) => ({ ...prev, ...patch }))
+  const persistTaskDocument = useCallback(
+    async (input: {
+      workspaceId: string
+      taskFilePath: string
+      manifestPath: string
+      markdownContent: string
+      manifestContent: string
+    }) => {
+      await desktopApi.fsWriteFile(input.workspaceId, input.taskFilePath, input.markdownContent)
+      await desktopApi.fsWriteFile(input.workspaceId, input.manifestPath, input.manifestContent)
     },
     [],
   )
 
-  const addTaskAttachmentByPath = useMemo(
-    () => (rawPath: string) => {
-      const attachment = createTaskAttachment(rawPath)
-      if (!attachment) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.attachmentInvalid'),
-        })
-        return
+  const verifyTaskFileReadable = useCallback(
+    async (input: { workspaceId: string; taskFilePath: string }) => {
+      await desktopApi.fsReadFile(input.workspaceId, input.taskFilePath)
+    },
+    [],
+  )
+
+  const deliverTaskToStation = useCallback(
+    async (input: {
+      station: AgentStation
+      taskId: string
+      taskFilePath: string
+      title: string
+      setStationTaskSignals: Dispatch<SetStateAction<Record<string, StationTaskSignal>>>
+    }) => {
+      const { station, taskId, taskFilePath, title, setStationTaskSignals } = input
+      const sessionId = await ensureStationTerminalSession(station.id)
+      if (!sessionId) {
+        throw new Error('TARGET_AGENT_SESSION_UNAVAILABLE')
       }
-      setTaskAttachments((prev) => {
-        if (prev.some((item) => item.path === attachment.path)) {
-          setTaskNotice({
-            kind: 'info',
-            message: t(locale, 'taskCenter.notice.attachmentExists'),
-          })
-          return prev
-        }
-        setTaskNotice({
-          kind: 'success',
-          message: t(locale, 'taskCenter.notice.attachmentAdded', { name: attachment.name }),
-        })
-        return [...prev, attachment]
-      })
-      setTaskDraft((prev) => ({ ...prev, attachmentInput: '' }))
-    },
-    [locale],
-  )
-
-  const addTaskAttachmentFromInput = useMemo(
-    () => () => {
-      addTaskAttachmentByPath(taskDraft.attachmentInput)
-    },
-    [addTaskAttachmentByPath, taskDraft.attachmentInput],
-  )
-
-  const removeTaskAttachment = useMemo(
-    () => (attachmentId: string) => {
-      setTaskAttachments((prev) => prev.filter((item) => item.id !== attachmentId))
-    },
-    [],
-  )
-
-  const insertTaskAttachmentReference = useMemo(
-    () => (attachmentId: string) => {
-      const attachment = taskAttachments.find((item) => item.id === attachmentId)
-      if (!attachment) {
-        return
-      }
-      const reference = buildAttachmentReferenceMarkdown(attachment)
-      setTaskDraft((prev) => ({
-        ...prev,
-        markdown: `${prev.markdown}${prev.markdown ? '\n' : ''}${reference}`,
-      }))
-    },
-    [taskAttachments],
-  )
-
-  const insertTaskSnippet = useMemo(
-    () => (snippet: TaskMarkdownSnippet) => {
-      const block = buildMarkdownSnippet(snippet)
-      setTaskDraft((prev) => ({
-        ...prev,
-        markdown: `${prev.markdown}${block}`,
-      }))
-    },
-    [],
-  )
-
-  const deliverTaskToStation = useMemo(
-    () =>
-      async (input: {
-        station: AgentStation
-        taskId: string
-        taskFilePath: string
-        title: string
-      }) => {
-        const { station, taskId, taskFilePath, title } = input
-        const sessionId = await ensureStationTerminalSession(station.id)
-        if (!sessionId) {
-          throw new Error('TARGET_AGENT_SESSION_UNAVAILABLE')
-        }
-        appendStationTerminalOutput(
-          station.id,
-          t(locale, 'system.taskDispatched', {
+      appendStationTerminalOutput(
+        station.id,
+        t(locale, 'system.taskDispatched', {
+          taskId,
+          path: taskFilePath,
+        }),
+      )
+      sendStationTerminalInput(station.id, `${buildTaskDispatchCommand(taskId, taskFilePath)}\n`)
+      setStationTaskSignals((prev) => {
+        const previousSignal = prev[station.id]
+        return {
+          ...prev,
+          [station.id]: {
+            nonce: (previousSignal?.nonce ?? 0) + 1,
             taskId,
-            path: taskFilePath,
-          }),
-        )
-        sendStationTerminalInput(station.id, `${buildTaskDispatchCommand(taskId, taskFilePath)}\n`)
-        setStationTaskSignals((prev) => {
-          const previousSignal = prev[station.id]
-          return {
-            ...prev,
-            [station.id]: {
-              nonce: (previousSignal?.nonce ?? 0) + 1,
-              taskId,
-              title,
-              receivedAtMs: Date.now(),
-            },
-          }
-        })
-      },
+            title,
+            receivedAtMs: Date.now(),
+          },
+        }
+      })
+    },
     [appendStationTerminalOutput, ensureStationTerminalSession, locale, sendStationTerminalInput],
   )
 
-  const dispatchTaskToAgent = useMemo(
-    () => async () => {
-      if (taskSending || taskRetryingTaskId) {
-        return
-      }
-      const targetStationId = resolveValidTaskTarget(
-        stationsRef.current,
-        taskDraft.targetStationId,
-        activeStationId,
-      )
-      const targetStation = stationsRef.current.find((station) => station.id === targetStationId)
-      if (!targetStation) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.targetRequired'),
-        })
-        return
-      }
-      if (!activeWorkspaceId) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.workspaceRequired'),
-        })
-        return
-      }
-      if (!taskDraft.markdown.trim()) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.contentRequired'),
-        })
-        return
-      }
-
-      const createdAt = new Date()
-      const taskId = buildTaskId(createdAt)
-      const document = buildTaskDocument({
-        taskId,
-        draft: taskDraft,
-        targetStation,
-        attachments: taskAttachments,
-        createdAt,
-      })
-
-      setTaskDispatchHistory((prev) =>
-        pushTaskDispatchHistory(
-          prev,
-          buildDispatchRecord({
-            taskId,
-            title: document.title,
-            targetStation,
-            attachmentCount: taskAttachments.length,
-            createdAtMs: createdAt.getTime(),
-            status: 'sending',
-            taskFilePath: document.taskFilePath,
-          }),
-          TASK_DISPATCH_HISTORY_LIMIT,
-        ),
-      )
-      setTaskSending(true)
-      setTaskNotice({
-        kind: 'info',
-        message: t(locale, 'taskCenter.notice.sending'),
-      })
-
-      try {
-        await desktopApi.fsWriteFile(activeWorkspaceId, document.taskFilePath, document.markdownContent)
-        await desktopApi.fsWriteFile(activeWorkspaceId, document.manifestPath, document.manifestContent)
-        await deliverTaskToStation({
-          station: targetStation,
-          taskId,
-          taskFilePath: document.taskFilePath,
-          title: document.title,
-        })
-        setTaskDispatchHistory((prev) =>
-          replaceTaskDispatchRecord(prev, taskId, {
-            status: 'sent',
-            detail: undefined,
-          }),
-        )
-        setTaskDraft((prev) => ({
-          ...prev,
-          title: '',
-          markdown: '',
-          attachmentInput: '',
-          targetStationId,
-        }))
-        setTaskAttachments([])
-        setTaskNotice({
-          kind: 'success',
-          message: t(locale, 'taskCenter.notice.sendSuccess', {
-            station: targetStation.name,
-          }),
-        })
-      } catch (error) {
-        const detail = describeError(error)
-        setTaskDispatchHistory((prev) =>
-          replaceTaskDispatchRecord(prev, taskId, {
-            status: 'failed',
-            detail,
-          }),
-        )
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.sendFailed', {
-            detail,
-          }),
-        })
-      } finally {
-        setTaskSending(false)
-      }
-    },
-    [
-      activeStationId,
-      activeWorkspaceId,
-      deliverTaskToStation,
-      locale,
-      taskAttachments,
-      taskDraft,
-      taskRetryingTaskId,
-      taskSending,
-    ],
-  )
-
-  const retryTaskDispatch = useMemo(
-    () => async (taskId: string) => {
-      if (taskSending || taskRetryingTaskId) {
-        return
-      }
-      if (!activeWorkspaceId) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.workspaceRequired'),
-        })
-        return
-      }
-      const targetRecord = taskDispatchHistory.find((record) => record.taskId === taskId)
-      if (!targetRecord || targetRecord.status !== 'failed') {
-        return
-      }
-      const targetStation = stationsRef.current.find((station) => station.id === targetRecord.targetStationId)
-      if (!targetStation) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.targetRequired'),
-        })
-        return
-      }
-
-      setTaskRetryingTaskId(taskId)
-      setTaskNotice({
-        kind: 'info',
-        message: t(locale, 'taskCenter.notice.retrying'),
-      })
-      setTaskDispatchHistory((prev) =>
-        replaceTaskDispatchRecord(prev, taskId, {
-          status: 'sending',
-          detail: undefined,
-        }),
-      )
-
-      try {
-        await desktopApi.fsReadFile(activeWorkspaceId, targetRecord.taskFilePath)
-        await deliverTaskToStation({
-          station: targetStation,
-          taskId: targetRecord.taskId,
-          taskFilePath: targetRecord.taskFilePath,
-          title: targetRecord.title,
-        })
-        setTaskDispatchHistory((prev) =>
-          replaceTaskDispatchRecord(prev, taskId, {
-            status: 'sent',
-            detail: undefined,
-          }),
-        )
-        setTaskNotice({
-          kind: 'success',
-          message: t(locale, 'taskCenter.notice.retrySuccess', {
-            taskId: targetRecord.taskId,
-          }),
-        })
-      } catch (error) {
-        const detail = describeError(error)
-        setTaskDispatchHistory((prev) =>
-          replaceTaskDispatchRecord(prev, taskId, {
-            status: 'failed',
-            detail,
-          }),
-        )
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.retryFailed', {
-            detail,
-          }),
-        })
-      } finally {
-        setTaskRetryingTaskId(null)
-      }
-    },
-    [
-      activeWorkspaceId,
-      deliverTaskToStation,
-      locale,
-      taskDispatchHistory,
-      taskRetryingTaskId,
-      taskSending,
-    ],
-  )
+  const {
+    updateTaskDraft,
+    addTaskAttachmentByPath,
+    addTaskAttachmentFromInput,
+    removeTaskAttachment,
+    insertTaskAttachmentReference,
+    insertTaskSnippet,
+    dispatchTaskToAgent,
+    retryTaskDispatch,
+  } = useTaskDispatchActions({
+    locale,
+    activeWorkspaceId,
+    activeStationId,
+    stationsRef,
+    taskDraft,
+    taskAttachments,
+    taskDispatchHistory,
+    taskSending,
+    taskRetryingTaskId,
+    setTaskDraft,
+    setTaskAttachments,
+    setTaskDispatchHistory,
+    setTaskSending,
+    setTaskRetryingTaskId,
+    setTaskNotice,
+    onPersistTaskDocument: persistTaskDocument,
+    onVerifyTaskFileReadable: verifyTaskFileReadable,
+    onDeliverTaskToStation: deliverTaskToStation,
+    setStationTaskSignals,
+    describeError,
+    taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
+  })
 
   const addStation = useMemo(
     () => (input: CreateStationInput) => {
@@ -2243,80 +1999,6 @@ export function ShellRoot() {
     },
     [appendStationTerminalOutput, locale, setStationTerminalState],
   )
-
-  const updateStationRole = useMemo(
-    () => (stationId: string, role: AgentStation['role']) => {
-      let changed = false
-      setStations((prev) =>
-        prev.map((station) => {
-          if (station.id !== stationId || station.role === role) {
-            return station
-          }
-          changed = true
-          const workdirs = station.customWorkdir
-            ? {
-                roleWorkdirRel: buildRoleWorkdirRel(role),
-                agentWorkdirRel: station.agentWorkdirRel,
-              }
-            : buildStationWorkdirs(role, station.id)
-          return {
-            ...station,
-            role,
-            ...workdirs,
-          }
-        }),
-      )
-      if (!changed) {
-        return
-      }
-      const sessionId = stationTerminalsRef.current[stationId]?.sessionId
-      if (!sessionId) {
-        resetStationTerminalOutput(stationId)
-        return
-      }
-      if (!desktopApi.isTauriRuntime()) {
-        appendStationTerminalOutput(
-          stationId,
-          t(locale, 'system.killSkippedNoRuntime', {
-            sessionId,
-          }),
-        )
-        return
-      }
-      void (async () => {
-        let shouldReset = true
-        try {
-          await desktopApi.terminalKill(sessionId, 'TERM')
-        } catch (error) {
-          const detail = describeError(error)
-          if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
-            shouldReset = false
-            appendStationTerminalOutput(
-              stationId,
-              t(locale, 'system.killFailed', {
-                detail,
-              }),
-            )
-          }
-        }
-        if (!shouldReset) {
-          return
-        }
-        {
-          delete sessionStationRef.current[sessionId]
-          delete terminalSessionVisibilityRef.current[sessionId]
-          setStationTerminalState(stationId, {
-            sessionId: null,
-            stateRaw: 'idle',
-            unreadCount: 0,
-          })
-          resetStationTerminalOutput(stationId)
-        }
-      })()
-    },
-    [appendStationTerminalOutput, locale, resetStationTerminalOutput, setStationTerminalState],
-  )
-
 
   const canvasStations = useMemo(() => {
     if (activeNavId === 'stations') {
@@ -2818,29 +2500,24 @@ export function ShellRoot() {
         intensity={uiPreferences.ambientLightingIntensity}
       />
 
-      <div ref={shellTopRef} className="relative z-10">
+      <div ref={shellTopRef} className="relative z-40">
         <TopControlBar
           locale={locale}
-          activeWorkspaceLabel={activeWorkspaceLabel}
           workspacePath={workspacePathInput}
           connectionLabel={connectionLabel}
           nativeWindowTop={nativeWindowTop}
           nativeWindowTopMacOs={nativeWindowTopMacOs}
           nativeWindowTopLinux={nativeWindowTopLinux}
-          onWorkspacePathChange={setWorkspacePathInput}
+          windowMaximized={windowMaximized}
           onPickWorkspaceDirectory={() => {
             void handlePickWorkspaceDirectory()
-          }}
-          onRefreshGit={() => {
-            if (activeNavId === 'git') {
-              void gitController.refreshAll()
-              return
-            }
-            void refreshGit(activeWorkspaceId)
           }}
           onOpenSettings={() => {
             setIsSettingsOpen(true)
           }}
+          onWindowMinimize={handleWindowMinimize}
+          onWindowToggleMaximize={handleWindowToggleMaximize}
+          onWindowClose={handleWindowClose}
         />
       </div>
 
@@ -2913,7 +2590,6 @@ export function ShellRoot() {
                 onRemoveStation={(stationId) => {
                   void removeStation(stationId)
                 }}
-                onUpdateStationRole={updateStationRole}
               />
             ) : activeNavId === 'git' ? (
               <GitOperationsPane controller={gitController} />

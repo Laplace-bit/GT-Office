@@ -2,17 +2,13 @@ import { memo } from 'react'
 import type { AgentStation } from './model'
 import type {
   TaskAttachment,
+  TaskCenterNotice,
   TaskDispatchRecord,
   TaskDraftState,
   TaskMarkdownSnippet,
-} from './task-center-model'
+} from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
-
-interface TaskCenterNotice {
-  kind: 'info' | 'success' | 'error'
-  message: string
-}
 
 interface TaskCenterPaneProps {
   locale: Locale
@@ -239,5 +235,3 @@ function TaskCenterPaneView({
 }
 
 export const TaskCenterPane = memo(TaskCenterPaneView)
-
-export type { TaskCenterNotice }

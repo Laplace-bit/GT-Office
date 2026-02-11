@@ -7,8 +7,8 @@ import {
   type GitStashEntry,
   type GitStatusFile,
   type GitStatusResponse,
-} from '../integration/desktop-api'
-import { t, type Locale } from '../i18n/ui-locale'
+} from '@shell/integration/desktop-api'
+import { t, type Locale } from '@shell/i18n/ui-locale'
 
 // ============================================
 // Types

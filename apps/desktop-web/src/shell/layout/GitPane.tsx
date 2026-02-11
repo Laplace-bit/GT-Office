@@ -7,7 +7,7 @@ import {
   ROW_HEIGHT,
   OVERSCAN_ROWS,
   type GitWorkspaceController,
-} from './useGitWorkspaceController'
+} from '@features/git'
 import { DiffViewer } from './DiffViewer'
 import { GitGraphView } from './GitGraphView'
 import './diff-viewer.css'
@@ -611,7 +611,6 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
             path={selectedPath}
             locale={locale}
             onModeChange={setDiffViewMode}
-            onClose={() => setShowDiffView(false)}
           />
         ) : (
           <GitGraphView

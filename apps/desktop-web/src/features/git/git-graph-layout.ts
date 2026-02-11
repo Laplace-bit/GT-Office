@@ -1,4 +1,4 @@
-import type { GitCommitEntry } from '../integration/desktop-api'
+import type { GitCommitEntry } from '@shell/integration/desktop-api'
 
 // ============================================
 // Constants

@@ -1,8 +1,8 @@
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
-import { buildStationWorkdirs, type StationRole } from './station-workdir-model'
+import { buildStationWorkdirs, type StationRole } from '@features/workspace'
 
-export type { StationRole } from './station-workdir-model'
+export type { StationRole } from '@features/workspace'
 
 export type NavItemId =
   | 'stations'

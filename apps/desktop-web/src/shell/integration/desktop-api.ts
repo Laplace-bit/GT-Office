@@ -421,6 +421,7 @@ type RuntimeWindowController = {
   setDecorations: (decorations: boolean) => Promise<void>
   isMaximized: () => Promise<boolean>
   toggleMaximize: () => Promise<void>
+  startDragging: () => Promise<void>
   minimize: () => Promise<void>
   close: () => Promise<void>
   onResized: (handler: () => void) => Promise<() => void>
@@ -775,6 +776,18 @@ export const desktopApi = {
     try {
       const window = await getWindowController()
       await window.toggleMaximize()
+      return true
+    } catch {
+      return false
+    }
+  },
+  async windowStartDragging(): Promise<boolean> {
+    if (!isTauriRuntime()) {
+      return false
+    }
+    try {
+      const window = await getWindowController()
+      await window.startDragging()
       return true
     } catch {
       return false

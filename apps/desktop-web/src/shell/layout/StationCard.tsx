@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 import type { AgentStation } from './model'
-import type { StationTaskSignal } from './task-center-model'
+import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
@@ -88,6 +88,10 @@ function StationCardView({
       pendingTerminalFocusRef.current = false
     })
   }, [active, renderTerminal])
+  const activateStationAndFocusTerminal = useCallback(() => {
+    onSelectStation(station.id)
+    requestTerminalFocus()
+  }, [onSelectStation, requestTerminalFocus, station.id])
 
   const handleBindSink = useCallback(
     (stationId: string, sink: StationTerminalSink | null) => {
@@ -159,13 +163,12 @@ function StationCardView({
         .filter(Boolean)
         .join(' ')}
       onClick={(event) => {
-        // Only handle clicks on the card itself, not on terminal or other interactive elements
+        // Let terminal own its internal click handling; card click should activate+focus terminal.
         const target = event.target as HTMLElement
-        if (target.closest('.station-terminal-shell') || target.closest('button')) {
+        if (target.closest('.station-terminal-shell')) {
           return
         }
-        onSelectStation(station.id)
-        requestTerminalFocus()
+        activateStationAndFocusTerminal()
       }}
       onDoubleClick={(event) => {
         const target = event.target as HTMLElement
@@ -205,6 +208,7 @@ function StationCardView({
             title={t(locale, 'workbench.launchTerminal')}
             onClick={(event) => {
               event.stopPropagation()
+              activateStationAndFocusTerminal()
               onLaunchStationTerminal(station.id)
             }}
           >
@@ -218,6 +222,7 @@ function StationCardView({
             title={t(locale, 'workbench.launchCliAgent')}
             onClick={(event) => {
               event.stopPropagation()
+              activateStationAndFocusTerminal()
               onLaunchCliAgent(station.id)
             }}
           >
@@ -231,6 +236,7 @@ function StationCardView({
             title={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
             onClick={(event) => {
               event.stopPropagation()
+              activateStationAndFocusTerminal()
               if (isFullscreen) {
                 onExitFullscreen()
                 return
@@ -252,6 +258,7 @@ function StationCardView({
             title={t(locale, 'workbench.removeStation')}
             onClick={(event) => {
               event.stopPropagation()
+              activateStationAndFocusTerminal()
               onRemoveStation(station.id)
             }}
           >

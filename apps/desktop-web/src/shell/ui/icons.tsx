@@ -11,6 +11,7 @@ export type AppIconName =
   | 'settings'
   | 'terminal'
   | 'sparkles'
+  | 'minus'
   | 'expand'
   | 'collapse'
   | 'close'
@@ -116,6 +117,12 @@ export function AppIcon({ name, className, ...props }: AppIconProps) {
           <path d="M10 4.1 11 7l2.9 1-2.9 1L10 11.9 9 9 6.1 8 9 7l1-2.9Z" />
           <path d="M14.7 11.9 15.3 13l1.2.6-1.2.6-.6 1.2-.6-1.2-1.2-.6 1.2-.6.6-1.1Z" />
           <path d="M5.4 11.9 6 13l1.2.6-1.2.6-.6 1.2-.6-1.2-1.2-.6 1.2-.6.6-1.1Z" />
+        </svg>
+      )
+    case 'minus':
+      return (
+        <svg viewBox="0 0 20 20" fill="none" className={className} {...props}>
+          <path d="M4.8 10h10.4" />
         </svg>
       )
     case 'expand':

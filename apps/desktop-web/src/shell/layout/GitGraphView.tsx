@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GitCommitEntry } from '../integration/desktop-api'
-import { formatGitTimestamp } from './useGitWorkspaceController'
+import { formatGitTimestamp } from '@features/git'
 import type { Locale } from '../i18n/ui-locale'
 import {
   buildGraphLayout,
@@ -9,7 +9,7 @@ import {
   MAX_LANES,
   type GraphRow,
   type RefLabel,
-} from './git-graph-layout'
+} from '@features/git'
 
 // ============================================
 // Constants

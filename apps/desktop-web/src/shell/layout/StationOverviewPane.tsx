@@ -10,7 +10,7 @@ import {
   organizationDepartmentOrder,
   type OrganizationDepartment,
   type StationOverviewState,
-} from './station-overview-model'
+} from '@features/workspace'
 
 interface StationOverviewPaneProps {
   locale: Locale

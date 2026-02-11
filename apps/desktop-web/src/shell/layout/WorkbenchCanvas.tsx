@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { AgentStation } from './model'
-import type { StationTaskSignal } from './task-center-model'
+import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import type { StationTerminalSink } from './StationXtermTerminal'
@@ -264,6 +264,7 @@ function WorkbenchCanvasView({
                         onLaunchStationTerminal={onLaunchStationTerminal}
                         onLaunchCliAgent={onLaunchCliAgent}
                         onSendInputData={onSendInputData}
+                        onResizeTerminal={onResizeTerminal}
                         onBindTerminalSink={onBindTerminalSink}
                         onRemoveStation={onRemoveStation}
                         onEnterFullscreen={handleEnterFullscreen}
@@ -300,6 +301,7 @@ function WorkbenchCanvasView({
                 onLaunchStationTerminal={onLaunchStationTerminal}
                 onLaunchCliAgent={onLaunchCliAgent}
                 onSendInputData={onSendInputData}
+                onResizeTerminal={onResizeTerminal}
                 onBindTerminalSink={onBindTerminalSink}
                 onRemoveStation={onRemoveStation}
                 onEnterFullscreen={handleEnterFullscreen}

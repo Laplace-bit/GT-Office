@@ -1,4 +1,4 @@
-import type { AgentStation } from './model'
+import type { AgentStation } from '@shell/layout/model'
 
 export type TaskAttachmentCategory =
   | 'code'
@@ -21,6 +21,11 @@ export interface TaskDraftState {
   markdown: string
   targetStationId: string
   attachmentInput: string
+}
+
+export interface TaskCenterNotice {
+  kind: 'info' | 'success' | 'error'
+  message: string
 }
 
 export type TaskDispatchStatus = 'sending' | 'sent' | 'failed'

@@ -32,8 +32,6 @@ export interface DiffViewerProps {
   locale: 'zh-CN' | 'en-US'
   /** Callback when mode changes */
   onModeChange: (mode: 'split' | 'unified') => void
-  /** Callback to close the viewer */
-  onClose: () => void
 }
 
 // ============================================
@@ -235,7 +233,6 @@ export const DiffViewer = memo(function DiffViewer({
   path,
   locale,
   onModeChange,
-  onClose,
 }: DiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
