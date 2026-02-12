@@ -84,6 +84,7 @@ export interface GitWorkspaceController {
   pull: () => Promise<void>
   push: () => Promise<void>
   checkout: () => Promise<void>
+  checkoutTo: (target: string) => Promise<void>
   createBranch: () => Promise<void>
   deleteBranch: () => Promise<void>
   stashPush: () => Promise<void>
@@ -456,15 +457,21 @@ export function useGitWorkspaceController({
     })
   }, [refreshAll, runAction, workspaceId])
 
-  const checkout = useCallback(async () => {
-    if (!workspaceId || !checkoutTarget.trim()) {
+  const checkoutTo = useCallback(async (target: string) => {
+    const nextTarget = target.trim()
+    if (!workspaceId || !nextTarget) {
       return
     }
+    setCheckoutTarget(nextTarget)
     await runAction('checkout', async () => {
-      await desktopApi.gitCheckout(workspaceId, checkoutTarget.trim(), { create: false })
+      await desktopApi.gitCheckout(workspaceId, nextTarget, { create: false })
       await refreshAll()
     })
-  }, [checkoutTarget, refreshAll, runAction, workspaceId])
+  }, [refreshAll, runAction, workspaceId])
+
+  const checkout = useCallback(async () => {
+    await checkoutTo(checkoutTarget)
+  }, [checkoutTarget, checkoutTo])
 
   const createBranch = useCallback(async () => {
     const branch = newBranchName.trim()
@@ -704,6 +711,7 @@ export function useGitWorkspaceController({
     pull,
     push,
     checkout,
+    checkoutTo,
     createBranch,
     deleteBranch,
     stashPush,

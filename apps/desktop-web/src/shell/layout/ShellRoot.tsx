@@ -2745,9 +2745,11 @@ export function ShellRoot() {
       <div ref={shellStatusRef} className="relative z-10">
         <StatusBar
           locale={locale}
-          activeWorkspaceLabel={activeWorkspaceId ?? t(locale, 'workspace.label.unbound')}
           gitBranch={gitSummary?.branch ?? '-'}
+          gitBranches={gitController.branches}
           gitChangedFiles={gitSummary?.files.length ?? 0}
+          onCheckoutBranch={gitController.checkoutTo}
+          checkoutLoading={gitController.actionLoading === 'checkout'}
           agentOnline={6}
           agentTotal={8}
           terminalSessions={terminalSessionCount}
