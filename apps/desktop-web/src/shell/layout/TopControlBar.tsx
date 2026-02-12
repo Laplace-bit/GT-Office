@@ -147,6 +147,8 @@ export function TopControlBar({
     .filter(Boolean)
     .join(' ')
 
+  const workspaceBadgeDragRegion = nativeWindowTop && windowPlatform !== 'windows' ? '' : undefined
+
   const renderWindowControls = () => (
     <div className="vb-window-controls" role="toolbar" aria-label={t(locale, 'topControlBar.windowControls')}>
       {windowActionButtons.map((btn) => (
@@ -185,7 +187,7 @@ export function TopControlBar({
         </div>
         <div
           className="vb-workspace-badge"
-          data-tauri-drag-region={nativeWindowTop ? '' : undefined}
+          data-tauri-drag-region={workspaceBadgeDragRegion}
           onDoubleClick={nativeWindowTop ? onWindowToggleMaximize : undefined}
           title={workspacePathText}
         >

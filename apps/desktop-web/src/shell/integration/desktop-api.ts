@@ -139,6 +139,26 @@ export interface GitLogResponse {
   entries: GitCommitEntry[]
 }
 
+export interface GitCommitDetailFile {
+  status: string
+  path: string
+  previousPath?: string | null
+}
+
+export interface GitCommitDetailResponse {
+  workspaceId: string
+  commit: string
+  shortCommit: string
+  parents: string[]
+  refs: string[]
+  authorName: string
+  authorEmail: string
+  authoredAt: string
+  summary: string
+  body: string
+  files: GitCommitDetailFile[]
+}
+
 export interface GitBranchEntry {
   name: string
   current: boolean
@@ -421,7 +441,6 @@ type RuntimeWindowController = {
   setDecorations: (decorations: boolean) => Promise<void>
   isMaximized: () => Promise<boolean>
   toggleMaximize: () => Promise<void>
-  startDragging: () => Promise<void>
   minimize: () => Promise<void>
   close: () => Promise<void>
   onResized: (handler: () => void) => Promise<() => void>
@@ -521,6 +540,12 @@ export const desktopApi = {
       workspaceId,
       limit: options?.limit ?? null,
       skip: options?.skip ?? null,
+    })
+  },
+  gitCommitDetail(workspaceId: string, commit: string) {
+    return invokeCommand<GitCommitDetailResponse>('git_commit_detail', {
+      workspaceId,
+      commit,
     })
   },
   gitListBranches(workspaceId: string, includeRemote?: boolean) {
@@ -776,18 +801,6 @@ export const desktopApi = {
     try {
       const window = await getWindowController()
       await window.toggleMaximize()
-      return true
-    } catch {
-      return false
-    }
-  },
-  async windowStartDragging(): Promise<boolean> {
-    if (!isTauriRuntime()) {
-      return false
-    }
-    try {
-      const window = await getWindowController()
-      await window.startDragging()
       return true
     } catch {
       return false

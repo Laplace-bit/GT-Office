@@ -102,6 +102,7 @@ pub fn run() {
             git::git_discard,
             git::git_commit,
             git::git_log,
+            git::git_commit_detail,
             git::git_list_branches,
             git::git_checkout,
             git::git_create_branch,

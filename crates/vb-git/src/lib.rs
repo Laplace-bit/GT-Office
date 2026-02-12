@@ -35,6 +35,29 @@ pub struct GitCommitEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitCommitFileEntry {
+    pub status: String,
+    pub path: String,
+    pub previous_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDetail {
+    pub commit: String,
+    pub short_commit: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
+    pub authored_at: String,
+    pub summary: String,
+    pub body: String,
+    pub files: Vec<GitCommitFileEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitBranchEntry {
     pub name: String,
     pub current: bool,
@@ -442,6 +465,24 @@ where
             "GIT_BRANCH_INVALID",
         )
         .map(|_| ())
+    }
+
+    fn validate_commit_id(commit: &str) -> AbstractionResult<String> {
+        let trimmed = commit.trim();
+        if trimmed.is_empty() {
+            return Err(AbstractionError::InvalidArgument {
+                message: "GIT_COMMIT_INVALID: commit cannot be empty".to_string(),
+            });
+        }
+
+        let is_hex = trimmed.chars().all(|value| value.is_ascii_hexdigit());
+        if !is_hex || trimmed.len() < 7 || trimmed.len() > 64 {
+            return Err(AbstractionError::InvalidArgument {
+                message: format!("GIT_COMMIT_INVALID: invalid commit id '{trimmed}'"),
+            });
+        }
+
+        Ok(trimmed.to_string())
     }
 
     fn parse_structured_output(lines: &str, expected_fields: usize) -> Vec<Vec<String>> {
@@ -1108,6 +1149,139 @@ where
         Ok(entries)
     }
 
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, commit = commit))]
+    pub fn commit_detail(
+        &self,
+        workspace_id: &WorkspaceId,
+        commit: &str,
+    ) -> AbstractionResult<GitCommitDetail> {
+        let commit_id = Self::validate_commit_id(commit)?;
+        let root = self.workspace_root(workspace_id)?;
+
+        let meta_output = self.run_git(
+            &root,
+            &[
+                "show",
+                "--no-patch",
+                "--date=iso-strict",
+                "--decorate=short",
+                "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s",
+                &commit_id,
+            ],
+            "GIT_COMMIT_DETAIL_FAILED",
+        )?;
+
+        let meta_fields = meta_output
+            .trim()
+            .split(LOG_FIELD_SEP)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        if meta_fields.len() < 8 {
+            return Err(AbstractionError::Internal {
+                message:
+                    "GIT_COMMIT_DETAIL_FAILED: failed to parse commit metadata".to_string(),
+            });
+        }
+
+        let body = self
+            .run_git(
+                &root,
+                &["show", "--no-patch", "--pretty=format:%b", &commit_id],
+                "GIT_COMMIT_DETAIL_FAILED",
+            )?
+            .trim_end()
+            .to_string();
+
+        let files_output = self.run_git(
+            &root,
+            &[
+                "show",
+                "--format=",
+                "--name-status",
+                "--find-renames",
+                "--find-copies",
+                &commit_id,
+            ],
+            "GIT_COMMIT_DETAIL_FAILED",
+        )?;
+
+        let mut files = Vec::new();
+        for line in files_output.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let fields = trimmed.split('\t').collect::<Vec<_>>();
+            if fields.len() < 2 {
+                continue;
+            }
+
+            let raw_status = fields[0].trim();
+            if raw_status.is_empty() {
+                continue;
+            }
+            let status = raw_status
+                .chars()
+                .next()
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| raw_status.to_string());
+
+            match status.as_str() {
+                "R" | "C" => {
+                    if fields.len() < 3 {
+                        continue;
+                    }
+                    let previous_path = fields[1].trim().to_string();
+                    let path = fields[2].trim().to_string();
+                    if path.is_empty() {
+                        continue;
+                    }
+                    files.push(GitCommitFileEntry {
+                        status,
+                        path,
+                        previous_path: (!previous_path.is_empty()).then_some(previous_path),
+                    });
+                }
+                _ => {
+                    let path = fields[1].trim().to_string();
+                    if path.is_empty() {
+                        continue;
+                    }
+                    files.push(GitCommitFileEntry {
+                        status,
+                        path,
+                        previous_path: None,
+                    });
+                }
+            }
+        }
+
+        let parents = meta_fields[2]
+            .split_whitespace()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string())
+            .collect::<Vec<_>>();
+        let refs = meta_fields[3]
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+
+        Ok(GitCommitDetail {
+            commit: meta_fields[0].clone(),
+            short_commit: meta_fields[1].clone(),
+            parents,
+            refs,
+            author_name: meta_fields[4].clone(),
+            author_email: meta_fields[5].clone(),
+            authored_at: meta_fields[6].clone(),
+            summary: meta_fields[7].clone(),
+            body,
+            files,
+        })
+    }
+
     #[instrument(skip(self), fields(workspace_id = %workspace_id, include_remote = include_remote))]
     pub fn list_branches(
         &self,
@@ -1563,6 +1737,29 @@ mod tests {
             .expect("git log");
         assert!(!log_entries.is_empty());
         assert_eq!(log_entries[0].summary, "feat: add a");
+    }
+
+    #[test]
+    fn commit_detail_includes_changed_files() {
+        let repo = TempRepo::create();
+        let service = InMemoryWorkspaceService::new();
+        let workspace = service.open(&repo.path).expect("open workspace");
+        let git_service = GitService::new(service);
+
+        fs::write(repo.path.join("README.md"), "hello\n").expect("write file");
+        git_service
+            .stage(&workspace.workspace_id, &[String::from("README.md")])
+            .expect("stage");
+        let commit_id = git_service
+            .commit(&workspace.workspace_id, "feat: add readme")
+            .expect("commit");
+
+        let detail = git_service
+            .commit_detail(&workspace.workspace_id, &commit_id)
+            .expect("commit detail");
+        assert_eq!(detail.commit, commit_id);
+        assert_eq!(detail.summary, "feat: add readme");
+        assert!(detail.files.iter().any(|item| item.path == "README.md"));
     }
 
     #[test]

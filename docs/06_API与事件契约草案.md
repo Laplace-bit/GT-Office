@@ -146,34 +146,37 @@
 7. `git.log`
    - req: `{ "workspaceId":"string", "limit":50, "skip":0 }`
    - resp: `{ "entries":[{"commit":"abc123","shortCommit":"abc123","parents":["def456"],"refs":["HEAD -> main","origin/main"],"authorName":"bot","authorEmail":"bot@example.com","authoredAt":"2026-02-08T11:00:00+08:00","summary":"feat: ..."}] }`
-8. `git.list_branches`
+8. `git.commit_detail`
+   - req: `{ "workspaceId":"string", "commit":"abc123" }`
+   - resp: `{ "commit":"abc123","shortCommit":"abc123","parents":["def456"],"refs":["HEAD -> main","origin/main"],"authorName":"bot","authorEmail":"bot@example.com","authoredAt":"2026-02-08T11:00:00+08:00","summary":"feat: ...","body":"...","files":[{"status":"M","path":"src/main.rs","previousPath":null},{"status":"R","path":"src/new.rs","previousPath":"src/old.rs"}] }`
+9. `git.list_branches`
    - req: `{ "workspaceId":"string", "includeRemote":false }`
    - resp: `{ "branches":[{"name":"main","current":true,"upstream":"origin/main","tracking":"=","commit":"abc123","summary":"feat: ..."}] }`
-9. `git.checkout`
+10. `git.checkout`
    - req: `{ "workspaceId":"string", "target":"feature/x", "create":false, "startPoint":"origin/main?" }`
    - resp: `{ "checkedOut":true }`
-10. `git.create_branch`
+11. `git.create_branch`
     - req: `{ "workspaceId":"string", "branch":"feature/x", "startPoint":"origin/main?" }`
     - resp: `{ "created":true }`
-11. `git.delete_branch`
+12. `git.delete_branch`
     - req: `{ "workspaceId":"string", "branch":"feature/x", "force":false }`
     - resp: `{ "deleted":true }`
-12. `git.fetch`
+13. `git.fetch`
     - req: `{ "workspaceId":"string", "remote":"origin?", "prune":true, "includeTags":true }`
     - resp: `{ "fetched":true, "remote":"origin" }`
-13. `git.pull`
+14. `git.pull`
     - req: `{ "workspaceId":"string", "remote":"origin?", "branch":"main?", "rebase":false }`
     - resp: `{ "pulled":true, "remote":"origin", "branch":"main?" }`
-14. `git.push`
+15. `git.push`
     - req: `{ "workspaceId":"string", "remote":"origin?", "branch":"main?", "setUpstream":false, "forceWithLease":false }`
     - resp: `{ "pushed":true, "remote":"origin", "branch":"main?" }`
-15. `git.stash_push`
+16. `git.stash_push`
     - req: `{ "workspaceId":"string", "message":"WIP?", "includeUntracked":false, "keepIndex":false }`
     - resp: `{ "stashed":true }`
-16. `git.stash_pop`
+17. `git.stash_pop`
     - req: `{ "workspaceId":"string", "stash":"stash@{0}?" }`
     - resp: `{ "popped":true }`
-17. `git.stash_list`
+18. `git.stash_list`
     - req: `{ "workspaceId":"string", "limit":20 }`
     - resp: `{ "entries":[{"stash":"stash@{0}","commit":"abc123","createdAt":"2026-02-08T11:00:00+08:00","summary":"WIP"}] }`
 

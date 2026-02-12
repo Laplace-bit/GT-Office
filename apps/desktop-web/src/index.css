@@ -89,14 +89,18 @@
   --vb-pressed-scale: 0.97;
   
   /* Terminal Colors */
-  --vb-terminal-bg: #1c1c1e;
-  --vb-terminal-border: rgba(255, 255, 255, 0.08);
+  --vb-terminal-bg: #f4efe4;
+  --vb-terminal-bg-top: #fbf7ee;
+  --vb-terminal-border: rgba(102, 83, 50, 0.18);
   --vb-terminal-focus: #007aff;
-  --vb-terminal-text: #e5e5e7;
-  --vb-terminal-prompt: #32d74b;
-  --vb-terminal-prefix: #64d2ff;
-  --vb-terminal-hint: #636366;
-  --vb-terminal-caret: #ff9f0a;
+  --vb-terminal-text: #3b3328;
+  --vb-terminal-prompt: #5c7b3a;
+  --vb-terminal-prefix: #2f6f9a;
+  --vb-terminal-hint: #8a7b67;
+  --vb-terminal-caret: #9c6a2f;
+  --vb-terminal-scrollbar-thumb: rgba(148, 118, 72, 0.34);
+  --vb-terminal-scrollbar-thumb-hover: rgba(148, 118, 72, 0.5);
+  --vb-terminal-scrollbar-track: rgba(251, 247, 238, 0.92);
   
   /* Typography - SF Pro inspired */
   --vb-font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -209,8 +213,17 @@
   
   /* Terminal Colors */
   --vb-terminal-bg: #1c1c1e;
+  --vb-terminal-bg-top: #16171b;
   --vb-terminal-border: rgba(255, 255, 255, 0.10);
   --vb-terminal-focus: #0a84ff;
+  --vb-terminal-text: #e5e5e7;
+  --vb-terminal-prompt: #32d74b;
+  --vb-terminal-prefix: #64d2ff;
+  --vb-terminal-hint: #636366;
+  --vb-terminal-caret: #ff9f0a;
+  --vb-terminal-scrollbar-thumb: rgba(143, 163, 187, 0.44);
+  --vb-terminal-scrollbar-thumb-hover: rgba(163, 182, 204, 0.62);
+  --vb-terminal-scrollbar-track: rgba(22, 23, 27, 0.78);
 }
 
 /* ========================================

@@ -17,6 +17,27 @@ interface StationXtermTerminalProps {
   onBindSink: (stationId: string, sink: StationTerminalSink | null) => void
 }
 
+const DOM_DELTA_LINE = 1
+const DOM_DELTA_PAGE = 2
+
+function normalizeWheelDeltaY(event: WheelEvent, viewport: HTMLElement): number {
+  if (event.deltaMode === DOM_DELTA_LINE) {
+    return event.deltaY * 16
+  }
+  if (event.deltaMode === DOM_DELTA_PAGE) {
+    return event.deltaY * Math.max(1, viewport.clientHeight)
+  }
+  return event.deltaY
+}
+
+function findScrollableStationGrid(element: HTMLElement): HTMLElement | null {
+  const grid = element.closest<HTMLElement>('.station-grid')
+  if (!grid) {
+    return null
+  }
+  return grid.scrollHeight > grid.clientHeight + 1 ? grid : null
+}
+
 function readCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
@@ -27,6 +48,32 @@ function readCssVarOr(name: string, fallback: string): string {
 }
 
 function getTerminalTheme(): ITheme {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'graphite-dark'
+  if (!isDark) {
+    return {
+      background: readCssVarOr('--vb-terminal-bg', '#f4efe4'),
+      foreground: readCssVarOr('--vb-terminal-text', '#3b3328'),
+      cursor: readCssVarOr('--vb-terminal-caret', '#9c6a2f'),
+      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f4efe4'),
+      selectionBackground: 'rgba(156, 106, 47, 0.2)',
+      black: '#4f4335',
+      red: '#b24e3f',
+      green: '#5c7b3a',
+      yellow: '#996b22',
+      blue: '#2f6f9a',
+      magenta: '#7d589e',
+      cyan: '#2d7f83',
+      white: '#6a5e50',
+      brightBlack: '#7d6f5f',
+      brightRed: '#cc6655',
+      brightGreen: '#709448',
+      brightYellow: '#b5832f',
+      brightBlue: '#4688b3',
+      brightMagenta: '#9670b3',
+      brightCyan: '#40969c',
+      brightWhite: '#2f281f',
+    }
+  }
   return {
     background: readCssVarOr('--vb-terminal-bg', '#10151c'),
     foreground: readCssVarOr('--vb-terminal-text', '#d7e1ec'),
@@ -204,6 +251,45 @@ function StationXtermTerminalView({
         // Stop propagation to prevent parent handlers from interfering
         event.stopPropagation()
         terminalRef.current?.focus()
+      }}
+      onWheelCapture={(event) => {
+        const target = event.target
+        if (!(target instanceof Element)) {
+          return
+        }
+        const viewport =
+          target.closest<HTMLElement>('.xterm-viewport') ??
+          target.closest<HTMLElement>('.xterm')?.querySelector<HTMLElement>('.xterm-viewport') ??
+          event.currentTarget.querySelector<HTMLElement>('.xterm-viewport')
+        if (!viewport) {
+          return
+        }
+        const deltaY = normalizeWheelDeltaY(event.nativeEvent, viewport)
+        if (!Number.isFinite(deltaY) || deltaY === 0) {
+          return
+        }
+        const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+        const atTop = viewport.scrollTop <= 0
+        const atBottom = viewport.scrollTop >= maxScrollTop - 1
+        const forwardToGrid =
+          maxScrollTop <= 1 || (deltaY < 0 && atTop) || (deltaY > 0 && atBottom)
+        if (!forwardToGrid) {
+          return
+        }
+        const grid = findScrollableStationGrid(event.currentTarget)
+        if (!grid) {
+          return
+        }
+        const nextScrollTop = Math.min(
+          Math.max(0, grid.scrollTop + deltaY),
+          Math.max(0, grid.scrollHeight - grid.clientHeight),
+        )
+        if (Math.abs(nextScrollTop - grid.scrollTop) < 0.1) {
+          return
+        }
+        grid.scrollTop = nextScrollTop
+        event.preventDefault()
+        event.stopPropagation()
       }}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) {

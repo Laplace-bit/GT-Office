@@ -82,9 +82,29 @@ function failWithCargoHint() {
   process.exit(1)
 }
 
+function resolvePlatformTargetDir() {
+  if (process.platform === 'win32') {
+    return 'windows'
+  }
+  if (process.platform === 'darwin') {
+    return 'macos'
+  }
+  return 'linux'
+}
+
+function ensureCargoTargetDir(baseEnv) {
+  const nextEnv = { ...baseEnv }
+  const existing = nextEnv.CARGO_TARGET_DIR
+  if (typeof existing === 'string' && existing.trim().length > 0) {
+    return nextEnv
+  }
+  nextEnv.CARGO_TARGET_DIR = path.join(repoRoot, 'target', resolvePlatformTargetDir())
+  return nextEnv
+}
+
 async function main() {
   const passthroughArgs = process.argv.slice(2)
-  const env = { ...process.env }
+  const env = ensureCargoTargetDir({ ...process.env })
 
   const ensureResult = runNodeScript(ensureScriptPath, [], env)
   if (ensureResult.status !== 0) {

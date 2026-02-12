@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 use vb_abstractions::{GitStatusSummary, WorkspaceId};
 use vb_git::{
-    GitBranchEntry, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult, GitStashEntry,
+    GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult,
+    GitPushResult, GitStashEntry,
 };
 
 use crate::app_state::AppState;
@@ -96,6 +97,22 @@ fn build_git_log_payload(workspace_id: &WorkspaceId, entries: Vec<GitCommitEntry
     json!({
         "workspaceId": workspace_id.as_str(),
         "entries": entries
+    })
+}
+
+fn build_git_commit_detail_payload(workspace_id: &WorkspaceId, detail: GitCommitDetail) -> Value {
+    json!({
+        "workspaceId": workspace_id.as_str(),
+        "commit": detail.commit,
+        "shortCommit": detail.short_commit,
+        "parents": detail.parents,
+        "refs": detail.refs,
+        "authorName": detail.author_name,
+        "authorEmail": detail.author_email,
+        "authoredAt": detail.authored_at,
+        "summary": detail.summary,
+        "body": detail.body,
+        "files": detail.files
     })
 }
 
@@ -310,6 +327,20 @@ pub fn git_log(
         .log(&workspace_id, limit.unwrap_or(50), skip.unwrap_or(0))
         .map_err(to_command_error)?;
     Ok(build_git_log_payload(&workspace_id, entries))
+}
+
+#[tauri::command]
+pub fn git_commit_detail(
+    workspace_id: String,
+    commit: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let detail = state
+        .git_service
+        .commit_detail(&workspace_id, &commit)
+        .map_err(to_command_error)?;
+    Ok(build_git_commit_detail_payload(&workspace_id, detail))
 }
 
 #[tauri::command]
@@ -531,13 +562,15 @@ pub fn git_stash_list(
 mod tests {
     use super::{
         build_git_branches_payload, build_git_commit_payload, build_git_diff_payload,
-        build_git_discard_payload, build_git_fetch_payload, build_git_log_payload,
-        build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
-        build_git_stash_list_payload, build_git_status_payload, build_git_unstage_payload,
+        build_git_commit_detail_payload, build_git_discard_payload, build_git_fetch_payload,
+        build_git_log_payload, build_git_pull_payload, build_git_push_payload,
+        build_git_stage_payload, build_git_stash_list_payload, build_git_status_payload,
+        build_git_unstage_payload,
     };
     use vb_abstractions::{GitStatusFile, GitStatusSummary, WorkspaceId};
     use vb_git::{
-        GitBranchEntry, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult, GitStashEntry,
+        GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult,
+        GitPushResult, GitStashEntry,
     };
 
     #[test]
@@ -643,6 +676,31 @@ mod tests {
         assert_eq!(log_payload["entries"][0]["refs"][0], "HEAD -> main");
         assert_eq!(branch_payload["branches"][0]["name"], "main");
         assert_eq!(stash_payload["entries"][0]["stash"], "stash@{0}");
+    }
+
+    #[test]
+    fn git_commit_detail_payload_keeps_contract_fields() {
+        let workspace_id = WorkspaceId::new("ws-1");
+        let payload = build_git_commit_detail_payload(
+            &workspace_id,
+            GitCommitDetail {
+                commit: "1234567890abcdef".to_string(),
+                short_commit: "1234567".to_string(),
+                parents: vec!["1111111".to_string()],
+                refs: vec!["HEAD -> main".to_string()],
+                author_name: "bot".to_string(),
+                author_email: "bot@example.com".to_string(),
+                authored_at: "2026-01-01T00:00:00Z".to_string(),
+                summary: "feat: detail".to_string(),
+                body: "body".to_string(),
+                files: vec![],
+            },
+        );
+
+        assert_eq!(payload["workspaceId"], "ws-1");
+        assert_eq!(payload["shortCommit"], "1234567");
+        assert_eq!(payload["summary"], "feat: detail");
+        assert_eq!(payload["refs"][0], "HEAD -> main");
     }
 
     #[test]

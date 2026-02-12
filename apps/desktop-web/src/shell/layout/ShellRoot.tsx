@@ -23,7 +23,7 @@ import { StatusBar } from './StatusBar'
 import { TaskCenterPane } from './TaskCenterPane'
 import { TopControlBar } from './TopControlBar'
 import type { StationTerminalSink } from './StationXtermTerminal'
-import { WorkbenchCanvas } from './WorkbenchCanvas'
+import { WorkbenchCanvas, type WorkbenchLayoutPreset } from './WorkbenchCanvas'
 import {
   createDefaultStations,
   getNavItems,
@@ -448,6 +448,7 @@ export function ShellRoot() {
   const nativeWindowTop = tauriRuntime
   const nativeWindowTopMacOs = tauriRuntime && isMacOsPlatform()
   const nativeWindowTopLinux = tauriRuntime && !nativeWindowTopMacOs && isLinuxPlatform()
+  const nativeWindowTopWindows = nativeWindowTop && !nativeWindowTopMacOs && !nativeWindowTopLinux
   const [uiPreferences, setUiPreferences] = useState(loadUiPreferences)
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
   const [leftPaneResizing, setLeftPaneResizing] = useState(false)
@@ -456,6 +457,8 @@ export function ShellRoot() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
+  const [canvasLayoutPreset, setCanvasLayoutPreset] = useState<WorkbenchLayoutPreset>('auto')
+  const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
   const [activeStationId, setActiveStationId] = useState(initialStations[0]?.id ?? '')
@@ -546,6 +549,16 @@ export function ShellRoot() {
   useEffect(() => {
     stationsRef.current = stations
   }, [stations])
+
+  useEffect(() => {
+    if (!pendingScrollStationId) {
+      return
+    }
+    if (stations.some((station) => station.id === pendingScrollStationId)) {
+      return
+    }
+    setPendingScrollStationId(null)
+  }, [pendingScrollStationId, stations])
 
   useEffect(() => {
     localeRef.current = locale
@@ -736,6 +749,66 @@ export function ShellRoot() {
       if (cleanup) {
         cleanup()
       }
+    }
+  }, [nativeWindowTop])
+
+  useEffect(() => {
+    const draggingClassName = 'vb-window-dragging'
+    if (!nativeWindowTop) {
+      document.body.classList.remove(draggingClassName)
+      return
+    }
+
+    const topContainer = shellTopRef.current
+    if (!topContainer) {
+      return
+    }
+
+    const dragRegionSelector = '[data-tauri-drag-region]'
+    const interactiveSelector =
+      "button,input,textarea,select,a,[role='button'],[contenteditable='true'],label"
+
+    const clearDraggingClass = () => {
+      document.body.classList.remove(draggingClassName)
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || !event.isPrimary) {
+        return
+      }
+      const target = event.target
+      if (!(target instanceof Element)) {
+        return
+      }
+      const dragRegion = target.closest(dragRegionSelector)
+      if (!dragRegion) {
+        return
+      }
+      if (target.closest(interactiveSelector)) {
+        return
+      }
+      document.body.classList.add(draggingClassName)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        clearDraggingClass()
+      }
+    }
+
+    topContainer.addEventListener('pointerdown', handlePointerDown, true)
+    window.addEventListener('pointerup', clearDraggingClass)
+    window.addEventListener('pointercancel', clearDraggingClass)
+    window.addEventListener('blur', clearDraggingClass)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      topContainer.removeEventListener('pointerdown', handlePointerDown, true)
+      window.removeEventListener('pointerup', clearDraggingClass)
+      window.removeEventListener('pointercancel', clearDraggingClass)
+      window.removeEventListener('blur', clearDraggingClass)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      clearDraggingClass()
     }
   }, [nativeWindowTop])
 
@@ -2049,6 +2122,14 @@ export function ShellRoot() {
     setIsStationSearchOpen(true)
   }, [])
 
+  const handleCanvasLayoutPresetChange = useCallback((preset: WorkbenchLayoutPreset) => {
+    setCanvasLayoutPreset(preset)
+  }, [])
+
+  const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
+    setPendingScrollStationId((prev) => (prev === stationId ? null : prev))
+  }, [])
+
   const handleCanvasRemoveStation = useCallback(
     (stationId: string) => {
       void removeStation(stationId)
@@ -2496,7 +2577,7 @@ export function ShellRoot() {
       className="h-full max-h-full box-border grid grid-rows-[auto_1fr_auto] gap-[10px] p-[0_12px_12px] overflow-hidden bg-vb-bg transition-colors duration-300 relative"
     >
       <AmbientBackgroundLighting
-        enabled={uiPreferences.ambientLightingEnabled}
+        enabled={uiPreferences.ambientLightingEnabled && !nativeWindowTopWindows}
         intensity={uiPreferences.ambientLightingIntensity}
       />
 
@@ -2648,6 +2729,10 @@ export function ShellRoot() {
               onSendInputData={sendStationTerminalInput}
               onResizeTerminal={resizeStationTerminal}
               onBindTerminalSink={bindStationTerminalSink}
+              layoutPreset={canvasLayoutPreset}
+              onLayoutPresetChange={handleCanvasLayoutPresetChange}
+              scrollToStationId={pendingScrollStationId}
+              onScrollToStationHandled={handleCanvasScrollToStationHandled}
               onOpenStationManage={handleCanvasOpenStationManage}
               onOpenStationSearch={handleCanvasOpenStationSearch}
               onRemoveStation={handleCanvasRemoveStation}
@@ -2662,6 +2747,7 @@ export function ShellRoot() {
           locale={locale}
           activeWorkspaceLabel={activeWorkspaceId ?? t(locale, 'workspace.label.unbound')}
           gitBranch={gitSummary?.branch ?? '-'}
+          gitChangedFiles={gitSummary?.files.length ?? 0}
           agentOnline={6}
           agentTotal={8}
           terminalSessions={terminalSessionCount}
@@ -2727,7 +2813,9 @@ export function ShellRoot() {
           setStationOverviewState((prev) => ({ ...prev, query: value }))
         }}
         onSelectStation={(stationId) => {
+          setActiveNavId('stations')
           setActiveStationId(stationId)
+          setPendingScrollStationId(stationId)
         }}
       />
     </div>

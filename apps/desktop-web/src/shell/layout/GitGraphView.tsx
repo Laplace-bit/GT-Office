@@ -1,8 +1,11 @@
 import { memo, useMemo, useRef, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { GitCommitEntry } from '../integration/desktop-api'
+import type {
+  GitCommitDetailResponse,
+  GitCommitEntry,
+} from '../integration/desktop-api'
 import { formatGitTimestamp } from '@features/git'
-import type { Locale } from '../i18n/ui-locale'
+import { t, type Locale } from '../i18n/ui-locale'
 import {
   buildGraphLayout,
   BRANCH_COLORS,
@@ -27,6 +30,16 @@ const BRANCH_DOT_RADIUS = 3
 const GRAPH_OVERSCAN = 15
 /** Minimum graph column width (px) */
 const MIN_GRAPH_WIDTH = 80
+/** Minimum description column width (px) */
+const DESC_COL_MIN_WIDTH = 200
+/** Date column width (px) */
+const DATE_COL_WIDTH = 120
+/** Author column width (px) */
+const AUTHOR_COL_WIDTH = 120
+/** Commit hash column width (px) */
+const HASH_COL_WIDTH = 70
+/** Softer right-most lane color for visual comfort */
+const RIGHTMOST_LANE_COLOR = '#8aa6bf'
 
 // ============================================
 // Utility Functions
@@ -42,6 +55,24 @@ function sanitizeText(text: string | undefined | null): string {
   return text.replace(/\uFFFD/g, '').trim()
 }
 
+function resolveFileStatusClass(status: string): string {
+  const code = status.trim().charAt(0).toUpperCase()
+  switch (code) {
+    case 'A':
+      return 'add'
+    case 'M':
+      return 'modify'
+    case 'D':
+      return 'delete'
+    case 'R':
+      return 'rename'
+    case 'C':
+      return 'copy'
+    default:
+      return 'other'
+  }
+}
+
 
 
 // ============================================
@@ -51,16 +82,27 @@ function sanitizeText(text: string | undefined | null): string {
 interface GraphCellProps {
   row: GraphRow
   totalLanes: number
+  graphColWidth: number
   isFirst: boolean
   isLast: boolean
 }
 
-const GraphCell = memo(function GraphCell({ row, totalLanes, isFirst, isLast }: GraphCellProps) {
-  const width = Math.max(MIN_GRAPH_WIDTH, (totalLanes + 1) * LANE_WIDTH)
+const GraphCell = memo(function GraphCell({
+  row,
+  totalLanes,
+  graphColWidth,
+  isFirst,
+  isLast,
+}: GraphCellProps) {
+  const width = graphColWidth
   const height = GRAPH_ROW_HEIGHT
   const cx = row.lane * LANE_WIDTH + LANE_WIDTH / 2 + 4
   const cy = height / 2
-  const dotColor = BRANCH_COLORS[row.colorIndex]
+  const softenRightmostLane = totalLanes > 1
+  const dotColor =
+    softenRightmostLane && row.lane === totalLanes - 1
+      ? RIGHTMOST_LANE_COLOR
+      : BRANCH_COLORS[row.colorIndex]
 
   return (
     <svg
@@ -74,7 +116,10 @@ const GraphCell = memo(function GraphCell({ row, totalLanes, isFirst, isLast }: 
       {row.activeLanes.map((colorIdx, laneIdx) => {
         if (colorIdx < 0) return null
         const lx = laneIdx * LANE_WIDTH + LANE_WIDTH / 2 + 4
-        const color = BRANCH_COLORS[colorIdx]
+        const color =
+          softenRightmostLane && laneIdx === totalLanes - 1
+            ? RIGHTMOST_LANE_COLOR
+            : BRANCH_COLORS[colorIdx]
         const isCurrentLane = laneIdx === row.lane
 
         return (
@@ -106,7 +151,10 @@ const GraphCell = memo(function GraphCell({ row, totalLanes, isFirst, isLast }: 
       {/* Merge lines (curved connections from other lanes to this commit) */}
       {row.mergeFromLanes.map((fromLane) => {
         const fx = fromLane * LANE_WIDTH + LANE_WIDTH / 2 + 4
-        const mergeColor = BRANCH_COLORS[row.activeLanes[fromLane] ?? row.colorIndex]
+        const mergeColor =
+          softenRightmostLane && fromLane === totalLanes - 1
+            ? RIGHTMOST_LANE_COLOR
+            : BRANCH_COLORS[row.activeLanes[fromLane] ?? row.colorIndex]
         return (
           <g key={`merge-${fromLane}`}>
             <path
@@ -175,6 +223,9 @@ const RefBadge = memo(function RefBadge({ label }: RefBadgeProps) {
 interface GraphRowComponentProps {
   row: GraphRow
   totalLanes: number
+  graphColWidth: number
+  columnTemplate: string
+  rowMinWidth: number
   locale: Locale
   style: React.CSSProperties
   isSelected: boolean
@@ -186,6 +237,9 @@ interface GraphRowComponentProps {
 const GraphRowComponent = memo(function GraphRowComponent({
   row,
   totalLanes,
+  graphColWidth,
+  columnTemplate,
+  rowMinWidth,
   locale,
   style,
   isSelected,
@@ -204,7 +258,15 @@ const GraphRowComponent = memo(function GraphRowComponent({
   return (
     <div
       className={`git-graph-row ${isSelected ? 'git-graph-row--selected' : ''}`}
-      style={style}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: columnTemplate,
+        alignItems: 'center',
+        overflow: 'hidden',
+        ...style,
+        width: '100%',
+        minWidth: `${rowMinWidth}px`,
+      }}
       onClick={handleClick}
       role="row"
       tabIndex={0}
@@ -219,16 +281,48 @@ const GraphRowComponent = memo(function GraphRowComponent({
       <div
         className="git-graph-row__graph"
         role="cell"
-        style={{ width: Math.max(MIN_GRAPH_WIDTH, (totalLanes + 1) * LANE_WIDTH) }}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          overflow: 'hidden',
+        }}
       >
-        <GraphCell row={row} totalLanes={totalLanes} isFirst={isFirst} isLast={isLast} />
+        <GraphCell
+          row={row}
+          totalLanes={totalLanes}
+          graphColWidth={graphColWidth}
+          isFirst={isFirst}
+          isLast={isLast}
+        />
       </div>
 
       {/* Description column - flex grow with proper overflow handling */}
-      <div className="git-graph-row__desc" role="cell">
+      <div
+        className="git-graph-row__desc"
+        role="cell"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          overflow: 'hidden',
+          minWidth: 0,
+          width: '100%',
+        }}
+      >
         {/* Refs container - inline with proper spacing */}
         {row.refLabels.length > 0 && (
-          <span className="git-graph-row__refs">
+          <span
+            className="git-graph-row__refs"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              flexShrink: 1,
+              maxWidth: '100%',
+              minWidth: 0,
+              overflow: 'hidden',
+            }}
+          >
             {row.refLabels.slice(0, 3).map((label) => (
               <RefBadge key={`${label.type}-${label.name}`} label={label} />
             ))}
@@ -240,23 +334,38 @@ const GraphRowComponent = memo(function GraphRowComponent({
           </span>
         )}
         {/* Summary with proper truncation */}
-        <span className="git-graph-row__summary" title={summary}>
+        <span className="git-graph-row__summary" title={summary} style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {summary}
         </span>
       </div>
 
       {/* Date column */}
-      <div className="git-graph-row__date" role="cell" title={dateStr}>
+      <div
+        className="git-graph-row__date"
+        role="cell"
+        title={dateStr}
+        style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+      >
         {dateStr}
       </div>
 
       {/* Author column */}
-      <div className="git-graph-row__author" role="cell" title={author}>
+      <div
+        className="git-graph-row__author"
+        role="cell"
+        title={author}
+        style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+      >
         {author}
       </div>
 
       {/* Commit hash column */}
-      <div className="git-graph-row__hash" role="cell" title={row.entry.commit}>
+      <div
+        className="git-graph-row__hash"
+        role="cell"
+        title={row.entry.commit}
+        style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+      >
         {row.entry.shortCommit}
       </div>
     </div>
@@ -273,6 +382,9 @@ export interface GitGraphViewProps {
   historyLoading: boolean
   hasMoreHistory: boolean
   selectedCommit: string | null
+  selectedCommitDetail: GitCommitDetailResponse | null
+  commitDetailLoading: boolean
+  commitDetailError: string | null
   onSelectCommit: (hash: string) => void
   onLoadMore: () => void
   onResetToLatest: () => void
@@ -284,6 +396,9 @@ export const GitGraphView = memo(function GitGraphView({
   historyLoading,
   hasMoreHistory,
   selectedCommit,
+  selectedCommitDetail,
+  commitDetailLoading,
+  commitDetailError,
   onSelectCommit,
   onLoadMore,
   onResetToLatest,
@@ -307,6 +422,12 @@ export const GitGraphView = memo(function GitGraphView({
   const graphColWidth = useMemo(() => {
     return Math.max(MIN_GRAPH_WIDTH, (maxLanes + 1) * LANE_WIDTH)
   }, [maxLanes])
+  const columnTemplate = useMemo(() => {
+    return `${graphColWidth}px minmax(${DESC_COL_MIN_WIDTH}px, 1fr) ${DATE_COL_WIDTH}px ${AUTHOR_COL_WIDTH}px ${HASH_COL_WIDTH}px`
+  }, [graphColWidth])
+  const tableMinWidth = useMemo(() => {
+    return graphColWidth + DESC_COL_MIN_WIDTH + DATE_COL_WIDTH + AUTHOR_COL_WIDTH + HASH_COL_WIDTH
+  }, [graphColWidth])
 
   const virtualizer = useVirtualizer({
     count: graphRows.length,
@@ -314,34 +435,57 @@ export const GitGraphView = memo(function GitGraphView({
     estimateSize: () => GRAPH_ROW_HEIGHT,
     overscan: GRAPH_OVERSCAN,
   })
+  const detailDate = selectedCommitDetail
+    ? formatGitTimestamp(selectedCommitDetail.authoredAt, locale)
+    : ''
+  const detailBody = selectedCommitDetail?.body.trim() ?? ''
 
   return (
-    <div className="git-graph-view" role="table" aria-label="Git commit history">
+    <div
+      className="git-graph-view"
+      role="table"
+      aria-label={t(locale, 'git.graph.ariaHistory')}
+      style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
+    >
       {/* Table header */}
-      <div className="git-graph-header" role="row">
+      <div
+        className="git-graph-header"
+        role="row"
+        style={{
+          minWidth: `${tableMinWidth}px`,
+          display: 'grid',
+          gridTemplateColumns: columnTemplate,
+          alignItems: 'center',
+          flexShrink: 0,
+        }}
+      >
         <div
           className="git-graph-header__cell git-graph-header__graph"
           role="columnheader"
-          style={{ width: graphColWidth }}
+          style={{ width: '100%', flexShrink: 0 }}
         >
-          Graph
+          {t(locale, 'git.graph.column.graph')}
         </div>
-        <div className="git-graph-header__cell git-graph-header__desc" role="columnheader">
-          Description
+        <div
+          className="git-graph-header__cell git-graph-header__desc"
+          role="columnheader"
+          style={{ width: '100%', minWidth: `${DESC_COL_MIN_WIDTH}px` }}
+        >
+          {t(locale, 'git.graph.column.description')}
         </div>
-        <div className="git-graph-header__cell git-graph-header__date" role="columnheader">
-          Date
+        <div className="git-graph-header__cell git-graph-header__date" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
+          {t(locale, 'git.graph.column.date')}
         </div>
-        <div className="git-graph-header__cell git-graph-header__author" role="columnheader">
-          Author
+        <div className="git-graph-header__cell git-graph-header__author" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
+          {t(locale, 'git.graph.column.author')}
         </div>
-        <div className="git-graph-header__cell git-graph-header__hash" role="columnheader">
-          Commit
+        <div className="git-graph-header__cell git-graph-header__hash" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
+          {t(locale, 'git.graph.column.commit')}
         </div>
       </div>
 
       {/* Virtualized body */}
-      <div className="git-graph-body" ref={scrollRef}>
+      <div className="git-graph-body" ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto' }}>
         {graphRows.length === 0 ? (
           <div className="git-graph-empty">
             <div className="git-graph-empty__icon">
@@ -350,12 +494,15 @@ export const GitGraphView = memo(function GitGraphView({
                 <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
               </svg>
             </div>
-            <p>No commits yet</p>
+            <p>{t(locale, 'git.graph.empty')}</p>
           </div>
         ) : (
           <div
             className="git-graph-body__inner"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              minWidth: `${tableMinWidth}px`,
+            }}
           >
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const row = graphRows[virtualItem.index]
@@ -365,6 +512,9 @@ export const GitGraphView = memo(function GitGraphView({
                   key={row.entry.commit}
                   row={row}
                   totalLanes={maxLanes}
+                  graphColWidth={graphColWidth}
+                  columnTemplate={columnTemplate}
+                  rowMinWidth={tableMinWidth}
                   locale={locale}
                   isSelected={selectedCommit === row.entry.commit}
                   isFirst={virtualItem.index === 0}
@@ -385,6 +535,78 @@ export const GitGraphView = memo(function GitGraphView({
         )}
       </div>
 
+      {/* Selected commit detail */}
+      {selectedCommit ? (
+        <div className="git-graph-detail" aria-live="polite">
+          {commitDetailLoading ? (
+            <p className="git-graph-detail__state">{t(locale, 'git.history.detail.loading')}</p>
+          ) : commitDetailError ? (
+            <p className="git-graph-detail__state git-graph-detail__state--error">
+              {commitDetailError}
+            </p>
+          ) : selectedCommitDetail ? (
+            <>
+              <div className="git-graph-detail__header">
+                <div className="git-graph-detail__title-wrap">
+                  <p className="git-graph-detail__title" title={sanitizeText(selectedCommitDetail.summary)}>
+                    {sanitizeText(selectedCommitDetail.summary)}
+                  </p>
+                  <code className="git-graph-detail__hash">{selectedCommitDetail.shortCommit}</code>
+                </div>
+                <div className="git-graph-detail__meta">
+                  <span title={sanitizeText(selectedCommitDetail.authorEmail)}>
+                    {t(locale, 'git.history.detail.author', {
+                      author: sanitizeText(selectedCommitDetail.authorName),
+                    })}
+                  </span>
+                  <span>{t(locale, 'git.history.detail.date', { date: detailDate })}</span>
+                </div>
+              </div>
+
+              {detailBody ? (
+                <pre className="git-graph-detail__body">{detailBody}</pre>
+              ) : null}
+
+              <div className="git-graph-detail__files-head">
+                {t(locale, 'git.history.detail.files', {
+                  count: selectedCommitDetail.files.length,
+                })}
+              </div>
+
+              {selectedCommitDetail.files.length > 0 ? (
+                <ul className="git-graph-detail__file-list">
+                  {selectedCommitDetail.files.map((file) => {
+                    const statusClass = resolveFileStatusClass(file.status)
+                    return (
+                      <li
+                        key={`${file.status}:${file.path}:${file.previousPath ?? ''}`}
+                        className="git-graph-detail__file-item"
+                      >
+                        <span
+                          className={`git-graph-detail__file-status git-graph-detail__file-status--${statusClass}`}
+                        >
+                          {file.status}
+                        </span>
+                        <span className="git-graph-detail__file-path" title={file.path}>
+                          {file.path}
+                        </span>
+                        {file.previousPath ? (
+                          <span className="git-graph-detail__file-prev" title={file.previousPath}>
+                            {file.previousPath}
+                          </span>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p className="git-graph-detail__state">{t(locale, 'git.history.detail.noFiles')}</p>
+              )}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* Load more / Reset actions */}
       <div className="git-graph-actions">
         <button
@@ -400,7 +622,7 @@ export const GitGraphView = memo(function GitGraphView({
               <path d="M8 12l-4-4h8l-4 4z" />
             </svg>
           )}
-          <span>Load Older</span>
+          <span>{t(locale, 'git.history.loadOlder')}</span>
         </button>
         <button
           type="button"
@@ -411,7 +633,7 @@ export const GitGraphView = memo(function GitGraphView({
           <svg className="git-graph-btn__icon" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 4l4 4H4l4-4z" />
           </svg>
-          <span>Latest</span>
+          <span>{t(locale, 'git.history.backToLatest')}</span>
         </button>
       </div>
     </div>

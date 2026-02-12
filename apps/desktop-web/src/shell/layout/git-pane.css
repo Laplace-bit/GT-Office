@@ -733,7 +733,7 @@
 .git-graph-header__graph {
   min-width: 80px;
   flex-shrink: 0;
-  border-right: 1px solid var(--vb-border);
+  border-right: 1px solid color-mix(in srgb, var(--vb-border) 82%, var(--vb-accent-light) 18%);
   text-align: center;
 }
 
@@ -854,7 +854,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  border-right: 1px solid color-mix(in srgb, var(--vb-border) 50%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--vb-border) 76%, var(--vb-accent-light) 24%);
   background: color-mix(in srgb, var(--vb-chip) 30%, transparent);
   overflow: hidden;
 }
@@ -881,8 +881,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
-  max-width: 45%;
+  flex-shrink: 1;
+  max-width: 100%;
   overflow: hidden;
 }
 
@@ -986,6 +986,174 @@
   border-color: var(--vb-border);
   font-size: 9px;
   padding: 1px 4px;
+}
+
+/* Selected commit detail panel */
+.git-graph-detail {
+  border-top: 1px solid var(--vb-border);
+  background: color-mix(in srgb, var(--vb-chip) 24%, transparent);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.git-graph-detail__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.git-graph-detail__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.git-graph-detail__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vb-text);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-graph-detail__hash {
+  font-size: 11px;
+  color: var(--vb-text-muted);
+  background: color-mix(in srgb, var(--vb-chip) 84%, var(--vb-surface));
+  border: 1px solid var(--vb-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.git-graph-detail__meta {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--vb-text-muted);
+  white-space: nowrap;
+}
+
+.git-graph-detail__body {
+  margin: 0;
+  border: 1px solid var(--vb-border);
+  border-radius: var(--vb-radius-sm);
+  background: var(--vb-input-bg);
+  color: var(--vb-text);
+  padding: 8px 10px;
+  max-height: 88px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.git-graph-detail__files-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vb-text-muted);
+}
+
+.git-graph-detail__file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 132px;
+  overflow: auto;
+}
+
+.git-graph-detail__file-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--vb-surface) 76%, var(--vb-chip));
+}
+
+.git-graph-detail__file-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--vb-font-mono);
+  border: 1px solid transparent;
+}
+
+.git-graph-detail__file-status--add {
+  color: var(--vb-success);
+  border-color: color-mix(in srgb, var(--vb-success) 30%, transparent);
+  background: color-mix(in srgb, var(--vb-success) 12%, transparent);
+}
+
+.git-graph-detail__file-status--modify {
+  color: var(--vb-warning);
+  border-color: color-mix(in srgb, var(--vb-warning) 30%, transparent);
+  background: color-mix(in srgb, var(--vb-warning) 12%, transparent);
+}
+
+.git-graph-detail__file-status--delete {
+  color: var(--vb-error);
+  border-color: color-mix(in srgb, var(--vb-error) 30%, transparent);
+  background: color-mix(in srgb, var(--vb-error) 12%, transparent);
+}
+
+.git-graph-detail__file-status--rename,
+.git-graph-detail__file-status--copy {
+  color: var(--vb-accent);
+  border-color: color-mix(in srgb, var(--vb-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--vb-accent) 10%, transparent);
+}
+
+.git-graph-detail__file-status--other {
+  color: var(--vb-text-muted);
+  border-color: var(--vb-border);
+  background: var(--vb-chip);
+}
+
+.git-graph-detail__file-path,
+.git-graph-detail__file-prev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vb-font-mono);
+}
+
+.git-graph-detail__file-path {
+  color: var(--vb-text);
+}
+
+.git-graph-detail__file-prev {
+  color: var(--vb-text-muted);
+}
+
+.git-graph-detail__state {
+  margin: 0;
+  font-size: 11px;
+  color: var(--vb-text-muted);
+}
+
+.git-graph-detail__state--error {
+  color: var(--vb-error);
 }
 
 /* Actions Footer */

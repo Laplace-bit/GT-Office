@@ -154,6 +154,7 @@ function StationCardView({
   return (
     <article
       ref={rootRef}
+      data-station-id={station.id}
       className={[
         'station-window',
         active ? 'active' : '',

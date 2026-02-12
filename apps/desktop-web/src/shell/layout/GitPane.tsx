@@ -1,8 +1,12 @@
-import { memo, useCallback, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { t } from '../i18n/ui-locale'
 import { AppIcon, type AppIconName } from '../ui/icons'
-import { type GitStatusFile } from '../integration/desktop-api'
+import {
+  desktopApi,
+  type GitCommitDetailResponse,
+  type GitStatusFile,
+} from '../integration/desktop-api'
 import {
   ROW_HEIGHT,
   OVERSCAN_ROWS,
@@ -11,6 +15,17 @@ import {
 import { DiffViewer } from './DiffViewer'
 import { GitGraphView } from './GitGraphView'
 import './diff-viewer.css'
+import './git-pane.css'
+
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim()
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error.trim()
+  }
+  return 'unknown'
+}
 
 // ============================================
 // Icon Button Component - Reusable button with icon
@@ -543,12 +558,81 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
     errorMessage,
   } = controller
 
+  const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
+  const [selectedCommitDetail, setSelectedCommitDetail] =
+    useState<GitCommitDetailResponse | null>(null)
+  const [commitDetailLoading, setCommitDetailLoading] = useState(false)
+  const [commitDetailError, setCommitDetailError] = useState<string | null>(null)
+  const commitDetailCacheRef = useRef<Map<string, GitCommitDetailResponse>>(new Map())
+  const commitDetailSeqRef = useRef(0)
+
+  useEffect(() => {
+    setSelectedCommit(null)
+    setSelectedCommitDetail(null)
+    setCommitDetailLoading(false)
+    setCommitDetailError(null)
+    commitDetailCacheRef.current.clear()
+    commitDetailSeqRef.current += 1
+  }, [workspaceId])
+
   const handleSelectCommit = useCallback(
     (hash: string) => {
-      // Future: load diff for this commit
-      console.log('Selected commit:', hash)
+      if (!workspaceId) {
+        return
+      }
+
+      if (selectedCommit === hash) {
+        setSelectedCommit(null)
+        setSelectedCommitDetail(null)
+        setCommitDetailLoading(false)
+        setCommitDetailError(null)
+        commitDetailSeqRef.current += 1
+        return
+      }
+
+      setSelectedCommit(hash)
+      setCommitDetailError(null)
+      commitDetailSeqRef.current += 1
+      const seq = commitDetailSeqRef.current
+
+      const cacheKey = `${workspaceId}:${hash}`
+      const cached = commitDetailCacheRef.current.get(cacheKey)
+      if (cached) {
+        setSelectedCommitDetail(cached)
+        setCommitDetailLoading(false)
+        return
+      }
+
+      setSelectedCommitDetail(null)
+      setCommitDetailLoading(true)
+
+      void desktopApi
+        .gitCommitDetail(workspaceId, hash)
+        .then((detail) => {
+          if (commitDetailSeqRef.current !== seq) {
+            return
+          }
+          commitDetailCacheRef.current.set(cacheKey, detail)
+          setSelectedCommitDetail(detail)
+        })
+        .catch((error) => {
+          if (commitDetailSeqRef.current !== seq) {
+            return
+          }
+          setCommitDetailError(
+            t(locale, 'git.history.detail.loadFailed', {
+              detail: describeUnknownError(error),
+            }),
+          )
+          setSelectedCommitDetail(null)
+        })
+        .finally(() => {
+          if (commitDetailSeqRef.current === seq) {
+            setCommitDetailLoading(false)
+          }
+        })
     },
-    [],
+    [locale, selectedCommit, workspaceId],
   )
 
   if (!workspaceId) {
@@ -582,7 +666,9 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
               )}
             </span>
           </div>
-          <span className="git-pane__commit-count">{logEntries.length} commits</span>
+          <span className="git-pane__commit-count">
+            {t(locale, 'git.history.count', { count: logEntries.length })}
+          </span>
         </div>
         <div className="git-pane__header-actions">
           {/* Show back button when in diff view */}
@@ -618,7 +704,10 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
             locale={locale}
             historyLoading={historyLoading}
             hasMoreHistory={hasMoreHistory}
-            selectedCommit={null}
+            selectedCommit={selectedCommit}
+            selectedCommitDetail={selectedCommitDetail}
+            commitDetailLoading={commitDetailLoading}
+            commitDetailError={commitDetailError}
             onSelectCommit={handleSelectCommit}
             onLoadMore={loadOlderHistory}
             onResetToLatest={resetToLatestHistory}
