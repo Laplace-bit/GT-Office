@@ -36,7 +36,6 @@ interface WorkbenchCanvasProps {
   stations: AgentStation[]
   activeStationId: string
   terminalByStation: Record<string, StationTerminalRuntime>
-  terminalPreviewByStation: Record<string, string>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   onSelectStation: (stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
@@ -90,7 +89,6 @@ function WorkbenchCanvasView({
   stations,
   activeStationId,
   terminalByStation,
-  terminalPreviewByStation,
   taskSignalByStationId,
   onSelectStation,
   onLaunchStationTerminal,
@@ -404,8 +402,6 @@ function WorkbenchCanvasView({
               station={fullscreenStation}
               active={fullscreenStation.id === activeStationId}
               runtime={terminalByStation[fullscreenStation.id]}
-              previewText={terminalPreviewByStation[fullscreenStation.id] ?? ''}
-              renderTerminal
               taskSignal={taskSignalByStationId[fullscreenStation.id]}
               isFullscreen
               isFullscreenMode
@@ -458,8 +454,6 @@ function WorkbenchCanvasView({
                         station={station}
                         active={station.id === activeStationId}
                         runtime={terminalByStation[station.id]}
-                        previewText={terminalPreviewByStation[station.id] ?? ''}
-                        renderTerminal={station.id === activeStationId}
                         taskSignal={taskSignalByStationId[station.id]}
                         isFullscreen={false}
                         isFullscreenMode={false}
@@ -498,8 +492,6 @@ function WorkbenchCanvasView({
                 station={station}
                 active={station.id === activeStationId}
                 runtime={terminalByStation[station.id]}
-                previewText={terminalPreviewByStation[station.id] ?? ''}
-                renderTerminal={station.id === activeStationId}
                 taskSignal={taskSignalByStationId[station.id]}
                 isFullscreen={false}
                 isFullscreenMode={false}

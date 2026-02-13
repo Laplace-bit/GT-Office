@@ -705,6 +705,12 @@ where
             .map_err(|err| AbstractionError::Internal {
                 message: format!("TERMINAL_WRITE_FAILED: {err}"),
             })?;
+        session
+            .writer
+            .flush()
+            .map_err(|err| AbstractionError::Internal {
+                message: format!("TERMINAL_WRITE_FAILED: {err}"),
+            })?;
         Ok(!input.is_empty())
     }
 

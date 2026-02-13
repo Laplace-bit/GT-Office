@@ -6,12 +6,14 @@ export interface StationTerminalSink {
   write: (chunk: string) => void
   reset: (content?: string) => void
   focus: () => void
+  submit: () => boolean
 }
 
 interface StationXtermTerminalProps {
   stationId: string
   sessionId: string | null
   appearanceVersion: string
+  onActivateStation: () => void
   onData: (stationId: string, data: string) => void
   onResize: (stationId: string, cols: number, rows: number) => void
   onBindSink: (stationId: string, sink: StationTerminalSink | null) => void
@@ -19,6 +21,7 @@ interface StationXtermTerminalProps {
 
 const DOM_DELTA_LINE = 1
 const DOM_DELTA_PAGE = 2
+const TERMINAL_MIN_VISIBLE_SIZE_PX = 4
 
 function normalizeWheelDeltaY(event: WheelEvent, viewport: HTMLElement): number {
   if (event.deltaMode === DOM_DELTA_LINE) {
@@ -28,6 +31,18 @@ function normalizeWheelDeltaY(event: WheelEvent, viewport: HTMLElement): number 
     return event.deltaY * Math.max(1, viewport.clientHeight)
   }
   return event.deltaY
+}
+
+function wheelPixelDeltaToLineDelta(deltaY: number): number {
+  const roughLineHeight = 40
+  const rawLines = deltaY / roughLineHeight
+  if (!Number.isFinite(rawLines) || rawLines === 0) {
+    return 0
+  }
+  if (rawLines > 0) {
+    return Math.max(1, Math.round(rawLines))
+  }
+  return Math.min(-1, Math.round(rawLines))
 }
 
 function findScrollableStationGrid(element: HTMLElement): HTMLElement | null {
@@ -103,10 +118,12 @@ function StationXtermTerminalView({
   stationId,
   sessionId,
   appearanceVersion,
+  onActivateStation,
   onData,
   onResize,
   onBindSink,
 }: StationXtermTerminalProps) {
+  const shellRef = useRef<HTMLDivElement | null>(null)
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
@@ -127,7 +144,7 @@ function StationXtermTerminalView({
       return
     }
     terminal.refresh(0, Math.max(0, terminal.rows - 1))
-  }, [sessionId])
+  }, [sessionId, stationId])
 
   useEffect(() => {
     const host = hostRef.current
@@ -138,7 +155,10 @@ function StationXtermTerminalView({
     let active = true
     let dataDisposable: { dispose: () => void } | null = null
     let resizeDisposable: { dispose: () => void } | null = null
+    let removeFocusListeners: (() => void) | null = null
     let resizeObserver: ResizeObserver | null = null
+    let refreshFrameId: number | null = null
+    let readyFitFrameId: number | null = null
     void Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]).then(
       ([xtermModule, fitModule]) => {
         if (!active) {
@@ -147,7 +167,7 @@ function StationXtermTerminalView({
 
         const terminal = new xtermModule.Terminal({
           convertEol: true,
-          cursorBlink: true,
+          cursorBlink: false,
           cursorStyle: 'bar',
           cursorWidth: 2,
           fontFamily: readCssVar('--vb-font-mono'),
@@ -166,26 +186,116 @@ function StationXtermTerminalView({
         const fitAddon = new fitModule.FitAddon()
         terminal.loadAddon(fitAddon)
         terminal.open(host)
-        fitAddon.fit()
 
         terminalRef.current = terminal
         fitAddonRef.current = fitAddon
 
+        const refreshTerminal = () => {
+          terminal.refresh(0, Math.max(0, terminal.rows - 1))
+        }
+        const scheduleRefresh = () => {
+          if (refreshFrameId !== null) {
+            return
+          }
+          refreshFrameId = window.requestAnimationFrame(() => {
+            refreshFrameId = null
+            refreshTerminal()
+          })
+        }
+        const fitAndRefresh = () => {
+          if (!active) {
+            return false
+          }
+          const { clientWidth, clientHeight } = host
+          if (clientWidth < TERMINAL_MIN_VISIBLE_SIZE_PX || clientHeight < TERMINAL_MIN_VISIBLE_SIZE_PX) {
+            return false
+          }
+          try {
+            fitAddon.fit()
+          } catch {
+            return false
+          }
+          if (terminal.cols <= 0 || terminal.rows <= 0) {
+            return false
+          }
+          refreshTerminal()
+          return true
+        }
+        const ensureFitWhenVisible = () => {
+          readyFitFrameId = null
+          if (!active) {
+            return
+          }
+          if (fitAndRefresh()) {
+            onResizeRef.current(stationId, terminal.cols, terminal.rows)
+            return
+          }
+          readyFitFrameId = window.requestAnimationFrame(ensureFitWhenVisible)
+        }
+        const scheduleFitRetry = () => {
+          if (readyFitFrameId !== null) {
+            return
+          }
+          readyFitFrameId = window.requestAnimationFrame(() => {
+            readyFitFrameId = null
+            ensureFitWhenVisible()
+          })
+        }
+        const submitFromXterm = () => {
+          try {
+            terminal.focus()
+            terminal.input('\r', true)
+            scheduleRefresh()
+            return true
+          } catch {
+            return false
+          }
+        }
+
         dataDisposable = terminal.onData((data) => onDataRef.current(stationId, data))
+        const setBlinkState = (enabled: boolean) => {
+          if (terminal.options.cursorBlink !== enabled) {
+            terminal.options.cursorBlink = enabled
+          }
+          terminal.refresh(0, Math.max(0, terminal.rows - 1))
+        }
+        const handleFocusIn = () => {
+          setBlinkState(true)
+        }
+        const handleFocusOut = (event: FocusEvent) => {
+          const relatedTarget = event.relatedTarget
+          if (relatedTarget instanceof Node && host.contains(relatedTarget)) {
+            return
+          }
+          if (host.matches(':focus-within')) {
+            return
+          }
+          setBlinkState(false)
+        }
+        host.addEventListener('focusin', handleFocusIn)
+        host.addEventListener('focusout', handleFocusOut)
+        removeFocusListeners = () => {
+          host.removeEventListener('focusin', handleFocusIn)
+          host.removeEventListener('focusout', handleFocusOut)
+        }
+        if (host.matches(':focus-within')) {
+          setBlinkState(true)
+        } else {
+          setBlinkState(false)
+        }
 
         // Sync terminal size with backend PTY
         resizeDisposable = terminal.onResize(({ cols, rows }) => {
           onResizeRef.current(stationId, cols, rows)
         })
-        // Send initial size
-        onResizeRef.current(stationId, terminal.cols, terminal.rows)
+        // Delay first fit/resize sync until host has real dimensions.
+        ensureFitWhenVisible()
 
         resizeObserver = new ResizeObserver(() => {
-          try {
-            fitAddon.fit()
-          } catch {
-            // No-op: fit can fail transiently when the element is hidden.
+          if (fitAndRefresh()) {
+            return
           }
+          scheduleFitRetry()
         })
         resizeObserver.observe(host)
 
@@ -194,19 +304,26 @@ function StationXtermTerminalView({
             if (!chunk) {
               return
             }
-            terminal.write(chunk)
+            if (terminal.cols <= 0 || terminal.rows <= 0) {
+              scheduleFitRetry()
+            }
+            terminal.write(chunk, scheduleRefresh)
           },
           reset: (content?: string) => {
             terminal.reset()
             if (content) {
-              terminal.write(content)
+              if (terminal.cols <= 0 || terminal.rows <= 0) {
+                scheduleFitRetry()
+              }
+              terminal.write(content, scheduleRefresh)
             }
-            terminal.refresh(0, Math.max(0, terminal.rows - 1))
+            scheduleRefresh()
           },
           focus: () => {
             terminal.focus()
-            terminal.refresh(0, Math.max(0, terminal.rows - 1))
+            scheduleRefresh()
           },
+          submit: () => submitFromXterm(),
         })
       },
     ).catch(() => {
@@ -218,7 +335,14 @@ function StationXtermTerminalView({
       onBindSink(stationId, null)
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
+      removeFocusListeners?.()
       resizeObserver?.disconnect()
+      if (refreshFrameId !== null) {
+        window.cancelAnimationFrame(refreshFrameId)
+      }
+      if (readyFitFrameId !== null) {
+        window.cancelAnimationFrame(readyFitFrameId)
+      }
       terminalRef.current?.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
@@ -234,6 +358,7 @@ function StationXtermTerminalView({
     terminal.options.theme = getTerminalTheme()
     terminal.options.cursorStyle = 'bar'
     terminal.options.cursorWidth = 2
+    terminal.options.cursorBlink = hostRef.current?.matches(':focus-within') ?? false
     ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
       'bar'
     try {
@@ -242,15 +367,30 @@ function StationXtermTerminalView({
       // No-op: fit can fail transiently when the element is hidden.
     }
     terminal.refresh(0, Math.max(0, terminal.rows - 1))
-  }, [appearanceVersion])
+  }, [appearanceVersion, stationId])
 
   return (
     <div
+      ref={shellRef}
       className="station-terminal-shell"
-      onClick={(event) => {
-        // Stop propagation to prevent parent handlers from interfering
-        event.stopPropagation()
+      onPointerDownCapture={(event) => {
+        if (event.button !== 0) {
+          return
+        }
+        // Activate/focus on pointer down so first click lands in terminal input reliably.
+        const shellElement = event.currentTarget
+        onActivateStation()
         terminalRef.current?.focus()
+        queueMicrotask(() => {
+          if (shellElement.matches(':focus-within')) {
+            return
+          }
+          terminalRef.current?.focus()
+        })
+      }}
+      onClick={(event) => {
+        // Stop bubbling so card body click does not override terminal-first interaction.
+        event.stopPropagation()
       }}
       onWheelCapture={(event) => {
         const target = event.target
@@ -268,28 +408,48 @@ function StationXtermTerminalView({
         if (!Number.isFinite(deltaY) || deltaY === 0) {
           return
         }
+        const buffer = terminalRef.current?.buffer.active
+        const bufferViewportY = buffer?.viewportY
+        const bufferBaseY = buffer?.baseY
+        const hasBufferMetrics = typeof bufferViewportY === 'number' && typeof bufferBaseY === 'number'
         const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
-        const atTop = viewport.scrollTop <= 0
-        const atBottom = viewport.scrollTop >= maxScrollTop - 1
-        const forwardToGrid =
-          maxScrollTop <= 1 || (deltaY < 0 && atTop) || (deltaY > 0 && atBottom)
-        if (!forwardToGrid) {
+        const atTop = hasBufferMetrics ? bufferViewportY <= 0 : viewport.scrollTop <= 0
+        const atBottom = hasBufferMetrics
+          ? bufferViewportY >= bufferBaseY
+          : viewport.scrollTop >= maxScrollTop - 1
+        const hasScrollableContent = hasBufferMetrics ? bufferBaseY > 0 : maxScrollTop > 1
+        const terminalCanConsumeDelta =
+          hasScrollableContent && ((deltaY < 0 && !atTop) || (deltaY > 0 && !atBottom))
+        if (terminalCanConsumeDelta) {
+          const terminal = terminalRef.current
+          if (terminal) {
+            const lineDelta = wheelPixelDeltaToLineDelta(deltaY)
+            if (lineDelta !== 0) {
+              terminal.scrollLines(lineDelta)
+              event.preventDefault()
+              event.stopPropagation()
+            }
+          }
           return
         }
         const grid = findScrollableStationGrid(event.currentTarget)
         if (!grid) {
           return
         }
-        const nextScrollTop = Math.min(
-          Math.max(0, grid.scrollTop + deltaY),
-          Math.max(0, grid.scrollHeight - grid.clientHeight),
-        )
-        if (Math.abs(nextScrollTop - grid.scrollTop) < 0.1) {
-          return
+        const forwardDeltaToGrid = () => {
+          const nextScrollTop = Math.min(
+            Math.max(0, grid.scrollTop + deltaY),
+            Math.max(0, grid.scrollHeight - grid.clientHeight),
+          )
+          if (Math.abs(nextScrollTop - grid.scrollTop) < 0.1) {
+            return false
+          }
+          grid.scrollTop = nextScrollTop
+          event.preventDefault()
+          event.stopPropagation()
+          return true
         }
-        grid.scrollTop = nextScrollTop
-        event.preventDefault()
-        event.stopPropagation()
+        forwardDeltaToGrid()
       }}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) {

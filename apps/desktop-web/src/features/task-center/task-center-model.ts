@@ -1,26 +1,8 @@
 import type { AgentStation } from '@shell/layout/model'
 
-export type TaskAttachmentCategory =
-  | 'code'
-  | 'image'
-  | 'document'
-  | 'archive'
-  | 'media'
-  | 'data'
-  | 'other'
-
-export interface TaskAttachment {
-  id: string
-  path: string
-  name: string
-  category: TaskAttachmentCategory
-}
-
 export interface TaskDraftState {
-  title: string
   markdown: string
-  targetStationId: string
-  attachmentInput: string
+  targetStationIds: string[]
 }
 
 export interface TaskCenterNotice {
@@ -31,11 +13,11 @@ export interface TaskCenterNotice {
 export type TaskDispatchStatus = 'sending' | 'sent' | 'failed'
 
 export interface TaskDispatchRecord {
+  batchId: string
   taskId: string
   title: string
   targetStationId: string
   targetStationName: string
-  attachmentCount: number
   createdAtMs: number
   status: TaskDispatchStatus
   taskFilePath: string
@@ -50,206 +32,117 @@ export interface StationTaskSignal {
 }
 
 export interface TaskCenterWorkspaceSnapshot {
-  version: 1
+  version: 2
   updatedAtMs: number
   draft: TaskDraftState
-  attachments: TaskAttachment[]
   dispatchHistory: TaskDispatchRecord[]
 }
 
-export interface BuiltTaskDocument {
-  taskId: string
-  title: string
-  taskFilePath: string
-  manifestPath: string
-  markdownContent: string
-  manifestContent: string
-}
-
 export type TaskMarkdownSnippet = 'heading' | 'code' | 'checklist'
+
 const TASK_CENTER_LOCAL_STORAGE_PREFIX = 'gtoffice.task-center'
 const TASK_CENTER_DRAFT_FILE_REL = '.gtoffice/tasks/.task-center-draft.json'
 
-function normalizeRelativePath(input: string): string {
-  return input.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '')
+function dedupeStationIds(stationIds: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  stationIds.forEach((stationId) => {
+    const normalized = stationId.trim()
+    if (!normalized || seen.has(normalized)) {
+      return
+    }
+    seen.add(normalized)
+    result.push(normalized)
+  })
+  return result
 }
 
-function normalizeFileName(path: string): string {
-  const normalized = normalizeRelativePath(path)
-  if (!normalized) {
-    return ''
-  }
-  const parts = normalized.split('/')
-  return parts[parts.length - 1] ?? normalized
-}
-
-function inferAttachmentCategory(path: string): TaskAttachmentCategory {
-  const normalized = normalizeRelativePath(path).toLowerCase()
-  const ext = normalized.includes('.') ? normalized.slice(normalized.lastIndexOf('.')) : ''
-  if (['.rs', '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.java', '.md', '.toml', '.yaml', '.yml', '.json'].includes(ext)) {
-    return 'code'
-  }
-  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'].includes(ext)) {
-    return 'image'
-  }
-  if (['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt'].includes(ext)) {
-    return 'document'
-  }
-  if (['.zip', '.tar', '.gz', '.rar', '.7z'].includes(ext)) {
-    return 'archive'
-  }
-  if (['.mp3', '.wav', '.flac', '.mp4', '.mov', '.mkv', '.avi'].includes(ext)) {
-    return 'media'
-  }
-  if (['.csv', '.parquet', '.sqlite', '.db'].includes(ext)) {
-    return 'data'
-  }
-  return 'other'
-}
-
-export function createInitialTaskDraft(stations: AgentStation[], activeStationId: string): TaskDraftState {
+export function createInitialTaskDraft(
+  stations: AgentStation[],
+  activeStationId: string,
+): TaskDraftState {
   const hasActive = stations.some((station) => station.id === activeStationId)
   const fallback = stations[0]?.id ?? ''
   return {
-    title: '',
     markdown: '',
-    targetStationId: hasActive ? activeStationId : fallback,
-    attachmentInput: '',
+    targetStationIds: hasActive ? [activeStationId] : fallback ? [fallback] : [],
   }
 }
 
-export function resolveValidTaskTarget(
+export function areTaskTargetsEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  return left.every((item, index) => item === right[index])
+}
+
+export function resolveValidTaskTargets(
   stations: AgentStation[],
-  draftTargetStationId: string,
-  activeStationId: string,
-): string {
-  if (stations.some((station) => station.id === draftTargetStationId)) {
-    return draftTargetStationId
-  }
-  if (stations.some((station) => station.id === activeStationId)) {
-    return activeStationId
-  }
-  return stations[0]?.id ?? ''
-}
-
-export function buildTaskId(now: Date = new Date()): string {
-  const compact = now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
-  const random = Math.random().toString(36).slice(2, 6)
-  return `task_${compact}_${random}`
-}
-
-export function createTaskAttachment(path: string): TaskAttachment | null {
-  const normalized = normalizeRelativePath(path)
-  if (!normalized) {
-    return null
-  }
-  return {
-    id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    path: normalized,
-    name: normalizeFileName(normalized),
-    category: inferAttachmentCategory(normalized),
-  }
-}
-
-export function buildAttachmentReferenceMarkdown(attachment: TaskAttachment): string {
-  if (attachment.category === 'image') {
-    return `![${attachment.name}](${attachment.path})`
-  }
-  return `[${attachment.name}](${attachment.path})`
-}
-
-export function buildTaskStoragePaths(taskId: string): { taskFilePath: string; manifestPath: string } {
-  return {
-    taskFilePath: `.gtoffice/tasks/${taskId}/task.md`,
-    manifestPath: `.gtoffice/tasks/${taskId}/manifest.json`,
-  }
-}
-
-function sanitizeTaskTitle(title: string): string {
-  const trimmed = title.trim()
-  return trimmed || '未命名任务'
-}
-
-export function buildTaskDocument(input: {
-  taskId: string
-  draft: TaskDraftState
-  targetStation: AgentStation
-  attachments: TaskAttachment[]
-  createdAt: Date
-}): BuiltTaskDocument {
-  const { taskFilePath, manifestPath } = buildTaskStoragePaths(input.taskId)
-  const title = sanitizeTaskTitle(input.draft.title)
-  const createdAtIso = input.createdAt.toISOString()
-  const attachmentSection =
-    input.attachments.length === 0
-      ? '- 无附件'
-      : input.attachments.map((item) => `- ${buildAttachmentReferenceMarkdown(item)} (${item.category})`).join('\n')
-  const markdownBody = input.draft.markdown.trim()
-
-  const markdownContent = `# ${title}
-
-## 元信息
-
-- task_id: ${input.taskId}
-- created_at: ${createdAtIso}
-- target_agent_id: ${input.targetStation.id}
-- target_agent_name: ${input.targetStation.name}
-- target_role: ${input.targetStation.role}
-- target_workspace_id: ${input.targetStation.workspaceId}
-
-## 任务内容
-
-${markdownBody}
-
-## 附件
-
-${attachmentSection}
-`
-
-  const manifestContent = JSON.stringify(
-    {
-      taskId: input.taskId,
-      title,
-      createdAt: createdAtIso,
-      target: {
-        stationId: input.targetStation.id,
-        stationName: input.targetStation.name,
-        role: input.targetStation.role,
-        workspaceId: input.targetStation.workspaceId,
-      },
-      attachments: input.attachments,
-      taskFilePath,
-    },
-    null,
-    2,
+  draftTargetStationIds: string[],
+): string[] {
+  const stationIdSet = new Set(stations.map((station) => station.id))
+  return dedupeStationIds(draftTargetStationIds).filter((stationId) =>
+    stationIdSet.has(stationId),
   )
+}
 
-  return {
-    taskId: input.taskId,
-    title,
-    taskFilePath,
-    manifestPath,
-    markdownContent,
-    manifestContent,
+export function toggleTaskTarget(
+  previous: string[],
+  stationId: string,
+  checked: boolean,
+): string[] {
+  const normalized = stationId.trim()
+  if (!normalized) {
+    return previous
   }
+  if (checked) {
+    return dedupeStationIds([...previous, normalized])
+  }
+  return previous.filter((item) => item !== normalized)
+}
+
+export function extractTaskTitleFromMarkdown(markdown: string): string {
+  const trimmed = markdown.trim()
+  if (!trimmed) {
+    return '未命名任务'
+  }
+
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+  if (lines.length === 0) {
+    return '未命名任务'
+  }
+
+  const firstHeading = lines.find((line) => /^#{1,6}\s+/.test(line))
+  const candidate = (firstHeading ?? lines[0]).replace(/^#{1,6}\s+/, '').trim()
+  if (!candidate) {
+    return '未命名任务'
+  }
+
+  const compact = candidate.replace(/\s+/g, ' ')
+  return compact.length > 72 ? `${compact.slice(0, 72)}...` : compact
 }
 
 export function buildDispatchRecord(input: {
+  batchId: string
   taskId: string
   title: string
-  targetStation: AgentStation
-  attachmentCount: number
+  targetStationId: string
+  targetStationName: string
   createdAtMs: number
   status: TaskDispatchStatus
   taskFilePath: string
   detail?: string
 }): TaskDispatchRecord {
   return {
+    batchId: input.batchId,
     taskId: input.taskId,
     title: input.title,
-    targetStationId: input.targetStation.id,
-    targetStationName: input.targetStation.name,
-    attachmentCount: input.attachmentCount,
+    targetStationId: input.targetStationId,
+    targetStationName: input.targetStationName,
     createdAtMs: input.createdAtMs,
     status: input.status,
     taskFilePath: input.taskFilePath,
@@ -270,7 +163,9 @@ export function replaceTaskDispatchRecord(
   taskId: string,
   patch: Partial<TaskDispatchRecord>,
 ): TaskDispatchRecord[] {
-  return previous.map((record) => (record.taskId === taskId ? { ...record, ...patch } : record))
+  return previous.map((record) =>
+    record.taskId === taskId ? { ...record, ...patch } : record,
+  )
 }
 
 export function buildTaskDispatchCommand(taskId: string, taskFilePath: string): string {
@@ -296,19 +191,6 @@ export function buildTaskCenterDraftFilePath(): string {
   return TASK_CENTER_DRAFT_FILE_REL
 }
 
-function isTaskAttachment(value: unknown): value is TaskAttachment {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const record = value as Record<string, unknown>
-  return (
-    typeof record.id === 'string' &&
-    typeof record.path === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.category === 'string'
-  )
-}
-
 function isTaskDispatchRecord(value: unknown): value is TaskDispatchRecord {
   if (!value || typeof value !== 'object') {
     return false
@@ -319,7 +201,6 @@ function isTaskDispatchRecord(value: unknown): value is TaskDispatchRecord {
     typeof record.title === 'string' &&
     typeof record.targetStationId === 'string' &&
     typeof record.targetStationName === 'string' &&
-    typeof record.attachmentCount === 'number' &&
     typeof record.createdAtMs === 'number' &&
     typeof record.status === 'string' &&
     typeof record.taskFilePath === 'string'
@@ -329,28 +210,28 @@ function isTaskDispatchRecord(value: unknown): value is TaskDispatchRecord {
 export function buildTaskCenterWorkspaceSnapshot(input: {
   updatedAtMs: number
   draft: TaskDraftState
-  attachments: TaskAttachment[]
   dispatchHistory: TaskDispatchRecord[]
 }): TaskCenterWorkspaceSnapshot {
   return {
-    version: 1,
+    version: 2,
     updatedAtMs: input.updatedAtMs,
     draft: {
-      title: input.draft.title,
       markdown: input.draft.markdown,
-      targetStationId: input.draft.targetStationId,
-      attachmentInput: input.draft.attachmentInput,
+      targetStationIds: dedupeStationIds(input.draft.targetStationIds),
     },
-    attachments: [...input.attachments],
     dispatchHistory: [...input.dispatchHistory],
   }
 }
 
-export function serializeTaskCenterWorkspaceSnapshot(snapshot: TaskCenterWorkspaceSnapshot): string {
+export function serializeTaskCenterWorkspaceSnapshot(
+  snapshot: TaskCenterWorkspaceSnapshot,
+): string {
   return JSON.stringify(snapshot, null, 2)
 }
 
-export function parseTaskCenterWorkspaceSnapshot(raw: string): TaskCenterWorkspaceSnapshot | null {
+export function parseTaskCenterWorkspaceSnapshot(
+  raw: string,
+): TaskCenterWorkspaceSnapshot | null {
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object') {
@@ -361,25 +242,41 @@ export function parseTaskCenterWorkspaceSnapshot(raw: string): TaskCenterWorkspa
     if (!draft || typeof draft !== 'object') {
       return null
     }
-    const attachments = Array.isArray(record.attachments)
-      ? record.attachments.filter((item): item is TaskAttachment => isTaskAttachment(item))
+
+    const dispatchHistoryRaw = Array.isArray(record.dispatchHistory)
+      ? record.dispatchHistory.filter((item): item is TaskDispatchRecord =>
+          isTaskDispatchRecord(item),
+        )
       : []
-    const dispatchHistory = Array.isArray(record.dispatchHistory)
-      ? record.dispatchHistory.filter((item): item is TaskDispatchRecord => isTaskDispatchRecord(item))
-      : []
-    if (typeof draft.title !== 'string' || typeof draft.markdown !== 'string' || typeof draft.targetStationId !== 'string') {
-      return null
-    }
+
+    const targetStationIdsRaw =
+      Array.isArray(draft.targetStationIds) &&
+      draft.targetStationIds.every((id) => typeof id === 'string')
+        ? (draft.targetStationIds as string[])
+        : typeof draft.targetStationId === 'string'
+          ? [draft.targetStationId]
+          : []
+
+    const markdown =
+      typeof draft.markdown === 'string'
+        ? draft.markdown
+        : typeof draft.title === 'string'
+          ? `# ${draft.title.trim()}\n\n`
+          : ''
+
+    const dispatchHistory = dispatchHistoryRaw.map((item) => ({
+      ...item,
+      batchId: typeof item.batchId === 'string' ? item.batchId : item.taskId,
+    }))
+
     return {
-      version: 1,
-      updatedAtMs: typeof record.updatedAtMs === 'number' ? record.updatedAtMs : Date.now(),
+      version: 2,
+      updatedAtMs:
+        typeof record.updatedAtMs === 'number' ? record.updatedAtMs : Date.now(),
       draft: {
-        title: draft.title,
-        markdown: draft.markdown,
-        targetStationId: draft.targetStationId,
-        attachmentInput: typeof draft.attachmentInput === 'string' ? draft.attachmentInput : '',
+        markdown,
+        targetStationIds: dedupeStationIds(targetStationIdsRaw),
       },
-      attachments,
       dispatchHistory: dispatchHistory.slice(0, 40),
     }
   } catch {

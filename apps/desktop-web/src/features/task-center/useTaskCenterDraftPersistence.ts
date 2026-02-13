@@ -7,7 +7,6 @@ import {
   createInitialTaskDraft,
   parseTaskCenterWorkspaceSnapshot,
   serializeTaskCenterWorkspaceSnapshot,
-  type TaskAttachment,
   type TaskCenterNotice,
   type TaskDispatchRecord,
   type TaskDraftState,
@@ -19,12 +18,10 @@ interface UseTaskCenterDraftPersistenceInput {
   stationsRef: MutableRefObject<AgentStation[]>
   activeStationId: string
   taskDraft: TaskDraftState
-  taskAttachments: TaskAttachment[]
   taskDispatchHistory: TaskDispatchRecord[]
   taskDispatchHistoryLimit: number
   persistDebounceMs: number
   setTaskDraft: Dispatch<SetStateAction<TaskDraftState>>
-  setTaskAttachments: Dispatch<SetStateAction<TaskAttachment[]>>
   setTaskDispatchHistory: Dispatch<SetStateAction<TaskDispatchRecord[]>>
   setTaskSending: Dispatch<SetStateAction<boolean>>
   setTaskRetryingTaskId: Dispatch<SetStateAction<string | null>>
@@ -47,12 +44,10 @@ export function useTaskCenterDraftPersistence({
   stationsRef,
   activeStationId,
   taskDraft,
-  taskAttachments,
   taskDispatchHistory,
   taskDispatchHistoryLimit,
   persistDebounceMs,
   setTaskDraft,
-  setTaskAttachments,
   setTaskDispatchHistory,
   setTaskSending,
   setTaskRetryingTaskId,
@@ -123,14 +118,12 @@ export function useTaskCenterDraftPersistence({
 
       if (snapshotFromStorage) {
         setTaskDraft(snapshotFromStorage.draft)
-        setTaskAttachments(snapshotFromStorage.attachments)
         setTaskDispatchHistory(
           snapshotFromStorage.dispatchHistory.slice(0, taskDispatchHistoryLimit),
         )
         setTaskDraftSavedAtMs(snapshotFromStorage.updatedAtMs)
       } else {
         setTaskDraft(defaultDraft)
-        setTaskAttachments([])
         setTaskDispatchHistory([])
         setTaskDraftSavedAtMs(null)
       }
@@ -151,7 +144,6 @@ export function useTaskCenterDraftPersistence({
     activeStationId,
     activeWorkspaceId,
     onReadTaskSnapshotFile,
-    setTaskAttachments,
     setTaskDispatchHistory,
     setTaskDraft,
     setTaskDraftSavedAtMs,
@@ -177,7 +169,6 @@ export function useTaskCenterDraftPersistence({
       const snapshot = buildTaskCenterWorkspaceSnapshot({
         updatedAtMs: Date.now(),
         draft: taskDraft,
-        attachments: taskAttachments,
         dispatchHistory: taskDispatchHistory.slice(0, taskDispatchHistoryLimit),
       })
       const serialized = serializeTaskCenterWorkspaceSnapshot(snapshot)
@@ -213,7 +204,6 @@ export function useTaskCenterDraftPersistence({
     onWriteTaskSnapshotFile,
     persistDebounceMs,
     setTaskDraftSavedAtMs,
-    taskAttachments,
     taskCenterDraftFilePath,
     taskDispatchHistory,
     taskDispatchHistoryLimit,

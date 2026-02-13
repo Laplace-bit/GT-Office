@@ -5,8 +5,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type Dispatch,
-  type SetStateAction,
 } from 'react'
 import { ActivityRail } from './ActivityRail'
 import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
@@ -37,24 +35,31 @@ import {
   buildAgentWorkspaceMarkerPath,
   buildRoleWorkdirRel,
   buildStationWorkdirs,
+  buildWorkspaceSessionFilePath,
+  buildWorkspaceSessionSnapshot,
+  parseWorkspaceSessionSnapshot,
   resolveAgentWorkdirAbs,
+  serializeWorkspaceSessionSnapshot,
+  type WorkspaceSessionTerminalSnapshot,
 } from '@features/workspace'
 import {
   buildTaskDispatchCommand,
+  areTaskTargetsEqual,
   buildTaskCenterDraftFilePath,
   createInitialTaskDraft,
-  resolveValidTaskTarget,
+  resolveValidTaskTargets,
   useTaskDispatchActions,
   useTaskCenterDraftPersistence,
   type StationTaskSignal,
-  type TaskAttachment,
   type TaskCenterNotice,
   type TaskDispatchRecord,
   type TaskDraftState,
 } from '@features/task-center'
 import {
+  type ChannelMessagePayload,
   desktopApi,
   type FilesystemChangedPayload,
+  type FsSearchFileMatch,
   type GitStatusResponse,
   type TerminalMetaPayload,
   type TerminalOutputPayload,
@@ -68,6 +73,12 @@ import {
   type AmbientLightingIntensity,
   type UiPreferences,
 } from '../state/ui-preferences'
+import {
+  areShortcutBindingsEqual,
+  defaultShortcutBindings,
+  matchesShortcutEvent,
+  resolveShortcutBindingsFromSettings,
+} from '../state/shortcut-bindings'
 import { pickDirectory } from '../integration/directory-picker'
 import './shell-layout.css'
 
@@ -76,22 +87,66 @@ type StationTerminalRuntime = {
   sessionId: string | null
   stateRaw: string
   unreadCount: number
+  shell: string | null
+  cwdMode: 'workspace_root' | 'custom'
+  resolvedCwd: string | null
 }
 const STATION_INPUT_FLUSH_MS = 4
 const STATION_INPUT_MAX_BUFFER_BYTES = 65536
 const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
-const STATION_PREVIEW_MAX_LINES = 6
 const TASK_DISPATCH_HISTORY_LIMIT = 40
 const TASK_DRAFT_PERSIST_DEBOUNCE_MS = 360
 const SHELL_LAYOUT_STORAGE_KEY = 'gtoffice.shell.layout.v2'
 const WORKSPACE_MEMORY_STORAGE_KEY = 'gtoffice.shell.lastWorkspace.v1'
 const WORKSPACE_AUTO_OPEN_DEBOUNCE_MS = 420
+const WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS = 560
+const WORKSPACE_SESSION_MAX_RESTORE_TABS = 8
+const WORKSPACE_SESSION_MAX_RESTORE_TERMINALS = 6
+const STATION_TASK_SIGNAL_VISIBLE_MS = 3200
 const LEFT_PANE_WIDTH_MIN = 210
 const LEFT_PANE_WIDTH_MAX = 390
 const LEFT_PANE_WIDTH_DEFAULT = 270
+const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
+
+const NAV_ITEM_ID_SET = new Set<NavItemId>([
+  'stations',
+  'tasks',
+  'files',
+  'git',
+  'hooks',
+  'channels',
+  'policy',
+  'settings',
+])
+
+type FileEditorCommandRequest = {
+  type: 'find' | 'replace' | 'findNext' | 'findPrevious'
+  nonce: number
+}
+
+function isNavItemId(value: string): value is NavItemId {
+  return NAV_ITEM_ID_SET.has(value as NavItemId)
+}
 
 function clampLeftPaneWidth(width: number): number {
   return Math.max(LEFT_PANE_WIDTH_MIN, Math.min(LEFT_PANE_WIDTH_MAX, Math.round(width)))
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+  if (target.isContentEditable) {
+    return true
+  }
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+    return true
+  }
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
+function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
 }
 
 function loadLeftPaneWidthPreference(): number {
@@ -163,20 +218,12 @@ function createInitialStationTerminals(
       sessionId: null,
       stateRaw: 'idle',
       unreadCount: 0,
+      shell: null,
+      cwdMode: 'workspace_root',
+      resolvedCwd: null,
     }
     return acc
   }, {})
-}
-
-function buildTerminalPreview(content: string): string {
-  const lines = content
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-  if (lines.length === 0) {
-    return ''
-  }
-  return lines.slice(-STATION_PREVIEW_MAX_LINES).join('\n')
 }
 
 function getStationIdleBanner(
@@ -450,6 +497,7 @@ export function ShellRoot() {
   const nativeWindowTopLinux = tauriRuntime && !nativeWindowTopMacOs && isLinuxPlatform()
   const nativeWindowTopWindows = nativeWindowTop && !nativeWindowTopMacOs && !nativeWindowTopLinux
   const [uiPreferences, setUiPreferences] = useState(loadUiPreferences)
+  const [shortcutBindings, setShortcutBindings] = useState(() => defaultShortcutBindings)
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
   const [leftPaneResizing, setLeftPaneResizing] = useState(false)
   const [leftPaneVisible, setLeftPaneVisible] = useState(true)
@@ -465,12 +513,14 @@ export function ShellRoot() {
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(() =>
     createInitialTaskDraft(initialStations, initialStations[0]?.id ?? ''),
   )
-  const [taskAttachments, setTaskAttachments] = useState<TaskAttachment[]>([])
   const [taskDispatchHistory, setTaskDispatchHistory] = useState<TaskDispatchRecord[]>([])
   const [taskSending, setTaskSending] = useState(false)
   const [taskRetryingTaskId, setTaskRetryingTaskId] = useState<string | null>(null)
   const [taskDraftSavedAtMs, setTaskDraftSavedAtMs] = useState<number | null>(null)
   const [taskNotice, setTaskNotice] = useState<TaskCenterNotice | null>(null)
+  const [taskMentionCandidates, setTaskMentionCandidates] = useState<FsSearchFileMatch[]>([])
+  const [taskMentionLoading, setTaskMentionLoading] = useState(false)
+  const [taskMentionError, setTaskMentionError] = useState<string | null>(null)
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
   const [workspacePathInput, setWorkspacePathInput] = useState(
@@ -505,7 +555,6 @@ export function ShellRoot() {
   const stationTerminalInputFlushTimerRef = useRef<Record<string, number | null>>({})
   const stationTerminalInputSendingRef = useRef<Record<string, boolean>>({})
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
-  const terminalSnapshotSeqRef = useRef(0)
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
     null,
   )
@@ -530,17 +579,38 @@ export function ShellRoot() {
     mode: 'file' | 'content'
     nonce: number
   } | null>(null)
+  const [fileEditorCommandRequest, setFileEditorCommandRequest] = useState<FileEditorCommandRequest | null>(null)
+  const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode) => Promise<void>>(
+    async () => {},
+  )
   const fileReadSeqRef = useRef(0)
   const activeWorkspaceIdRef = useRef<string | null>(null)
   const gitRefreshTimerRef = useRef<number | null>(null)
   const workspaceOpenInFlightRef = useRef(false)
   const workspaceAutoOpenTimerRef = useRef<number | null>(null)
+  const workspaceSessionPersistTimerRef = useRef<number | null>(null)
+  const workspaceSessionHydratingRef = useRef(false)
+  const workspaceSessionRestoreSeqRef = useRef(0)
+  const workspaceSessionRestoreTabTimersRef = useRef<number[]>([])
+  const stationUnreadDeltaRef = useRef<Record<string, number>>({})
+  const stationUnreadFlushTimerRef = useRef<number | null>(null)
+  const stationTaskSignalTimerRef = useRef<Record<string, number | null>>({})
+  const stationTaskSignalNonceRef = useRef<Record<string, number>>({})
+  const taskMentionSearchSeqRef = useRef(0)
+  const taskMentionSearchTimerRef = useRef<number | null>(null)
+  const taskMentionLastQueryRef = useRef('')
+  const registeredAgentRuntimeRef = useRef<
+    Record<string, { workspaceId: string; sessionId: string }>
+  >({})
+  const tabSessionSnapshotRef = useRef<Array<{ path: string; active: boolean }>>([])
+  const terminalSessionSnapshotRef = useRef<WorkspaceSessionTerminalSnapshot[]>([])
   const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
 
   const locale = uiPreferences.locale
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
   const taskCenterDraftFilePath = useMemo(() => buildTaskCenterDraftFilePath(), [])
+  const workspaceSessionFilePath = useMemo(() => buildWorkspaceSessionFilePath(), [])
 
   useEffect(() => {
     stationTerminalsRef.current = stationTerminals
@@ -575,6 +645,42 @@ export function ShellRoot() {
         window.clearTimeout(gitTimerId)
       }
       gitRefreshTimerRef.current = null
+
+      const persistTimerId = workspaceSessionPersistTimerRef.current
+      if (typeof persistTimerId === 'number') {
+        window.clearTimeout(persistTimerId)
+      }
+      workspaceSessionPersistTimerRef.current = null
+
+      workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId)
+      })
+      workspaceSessionRestoreTabTimersRef.current = []
+
+      const unreadTimerId = stationUnreadFlushTimerRef.current
+      if (typeof unreadTimerId === 'number') {
+        window.clearTimeout(unreadTimerId)
+      }
+      stationUnreadFlushTimerRef.current = null
+      stationUnreadDeltaRef.current = {}
+
+      const mentionTimerId = taskMentionSearchTimerRef.current
+      if (typeof mentionTimerId === 'number') {
+        window.clearTimeout(mentionTimerId)
+      }
+      taskMentionSearchTimerRef.current = null
+      taskMentionSearchSeqRef.current += 1
+      taskMentionLastQueryRef.current = ''
+
+      if (desktopApi.isTauriRuntime()) {
+        Object.entries(registeredAgentRuntimeRef.current).forEach(([agentId, runtime]) => {
+          void desktopApi.agentRuntimeUnregister(runtime.workspaceId, agentId).catch(() => {
+            // Best-effort runtime cleanup during shell teardown.
+          })
+        })
+      }
+      registeredAgentRuntimeRef.current = {}
+
     }
   }, [])
 
@@ -591,12 +697,16 @@ export function ShellRoot() {
     let disposed = false
     let cleanup: (() => void) | null = null
 
-    const loadAmbientLightingSetting = async () => {
+    const loadRuntimeSettings = async () => {
       try {
         const response = await desktopApi.settingsGetEffective(activeWorkspaceId)
         if (disposed) {
           return
         }
+        const runtimeShortcuts = resolveShortcutBindingsFromSettings(response.values)
+        setShortcutBindings((prev) =>
+          areShortcutBindingsEqual(prev, runtimeShortcuts) ? prev : runtimeShortcuts,
+        )
         const runtimeAmbientLighting = readAmbientLightingFromSettings(response.values)
         if (runtimeAmbientLighting.enabled === null && runtimeAmbientLighting.intensity === null) {
           return
@@ -627,7 +737,7 @@ export function ShellRoot() {
       }
     }
 
-    void loadAmbientLightingSetting()
+    void loadRuntimeSettings()
 
     void desktopApi
       .subscribeSettingsUpdated((payload) => {
@@ -637,7 +747,7 @@ export function ShellRoot() {
         if (payload.workspaceId && !activeWorkspaceId) {
           return
         }
-        void loadAmbientLightingSetting()
+        void loadRuntimeSettings()
       })
       .then((unlisten) => {
         cleanup = unlisten
@@ -903,13 +1013,21 @@ export function ShellRoot() {
           sessionId: null,
           stateRaw: 'idle',
           unreadCount: 0,
+          shell: null,
+          cwdMode: 'workspace_root',
+          resolvedCwd: null,
         }
-        return {
+        const nextRuntime = {
+          ...current,
+          ...patch,
+        }
+        const next = {
           ...prev,
-          [stationId]: {
-            ...current,
-            ...patch,
-          },
+          [stationId]: nextRuntime,
+        }
+        stationTerminalsRef.current = next
+        return {
+          ...next,
         }
       })
     },
@@ -918,6 +1036,7 @@ export function ShellRoot() {
 
   const clearStationUnread = useMemo(
     () => (stationId: string) => {
+      delete stationUnreadDeltaRef.current[stationId]
       setStationTerminals((prev) => {
         const current = prev[stationId]
         if (!current || current.unreadCount === 0) {
@@ -935,27 +1054,111 @@ export function ShellRoot() {
     [],
   )
 
+  const flushStationUnreadDeltas = useMemo(
+    () => () => {
+      const pending = stationUnreadDeltaRef.current
+      stationUnreadDeltaRef.current = {}
+      stationUnreadFlushTimerRef.current = null
+      const entries = Object.entries(pending).filter(([, delta]) => delta > 0)
+      if (entries.length === 0) {
+        return
+      }
+      setStationTerminals((prev) => {
+        let changed = false
+        const next = { ...prev }
+        entries.forEach(([stationId, delta]) => {
+          const current = next[stationId]
+          if (!current) {
+            return
+          }
+          const unreadCount = Math.min(999, current.unreadCount + delta)
+          if (unreadCount === current.unreadCount) {
+            return
+          }
+          next[stationId] = {
+            ...current,
+            unreadCount,
+          }
+          changed = true
+        })
+        return changed ? next : prev
+      })
+    },
+    [],
+  )
+
   const incrementStationUnread = useMemo(
     () => (stationId: string, delta: number) => {
       if (delta <= 0) {
         return
       }
-      setStationTerminals((prev) => {
-        const current = prev[stationId]
-        if (!current) {
-          return prev
-        }
-        return {
-          ...prev,
-          [stationId]: {
-            ...current,
-            unreadCount: Math.min(999, current.unreadCount + delta),
-          },
-        }
-      })
+      const pending = stationUnreadDeltaRef.current
+      pending[stationId] = Math.min(999, (pending[stationId] ?? 0) + delta)
+      if (typeof stationUnreadFlushTimerRef.current === 'number') {
+        return
+      }
+      stationUnreadFlushTimerRef.current = window.setTimeout(flushStationUnreadDeltas, 84)
     },
-    [],
+    [flushStationUnreadDeltas],
   )
+
+  const clearStationTaskSignalTimer = useCallback((stationId: string) => {
+    const timerId = stationTaskSignalTimerRef.current[stationId]
+    if (typeof timerId === 'number') {
+      window.clearTimeout(timerId)
+    }
+    stationTaskSignalTimerRef.current[stationId] = null
+  }, [])
+
+  const scheduleStationTaskSignalDismiss = useCallback(
+    (stationId: string, nonce: number) => {
+      clearStationTaskSignalTimer(stationId)
+      stationTaskSignalTimerRef.current[stationId] = window.setTimeout(() => {
+        stationTaskSignalTimerRef.current[stationId] = null
+        if ((stationTaskSignalNonceRef.current[stationId] ?? 0) !== nonce) {
+          return
+        }
+        setStationTaskSignals((prev) => {
+          const current = prev[stationId]
+          if (!current || current.nonce !== nonce) {
+            return prev
+          }
+          const next = { ...prev }
+          delete next[stationId]
+          return next
+        })
+      }, STATION_TASK_SIGNAL_VISIBLE_MS)
+    },
+    [clearStationTaskSignalTimer],
+  )
+
+  const emitStationTaskSignal = useCallback(
+    (input: { stationId: string; taskId: string; title: string; receivedAtMs: number }) => {
+      const nextNonce = (stationTaskSignalNonceRef.current[input.stationId] ?? 0) + 1
+      stationTaskSignalNonceRef.current[input.stationId] = nextNonce
+      setStationTaskSignals((prev) => ({
+        ...prev,
+        [input.stationId]: {
+          nonce: nextNonce,
+          taskId: input.taskId,
+          title: input.title,
+          receivedAtMs: input.receivedAtMs,
+        },
+      }))
+      scheduleStationTaskSignalDismiss(input.stationId, nextNonce)
+    },
+    [scheduleStationTaskSignalDismiss],
+  )
+
+  useEffect(() => {
+    return () => {
+      Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
+        clearStationTaskSignalTimer(stationId)
+      })
+      stationTaskSignalTimerRef.current = {}
+      stationTaskSignalNonceRef.current = {}
+    }
+  }, [clearStationTaskSignalTimer])
 
   const bindStationTerminalSink = useMemo(
     () => (stationId: string, sink: StationTerminalSink | null) => {
@@ -1311,10 +1514,127 @@ export function ShellRoot() {
   ])
 
   useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      registeredAgentRuntimeRef.current = {}
+      return
+    }
+    const previous = registeredAgentRuntimeRef.current
+    const desired: Record<string, { workspaceId: string; sessionId: string }> = {}
+
+    if (activeWorkspaceId) {
+      stations.forEach((station) => {
+        const sessionId = stationTerminals[station.id]?.sessionId ?? null
+        if (!sessionId) {
+          return
+        }
+        desired[station.id] = {
+          workspaceId: activeWorkspaceId,
+          sessionId,
+        }
+      })
+    }
+
+    Object.entries(previous).forEach(([agentId, runtime]) => {
+      const next = desired[agentId]
+      if (
+        next &&
+        next.workspaceId === runtime.workspaceId &&
+        next.sessionId === runtime.sessionId
+      ) {
+        return
+      }
+      void desktopApi
+        .agentRuntimeUnregister(runtime.workspaceId, agentId)
+        .catch(() => {
+          // Keep sync loop resilient during transient runtime teardown.
+        })
+    })
+
+    Object.entries(desired).forEach(([agentId, runtime]) => {
+      const prev = previous[agentId]
+      if (
+        prev &&
+        prev.workspaceId === runtime.workspaceId &&
+        prev.sessionId === runtime.sessionId
+      ) {
+        return
+      }
+      void desktopApi
+        .agentRuntimeRegister({
+          workspaceId: runtime.workspaceId,
+          agentId,
+          stationId: agentId,
+          sessionId: runtime.sessionId,
+          online: true,
+        })
+        .catch(() => {
+          // Ignore sync retry failures; next render cycle will retry.
+        })
+    })
+
+    registeredAgentRuntimeRef.current = desired
+  }, [activeWorkspaceId, stations, stationTerminals])
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+
+    let disposed = false
+    let cleanup: (() => void) | null = null
+
+    void desktopApi
+      .subscribeChannelEvents({
+        onMessage: (payload: ChannelMessagePayload) => {
+          if (disposed) {
+            return
+          }
+          const station = stationsRef.current.find(
+            (item) => item.id === payload.targetAgentId,
+          )
+          if (!station) {
+            return
+          }
+          const rawPayload = payload.payload
+          const taskId =
+            typeof rawPayload.taskId === 'string' ? rawPayload.taskId : payload.messageId
+          const title =
+            typeof rawPayload.title === 'string' ? rawPayload.title : payload.type
+
+          emitStationTaskSignal({
+            stationId: station.id,
+            taskId,
+            title,
+            receivedAtMs: payload.tsMs,
+          })
+        },
+        onAck: () => {
+          // Ack events are tracked in task center history records.
+        },
+        onDispatchProgress: () => {
+          // Progress events are consumed by the dispatch command response in current UI.
+        },
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+          return
+        }
+        cleanup = unlisten
+      })
+
+    return () => {
+      disposed = true
+      if (cleanup) {
+        cleanup()
+      }
+    }
+  }, [emitStationTaskSignal])
+
+  useEffect(() => {
     setStationTerminals(createInitialStationTerminals(stationsRef.current))
     sessionStationRef.current = {}
     terminalSessionVisibilityRef.current = {}
-    terminalSnapshotSeqRef.current += 1
     stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
       acc[station.id] = getStationIdleBanner(localeRef.current, station)
       return acc
@@ -1337,16 +1657,20 @@ export function ShellRoot() {
     setFileReadMode('full')
     setFileReadLoading(false)
     setFileReadError(null)
-    setTaskAttachments([])
     setTaskDispatchHistory([])
     setTaskSending(false)
     setTaskRetryingTaskId(null)
     setTaskDraftSavedAtMs(null)
     setTaskNotice(null)
+    Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
+      clearStationTaskSignalTimer(stationId)
+    })
+    stationTaskSignalTimerRef.current = {}
+    stationTaskSignalNonceRef.current = {}
     setStationTaskSignals({})
     setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
     fileReadSeqRef.current += 1
-  }, [activeWorkspaceId])
+  }, [activeWorkspaceId, clearStationTaskSignalTimer])
 
   useEffect(() => {
     const stationIdSet = new Set(stations.map((station) => station.id))
@@ -1357,6 +1681,9 @@ export function ShellRoot() {
           sessionId: null,
           stateRaw: 'idle',
           unreadCount: 0,
+          shell: null,
+          cwdMode: 'workspace_root',
+          resolvedCwd: null,
         }
       })
       return next
@@ -1366,6 +1693,14 @@ export function ShellRoot() {
       if (!stationIdSet.has(stationId)) {
         delete stationTerminalOutputCacheRef.current[stationId]
       }
+    })
+    Object.keys(stationTaskSignalTimerRef.current).forEach((stationId) => {
+      if (stationIdSet.has(stationId)) {
+        return
+      }
+      clearStationTaskSignalTimer(stationId)
+      delete stationTaskSignalTimerRef.current[stationId]
+      delete stationTaskSignalNonceRef.current[stationId]
     })
     stations.forEach((station) => {
       if (!stationTerminalOutputCacheRef.current[station.id]) {
@@ -1396,7 +1731,7 @@ export function ShellRoot() {
     if (activeStationId && !stationIdSet.has(activeStationId)) {
       setActiveStationId(stations[0]?.id ?? '')
     }
-  }, [activeStationId, stations])
+  }, [activeStationId, clearStationTaskSignalTimer, stations])
 
   useEffect(() => {
     if (!activeWorkspaceId) {
@@ -1411,8 +1746,6 @@ export function ShellRoot() {
     )
   }, [activeWorkspaceId])
 
-  const activeStationSessionId = stationTerminals[activeStationId]?.sessionId ?? null
-
   useEffect(() => {
     if (!activeStationId) {
       return
@@ -1426,8 +1759,10 @@ export function ShellRoot() {
     }
 
     const desiredVisibility: Record<string, boolean> = {}
-    Object.entries(sessionStationRef.current).forEach(([sessionId, stationId]) => {
-      desiredVisibility[sessionId] = stationId === activeStationId
+    Object.keys(sessionStationRef.current).forEach((sessionId) => {
+      // Keep every mapped terminal session visible. Active-only visibility caused
+      // focus and cursor race conditions when switching between station terminals.
+      desiredVisibility[sessionId] = true
     })
 
     Object.entries(desiredVisibility).forEach(([sessionId, visible]) => {
@@ -1445,39 +1780,7 @@ export function ShellRoot() {
         delete terminalSessionVisibilityRef.current[sessionId]
       }
     })
-
-    const activeSessionId = activeStationSessionId
-    if (!activeSessionId) {
-      return
-    }
-    const snapshotSeq = terminalSnapshotSeqRef.current + 1
-    terminalSnapshotSeqRef.current = snapshotSeq
-    void desktopApi
-      .terminalReadSnapshot(activeSessionId, 262_144)
-      .then((snapshot) => {
-        if (terminalSnapshotSeqRef.current !== snapshotSeq) {
-          return
-        }
-        const mappedStationId = sessionStationRef.current[snapshot.sessionId]
-        if (!mappedStationId || mappedStationId !== activeStationId) {
-          return
-        }
-        const text = decodeBase64Chunk(snapshot.chunk)
-        if (text) {
-          resetStationTerminalOutput(mappedStationId, text)
-        }
-        clearStationUnread(mappedStationId)
-      })
-      .catch(() => {
-        // Snapshot is a best-effort replay path.
-      })
-  }, [
-    activeStationId,
-    activeStationSessionId,
-    clearStationUnread,
-    decodeBase64Chunk,
-    resetStationTerminalOutput,
-  ])
+  }, [stationTerminals])
 
   useEffect(() => {
     if (activeNavId !== 'stations') {
@@ -1492,15 +1795,15 @@ export function ShellRoot() {
   }, [activeNavId, activeStationId, filteredStations])
 
   useEffect(() => {
-    const nextTargetId = resolveValidTaskTarget(stations, taskDraft.targetStationId, activeStationId)
-    if (nextTargetId === taskDraft.targetStationId) {
+    const nextTargetIds = resolveValidTaskTargets(stations, taskDraft.targetStationIds)
+    if (areTaskTargetsEqual(nextTargetIds, taskDraft.targetStationIds)) {
       return
     }
     setTaskDraft((prev) => ({
       ...prev,
-      targetStationId: nextTargetId,
+      targetStationIds: nextTargetIds,
     }))
-  }, [activeStationId, stations, taskDraft.targetStationId])
+  }, [stations, taskDraft.targetStationIds])
 
   const readTaskCenterSnapshotFile = useCallback(
     async (input: { workspaceId: string; taskCenterDraftFilePath: string }) => {
@@ -1544,12 +1847,10 @@ export function ShellRoot() {
     stationsRef,
     activeStationId,
     taskDraft,
-    taskAttachments,
     taskDispatchHistory,
     taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
     persistDebounceMs: TASK_DRAFT_PERSIST_DEBOUNCE_MS,
     setTaskDraft,
-    setTaskAttachments,
     setTaskDispatchHistory,
     setTaskSending,
     setTaskRetryingTaskId,
@@ -1712,6 +2013,26 @@ export function ShellRoot() {
           cwdMode: 'custom',
         })
         sessionStationRef.current[session.sessionId] = stationId
+        const currentRuntime = stationTerminalsRef.current[stationId] ?? {
+          sessionId: null,
+          stateRaw: 'idle',
+          unreadCount: 0,
+          shell: null,
+          cwdMode: 'workspace_root' as const,
+          resolvedCwd: null,
+        }
+        stationTerminalsRef.current = {
+          ...stationTerminalsRef.current,
+          [stationId]: {
+            ...currentRuntime,
+            sessionId: session.sessionId,
+            stateRaw: 'running',
+            unreadCount: 0,
+            shell: session.shell,
+            cwdMode: session.cwdMode,
+            resolvedCwd: session.resolvedCwd,
+          },
+        }
         resetStationTerminalOutput(
           stationId,
           `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
@@ -1726,6 +2047,9 @@ export function ShellRoot() {
           sessionId: session.sessionId,
           stateRaw: 'running',
           unreadCount: 0,
+          shell: session.shell,
+          cwdMode: session.cwdMode,
+          resolvedCwd: session.resolvedCwd,
         })
         return session.sessionId
       } catch (error) {
@@ -1842,6 +2166,50 @@ export function ShellRoot() {
     [appendStationTerminalOutput, ensureStationTerminalSession, locale],
   )
 
+  const submitStationTerminal = useCallback(async (stationId: string): Promise<boolean> => {
+    for (let attempt = 0; attempt <= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES; attempt += 1) {
+      const submittedByTerminal = stationTerminalSinkRef.current[stationId]?.submit?.() ?? false
+      if (submittedByTerminal) {
+        return true
+      }
+      if (attempt >= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES) {
+        return false
+      }
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          resolve()
+        })
+      })
+    }
+    return false
+  }, [])
+
+  const handleStationTerminalInput = useCallback(
+    (stationId: string, data: string) => {
+      sendStationTerminalInput(stationId, data)
+    },
+    [sendStationTerminalInput],
+  )
+
+  const writeStationTerminalCommand = useCallback(
+    async (stationId: string, command: string) => {
+      if (!desktopApi.isTauriRuntime()) {
+        appendStationTerminalOutput(stationId, t(locale, 'system.webPreviewNoInput'))
+        return false
+      }
+      let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      if (!sessionId) {
+        sessionId = await ensureStationTerminalSession(stationId)
+      }
+      if (!sessionId) {
+        return false
+      }
+      await desktopApi.terminalWrite(sessionId, command)
+      return true
+    },
+    [appendStationTerminalOutput, ensureStationTerminalSession, locale],
+  )
+
   const resizeStationTerminal = useMemo(
     () => (stationId: string, cols: number, rows: number) => {
       if (!desktopApi.isTauriRuntime()) {
@@ -1871,18 +2239,67 @@ export function ShellRoot() {
     [ensureStationTerminalSession, sendStationTerminalInput],
   )
 
-  const persistTaskDocument = useCallback(
+  const ensureTaskTargetRuntime = useCallback(
+    async (input: { workspaceId: string; targetStationId: string }) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const station = stationsRef.current.find((item) => item.id === input.targetStationId)
+      if (!station) {
+        return
+      }
+      const sessionId = await ensureStationTerminalSession(station.id)
+      if (!sessionId) {
+        return
+      }
+      await desktopApi.agentRuntimeRegister({
+        workspaceId: input.workspaceId,
+        agentId: station.id,
+        stationId: station.id,
+        sessionId,
+        online: true,
+      })
+    },
+    [ensureStationTerminalSession],
+  )
+
+  const dispatchTaskBatch = useCallback(
     async (input: {
       workspaceId: string
-      taskFilePath: string
-      manifestPath: string
-      markdownContent: string
-      manifestContent: string
+      title: string
+      markdown: string
+      targetStationIds: string[]
     }) => {
-      await desktopApi.fsWriteFile(input.workspaceId, input.taskFilePath, input.markdownContent)
-      await desktopApi.fsWriteFile(input.workspaceId, input.manifestPath, input.manifestContent)
+      const response = await desktopApi.taskDispatchBatch({
+        workspaceId: input.workspaceId,
+        sender: { type: 'human', agentId: null },
+        targets: input.targetStationIds,
+        title: input.title,
+        markdown: input.markdown,
+        attachments: [],
+      })
+      const postSubmitResults = await Promise.all(
+        response.results.map(async (result) => {
+          if (result.status !== 'sent') {
+            return result
+          }
+          const submitted = await submitStationTerminal(result.targetAgentId)
+          if (submitted) {
+            return result
+          }
+          return {
+            ...result,
+            status: 'failed' as const,
+            detail: 'XTERM_SUBMIT_FAILED',
+          }
+        }),
+      )
+      return {
+        ...response,
+        results: postSubmitResults,
+      }
     },
-    [],
+    [submitStationTerminal],
   )
 
   const verifyTaskFileReadable = useCallback(
@@ -1898,9 +2315,8 @@ export function ShellRoot() {
       taskId: string
       taskFilePath: string
       title: string
-      setStationTaskSignals: Dispatch<SetStateAction<Record<string, StationTaskSignal>>>
     }) => {
-      const { station, taskId, taskFilePath, title, setStationTaskSignals } = input
+      const { station, taskId, taskFilePath, title } = input
       const sessionId = await ensureStationTerminalSession(station.id)
       if (!sessionId) {
         throw new Error('TARGET_AGENT_SESSION_UNAVAILABLE')
@@ -1912,55 +2328,128 @@ export function ShellRoot() {
           path: taskFilePath,
         }),
       )
-      sendStationTerminalInput(station.id, `${buildTaskDispatchCommand(taskId, taskFilePath)}\n`)
-      setStationTaskSignals((prev) => {
-        const previousSignal = prev[station.id]
-        return {
-          ...prev,
-          [station.id]: {
-            nonce: (previousSignal?.nonce ?? 0) + 1,
-            taskId,
-            title,
-            receivedAtMs: Date.now(),
-          },
-        }
+      const accepted = await writeStationTerminalCommand(
+        station.id,
+        buildTaskDispatchCommand(taskId, taskFilePath),
+      )
+      if (!accepted) {
+        throw new Error('TARGET_AGENT_SESSION_UNAVAILABLE')
+      }
+      const submitted = await submitStationTerminal(station.id)
+      if (!submitted) {
+        throw new Error('XTERM_SUBMIT_FAILED')
+      }
+      emitStationTaskSignal({
+        stationId: station.id,
+        taskId,
+        title,
+        receivedAtMs: Date.now(),
       })
     },
-    [appendStationTerminalOutput, ensureStationTerminalSession, locale, sendStationTerminalInput],
+    [
+      appendStationTerminalOutput,
+      emitStationTaskSignal,
+      ensureStationTerminalSession,
+      locale,
+      submitStationTerminal,
+      writeStationTerminalCommand,
+    ],
   )
 
   const {
     updateTaskDraft,
-    addTaskAttachmentByPath,
-    addTaskAttachmentFromInput,
-    removeTaskAttachment,
-    insertTaskAttachmentReference,
     insertTaskSnippet,
     dispatchTaskToAgent,
     retryTaskDispatch,
   } = useTaskDispatchActions({
     locale,
     activeWorkspaceId,
-    activeStationId,
     stationsRef,
     taskDraft,
-    taskAttachments,
     taskDispatchHistory,
     taskSending,
     taskRetryingTaskId,
     setTaskDraft,
-    setTaskAttachments,
     setTaskDispatchHistory,
     setTaskSending,
     setTaskRetryingTaskId,
     setTaskNotice,
-    onPersistTaskDocument: persistTaskDocument,
+    onEnsureTaskTargetRuntime: ensureTaskTargetRuntime,
+    onDispatchTaskBatch: dispatchTaskBatch,
     onVerifyTaskFileReadable: verifyTaskFileReadable,
     onDeliverTaskToStation: deliverTaskToStation,
     setStationTaskSignals,
     describeError,
     taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
   })
+
+  const clearTaskMentionSearch = useCallback(() => {
+    if (typeof taskMentionSearchTimerRef.current === 'number') {
+      window.clearTimeout(taskMentionSearchTimerRef.current)
+    }
+      taskMentionSearchTimerRef.current = null
+      taskMentionSearchSeqRef.current += 1
+      taskMentionLastQueryRef.current = ''
+      setTaskMentionCandidates([])
+      setTaskMentionLoading(false)
+      setTaskMentionError(null)
+  }, [])
+
+  const searchTaskMentionFiles = useCallback(
+    (rawQuery: string) => {
+      const query = rawQuery.trim()
+      if (!query || !activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+        clearTaskMentionSearch()
+        return
+      }
+      if (query === taskMentionLastQueryRef.current) {
+        return
+      }
+      taskMentionLastQueryRef.current = query
+
+      if (typeof taskMentionSearchTimerRef.current === 'number') {
+        window.clearTimeout(taskMentionSearchTimerRef.current)
+      }
+      const requestSeq = taskMentionSearchSeqRef.current + 1
+      taskMentionSearchSeqRef.current = requestSeq
+      setTaskMentionLoading(true)
+      setTaskMentionError(null)
+
+      taskMentionSearchTimerRef.current = window.setTimeout(() => {
+        void desktopApi
+          .fsSearchFiles(activeWorkspaceId, query, 80)
+          .then((response) => {
+            if (taskMentionSearchSeqRef.current !== requestSeq) {
+              return
+            }
+            setTaskMentionCandidates(response.matches.slice(0, 10))
+            setTaskMentionError(null)
+          })
+          .catch((error) => {
+            if (taskMentionSearchSeqRef.current !== requestSeq) {
+              return
+            }
+            setTaskMentionCandidates([])
+            setTaskMentionError(
+              t(localeRef.current, 'taskCenter.mentionSearchFailed', {
+                detail: describeError(error),
+              }),
+            )
+          })
+          .finally(() => {
+            if (taskMentionSearchSeqRef.current !== requestSeq) {
+              return
+            }
+            setTaskMentionLoading(false)
+          })
+      }, 64)
+    },
+    [activeWorkspaceId, clearTaskMentionSearch],
+  )
+
+  useEffect(() => {
+    clearTaskMentionSearch()
+  }, [activeWorkspaceId, clearTaskMentionSearch])
 
   const addStation = useMemo(
     () => (input: CreateStationInput) => {
@@ -1982,6 +2471,9 @@ export function ShellRoot() {
           sessionId: null,
           stateRaw: 'idle',
           unreadCount: 0,
+          shell: null,
+          cwdMode: 'workspace_root',
+          resolvedCwd: null,
         },
       }))
       stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(localeRef.current, station)
@@ -2034,6 +2526,9 @@ export function ShellRoot() {
         sessionId: null,
         stateRaw: 'killed',
         unreadCount: 0,
+        shell: null,
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
       })
 
       Object.entries(sessionStationRef.current).forEach(([sessionId, mappedStationId]) => {
@@ -2061,6 +2556,8 @@ export function ShellRoot() {
         return next
       })
       delete stationTerminalOutputCacheRef.current[stationId]
+      clearStationTaskSignalTimer(stationId)
+      delete stationTaskSignalNonceRef.current[stationId]
       setStationTaskSignals((prev) => {
         if (!prev[stationId]) {
           return prev
@@ -2069,8 +2566,14 @@ export function ShellRoot() {
         delete next[stationId]
         return next
       })
+      const workspaceId = activeWorkspaceIdRef.current
+      if (workspaceId && desktopApi.isTauriRuntime()) {
+        void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
+          // Runtime sync effect will retry if this one fails.
+        })
+      }
     },
-    [appendStationTerminalOutput, locale, setStationTerminalState],
+    [appendStationTerminalOutput, clearStationTaskSignalTimer, locale, setStationTerminalState],
   )
 
   const canvasStations = useMemo(() => {
@@ -2079,17 +2582,6 @@ export function ShellRoot() {
     }
     return stations
   }, [activeNavId, filteredStations, stations])
-
-  const terminalPreviewByStation = useMemo(
-    () =>
-      canvasStations.reduce<Record<string, string>>((acc, station) => {
-        const snapshot =
-          stationTerminalOutputCacheRef.current[station.id] ?? getStationIdleBanner(localeRef.current, station)
-        acc[station.id] = buildTerminalPreview(snapshot)
-        return acc
-      }, {}),
-    [canvasStations, stationTerminals],
-  )
 
   const terminalSessionCount = useMemo(
     () => Object.values(stationTerminals).filter((runtime) => runtime.sessionId).length,
@@ -2222,6 +2714,246 @@ export function ShellRoot() {
     },
     [activeWorkspaceId, locale, openedFiles],
   )
+
+  useEffect(() => {
+    loadFileContentRef.current = loadFileContent
+  }, [loadFileContent])
+
+  const tabSessionSnapshotEntries = useMemo(
+    () =>
+      openedFiles.map((file) => ({
+        path: file.path,
+        active: file.path === activeFilePath,
+      })),
+    [activeFilePath, openedFiles],
+  )
+
+  const tabSessionSnapshotSignature = useMemo(
+    () =>
+      tabSessionSnapshotEntries
+        .map((entry) => `${entry.path}:${entry.active ? '1' : '0'}`)
+        .join('|'),
+    [tabSessionSnapshotEntries],
+  )
+
+  const terminalSessionSnapshotEntries = useMemo(
+    () =>
+      stations.reduce<WorkspaceSessionTerminalSnapshot[]>((acc, station) => {
+        const runtime = stationTerminals[station.id]
+        if (!runtime?.sessionId) {
+          return acc
+        }
+        acc.push({
+          stationId: station.id,
+          shell: runtime.shell,
+          cwdMode: runtime.cwdMode,
+          resolvedCwd: runtime.resolvedCwd,
+          active: station.id === activeStationId,
+        })
+        return acc
+      }, []),
+    [activeStationId, stationTerminals, stations],
+  )
+
+  const terminalSessionSnapshotSignature = useMemo(
+    () =>
+      terminalSessionSnapshotEntries
+        .map(
+          (entry) =>
+            `${entry.stationId}:${entry.shell ?? ''}:${entry.cwdMode}:${entry.resolvedCwd ?? ''}:${
+              entry.active ? '1' : '0'
+            }`,
+        )
+        .join('|'),
+    [terminalSessionSnapshotEntries],
+  )
+
+  useEffect(() => {
+    tabSessionSnapshotRef.current = tabSessionSnapshotEntries
+  }, [tabSessionSnapshotEntries])
+
+  useEffect(() => {
+    terminalSessionSnapshotRef.current = terminalSessionSnapshotEntries
+  }, [terminalSessionSnapshotEntries])
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+      workspaceSessionHydratingRef.current = false
+      return
+    }
+
+    workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
+      window.clearTimeout(timerId)
+    })
+    workspaceSessionRestoreTabTimersRef.current = []
+
+    const workspaceId = activeWorkspaceId
+    const restoreSeq = workspaceSessionRestoreSeqRef.current + 1
+    workspaceSessionRestoreSeqRef.current = restoreSeq
+    workspaceSessionHydratingRef.current = true
+    let cancelled = false
+
+    const restoreWorkspaceSession = async () => {
+      try {
+        const response = await desktopApi.workspaceRestoreSession(workspaceId)
+        if (
+          cancelled ||
+          workspaceSessionRestoreSeqRef.current !== restoreSeq ||
+          activeWorkspaceIdRef.current !== workspaceId
+        ) {
+          return
+        }
+
+        const restored = parseWorkspaceSessionSnapshot(
+          JSON.stringify({
+            version: 1,
+            updatedAtMs: Date.now(),
+            windows: response.windows,
+            tabs: response.tabs,
+            terminals: response.terminals,
+          }),
+        )
+        if (!restored) {
+          return
+        }
+
+        const activeNav = restored.windows[0]?.activeNavId
+        if (typeof activeNav === 'string' && isNavItemId(activeNav)) {
+          setActiveNavId(activeNav)
+        }
+
+        const tabsToRestore = restored.tabs.slice(0, WORKSPACE_SESSION_MAX_RESTORE_TABS)
+        const activeTabPath = tabsToRestore.find((tab) => tab.active)?.path ?? tabsToRestore[0]?.path ?? null
+        if (activeTabPath) {
+          await loadFileContentRef.current(activeTabPath, 'full')
+        }
+
+        tabsToRestore
+          .map((tab) => tab.path)
+          .filter((path) => path !== activeTabPath)
+          .forEach((path, index) => {
+            const timerId = window.setTimeout(() => {
+              if (
+                workspaceSessionRestoreSeqRef.current !== restoreSeq ||
+                activeWorkspaceIdRef.current !== workspaceId
+              ) {
+                return
+              }
+              void loadFileContentRef.current(path, 'full')
+            }, 30 * (index + 1))
+            workspaceSessionRestoreTabTimersRef.current.push(timerId)
+          })
+
+        const restorableTerminals = restored.terminals
+          .filter((terminal) => stationsRef.current.some((station) => station.id === terminal.stationId))
+          .sort((left, right) => Number(right.active) - Number(left.active))
+          .slice(0, WORKSPACE_SESSION_MAX_RESTORE_TERMINALS)
+
+        let restoredActiveStationId: string | null = null
+        for (const terminal of restorableTerminals) {
+          if (
+            cancelled ||
+            workspaceSessionRestoreSeqRef.current !== restoreSeq ||
+            activeWorkspaceIdRef.current !== workspaceId
+          ) {
+            return
+          }
+          const restoreCwdMode =
+            terminal.cwdMode === 'custom' && terminal.resolvedCwd ? 'custom' : 'workspace_root'
+          const restoreCwd = restoreCwdMode === 'custom' ? terminal.resolvedCwd : null
+
+          try {
+            const session = await desktopApi.terminalCreate(workspaceId, {
+              shell: terminal.shell,
+              cwdMode: restoreCwdMode,
+              cwd: restoreCwd,
+            })
+            sessionStationRef.current[session.sessionId] = terminal.stationId
+            setStationTerminalState(terminal.stationId, {
+              sessionId: session.sessionId,
+              stateRaw: 'running',
+              unreadCount: 0,
+              shell: session.shell,
+              cwdMode: session.cwdMode,
+              resolvedCwd: session.resolvedCwd,
+            })
+            if (terminal.active && !restoredActiveStationId) {
+              restoredActiveStationId = terminal.stationId
+            }
+          } catch {
+            // Keep restore resilient: one terminal failure must not block overall restore.
+          }
+        }
+
+        if (restoredActiveStationId) {
+          setActiveStationId(restoredActiveStationId)
+        }
+      } finally {
+        if (workspaceSessionRestoreSeqRef.current === restoreSeq) {
+          workspaceSessionHydratingRef.current = false
+        }
+      }
+    }
+
+    void restoreWorkspaceSession()
+
+    return () => {
+      cancelled = true
+      workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
+        window.clearTimeout(timerId)
+      })
+      workspaceSessionRestoreTabTimersRef.current = []
+      if (workspaceSessionRestoreSeqRef.current === restoreSeq) {
+        workspaceSessionHydratingRef.current = false
+      }
+    }
+  }, [activeWorkspaceId])
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+      return
+    }
+    if (workspaceSessionHydratingRef.current) {
+      return
+    }
+
+    const existingTimerId = workspaceSessionPersistTimerRef.current
+    if (typeof existingTimerId === 'number') {
+      window.clearTimeout(existingTimerId)
+    }
+
+    const workspaceId = activeWorkspaceId
+    workspaceSessionPersistTimerRef.current = window.setTimeout(() => {
+      if (workspaceSessionHydratingRef.current || activeWorkspaceIdRef.current !== workspaceId) {
+        return
+      }
+      const snapshot = buildWorkspaceSessionSnapshot({
+        updatedAtMs: Date.now(),
+        windows: [{ activeNavId }],
+        tabs: tabSessionSnapshotRef.current,
+        terminals: terminalSessionSnapshotRef.current,
+      })
+      const serialized = serializeWorkspaceSessionSnapshot(snapshot)
+      void desktopApi.fsWriteFile(workspaceId, workspaceSessionFilePath, serialized).catch(() => {
+        // Keep UI responsive: snapshot persistence is best-effort.
+      })
+      workspaceSessionPersistTimerRef.current = null
+    }, WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS)
+
+    return () => {
+      const timerId = workspaceSessionPersistTimerRef.current
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId)
+      }
+      workspaceSessionPersistTimerRef.current = null
+    }
+  }, [
+    activeNavId,
+    activeWorkspaceId,
+    tabSessionSnapshotSignature,
+    terminalSessionSnapshotSignature,
+    workspaceSessionFilePath,
+  ])
 
   const saveFileContent = useCallback(
     async (filePath: string, content: string): Promise<boolean> => {
@@ -2456,21 +3188,62 @@ export function ShellRoot() {
     }))
   }, [])
 
+  const triggerFileEditorCommand = useCallback((type: FileEditorCommandRequest['type']) => {
+    setFileEditorCommandRequest((prev) => ({
+      type,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }))
+  }, [])
+
   useEffect(() => {
     const onGlobalShortcut = (event: KeyboardEvent) => {
-      const modKey = nativeWindowTopMacOs ? event.metaKey : event.ctrlKey
-      if (!modKey || event.altKey) {
+      if (event.altKey) {
         return
       }
-      const key = event.key.toLowerCase()
+      const editableTarget = isEditableKeyboardTarget(event.target)
+      const codeEditorTarget = isCodeEditorKeyboardTarget(event.target)
 
-      if (key === 'f') {
+      if (matchesShortcutEvent(event, shortcutBindings.openContentSearch, nativeWindowTopMacOs)) {
         event.preventDefault()
         event.stopPropagation()
-        triggerFileSearch(event.shiftKey ? 'content' : 'file')
+        triggerFileSearch('content')
         return
       }
-      if (key === 'p') {
+
+      if (matchesShortcutEvent(event, shortcutBindings.editorFind, nativeWindowTopMacOs)) {
+        if (codeEditorTarget) {
+          return
+        }
+        if (editableTarget) {
+          return
+        }
+        if (activeNavId === 'files' && activeFilePath) {
+          event.preventDefault()
+          event.stopPropagation()
+          triggerFileEditorCommand('find')
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+
+      if (matchesShortcutEvent(event, shortcutBindings.editorReplace, nativeWindowTopMacOs)) {
+        if (codeEditorTarget) {
+          return
+        }
+        if (editableTarget) {
+          return
+        }
+        if (activeNavId === 'files' && activeFilePath) {
+          event.preventDefault()
+          event.stopPropagation()
+          triggerFileEditorCommand('replace')
+        }
+        return
+      }
+
+      if (matchesShortcutEvent(event, shortcutBindings.openFileSearch, nativeWindowTopMacOs)) {
         event.preventDefault()
         event.stopPropagation()
         triggerFileSearch('file')
@@ -2478,6 +3251,7 @@ export function ShellRoot() {
       }
 
       // Prevent WebView default browser shortcuts in desktop runtime.
+      const key = event.key.toLowerCase()
       if (desktopApi.isTauriRuntime() && (key === 'r' || key === '+' || key === '=' || key === '-' || key === '0')) {
         event.preventDefault()
         event.stopPropagation()
@@ -2488,7 +3262,14 @@ export function ShellRoot() {
     return () => {
       window.removeEventListener('keydown', onGlobalShortcut, { capture: true })
     }
-  }, [nativeWindowTopMacOs, triggerFileSearch])
+  }, [
+    activeFilePath,
+    activeNavId,
+    nativeWindowTopMacOs,
+    shortcutBindings,
+    triggerFileEditorCommand,
+    triggerFileSearch,
+  ])
 
   const handleLeftPaneResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -2574,7 +3355,9 @@ export function ShellRoot() {
   return (
     <div
       ref={shellContainerRef}
-      className="h-full max-h-full box-border grid grid-rows-[auto_1fr_auto] gap-[10px] p-[0_12px_12px] overflow-hidden bg-vb-bg transition-colors duration-300 relative"
+      className={`h-full max-h-full box-border grid grid-rows-[auto_1fr_auto] gap-[10px] p-[0_12px_12px] overflow-hidden bg-vb-bg transition-colors duration-300 relative ${
+        nativeWindowTopWindows ? 'shell-native-window-top-windows' : ''
+      }`}
     >
       <AmbientBackgroundLighting
         enabled={uiPreferences.ambientLightingEnabled && !nativeWindowTopWindows}
@@ -2620,6 +3403,14 @@ export function ShellRoot() {
                 workspaceId={activeWorkspaceId}
                 selectedFilePath={activeFilePath}
                 searchRequest={fileSearchRequest}
+                onSearchRequestConsumed={(nonce) => {
+                  setFileSearchRequest((prev) => {
+                    if (!prev || prev.nonce !== nonce) {
+                      return prev
+                    }
+                    return null
+                  })
+                }}
                 onSelectFile={(filePath) => {
                   void loadFileContent(filePath, 'full')
                 }}
@@ -2631,19 +3422,16 @@ export function ShellRoot() {
               <TaskCenterPane
                 locale={locale}
                 stations={stations}
-                selectedFilePath={activeFilePath}
                 draft={taskDraft}
-                attachments={taskAttachments}
                 dispatchHistory={taskDispatchHistory}
                 sending={taskSending}
                 retryingTaskId={taskRetryingTaskId}
                 draftSavedAtMs={taskDraftSavedAtMs}
                 notice={taskNotice}
+                mentionCandidates={taskMentionCandidates}
+                mentionLoading={taskMentionLoading}
+                mentionError={taskMentionError}
                 onDraftChange={updateTaskDraft}
-                onAddAttachmentFromInput={addTaskAttachmentFromInput}
-                onAddAttachmentPath={addTaskAttachmentByPath}
-                onRemoveAttachment={removeTaskAttachment}
-                onInsertAttachmentReference={insertTaskAttachmentReference}
                 onInsertSnippet={insertTaskSnippet}
                 onSendTask={() => {
                   void dispatchTaskToAgent()
@@ -2651,6 +3439,8 @@ export function ShellRoot() {
                 onRetryDispatchTask={(taskId) => {
                   void retryTaskDispatch(taskId)
                 }}
+                onSearchMentionFiles={searchTaskMentionFiles}
+                onClearMentionSearch={clearTaskMentionSearch}
               />
             ) : activeNavId === 'stations' ? (
               <StationOverviewPane
@@ -2711,6 +3501,7 @@ export function ShellRoot() {
               onCloseFile={closeFile}
               onSaveFile={saveFileContent}
               onFileModified={handleFileModified}
+              editorCommandRequest={fileEditorCommandRequest}
             />
           ) : activeNavId === 'git' ? (
             <GitHistoryPane controller={gitController} />
@@ -2721,12 +3512,11 @@ export function ShellRoot() {
               stations={canvasStations}
               activeStationId={activeStationId}
               terminalByStation={stationTerminals}
-              terminalPreviewByStation={terminalPreviewByStation}
               taskSignalByStationId={stationTaskSignals}
               onSelectStation={handleCanvasSelectStation}
               onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
               onLaunchCliAgent={handleCanvasLaunchCliAgent}
-              onSendInputData={sendStationTerminalInput}
+              onSendInputData={handleStationTerminalInput}
               onResizeTerminal={resizeStationTerminal}
               onBindTerminalSink={bindStationTerminalSink}
               layoutPreset={canvasLayoutPreset}

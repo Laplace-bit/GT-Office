@@ -82,7 +82,14 @@
      - 查询按字面量匹配（`fixed string`），不是正则解释。
      - 同一 `workspaceId` 下，新搜索会自动取消旧搜索（supersede）。
      - 默认遵循 `ignore` 标准过滤，隐藏目录（如 `.git`）不参与扫描。
-6. `fs.search_stream_start`
+6. `fs.search_files`
+   - req: `{ "workspaceId":"string", "query":"task", "maxResults":80? }`
+   - resp: `{ "workspaceId":"string", "query":"task", "matches":[{"path":"docs/task.md","name":"task.md"}] }`
+   - 行为约束（`T-147`）：
+     - 仅返回文件项，不返回目录。
+     - 匹配范围为 `path + name` 的不区分大小写子串匹配。
+     - 结果路径必须为工作区相对路径，可直接插入任务中心 `@` 引用。
+7. `fs.search_stream_start`
    - req: `{ "workspaceId":"string", "searchId":"string?", "query":"TODO", "glob":"*.rs?", "chunkSize":64?, "maxResults":1200? }`
    - resp: `{ "workspaceId":"string", "searchId":"string", "accepted":true }`
    - 说明：
@@ -90,7 +97,7 @@
      - 查询按字面量匹配（fixed string），不会按正则解释特殊字符。
      - 首包采用快速 flush 策略，不等待完整 chunk 才返回首批命中。
      - 若 daemon stream 不可用，前端可回退 `fs.search_text`。
-7. `fs.search_stream_cancel`
+8. `fs.search_stream_cancel`
    - req: `{ "searchId":"string" }`
    - resp: `{ "searchId":"string", "cancelled":true }`
 
@@ -240,12 +247,62 @@
 3. 草稿快照结构：
    - `version`
    - `updatedAtMs`
-   - `draft`（title/markdown/targetStationId/attachmentInput）
-   - `attachments[]`
+   - `draft`（markdown/targetStationIds[]）
    - `dispatchHistory[]`
 4. 读写策略：
    - 加载时优先选择 `updatedAtMs` 更新的快照。
    - 写入采用防抖，避免高频编辑造成频繁 I/O。
+
+### 3.6.3 Task Center 批量派发与 Agent 通道（T-146）
+
+1. 新增命令：`task.dispatch_batch`
+   - req:
+     - `workspaceId: string`
+     - `sender: { type: \"human\"|\"agent\", agentId?: string }`
+     - `targets: string[]`（Agent/工位 ID）
+     - `title: string`
+     - `markdown: string`
+     - `attachments: [{ path,name,category }]`（当前任务中心 UI 固定传 `[]`，字段保留用于兼容）
+     - `submitSequences?: Record<string, string>`（保留字段；当前桌面实现不再依赖后端提交序列，统一由前端 xterm submit）
+   - resp:
+     - `batchId: string`
+     - `results: [{ targetAgentId, taskId, status:\"sent\"|\"failed\", detail?, taskFilePath? }]`
+2. 新增命令：`channel.publish`
+   - req:
+     - `workspaceId: string`
+     - `channel: { kind:\"direct\"|\"group\"|\"broadcast\", id:string }`
+     - `senderAgentId?: string`
+     - `targetAgentIds?: string[]`
+     - `type: \"task_instruction\"|\"status\"|\"handover\"`
+     - `payload: object`
+     - `idempotencyKey?: string`
+   - resp:
+     - `messageId: string`
+     - `acceptedTargets: string[]`
+     - `failedTargets: [{ agentId, reason }]`
+3. 新增命令：`agent.runtime_register` / `agent.runtime_unregister`
+   - register req: `{ workspaceId, agentId, stationId, sessionId, online?: true }`
+   - register resp: `{ workspaceId, agentId, stationId, sessionId, registered: true|false }`
+   - unregister req: `{ workspaceId, agentId }`
+   - unregister resp: `{ workspaceId, agentId, unregistered: true|false }`
+4. 语义约束：
+   - 通道本期仅做传输，不做持久化；应用重启后消息不恢复。
+   - 在线目标要求 ACK，离线目标立即失败（`AGENT_OFFLINE`）。
+   - `task.dispatch_batch` 采用“一发多单”：每个目标独立 `taskId` 与状态。
+   - `task.dispatch_batch` 当前仅负责向目标 session 写入命令文本，不在命令文本后拼接回车控制字符。
+   - 自动提交统一走前端 xterm sink：`StationXtermTerminal.submit -> terminal.input('\r', true)`，以终端原生输入链路触发 `onData`。
+   - 前端执行顺序必须满足“命令写入成功 -> xterm submit”；若 submit 未命中可用 sink，则结果标记 `failed(detail=XTERM_SUBMIT_FAILED)`。
+
+### 3.6.4 Task Center 输入体验约束（T-147）
+
+1. 任务输入模型：
+   - 前端不再拆分“标题 + 内容”双输入，统一使用 `markdown` 输入。
+   - 派发前由前端从 `markdown` 提取标题摘要后填充 `task.dispatch_batch.title`。
+2. `@` 文件引用：
+   - 前端在检测到 `@keyword` 时调用 `fs.search_files` 获取候选。
+   - 选中候选后写入 `@relative/path/to/file` 到 markdown 内容。
+3. 目标选择：
+   - UI 使用下拉多选目标 Agent，允许手动清空；清空状态必须保持，不得自动回填。
 
 ### 3.7 Settings
 
@@ -280,6 +337,13 @@
 3. `keymap.reset`
    - req: `{ "scope":"user|workspace", "commandId":"terminal.focus?" }`
    - resp: `{ "reset":true }`
+4. 快捷键覆盖约束（当前前端已消费）：
+   - `keybindings.overrides` 中支持以下命令 ID：
+     - `shell.search.open_file`（默认 `Ctrl/Cmd+P`）
+     - `shell.search.open_content`（默认 `Ctrl/Cmd+Shift+F`）
+     - `shell.editor.find`（默认 `Ctrl/Cmd+F`）
+     - `shell.editor.replace`（默认 `Ctrl/Cmd+H`）
+   - `keystroke` 支持 `Mod/Ctrl/Cmd/Shift/Alt + Key` 组合，前端按平台解析 `Mod`（macOS=Cmd，其它=Ctrl）。
 
 ### 3.9 AI Config
 
@@ -431,23 +495,27 @@
    - payload: `{ "agentId":"string", "roleId":"string", "from":"ready", "to":"paused" }`
 12. `channel/message`
    - payload: `{ "channelId":"string", "messageId":"string", "seq":123, "type":"handover", "senderAgentId":"string" }`
-13. `hook/executed`
+13. `channel/ack`
+   - payload: `{ "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed", "reason":"string?", "tsMs":1738932000456 }`
+14. `task/dispatch_progress`
+   - payload: `{ "batchId":"string", "workspaceId":"string", "targetAgentId":"string", "taskId":"string", "status":"sending|sent|failed", "detail":"string?" }`
+15. `hook/executed`
    - payload: `{ "hookId":"string", "runId":"string", "event":"git.commit.succeeded", "status":"SUCCESS|FAILED" }`
-14. `policy/denied`
+16. `policy/denied`
    - payload: `{ "decisionId":"string", "agentId":"string", "action":"terminal.exec", "reason":"PATH_OUTSIDE_SCOPE" }`
-15. `obs/graph_updated`
+17. `obs/graph_updated`
    - payload: `{ "workspaceId":"string", "window":"last_5m", "nodeCount":120, "edgeCount":340 }`
-16. `filesystem/changed`
+18. `filesystem/changed`
    - payload: `{ "workspaceId":"string", "kind":"created|modified|removed|renamed|other", "paths":["src/main.rs"], "tsMs":1738932000999 }`
-17. `filesystem/watch_error`
+19. `filesystem/watch_error`
    - payload: `{ "workspaceId":"string", "detail":"string" }`
-18. `daemon/search_chunk`
+20. `daemon/search_chunk`
    - payload: `{ "searchId":"string", "items":[{"path":"src/main.rs","line":12,"column":3,"preview":"..."}] }`
-19. `daemon/search_backpressure`
+21. `daemon/search_backpressure`
    - payload: `{ "searchId":"string", "droppedChunks":12 }`
-20. `daemon/search_done`
+22. `daemon/search_done`
    - payload: `{ "searchId":"string", "scannedFiles":12000, "emittedMatches":348, "cancelled":false }`
-21. `daemon/search_cancelled`
+23. `daemon/search_cancelled`
    - payload: `{ "searchId":"string" }`
 
 ## 5. 错误码规范

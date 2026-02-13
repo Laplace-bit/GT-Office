@@ -97,6 +97,26 @@ export const messages = {
     'zh-CN': '文件过大，仅支持只读预览',
     'en-US': 'File too large, read-only preview only',
   },
+  'fileContent.actionFind': { 'zh-CN': '查找', 'en-US': 'Find' },
+  'fileContent.actionFindHint': {
+    'zh-CN': '在当前文件中查找',
+    'en-US': 'Find in current file',
+  },
+  'fileContent.actionReplace': { 'zh-CN': '替换', 'en-US': 'Replace' },
+  'fileContent.actionReplaceHint': {
+    'zh-CN': '在当前文件中查找并替换',
+    'en-US': 'Find and replace in current file',
+  },
+  'fileContent.actionPrev': { 'zh-CN': '上一项', 'en-US': 'Previous' },
+  'fileContent.actionPrevHint': {
+    'zh-CN': '跳转到上一处匹配',
+    'en-US': 'Jump to previous match',
+  },
+  'fileContent.actionNext': { 'zh-CN': '下一项', 'en-US': 'Next' },
+  'fileContent.actionNextHint': {
+    'zh-CN': '跳转到下一处匹配',
+    'en-US': 'Jump to next match',
+  },
 
   'fileTree.title': { 'zh-CN': '文件树/搜索/Git 变更', 'en-US': 'Files / Search / Git Changes' },
   'fileTree.refresh': { 'zh-CN': '刷新', 'en-US': 'Refresh' },
@@ -128,8 +148,8 @@ export const messages = {
   },
   'fileSearch.title': { 'zh-CN': '工作区搜索', 'en-US': 'Workspace Search' },
   'fileSearch.subtitle': {
-    'zh-CN': '支持文件名与全文内容检索，快捷键 Ctrl/Cmd+F / Ctrl/Cmd+Shift+F。',
-    'en-US': 'Search file names or content with Ctrl/Cmd+F and Ctrl/Cmd+Shift+F.',
+    'zh-CN': '支持文件名与全文内容检索，快捷键 Ctrl/Cmd+P / Ctrl/Cmd+Shift+F。',
+    'en-US': 'Search file names or content with Ctrl/Cmd+P and Ctrl/Cmd+Shift+F.',
   },
   'fileTree.description': {
     'zh-CN': '懒加载目录，列表按可视区域渲染',
@@ -263,33 +283,36 @@ export const messages = {
   },
   'taskCenter.title': { 'zh-CN': '任务中心', 'en-US': 'Task Center' },
   'taskCenter.subtitle': {
-    'zh-CN': '向指定工位发送结构化任务并跟踪派发历史',
-    'en-US': 'Send structured tasks to stations and track dispatch history',
+    'zh-CN': '向指定 Agent 派发任务，支持批量发送与快速追踪',
+    'en-US': 'Dispatch tasks to selected agents with batch delivery and tracking',
   },
-  'taskCenter.targetAgent': { 'zh-CN': '目标工位', 'en-US': 'Target Station' },
-  'taskCenter.taskTitle': { 'zh-CN': '任务标题', 'en-US': 'Task Title' },
-  'taskCenter.taskTitlePlaceholder': {
-    'zh-CN': '输入任务标题',
-    'en-US': 'Enter a task title',
+  'taskCenter.targetAgents': { 'zh-CN': '目标 Agent', 'en-US': 'Target Agents' },
+  'taskCenter.selectAll': { 'zh-CN': '全选', 'en-US': 'Select All' },
+  'taskCenter.clearSelection': { 'zh-CN': '清空', 'en-US': 'Clear' },
+  'taskCenter.targetPlaceholder': { 'zh-CN': '请选择目标 Agent', 'en-US': 'Select target agents' },
+  'taskCenter.agentFilterPlaceholder': {
+    'zh-CN': '按名称 / ID / 角色过滤',
+    'en-US': 'Filter by name / ID / role',
+  },
+  'taskCenter.noAgents': { 'zh-CN': '暂无可用 Agent', 'en-US': 'No agents available' },
+  'taskCenter.editorLabel': { 'zh-CN': '任务描述', 'en-US': 'Task Brief' },
+  'taskCenter.editorHint': {
+    'zh-CN': '可直接输入 Markdown，支持 @文件名 快速引用',
+    'en-US': 'Use Markdown directly. Type @ to reference files quickly.',
   },
   'taskCenter.template.heading': { 'zh-CN': '标题模板', 'en-US': 'Heading Template' },
   'taskCenter.template.code': { 'zh-CN': '代码块模板', 'en-US': 'Code Template' },
   'taskCenter.template.checklist': { 'zh-CN': '清单模板', 'en-US': 'Checklist Template' },
-  'taskCenter.markdown': { 'zh-CN': '任务内容（Markdown）', 'en-US': 'Task Markdown' },
   'taskCenter.markdownPlaceholder': {
-    'zh-CN': '描述目标、约束、验收标准和上下文',
-    'en-US': 'Describe goals, constraints, acceptance, and context',
+    'zh-CN': '例如：\\n# 实现登录态缓存\\n- 目标\\n- 约束\\n- 验收标准\\n\\n输入 @ 可引用文件',
+    'en-US': 'Example:\\n# Implement login cache\\n- Goal\\n- Constraints\\n- Acceptance\\n\\nType @ to reference files',
   },
-  'taskCenter.attachments': { 'zh-CN': '附件', 'en-US': 'Attachments' },
-  'taskCenter.attachmentInputPlaceholder': {
-    'zh-CN': '输入要附带的相对路径',
-    'en-US': 'Input attachment relative path',
+  'taskCenter.mentionSearching': { 'zh-CN': '正在搜索文件...', 'en-US': 'Searching files...' },
+  'taskCenter.mentionEmpty': { 'zh-CN': '未找到匹配文件', 'en-US': 'No matching files' },
+  'taskCenter.mentionSearchFailed': {
+    'zh-CN': '文件搜索失败: {detail}',
+    'en-US': 'File search failed: {detail}',
   },
-  'taskCenter.addAttachment': { 'zh-CN': '添加附件', 'en-US': 'Add Attachment' },
-  'taskCenter.addSelectedFile': { 'zh-CN': '附加当前文件', 'en-US': 'Add Selected File' },
-  'taskCenter.noAttachment': { 'zh-CN': '暂无附件', 'en-US': 'No attachments yet' },
-  'taskCenter.insertReference': { 'zh-CN': '插入引用', 'en-US': 'Insert Ref' },
-  'taskCenter.removeAttachment': { 'zh-CN': '移除', 'en-US': 'Remove' },
   'taskCenter.sendTask': { 'zh-CN': '发送任务', 'en-US': 'Send Task' },
   'taskCenter.sending': { 'zh-CN': '发送中...', 'en-US': 'Sending...' },
   'taskCenter.retryFailed': { 'zh-CN': '重发失败任务', 'en-US': 'Retry Failed Task' },
@@ -300,25 +323,9 @@ export const messages = {
   'taskCenter.status.failed': { 'zh-CN': '发送失败', 'en-US': 'Failed' },
   'taskCenter.history': { 'zh-CN': '派发历史', 'en-US': 'Dispatch History' },
   'taskCenter.historyEmpty': { 'zh-CN': '暂无派发记录', 'en-US': 'No dispatch history' },
-  'taskCenter.historyAttachments': {
-    'zh-CN': '附件数: {count}',
-    'en-US': 'Attachments: {count}',
-  },
-  'taskCenter.notice.attachmentInvalid': {
-    'zh-CN': '附件路径无效，请输入有效路径。',
-    'en-US': 'Invalid attachment path. Please input a valid path.',
-  },
-  'taskCenter.notice.attachmentExists': {
-    'zh-CN': '该附件已存在。',
-    'en-US': 'Attachment already exists.',
-  },
-  'taskCenter.notice.attachmentAdded': {
-    'zh-CN': '已添加附件: {name}',
-    'en-US': 'Attachment added: {name}',
-  },
   'taskCenter.notice.targetRequired': {
-    'zh-CN': '请选择目标工位。',
-    'en-US': 'Please select a target station.',
+    'zh-CN': '请选择至少一个目标 Agent。',
+    'en-US': 'Please select at least one target agent.',
   },
   'taskCenter.notice.workspaceRequired': {
     'zh-CN': '请先绑定工作区。',
@@ -335,6 +342,10 @@ export const messages = {
   'taskCenter.notice.sendSuccess': {
     'zh-CN': '任务已发送到 {station}。',
     'en-US': 'Task sent to {station}.',
+  },
+  'taskCenter.notice.batchSummary': {
+    'zh-CN': '派发完成：成功 {sent}，失败 {failed}。',
+    'en-US': 'Dispatch done: {sent} sent, {failed} failed.',
   },
   'taskCenter.notice.sendFailed': {
     'zh-CN': '任务发送失败: {detail}',

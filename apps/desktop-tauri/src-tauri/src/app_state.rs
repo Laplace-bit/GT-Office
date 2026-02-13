@@ -6,6 +6,7 @@ use std::{
 use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
 use vb_git::GitService;
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
+use vb_task::TaskService;
 use vb_terminal::PtyTerminalProvider;
 use vb_workspace::InMemoryWorkspaceService;
 
@@ -18,6 +19,7 @@ pub struct AppState {
     pub terminal_provider: PtyTerminalProvider<InMemoryWorkspaceService, AllowAllPolicyEvaluator>,
     pub git_service: GitService<InMemoryWorkspaceService>,
     pub settings_service: JsonSettingsService,
+    pub task_service: TaskService,
     pub daemon_bridge: DaemonBridge,
     window_workspace_bindings: Arc<Mutex<HashMap<String, String>>>,
     workspace_watchers: WorkspaceWatcherRegistry,
@@ -30,11 +32,13 @@ impl Default for AppState {
             PtyTerminalProvider::new(workspace_service.clone(), AllowAllPolicyEvaluator);
         let git_service = GitService::new(workspace_service.clone());
         let settings_service = JsonSettingsService::default();
+        let task_service = TaskService::default();
         Self {
             workspace_service,
             terminal_provider,
             git_service,
             settings_service,
+            task_service,
             daemon_bridge: DaemonBridge::default(),
             window_workspace_bindings: Arc::new(Mutex::new(HashMap::new())),
             workspace_watchers: WorkspaceWatcherRegistry::default(),

@@ -11,7 +11,7 @@ import {
   lineNumbers,
   highlightActiveLineGutter,
 } from '@codemirror/view'
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import {
   syntaxHighlighting,
   defaultHighlightStyle,
@@ -20,7 +20,16 @@ import {
   foldKeymap,
 } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
-import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
+import {
+  closeSearchPanel,
+  findNext,
+  findPrevious,
+  gotoLine,
+  highlightSelectionMatches,
+  openSearchPanel,
+  search,
+  searchKeymap,
+} from '@codemirror/search'
 import { javascript } from '@codemirror/lang-javascript'
 import { python } from '@codemirror/lang-python'
 import { rust } from '@codemirror/lang-rust'
@@ -28,16 +37,24 @@ import { json } from '@codemirror/lang-json'
 import { markdown } from '@codemirror/lang-markdown'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
+import { t, type Locale } from '../i18n/ui-locale'
 
 export interface CodeMirrorEditorProps {
+  locale: Locale
   content: string
   filePath: string | null
   readOnly?: boolean
   onChange?: (content: string) => void
   onSave?: () => void
+  commandRequest?: CodeEditorCommandRequest | null
 }
 
 type LanguageId = 'javascript' | 'typescript' | 'python' | 'rust' | 'json' | 'markdown' | 'css' | 'html' | 'plain'
+export type CodeEditorCommandType = 'find' | 'replace' | 'findNext' | 'findPrevious'
+export interface CodeEditorCommandRequest {
+  type: CodeEditorCommandType
+  nonce: number
+}
 
 function detectLanguage(filePath: string | null): LanguageId {
   if (!filePath) return 'plain'
@@ -69,6 +86,51 @@ function getLanguageExtension(languageId: LanguageId): Extension | null {
   }
 }
 
+function focusSearchField(view: EditorView, fieldName: 'search' | 'replace') {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.requestAnimationFrame(() => {
+    const panel = view.dom.querySelector('.cm-panel.cm-search')
+    if (!(panel instanceof HTMLElement)) {
+      return
+    }
+    const field = panel.querySelector(`input[name="${fieldName}"]`)
+    if (field instanceof HTMLInputElement) {
+      field.focus()
+      field.select()
+    }
+  })
+}
+
+function openFindPanel(view: EditorView): boolean {
+  const opened = openSearchPanel(view)
+  focusSearchField(view, 'search')
+  return opened
+}
+
+function openReplacePanel(view: EditorView): boolean {
+  const opened = openSearchPanel(view)
+  focusSearchField(view, 'replace')
+  return opened
+}
+
+function buildSearchPhrases(locale: Locale): Record<string, string> {
+  return {
+    Find: t(locale, '查找', 'Find'),
+    Replace: t(locale, '替换', 'Replace'),
+    next: t(locale, '下一项', 'next'),
+    previous: t(locale, '上一项', 'previous'),
+    all: t(locale, '全部', 'all'),
+    'match case': t(locale, '区分大小写', 'match case'),
+    regexp: t(locale, '正则', 'regexp'),
+    'by word': t(locale, '整词匹配', 'by word'),
+    replace: t(locale, '替换', 'replace'),
+    'replace all': t(locale, '全部替换', 'replace all'),
+    close: t(locale, '关闭', 'close'),
+  }
+}
+
 // 精简的编辑器配置，移除不必要的功能
 const minimalSetup: Extension = [
   lineNumbers(),
@@ -84,8 +146,15 @@ const minimalSetup: Extension = [
   rectangularSelection(),
   crosshairCursor(),
   highlightActiveLine(),
+  search({ top: true }),
   highlightSelectionMatches(),
   keymap.of([
+    { key: 'Mod-f', run: openFindPanel, preventDefault: true },
+    { key: 'Mod-h', run: openReplacePanel, preventDefault: true },
+    { key: 'F3', run: findNext, shift: findPrevious, preventDefault: true },
+    { key: 'Mod-g', run: gotoLine, preventDefault: true },
+    { key: 'Escape', run: closeSearchPanel },
+    indentWithTab,
     ...closeBracketsKeymap,
     ...defaultKeymap,
     ...searchKeymap,
@@ -139,11 +208,13 @@ const darkTheme = EditorView.theme({
 })
 
 export function CodeMirrorEditor({
+  locale,
   content,
   filePath,
   readOnly = false,
   onChange,
   onSave,
+  commandRequest = null,
 }: CodeMirrorEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -151,8 +222,10 @@ export function CodeMirrorEditor({
   const filePathRef = useRef(filePath)
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
+  const commandNonceRef = useRef(0)
   const languageCompartment = useRef(new Compartment())
   const readOnlyCompartment = useRef(new Compartment())
+  const phrasesCompartment = useRef(new Compartment())
 
   // 同步 refs
   onChangeRef.current = onChange
@@ -171,6 +244,7 @@ export function CodeMirrorEditor({
       darkTheme,
       languageCompartment.current.of(langExt ?? []),
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
+      phrasesCompartment.current.of(EditorState.phrases.of(buildSearchPhrases(locale))),
       keymap.of([{
         key: 'Mod-s',
         run: () => {
@@ -229,6 +303,16 @@ export function CodeMirrorEditor({
     })
   }, [readOnly])
 
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) {
+      return
+    }
+    view.dispatch({
+      effects: phrasesCompartment.current.reconfigure(EditorState.phrases.of(buildSearchPhrases(locale))),
+    })
+  }, [locale])
+
   // 外部内容变化时同步（仅文件切换时）
   useEffect(() => {
     const view = viewRef.current
@@ -243,6 +327,42 @@ export function CodeMirrorEditor({
       },
     })
   }, [content])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view || !commandRequest) {
+      return
+    }
+    if (commandRequest.nonce <= commandNonceRef.current) {
+      return
+    }
+    commandNonceRef.current = commandRequest.nonce
+    view.focus()
+    switch (commandRequest.type) {
+      case 'find': {
+        openFindPanel(view)
+        break
+      }
+      case 'replace': {
+        openReplacePanel(view)
+        break
+      }
+      case 'findNext': {
+        if (!findNext(view)) {
+          openFindPanel(view)
+        }
+        break
+      }
+      case 'findPrevious': {
+        if (!findPrevious(view)) {
+          openFindPanel(view)
+        }
+        break
+      }
+      default:
+        break
+    }
+  }, [commandRequest])
 
   return (
     <div

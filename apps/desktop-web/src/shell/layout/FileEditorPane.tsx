@@ -1,7 +1,10 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
-import { CodeMirrorEditor } from './CodeMirrorEditor'
+import {
+  CodeMirrorEditor,
+  type CodeEditorCommandRequest,
+} from './CodeMirrorEditor'
 
 const LARGE_FILE_THRESHOLD_BYTES = 1024 * 1024
 
@@ -25,6 +28,7 @@ interface FileEditorPaneProps {
   onCloseFile: (path: string) => void
   onSaveFile?: (path: string, content: string) => Promise<boolean>
   onFileModified?: (path: string, isModified: boolean) => void
+  editorCommandRequest?: CodeEditorCommandRequest | null
 }
 
 type SaveState = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
@@ -92,6 +96,7 @@ export function FileEditorPane({
   onCloseFile,
   onSaveFile,
   onFileModified,
+  editorCommandRequest = null,
 }: FileEditorPaneProps) {
   const editedContentRef = useRef<Record<string, string>>({})
   const lastSavedContentRef = useRef<Record<string, string>>({})
@@ -237,7 +242,6 @@ export function FileEditorPane({
   }, [])
 
   const hasOpenedFiles = openedFiles.length > 0
-
   return (
     <section className="panel file-editor-pane">
       {/* Tab 栏 */}
@@ -264,7 +268,6 @@ export function FileEditorPane({
       {/* 文件路径和状态 */}
       {activeFilePath && (
         <div className="file-editor-info-bar">
-          <p className="file-editor-path">{activeFilePath}</p>
           {isReadOnly ? (
             <span className="file-editor-status file-editor-status-readonly">
               {isLargeFile ? t(locale, 'fileContent.readOnlyLargeFile') : t(locale, 'fileContent.readOnly')}
@@ -277,6 +280,8 @@ export function FileEditorPane({
             <span className="file-editor-status file-editor-status-error">
               {t(locale, 'fileContent.saveFailed', { detail: saveError ?? 'Unknown' })}
             </span>
+          ) : saveState === 'unsaved' ? (
+            <span className="file-editor-status file-editor-status-unsaved">{t(locale, 'fileContent.unsaved')}</span>
           ) : null}
         </div>
       )}
@@ -294,11 +299,13 @@ export function FileEditorPane({
       {activeFile && !loading && !errorMessage && canRenderContent && (
         <div className="file-editor-content">
           <MemoizedEditor
+            locale={locale}
             content={activeFile.content}
             filePath={activeFile.path}
             readOnly={isReadOnly}
             onChange={handleContentChange}
             onSave={handleSave}
+            commandRequest={editorCommandRequest}
           />
         </div>
       )}

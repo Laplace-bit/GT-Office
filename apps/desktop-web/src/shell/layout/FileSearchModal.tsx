@@ -138,59 +138,61 @@ export function FileSearchModal({
               disabled={!workspaceId}
             />
           </label>
-          {query.trim() ? (
-            <p className="file-tree-search-summary">
-              {loading
+          <p className="file-tree-search-summary file-search-summary-slot">
+            {query.trim()
+              ? loading
                 ? t(locale, 'fileTree.searchLoading')
-                : t(locale, 'fileTree.searchSummary', { count: activeResults.length })}
-            </p>
-          ) : null}
+                : t(locale, 'fileTree.searchSummary', { count: activeResults.length })
+              : '\u00a0'}
+          </p>
         </div>
 
-        {!workspaceId ? <p>{t(locale, 'fileTree.noWorkspace')}</p> : null}
-        {error ? <p className="tree-error">{error}</p> : null}
-        {droppedChunks > 0 ? (
-          <p className="file-tree-search-summary">
-            {t(locale, 'fileTree.searchBackpressure', { count: droppedChunks })}
-          </p>
-        ) : null}
+        <div className="file-search-body">
+          {!workspaceId ? <p>{t(locale, 'fileTree.noWorkspace')}</p> : null}
+          {error ? <p className="tree-error">{error}</p> : null}
+          {droppedChunks > 0 ? (
+            <p className="file-tree-search-summary">
+              {t(locale, 'fileTree.searchBackpressure', { count: droppedChunks })}
+            </p>
+          ) : null}
 
-        {workspaceId && query.trim() ? (
-          <ul className="file-search-results">
-            {mode === 'file'
-              ? fileMatches.map((entry) => (
-                  <li key={entry.path}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectFile(entry.path)}
-                      title={entry.path}
-                      className="file-search-result-btn"
-                    >
-                      <strong>{entry.name}</strong>
-                      <span>{entry.path}</span>
-                    </button>
-                  </li>
-                ))
-              : contentMatches.map((match) => (
-                  <li key={`${match.path}:${match.line}:${match.preview}`}>
-                    <button
-                      type="button"
-                      onClick={() => onSelectFile(match.path)}
-                      title={match.path}
-                      className="file-search-result-btn"
-                    >
-                      <strong>
-                        {match.path}:{match.line}
-                      </strong>
-                      <span>{match.preview}</span>
-                    </button>
-                  </li>
-                ))}
-            {!loading && activeResults.length === 0 ? (
-              <li className="file-tree-search-empty">{t(locale, 'fileTree.searchNoResults')}</li>
-            ) : null}
-          </ul>
-        ) : null}
+          {workspaceId && query.trim() ? (
+            <ul className="file-search-results">
+              {mode === 'file'
+                ? fileMatches.map((entry) => (
+                    <li key={entry.path}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectFile(entry.path)}
+                        title={entry.path}
+                        className="file-search-result-btn"
+                      >
+                        <strong>{entry.name}</strong>
+                        <span>{entry.path}</span>
+                      </button>
+                    </li>
+                  ))
+                : contentMatches.map((match) => (
+                    <li key={`${match.path}:${match.line}:${match.preview}`}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectFile(match.path)}
+                        title={match.path}
+                        className="file-search-result-btn"
+                      >
+                        <strong>
+                          {match.path}:{match.line}
+                        </strong>
+                        <span>{match.preview}</span>
+                      </button>
+                    </li>
+                  ))}
+              {!loading && activeResults.length === 0 ? (
+                <li className="file-tree-search-empty">{t(locale, 'fileTree.searchNoResults')}</li>
+              ) : null}
+            </ul>
+          ) : null}
+        </div>
       </section>
     </div>,
     document.body,

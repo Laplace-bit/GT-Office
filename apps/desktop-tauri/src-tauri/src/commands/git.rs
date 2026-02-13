@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 use vb_abstractions::{GitStatusSummary, WorkspaceId};
 use vb_git::{
-    GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult,
-    GitPushResult, GitStashEntry,
+    GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
+    GitStashEntry,
 };
 
 use crate::app_state::AppState;
@@ -561,8 +561,8 @@ pub fn git_stash_list(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_git_branches_payload, build_git_commit_payload, build_git_diff_payload,
-        build_git_commit_detail_payload, build_git_discard_payload, build_git_fetch_payload,
+        build_git_branches_payload, build_git_commit_detail_payload, build_git_commit_payload,
+        build_git_diff_payload, build_git_discard_payload, build_git_fetch_payload,
         build_git_log_payload, build_git_pull_payload, build_git_push_payload,
         build_git_stage_payload, build_git_stash_list_payload, build_git_status_payload,
         build_git_unstage_payload,

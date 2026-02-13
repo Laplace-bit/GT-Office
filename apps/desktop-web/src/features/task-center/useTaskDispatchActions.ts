@@ -3,17 +3,13 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import type { AgentStation } from '@shell/layout/model'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
-  buildAttachmentReferenceMarkdown,
   buildDispatchRecord,
   buildMarkdownSnippet,
-  buildTaskDocument,
-  buildTaskId,
-  createTaskAttachment,
+  extractTaskTitleFromMarkdown,
   pushTaskDispatchHistory,
   replaceTaskDispatchRecord,
-  resolveValidTaskTarget,
+  resolveValidTaskTargets,
   type StationTaskSignal,
-  type TaskAttachment,
   type TaskCenterNotice,
   type TaskDispatchRecord,
   type TaskDraftState,
@@ -23,27 +19,39 @@ import {
 interface UseTaskDispatchActionsInput {
   locale: Locale
   activeWorkspaceId: string | null
-  activeStationId: string
   stationsRef: MutableRefObject<AgentStation[]>
   taskDraft: TaskDraftState
-  taskAttachments: TaskAttachment[]
   taskDispatchHistory: TaskDispatchRecord[]
   taskSending: boolean
   taskRetryingTaskId: string | null
   setTaskDraft: Dispatch<SetStateAction<TaskDraftState>>
-  setTaskAttachments: Dispatch<SetStateAction<TaskAttachment[]>>
   setTaskDispatchHistory: Dispatch<SetStateAction<TaskDispatchRecord[]>>
   setTaskSending: Dispatch<SetStateAction<boolean>>
   setTaskRetryingTaskId: Dispatch<SetStateAction<string | null>>
   setTaskNotice: Dispatch<SetStateAction<TaskCenterNotice | null>>
-  onPersistTaskDocument: (input: {
+  onEnsureTaskTargetRuntime: (input: {
+    workspaceId: string
+    targetStationId: string
+  }) => Promise<void>
+  onDispatchTaskBatch: (input: {
+    workspaceId: string
+    title: string
+    markdown: string
+    targetStationIds: string[]
+  }) => Promise<{
+    batchId: string
+    results: Array<{
+      targetAgentId: string
+      taskId: string
+      status: 'sent' | 'failed'
+      detail?: string | null
+      taskFilePath?: string | null
+    }>
+  }>
+  onVerifyTaskFileReadable: (input: {
     workspaceId: string
     taskFilePath: string
-    manifestPath: string
-    markdownContent: string
-    manifestContent: string
   }) => Promise<void>
-  onVerifyTaskFileReadable: (input: { workspaceId: string; taskFilePath: string }) => Promise<void>
   onDeliverTaskToStation: (input: {
     station: AgentStation
     taskId: string
@@ -58,10 +66,6 @@ interface UseTaskDispatchActionsInput {
 
 export interface TaskDispatchActions {
   updateTaskDraft: (patch: Partial<TaskDraftState>) => void
-  addTaskAttachmentByPath: (rawPath: string) => void
-  addTaskAttachmentFromInput: () => void
-  removeTaskAttachment: (attachmentId: string) => void
-  insertTaskAttachmentReference: (attachmentId: string) => void
   insertTaskSnippet: (snippet: TaskMarkdownSnippet) => void
   dispatchTaskToAgent: () => Promise<void>
   retryTaskDispatch: (taskId: string) => Promise<void>
@@ -70,20 +74,18 @@ export interface TaskDispatchActions {
 export function useTaskDispatchActions({
   locale,
   activeWorkspaceId,
-  activeStationId,
   stationsRef,
   taskDraft,
-  taskAttachments,
   taskDispatchHistory,
   taskSending,
   taskRetryingTaskId,
   setTaskDraft,
-  setTaskAttachments,
   setTaskDispatchHistory,
   setTaskSending,
   setTaskRetryingTaskId,
   setTaskNotice,
-  onPersistTaskDocument,
+  onEnsureTaskTargetRuntime,
+  onDispatchTaskBatch,
   onVerifyTaskFileReadable,
   onDeliverTaskToStation,
   setStationTaskSignals,
@@ -95,61 +97,6 @@ export function useTaskDispatchActions({
       setTaskDraft((prev) => ({ ...prev, ...patch }))
     },
     [setTaskDraft],
-  )
-
-  const addTaskAttachmentByPath = useCallback(
-    (rawPath: string) => {
-      const attachment = createTaskAttachment(rawPath)
-      if (!attachment) {
-        setTaskNotice({
-          kind: 'error',
-          message: t(locale, 'taskCenter.notice.attachmentInvalid'),
-        })
-        return
-      }
-      setTaskAttachments((prev) => {
-        if (prev.some((item) => item.path === attachment.path)) {
-          setTaskNotice({
-            kind: 'info',
-            message: t(locale, 'taskCenter.notice.attachmentExists'),
-          })
-          return prev
-        }
-        setTaskNotice({
-          kind: 'success',
-          message: t(locale, 'taskCenter.notice.attachmentAdded', { name: attachment.name }),
-        })
-        return [...prev, attachment]
-      })
-      setTaskDraft((prev) => ({ ...prev, attachmentInput: '' }))
-    },
-    [locale, setTaskAttachments, setTaskDraft, setTaskNotice],
-  )
-
-  const addTaskAttachmentFromInput = useCallback(() => {
-    addTaskAttachmentByPath(taskDraft.attachmentInput)
-  }, [addTaskAttachmentByPath, taskDraft.attachmentInput])
-
-  const removeTaskAttachment = useCallback(
-    (attachmentId: string) => {
-      setTaskAttachments((prev) => prev.filter((item) => item.id !== attachmentId))
-    },
-    [setTaskAttachments],
-  )
-
-  const insertTaskAttachmentReference = useCallback(
-    (attachmentId: string) => {
-      const attachment = taskAttachments.find((item) => item.id === attachmentId)
-      if (!attachment) {
-        return
-      }
-      const reference = buildAttachmentReferenceMarkdown(attachment)
-      setTaskDraft((prev) => ({
-        ...prev,
-        markdown: `${prev.markdown}${prev.markdown ? '\n' : ''}${reference}`,
-      }))
-    },
-    [setTaskDraft, taskAttachments],
   )
 
   const insertTaskSnippet = useCallback(
@@ -167,19 +114,6 @@ export function useTaskDispatchActions({
     if (taskSending || taskRetryingTaskId) {
       return
     }
-    const targetStationId = resolveValidTaskTarget(
-      stationsRef.current,
-      taskDraft.targetStationId,
-      activeStationId,
-    )
-    const targetStation = stationsRef.current.find((station) => station.id === targetStationId)
-    if (!targetStation) {
-      setTaskNotice({
-        kind: 'error',
-        message: t(locale, 'taskCenter.notice.targetRequired'),
-      })
-      return
-    }
     if (!activeWorkspaceId) {
       setTaskNotice({
         kind: 'error',
@@ -195,80 +129,93 @@ export function useTaskDispatchActions({
       return
     }
 
-    const createdAt = new Date()
-    const taskId = buildTaskId(createdAt)
-    const document = buildTaskDocument({
-      taskId,
-      draft: taskDraft,
-      targetStation,
-      attachments: taskAttachments,
-      createdAt,
-    })
-
-    setTaskDispatchHistory((prev) =>
-      pushTaskDispatchHistory(
-        prev,
-        buildDispatchRecord({
-          taskId,
-          title: document.title,
-          targetStation,
-          attachmentCount: taskAttachments.length,
-          createdAtMs: createdAt.getTime(),
-          status: 'sending',
-          taskFilePath: document.taskFilePath,
-        }),
-        taskDispatchHistoryLimit,
-      ),
+    const targetStationIds = resolveValidTaskTargets(
+      stationsRef.current,
+      taskDraft.targetStationIds,
     )
+    if (targetStationIds.length === 0) {
+      setTaskNotice({
+        kind: 'error',
+        message: t(locale, 'taskCenter.notice.targetRequired'),
+      })
+      return
+    }
+
     setTaskSending(true)
     setTaskNotice({
       kind: 'info',
       message: t(locale, 'taskCenter.notice.sending'),
     })
 
+    const createdAtMs = Date.now()
+    const normalizedTitle = extractTaskTitleFromMarkdown(taskDraft.markdown)
+
     try {
-      await onPersistTaskDocument({
-        workspaceId: activeWorkspaceId,
-        taskFilePath: document.taskFilePath,
-        manifestPath: document.manifestPath,
-        markdownContent: document.markdownContent,
-        manifestContent: document.manifestContent,
-      })
-      await onDeliverTaskToStation({
-        station: targetStation,
-        taskId,
-        taskFilePath: document.taskFilePath,
-        title: document.title,
-        setStationTaskSignals,
-      })
-      setTaskDispatchHistory((prev) =>
-        replaceTaskDispatchRecord(prev, taskId, {
-          status: 'sent',
-          detail: undefined,
-        }),
+      await Promise.allSettled(
+        targetStationIds.map((targetStationId) =>
+          onEnsureTaskTargetRuntime({
+            workspaceId: activeWorkspaceId,
+            targetStationId,
+          }),
+        ),
       )
-      setTaskDraft((prev) => ({
-        ...prev,
-        title: '',
-        markdown: '',
-        attachmentInput: '',
-        targetStationId,
-      }))
-      setTaskAttachments([])
+
+      const response = await onDispatchTaskBatch({
+        workspaceId: activeWorkspaceId,
+        title: normalizedTitle,
+        markdown: taskDraft.markdown,
+        targetStationIds,
+      })
+
+      let sentCount = 0
+      let failedCount = 0
+      setTaskDispatchHistory((prev) => {
+        let next = prev
+        response.results.forEach((result) => {
+          if (result.status === 'sent') {
+            sentCount += 1
+          } else {
+            failedCount += 1
+          }
+          const station = stationsRef.current.find(
+            (item) => item.id === result.targetAgentId,
+          )
+          next = pushTaskDispatchHistory(
+            next,
+            buildDispatchRecord({
+              batchId: response.batchId,
+              taskId: result.taskId,
+              title: normalizedTitle,
+              targetStationId: result.targetAgentId,
+              targetStationName: station?.name ?? result.targetAgentId,
+              createdAtMs,
+              status: result.status,
+              taskFilePath: result.taskFilePath ?? '',
+              detail: result.detail ?? undefined,
+            }),
+            taskDispatchHistoryLimit,
+          )
+        })
+        return next
+      })
+
+      if (sentCount > 0) {
+        setTaskDraft((prev) => ({
+          ...prev,
+          markdown: '',
+          targetStationIds,
+        }))
+      }
+
       setTaskNotice({
-        kind: 'success',
-        message: t(locale, 'taskCenter.notice.sendSuccess', {
-          station: targetStation.name,
+        kind: failedCount > 0 ? 'error' : 'success',
+        message: t(locale, 'taskCenter.notice.batchSummary', {
+          sent: sentCount,
+          failed: failedCount,
         }),
       })
     } catch (error) {
       const detail = describeError(error)
-      setTaskDispatchHistory((prev) =>
-        replaceTaskDispatchRecord(prev, taskId, {
-          status: 'failed',
-          detail,
-        }),
-      )
       setTaskNotice({
         kind: 'error',
         message: t(locale, 'taskCenter.notice.sendFailed', {
@@ -279,21 +226,19 @@ export function useTaskDispatchActions({
       setTaskSending(false)
     }
   }, [
-    activeStationId,
     activeWorkspaceId,
     describeError,
     locale,
-    onDeliverTaskToStation,
-    onPersistTaskDocument,
-    setTaskAttachments,
+    onDispatchTaskBatch,
+    onEnsureTaskTargetRuntime,
     setTaskDispatchHistory,
     setTaskDraft,
     setTaskNotice,
     setTaskSending,
     stationsRef,
-    taskAttachments,
     taskDispatchHistoryLimit,
-    taskDraft,
+    taskDraft.markdown,
+    taskDraft.targetStationIds,
     taskRetryingTaskId,
     taskSending,
   ])
@@ -314,7 +259,9 @@ export function useTaskDispatchActions({
       if (!targetRecord || targetRecord.status !== 'failed') {
         return
       }
-      const targetStation = stationsRef.current.find((station) => station.id === targetRecord.targetStationId)
+      const targetStation = stationsRef.current.find(
+        (station) => station.id === targetRecord.targetStationId,
+      )
       if (!targetStation) {
         setTaskNotice({
           kind: 'error',
@@ -386,6 +333,7 @@ export function useTaskDispatchActions({
       setTaskDispatchHistory,
       setTaskNotice,
       setTaskRetryingTaskId,
+      setStationTaskSignals,
       stationsRef,
       taskDispatchHistory,
       taskRetryingTaskId,
@@ -395,10 +343,6 @@ export function useTaskDispatchActions({
 
   return {
     updateTaskDraft,
-    addTaskAttachmentByPath,
-    addTaskAttachmentFromInput,
-    removeTaskAttachment,
-    insertTaskAttachmentReference,
     insertTaskSnippet,
     dispatchTaskToAgent,
     retryTaskDispatch,

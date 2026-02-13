@@ -1,34 +1,45 @@
-import { memo } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { AgentStation } from './model'
-import type {
-  TaskAttachment,
-  TaskCenterNotice,
-  TaskDispatchRecord,
-  TaskDraftState,
-  TaskMarkdownSnippet,
+import {
+  toggleTaskTarget,
+  type TaskCenterNotice,
+  type TaskDispatchRecord,
+  type TaskDraftState,
+  type TaskMarkdownSnippet,
 } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 
+export interface TaskMentionFileCandidate {
+  path: string
+  name: string
+}
+
 interface TaskCenterPaneProps {
   locale: Locale
   stations: AgentStation[]
-  selectedFilePath: string | null
   draft: TaskDraftState
-  attachments: TaskAttachment[]
   dispatchHistory: TaskDispatchRecord[]
   sending: boolean
   retryingTaskId: string | null
   draftSavedAtMs: number | null
   notice: TaskCenterNotice | null
+  mentionCandidates: TaskMentionFileCandidate[]
+  mentionLoading: boolean
+  mentionError: string | null
   onDraftChange: (patch: Partial<TaskDraftState>) => void
-  onAddAttachmentFromInput: () => void
-  onAddAttachmentPath: (path: string) => void
-  onRemoveAttachment: (attachmentId: string) => void
-  onInsertAttachmentReference: (attachmentId: string) => void
   onInsertSnippet: (snippet: TaskMarkdownSnippet) => void
   onSendTask: () => void
   onRetryDispatchTask: (taskId: string) => void
+  onSearchMentionFiles: (query: string) => void
+  onClearMentionSearch: () => void
+}
+
+interface MentionRange {
+  start: number
+  end: number
+  query: string
 }
 
 function statusLabel(locale: Locale, status: TaskDispatchRecord['status']): string {
@@ -49,26 +60,163 @@ function formatTimestamp(value: number): string {
   return `${hour}:${minute}:${second}`
 }
 
+function resolveMentionRange(value: string, cursor: number): MentionRange | null {
+  if (cursor <= 0) {
+    return null
+  }
+  const atIndex = value.lastIndexOf('@', cursor - 1)
+  if (atIndex < 0) {
+    return null
+  }
+  const leading = atIndex > 0 ? value[atIndex - 1] : ''
+  if (leading && /[\w./-]/.test(leading)) {
+    return null
+  }
+  const query = value.slice(atIndex + 1, cursor)
+  if (!query || /\s/.test(query)) {
+    return null
+  }
+  return {
+    start: atIndex,
+    end: cursor,
+    query,
+  }
+}
+
 function TaskCenterPaneView({
   locale,
   stations,
-  selectedFilePath,
   draft,
-  attachments,
   dispatchHistory,
   sending,
   retryingTaskId,
   draftSavedAtMs,
   notice,
+  mentionCandidates,
+  mentionLoading,
+  mentionError,
   onDraftChange,
-  onAddAttachmentFromInput,
-  onAddAttachmentPath,
-  onRemoveAttachment,
-  onInsertAttachmentReference,
   onInsertSnippet,
   onSendTask,
   onRetryDispatchTask,
+  onSearchMentionFiles,
+  onClearMentionSearch,
 }: TaskCenterPaneProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const mentionQueryRef = useRef('')
+  const [mentionRange, setMentionRange] = useState<MentionRange | null>(null)
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0)
+  const [targetPickerOpen, setTargetPickerOpen] = useState(false)
+  const [targetFilter, setTargetFilter] = useState('')
+  const [targetPopoverStyle, setTargetPopoverStyle] = useState<{
+    top: number
+    left: number
+    width: number
+  } | null>(null)
+
+  const selectedCount = draft.targetStationIds.length
+  const filteredStations = useMemo(() => {
+    const keyword = targetFilter.trim().toLowerCase()
+    if (!keyword) {
+      return stations
+    }
+    return stations.filter((station) => {
+      const searchText = `${station.name} ${station.id} ${station.role}`.toLowerCase()
+      return searchText.includes(keyword)
+    })
+  }, [stations, targetFilter])
+
+  useEffect(() => {
+    if (!targetPickerOpen) {
+      return
+    }
+    const updatePosition = () => {
+      const trigger = targetTriggerRef.current
+      if (!trigger) {
+        return
+      }
+      const rect = trigger.getBoundingClientRect()
+      setTargetPopoverStyle({
+        top: rect.bottom + 6,
+        left: rect.left,
+        width: rect.width,
+      })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [targetPickerOpen])
+
+  useEffect(() => {
+    if (!targetPickerOpen) {
+      return
+    }
+    const onDocumentPointerDown = (event: MouseEvent) => {
+      const trigger = targetTriggerRef.current
+      const popover = document.querySelector('.task-center-target-popover-portal')
+      const target = event.target as Node
+      if (trigger?.contains(target)) {
+        return
+      }
+      if (popover?.contains(target)) {
+        return
+      }
+      setTargetPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDocumentPointerDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocumentPointerDown)
+    }
+  }, [targetPickerOpen])
+
+  const syncMentionState = (value: string, cursor: number) => {
+    const nextRange = resolveMentionRange(value, cursor)
+    const nextQuery = nextRange?.query ?? ''
+    if (nextQuery !== mentionQueryRef.current) {
+      mentionQueryRef.current = nextQuery
+      if (activeMentionIndex !== 0) {
+        setActiveMentionIndex(0)
+      }
+    }
+    setMentionRange(nextRange)
+    if (!nextRange) {
+      onClearMentionSearch()
+      return
+    }
+    onSearchMentionFiles(nextRange.query)
+  }
+
+  const applyMentionCandidate = (candidate: TaskMentionFileCandidate) => {
+    if (!mentionRange) {
+      return
+    }
+    const inserted = `@${candidate.path}`
+    const nextValue =
+      draft.markdown.slice(0, mentionRange.start) +
+      inserted +
+      ' ' +
+      draft.markdown.slice(mentionRange.end)
+    const cursor = mentionRange.start + inserted.length + 1
+    onDraftChange({ markdown: nextValue })
+    mentionQueryRef.current = ''
+    setMentionRange(null)
+    setActiveMentionIndex(0)
+    onClearMentionSearch()
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) {
+        return
+      }
+      textarea.focus()
+      textarea.setSelectionRange(cursor, cursor)
+    })
+  }
+
   return (
     <aside className="panel task-center-pane">
       <header className="task-center-header">
@@ -76,113 +224,253 @@ function TaskCenterPaneView({
         <p>{t(locale, 'taskCenter.subtitle')}</p>
       </header>
 
-      <label className="task-center-field">
-        <span>{t(locale, 'taskCenter.targetAgent')}</span>
-        <select
-          value={draft.targetStationId}
-          onChange={(event) => onDraftChange({ targetStationId: event.target.value })}
+      <section className="task-center-target-picker">
+        <div className="task-center-targets-header">
+          <span>{t(locale, 'taskCenter.targetAgents')}</span>
+          <strong>{selectedCount}</strong>
+        </div>
+        <button
+          ref={targetTriggerRef}
+          type="button"
+          className={`task-center-target-tag-trigger ${targetPickerOpen ? 'open' : ''}`}
+          onClick={() => {
+            setTargetPickerOpen((prev) => !prev)
+          }}
         >
-          {stations.map((station) => (
-            <option key={station.id} value={station.id}>
-              {station.name} ({station.id})
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="task-center-field">
-        <span>{t(locale, 'taskCenter.taskTitle')}</span>
-        <input
-          type="text"
-          value={draft.title}
-          placeholder={t(locale, 'taskCenter.taskTitlePlaceholder')}
-          onChange={(event) => onDraftChange({ title: event.target.value })}
-        />
-      </label>
-
-      <section className="task-center-markdown-toolbar">
-        <button type="button" onClick={() => onInsertSnippet('heading')}>
-          {t(locale, 'taskCenter.template.heading')}
-        </button>
-        <button type="button" onClick={() => onInsertSnippet('code')}>
-          {t(locale, 'taskCenter.template.code')}
-        </button>
-        <button type="button" onClick={() => onInsertSnippet('checklist')}>
-          {t(locale, 'taskCenter.template.checklist')}
+          <div className="task-center-target-tag-wrap">
+            {draft.targetStationIds.length === 0 ? (
+              <span className="task-center-target-placeholder">
+                {t(locale, 'taskCenter.targetPlaceholder')}
+              </span>
+            ) : (
+              draft.targetStationIds.map((stationId) => {
+                const station = stations.find((item) => item.id === stationId)
+                const label = station?.name ?? stationId
+                return (
+                  <span key={stationId} className="task-center-target-tag-chip">
+                    <em>{label}</em>
+                    <i
+                      role="button"
+                      tabIndex={0}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        onDraftChange({
+                          targetStationIds: draft.targetStationIds.filter((id) => id !== stationId),
+                        })
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          onDraftChange({
+                            targetStationIds: draft.targetStationIds.filter((id) => id !== stationId),
+                          })
+                        }
+                      }}
+                    >
+                      ×
+                    </i>
+                  </span>
+                )
+              })
+            )}
+          </div>
+          <strong>▾</strong>
         </button>
       </section>
+      {targetPickerOpen && targetPopoverStyle && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="task-center-target-popover-portal"
+              style={{
+                position: 'fixed',
+                top: `${targetPopoverStyle.top}px`,
+                left: `${targetPopoverStyle.left}px`,
+                width: `${targetPopoverStyle.width}px`,
+              }}
+            >
+              <div className="task-center-target-popover-tools">
+                <input
+                  type="search"
+                  value={targetFilter}
+                  placeholder={t(locale, 'taskCenter.agentFilterPlaceholder')}
+                  onChange={(event) => {
+                    setTargetFilter(event.target.value)
+                  }}
+                />
+                <div className="task-center-target-actions">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onDraftChange({
+                        targetStationIds: stations.map((station) => station.id),
+                      })
+                    }
+                    disabled={stations.length === 0}
+                  >
+                    {t(locale, 'taskCenter.selectAll')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onDraftChange({
+                        targetStationIds: [],
+                      })
+                    }
+                    disabled={draft.targetStationIds.length === 0}
+                  >
+                    {t(locale, 'taskCenter.clearSelection')}
+                  </button>
+                </div>
+              </div>
+              {filteredStations.length === 0 ? (
+                <p className="task-center-empty">{t(locale, 'taskCenter.noAgents')}</p>
+              ) : (
+                <ul className="task-center-target-list">
+                  {filteredStations.map((station) => {
+                    const checked = draft.targetStationIds.includes(station.id)
+                    return (
+                      <li key={station.id}>
+                        <button
+                          type="button"
+                          className={checked ? 'active' : ''}
+                          onClick={() => {
+                            onDraftChange({
+                              targetStationIds: toggleTaskTarget(
+                                draft.targetStationIds,
+                                station.id,
+                                !checked,
+                              ),
+                            })
+                          }}
+                        >
+                          <span>{station.name}</span>
+                          <em>{station.id}</em>
+                          <i>{checked ? '✓' : ''}</i>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
 
-      <label className="task-center-field task-center-markdown-field">
-        <span>{t(locale, 'taskCenter.markdown')}</span>
-        <textarea
-          value={draft.markdown}
-          placeholder={t(locale, 'taskCenter.markdownPlaceholder')}
-          onChange={(event) => onDraftChange({ markdown: event.target.value })}
-        />
-      </label>
+      <section className="task-center-editor">
+        <header className="task-center-editor-header">
+          <strong>{t(locale, 'taskCenter.editorLabel')}</strong>
+          <span>{t(locale, 'taskCenter.editorHint')}</span>
+        </header>
 
-      <section className="task-center-attachments">
-        <div className="task-center-attachments-header">
-          <strong>{t(locale, 'taskCenter.attachments')}</strong>
-          <span>{attachments.length}</span>
-        </div>
-        <div className="task-center-attachments-input-row">
-          <input
-            type="text"
-            value={draft.attachmentInput}
-            placeholder={t(locale, 'taskCenter.attachmentInputPlaceholder')}
-            onChange={(event) => onDraftChange({ attachmentInput: event.target.value })}
+        <section className="task-center-markdown-toolbar">
+          <button type="button" onClick={() => onInsertSnippet('heading')}>
+            {t(locale, 'taskCenter.template.heading')}
+          </button>
+          <button type="button" onClick={() => onInsertSnippet('code')}>
+            {t(locale, 'taskCenter.template.code')}
+          </button>
+          <button type="button" onClick={() => onInsertSnippet('checklist')}>
+            {t(locale, 'taskCenter.template.checklist')}
+          </button>
+        </section>
+
+        <div className="task-center-editor-input-wrap">
+          <textarea
+            ref={textareaRef}
+            value={draft.markdown}
+            placeholder={t(locale, 'taskCenter.markdownPlaceholder')}
+            onChange={(event) => {
+              const value = event.target.value
+              const cursor = event.target.selectionStart ?? value.length
+              onDraftChange({ markdown: value })
+              syncMentionState(value, cursor)
+            }}
+            onClick={(event) => {
+              const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length
+              syncMentionState(event.currentTarget.value, cursor)
+            }}
+            onKeyUp={(event) => {
+              const cursor = event.currentTarget.selectionStart ?? event.currentTarget.value.length
+              syncMentionState(event.currentTarget.value, cursor)
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              const mentionVisible = Boolean(mentionRange)
+              if (!mentionVisible) {
+                return
+              }
+              const maxIndex = mentionCandidates.length - 1
+              if (event.key === 'ArrowDown') {
                 event.preventDefault()
-                onAddAttachmentFromInput()
+                setActiveMentionIndex((prev) => (prev >= maxIndex ? 0 : prev + 1))
+                return
+              }
+              if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                setActiveMentionIndex((prev) => (prev <= 0 ? Math.max(0, maxIndex) : prev - 1))
+                return
+              }
+              if ((event.key === 'Enter' || event.key === 'Tab') && mentionCandidates.length > 0) {
+                event.preventDefault()
+                applyMentionCandidate(mentionCandidates[activeMentionIndex] ?? mentionCandidates[0])
+                return
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setMentionRange(null)
+                onClearMentionSearch()
               }
             }}
           />
-          <button type="button" onClick={onAddAttachmentFromInput}>
-            {t(locale, 'taskCenter.addAttachment')}
-          </button>
           <button
             type="button"
-            onClick={() => {
-              if (!selectedFilePath) {
-                return
-              }
-              onAddAttachmentPath(selectedFilePath)
-            }}
-            disabled={!selectedFilePath}
+            className="task-center-inline-send"
+            onClick={onSendTask}
+            disabled={sending || stations.length === 0}
           >
-            {t(locale, 'taskCenter.addSelectedFile')}
+            {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
           </button>
+
+          {mentionRange ? (
+            <div className="task-center-mention-popover" role="listbox">
+              {mentionLoading ? (
+                <p className="task-center-mention-empty">{t(locale, 'taskCenter.mentionSearching')}</p>
+              ) : mentionError ? (
+                <p className="task-center-mention-empty task-center-mention-error">{mentionError}</p>
+              ) : mentionCandidates.length === 0 ? (
+                <p className="task-center-mention-empty">{t(locale, 'taskCenter.mentionEmpty')}</p>
+              ) : (
+                <ul>
+                  {mentionCandidates.map((candidate, index) => (
+                    <li key={candidate.path}>
+                      <button
+                        type="button"
+                        className={index === activeMentionIndex ? 'active' : ''}
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          applyMentionCandidate(candidate)
+                        }}
+                      >
+                        <strong>{candidate.name}</strong>
+                        <span>{candidate.path}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
         </div>
-        {attachments.length === 0 ? (
-          <p className="task-center-empty">{t(locale, 'taskCenter.noAttachment')}</p>
-        ) : (
-          <ul className="task-center-attachment-list">
-            {attachments.map((attachment) => (
-              <li key={attachment.id}>
-                <span>{attachment.name}</span>
-                <code>{attachment.path}</code>
-                <em>{attachment.category}</em>
-                <button type="button" onClick={() => onInsertAttachmentReference(attachment.id)}>
-                  {t(locale, 'taskCenter.insertReference')}
-                </button>
-                <button type="button" onClick={() => onRemoveAttachment(attachment.id)}>
-                  {t(locale, 'taskCenter.removeAttachment')}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <section className="task-center-send-row">
-        <button type="button" onClick={onSendTask} disabled={sending || stations.length === 0}>
-          {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
-        </button>
         {draftSavedAtMs ? (
           <p className="task-center-draft-saved">
-            {t(locale, 'taskCenter.draftSavedAt', { time: formatTimestamp(draftSavedAtMs) })}
+            {t(locale, 'taskCenter.draftSavedAt', {
+              time: formatTimestamp(draftSavedAtMs),
+            })}
           </p>
         ) : null}
         {notice ? (
@@ -197,7 +485,7 @@ function TaskCenterPaneView({
         ) : (
           <ul>
             {dispatchHistory.map((record) => (
-              <li key={record.taskId}>
+              <li key={`${record.batchId}:${record.taskId}`}>
                 <div className="task-center-history-title-row">
                   <strong>{record.title}</strong>
                   <span className={`task-center-status ${record.status}`}>
@@ -205,10 +493,10 @@ function TaskCenterPaneView({
                   </span>
                 </div>
                 <p>
-                  {record.taskId} · {record.targetStationName} · {formatTimestamp(record.createdAtMs)}
+                  {record.taskId} · {record.targetStationName} ·{' '}
+                  {formatTimestamp(record.createdAtMs)}
                 </p>
                 <p>
-                  {t(locale, 'taskCenter.historyAttachments', { count: record.attachmentCount })} ·{' '}
                   <code>{record.taskFilePath}</code>
                 </p>
                 {record.status === 'failed' ? (
@@ -224,7 +512,9 @@ function TaskCenterPaneView({
                     </button>
                   </div>
                 ) : null}
-                {record.detail ? <p className="task-center-history-detail">{record.detail}</p> : null}
+                {record.detail ? (
+                  <p className="task-center-history-detail">{record.detail}</p>
+                ) : null}
               </li>
             ))}
           </ul>

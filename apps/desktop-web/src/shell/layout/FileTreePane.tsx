@@ -35,6 +35,7 @@ interface FileTreePaneProps {
     mode: 'file' | 'content'
     nonce: number
   } | null
+  onSearchRequestConsumed?: (nonce: number) => void
 }
 
 interface TreeRow {
@@ -260,6 +261,7 @@ export function FileTreePane({
   onDeletePath,
   onMovePath,
   searchRequest,
+  onSearchRequestConsumed,
 }: FileTreePaneProps) {
   const [entriesByDirectory, setEntriesByDirectory] = useState<Record<string, FsEntry[]>>({})
   const [expandedDirectories, setExpandedDirectories] =
@@ -421,7 +423,8 @@ export function FileTreePane({
     lastProcessedNonceRef.current = searchRequest.nonce
     setSearchMode(searchRequest.mode)
     setIsSearchModalOpen(true)
-  }, [searchRequest])
+    onSearchRequestConsumed?.(searchRequest.nonce)
+  }, [onSearchRequestConsumed, searchRequest])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {

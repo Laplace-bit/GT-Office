@@ -1,10 +1,14 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentStation } from './model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import { StationXtermTerminal, type StationTerminalSink } from './StationXtermTerminal'
+
+const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
+const STATION_CARD_COMPACT_WIDTH_PX = 360
+const STATION_CARD_COMPACT_HEIGHT_PX = 392
 
 interface StationTerminalRuntime {
   sessionId: string | null
@@ -17,8 +21,6 @@ interface StationCardProps {
   station: AgentStation
   active: boolean
   runtime?: StationTerminalRuntime
-  previewText: string
-  renderTerminal: boolean
   taskSignal?: StationTaskSignal
   isFullscreen: boolean
   isFullscreenMode: boolean
@@ -54,8 +56,6 @@ function StationCardView({
   station,
   active,
   runtime,
-  previewText,
-  renderTerminal,
   taskSignal,
   isFullscreen,
   isFullscreenMode,
@@ -72,56 +72,141 @@ function StationCardView({
   const rootRef = useRef<HTMLElement | null>(null)
   const terminalSinkRef = useRef<StationTerminalSink | null>(null)
   const pendingTerminalFocusRef = useRef(false)
+  const terminalFocusFrameRef = useRef<number | null>(null)
+  const terminalFocusRetryBudgetRef = useRef(0)
+  const activeRef = useRef(active)
+  const [compactLayout, setCompactLayout] = useState(false)
+
+  const cancelScheduledTerminalFocus = useCallback(() => {
+    const frameId = terminalFocusFrameRef.current
+    if (frameId === null) {
+      return
+    }
+    terminalFocusFrameRef.current = null
+    window.cancelAnimationFrame(frameId)
+  }, [])
+
+  const terminalHasDomFocus = useCallback(() => {
+    const rootElement = rootRef.current
+    if (!rootElement) {
+      return false
+    }
+    const terminalShell = rootElement.querySelector<HTMLElement>('.station-terminal-shell')
+    return terminalShell?.matches(':focus-within') ?? false
+  }, [])
+
+  const flushPendingTerminalFocus = useCallback(() => {
+    if (!pendingTerminalFocusRef.current || !activeRef.current) {
+      return
+    }
+    const sink = terminalSinkRef.current
+    if (!sink) {
+      return
+    }
+
+    sink.focus()
+    if (terminalHasDomFocus()) {
+      pendingTerminalFocusRef.current = false
+      terminalFocusRetryBudgetRef.current = 0
+      cancelScheduledTerminalFocus()
+      return
+    }
+
+    if (terminalFocusRetryBudgetRef.current <= 0) {
+      pendingTerminalFocusRef.current = false
+      return
+    }
+
+    if (terminalFocusFrameRef.current !== null) {
+      return
+    }
+
+    terminalFocusRetryBudgetRef.current -= 1
+    terminalFocusFrameRef.current = window.requestAnimationFrame(() => {
+      terminalFocusFrameRef.current = null
+      flushPendingTerminalFocus()
+    })
+  }, [cancelScheduledTerminalFocus, terminalHasDomFocus])
+
+  useEffect(() => {
+    activeRef.current = active
+    if (!active) {
+      pendingTerminalFocusRef.current = false
+      terminalFocusRetryBudgetRef.current = 0
+      cancelScheduledTerminalFocus()
+      return
+    }
+    flushPendingTerminalFocus()
+  }, [active, cancelScheduledTerminalFocus, flushPendingTerminalFocus])
+
+  useEffect(() => {
+    return () => {
+      pendingTerminalFocusRef.current = false
+      terminalFocusRetryBudgetRef.current = 0
+      cancelScheduledTerminalFocus()
+    }
+  }, [cancelScheduledTerminalFocus])
+
+  useEffect(() => {
+    const element = rootRef.current
+    if (!element) {
+      return
+    }
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+    const updateCompactLayout = () => {
+      const nextCompact =
+        element.clientWidth <= STATION_CARD_COMPACT_WIDTH_PX ||
+        element.clientHeight <= STATION_CARD_COMPACT_HEIGHT_PX
+      setCompactLayout((prev) => (prev === nextCompact ? prev : nextCompact))
+    }
+    updateCompactLayout()
+    const observer = new ResizeObserver(updateCompactLayout)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
   const unreadLabel =
     runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
   const requestTerminalFocus = useCallback(() => {
     pendingTerminalFocusRef.current = true
-    if (!active || !renderTerminal) {
-      return
-    }
-    window.requestAnimationFrame(() => {
-      if (!pendingTerminalFocusRef.current) {
-        return
-      }
-      terminalSinkRef.current?.focus()
-      pendingTerminalFocusRef.current = false
-    })
-  }, [active, renderTerminal])
+    terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
+    flushPendingTerminalFocus()
+  }, [flushPendingTerminalFocus])
   const activateStationAndFocusTerminal = useCallback(() => {
     onSelectStation(station.id)
     requestTerminalFocus()
   }, [onSelectStation, requestTerminalFocus, station.id])
+  const activateStationAndOpenTerminal = useCallback(() => {
+    activateStationAndFocusTerminal()
+    if (!runtime?.sessionId) {
+      onLaunchStationTerminal(station.id)
+    }
+  }, [activateStationAndFocusTerminal, onLaunchStationTerminal, runtime?.sessionId, station.id])
+  const activateStationFromTerminal = useCallback(() => {
+    onSelectStation(station.id)
+    if (!runtime?.sessionId) {
+      onLaunchStationTerminal(station.id)
+    }
+  }, [onLaunchStationTerminal, onSelectStation, runtime?.sessionId, station.id])
+  const activateStationOnly = useCallback(() => {
+    onSelectStation(station.id)
+  }, [onSelectStation, station.id])
 
   const handleBindSink = useCallback(
     (stationId: string, sink: StationTerminalSink | null) => {
       terminalSinkRef.current = sink
       onBindTerminalSink(stationId, sink)
-      if (sink && pendingTerminalFocusRef.current && active && renderTerminal) {
-        window.requestAnimationFrame(() => {
-          if (!pendingTerminalFocusRef.current) {
-            return
-          }
-          sink.focus()
-          pendingTerminalFocusRef.current = false
-        })
+      if (sink) {
+        flushPendingTerminalFocus()
       }
     },
-    [active, onBindTerminalSink, renderTerminal],
+    [flushPendingTerminalFocus, onBindTerminalSink],
   )
-
-  useEffect(() => {
-    if (!active || !renderTerminal || !pendingTerminalFocusRef.current) {
-      return
-    }
-    window.requestAnimationFrame(() => {
-      if (!pendingTerminalFocusRef.current) {
-        return
-      }
-      terminalSinkRef.current?.focus()
-      pendingTerminalFocusRef.current = false
-    })
-  }, [active, renderTerminal])
 
   useEffect(() => {
     const element = rootRef.current
@@ -158,18 +243,19 @@ function StationCardView({
       className={[
         'station-window',
         active ? 'active' : '',
+        compactLayout ? 'station-window-compact' : '',
         isFullscreen ? 'fullscreen' : '',
         isFullscreenMode && !isFullscreen ? 'background-hidden' : '',
       ]
         .filter(Boolean)
         .join(' ')}
       onClick={(event) => {
-        // Let terminal own its internal click handling; card click should activate+focus terminal.
+        // Clicking card body only switches active station.
         const target = event.target as HTMLElement
         if (target.closest('.station-terminal-shell')) {
           return
         }
-        activateStationAndFocusTerminal()
+        activateStationOnly()
       }}
       onDoubleClick={(event) => {
         const target = event.target as HTMLElement
@@ -209,8 +295,7 @@ function StationCardView({
             title={t(locale, 'workbench.launchTerminal')}
             onClick={(event) => {
               event.stopPropagation()
-              activateStationAndFocusTerminal()
-              onLaunchStationTerminal(station.id)
+              activateStationAndOpenTerminal()
             }}
           >
             <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
@@ -273,23 +358,16 @@ function StationCardView({
         <p>{station.tool}</p>
       </div>
 
-      {renderTerminal ? (
-        <StationXtermTerminal
-          stationId={station.id}
-          sessionId={runtime?.sessionId ?? null}
-          appearanceVersion={appearanceVersion}
-          onData={onSendInputData}
-          onResize={onResizeTerminal}
-          onBindSink={handleBindSink}
-        />
-      ) : (
-        <div
-          className="station-terminal-preview-shell"
-          aria-label={t(locale, '终端预览', 'Terminal preview')}
-        >
-          <pre>{previewText || t(locale, 'workbench.noLiveOutput')}</pre>
-        </div>
-      )}
+      <StationXtermTerminal
+        stationId={station.id}
+        sessionId={runtime?.sessionId ?? null}
+        appearanceVersion={appearanceVersion}
+        onActivateStation={activateStationFromTerminal}
+        onData={onSendInputData}
+        onResize={onResizeTerminal}
+        onBindSink={handleBindSink}
+      />
+
     </article>
   )
 }
@@ -300,8 +378,6 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.appearanceVersion === next.appearanceVersion &&
     prev.station === next.station &&
     prev.active === next.active &&
-    prev.previewText === next.previewText &&
-    prev.renderTerminal === next.renderTerminal &&
     prev.isFullscreen === next.isFullscreen &&
     prev.isFullscreenMode === next.isFullscreenMode &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&

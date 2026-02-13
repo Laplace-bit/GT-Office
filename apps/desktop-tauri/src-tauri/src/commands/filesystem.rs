@@ -22,12 +22,19 @@ use crate::app_state::AppState;
 
 const MAX_LIST_ENTRIES: usize = 4000;
 const MAX_SEARCH_MATCHES: usize = 500;
+const MAX_FILE_SEARCH_MATCHES: usize = 120;
 
 #[derive(Debug, Clone)]
 struct SearchMatch {
     path: String,
     line: u64,
     preview: String,
+}
+
+#[derive(Debug, Clone)]
+struct FileSearchMatch {
+    path: String,
+    name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +151,26 @@ fn build_fs_search_text_response(
                     "path": entry.path,
                     "line": entry.line,
                     "preview": entry.preview
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+}
+
+fn build_fs_search_files_response(
+    workspace_id: &str,
+    query: &str,
+    matches: Vec<FileSearchMatch>,
+) -> Value {
+    json!({
+        "workspaceId": workspace_id,
+        "query": query,
+        "matches": matches
+            .into_iter()
+            .map(|entry| {
+                json!({
+                    "path": entry.path,
+                    "name": entry.name
                 })
             })
             .collect::<Vec<_>>()
@@ -543,6 +570,94 @@ fn search_text_matches(
     Ok(collected)
 }
 
+fn search_file_matches(
+    workspace_root: &Path,
+    query: &str,
+    max_matches: usize,
+    search_ticket: SearchTicket,
+) -> Result<Vec<FileSearchMatch>, String> {
+    let available_threads = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
+        .clamp(2, 16);
+    let mut walk_builder = WalkBuilder::new(workspace_root);
+    walk_builder
+        .standard_filters(true)
+        .hidden(true)
+        .git_ignore(true)
+        .threads(available_threads);
+
+    let query_lower = query.to_lowercase();
+    let workspace_root = workspace_root.to_path_buf();
+    let matches = Arc::new(Mutex::new(Vec::<FileSearchMatch>::new()));
+    let match_count = Arc::new(AtomicUsize::new(0));
+    let parallel_walker = walk_builder.build_parallel();
+
+    parallel_walker.run(|| {
+        let query_lower = query_lower.clone();
+        let matches = Arc::clone(&matches);
+        let match_count = Arc::clone(&match_count);
+        let workspace_root = workspace_root.clone();
+        let search_ticket = search_ticket.clone();
+
+        Box::new(move |entry| {
+            if search_ticket.is_cancelled() {
+                return WalkState::Quit;
+            }
+            if match_count.load(Ordering::Relaxed) >= max_matches {
+                return WalkState::Quit;
+            }
+
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => return WalkState::Continue,
+            };
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                return WalkState::Continue;
+            }
+
+            let path = entry.path().to_path_buf();
+            let rel_path = path
+                .strip_prefix(&workspace_root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let name = entry.file_name().to_string_lossy().to_string();
+            let search_text = format!("{} {}", rel_path.to_lowercase(), name.to_lowercase());
+            if !search_text.contains(&query_lower) {
+                return WalkState::Continue;
+            }
+            if !try_claim_slot(match_count.as_ref(), max_matches) {
+                return WalkState::Quit;
+            }
+            if let Ok(mut guard) = matches.lock() {
+                guard.push(FileSearchMatch {
+                    path: rel_path,
+                    name,
+                });
+            }
+
+            if search_ticket.is_cancelled() || match_count.load(Ordering::Relaxed) >= max_matches {
+                WalkState::Quit
+            } else {
+                WalkState::Continue
+            }
+        })
+    });
+
+    let mut collected = match matches.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    collected.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    collected.truncate(max_matches);
+    Ok(collected)
+}
+
 #[tauri::command]
 pub fn fs_list_dir(
     workspace_id: String,
@@ -826,13 +941,52 @@ pub async fn fs_search_text(
     ))
 }
 
+#[tauri::command]
+pub async fn fs_search_files(
+    workspace_id: String,
+    query: String,
+    max_results: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let root = resolve_workspace_root(&state, &workspace_id)?;
+    let trimmed_query = query.trim();
+    if trimmed_query.is_empty() {
+        return Err("FS_SEARCH_INVALID: query cannot be empty".to_string());
+    }
+    let search_ticket = SearchTicket::new(workspace_id.as_str());
+    let query_owned = trimmed_query.to_string();
+    let root_for_search = root.clone();
+    let limit = max_results
+        .map(|value| value.max(1) as usize)
+        .unwrap_or(MAX_FILE_SEARCH_MATCHES)
+        .min(MAX_SEARCH_MATCHES);
+
+    let matches = tokio::task::spawn_blocking(move || {
+        search_file_matches(
+            &root_for_search,
+            query_owned.as_str(),
+            limit,
+            search_ticket,
+        )
+    })
+    .await
+    .map_err(|error| format!("FS_SEARCH_FAILED: search worker join failed: {error}"))??;
+
+    Ok(build_fs_search_files_response(
+        workspace_id.as_str(),
+        query.as_str(),
+        matches,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_fs_delete_response, build_fs_list_dir_response, build_fs_move_response,
-        build_fs_read_file_response, build_fs_search_text_response, build_fs_write_file_response,
-        is_likely_binary, resolve_target_path, sanitize_relative_path, search_text_matches,
-        FileSystemEntry, SearchMatch, SearchTicket,
+        build_fs_read_file_response, build_fs_search_files_response, build_fs_search_text_response,
+        build_fs_write_file_response, is_likely_binary, resolve_target_path, sanitize_relative_path,
+        search_file_matches, search_text_matches, FileSearchMatch, FileSystemEntry, SearchMatch,
+        SearchTicket,
     };
     use std::{
         fs,
@@ -974,6 +1128,22 @@ mod tests {
     }
 
     #[test]
+    fn fs_search_files_payload_keeps_contract_fields() {
+        let payload = build_fs_search_files_response(
+            "ws-1",
+            "task",
+            vec![FileSearchMatch {
+                path: "docs/task-center.md".to_string(),
+                name: "task-center.md".to_string(),
+            }],
+        );
+        assert_eq!(payload["workspaceId"], "ws-1");
+        assert_eq!(payload["query"], "task");
+        assert_eq!(payload["matches"][0]["path"], "docs/task-center.md");
+        assert_eq!(payload["matches"][0]["name"], "task-center.md");
+    }
+
+    #[test]
     fn search_text_matches_finds_literal_content() {
         let tmp = TempDir::create();
         fs::write(tmp.path.join("a.txt"), "hello needle world").expect("write file");
@@ -1008,6 +1178,26 @@ mod tests {
         .expect("search");
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].preview, "literal [abc] token");
+    }
+
+    #[test]
+    fn search_file_matches_finds_by_file_name() {
+        let tmp = TempDir::create();
+        fs::create_dir_all(tmp.path.join("docs")).expect("create docs dir");
+        fs::create_dir_all(tmp.path.join("src")).expect("create src dir");
+        fs::write(tmp.path.join("docs/task-center.md"), "# task center").expect("write file");
+        fs::write(tmp.path.join("src/main.rs"), "fn main() {}").expect("write file");
+
+        let matches = search_file_matches(
+            &tmp.path,
+            "task",
+            20,
+            SearchTicket::new("test-search-files"),
+        )
+        .expect("search");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].path, "docs/task-center.md");
+        assert_eq!(matches[0].name, "task-center.md");
     }
 
     #[test]

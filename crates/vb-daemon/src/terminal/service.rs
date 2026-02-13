@@ -186,6 +186,9 @@ impl TerminalService {
             lock.writer
                 .write_all(&input)
                 .map_err(|e| DaemonError::Terminal(format!("write failed: {e}")))?;
+            lock.writer
+                .flush()
+                .map_err(|e| DaemonError::Terminal(format!("write failed: {e}")))?;
             Ok::<(), DaemonError>(())
         })
         .await

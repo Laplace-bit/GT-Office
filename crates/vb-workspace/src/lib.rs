@@ -1,5 +1,7 @@
+use serde_json::Value;
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -12,6 +14,8 @@ use vb_abstractions::{
 pub fn module_name() -> &'static str {
     "vb-workspace"
 }
+
+const SESSION_SNAPSHOT_FILE_REL: &str = ".gtoffice/session.snapshot.json";
 
 #[derive(Debug, Clone)]
 struct WorkspaceRecord {
@@ -35,6 +39,51 @@ pub struct InMemoryWorkspaceService {
 impl InMemoryWorkspaceService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn session_snapshot_path(workspace_root: &Path) -> PathBuf {
+        workspace_root.join(SESSION_SNAPSHOT_FILE_REL)
+    }
+
+    fn snapshot_from_json(value: &Value) -> WorkspaceSessionSnapshot {
+        let windows = value
+            .get("windows")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let tabs = value
+            .get("tabs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let terminals = value
+            .get("terminals")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        WorkspaceSessionSnapshot {
+            windows,
+            tabs,
+            terminals,
+        }
+    }
+
+    fn load_session_snapshot(workspace_root: &Path) -> WorkspaceSessionSnapshot {
+        let snapshot_path = Self::session_snapshot_path(workspace_root);
+        let raw = match fs::read_to_string(&snapshot_path) {
+            Ok(raw) => raw,
+            Err(_) => return WorkspaceSessionSnapshot::default(),
+        };
+        let parsed = match serde_json::from_str::<Value>(&raw) {
+            Ok(parsed) => parsed,
+            Err(_) => return WorkspaceSessionSnapshot::default(),
+        };
+        if !parsed.is_object() {
+            return WorkspaceSessionSnapshot::default();
+        }
+
+        Self::snapshot_from_json(&parsed)
     }
 
     fn canonicalize_workspace_root(path: &Path) -> AbstractionResult<PathBuf> {
@@ -192,19 +241,22 @@ impl WorkspaceService for InMemoryWorkspaceService {
         let state = self.state.read().map_err(|_| AbstractionError::Internal {
             message: "workspace state lock poisoned".to_string(),
         })?;
-        if !state.by_id.contains_key(workspace_id) {
-            return Err(AbstractionError::WorkspaceNotFound {
-                workspace_id: workspace_id.to_string(),
-            });
-        }
+        let record =
+            state
+                .by_id
+                .get(workspace_id)
+                .ok_or_else(|| AbstractionError::WorkspaceNotFound {
+                    workspace_id: workspace_id.to_string(),
+                })?;
 
-        Ok(WorkspaceSessionSnapshot::default())
+        Ok(Self::load_session_snapshot(&record.root))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::InMemoryWorkspaceService;
+    use serde_json::json;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
     use vb_abstractions::{TerminalCwdMode, WorkspaceService};
@@ -265,5 +317,77 @@ mod tests {
         assert_eq!(context.workspace_id, opened.workspace_id);
         assert_eq!(context.terminal_default_cwd, TerminalCwdMode::WorkspaceRoot);
         assert!(!context.root.is_empty());
+    }
+
+    #[test]
+    fn restore_session_returns_default_when_snapshot_file_missing() {
+        let tmp = TempWorkspaceDir::create();
+        let service = InMemoryWorkspaceService::new();
+        let opened = service.open(&tmp.path).expect("open workspace");
+
+        let snapshot = service
+            .restore_session(&opened.workspace_id)
+            .expect("restore session");
+        assert!(snapshot.windows.is_empty());
+        assert!(snapshot.tabs.is_empty());
+        assert!(snapshot.terminals.is_empty());
+    }
+
+    #[test]
+    fn restore_session_reads_snapshot_from_workspace_file() {
+        let tmp = TempWorkspaceDir::create();
+        let service = InMemoryWorkspaceService::new();
+        let opened = service.open(&tmp.path).expect("open workspace");
+
+        let snapshot_path = tmp.path.join(".gtoffice/session.snapshot.json");
+        fs::create_dir_all(
+            snapshot_path
+                .parent()
+                .expect("snapshot file parent directory"),
+        )
+        .expect("create .gtoffice directory");
+        fs::write(
+            &snapshot_path,
+            serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "updatedAtMs": 1739350400000u64,
+                "windows": [{ "activeNavId": "files" }],
+                "tabs": [{ "path": "README.md", "active": true }],
+                "terminals": [{ "stationId": "agent-01", "cwdMode": "custom", "resolvedCwd": "/tmp/repo" }]
+            }))
+            .expect("serialize snapshot"),
+        )
+        .expect("write snapshot");
+
+        let snapshot = service
+            .restore_session(&opened.workspace_id)
+            .expect("restore session");
+        assert_eq!(snapshot.windows.len(), 1);
+        assert_eq!(snapshot.tabs.len(), 1);
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(snapshot.tabs[0]["path"], "README.md");
+    }
+
+    #[test]
+    fn restore_session_ignores_invalid_snapshot_payload() {
+        let tmp = TempWorkspaceDir::create();
+        let service = InMemoryWorkspaceService::new();
+        let opened = service.open(&tmp.path).expect("open workspace");
+
+        let snapshot_path = tmp.path.join(".gtoffice/session.snapshot.json");
+        fs::create_dir_all(
+            snapshot_path
+                .parent()
+                .expect("snapshot file parent directory"),
+        )
+        .expect("create .gtoffice directory");
+        fs::write(&snapshot_path, "this-is-not-json").expect("write invalid snapshot");
+
+        let snapshot = service
+            .restore_session(&opened.workspace_id)
+            .expect("restore session");
+        assert!(snapshot.windows.is_empty());
+        assert!(snapshot.tabs.is_empty());
+        assert!(snapshot.terminals.is_empty());
     }
 }

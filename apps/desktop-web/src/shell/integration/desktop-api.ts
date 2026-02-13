@@ -21,6 +21,13 @@ export interface WorkspaceContextResponse {
   terminalDefaultCwd: 'workspace_root' | 'custom'
 }
 
+export interface WorkspaceRestoreSessionResponse {
+  workspaceId: string
+  windows: unknown[]
+  tabs: unknown[]
+  terminals: unknown[]
+}
+
 export interface GitStatusFile {
   path: string
   staged: boolean
@@ -351,6 +358,17 @@ export interface FsSearchTextResponse {
   matches: FsSearchMatch[]
 }
 
+export interface FsSearchFileMatch {
+  path: string
+  name: string
+}
+
+export interface FsSearchFilesResponse {
+  workspaceId: string
+  query: string
+  matches: FsSearchFileMatch[]
+}
+
 export interface FsSearchStreamStartResponse {
   workspaceId: string
   searchId: string
@@ -436,6 +454,117 @@ export interface GitUpdatedPayload {
   dirty: boolean
 }
 
+export interface TaskDispatchSender {
+  type: 'human' | 'agent'
+  agentId?: string | null
+}
+
+export interface TaskDispatchAttachmentPayload {
+  path: string
+  name: string
+  category: string
+}
+
+export interface TaskDispatchBatchRequest {
+  workspaceId: string
+  sender?: TaskDispatchSender
+  targets: string[]
+  title: string
+  markdown: string
+  attachments: TaskDispatchAttachmentPayload[]
+  submitSequences?: Record<string, string>
+}
+
+export interface TaskDispatchBatchResult {
+  targetAgentId: string
+  taskId: string
+  status: 'sent' | 'failed'
+  detail?: string | null
+  taskFilePath?: string | null
+}
+
+export interface TaskDispatchBatchResponse {
+  batchId: string
+  results: TaskDispatchBatchResult[]
+}
+
+export interface AgentRuntimeRegisterRequest {
+  workspaceId: string
+  agentId: string
+  stationId: string
+  sessionId: string
+  online?: boolean
+}
+
+export interface AgentRuntimeRegisterResponse {
+  workspaceId: string
+  agentId: string
+  stationId: string
+  sessionId: string
+  registered: boolean
+}
+
+export interface AgentRuntimeUnregisterResponse {
+  workspaceId: string
+  agentId: string
+  unregistered: boolean
+}
+
+export type ChannelKind = 'direct' | 'group' | 'broadcast'
+export type ChannelMessageType = 'task_instruction' | 'status' | 'handover'
+
+export interface ChannelPublishRequest {
+  workspaceId: string
+  channel: {
+    kind: ChannelKind
+    id: string
+  }
+  senderAgentId?: string | null
+  targetAgentIds?: string[]
+  type: ChannelMessageType
+  payload: Record<string, unknown>
+  idempotencyKey?: string | null
+}
+
+export interface ChannelPublishResponse {
+  messageId: string
+  acceptedTargets: string[]
+  failedTargets: Array<{
+    agentId: string
+    reason: string
+  }>
+}
+
+export interface ChannelMessagePayload {
+  workspaceId: string
+  channelId: string
+  messageId: string
+  seq: number
+  senderAgentId?: string | null
+  targetAgentId: string
+  type: ChannelMessageType
+  payload: Record<string, unknown>
+  tsMs: number
+}
+
+export interface ChannelAckPayload {
+  workspaceId: string
+  messageId: string
+  targetAgentId: string
+  status: 'delivered' | 'failed'
+  reason?: string | null
+  tsMs: number
+}
+
+export interface TaskDispatchProgressPayload {
+  batchId: string
+  workspaceId: string
+  targetAgentId: string
+  taskId: string
+  status: 'sending' | 'sent' | 'failed'
+  detail?: string | null
+}
+
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
 type RuntimeWindowController = {
   setDecorations: (decorations: boolean) => Promise<void>
@@ -502,6 +631,11 @@ export const desktopApi = {
   },
   workspaceGetContext(workspaceId: string) {
     return invokeCommand<WorkspaceContextResponse>('workspace_get_context', { workspaceId })
+  },
+  workspaceRestoreSession(workspaceId: string) {
+    return invokeCommand<WorkspaceRestoreSessionResponse>('workspace_restore_session', {
+      workspaceId,
+    })
   },
   gitStatus(workspaceId: string) {
     return invokeCommand<GitStatusResponse>('git_status', { workspaceId })
@@ -671,6 +805,13 @@ export const desktopApi = {
       glob: glob ?? null,
     })
   },
+  fsSearchFiles(workspaceId: string, query: string, maxResults?: number) {
+    return invokeCommand<FsSearchFilesResponse>('fs_search_files', {
+      workspaceId,
+      query,
+      maxResults: maxResults ?? null,
+    })
+  },
   fsSearchStreamStart(
     workspaceId: string,
     options: {
@@ -771,6 +912,51 @@ export const desktopApi = {
       maxBytes: maxBytes ?? null,
     })
   },
+  taskDispatchBatch(request: TaskDispatchBatchRequest) {
+    return invokeCommand<TaskDispatchBatchResponse>('task_dispatch_batch', {
+      request: {
+        workspaceId: request.workspaceId,
+        sender: request.sender ?? { type: 'human', agentId: null },
+        targets: request.targets,
+        title: request.title,
+        markdown: request.markdown,
+        attachments: request.attachments,
+        submitSequences: request.submitSequences ?? {},
+      },
+    })
+  },
+  channelPublish(request: ChannelPublishRequest) {
+    return invokeCommand<ChannelPublishResponse>('channel_publish', {
+      request: {
+        workspaceId: request.workspaceId,
+        channel: request.channel,
+        senderAgentId: request.senderAgentId ?? null,
+        targetAgentIds: request.targetAgentIds ?? [],
+        type: request.type,
+        payload: request.payload,
+        idempotencyKey: request.idempotencyKey ?? null,
+      },
+    })
+  },
+  agentRuntimeRegister(request: AgentRuntimeRegisterRequest) {
+    return invokeCommand<AgentRuntimeRegisterResponse>('agent_runtime_register', {
+      request: {
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
+        stationId: request.stationId,
+        sessionId: request.sessionId,
+        online: request.online ?? true,
+      },
+    })
+  },
+  agentRuntimeUnregister(workspaceId: string, agentId: string) {
+    return invokeCommand<AgentRuntimeUnregisterResponse>('agent_runtime_unregister', {
+      request: {
+        workspaceId,
+        agentId,
+      },
+    })
+  },
   async windowSetDecorations(decorations: boolean): Promise<boolean> {
     if (!isTauriRuntime()) {
       return false
@@ -868,6 +1054,34 @@ export const desktopApi = {
       unlistenOutput()
       unlistenState()
       unlistenMeta()
+    }
+  },
+  async subscribeChannelEvents(handlers: {
+    onMessage: (payload: ChannelMessagePayload) => void
+    onAck: (payload: ChannelAckPayload) => void
+    onDispatchProgress: (payload: TaskDispatchProgressPayload) => void
+  }): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlistenMessage = await eventApi.listen<ChannelMessagePayload>(
+      'channel/message',
+      (event) => handlers.onMessage(event.payload),
+    )
+    const unlistenAck = await eventApi.listen<ChannelAckPayload>('channel/ack', (event) =>
+      handlers.onAck(event.payload),
+    )
+    const unlistenDispatchProgress = await eventApi.listen<TaskDispatchProgressPayload>(
+      'task/dispatch_progress',
+      (event) => handlers.onDispatchProgress(event.payload),
+    )
+
+    return () => {
+      unlistenMessage()
+      unlistenAck()
+      unlistenDispatchProgress()
     }
   },
   async subscribeFilesystemEvents(
