@@ -565,7 +565,20 @@ export const messages = {
   'git.graph.empty': { 'zh-CN': '暂无提交记录', 'en-US': 'No commits yet' },
   'git.history.count': { 'zh-CN': '{count} 条提交', 'en-US': '{count} commits' },
   'git.history.loadOlder': { 'zh-CN': '加载更早提交', 'en-US': 'Load Older Commits' },
-  'git.history.backToLatest': { 'zh-CN': '回到最新', 'en-US': 'Back To Latest' },
+  'git.history.backToLatest': {
+    'zh-CN': '回到最新提交',
+    'en-US': 'Back To Latest Commits',
+  },
+  'git.history.view.latest': { 'zh-CN': '最新提交', 'en-US': 'Latest Commits' },
+  'git.history.view.diff': { 'zh-CN': '文件差异', 'en-US': 'File Diff' },
+  'git.history.view.switchAria': {
+    'zh-CN': '切换到 {target} 视图',
+    'en-US': 'Switch to {target} view',
+  },
+  'git.history.view.switchDisabled': {
+    'zh-CN': '请先在左侧选择变更文件',
+    'en-US': 'Select a changed file from the left first',
+  },
   'git.history.detail.loading': { 'zh-CN': '正在加载提交详情...', 'en-US': 'Loading commit details...' },
   'git.history.detail.loadFailed': {
     'zh-CN': '提交详情加载失败: {detail}',

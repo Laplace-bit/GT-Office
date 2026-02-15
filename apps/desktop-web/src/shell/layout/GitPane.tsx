@@ -565,6 +565,17 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
   const [commitDetailError, setCommitDetailError] = useState<string | null>(null)
   const commitDetailCacheRef = useRef<Map<string, GitCommitDetailResponse>>(new Map())
   const commitDetailSeqRef = useRef(0)
+  const diffSwitchDisabled = !selectedPath && !showDiffView
+  const currentViewLabel = showDiffView
+    ? t(locale, 'git.history.view.diff')
+    : t(locale, 'git.history.view.latest')
+
+  const handleToggleView = useCallback(() => {
+    if (diffSwitchDisabled) {
+      return
+    }
+    setShowDiffView(!showDiffView)
+  }, [diffSwitchDisabled, setShowDiffView, showDiffView])
 
   useEffect(() => {
     setSelectedCommit(null)
@@ -671,17 +682,29 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
           </span>
         </div>
         <div className="git-pane__header-actions">
-          {/* Show back button when in diff view */}
-          {showDiffView && (
-            <button
-              type="button"
-              className="git-icon-btn"
-              onClick={() => setShowDiffView(false)}
-              title={t(locale, 'git.history.backToLatest')}
-            >
-              <AppIcon name="chevron-left" className="git-icon-btn__icon" />
-            </button>
-          )}
+          <button
+            type="button"
+            className={`git-history-switch ${showDiffView ? 'git-history-switch--on' : 'git-history-switch--off'}`}
+            onClick={handleToggleView}
+            disabled={diffSwitchDisabled}
+            role="switch"
+            aria-checked={showDiffView}
+            aria-label={t(locale, 'git.history.view.switchAria', {
+              target: currentViewLabel,
+            })}
+            title={
+              diffSwitchDisabled
+                ? t(locale, 'git.history.view.switchDisabled')
+                : t(locale, 'git.history.view.switchAria', {
+                    target: currentViewLabel,
+                  })
+            }
+          >
+            <span className="git-history-switch__label">{currentViewLabel}</span>
+            <span className="git-history-switch__track" aria-hidden="true">
+              <span className="git-history-switch__thumb" />
+            </span>
+          </button>
         </div>
       </header>
 

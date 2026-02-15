@@ -96,7 +96,7 @@ export interface GitWorkspaceController {
 // ============================================
 // Constants
 // ============================================
-export const ROW_HEIGHT = 28
+export const ROW_HEIGHT = 30
 export const OVERSCAN_ROWS = 25
 const HISTORY_PAGE_SIZE = 80
 const STASH_LIMIT = 30

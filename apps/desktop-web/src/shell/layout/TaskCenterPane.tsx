@@ -81,7 +81,7 @@ function resolveMentionRange(value: string, cursor: number): MentionRange | null
     end: cursor,
     query,
   }
-}
+} 
 
 function TaskCenterPaneView({
   locale,
