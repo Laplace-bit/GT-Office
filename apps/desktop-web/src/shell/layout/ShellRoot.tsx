@@ -437,7 +437,7 @@ function createStationFromNumber(
 ): AgentStation {
   const suffix = String(number).padStart(2, '0')
   const id = `agent-${suffix}`
-  const role = input?.role ?? 'implementation'
+  const role = input?.role ?? 'product'
   const normalizedWorkdir = normalizeStationWorkdirInput(input?.workdir ?? '')
   const hasCustomWorkdir = typeof normalizedWorkdir === 'string' && normalizedWorkdir.length > 0
   const workdir = hasCustomWorkdir
@@ -445,7 +445,7 @@ function createStationFromNumber(
     : buildStationWorkdirs(role, id).agentWorkdirRel
   return {
     id,
-    name: input?.name?.trim() ? input.name.trim() : `工位-${suffix}`,
+    name: input?.name?.trim() ? input.name.trim() : `角色-${suffix}`,
     role,
     roleWorkdirRel: buildRoleWorkdirRel(role),
     agentWorkdirRel: workdir,
@@ -1890,7 +1890,7 @@ export function ShellRoot() {
       if (!workspaceRoot) {
         window.alert(
           locale === 'zh-CN'
-            ? '请先绑定工作区后再选择岗位目录。'
+            ? '请先绑定工作区后再选择角色目录。'
             : 'Bind a workspace before selecting station directory.',
         )
         return null

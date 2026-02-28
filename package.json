@@ -10,6 +10,8 @@
   "scripts": {
     "dev:web": "npm --workspace apps/desktop-web run dev",
     "dev:tauri": "npm --workspace apps/desktop-tauri run dev",
+    "mcp:install": "node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs",
+    "mcp:e2e": "bash scripts/dev/mcp-e2e.sh",
     "build:web": "npm --workspace apps/desktop-web run build",
     "build:tauri": "npm --workspace apps/desktop-tauri run build",
     "typecheck": "npm --workspace apps/desktop-web run build && npm --workspace packages/shared-types run typecheck",

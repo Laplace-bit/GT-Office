@@ -1,4 +1,4 @@
-export type StationRole = 'implementation' | 'review' | 'test' | 'release'
+export type StationRole = 'manager' | 'product' | 'build' | 'quality_release'
 
 export interface StationWorkdir {
   roleWorkdirRel: string

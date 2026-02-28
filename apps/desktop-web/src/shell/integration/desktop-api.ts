@@ -488,6 +488,71 @@ export interface TaskDispatchBatchResponse {
   results: TaskDispatchBatchResult[]
 }
 
+export type AgentState = 'ready' | 'paused' | 'blocked' | 'terminated'
+
+export interface OrganizationDepartment {
+  id: string
+  workspaceId: string
+  name: string
+  description?: string | null
+  orderIndex: number
+  isSystem: boolean
+  createdAtMs: number
+  updatedAtMs: number
+}
+
+export interface AgentRole {
+  id: string
+  workspaceId: string
+  roleKey: string
+  roleName: string
+  departmentId: string
+  charterPath?: string | null
+  policyJson?: string | null
+  version: number
+  status: 'active' | 'deprecated' | 'disabled'
+  isSystem: boolean
+  createdAtMs: number
+  updatedAtMs: number
+}
+
+export interface AgentProfile {
+  id: string
+  workspaceId: string
+  name: string
+  roleId: string
+  state: AgentState
+  employeeNo?: string | null
+  policySnapshotId?: string | null
+  createdAtMs: number
+  updatedAtMs: number
+}
+
+export interface AgentDepartmentListResponse {
+  departments: OrganizationDepartment[]
+}
+
+export interface AgentRoleListResponse {
+  roles: AgentRole[]
+}
+
+export interface AgentListResponse {
+  agents: AgentProfile[]
+}
+
+export interface AgentCreateRequest {
+  workspaceId: string
+  agentId?: string | null
+  name: string
+  roleId: string
+  employeeNo?: string | null
+  state?: AgentState
+}
+
+export interface AgentCreateResponse {
+  agent: AgentProfile
+}
+
 export interface AgentRuntimeRegisterRequest {
   workspaceId: string
   agentId: string
@@ -935,6 +1000,27 @@ export const desktopApi = {
         type: request.type,
         payload: request.payload,
         idempotencyKey: request.idempotencyKey ?? null,
+      },
+    })
+  },
+  agentDepartmentList(workspaceId: string) {
+    return invokeCommand<AgentDepartmentListResponse>('agent_department_list', { workspaceId })
+  },
+  agentRoleList(workspaceId: string) {
+    return invokeCommand<AgentRoleListResponse>('agent_role_list', { workspaceId })
+  },
+  agentList(workspaceId: string) {
+    return invokeCommand<AgentListResponse>('agent_list', { workspaceId })
+  },
+  agentCreate(request: AgentCreateRequest) {
+    return invokeCommand<AgentCreateResponse>('agent_create', {
+      request: {
+        workspaceId: request.workspaceId,
+        agentId: request.agentId ?? null,
+        name: request.name,
+        roleId: request.roleId,
+        employeeNo: request.employeeNo ?? null,
+        state: request.state ?? null,
       },
     })
   },

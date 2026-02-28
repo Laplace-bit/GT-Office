@@ -8,6 +8,7 @@ const { createRequire } = require('node:module')
 const repoRoot = path.resolve(__dirname, '..')
 const workspacePath = path.join(repoRoot, 'apps', 'desktop-tauri')
 const ensureScriptPath = path.join(__dirname, 'ensure-tauri-cli-binding.cjs')
+const sidecarBuildScriptPath = path.join(__dirname, 'build-mcp-sidecar.cjs')
 
 function runNodeScript(scriptPath, extraArgs, env) {
   const result = spawnSync(process.execPath, [scriptPath, ...extraArgs], {
@@ -114,6 +115,11 @@ async function main() {
   const cargoEnv = ensureCargoEnv(env)
   if (!cargoEnv) {
     failWithCargoHint()
+  }
+
+  const sidecarResult = runNodeScript(sidecarBuildScriptPath, passthroughArgs, cargoEnv)
+  if (sidecarResult.status !== 0) {
+    process.exit(sidecarResult.status ?? 1)
   }
 
   const workspaceRequire = createRequire(path.join(workspacePath, 'package.json'))

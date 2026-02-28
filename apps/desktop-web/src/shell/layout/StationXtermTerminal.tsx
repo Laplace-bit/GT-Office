@@ -202,6 +202,17 @@ function StationXtermTerminalView({
             refreshTerminal()
           })
         }
+        const ensureTerminalMinSize = () => {
+          if (terminal.cols > 0 && terminal.rows > 0) {
+            return true
+          }
+          const nextCols = Math.max(1, terminal.cols)
+          const nextRows = Math.max(1, terminal.rows)
+          if (nextCols !== terminal.cols || nextRows !== terminal.rows) {
+            terminal.resize(nextCols, nextRows)
+          }
+          return terminal.cols > 0 && terminal.rows > 0
+        }
         const fitAndRefresh = () => {
           if (!active) {
             return false
@@ -215,7 +226,7 @@ function StationXtermTerminalView({
           } catch {
             return false
           }
-          if (terminal.cols <= 0 || terminal.rows <= 0) {
+          if (!ensureTerminalMinSize()) {
             return false
           }
           refreshTerminal()
@@ -298,6 +309,24 @@ function StationXtermTerminalView({
           scheduleFitRetry()
         })
         resizeObserver.observe(host)
+
+        const fontFaceSet = (document as Document & { fonts?: FontFaceSet }).fonts
+        if (fontFaceSet?.ready) {
+          void fontFaceSet.ready
+            .then(() => {
+              if (!active) {
+                return
+              }
+              if (fitAndRefresh()) {
+                onResizeRef.current(stationId, terminal.cols, terminal.rows)
+                return
+              }
+              scheduleFitRetry()
+            })
+            .catch(() => {
+              // No-op: font readiness should not block terminal init.
+            })
+        }
 
         onBindSink(stationId, {
           write: (chunk: string) => {

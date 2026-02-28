@@ -655,7 +655,10 @@ where
                     result.is_deleted = delta.status() == git2::Delta::Deleted;
                     result.is_renamed = delta.status() == git2::Delta::Renamed;
                     if result.is_renamed {
-                        result.old_path = delta.old_file().path().map(|p| p.to_string_lossy().to_string());
+                        result.old_path = delta
+                            .old_file()
+                            .path()
+                            .map(|p| p.to_string_lossy().to_string());
                     }
                     result.is_binary = delta.flags().is_binary();
                 }
@@ -752,11 +755,13 @@ where
 
         // If no structured diff available, get raw patch
         if result.hunks.is_empty() && !result.is_binary {
-            result.patch = self.run_git(
-                root,
-                &["diff", "--no-ext-diff", "--", path],
-                "GIT_DIFF_FAILED",
-            ).unwrap_or_default();
+            result.patch = self
+                .run_git(
+                    root,
+                    &["diff", "--no-ext-diff", "--", path],
+                    "GIT_DIFF_FAILED",
+                )
+                .unwrap_or_default();
         } else {
             result.patch = patch_content;
         }
@@ -873,10 +878,7 @@ where
 
         let parse_range = |s: &str| -> (u32, u32) {
             if let Some((start, count)) = s.split_once(',') {
-                (
-                    start.parse().unwrap_or(1),
-                    count.parse().unwrap_or(0),
-                )
+                (start.parse().unwrap_or(1), count.parse().unwrap_or(0))
             } else {
                 (s.parse().unwrap_or(1), 1)
             }
@@ -889,8 +891,7 @@ where
     /// Returns segments for both old and new lines
     fn compute_word_diff(old_line: &str, new_line: &str) -> (Vec<DiffSegment>, Vec<DiffSegment>) {
         // Skip word diff for very long lines (performance optimization)
-        if old_line.len() > MAX_WORD_DIFF_LINE_LENGTH
-            || new_line.len() > MAX_WORD_DIFF_LINE_LENGTH
+        if old_line.len() > MAX_WORD_DIFF_LINE_LENGTH || new_line.len() > MAX_WORD_DIFF_LINE_LENGTH
         {
             return (
                 vec![DiffSegment {
@@ -1178,8 +1179,7 @@ where
             .collect::<Vec<_>>();
         if meta_fields.len() < 8 {
             return Err(AbstractionError::Internal {
-                message:
-                    "GIT_COMMIT_DETAIL_FAILED: failed to parse commit metadata".to_string(),
+                message: "GIT_COMMIT_DETAIL_FAILED: failed to parse commit metadata".to_string(),
             });
         }
 

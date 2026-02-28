@@ -11,13 +11,19 @@ interface StationManageModalProps {
   onSubmit: (input: CreateStationInput) => void
 }
 
-const roleOptions: StationRole[] = ['implementation', 'review', 'test', 'release']
+const roleOptions: StationRole[] = ['manager', 'product', 'build', 'quality_release']
 
-const roleKeyMap: Record<StationRole, 'station.role.implementation' | 'station.role.review' | 'station.role.test' | 'station.role.release'> = {
-  implementation: 'station.role.implementation',
-  review: 'station.role.review',
-  test: 'station.role.test',
-  release: 'station.role.release',
+const roleKeyMap: Record<
+  StationRole,
+  | 'station.role.manager'
+  | 'station.role.product'
+  | 'station.role.build'
+  | 'station.role.quality_release'
+> = {
+  manager: 'station.role.manager',
+  product: 'station.role.product',
+  build: 'station.role.build',
+  quality_release: 'station.role.quality_release',
 }
 
 function roleLabel(locale: Locale, role: StationRole): string {
@@ -25,7 +31,7 @@ function roleLabel(locale: Locale, role: StationRole): string {
 }
 
 function defaultName(locale: Locale): string {
-  return locale === 'zh-CN' ? '新岗位' : 'New Station'
+  return locale === 'zh-CN' ? '新角色' : 'New Role'
 }
 
 function defaultTool(): string {
@@ -44,7 +50,7 @@ export function StationManageModal({
   onSubmit,
 }: StationManageModalProps) {
   const [name, setName] = useState('')
-  const [role, setRole] = useState<StationRole>('implementation')
+  const [role, setRole] = useState<StationRole>('product')
   const [tool, setTool] = useState(defaultTool)
   const [workdir, setWorkdir] = useState(defaultWorkdir)
 
@@ -53,17 +59,17 @@ export function StationManageModal({
       return
     }
     setName('')
-    setRole('implementation')
+    setRole('product')
     setTool(defaultTool())
     setWorkdir(defaultWorkdir())
   }, [open])
 
-  const title = useMemo(() => (locale === 'zh-CN' ? '新增岗位' : 'Create Station'), [locale])
+  const title = useMemo(() => (locale === 'zh-CN' ? '新增角色' : 'Create Role'), [locale])
   const subtitle = useMemo(
     () =>
       locale === 'zh-CN'
-        ? '统一管理岗位与中央工位，提交后自动同步。'
-        : 'Manage role and central station in one place. Submit to sync.',
+        ? '统一管理角色与中央画布，提交后自动同步。'
+        : 'Manage roles and sync to the central canvas.',
     [locale],
   )
 
@@ -97,13 +103,13 @@ export function StationManageModal({
             <input
               type="text"
               value={name}
-              placeholder={locale === 'zh-CN' ? '例如：实现岗-09' : 'e.g. Implementation-09'}
+              placeholder={locale === 'zh-CN' ? '例如：产品角色-09' : 'e.g. Product-09'}
               onChange={(event) => setName(event.target.value)}
             />
           </label>
 
           <label>
-            {locale === 'zh-CN' ? '岗位' : 'Role'}
+            {locale === 'zh-CN' ? '角色' : 'Role'}
             <select value={role} onChange={(event) => setRole(event.target.value as StationRole)}>
               {roleOptions.map((item) => (
                 <option key={item} value={item}>
@@ -170,7 +176,7 @@ export function StationManageModal({
             }}
           >
             <AppIcon name="plus" className="vb-icon" aria-hidden="true" />
-            <span>{locale === 'zh-CN' ? '创建岗位' : 'Create'}</span>
+            <span>{locale === 'zh-CN' ? '创建角色' : 'Create'}</span>
           </button>
         </footer>
       </section>

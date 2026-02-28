@@ -1,5 +1,7 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentStation } from './model'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { FocusEvent, MouseEvent, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import type { AgentStation, StationRole } from './model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
@@ -9,6 +11,138 @@ import { StationXtermTerminal, type StationTerminalSink } from './StationXtermTe
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
+const STATION_TOOLTIP_OFFSET_PX = 6
+
+const roleKeyMap: Record<
+  StationRole,
+  | 'station.role.manager'
+  | 'station.role.product'
+  | 'station.role.build'
+  | 'station.role.quality_release'
+> = {
+  manager: 'station.role.manager',
+  product: 'station.role.product',
+  build: 'station.role.build',
+  quality_release: 'station.role.quality_release',
+}
+
+function roleLabel(locale: Locale, role: StationRole): string {
+  return t(locale, roleKeyMap[role])
+}
+
+interface StationIconButtonProps {
+  tooltip: string
+  className?: string
+  ariaLabel: string
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void
+  children: ReactNode
+}
+
+function StationIconButton({ tooltip, className, ariaLabel, onClick, children }: StationIconButtonProps) {
+  const tooltipId = useId()
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const [tooltipOpen, setTooltipOpen] = useState(false)
+  const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null)
+
+  const updateTooltipPosition = useCallback(() => {
+    const button = buttonRef.current
+    if (!button) {
+      return
+    }
+    const rect = button.getBoundingClientRect()
+    setTooltipPosition({
+      top: rect.top - STATION_TOOLTIP_OFFSET_PX,
+      left: rect.left + rect.width / 2,
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!tooltipOpen) {
+      return
+    }
+    updateTooltipPosition()
+  }, [tooltipOpen, updateTooltipPosition, tooltip])
+
+  useEffect(() => {
+    if (!tooltipOpen) {
+      return
+    }
+    let frameId: number | null = null
+    const scheduleUpdate = () => {
+      if (frameId !== null) {
+        return
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        updateTooltipPosition()
+      })
+    }
+    const handleScroll = () => scheduleUpdate()
+    window.addEventListener('scroll', handleScroll, true)
+    window.addEventListener('resize', handleScroll)
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true)
+      window.removeEventListener('resize', handleScroll)
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [tooltipOpen, updateTooltipPosition])
+
+  const handleMouseEnter = () => {
+    setTooltipOpen(true)
+  }
+
+  const handleMouseLeave = () => {
+    setTooltipOpen(false)
+  }
+
+  const handleFocus = (event: FocusEvent<HTMLButtonElement>) => {
+    if (!event.currentTarget.matches(':focus-visible')) {
+      return
+    }
+    setTooltipOpen(true)
+  }
+
+  const handleBlur = () => {
+    setTooltipOpen(false)
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={['station-icon-button', className].filter(Boolean).join(' ')}
+        aria-label={ariaLabel}
+        aria-describedby={tooltipOpen ? tooltipId : undefined}
+        onClick={onClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+      >
+        {children}
+      </button>
+      {tooltipOpen && tooltipPosition
+        ? createPortal(
+            <div
+              id={tooltipId}
+              role="tooltip"
+              className="station-icon-tooltip"
+              style={{
+                top: tooltipPosition.top,
+                left: tooltipPosition.left,
+              }}
+            >
+              {tooltip}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  )
+}
 
 interface StationTerminalRuntime {
   sessionId: string | null
@@ -276,7 +410,7 @@ function StationCardView({
       <header className="station-window-header">
         <div className="station-window-title-wrap">
           <h3>{station.name}</h3>
-          <p>{station.role}</p>
+          <p>{roleLabel(locale, station.role)}</p>
         </div>
         {unreadLabel ? (
           <span
@@ -287,25 +421,21 @@ function StationCardView({
           </span>
         ) : null}
         <div className="station-window-header-actions">
-          <button
-            type="button"
-            className="station-icon-button station-launch-terminal-btn"
-            data-tooltip={t(locale, 'workbench.launchTerminal')}
-            aria-label={t(locale, 'workbench.launchTerminal')}
-            title={t(locale, 'workbench.launchTerminal')}
+          <StationIconButton
+            className="station-launch-terminal-btn"
+            tooltip={t(locale, 'workbench.launchTerminal')}
+            ariaLabel={t(locale, 'workbench.launchTerminal')}
             onClick={(event) => {
               event.stopPropagation()
               activateStationAndOpenTerminal()
             }}
           >
             <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="station-icon-button station-launch-cli-btn"
-            data-tooltip={t(locale, 'workbench.launchCliAgent')}
-            aria-label={t(locale, 'workbench.launchCliAgent')}
-            title={t(locale, 'workbench.launchCliAgent')}
+          </StationIconButton>
+          <StationIconButton
+            className="station-launch-cli-btn"
+            tooltip={t(locale, 'workbench.launchCliAgent')}
+            ariaLabel={t(locale, 'workbench.launchCliAgent')}
             onClick={(event) => {
               event.stopPropagation()
               activateStationAndFocusTerminal()
@@ -313,13 +443,11 @@ function StationCardView({
             }}
           >
             <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="station-icon-button station-fullscreen-toggle"
-            data-tooltip={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
-            aria-label={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
-            title={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
+          </StationIconButton>
+          <StationIconButton
+            className="station-fullscreen-toggle"
+            tooltip={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
+            ariaLabel={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
             onClick={(event) => {
               event.stopPropagation()
               activateStationAndFocusTerminal()
@@ -335,13 +463,11 @@ function StationCardView({
               className="vb-icon vb-icon-station-button"
               aria-hidden="true"
             />
-          </button>
-          <button
-            type="button"
-            className="station-icon-button station-remove-btn"
-            data-tooltip={t(locale, 'workbench.removeStation')}
-            aria-label={t(locale, 'workbench.removeStation')}
-            title={t(locale, 'workbench.removeStation')}
+          </StationIconButton>
+          <StationIconButton
+            className="station-remove-btn"
+            tooltip={t(locale, 'workbench.removeStation')}
+            ariaLabel={t(locale, 'workbench.removeStation')}
             onClick={(event) => {
               event.stopPropagation()
               activateStationAndFocusTerminal()
@@ -349,7 +475,7 @@ function StationCardView({
             }}
           >
             <AppIcon name="close" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-          </button>
+          </StationIconButton>
         </div>
       </header>
 

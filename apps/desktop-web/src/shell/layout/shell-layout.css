@@ -3438,13 +3438,42 @@ textarea:focus:not(.xterm-helper-textarea) {
   transition:
     opacity 120ms var(--vb-ease-out),
     transform 120ms var(--vb-ease-out);
-  z-index: 100;
+  z-index: 1200;
 }
 
 .station-icon-button[data-tooltip]:hover::after,
 .station-icon-button[data-tooltip]:focus-visible::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+.station-icon-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%) translateY(-6px);
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--vb-surface);
+  border: 1px solid var(--vb-border);
+  color: var(--vb-text);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--vb-shadow-sm);
+  pointer-events: none;
+  z-index: 1200;
+  opacity: 0;
+  animation: station-icon-tooltip-in 120ms var(--vb-ease-out) forwards;
+}
+
+@keyframes station-icon-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -100%) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%) translateY(-6px);
+  }
 }
 
 .station-meta-toggle,

@@ -962,12 +962,7 @@ pub async fn fs_search_files(
         .min(MAX_SEARCH_MATCHES);
 
     let matches = tokio::task::spawn_blocking(move || {
-        search_file_matches(
-            &root_for_search,
-            query_owned.as_str(),
-            limit,
-            search_ticket,
-        )
+        search_file_matches(&root_for_search, query_owned.as_str(), limit, search_ticket)
     })
     .await
     .map_err(|error| format!("FS_SEARCH_FAILED: search worker join failed: {error}"))??;
@@ -984,9 +979,9 @@ mod tests {
     use super::{
         build_fs_delete_response, build_fs_list_dir_response, build_fs_move_response,
         build_fs_read_file_response, build_fs_search_files_response, build_fs_search_text_response,
-        build_fs_write_file_response, is_likely_binary, resolve_target_path, sanitize_relative_path,
-        search_file_matches, search_text_matches, FileSearchMatch, FileSystemEntry, SearchMatch,
-        SearchTicket,
+        build_fs_write_file_response, is_likely_binary, resolve_target_path,
+        sanitize_relative_path, search_file_matches, search_text_matches, FileSearchMatch,
+        FileSystemEntry, SearchMatch, SearchTicket,
     };
     use std::{
         fs,

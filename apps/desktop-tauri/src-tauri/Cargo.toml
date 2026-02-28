@@ -29,6 +29,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 vb-abstractions = { path = "../../../crates/vb-abstractions" }
+vb-agent = { path = "../../../crates/vb-agent" }
 vb-core = { path = "../../../crates/vb-core" }
 vb-workspace = { path = "../../../crates/vb-workspace" }
 vb-filesystem = { path = "../../../crates/vb-filesystem" }

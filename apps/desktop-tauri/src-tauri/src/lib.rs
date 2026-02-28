@@ -2,6 +2,7 @@ mod app_state;
 mod commands;
 mod daemon_bridge;
 mod filesystem_watcher;
+mod mcp_bridge;
 
 use base64::Engine;
 use serde_json::json;
@@ -9,7 +10,7 @@ use tauri::{Emitter, Manager};
 use vb_terminal::TerminalRuntimeEvent;
 
 use commands::{
-    ai_config, filesystem, git, keymap, security, settings, system, tasks, terminal, tools,
+    agent, ai_config, filesystem, git, keymap, security, settings, system, tasks, terminal, tools,
     workspace,
 };
 
@@ -20,6 +21,7 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
+            mcp_bridge::spawn(app_handle.clone(), state.inner().clone());
             let receiver = state.terminal_provider.take_event_receiver().map_err(|error| {
                 format!(
                     "failed to subscribe terminal runtime events during setup: {}",
@@ -78,6 +80,10 @@ pub fn run() {
             workspace::workspace_switch_active,
             workspace::workspace_get_context,
             workspace::workspace_get_window_active,
+            agent::agent_department_list,
+            agent::agent_role_list,
+            agent::agent_list,
+            agent::agent_create,
             filesystem::fs_list_dir,
             filesystem::fs_read_file,
             filesystem::fs_read_file_full,

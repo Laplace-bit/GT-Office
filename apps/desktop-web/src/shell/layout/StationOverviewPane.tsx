@@ -32,26 +32,32 @@ interface StationOverviewRowProps {
   onRemoveStation: (stationId: string) => void
 }
 
-const roleOptions: StationRole[] = ['implementation', 'review', 'test', 'release']
+const roleOptions: StationRole[] = ['manager', 'product', 'build', 'quality_release']
 
-const roleKeyMap: Record<StationRole, 'station.role.implementation' | 'station.role.review' | 'station.role.test' | 'station.role.release'> = {
-  implementation: 'station.role.implementation',
-  review: 'station.role.review',
-  test: 'station.role.test',
-  release: 'station.role.release',
+const roleKeyMap: Record<
+  StationRole,
+  | 'station.role.manager'
+  | 'station.role.product'
+  | 'station.role.build'
+  | 'station.role.quality_release'
+> = {
+  manager: 'station.role.manager',
+  product: 'station.role.product',
+  build: 'station.role.build',
+  quality_release: 'station.role.quality_release',
 }
 
 const departmentKeyMap: Record<
   OrganizationDepartment,
-  | 'station.department.product_engineering'
-  | 'station.department.architecture_review'
-  | 'station.department.quality_assurance'
-  | 'station.department.release_operations'
+  | 'station.department.leadership'
+  | 'station.department.product_management'
+  | 'station.department.delivery_engineering'
+  | 'station.department.quality_release'
 > = {
-  product_engineering: 'station.department.product_engineering',
-  architecture_review: 'station.department.architecture_review',
-  quality_assurance: 'station.department.quality_assurance',
-  release_operations: 'station.department.release_operations',
+  leadership: 'station.department.leadership',
+  product_management: 'station.department.product_management',
+  delivery_engineering: 'station.department.delivery_engineering',
+  quality_release: 'station.department.quality_release',
 }
 
 
@@ -138,7 +144,7 @@ export function StationOverviewPane({
         </button>
       </header>
 
-      <section className="station-overview-metrics" aria-label={localeIsZh ? '岗位状态概览' : 'Station status overview'}>
+      <section className="station-overview-metrics" aria-label={localeIsZh ? '角色状态概览' : 'Role status overview'}>
         <article>
           <strong>{snapshot.total}</strong>
           <span>{t(locale, 'station.metrics.total')}</span>
@@ -165,7 +171,7 @@ export function StationOverviewPane({
           aria-expanded={filtersExpanded}
           aria-controls="station-overview-filters"
         >
-          <span>{localeIsZh ? '岗位筛选' : 'Role Filters'}</span>
+          <span>{localeIsZh ? '角色筛选' : 'Role Filters'}</span>
           <small>{localeIsZh ? '仅管理维度' : 'Management only'}</small>
           <AppIcon
             name="chevron-right"

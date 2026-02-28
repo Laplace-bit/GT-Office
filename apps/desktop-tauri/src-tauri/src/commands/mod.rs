@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod ai_config;
 pub mod filesystem;
 pub mod git;

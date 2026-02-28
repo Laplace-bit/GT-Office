@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "apps/desktop-tauri/src-tauri",
   "crates/vb-abstractions",
+  "crates/vb-agent",
   "crates/vb-core",
   "crates/vb-workspace",
   "crates/vb-filesystem",
@@ -19,6 +20,7 @@ members = [
   "crates/vb-telemetry",
   "crates/vb-daemon",
 ]
+exclude = ["tools/gto-agent-mcp-sidecar"]
 
 [workspace.package]
 edition = "2021"
@@ -34,3 +36,4 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
+rusqlite = { version = "0.31", features = ["bundled"] }

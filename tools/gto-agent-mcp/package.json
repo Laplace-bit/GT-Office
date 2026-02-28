@@ -1,0 +1,15 @@
+{
+  "name": "@gtoffice/agent-mcp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Decoupled MCP bridge for GT Office multi-agent task dispatch",
+  "bin": {
+    "gto-agent-mcp": "./bin/gto-agent-mcp.mjs",
+    "gto-agent-mcp-install": "./bin/gto-agent-mcp-install.mjs"
+  },
+  "scripts": {
+    "serve": "node ./bin/gto-agent-mcp.mjs",
+    "install:clients": "node ./bin/gto-agent-mcp-install.mjs"
+  }
+}

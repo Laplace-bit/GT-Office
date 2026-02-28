@@ -69,20 +69,21 @@ pub fn task_dispatch_batch(
     }
 
     let workspace_root = state.workspace_root_path(&request.workspace_id)?;
-    let outcome =
-        state
-            .task_service
-            .dispatch_batch(&request, &workspace_root, |session_id, command, _submit_sequence| {
-                let accepted_command = state
-                    .terminal_provider
-                    .write_session(session_id, command)
-                    .map_err(to_terminal_error)?;
-                if accepted_command {
-                    Ok(())
-                } else {
-                    Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
-                }
-            });
+    let outcome = state.task_service.dispatch_batch(
+        &request,
+        &workspace_root,
+        |session_id, command, _submit_sequence| {
+            let accepted_command = state
+                .terminal_provider
+                .write_session(session_id, command)
+                .map_err(to_terminal_error)?;
+            if accepted_command {
+                Ok(())
+            } else {
+                Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
+            }
+        },
+    );
 
     emit_dispatch_progress_events(&app, &outcome.progress_events);
     emit_channel_events(&app, &outcome.message_events, &outcome.ack_events);

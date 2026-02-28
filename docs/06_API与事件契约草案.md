@@ -106,7 +106,7 @@
 1. `terminal.create`
    - req: `{ "workspaceId":"string", "shell":"bash?", "cwd":"string?", "cwdMode":"workspace_root|custom", "env":{} }`
    - resp: `{ "sessionId":"string", "workspaceId":"string", "resolvedCwd":"string" }`
-   - station 目录约束：工位模式下必须优先使用 `cwdMode=custom`，并将 `cwd` 绑定到 `.gtoffice/org/{role}/{agent_id}` 对应绝对路径。
+   - station 目录约束：角色模式下必须优先使用 `cwdMode=custom`，并将 `cwd` 绑定到 `.gtoffice/org/{role}/{agent_id}` 对应绝对路径。
 2. `terminal.write`
    - req: `{ "sessionId":"string", "input":"ls\n" }`
    - resp: `{ "accepted": true }`
@@ -119,7 +119,7 @@
 
 ### 3.3.1 Station Workspace 映射约束（T-072）
 
-1. 工位元数据新增：
+1. 角色元数据新增：
    - `roleWorkdirRel`: `.gtoffice/org/{role}`
    - `agentWorkdirRel`: `.gtoffice/org/{role}/{agent_id}`
 2. 会话创建前置：
@@ -127,7 +127,7 @@
 3. 失败处理：
    - `workspace.get_context` 失败 -> 终止会话创建并返回错误。
    - 目录创建失败 -> 终止会话创建并返回错误。
-4. 岗位切换策略：
+4. 角色切换策略：
    - 已有活动会话先执行 `terminal.kill`；成功后清理会话映射并等待新会话按新目录创建。
 
 ### 3.4 Git
@@ -220,7 +220,7 @@
 1. M1 阶段不新增后端 `task.dispatch` 命令，采用前端复合流程（复用既有命令）：
    - `fs.write_file` -> 写入 `.gtoffice/tasks/{taskId}/task.md`
    - `fs.write_file` -> 写入 `.gtoffice/tasks/{taskId}/manifest.json`
-   - `terminal.create`（必要时）-> 确保目标工位会话可用
+   - `terminal.create`（必要时）-> 确保目标角色会话可用
    - `terminal.write` -> 写入派发提示命令（含 `taskId/taskFilePath`）
 2. 前端任务模型字段：
    - `taskId`: `task_YYYYMMDDHHmmss_xxxx`
@@ -230,7 +230,7 @@
    - `attachments[]`（`path/name/category`）
    - `status`: `sending|sent|failed`
 3. UI 接收反馈约束：
-   - 目标工位卡片显示“任务已收到”气泡，展示 `taskId`，约 3 秒自动消退。
+   - 目标角色卡片显示“任务已收到”气泡，展示 `taskId`，约 3 秒自动消退。
 4. 失败处理：
    - 任一步骤失败，任务状态置为 `failed` 并记录 `detail`；不得伪造“已送达”状态。
 
@@ -259,7 +259,7 @@
    - req:
      - `workspaceId: string`
      - `sender: { type: \"human\"|\"agent\", agentId?: string }`
-     - `targets: string[]`（Agent/工位 ID）
+     - `targets: string[]`（Agent/角色 ID）
      - `title: string`
      - `markdown: string`
      - `attachments: [{ path,name,category }]`（当前任务中心 UI 固定传 `[]`，字段保留用于兼容）
@@ -303,6 +303,34 @@
    - 选中候选后写入 `@relative/path/to/file` 到 markdown 内容。
 3. 目标选择：
    - UI 使用下拉多选目标 Agent，允许手动清空；清空状态必须保持，不得自动回填。
+
+### 3.6.5 MCP Agent Bridge（T-171）
+
+1. 新增本地桥接协议（仅本机环回）：
+   - transport: `tcp + ndjson`（`127.0.0.1`）
+   - request:
+     - `id: string`
+     - `token: string`
+     - `method: "health"|"task.dispatch_batch"|"channel.publish"`
+     - `params: object`
+   - response:
+     - `id: string`
+     - `ok: boolean`
+     - `data?: object`
+     - `error?: { code: string, message: string, details?: object }`
+2. `task.dispatch_batch`（桥接层）：
+   - req: 透传 `TaskDispatchBatchRequest`（`workspaceId/sender/targets/title/markdown/attachments`）
+   - resp: 透传 `TaskDispatchBatchResponse`（`batchId/results[]`）
+3. `channel.publish`（桥接层）：
+   - req: 透传 `ChannelPublishRequest`
+   - resp: 透传 `ChannelPublishResponse`
+4. 安全约束：
+   - 仅绑定 `127.0.0.1`，拒绝非 loopback 来源。
+   - token 不通过命令行回显，运行时写入受限文件（`~/.gtoffice/mcp/runtime.json`）。
+   - token 缺失或不匹配返回 `MCP_BRIDGE_AUTH_FAILED`。
+5. 超时与重试：
+   - 单请求默认超时 `8s`。
+   - 客户端允许最多 2 次瞬时重试（仅网络级失败可重试）。
 
 ### 3.7 Settings
 
@@ -359,16 +387,22 @@
 
 ### 3.10 Agent Manager
 
-1. `agent.list`
+1. `agent.department_list`
    - req: `{ "workspaceId":"string" }`
-   - resp: `{ "agents":[{"agentId":"string","roleId":"string","state":"ready"}] }`
-2. `agent.create`
-   - req: `{ "workspaceId":"string", "name":"string", "roleId":"string", "charterPath":"string?" }`
-   - resp: `{ "agentId":"string", "policySnapshotId":"string", "state":"blocked|ready" }`
-3. `agent.update_state`
+   - resp: `{ "departments":[{"id":"string","name":"string","orderIndex":1}] }`
+2. `agent.role_list`
+   - req: `{ "workspaceId":"string" }`
+   - resp: `{ "roles":[{"id":"string","roleKey":"product","roleName":"Product","departmentId":"dept_product_management","status":"active"}] }`
+3. `agent.list`
+   - req: `{ "workspaceId":"string" }`
+   - resp: `{ "agents":[{"id":"string","roleId":"string","state":"ready"}] }`
+4. `agent.create`
+   - req: `{ "workspaceId":"string", "agentId":"string?", "name":"string", "roleId":"string", "employeeNo":"string?", "state":"ready|paused|blocked|terminated?" }`
+   - resp: `{ "agent":{"id":"string","roleId":"string","state":"ready"} }`
+5. `agent.update_state`
    - req: `{ "agentId":"string", "to":"paused|ready|terminated" }`
    - resp: `{ "updated":true }`
-4. `agent.assign_task`
+6. `agent.assign_task`
    - req: `{ "agentId":"string", "taskTemplateId":"string", "payload":{} }`
    - resp: `{ "taskId":"string", "state":"QUEUED" }`
 
@@ -469,6 +503,19 @@
    - req: `{ "sessionId":"string", "input":"bytes" }`
    - resp: `{ "sessionId":"string", "acceptedBytes":123 }`
 
+### 3.17 Agent MCP 安装契约（T-171）
+
+1. 安装目标（user scope）：
+   - Claude Code：`~/.claude/settings.json`（或项目 `.mcp.json`）
+   - Codex：`~/.codex/config.toml`
+   - Gemini CLI：`~/.gemini/settings.json`
+   - Qwen CLI：`~/.qwen/settings.json`
+2. 统一 server id：`gto-agent-bridge`
+3. 配置约束：
+   - command 指向独立 MCP 工具可执行文件（解耦目录 `tools/gto-agent-mcp`）。
+   - args 固定 `["serve"]`，避免各 CLI 配置分叉。
+   - 重复安装时必须做 idempotent 更新（覆盖同名，不新增重复节点）。
+
 ## 4. Event 契约（V1）
 
 1. `terminal/output`
@@ -540,6 +587,7 @@
 14. `POLICY_*`
 15. `OBS_*`
 16. `CACHE_*`
+17. `MCP_BRIDGE_*`
 
 首批错误码：
 
@@ -575,6 +623,10 @@
 30. `DAEMON_FRAME_TOO_LARGE`
 31. `SEARCH_TASK_CANCELLED`
 32. `SEARCH_BACKPRESSURE_DROPPED`
+33. `MCP_BRIDGE_UNAVAILABLE`
+34. `MCP_BRIDGE_AUTH_FAILED`
+35. `MCP_BRIDGE_TIMEOUT`
+36. `MCP_BRIDGE_METHOD_UNSUPPORTED`
 
 ## 6. SQLite 草案（V1）
 
@@ -591,14 +643,15 @@
 9. `keymap_bindings(id, scope, command_id, keystroke, when_clause, source, updated_at)`
 10. `ai_config_audit_logs(id, workspace_id, preview_id, diff_json, actor, status, created_at)`
 11. `workspace_context_snapshots(id, workspace_id, terminal_default_cwd, env_policy_json, updated_at)`
-12. `agents(id, workspace_id, name, role_id, state, policy_snapshot_id, created_at, updated_at)`
-13. `agent_roles(id, workspace_id, role_name, charter_path, policy_json, version, updated_at)`
-14. `agent_task_assignments(id, task_id, agent_id, assigned_by, assigned_at, status)`
-15. `channel_messages(id, workspace_id, channel_id, seq, sender_agent_id, msg_type, payload_json, idempotency_key, status, created_at)`
-16. `hook_subscriptions(id, workspace_id, event_name, filter_json, action_json, policy_json, enabled, updated_at)`
-17. `hook_runs(id, hook_id, event_id, task_id, status, duration_ms, error_json, created_at)`
-18. `policy_decisions(id, policy_snapshot_id, agent_id, action, resource_json, allowed, reason, created_at)`
-19. `agent_graph_edges(id, workspace_id, src_type, src_id, dst_type, dst_id, edge_type, created_at)`
+12. `org_departments(id, workspace_id, name, description, order_index, is_system, created_at_ms, updated_at_ms)`
+13. `agent_roles(id, workspace_id, role_key, role_name, department_id, charter_path, policy_json, version, status, is_system, created_at_ms, updated_at_ms)`
+14. `agents(id, workspace_id, name, role_id, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms)`
+15. `agent_task_assignments(id, task_id, agent_id, assigned_by, assigned_at, status)`
+16. `channel_messages(id, workspace_id, channel_id, seq, sender_agent_id, msg_type, payload_json, idempotency_key, status, created_at)`
+17. `hook_subscriptions(id, workspace_id, event_name, filter_json, action_json, policy_json, enabled, updated_at)`
+18. `hook_runs(id, hook_id, event_id, task_id, status, duration_ms, error_json, created_at)`
+19. `policy_decisions(id, policy_snapshot_id, agent_id, action, resource_json, allowed, reason, created_at)`
+20. `agent_graph_edges(id, workspace_id, src_type, src_id, dst_type, dst_id, edge_type, created_at)`
 
 ### 6.2 索引建议
 
@@ -610,6 +663,9 @@
 6. `idx_hook_runs_hook_id_created`
 7. `idx_policy_decisions_agent_created`
 8. `idx_agent_graph_workspace_created`
+9. `idx_agent_roles_workspace_key`
+10. `idx_agent_roles_workspace_department`
+11. `idx_agents_workspace_role`
 
 ## 7. `.gtoffice/config.json` Schema 草案
 
@@ -702,7 +758,7 @@
 6. 快捷键冲突测试：冲突保存请求返回 `KEYMAP_CONFLICT`。
 7. 多工作区隔离测试：A/B 工作区终端与任务归属必须正确。
 8. 终端 cwd 约束测试：workspace 外路径必须返回 `TERMINAL_CWD_OUTSIDE_WORKSPACE`。
-9. Agent 岗位权限测试：越权动作必须返回 `POLICY_DENIED`。
+9. Agent 角色权限测试：越权动作必须返回 `POLICY_DENIED`。
 10. Channel 顺序与幂等测试：同通道 seq 连续、重复消息去重。
 11. Hook 熔断测试：连续失败达到阈值触发 `HOOK_CIRCUIT_OPEN`。
 12. Redis 降级测试：缓存不可用时 `cache.health` 返回 `backend=local` 且主流程可用。

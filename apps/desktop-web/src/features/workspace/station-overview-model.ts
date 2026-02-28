@@ -1,10 +1,10 @@
 import type { AgentStation, StationRole } from '@shell/layout/model'
 
 export type OrganizationDepartment =
-  | 'product_engineering'
-  | 'architecture_review'
-  | 'quality_assurance'
-  | 'release_operations'
+  | 'leadership'
+  | 'product_management'
+  | 'delivery_engineering'
+  | 'quality_release'
 
 export type StationRuntimeState = 'running' | 'idle' | 'blocked' | 'starting' | 'exited' | 'killed'
 
@@ -41,20 +41,20 @@ export interface OrganizationSnapshot {
 }
 
 export const organizationDepartmentOrder: OrganizationDepartment[] = [
-  'product_engineering',
-  'architecture_review',
-  'quality_assurance',
-  'release_operations',
+  'leadership',
+  'product_management',
+  'delivery_engineering',
+  'quality_release',
 ]
 
 const roleDepartmentMap: Record<StationRole, OrganizationDepartment> = {
-  implementation: 'product_engineering',
-  review: 'architecture_review',
-  test: 'quality_assurance',
-  release: 'release_operations',
+  manager: 'leadership',
+  product: 'product_management',
+  build: 'delivery_engineering',
+  quality_release: 'quality_release',
 }
 
-const roleOrder: StationRole[] = ['implementation', 'review', 'test', 'release']
+const roleOrder: StationRole[] = ['manager', 'product', 'build', 'quality_release']
 
 export const defaultStationOverviewState: StationOverviewState = {
   query: '',

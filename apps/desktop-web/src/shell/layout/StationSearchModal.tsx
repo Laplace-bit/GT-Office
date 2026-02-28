@@ -37,8 +37,8 @@ export function StationSearchModal({
       <section className="settings-modal panel station-search-modal" role="dialog" aria-modal="true">
         <header className="settings-modal-header">
           <div>
-            <h2>{locale === 'zh-CN' ? '搜索工位' : 'Search Stations'}</h2>
-            <p>{locale === 'zh-CN' ? '输入关键字实时过滤中央工位。' : 'Type to filter stations in real time.'}</p>
+            <h2>{locale === 'zh-CN' ? '搜索角色' : 'Search Roles'}</h2>
+            <p>{locale === 'zh-CN' ? '输入关键字实时过滤中央角色。' : 'Type to filter roles in real time.'}</p>
           </div>
           <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
             <AppIcon name="close" className="vb-icon" aria-hidden="true" />
@@ -58,7 +58,7 @@ export function StationSearchModal({
 
         <ul className="station-search-result-list">
           {stations.length === 0 ? (
-            <li className="station-search-empty">{locale === 'zh-CN' ? '没有匹配岗位' : 'No matched stations'}</li>
+            <li className="station-search-empty">{locale === 'zh-CN' ? '没有匹配角色' : 'No matched roles'}</li>
           ) : (
             stations.map((station) => (
               <li key={station.id}>

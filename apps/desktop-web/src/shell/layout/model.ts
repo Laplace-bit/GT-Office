@@ -33,7 +33,7 @@ export interface CreateStationInput {
   workdir: string
 }
 
-export const stationRoleOrder: StationRole[] = ['implementation', 'review', 'test', 'release']
+export const stationRoleOrder: StationRole[] = ['manager', 'product', 'build', 'quality_release']
 
 export interface AgentStation {
   id: string
@@ -95,10 +95,10 @@ export function getPaneModels(locale: Locale): Record<NavItemId, PaneModel> {
       title: t(locale, 'pane.stations.title'),
       subtitle: t(locale, 'pane.stations.subtitle'),
       items: [
-        t(locale, 'pane.stations.implCount'),
-        t(locale, 'pane.stations.reviewCount'),
-        t(locale, 'pane.stations.testCount'),
-        t(locale, 'pane.stations.releaseCount'),
+        t(locale, 'pane.stations.managerCount'),
+        t(locale, 'pane.stations.productCount'),
+        t(locale, 'pane.stations.buildCount'),
+        t(locale, 'pane.stations.qualityReleaseCount'),
       ],
     },
     tasks: {
@@ -128,7 +128,7 @@ export function getPaneModels(locale: Locale): Record<NavItemId, PaneModel> {
     channels: {
       title: t(locale, 'pane.channels.title'),
       subtitle: t(locale, 'pane.channels.subtitle'),
-      items: ['direct://review', 'group://release', 'broadcast://incident'],
+      items: ['direct://product', 'group://build', 'broadcast://quality-release'],
     },
     policy: {
       title: t(locale, 'pane.policy.title'),
@@ -153,8 +153,8 @@ type DefaultStationSeed = Omit<AgentStation, 'roleWorkdirRel' | 'agentWorkdirRel
 const defaultStationSeeds: DefaultStationSeed[] = [
   {
     id: 'agent-01',
-    name: '实现岗-01',
-    role: 'implementation',
+    name: '管理角色-01',
+    role: 'manager',
     tool: 'codex cli',
     terminalSessionId: 'ts_101',
     state: 'running',
@@ -162,8 +162,8 @@ const defaultStationSeeds: DefaultStationSeed[] = [
   },
   {
     id: 'agent-02',
-    name: '实现岗-02',
-    role: 'implementation',
+    name: '产品角色-01',
+    role: 'product',
     tool: 'claude code',
     terminalSessionId: 'ts_102',
     state: 'running',
@@ -171,55 +171,19 @@ const defaultStationSeeds: DefaultStationSeed[] = [
   },
   {
     id: 'agent-03',
-    name: '评审岗-01',
-    role: 'review',
+    name: '交付角色-01',
+    role: 'build',
     tool: 'codex cli',
     terminalSessionId: 'ts_103',
-    state: 'idle',
+    state: 'running',
     workspaceId: 'ws_gtoffice',
   },
   {
     id: 'agent-04',
-    name: '测试岗-01',
-    role: 'test',
-    tool: 'claude code',
-    terminalSessionId: 'ts_104',
-    state: 'blocked',
-    workspaceId: 'ws_gtoffice',
-  },
-  {
-    id: 'agent-05',
-    name: '测试岗-02',
-    role: 'test',
-    tool: 'codex cli',
-    terminalSessionId: 'ts_105',
-    state: 'running',
-    workspaceId: 'ws_gtoffice',
-  },
-  {
-    id: 'agent-06',
-    name: '发布岗-01',
-    role: 'release',
+    name: '质量发布-01',
+    role: 'quality_release',
     tool: 'shell',
-    terminalSessionId: 'ts_106',
-    state: 'idle',
-    workspaceId: 'ws_gtoffice',
-  },
-  {
-    id: 'agent-07',
-    name: '实现岗-03',
-    role: 'implementation',
-    tool: 'codex cli',
-    terminalSessionId: 'ts_107',
-    state: 'running',
-    workspaceId: 'ws_gtoffice',
-  },
-  {
-    id: 'agent-08',
-    name: '评审岗-02',
-    role: 'review',
-    tool: 'claude code',
-    terminalSessionId: 'ts_108',
+    terminalSessionId: 'ts_104',
     state: 'idle',
     workspaceId: 'ws_gtoffice',
   },
