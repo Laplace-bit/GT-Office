@@ -1,0 +1,855 @@
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use tauri::{AppHandle, Emitter, Manager, State};
+use vb_agent::{AgentRepository, AgentState, RoleStatus};
+use vb_storage::{SqliteAgentRepository, SqliteStorage};
+use vb_task::{
+    ChannelAckEvent, ChannelRouteBinding, ExternalAccessPolicyMode, ExternalInboundMessage,
+    ExternalInboundResponse, ExternalInboundStatus, ExternalRouteResolution,
+    TaskDispatchBatchRequest, TaskDispatchProgressEvent,
+};
+
+use crate::{app_state::AppState, connectors::telegram};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelBindingListRequest {
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAccessApproveRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    pub identity: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAccessListRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelAccessPolicySetRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    pub mode: ExternalAccessPolicyMode,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalInboundRequest {
+    pub message: ExternalInboundMessage,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorAccountUpsertRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub bot_token: Option<String>,
+    #[serde(default)]
+    pub bot_token_ref: Option<String>,
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+    #[serde(default)]
+    pub webhook_secret_ref: Option<String>,
+    #[serde(default)]
+    pub webhook_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorAccountListRequest {
+    pub channel: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorHealthRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorWebhookSyncRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+}
+
+const ROLE_TARGET_PREFIX: &str = "role:";
+
+fn normalize_account_id(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default")
+        .to_string()
+}
+
+fn normalized_idempotency_key(message: &ExternalInboundMessage) -> String {
+    if let Some(key) = message
+        .idempotency_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return key.to_string();
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    message.text.hash(&mut hasher);
+    let body_hash = hasher.finish();
+    format!(
+        "{}:{}:{}:{}:{body_hash:x}",
+        message.channel.trim().to_lowercase(),
+        normalize_account_id(Some(&message.account_id)).to_lowercase(),
+        message.peer_id.trim().to_lowercase(),
+        message.message_id.trim().to_lowercase()
+    )
+}
+
+fn build_external_title(text: &str) -> String {
+    let first_line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("外部通道任务");
+    let trimmed = first_line.trim();
+    if trimmed.chars().count() <= 72 {
+        return trimmed.to_string();
+    }
+    trimmed.chars().take(72).collect()
+}
+
+fn emit_dispatch_progress_events(app: &AppHandle, events: &[TaskDispatchProgressEvent]) {
+    for event in events {
+        let _ = app.emit("task/dispatch_progress", event);
+        let _ = app.emit(
+            "external/channel_dispatch_progress",
+            json!({
+                "traceId": event.batch_id,
+                "workspaceId": event.workspace_id,
+                "targetAgentId": event.target_agent_id,
+                "taskId": event.task_id,
+                "status": event.status,
+                "detail": event.detail,
+            }),
+        );
+    }
+}
+
+fn emit_channel_events(app: &AppHandle, ack_events: &[ChannelAckEvent], trace_id: Option<&str>) {
+    for event in ack_events {
+        let _ = app.emit("channel/ack", event);
+        let _ = app.emit(
+            "external/channel_reply",
+            json!({
+                "workspaceId": event.workspace_id,
+                "messageId": event.message_id,
+                "targetAgentId": event.target_agent_id,
+                "status": event.status,
+                "reason": event.reason,
+            }),
+        );
+        let _ = app.emit(
+            "external/channel_outbound_result",
+            json!({
+                "traceId": trace_id,
+                "workspaceId": event.workspace_id,
+                "messageId": event.message_id,
+                "targetAgentId": event.target_agent_id,
+                "status": event.status,
+                "detail": event.reason,
+                "tsMs": event.ts_ms,
+            }),
+        );
+    }
+}
+
+fn emit_external_error(app: &AppHandle, trace_id: &str, code: &str, detail: &str) {
+    let _ = app.emit(
+        "external/channel_error",
+        json!({
+            "traceId": trace_id,
+            "code": code,
+            "detail": detail,
+        }),
+    );
+}
+
+fn route_from_hints(message: &ExternalInboundMessage) -> Option<ExternalRouteResolution> {
+    let workspace_id = message
+        .workspace_id_hint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let target_agent_id = message
+        .target_agent_id_hint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(ExternalRouteResolution {
+        workspace_id: workspace_id.to_string(),
+        target_agent_id: target_agent_id.to_string(),
+        matched_by: "hint".to_string(),
+    })
+}
+
+fn resolve_agent_repository(app: &AppHandle) -> Result<SqliteAgentRepository, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("CHANNEL_AGENT_STORAGE_PATH_FAILED: {error}"))?;
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|error| format!("CHANNEL_AGENT_STORAGE_PATH_FAILED: {error}"))?;
+    let db_path = base_dir.join("gtoffice.db");
+    let storage = SqliteStorage::new(db_path)
+        .map_err(|error| format!("CHANNEL_AGENT_STORAGE_PATH_FAILED: {error}"))?;
+    Ok(SqliteAgentRepository::new(storage))
+}
+
+fn resolve_role_dispatch_targets(
+    state: &AppState,
+    app: &AppHandle,
+    workspace_id: &str,
+    role_selector: &str,
+) -> Result<Vec<String>, String> {
+    let selector = role_selector.trim();
+    if selector.is_empty() {
+        return Err("CHANNEL_ROLE_INVALID: empty role selector".to_string());
+    }
+
+    let repo = resolve_agent_repository(app)?;
+    repo.ensure_schema()
+        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
+    repo.seed_defaults(workspace_id)
+        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
+
+    let roles = repo
+        .list_roles(workspace_id)
+        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
+    let matched_roles: Vec<_> = roles
+        .iter()
+        .filter(|role| {
+            role.status != RoleStatus::Disabled
+                && (role.id.eq_ignore_ascii_case(selector)
+                    || role.role_key.eq_ignore_ascii_case(selector))
+        })
+        .collect();
+    let matched_role_ids: HashSet<String> =
+        matched_roles.iter().map(|role| role.id.clone()).collect();
+    let matched_role_keys: HashSet<String> = matched_roles
+        .iter()
+        .map(|role| role.role_key.to_ascii_lowercase())
+        .collect();
+
+    if matched_role_ids.is_empty() {
+        return Err(format!("CHANNEL_ROLE_NOT_FOUND: {selector}"));
+    }
+
+    let agents = repo
+        .list_agents(workspace_id)
+        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
+    let mut targets: Vec<String> = agents
+        .iter()
+        .filter(|agent| {
+            matched_role_ids.contains(&agent.role_id) && agent.state != AgentState::Terminated
+        })
+        .map(|agent| agent.id.clone())
+        .collect();
+    for runtime in state.task_service.list_runtimes(Some(workspace_id)) {
+        let Some(role_key) = runtime.role_key.as_deref() else {
+            continue;
+        };
+        if matched_role_keys.contains(&role_key.to_ascii_lowercase()) {
+            targets.push(runtime.agent_id);
+        }
+    }
+    targets.sort();
+    targets.dedup();
+
+    if targets.is_empty() {
+        return Err(format!(
+            "CHANNEL_ROLE_EMPTY: no dispatch targets found for {selector}"
+        ));
+    }
+
+    Ok(targets)
+}
+
+fn resolve_dispatch_targets(
+    state: &AppState,
+    app: &AppHandle,
+    workspace_id: &str,
+    target_selector: &str,
+) -> Result<Vec<String>, String> {
+    let trimmed = target_selector.trim();
+    if trimmed.is_empty() {
+        return Err("CHANNEL_TARGET_INVALID: target selector is required".to_string());
+    }
+    if let Some(role_selector) = trimmed.strip_prefix(ROLE_TARGET_PREFIX) {
+        return resolve_role_dispatch_targets(state, app, workspace_id, role_selector);
+    }
+    Ok(vec![trimmed.to_string()])
+}
+
+fn into_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
+    serde_json::to_value(value).map_err(|error| error.to_string())
+}
+
+pub(crate) fn process_external_inbound_message(
+    state: &AppState,
+    app: &AppHandle,
+    message: ExternalInboundMessage,
+) -> Result<ExternalInboundResponse, String> {
+    if message.channel.trim().is_empty() {
+        return Err("CHANNEL_EXTERNAL_INVALID: channel is required".to_string());
+    }
+    if message.peer_id.trim().is_empty() {
+        return Err("CHANNEL_EXTERNAL_INVALID: peerId is required".to_string());
+    }
+    if message.sender_id.trim().is_empty() {
+        return Err("CHANNEL_EXTERNAL_INVALID: senderId is required".to_string());
+    }
+    if message.message_id.trim().is_empty() {
+        return Err("CHANNEL_EXTERNAL_INVALID: messageId is required".to_string());
+    }
+
+    let account_id = normalize_account_id(Some(&message.account_id));
+    let identity = message.sender_id.trim().to_lowercase();
+    let idempotency_key = normalized_idempotency_key(&message);
+    let trace_id = format!("trace_{}_{}", vb_task::module_name(), idempotency_key);
+
+    let _ = app.emit(
+        "external/channel_inbound",
+        json!({
+            "traceId": trace_id,
+            "channel": message.channel,
+            "accountId": account_id,
+            "peerKind": message.peer_kind,
+            "peerId": message.peer_id,
+            "senderId": message.sender_id,
+            "senderName": message.sender_name,
+            "messageId": message.message_id,
+            "text": message.text,
+        }),
+    );
+
+    if let Some(mut cached) = state
+        .task_service
+        .check_external_idempotency(&idempotency_key)
+    {
+        cached.idempotent_hit = true;
+        cached.status = ExternalInboundStatus::Duplicate;
+        return Ok(cached);
+    }
+
+    let route = state
+        .task_service
+        .resolve_external_route(&message)
+        .or_else(|| route_from_hints(&message));
+    let Some(route) = route else {
+        let response = ExternalInboundResponse {
+            trace_id: trace_id.clone(),
+            status: ExternalInboundStatus::RouteNotFound,
+            idempotent_hit: false,
+            workspace_id: None,
+            target_agent_id: None,
+            task_id: None,
+            pairing_code: None,
+            detail: Some("CHANNEL_ROUTE_NOT_FOUND".to_string()),
+        };
+        emit_external_error(
+            app,
+            &response.trace_id,
+            "CHANNEL_ROUTE_NOT_FOUND",
+            "no route binding matched inbound message",
+        );
+        state
+            .task_service
+            .store_external_idempotency(idempotency_key, response.clone());
+        return Ok(response);
+    };
+
+    let policy = state
+        .task_service
+        .get_external_access_policy(&message.channel, &account_id);
+    let allowed = match policy {
+        ExternalAccessPolicyMode::Disabled => false,
+        ExternalAccessPolicyMode::Open => true,
+        ExternalAccessPolicyMode::Allowlist | ExternalAccessPolicyMode::Pairing => state
+            .task_service
+            .is_external_allowed(&message.channel, &account_id, &identity),
+    };
+
+    if !allowed {
+        let response =
+            match policy {
+                ExternalAccessPolicyMode::Pairing => {
+                    let (code, _created, _expires_at_ms) = state
+                        .task_service
+                        .ensure_external_pairing(&message.channel, &account_id, &identity);
+                    ExternalInboundResponse {
+                        trace_id: trace_id.clone(),
+                        status: ExternalInboundStatus::PairingRequired,
+                        idempotent_hit: false,
+                        workspace_id: Some(route.workspace_id.clone()),
+                        target_agent_id: Some(route.target_agent_id.clone()),
+                        task_id: None,
+                        pairing_code: Some(code),
+                        detail: Some("CHANNEL_PAIRING_REQUIRED".to_string()),
+                    }
+                }
+                ExternalAccessPolicyMode::Disabled => ExternalInboundResponse {
+                    trace_id: trace_id.clone(),
+                    status: ExternalInboundStatus::Denied,
+                    idempotent_hit: false,
+                    workspace_id: Some(route.workspace_id.clone()),
+                    target_agent_id: Some(route.target_agent_id.clone()),
+                    task_id: None,
+                    pairing_code: None,
+                    detail: Some("CHANNEL_DISABLED".to_string()),
+                },
+                ExternalAccessPolicyMode::Allowlist => ExternalInboundResponse {
+                    trace_id: trace_id.clone(),
+                    status: ExternalInboundStatus::Denied,
+                    idempotent_hit: false,
+                    workspace_id: Some(route.workspace_id.clone()),
+                    target_agent_id: Some(route.target_agent_id.clone()),
+                    task_id: None,
+                    pairing_code: None,
+                    detail: Some("CHANNEL_ALLOWLIST_DENIED".to_string()),
+                },
+                ExternalAccessPolicyMode::Open => unreachable!(),
+            };
+        if let Some(detail) = response.detail.as_deref() {
+            emit_external_error(app, &response.trace_id, detail, detail);
+        }
+        state
+            .task_service
+            .store_external_idempotency(idempotency_key, response.clone());
+        return Ok(response);
+    }
+
+    let workspace_root = match state.workspace_root_path(&route.workspace_id) {
+        Ok(path) => path,
+        Err(error) => {
+            let response = ExternalInboundResponse {
+                trace_id: trace_id.clone(),
+                status: ExternalInboundStatus::Failed,
+                idempotent_hit: false,
+                workspace_id: Some(route.workspace_id),
+                target_agent_id: Some(route.target_agent_id),
+                task_id: None,
+                pairing_code: None,
+                detail: Some(format!("WORKSPACE_RESOLVE_FAILED: {error}")),
+            };
+            emit_external_error(app, &response.trace_id, "WORKSPACE_RESOLVE_FAILED", &error);
+            state
+                .task_service
+                .store_external_idempotency(idempotency_key, response.clone());
+            return Ok(response);
+        }
+    };
+
+    let dispatch_targets =
+        match resolve_dispatch_targets(state, app, &route.workspace_id, &route.target_agent_id) {
+            Ok(targets) => targets,
+            Err(error) => {
+                let response = ExternalInboundResponse {
+                    trace_id: trace_id.clone(),
+                    status: ExternalInboundStatus::Failed,
+                    idempotent_hit: false,
+                    workspace_id: Some(route.workspace_id),
+                    target_agent_id: Some(route.target_agent_id),
+                    task_id: None,
+                    pairing_code: None,
+                    detail: Some(error.clone()),
+                };
+                emit_external_error(
+                    app,
+                    &response.trace_id,
+                    "CHANNEL_TARGET_RESOLVE_FAILED",
+                    &error,
+                );
+                state
+                    .task_service
+                    .store_external_idempotency(idempotency_key, response.clone());
+                return Ok(response);
+            }
+        };
+
+    let _ = app.emit(
+        "external/channel_routed",
+        json!({
+            "traceId": trace_id,
+            "workspaceId": route.workspace_id,
+            "targetAgentId": route.target_agent_id,
+            "matchedBy": route.matched_by,
+            "resolvedTargets": dispatch_targets,
+        }),
+    );
+
+    let dispatch_request = TaskDispatchBatchRequest {
+        workspace_id: route.workspace_id.clone(),
+        sender: vb_task::DispatchSender::default(),
+        targets: dispatch_targets,
+        title: build_external_title(&message.text),
+        markdown: message.text.clone(),
+        attachments: Vec::new(),
+        submit_sequences: std::collections::HashMap::new(),
+    };
+    let outcome = state.task_service.dispatch_batch(
+        &dispatch_request,
+        &workspace_root,
+        |session_id, command, _submit_sequence| {
+            let accepted_command = state
+                .terminal_provider
+                .write_session(session_id, command)
+                .map_err(|error| error.to_string())?;
+            if accepted_command {
+                Ok(())
+            } else {
+                Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
+            }
+        },
+    );
+    emit_dispatch_progress_events(app, &outcome.progress_events);
+    emit_channel_events(app, &outcome.ack_events, Some(&trace_id));
+
+    let sent_results: Vec<_> = outcome
+        .response
+        .results
+        .iter()
+        .filter(|result| result.status == vb_task::TaskDispatchStatus::Sent)
+        .collect();
+    let response = if !sent_results.is_empty() {
+        let detail = if sent_results.len() < outcome.response.results.len() {
+            Some(format!(
+                "CHANNEL_PARTIAL_DISPATCH: sent {}/{}",
+                sent_results.len(),
+                outcome.response.results.len()
+            ))
+        } else {
+            None
+        };
+        ExternalInboundResponse {
+            trace_id: trace_id.clone(),
+            status: ExternalInboundStatus::Dispatched,
+            idempotent_hit: false,
+            workspace_id: Some(route.workspace_id),
+            target_agent_id: Some(route.target_agent_id),
+            task_id: sent_results.first().map(|result| result.task_id.clone()),
+            pairing_code: None,
+            detail,
+        }
+    } else if let Some(first_failed) = outcome.response.results.first() {
+        ExternalInboundResponse {
+            trace_id: trace_id.clone(),
+            status: ExternalInboundStatus::Failed,
+            idempotent_hit: false,
+            workspace_id: Some(route.workspace_id),
+            target_agent_id: Some(route.target_agent_id),
+            task_id: Some(first_failed.task_id.clone()),
+            pairing_code: None,
+            detail: first_failed
+                .detail
+                .clone()
+                .or_else(|| Some("CHANNEL_DISPATCH_FAILED_ALL".to_string())),
+        }
+    } else {
+        ExternalInboundResponse {
+            trace_id: trace_id.clone(),
+            status: ExternalInboundStatus::Failed,
+            idempotent_hit: false,
+            workspace_id: Some(route.workspace_id),
+            target_agent_id: Some(route.target_agent_id),
+            task_id: None,
+            pairing_code: None,
+            detail: Some("CHANNEL_DISPATCH_EMPTY_RESULT".to_string()),
+        }
+    };
+    if response.status == ExternalInboundStatus::Failed {
+        emit_external_error(
+            app,
+            &response.trace_id,
+            "CHANNEL_DISPATCH_FAILED",
+            response.detail.as_deref().unwrap_or("dispatch failed"),
+        );
+    }
+
+    state
+        .task_service
+        .store_external_idempotency(idempotency_key, response.clone());
+    Ok(response)
+}
+
+#[tauri::command]
+pub fn channel_connector_account_upsert(
+    request: ChannelConnectorAccountUpsertRequest,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let channel = request.channel.trim().to_ascii_lowercase();
+    match channel.as_str() {
+        "telegram" => {
+            let account = telegram::upsert_account(
+                &app,
+                telegram::TelegramAccountUpsertInput {
+                    account_id: request.account_id,
+                    enabled: request.enabled,
+                    mode: request.mode,
+                    bot_token: request.bot_token,
+                    bot_token_ref: request.bot_token_ref,
+                    webhook_secret: request.webhook_secret,
+                    webhook_secret_ref: request.webhook_secret_ref,
+                    webhook_path: request.webhook_path,
+                },
+            )?;
+            Ok(json!({
+                "updated": true,
+                "channel": channel,
+                "account": account,
+            }))
+        }
+        _ => Err(format!(
+            "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
+            request.channel
+        )),
+    }
+}
+
+#[tauri::command]
+pub fn channel_connector_account_list(
+    request: ChannelConnectorAccountListRequest,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let channel = request.channel.trim().to_ascii_lowercase();
+    match channel.as_str() {
+        "telegram" => {
+            let accounts = telegram::list_accounts(&app)?;
+            Ok(json!({
+                "channel": channel,
+                "accounts": accounts,
+            }))
+        }
+        _ => Err(format!(
+            "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
+            request.channel
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn channel_connector_health(
+    request: ChannelConnectorHealthRequest,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let channel = request.channel.trim().to_ascii_lowercase();
+    match channel.as_str() {
+        "telegram" => {
+            let runtime_webhook = crate::channel_adapter_runtime::runtime_snapshot()
+                .map(|runtime| runtime.telegram_webhook);
+            let snapshot =
+                telegram::health_check(&app, request.account_id.as_deref(), runtime_webhook)
+                    .await?;
+            let _ = app.emit("external/channel_connector_health_changed", &snapshot);
+            Ok(json!({
+                "channel": channel,
+                "health": snapshot,
+            }))
+        }
+        _ => Err(format!(
+            "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
+            request.channel
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn channel_connector_webhook_sync(
+    request: ChannelConnectorWebhookSyncRequest,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let channel = request.channel.trim().to_ascii_lowercase();
+    match channel.as_str() {
+        "telegram" => {
+            let runtime = crate::channel_adapter_runtime::runtime_snapshot().ok_or_else(|| {
+                "CHANNEL_RUNTIME_NOT_READY: runtime webhook unavailable".to_string()
+            })?;
+            let webhook_url = request
+                .webhook_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(runtime.telegram_webhook.as_str())
+                .to_string();
+            let snapshot =
+                telegram::sync_runtime_webhook(&app, request.account_id.as_deref(), &webhook_url)
+                    .await?;
+            Ok(json!({
+                "channel": channel,
+                "result": snapshot,
+            }))
+        }
+        _ => Err(format!(
+            "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
+            request.channel
+        )),
+    }
+}
+
+#[tauri::command]
+pub fn channel_adapter_status(state: State<'_, AppState>, app: AppHandle) -> Result<Value, String> {
+    let runtime = crate::channel_adapter_runtime::runtime_snapshot();
+    let running = runtime.is_some();
+    let snapshot = state.task_service.doctor_external_snapshot();
+    let telegram_accounts = telegram::list_accounts(&app).unwrap_or_default();
+    Ok(json!({
+        "running": running,
+        "adapters": [
+            {
+                "id": "feishu",
+                "mode": "webhook",
+                "enabled": running,
+                "accounts": []
+            },
+            {
+                "id": "telegram",
+                "mode": "webhook",
+                "enabled": running,
+                "accounts": telegram_accounts
+            }
+        ],
+        "runtime": runtime,
+        "snapshot": snapshot,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_binding_upsert(
+    binding: ChannelRouteBinding,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if binding.workspace_id.trim().is_empty() {
+        return Err("CHANNEL_BINDING_INVALID: workspaceId is required".to_string());
+    }
+    if binding.channel.trim().is_empty() {
+        return Err("CHANNEL_BINDING_INVALID: channel is required".to_string());
+    }
+    if binding.target_agent_id.trim().is_empty() {
+        return Err("CHANNEL_BINDING_INVALID: targetAgentId is required".to_string());
+    }
+    let created = state.task_service.upsert_route_binding(binding.clone());
+    Ok(json!({
+        "updated": true,
+        "created": created,
+        "binding": binding,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_binding_list(
+    request: ChannelBindingListRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let bindings = state
+        .task_service
+        .list_route_bindings(request.workspace_id.as_deref());
+    Ok(json!({
+        "bindings": bindings,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_access_policy_set(
+    request: ChannelAccessPolicySetRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if request.channel.trim().is_empty() {
+        return Err("CHANNEL_ACCESS_POLICY_INVALID: channel is required".to_string());
+    }
+    let account_id = normalize_account_id(request.account_id.as_deref());
+    state.task_service.set_external_access_policy(
+        &request.channel,
+        &account_id,
+        request.mode.clone(),
+    );
+    Ok(json!({
+        "updated": true,
+        "channel": request.channel,
+        "accountId": account_id,
+        "mode": request.mode,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_access_approve(
+    request: ChannelAccessApproveRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if request.channel.trim().is_empty() {
+        return Err("CHANNEL_ACCESS_INVALID: channel is required".to_string());
+    }
+    if request.identity.trim().is_empty() {
+        return Err("CHANNEL_ACCESS_INVALID: identity is required".to_string());
+    }
+    let account_id = normalize_account_id(request.account_id.as_deref());
+    let approved = state.task_service.approve_external_access(
+        &request.channel,
+        &account_id,
+        &request.identity,
+    );
+    Ok(json!({
+        "approved": approved,
+        "channel": request.channel,
+        "accountId": account_id,
+        "identity": request.identity,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_access_list(
+    request: ChannelAccessListRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if request.channel.trim().is_empty() {
+        return Err("CHANNEL_ACCESS_INVALID: channel is required".to_string());
+    }
+    let entries = state
+        .task_service
+        .list_external_access(&request.channel, request.account_id.as_deref());
+    Ok(json!({
+        "channel": request.channel,
+        "accountId": request.account_id,
+        "entries": entries,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_external_inbound(
+    request: ExternalInboundRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let response = process_external_inbound_message(state.inner(), &app, request.message)?;
+    into_value(response)
+}

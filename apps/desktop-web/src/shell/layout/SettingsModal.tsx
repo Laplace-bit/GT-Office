@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
-import { SettingsRuntimePane } from './SettingsRuntimePane'
+import { SettingsChannelEntryCard } from './SettingsChannelEntryCard'
+import { SettingsChannelManagerModal } from './SettingsChannelManagerModal'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AmbientLightingIntensity, MonoFont, ThemeMode, UiFont } from '../state/ui-preferences'
 
@@ -38,6 +40,14 @@ export function SettingsModal({
   onAmbientLightingChange,
   onAmbientLightingIntensityChange,
 }: SettingsModalProps) {
+  const [channelManagerOpen, setChannelManagerOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setChannelManagerOpen(false)
+    }
+  }, [open])
+
   if (!open) {
     return null
   }
@@ -75,8 +85,18 @@ export function SettingsModal({
           onAmbientLightingChange={onAmbientLightingChange}
           onAmbientLightingIntensityChange={onAmbientLightingIntensityChange}
         />
-        <SettingsRuntimePane locale={locale} workspaceId={workspaceId} />
+        <SettingsChannelEntryCard
+          locale={locale}
+          workspaceId={workspaceId}
+          onOpenManager={() => setChannelManagerOpen(true)}
+        />
       </section>
+      <SettingsChannelManagerModal
+        open={channelManagerOpen}
+        locale={locale}
+        workspaceId={workspaceId}
+        onClose={() => setChannelManagerOpen(false)}
+      />
     </div>
   )
 }

@@ -28,12 +28,36 @@ interface TaskCenterPaneProps {
   mentionCandidates: TaskMentionFileCandidate[]
   mentionLoading: boolean
   mentionError: string | null
+  externalStatus: {
+    loading: boolean
+    running: boolean
+    doctorOk: boolean | null
+    runtimeBaseUrl: string | null
+    feishuWebhook: string | null
+    telegramWebhook: string | null
+    summary: {
+      routeBindings: number
+      allowlistEntries: number
+      pairingPending: number
+      idempotencyEntries: number
+    } | null
+    lastSyncAtMs: number | null
+    error: string | null
+  }
+  externalEvents: Array<{
+    id: string
+    tsMs: number
+    kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error'
+    primary: string
+    secondary?: string
+  }>
   onDraftChange: (patch: Partial<TaskDraftState>) => void
   onInsertSnippet: (snippet: TaskMarkdownSnippet) => void
   onSendTask: () => void
   onRetryDispatchTask: (taskId: string) => void
   onSearchMentionFiles: (query: string) => void
   onClearMentionSearch: () => void
+  onRefreshExternalStatus: () => void
 }
 
 interface MentionRange {
@@ -50,6 +74,25 @@ function statusLabel(locale: Locale, status: TaskDispatchRecord['status']): stri
     return t(locale, 'taskCenter.status.sent')
   }
   return t(locale, 'taskCenter.status.failed')
+}
+
+function externalEventKindLabel(
+  locale: Locale,
+  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error',
+): string {
+  if (kind === 'inbound') {
+    return t(locale, 'taskCenter.external.events.kind.inbound')
+  }
+  if (kind === 'routed') {
+    return t(locale, 'taskCenter.external.events.kind.routed')
+  }
+  if (kind === 'dispatch') {
+    return t(locale, 'taskCenter.external.events.kind.dispatch')
+  }
+  if (kind === 'reply') {
+    return t(locale, 'taskCenter.external.events.kind.reply')
+  }
+  return t(locale, 'taskCenter.external.events.kind.error')
 }
 
 function formatTimestamp(value: number): string {
@@ -95,12 +138,15 @@ function TaskCenterPaneView({
   mentionCandidates,
   mentionLoading,
   mentionError,
+  externalStatus,
+  externalEvents,
   onDraftChange,
   onInsertSnippet,
   onSendTask,
   onRetryDispatchTask,
   onSearchMentionFiles,
   onClearMentionSearch,
+  onRefreshExternalStatus,
 }: TaskCenterPaneProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -476,6 +522,111 @@ function TaskCenterPaneView({
         {notice ? (
           <p className={`task-center-notice ${notice.kind}`}>{notice.message}</p>
         ) : null}
+      </section>
+
+      <section className="task-center-external">
+        <header className="task-center-external-header">
+          <div>
+            <h3>{t(locale, 'taskCenter.external.title')}</h3>
+            <p>{t(locale, 'taskCenter.external.subtitle')}</p>
+          </div>
+          <div className="task-center-external-controls">
+            <span
+              className={`task-center-external-runtime-pill ${
+                externalStatus.running ? 'running' : 'stopped'
+              }`}
+            >
+              {externalStatus.running
+                ? t(locale, 'taskCenter.external.runtime.running')
+                : t(locale, 'taskCenter.external.runtime.stopped')}
+            </span>
+            <button
+              type="button"
+              onClick={onRefreshExternalStatus}
+              disabled={externalStatus.loading}
+            >
+              {externalStatus.loading
+                ? t(locale, 'taskCenter.external.refreshing')
+                : t(locale, 'taskCenter.external.refresh')}
+            </button>
+          </div>
+        </header>
+        <div className="task-center-external-endpoints">
+          <p>
+            <strong>{t(locale, 'taskCenter.external.runtime.baseUrl')}</strong>
+            <code>{externalStatus.runtimeBaseUrl ?? '-'}</code>
+          </p>
+          <p>
+            <strong>{t(locale, 'taskCenter.external.runtime.feishuWebhook')}</strong>
+            <code>{externalStatus.feishuWebhook ?? '-'}</code>
+          </p>
+          <p>
+            <strong>{t(locale, 'taskCenter.external.runtime.telegramWebhook')}</strong>
+            <code>{externalStatus.telegramWebhook ?? '-'}</code>
+          </p>
+        </div>
+        {externalStatus.summary ? (
+          <div className="task-center-external-summary">
+            <span>
+              {t(locale, 'taskCenter.external.summary.routeBindings', {
+                count: String(externalStatus.summary.routeBindings),
+              })}
+            </span>
+            <span>
+              {t(locale, 'taskCenter.external.summary.allowlistEntries', {
+                count: String(externalStatus.summary.allowlistEntries),
+              })}
+            </span>
+            <span>
+              {t(locale, 'taskCenter.external.summary.pairingPending', {
+                count: String(externalStatus.summary.pairingPending),
+              })}
+            </span>
+            <span>
+              {t(locale, 'taskCenter.external.summary.idempotencyEntries', {
+                count: String(externalStatus.summary.idempotencyEntries),
+              })}
+            </span>
+          </div>
+        ) : null}
+        <div className="task-center-external-meta">
+          {externalStatus.lastSyncAtMs ? (
+            <span>
+              {t(locale, 'taskCenter.external.lastSyncAt', {
+                time: formatTimestamp(externalStatus.lastSyncAtMs),
+              })}
+            </span>
+          ) : null}
+          {externalStatus.doctorOk === false ? (
+            <span className="task-center-external-doctor-warn">
+              {t(locale, 'taskCenter.external.doctorWarn')}
+            </span>
+          ) : null}
+          {externalStatus.error ? (
+            <span className="task-center-external-error">{externalStatus.error}</span>
+          ) : null}
+        </div>
+        <div className="task-center-external-events">
+          <h4>{t(locale, 'taskCenter.external.events.title')}</h4>
+          {externalEvents.length === 0 ? (
+            <p className="task-center-empty">{t(locale, 'taskCenter.external.events.empty')}</p>
+          ) : (
+            <ul>
+              {externalEvents.map((event) => (
+                <li key={event.id}>
+                  <div className="task-center-external-event-row">
+                    <span className={`task-center-external-event-kind ${event.kind}`}>
+                      {externalEventKindLabel(locale, event.kind)}
+                    </span>
+                    <span>{formatTimestamp(event.tsMs)}</span>
+                  </div>
+                  <p>{event.primary}</p>
+                  {event.secondary ? <p>{event.secondary}</p> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
 
       <section className="task-center-history">

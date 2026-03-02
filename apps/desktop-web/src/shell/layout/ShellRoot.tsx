@@ -57,6 +57,10 @@ import {
 } from '@features/task-center'
 import {
   type ChannelMessagePayload,
+  type ExternalChannelDispatchProgressPayload,
+  type ExternalChannelInboundPayload,
+  type ExternalChannelReplyPayload,
+  type ExternalChannelRoutedPayload,
   desktopApi,
   type FilesystemChangedPayload,
   type FsSearchFileMatch,
@@ -103,10 +107,32 @@ const WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS = 560
 const WORKSPACE_SESSION_MAX_RESTORE_TABS = 8
 const WORKSPACE_SESSION_MAX_RESTORE_TERMINALS = 6
 const STATION_TASK_SIGNAL_VISIBLE_MS = 3200
+const EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT = 36
+const EXTERNAL_CHANNEL_STATUS_POLL_MS = 15000
+const TELEGRAM_DEBUG_TOAST_VISIBLE_MS = 6000
 const LEFT_PANE_WIDTH_MIN = 210
 const LEFT_PANE_WIDTH_MAX = 390
 const LEFT_PANE_WIDTH_DEFAULT = 270
 const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
+
+type ExternalChannelEventItem = {
+  id: string
+  tsMs: number
+  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error'
+  primary: string
+  secondary?: string
+}
+
+type TelegramInboundDebugToast = {
+  nonce: number
+  receivedAtMs: number
+  accountId: string
+  senderId: string
+  senderName?: string | null
+  peerId: string
+  messageId: string
+  text: string
+}
 
 const NAV_ITEM_ID_SET = new Set<NavItemId>([
   'stations',
@@ -272,6 +298,34 @@ function describeError(error: unknown): string {
     }
   }
   return 'unknown'
+}
+
+function readRecord(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return null
+  }
+  return input as Record<string, unknown>
+}
+
+function readString(input: unknown): string | null {
+  if (typeof input !== 'string') {
+    return null
+  }
+  const trimmed = input.trim()
+  return trimmed ? trimmed : null
+}
+
+function readNumber(input: unknown): number | null {
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return input
+  }
+  if (typeof input === 'string') {
+    const parsed = Number(input)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return null
 }
 
 function isMacOsPlatform(): boolean {
@@ -521,6 +575,38 @@ export function ShellRoot() {
   const [taskMentionCandidates, setTaskMentionCandidates] = useState<FsSearchFileMatch[]>([])
   const [taskMentionLoading, setTaskMentionLoading] = useState(false)
   const [taskMentionError, setTaskMentionError] = useState<string | null>(null)
+  const [externalChannelStatus, setExternalChannelStatus] = useState<{
+    loading: boolean
+    running: boolean
+    doctorOk: boolean | null
+    runtimeBaseUrl: string | null
+    feishuWebhook: string | null
+    telegramWebhook: string | null
+    summary: {
+      routeBindings: number
+      allowlistEntries: number
+      pairingPending: number
+      idempotencyEntries: number
+    } | null
+    lastSyncAtMs: number | null
+    error: string | null
+  }>({
+    loading: false,
+    running: false,
+    doctorOk: null,
+    runtimeBaseUrl: null,
+    feishuWebhook: null,
+    telegramWebhook: null,
+    summary: null,
+    lastSyncAtMs: null,
+    error: null,
+  })
+  const [externalChannelEvents, setExternalChannelEvents] = useState<ExternalChannelEventItem[]>(
+    [],
+  )
+  const [telegramDebugToast, setTelegramDebugToast] = useState<TelegramInboundDebugToast | null>(
+    null,
+  )
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
   const [workspacePathInput, setWorkspacePathInput] = useState(
@@ -599,6 +685,8 @@ export function ShellRoot() {
   const taskMentionSearchSeqRef = useRef(0)
   const taskMentionSearchTimerRef = useRef<number | null>(null)
   const taskMentionLastQueryRef = useRef('')
+  const externalChannelEventSeqRef = useRef(0)
+  const telegramDebugToastTimerRef = useRef<number | null>(null)
   const registeredAgentRuntimeRef = useRef<
     Record<string, { workspaceId: string; sessionId: string }>
   >({})
@@ -671,6 +759,12 @@ export function ShellRoot() {
       taskMentionSearchTimerRef.current = null
       taskMentionSearchSeqRef.current += 1
       taskMentionLastQueryRef.current = ''
+
+      const telegramToastTimerId = telegramDebugToastTimerRef.current
+      if (typeof telegramToastTimerId === 'number') {
+        window.clearTimeout(telegramToastTimerId)
+      }
+      telegramDebugToastTimerRef.current = null
 
       if (desktopApi.isTauriRuntime()) {
         Object.entries(registeredAgentRuntimeRef.current).forEach(([agentId, runtime]) => {
@@ -1150,6 +1244,105 @@ export function ShellRoot() {
     [scheduleStationTaskSignalDismiss],
   )
 
+  const appendExternalChannelEvent = useCallback(
+    (input: Omit<ExternalChannelEventItem, 'id' | 'tsMs'> & { tsMs?: number }) => {
+      externalChannelEventSeqRef.current += 1
+      const nextEvent: ExternalChannelEventItem = {
+        id: `ext_evt_${Date.now().toString(16)}_${externalChannelEventSeqRef.current.toString(16)}`,
+        tsMs: input.tsMs ?? Date.now(),
+        kind: input.kind,
+        primary: input.primary,
+        secondary: input.secondary,
+      }
+      setExternalChannelEvents((prev) => [nextEvent, ...prev].slice(0, EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT))
+    },
+    [],
+  )
+
+  const emitTelegramInboundDebugToast = useCallback((payload: ExternalChannelInboundPayload) => {
+    if (payload.channel.trim().toLowerCase() !== 'telegram') {
+      return
+    }
+    const normalizedText = (payload.text ?? '').trim()
+    const textPreview =
+      normalizedText.length > 280 ? `${normalizedText.slice(0, 280)}...` : normalizedText
+    const nonce = Date.now()
+    const nextToast: TelegramInboundDebugToast = {
+      nonce,
+      receivedAtMs: nonce,
+      accountId: payload.accountId || 'default',
+      senderId: payload.senderId || 'unknown',
+      senderName: payload.senderName ?? null,
+      peerId: payload.peerId || 'unknown',
+      messageId: payload.messageId || 'unknown',
+      text: textPreview,
+    }
+    setTelegramDebugToast(nextToast)
+
+    const previousTimer = telegramDebugToastTimerRef.current
+    if (typeof previousTimer === 'number') {
+      window.clearTimeout(previousTimer)
+    }
+    telegramDebugToastTimerRef.current = window.setTimeout(() => {
+      telegramDebugToastTimerRef.current = null
+      setTelegramDebugToast((current) => {
+        if (!current || current.nonce !== nonce) {
+          return current
+        }
+        return null
+      })
+    }, TELEGRAM_DEBUG_TOAST_VISIBLE_MS)
+  }, [])
+
+  const refreshExternalChannelStatus = useCallback(async () => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    setExternalChannelStatus((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+    }))
+    try {
+      const [adapterStatus, doctorStatus] = await Promise.all([
+        desktopApi.channelAdapterStatus(),
+        desktopApi.systemGtoDoctor(),
+      ])
+
+      const runtimeRecord = readRecord(adapterStatus.runtime)
+      const snapshotRecord = readRecord(adapterStatus.snapshot)
+      const doctorRecord = readRecord(doctorStatus)
+      const summaryRecord = readRecord(snapshotRecord)
+      const doctorOk = typeof doctorRecord?.ok === 'boolean' ? doctorRecord.ok : null
+
+      setExternalChannelStatus({
+        loading: false,
+        running: Boolean(adapterStatus.running),
+        doctorOk,
+        runtimeBaseUrl: readString(runtimeRecord?.baseUrl),
+        feishuWebhook: readString(runtimeRecord?.feishuWebhook),
+        telegramWebhook: readString(runtimeRecord?.telegramWebhook),
+        summary: summaryRecord
+          ? {
+              routeBindings: Math.max(0, readNumber(summaryRecord.routeBindings) ?? 0),
+              allowlistEntries: Math.max(0, readNumber(summaryRecord.allowlistEntries) ?? 0),
+              pairingPending: Math.max(0, readNumber(summaryRecord.pairingPending) ?? 0),
+              idempotencyEntries: Math.max(0, readNumber(summaryRecord.idempotencyEntries) ?? 0),
+            }
+          : null,
+        lastSyncAtMs: Date.now(),
+        error: null,
+      })
+    } catch (error) {
+      setExternalChannelStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: describeError(error),
+        lastSyncAtMs: Date.now(),
+      }))
+    }
+  }, [])
+
   useEffect(() => {
     return () => {
       Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
@@ -1159,6 +1352,38 @@ export function ShellRoot() {
       stationTaskSignalNonceRef.current = {}
     }
   }, [clearStationTaskSignalTimer])
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    let disposed = false
+    let timerId: number | null = null
+
+    const poll = async () => {
+      if (disposed) {
+        return
+      }
+      await refreshExternalChannelStatus()
+      if (disposed || activeNavId !== 'tasks') {
+        return
+      }
+      timerId = window.setTimeout(() => {
+        void poll()
+      }, EXTERNAL_CHANNEL_STATUS_POLL_MS)
+    }
+
+    if (activeNavId === 'tasks') {
+      void poll()
+    }
+
+    return () => {
+      disposed = true
+      if (typeof timerId === 'number') {
+        window.clearTimeout(timerId)
+      }
+    }
+  }, [activeNavId, refreshExternalChannelStatus])
 
   const bindStationTerminalSink = useMemo(
     () => (stationId: string, sink: StationTerminalSink | null) => {
@@ -1559,11 +1784,14 @@ export function ShellRoot() {
       ) {
         return
       }
+      const stationRole =
+        stationsRef.current.find((station) => station.id === agentId)?.role ?? null
       void desktopApi
         .agentRuntimeRegister({
           workspaceId: runtime.workspaceId,
           agentId,
           stationId: agentId,
+          roleKey: stationRole,
           sessionId: runtime.sessionId,
           online: true,
         })
@@ -1614,6 +1842,44 @@ export function ShellRoot() {
         onDispatchProgress: () => {
           // Progress events are consumed by the dispatch command response in current UI.
         },
+        onExternalInbound: (payload: ExternalChannelInboundPayload) => {
+          appendExternalChannelEvent({
+            kind: 'inbound',
+            primary: `${payload.channel} · ${payload.senderId}`,
+            secondary: `peer=${payload.peerId} · msg=${payload.messageId}`,
+          })
+          emitTelegramInboundDebugToast(payload)
+        },
+        onExternalRouted: (payload: ExternalChannelRoutedPayload) => {
+          appendExternalChannelEvent({
+            kind: 'routed',
+            primary: `${payload.workspaceId} -> ${payload.targetAgentId}`,
+            secondary: `matchedBy=${payload.matchedBy} · trace=${payload.traceId}`,
+          })
+        },
+        onExternalDispatchProgress: (payload: ExternalChannelDispatchProgressPayload) => {
+          appendExternalChannelEvent({
+            kind: 'dispatch',
+            primary: `${payload.targetAgentId} · ${payload.status}`,
+            secondary: `task=${payload.taskId}`,
+          })
+        },
+        onExternalReply: (payload: ExternalChannelReplyPayload) => {
+          appendExternalChannelEvent({
+            kind: 'reply',
+            primary: `${payload.targetAgentId} · ${payload.status}`,
+            secondary: payload.reason ?? undefined,
+          })
+        },
+        onExternalError: (payload) => {
+          const code = readString(payload.code) ?? 'CHANNEL_ERROR'
+          const detail = readString(payload.detail) ?? 'unknown'
+          appendExternalChannelEvent({
+            kind: 'error',
+            primary: code,
+            secondary: detail,
+          })
+        },
       })
       .then((unlisten) => {
         if (disposed) {
@@ -1629,7 +1895,7 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [emitStationTaskSignal])
+  }, [appendExternalChannelEvent, emitStationTaskSignal, emitTelegramInboundDebugToast])
 
   useEffect(() => {
     setStationTerminals(createInitialStationTerminals(stationsRef.current))
@@ -1662,6 +1928,8 @@ export function ShellRoot() {
     setTaskRetryingTaskId(null)
     setTaskDraftSavedAtMs(null)
     setTaskNotice(null)
+    setExternalChannelEvents([])
+    externalChannelEventSeqRef.current = 0
     Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
       clearStationTaskSignalTimer(stationId)
     })
@@ -2256,6 +2524,7 @@ export function ShellRoot() {
         workspaceId: input.workspaceId,
         agentId: station.id,
         stationId: station.id,
+        roleKey: station.role,
         sessionId,
         online: true,
       })
@@ -3363,6 +3632,58 @@ export function ShellRoot() {
         enabled={uiPreferences.ambientLightingEnabled && !nativeWindowTopWindows}
         intensity={uiPreferences.ambientLightingIntensity}
       />
+      {telegramDebugToast ? (
+        <section className="telegram-debug-toast" role="status" aria-live="polite">
+          <header className="telegram-debug-toast-header">
+            <strong>{t(locale, 'channel.telegram.debugToast.title')}</strong>
+            <button
+              type="button"
+              onClick={() => {
+                const timerId = telegramDebugToastTimerRef.current
+                if (typeof timerId === 'number') {
+                  window.clearTimeout(timerId)
+                }
+                telegramDebugToastTimerRef.current = null
+                setTelegramDebugToast(null)
+              }}
+              aria-label={t(locale, 'channel.telegram.debugToast.dismiss')}
+            >
+              ×
+            </button>
+          </header>
+          <p>
+            {t(locale, 'channel.telegram.debugToast.sender', {
+              sender: telegramDebugToast.senderName || telegramDebugToast.senderId,
+            })}
+          </p>
+          <p>
+            {t(locale, 'channel.telegram.debugToast.peer', {
+              peer: telegramDebugToast.peerId,
+            })}
+          </p>
+          <p>
+            {t(locale, 'channel.telegram.debugToast.message', {
+              message: telegramDebugToast.messageId,
+            })}
+          </p>
+          <p>
+            {t(locale, 'channel.telegram.debugToast.content', {
+              content: telegramDebugToast.text || t(locale, 'channel.telegram.debugToast.empty'),
+            })}
+          </p>
+          <p>
+            {t(locale, 'channel.telegram.debugToast.account', {
+              account: telegramDebugToast.accountId,
+            })}
+          </p>
+          <p className="telegram-debug-toast-time">
+            {new Date(telegramDebugToast.receivedAtMs).toLocaleTimeString(
+              locale === 'zh-CN' ? 'zh-CN' : 'en-US',
+              { hour12: false },
+            )}
+          </p>
+        </section>
+      ) : null}
 
       <div ref={shellTopRef} className="relative z-40">
         <TopControlBar
@@ -3431,6 +3752,8 @@ export function ShellRoot() {
                 mentionCandidates={taskMentionCandidates}
                 mentionLoading={taskMentionLoading}
                 mentionError={taskMentionError}
+                externalStatus={externalChannelStatus}
+                externalEvents={externalChannelEvents}
                 onDraftChange={updateTaskDraft}
                 onInsertSnippet={insertTaskSnippet}
                 onSendTask={() => {
@@ -3441,6 +3764,9 @@ export function ShellRoot() {
                 }}
                 onSearchMentionFiles={searchTaskMentionFiles}
                 onClearMentionSearch={clearTaskMentionSearch}
+                onRefreshExternalStatus={() => {
+                  void refreshExternalChannelStatus()
+                }}
               />
             ) : activeNavId === 'stations' ? (
               <StationOverviewPane

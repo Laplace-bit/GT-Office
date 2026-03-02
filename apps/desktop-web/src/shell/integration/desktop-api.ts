@@ -557,6 +557,7 @@ export interface AgentRuntimeRegisterRequest {
   workspaceId: string
   agentId: string
   stationId: string
+  roleKey?: string | null
   sessionId: string
   online?: boolean
 }
@@ -565,6 +566,7 @@ export interface AgentRuntimeRegisterResponse {
   workspaceId: string
   agentId: string
   stationId: string
+  roleKey?: string | null
   sessionId: string
   registered: boolean
 }
@@ -600,6 +602,175 @@ export interface ChannelPublishResponse {
   }>
 }
 
+export type ExternalPeerKind = 'direct' | 'group'
+export type ExternalAccessPolicyMode = 'pairing' | 'allowlist' | 'open' | 'disabled'
+export type ExternalInboundStatus =
+  | 'dispatched'
+  | 'duplicate'
+  | 'pairing_required'
+  | 'denied'
+  | 'route_not_found'
+  | 'failed'
+
+export interface ChannelRouteBinding {
+  workspaceId: string
+  channel: string
+  accountId?: string | null
+  peerKind?: ExternalPeerKind | null
+  peerPattern?: string | null
+  targetAgentId: string
+  priority?: number
+}
+
+export interface ChannelAdapterStatusResponse {
+  running: boolean
+  adapters: Array<{
+    id: string
+    mode: string
+    enabled: boolean
+    accounts?: ChannelConnectorAccount[]
+  }>
+  runtime?: {
+    running: boolean
+    host: string
+    port: number
+    baseUrl: string
+    feishuWebhook: string
+    telegramWebhook: string
+    startedAtMs: number
+    metrics?: {
+      totalRequests: number
+      webhookRequests: number
+      healthRequests: number
+      dispatched: number
+      duplicate: number
+      pairingRequired: number
+      denied: number
+      routeNotFound: number
+      failed: number
+      unauthorized: number
+      invalidRequests: number
+      rateLimited: number
+      timeouts: number
+      internalErrors: number
+      rateLimitTrackedKeys: number
+      lastError?: string | null
+      lastErrorAtMs?: number | null
+    } | null
+  } | null
+  snapshot: Record<string, unknown>
+}
+
+export interface ChannelConnectorAccount {
+  channel: string
+  accountId: string
+  enabled: boolean
+  mode: string
+  webhookPath?: string | null
+  botTokenRef: string
+  webhookSecretRef?: string | null
+  hasBotToken: boolean
+  hasWebhookSecret: boolean
+  updatedAtMs: number
+}
+
+export interface ChannelConnectorAccountUpsertRequest {
+  channel: string
+  accountId?: string | null
+  enabled?: boolean | null
+  mode?: 'webhook' | 'polling' | null
+  botToken?: string | null
+  botTokenRef?: string | null
+  webhookSecret?: string | null
+  webhookSecretRef?: string | null
+  webhookPath?: string | null
+}
+
+export interface ChannelConnectorAccountListResponse {
+  channel: string
+  accounts: ChannelConnectorAccount[]
+}
+
+export interface ChannelConnectorHealthResponse {
+  channel: string
+  health: {
+    channel: string
+    accountId: string
+    ok: boolean
+    status: string
+    detail: string
+    mode: string
+    botUsername?: string | null
+    configuredWebhookUrl?: string | null
+    runtimeWebhookUrl?: string | null
+    webhookMatched?: boolean | null
+    checkedAtMs: number
+  }
+}
+
+export interface ChannelConnectorWebhookSyncResponse {
+  channel: string
+  result: {
+    channel: string
+    accountId: string
+    ok: boolean
+    webhookUrl: string
+    webhookMatched: boolean
+    detail: string
+    checkedAtMs: number
+  }
+}
+
+export interface ChannelBindingListResponse {
+  bindings: ChannelRouteBinding[]
+}
+
+export interface ChannelAccessApproveResponse {
+  approved: boolean
+  channel: string
+  accountId: string
+  identity: string
+}
+
+export interface ChannelAccessListResponse {
+  channel: string
+  accountId?: string | null
+  entries: Array<{
+    channel: string
+    accountId: string
+    identity: string
+    approved: boolean
+  }>
+}
+
+export interface ChannelExternalInboundRequest {
+  message: {
+    channel: string
+    accountId?: string
+    peerKind: ExternalPeerKind
+    peerId: string
+    senderId: string
+    senderName?: string | null
+    messageId: string
+    text: string
+    idempotencyKey?: string | null
+    workspaceIdHint?: string | null
+    targetAgentIdHint?: string | null
+    metadata?: Record<string, unknown>
+  }
+}
+
+export interface ChannelExternalInboundResponse {
+  traceId: string
+  status: ExternalInboundStatus
+  idempotentHit: boolean
+  workspaceId?: string | null
+  targetAgentId?: string | null
+  taskId?: string | null
+  pairingCode?: string | null
+  detail?: string | null
+}
+
 export interface ChannelMessagePayload {
   workspaceId: string
   channelId: string
@@ -628,6 +799,52 @@ export interface TaskDispatchProgressPayload {
   taskId: string
   status: 'sending' | 'sent' | 'failed'
   detail?: string | null
+}
+
+export interface ExternalChannelInboundPayload {
+  traceId: string
+  channel: string
+  accountId: string
+  peerKind: ExternalPeerKind
+  peerId: string
+  senderId: string
+  senderName?: string | null
+  messageId: string
+  text?: string | null
+}
+
+export interface ExternalChannelRoutedPayload {
+  traceId: string
+  workspaceId: string
+  targetAgentId: string
+  matchedBy: string
+}
+
+export interface ExternalChannelDispatchProgressPayload {
+  traceId: string
+  workspaceId: string
+  targetAgentId: string
+  taskId: string
+  status: 'sending' | 'sent' | 'failed'
+  detail?: string | null
+}
+
+export interface ExternalChannelReplyPayload {
+  workspaceId: string
+  messageId: string
+  targetAgentId: string
+  status: 'delivered' | 'failed'
+  reason?: string | null
+}
+
+export interface ExternalChannelOutboundResultPayload {
+  traceId?: string | null
+  workspaceId: string
+  messageId: string
+  targetAgentId: string
+  status: 'delivered' | 'failed'
+  detail?: string | null
+  tsMs: number
 }
 
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
@@ -687,6 +904,9 @@ export const desktopApi = {
     return invokeCommand<string | null>('system_pick_directory', {
       defaultPath: defaultPath ?? null,
     })
+  },
+  systemGtoDoctor() {
+    return invokeCommand<Record<string, unknown>>('system_gto_doctor')
   },
   workspaceGetWindowActive() {
     return invokeCommand<WorkspaceWindowActiveResponse>('workspace_get_window_active')
@@ -1003,6 +1223,122 @@ export const desktopApi = {
       },
     })
   },
+  channelAdapterStatus() {
+    return invokeCommand<ChannelAdapterStatusResponse>('channel_adapter_status')
+  },
+  channelConnectorAccountUpsert(request: ChannelConnectorAccountUpsertRequest) {
+    return invokeCommand<Record<string, unknown>>('channel_connector_account_upsert', {
+      request: {
+        channel: request.channel,
+        accountId: request.accountId ?? null,
+        enabled: request.enabled ?? null,
+        mode: request.mode ?? null,
+        botToken: request.botToken ?? null,
+        botTokenRef: request.botTokenRef ?? null,
+        webhookSecret: request.webhookSecret ?? null,
+        webhookSecretRef: request.webhookSecretRef ?? null,
+        webhookPath: request.webhookPath ?? null,
+      },
+    })
+  },
+  channelConnectorAccountList(channel: string) {
+    return invokeCommand<ChannelConnectorAccountListResponse>('channel_connector_account_list', {
+      request: {
+        channel,
+      },
+    })
+  },
+  channelConnectorHealth(channel: string, accountId?: string | null) {
+    return invokeCommand<ChannelConnectorHealthResponse>('channel_connector_health', {
+      request: {
+        channel,
+        accountId: accountId ?? null,
+      },
+    })
+  },
+  channelConnectorWebhookSync(
+    channel: string,
+    accountId?: string | null,
+    webhookUrl?: string | null,
+  ) {
+    return invokeCommand<ChannelConnectorWebhookSyncResponse>('channel_connector_webhook_sync', {
+      request: {
+        channel,
+        accountId: accountId ?? null,
+        webhookUrl: webhookUrl ?? null,
+      },
+    })
+  },
+  channelBindingUpsert(binding: ChannelRouteBinding) {
+    return invokeCommand<Record<string, unknown>>('channel_binding_upsert', {
+      binding: {
+        workspaceId: binding.workspaceId,
+        channel: binding.channel,
+        accountId: binding.accountId ?? null,
+        peerKind: binding.peerKind ?? null,
+        peerPattern: binding.peerPattern ?? null,
+        targetAgentId: binding.targetAgentId,
+        priority: binding.priority ?? 0,
+      },
+    })
+  },
+  channelBindingList(workspaceId?: string | null) {
+    return invokeCommand<ChannelBindingListResponse>('channel_binding_list', {
+      request: {
+        workspaceId: workspaceId ?? null,
+      },
+    })
+  },
+  channelAccessPolicySet(
+    channel: string,
+    mode: ExternalAccessPolicyMode,
+    accountId?: string | null,
+  ) {
+    return invokeCommand<Record<string, unknown>>('channel_access_policy_set', {
+      request: {
+        channel,
+        accountId: accountId ?? null,
+        mode,
+      },
+    })
+  },
+  channelAccessApprove(channel: string, identity: string, accountId?: string | null) {
+    return invokeCommand<ChannelAccessApproveResponse>('channel_access_approve', {
+      request: {
+        channel,
+        accountId: accountId ?? null,
+        identity,
+      },
+    })
+  },
+  channelAccessList(channel: string, accountId?: string | null) {
+    return invokeCommand<ChannelAccessListResponse>('channel_access_list', {
+      request: {
+        channel,
+        accountId: accountId ?? null,
+      },
+    })
+  },
+  channelExternalInbound(request: ChannelExternalInboundRequest) {
+    return invokeCommand<ChannelExternalInboundResponse>('channel_external_inbound', {
+      request: {
+        message: {
+          channel: request.message.channel,
+          accountId: request.message.accountId ?? 'default',
+          peerKind: request.message.peerKind,
+          peerId: request.message.peerId,
+          senderId: request.message.senderId,
+          senderName: request.message.senderName ?? null,
+          messageId: request.message.messageId,
+          text: request.message.text,
+          idempotencyKey: request.message.idempotencyKey ?? null,
+          workspaceIdHint: request.message.workspaceIdHint ?? null,
+          targetAgentIdHint: request.message.targetAgentIdHint ?? null,
+          metadata: request.message.metadata ?? {},
+        },
+      },
+    })
+  },
   agentDepartmentList(workspaceId: string) {
     return invokeCommand<AgentDepartmentListResponse>('agent_department_list', { workspaceId })
   },
@@ -1030,6 +1366,7 @@ export const desktopApi = {
         workspaceId: request.workspaceId,
         agentId: request.agentId,
         stationId: request.stationId,
+        roleKey: request.roleKey ?? null,
         sessionId: request.sessionId,
         online: request.online ?? true,
       },
@@ -1146,6 +1483,12 @@ export const desktopApi = {
     onMessage: (payload: ChannelMessagePayload) => void
     onAck: (payload: ChannelAckPayload) => void
     onDispatchProgress: (payload: TaskDispatchProgressPayload) => void
+    onExternalInbound?: (payload: ExternalChannelInboundPayload) => void
+    onExternalRouted?: (payload: ExternalChannelRoutedPayload) => void
+    onExternalDispatchProgress?: (payload: ExternalChannelDispatchProgressPayload) => void
+    onExternalReply?: (payload: ExternalChannelReplyPayload) => void
+    onExternalOutboundResult?: (payload: ExternalChannelOutboundResultPayload) => void
+    onExternalError?: (payload: Record<string, unknown>) => void
   }): Promise<() => void> {
     if (!isTauriRuntime()) {
       return () => {}
@@ -1163,11 +1506,43 @@ export const desktopApi = {
       'task/dispatch_progress',
       (event) => handlers.onDispatchProgress(event.payload),
     )
+    const unlistenExternalInbound = await eventApi.listen<ExternalChannelInboundPayload>(
+      'external/channel_inbound',
+      (event) => handlers.onExternalInbound?.(event.payload),
+    )
+    const unlistenExternalRouted = await eventApi.listen<ExternalChannelRoutedPayload>(
+      'external/channel_routed',
+      (event) => handlers.onExternalRouted?.(event.payload),
+    )
+    const unlistenExternalDispatchProgress =
+      await eventApi.listen<ExternalChannelDispatchProgressPayload>(
+      'external/channel_dispatch_progress',
+      (event) => handlers.onExternalDispatchProgress?.(event.payload),
+    )
+    const unlistenExternalReply = await eventApi.listen<ExternalChannelReplyPayload>(
+      'external/channel_reply',
+      (event) => handlers.onExternalReply?.(event.payload),
+    )
+    const unlistenExternalOutboundResult =
+      await eventApi.listen<ExternalChannelOutboundResultPayload>(
+      'external/channel_outbound_result',
+      (event) => handlers.onExternalOutboundResult?.(event.payload),
+    )
+    const unlistenExternalError = await eventApi.listen<Record<string, unknown>>(
+      'external/channel_error',
+      (event) => handlers.onExternalError?.(event.payload),
+    )
 
     return () => {
       unlistenMessage()
       unlistenAck()
       unlistenDispatchProgress()
+      unlistenExternalInbound()
+      unlistenExternalRouted()
+      unlistenExternalDispatchProgress()
+      unlistenExternalReply()
+      unlistenExternalOutboundResult()
+      unlistenExternalError()
     }
   },
   async subscribeFilesystemEvents(

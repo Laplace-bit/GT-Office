@@ -323,6 +323,87 @@ export const messages = {
   'taskCenter.status.failed': { 'zh-CN': '发送失败', 'en-US': 'Failed' },
   'taskCenter.history': { 'zh-CN': '派发历史', 'en-US': 'Dispatch History' },
   'taskCenter.historyEmpty': { 'zh-CN': '暂无派发记录', 'en-US': 'No dispatch history' },
+  'taskCenter.external.title': { 'zh-CN': '外部通道', 'en-US': 'External Channels' },
+  'taskCenter.external.subtitle': {
+    'zh-CN': 'Webhook 运行状态、地址和最近事件',
+    'en-US': 'Webhook runtime status, endpoints, and recent events',
+  },
+  'taskCenter.external.refresh': { 'zh-CN': '刷新', 'en-US': 'Refresh' },
+  'taskCenter.external.refreshing': { 'zh-CN': '刷新中...', 'en-US': 'Refreshing...' },
+  'taskCenter.external.runtime.running': { 'zh-CN': '运行中', 'en-US': 'Running' },
+  'taskCenter.external.runtime.stopped': { 'zh-CN': '未就绪', 'en-US': 'Not Ready' },
+  'taskCenter.external.runtime.baseUrl': { 'zh-CN': 'Base URL', 'en-US': 'Base URL' },
+  'taskCenter.external.runtime.feishuWebhook': {
+    'zh-CN': '飞书回调',
+    'en-US': 'Feishu Webhook',
+  },
+  'taskCenter.external.runtime.telegramWebhook': {
+    'zh-CN': 'Telegram 回调',
+    'en-US': 'Telegram Webhook',
+  },
+  'taskCenter.external.summary.routeBindings': {
+    'zh-CN': '路由绑定 {count}',
+    'en-US': 'Route bindings {count}',
+  },
+  'taskCenter.external.summary.allowlistEntries': {
+    'zh-CN': '准入白名单 {count}',
+    'en-US': 'Allowlist {count}',
+  },
+  'taskCenter.external.summary.pairingPending': {
+    'zh-CN': '待配对 {count}',
+    'en-US': 'Pairing pending {count}',
+  },
+  'taskCenter.external.summary.idempotencyEntries': {
+    'zh-CN': '幂等缓存 {count}',
+    'en-US': 'Idempotency cache {count}',
+  },
+  'taskCenter.external.lastSyncAt': {
+    'zh-CN': '最近同步: {time}',
+    'en-US': 'Last sync: {time}',
+  },
+  'taskCenter.external.doctorWarn': {
+    'zh-CN': '诊断提示：通道运行异常，请检查配置。',
+    'en-US': 'Doctor warning: channel runtime is unhealthy.',
+  },
+  'taskCenter.external.events.title': { 'zh-CN': '最近外部事件', 'en-US': 'Recent External Events' },
+  'taskCenter.external.events.empty': { 'zh-CN': '暂无外部事件', 'en-US': 'No external events yet' },
+  'taskCenter.external.events.kind.inbound': { 'zh-CN': '入站', 'en-US': 'Inbound' },
+  'taskCenter.external.events.kind.routed': { 'zh-CN': '路由', 'en-US': 'Routed' },
+  'taskCenter.external.events.kind.dispatch': { 'zh-CN': '派发', 'en-US': 'Dispatch' },
+  'taskCenter.external.events.kind.reply': { 'zh-CN': '回执', 'en-US': 'Reply' },
+  'taskCenter.external.events.kind.error': { 'zh-CN': '错误', 'en-US': 'Error' },
+  'channel.telegram.debugToast.title': {
+    'zh-CN': 'Telegram 入站调试',
+    'en-US': 'Telegram Inbound Debug',
+  },
+  'channel.telegram.debugToast.dismiss': {
+    'zh-CN': '关闭调试弹窗',
+    'en-US': 'Dismiss debug popup',
+  },
+  'channel.telegram.debugToast.sender': {
+    'zh-CN': '发送者: {sender}',
+    'en-US': 'Sender: {sender}',
+  },
+  'channel.telegram.debugToast.peer': {
+    'zh-CN': '会话: {peer}',
+    'en-US': 'Peer: {peer}',
+  },
+  'channel.telegram.debugToast.message': {
+    'zh-CN': '消息 ID: {message}',
+    'en-US': 'Message ID: {message}',
+  },
+  'channel.telegram.debugToast.content': {
+    'zh-CN': '消息内容: {content}',
+    'en-US': 'Content: {content}',
+  },
+  'channel.telegram.debugToast.empty': {
+    'zh-CN': '(空消息)',
+    'en-US': '(empty)',
+  },
+  'channel.telegram.debugToast.account': {
+    'zh-CN': '账户: {account}',
+    'en-US': 'Account: {account}',
+  },
   'taskCenter.notice.targetRequired': {
     'zh-CN': '请选择至少一个目标 Agent。',
     'en-US': 'Please select at least one target agent.',
@@ -431,86 +512,35 @@ export const messages = {
   'topControlBar.closeWindow': { 'zh-CN': '关闭窗口', 'en-US': 'Close Window' },
   'settingsModal.title': { 'zh-CN': '系统设置', 'en-US': 'System Settings' },
   'settingsModal.subtitle': {
-    'zh-CN': '集中管理显示偏好与文件系统运行时配置',
-    'en-US': 'Manage display preferences and filesystem runtime settings in one place',
+    'zh-CN': '集中管理显示偏好与通道接入配置',
+    'en-US': 'Manage display preferences and channel onboarding in one place',
   },
   'settingsModal.close': { 'zh-CN': '关闭', 'en-US': 'Close' },
-  'settingsRuntime.title': { 'zh-CN': '文件系统运行时设置', 'en-US': 'Filesystem Runtime Settings' },
-  'settingsRuntime.subtitle': {
-    'zh-CN': '用于配置 watcher 与文件预览策略，支持 user/workspace/session 作用域',
-    'en-US': 'Configure watcher and file preview policies with user/workspace/session scopes',
+  'settings.channel.entry.title': { 'zh-CN': 'Channel 管理', 'en-US': 'Channel Management' },
+  'settings.channel.entry.subtitle': {
+    'zh-CN': '在独立弹窗中集中管理 Telegram/飞书机器人、路由绑定、准入策略和健康检查。',
+    'en-US':
+      'Manage Telegram/Feishu bot accounts, route bindings, access policy, and health checks in one dedicated modal.',
   },
-  'settingsRuntime.scope': { 'zh-CN': '作用域', 'en-US': 'Scope' },
-  'settingsRuntime.scopeWorkspace': { 'zh-CN': '工作区', 'en-US': 'Workspace' },
-  'settingsRuntime.scopeUser': { 'zh-CN': '用户', 'en-US': 'User' },
-  'settingsRuntime.scopeSession': { 'zh-CN': '会话', 'en-US': 'Session' },
-  'settingsRuntime.reload': { 'zh-CN': '重新读取', 'en-US': 'Reload' },
-  'settingsRuntime.save': { 'zh-CN': '保存', 'en-US': 'Save' },
-  'settingsRuntime.workspaceBound': {
-    'zh-CN': '当前工作区: {workspaceId}',
-    'en-US': 'Current workspace: {workspaceId}',
+  'settings.channel.entry.open': { 'zh-CN': '打开管理中心', 'en-US': 'Open Manager' },
+  'settings.channel.entry.workspace': { 'zh-CN': '工作区', 'en-US': 'Workspace' },
+  'settings.channel.entry.defaultMode': { 'zh-CN': '默认接入模式', 'en-US': 'Default Mode' },
+  'settings.channel.entry.defaultModeValue': {
+    'zh-CN': 'Telegram polling',
+    'en-US': 'Telegram polling',
   },
-  'settingsRuntime.workspaceUnbound': {
-    'zh-CN': '当前未绑定工作区，仅可使用 user 作用域',
-    'en-US': 'No workspace bound, user scope only',
+  'settings.channel.entry.webhookRequirement': {
+    'zh-CN': 'Webhook 要求',
+    'en-US': 'Webhook Requirement',
   },
-  'settingsRuntime.watcherGroup': { 'zh-CN': 'Watcher 配置', 'en-US': 'Watcher Settings' },
-  'settingsRuntime.previewGroup': { 'zh-CN': '预览限制配置', 'en-US': 'Preview Limits' },
-  'settingsRuntime.pollIntervalMs': { 'zh-CN': '轮询间隔 (ms)', 'en-US': 'Poll Interval (ms)' },
-  'settingsRuntime.ignoredDirs': { 'zh-CN': '忽略目录列表', 'en-US': 'Ignored Directories' },
-  'settingsRuntime.ignoredExactFiles': {
-    'zh-CN': '忽略文件名列表',
-    'en-US': 'Ignored Exact Filenames',
+  'settings.channel.entry.webhookRequirementValue': {
+    'zh-CN': '仅高级场景需要公网 HTTPS',
+    'en-US': 'Public HTTPS only for advanced callback mode',
   },
-  'settingsRuntime.ignoredSuffixes': { 'zh-CN': '忽略后缀列表', 'en-US': 'Ignored Suffixes' },
-  'settingsRuntime.listHint': {
-    'zh-CN': '支持换行或逗号分隔，保存时自动清洗去重',
-    'en-US': 'Use newline or comma separators; values are normalized and deduplicated on save',
-  },
-  'settingsRuntime.previewMaxBytes': {
-    'zh-CN': '预览最大字节数',
-    'en-US': 'Preview Max Bytes',
-  },
-  'settingsRuntime.previewFullDefault': {
-    'zh-CN': '完整读取默认上限',
-    'en-US': 'Full Read Default Limit',
-  },
-  'settingsRuntime.previewFullHard': {
-    'zh-CN': '完整读取硬上限',
-    'en-US': 'Full Read Hard Limit',
-  },
-  'settingsRuntime.resetWatcher': { 'zh-CN': '重置 Watcher', 'en-US': 'Reset Watcher' },
-  'settingsRuntime.resetPreview': { 'zh-CN': '重置预览限制', 'en-US': 'Reset Preview Limits' },
-  'settingsRuntime.loadedAt': { 'zh-CN': '配置已加载 ({time})', 'en-US': 'Settings loaded ({time})' },
-  'settingsRuntime.savedAt': { 'zh-CN': '配置已保存 ({time})', 'en-US': 'Settings saved ({time})' },
-  'settingsRuntime.resetWatcherAt': {
-    'zh-CN': 'Watcher 配置已重置 ({time})',
-    'en-US': 'Watcher settings reset ({time})',
-  },
-  'settingsRuntime.resetPreviewAt': {
-    'zh-CN': '预览限制已重置 ({time})',
-    'en-US': 'Preview limits reset ({time})',
-  },
-  'settingsRuntime.sources': { 'zh-CN': '来源信息', 'en-US': 'Sources' },
-  'settingsRuntime.webPreviewNotice': {
-    'zh-CN': '当前是 Web 预览模式，设置命令不可用',
-    'en-US': 'Web preview mode detected, settings commands are unavailable',
-  },
-  'settingsRuntime.workspaceRequired': {
-    'zh-CN': '当前作用域需要先绑定工作区',
-    'en-US': 'This scope requires a bound workspace',
-  },
-  'settingsRuntime.loadFailed': {
-    'zh-CN': '读取设置失败: {detail}',
-    'en-US': 'Failed to load settings: {detail}',
-  },
-  'settingsRuntime.saveFailed': {
-    'zh-CN': '保存设置失败: {detail}',
-    'en-US': 'Failed to save settings: {detail}',
-  },
-  'settingsRuntime.resetFailed': {
-    'zh-CN': '重置设置失败: {detail}',
-    'en-US': 'Failed to reset settings: {detail}',
+  'settings.channel.manager.title': { 'zh-CN': 'Channel 管理中心', 'en-US': 'Channel Manager' },
+  'settings.channel.manager.subtitle': {
+    'zh-CN': '统一配置机器人账户、路由规则、准入策略与 webhook 运行状态。',
+    'en-US': 'Configure bot accounts, routes, access policy, and webhook runtime status in one place.',
   },
 
   'statusBar.activeWorkspace': { 'zh-CN': '激活工作区', 'en-US': 'Active Workspace' },

@@ -281,13 +281,14 @@
      - `acceptedTargets: string[]`
      - `failedTargets: [{ agentId, reason }]`
 3. 新增命令：`agent.runtime_register` / `agent.runtime_unregister`
-   - register req: `{ workspaceId, agentId, stationId, sessionId, online?: true }`
-   - register resp: `{ workspaceId, agentId, stationId, sessionId, registered: true|false }`
+   - register req: `{ workspaceId, agentId, stationId, roleKey?: string, sessionId, online?: true }`
+   - register resp: `{ workspaceId, agentId, stationId, roleKey?: string, sessionId, registered: true|false }`
    - unregister req: `{ workspaceId, agentId }`
    - unregister resp: `{ workspaceId, agentId, unregistered: true|false }`
 4. 语义约束：
    - 通道本期仅做传输，不做持久化；应用重启后消息不恢复。
    - 在线目标要求 ACK，离线目标立即失败（`AGENT_OFFLINE`）。
+   - `agent.runtime_register` 建议携带 `roleKey`，供外部通道 `role:<role_key|role_id>` 路由时解析在线岗位实例。
    - `task.dispatch_batch` 采用“一发多单”：每个目标独立 `taskId` 与状态。
    - `task.dispatch_batch` 当前仅负责向目标 session 写入命令文本，不在命令文本后拼接回车控制字符。
    - 自动提交统一走前端 xterm sink：`StationXtermTerminal.submit -> terminal.input('\r', true)`，以终端原生输入链路触发 `onData`。
@@ -516,6 +517,95 @@
    - args 固定 `["serve"]`，避免各 CLI 配置分叉。
    - 重复安装时必须做 idempotent 更新（覆盖同名，不新增重复节点）。
 
+### 3.18 外部通道适配契约（T-172）
+
+1. 新增命令：`channel_adapter.status`
+   - req: `{}`
+   - resp: `{ "running":true, "adapters":[{"id":"feishu","mode":"webhook","enabled":true},{"id":"telegram","mode":"webhook","enabled":true}], "runtime":{"host":"127.0.0.1","port":18080,"baseUrl":"http://127.0.0.1:18080","feishuWebhook":"http://127.0.0.1:18080/webhook/feishu/<token>","telegramWebhook":"http://127.0.0.1:18080/webhook/telegram/<token>","metrics":{"totalRequests":0,"webhookRequests":0,"dispatched":0,"duplicate":0,"denied":0,"routeNotFound":0,"failed":0,"unauthorized":0,"rateLimited":0,"timeouts":0,"internalErrors":0,"lastError":"string?","lastErrorAtMs":0?}}, "snapshot":{} }`
+2. 新增命令：`channel_binding.upsert`
+   - req:
+     - `workspaceId: string`
+     - `channel: string`
+     - `accountId?: string`
+     - `peerKind?: "direct"|"group"`
+     - `peerPattern?: string`
+     - `targetAgentId: string`（支持直接 agent_id，或岗位选择器 `role:<role_key|role_id>`）
+     - `priority?: number`
+   - resp: `{ "updated":true, "created":true|false, "binding":{} }`
+3. 新增命令：`channel_binding.list`
+   - req: `{ "workspaceId":"string?" }`
+   - resp: `{ "bindings":[...] }`
+4. 新增命令：`channel_access.policy_set`
+   - req: `{ "channel":"string", "accountId":"string?", "mode":"pairing|allowlist|open|disabled" }`
+   - resp: `{ "updated":true, "channel":"string", "accountId":"string", "mode":"..." }`
+5. 新增命令：`channel_access.approve`
+   - req: `{ "channel":"string", "accountId":"string?", "identity":"string" }`
+   - resp: `{ "approved":true|false, "channel":"string", "accountId":"string", "identity":"string" }`
+6. 新增命令：`channel_access.list`
+   - req: `{ "channel":"string", "accountId":"string?" }`
+   - resp: `{ "channel":"string", "accountId":"string?", "entries":[{"channel":"string","accountId":"string","identity":"string","approved":true}] }`
+7. 新增命令：`channel_external.inbound`
+   - req:
+     - `message.channel: "feishu"|"telegram"|string`
+     - `message.accountId: string?`（默认 `default`）
+     - `message.peerKind: "direct"|"group"`
+     - `message.peerId: string`
+     - `message.senderId: string`
+     - `message.senderName?: string`
+     - `message.messageId: string`
+     - `message.text: string`
+     - `message.idempotencyKey?: string`
+     - `message.workspaceIdHint?: string`
+     - `message.targetAgentIdHint?: string`
+     - `message.metadata?: object`
+   - resp:
+     - `traceId: string`
+     - `status: "dispatched"|"duplicate"|"pairing_required"|"denied"|"route_not_found"|"failed"`
+     - `idempotentHit: boolean`
+     - `workspaceId?: string`
+     - `targetAgentId?: string`
+     - `taskId?: string`
+     - `pairingCode?: string`
+     - `detail?: string`
+8. 新增命令：`system.gto_doctor`
+   - req: `{}`
+   - resp: `{ "ok":true, "runtime":{}, "summary":{}, "checks":[...], "suggestions":[...] }`
+9. 新增命令：`channel_connector_account_upsert`
+   - req:
+     - `channel: "telegram"|string`
+     - `accountId?: string`（默认 `default`）
+     - `enabled?: boolean`
+     - `mode?: "webhook"|"polling"`（默认 `polling`）
+     - `botToken?: string`（仅用于写入凭据后端，不落盘）
+     - `botTokenRef?: string`
+     - `webhookSecret?: string`
+     - `webhookSecretRef?: string`
+     - `webhookPath?: string`
+   - resp: `{ "updated":true, "channel":"telegram", "account":{ "accountId":"default", "mode":"polling", "botTokenRef":"telegram/default/bot_token", "hasBotToken":true } }`
+10. 新增命令：`channel_connector_account_list`
+   - req: `{ "channel":"telegram"|string }`
+   - resp: `{ "channel":"telegram", "accounts":[...] }`
+11. 新增命令：`channel_connector_health`
+   - req: `{ "channel":"telegram"|string, "accountId":"string?" }`
+   - resp: `{ "channel":"telegram", "health":{ "ok":true|false, "status":"ok|auth_failed|disabled", "configuredWebhookUrl":"string?", "runtimeWebhookUrl":"string?", "webhookMatched":true|false|null } }`
+12. 新增命令：`channel_connector_webhook_sync`
+   - req: `{ "channel":"telegram"|string, "accountId":"string?", "webhookUrl":"string?" }`
+   - resp: `{ "channel":"telegram", "result":{ "ok":true|false, "webhookUrl":"string", "webhookMatched":true|false, "detail":"string" } }`
+   - 说明：
+     - `webhookUrl` 为空时使用 runtime 的本机 webhook 地址（`channel_adapter_status.runtime.telegramWebhook`）。
+     - Telegram 要求 `setWebhook` 为 HTTPS URL，传入非 HTTPS 将返回 `CHANNEL_CONNECTOR_WEBHOOK_INVALID`。
+13. 语义约束：
+   - Telegram connector 建议默认 `polling` 模式（token 可用即可完成入站），`webhook` 作为高级可选模式。
+   - 默认准入策略为 `pairing`。
+   - 幂等命中返回 `duplicate`，不得重复派发任务。
+   - 路由未命中返回 `route_not_found` 并发射错误事件。
+   - 当 `targetAgentId` 为 `role:<role_key|role_id>` 时，入站派发前按岗位解析目标集合（优先岗位下 agent 档案，同时吸收 `agent.runtime_register.roleKey` 匹配的在线实例）；若岗位不存在或无可投递目标，返回 `failed` 并附错误详情。
+14. runtime 约束：
+   - 桌面端启动后自动监听 `127.0.0.1:<random_port>`，并写入 `~/.gtoffice/channel/runtime.json`。
+   - 回调路径：`POST /webhook/feishu/<token>`、`POST /webhook/telegram/<token>`。
+   - 健康检查：`GET /health`。
+   - 稳定性保护：请求读取超时（30s）、content-type 校验（json）、按通道限流（60s 窗口）与 runtime 指标计数。
+
 ## 4. Event 契约（V1）
 
 1. `terminal/output`
@@ -564,6 +654,20 @@
    - payload: `{ "searchId":"string", "scannedFiles":12000, "emittedMatches":348, "cancelled":false }`
 23. `daemon/search_cancelled`
    - payload: `{ "searchId":"string" }`
+24. `external/channel_inbound`
+   - payload: `{ "traceId":"string", "channel":"string", "accountId":"string", "peerKind":"direct|group", "peerId":"string", "senderId":"string", "senderName":"string?", "messageId":"string", "text":"string?" }`
+25. `external/channel_routed`
+   - payload: `{ "traceId":"string", "workspaceId":"string", "targetAgentId":"string", "matchedBy":"string", "resolvedTargets":["string"] }`
+26. `external/channel_dispatch_progress`
+   - payload: `{ "traceId":"string", "workspaceId":"string", "targetAgentId":"string", "taskId":"string", "status":"sending|sent|failed", "detail":"string?" }`
+27. `external/channel_reply`
+   - payload: `{ "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed", "reason":"string?" }`
+28. `external/channel_error`
+   - payload: `{ "traceId":"string", "code":"string", "detail":"string" }`
+29. `external/channel_outbound_result`
+   - payload: `{ "traceId":"string?", "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed", "detail":"string?", "tsMs":1738932000456 }`
+30. `external/channel_connector_health_changed`
+   - payload: `{ "channel":"telegram|feishu", "accountId":"string", "ok":true|false, "status":"ok|auth_failed|disabled", "detail":"string", "checkedAtMs":1738932000456 }`
 
 ## 5. 错误码规范
 
@@ -627,6 +731,16 @@
 34. `MCP_BRIDGE_AUTH_FAILED`
 35. `MCP_BRIDGE_TIMEOUT`
 36. `MCP_BRIDGE_METHOD_UNSUPPORTED`
+37. `CHANNEL_ROUTE_NOT_FOUND`
+38. `CHANNEL_PAIRING_REQUIRED`
+39. `CHANNEL_ALLOWLIST_DENIED`
+40. `CHANNEL_DISABLED`
+41. `CHANNEL_DISPATCH_FAILED`
+42. `CHANNEL_CONNECTOR_UNCONFIGURED`
+43. `CHANNEL_CONNECTOR_NOT_FOUND`
+44. `CHANNEL_CONNECTOR_AUTH_FAILED`
+45. `CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE`
+46. `CHANNEL_CONNECTOR_WEBHOOK_MISSING`
 
 ## 6. SQLite 草案（V1）
 

@@ -1,5 +1,7 @@
 mod app_state;
+mod channel_adapter_runtime;
 mod commands;
+mod connectors;
 mod daemon_bridge;
 mod filesystem_watcher;
 mod mcp_bridge;
@@ -10,8 +12,8 @@ use tauri::{Emitter, Manager};
 use vb_terminal::TerminalRuntimeEvent;
 
 use commands::{
-    agent, ai_config, filesystem, git, keymap, security, settings, system, tasks, terminal, tools,
-    workspace,
+    agent, ai_config, channel_adapter, filesystem, git, keymap, security, settings, system, tasks,
+    terminal, tools, workspace,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,6 +24,8 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
             mcp_bridge::spawn(app_handle.clone(), state.inner().clone());
+            channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
+            connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
             let receiver = state.terminal_provider.take_event_receiver().map_err(|error| {
                 format!(
                     "failed to subscribe terminal runtime events during setup: {}",
@@ -126,6 +130,17 @@ pub fn run() {
             tasks::task_list,
             tasks::task_dispatch_batch,
             tasks::channel_publish,
+            channel_adapter::channel_adapter_status,
+            channel_adapter::channel_connector_account_upsert,
+            channel_adapter::channel_connector_account_list,
+            channel_adapter::channel_connector_health,
+            channel_adapter::channel_connector_webhook_sync,
+            channel_adapter::channel_binding_upsert,
+            channel_adapter::channel_binding_list,
+            channel_adapter::channel_access_policy_set,
+            channel_adapter::channel_access_approve,
+            channel_adapter::channel_access_list,
+            channel_adapter::channel_external_inbound,
             tasks::agent_runtime_register,
             tasks::agent_runtime_unregister,
             tasks::changefeed_query,
@@ -139,6 +154,7 @@ pub fn run() {
             ai_config::ai_config_preview_patch,
             ai_config::ai_config_apply_patch,
             security::security_health,
+            system::system_gto_doctor,
             system::system_pick_directory,
         ])
         .run(tauri::generate_context!())
