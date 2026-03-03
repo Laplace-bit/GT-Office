@@ -70,6 +70,38 @@ const HIDDEN_META_EMIT_WINDOW_MS: u64 = 280;
 const VISIBLE_PENDING_CAP_BYTES: usize = 256 * 1024;
 const HIDDEN_TAIL_PREVIEW_BYTES: usize = 2048;
 
+#[derive(Debug, Clone)]
+pub struct TerminalSnapshotChunk {
+    pub chunk: Vec<u8>,
+    pub current_seq: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct TerminalDeltaChunk {
+    pub chunk: Vec<u8>,
+    pub from_seq: Option<u64>,
+    pub to_seq: u64,
+    pub current_seq: u64,
+    pub gap: bool,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone)]
+struct DeltaReadResult {
+    chunk: Vec<u8>,
+    from_seq: Option<u64>,
+    to_seq: u64,
+    current_seq: u64,
+    gap: bool,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone)]
+struct OutputFrame {
+    seq: u64,
+    chunk: Vec<u8>,
+}
+
 #[derive(Clone)]
 pub struct InMemoryTerminalProvider<W, P>
 where
@@ -327,6 +359,8 @@ impl ByteRingBuffer {
 #[derive(Default)]
 struct SessionFlowState {
     ring: ByteRingBuffer,
+    frames: VecDeque<OutputFrame>,
+    frames_bytes: usize,
     pending_visible: Vec<u8>,
     dropped_visible_bytes: u64,
     hidden_unread_bytes: u64,
@@ -380,6 +414,83 @@ impl SessionFlowState {
         }
         self.pending_visible.extend_from_slice(chunk);
     }
+
+    fn push_frame(&mut self, seq: u64, chunk: Vec<u8>) {
+        self.frames_bytes = self.frames_bytes.saturating_add(chunk.len());
+        self.frames.push_back(OutputFrame { seq, chunk });
+        while self.frames_bytes > OUTPUT_RING_CAPACITY_BYTES {
+            let Some(front) = self.frames.pop_front() else {
+                self.frames_bytes = 0;
+                break;
+            };
+            self.frames_bytes = self.frames_bytes.saturating_sub(front.chunk.len());
+        }
+    }
+
+    fn snapshot(&self, max_bytes: usize) -> TerminalSnapshotChunk {
+        TerminalSnapshotChunk {
+            chunk: self.ring.snapshot(max_bytes),
+            current_seq: self.seq,
+        }
+    }
+
+    fn read_delta(&self, after_seq: u64, max_bytes: usize) -> DeltaReadResult {
+        let current_seq = self.seq;
+        if max_bytes == 0 {
+            return DeltaReadResult {
+                chunk: Vec::new(),
+                from_seq: None,
+                to_seq: current_seq,
+                current_seq,
+                gap: false,
+                truncated: false,
+            };
+        }
+        let Some(first) = self.frames.front() else {
+            return DeltaReadResult {
+                chunk: Vec::new(),
+                from_seq: None,
+                to_seq: current_seq,
+                current_seq,
+                gap: false,
+                truncated: false,
+            };
+        };
+
+        let gap = if current_seq > after_seq {
+            after_seq.saturating_add(1) < first.seq
+        } else {
+            false
+        };
+
+        let mut chunk = Vec::new();
+        let mut from_seq = None;
+        let mut to_seq = current_seq;
+        for frame in &self.frames {
+            if frame.seq <= after_seq {
+                continue;
+            }
+            if from_seq.is_none() {
+                from_seq = Some(frame.seq);
+            }
+            to_seq = frame.seq;
+            chunk.extend_from_slice(&frame.chunk);
+        }
+
+        let truncated = chunk.len() > max_bytes;
+        if truncated {
+            chunk = chunk[chunk.len() - max_bytes..].to_vec();
+        }
+
+        DeltaReadResult {
+            chunk,
+            from_seq,
+            to_seq,
+            current_seq,
+            gap,
+            truncated,
+        }
+    }
 }
 
 fn append_tail(target: &mut Vec<u8>, chunk: &[u8], cap_bytes: usize) {
@@ -417,7 +528,13 @@ enum MuxCommand {
     ReadSnapshot {
         session_id: String,
         max_bytes: usize,
-        response: Sender<Option<Vec<u8>>>,
+        response: Sender<Option<TerminalSnapshotChunk>>,
+    },
+    ReadDelta {
+        session_id: String,
+        after_seq: u64,
+        max_bytes: usize,
+        response: Sender<Option<DeltaReadResult>>,
     },
 }
 
@@ -471,8 +588,19 @@ async fn run_mux_loop(
                     } => {
                         let snapshot = sessions
                             .get(&session_id)
-                            .map(|state| state.ring.snapshot(max_bytes));
+                            .map(|state| state.snapshot(max_bytes));
                         let _ = response.send(snapshot);
+                    }
+                    MuxCommand::ReadDelta {
+                        session_id,
+                        after_seq,
+                        max_bytes,
+                        response,
+                    } => {
+                        let delta = sessions
+                            .get(&session_id)
+                            .map(|state| state.read_delta(after_seq, max_bytes));
+                        let _ = response.send(delta);
                     }
                 }
             }
@@ -503,6 +631,7 @@ async fn run_mux_loop(
                     }
 
                     state.seq = state.seq.saturating_add(1);
+                    state.push_frame(state.seq, payload.clone());
                     let _ = event_sender.send(TerminalRuntimeEvent::Output(TerminalOutputEvent {
                         session_id: session_id.clone(),
                         chunk: payload,
@@ -657,7 +786,7 @@ where
         &self,
         session_id: &str,
         max_bytes: usize,
-    ) -> AbstractionResult<Vec<u8>> {
+    ) -> AbstractionResult<TerminalSnapshotChunk> {
         if !self.has_session(session_id) {
             return Err(AbstractionError::InvalidArgument {
                 message: format!(
@@ -682,6 +811,48 @@ where
                     "TERMINAL_SESSION_NOT_FOUND: session '{session_id}' does not exist"
                 ),
             })
+    }
+
+    pub fn read_session_delta(
+        &self,
+        session_id: &str,
+        after_seq: u64,
+        max_bytes: usize,
+    ) -> AbstractionResult<TerminalDeltaChunk> {
+        if !self.has_session(session_id) {
+            return Err(AbstractionError::InvalidArgument {
+                message: format!(
+                    "TERMINAL_SESSION_NOT_FOUND: session '{session_id}' does not exist"
+                ),
+            });
+        }
+        let max_bytes = max_bytes.max(1);
+        let (response_sender, response_receiver) = mpsc::channel();
+        self.send_mux_command(MuxCommand::ReadDelta {
+            session_id: session_id.to_string(),
+            after_seq,
+            max_bytes,
+            response: response_sender,
+        })?;
+        let result = response_receiver
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| AbstractionError::Internal {
+                message: "TERMINAL_INTERNAL: terminal delta request timed out".to_string(),
+            })?
+            .ok_or_else(|| AbstractionError::InvalidArgument {
+                message: format!(
+                    "TERMINAL_SESSION_NOT_FOUND: session '{session_id}' does not exist"
+                ),
+            })?;
+
+        Ok(TerminalDeltaChunk {
+            chunk: result.chunk,
+            from_seq: result.from_seq,
+            to_seq: result.to_seq,
+            current_seq: result.current_seq,
+            gap: result.gap,
+            truncated: result.truncated,
+        })
     }
 
     pub fn write_session(&self, session_id: &str, input: &str) -> AbstractionResult<bool> {
@@ -900,6 +1071,7 @@ where
 
         let event_sender = self.event_sender.clone();
         let mux_sender = self.mux_sender.clone();
+        let sessions_state = self.sessions.clone();
         let session_id = session.session_id.clone();
         thread::spawn(move || {
             let mut buffer = [0_u8; 4096];
@@ -919,6 +1091,12 @@ where
                     }
                     Err(_) => break,
                 }
+            }
+            let _ = mux_sender.blocking_send(MuxCommand::UnregisterSession {
+                session_id: session_id.clone(),
+            });
+            if let Ok(mut sessions) = sessions_state.lock() {
+                sessions.remove(&session_id);
             }
             let _ = event_sender.send(TerminalRuntimeEvent::StateChanged(
                 TerminalStateChangedEvent {

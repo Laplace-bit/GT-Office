@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "windows"))]
 use std::{
     collections::HashMap,
     sync::{OnceLock, RwLock},
@@ -10,8 +11,10 @@ use std::{ffi::c_void, ptr, slice};
 
 const CREDENTIAL_SERVICE: &str = "gtoffice.channel";
 
+#[cfg(not(target_os = "windows"))]
 static MEMORY_FALLBACK: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
 
+#[cfg(not(target_os = "windows"))]
 fn memory_store_secret(reference: &str, value: &str) -> Result<(), String> {
     let lock = MEMORY_FALLBACK.get_or_init(|| RwLock::new(HashMap::new()));
     let mut guard = lock
@@ -21,6 +24,7 @@ fn memory_store_secret(reference: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(target_os = "windows"))]
 fn memory_load_secret(reference: &str) -> Result<String, String> {
     let lock = MEMORY_FALLBACK.get_or_init(|| RwLock::new(HashMap::new()));
     let guard = lock

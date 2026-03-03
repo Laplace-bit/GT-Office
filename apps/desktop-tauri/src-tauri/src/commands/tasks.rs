@@ -72,15 +72,23 @@ pub fn task_dispatch_batch(
     let outcome = state.task_service.dispatch_batch(
         &request,
         &workspace_root,
-        |session_id, command, _submit_sequence| {
+        |session_id, command, submit_sequence| {
             let accepted_command = state
                 .terminal_provider
                 .write_session(session_id, command)
                 .map_err(to_terminal_error)?;
-            if accepted_command {
-                Ok(())
-            } else {
+            if !accepted_command {
                 Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
+            } else {
+                let accepted_submit = state
+                    .terminal_provider
+                    .write_session(session_id, submit_sequence)
+                    .map_err(to_terminal_error)?;
+                if accepted_submit {
+                    Ok(())
+                } else {
+                    Err("CHANNEL_DELIVERY_FAILED: terminal submit rejected".to_string())
+                }
             }
         },
     );
@@ -128,6 +136,7 @@ pub fn agent_runtime_register(
         "stationId": request.station_id,
         "roleKey": request.role_key,
         "sessionId": request.session_id,
+        "submitSequence": request.submit_sequence,
         "registered": registered,
     }))
 }

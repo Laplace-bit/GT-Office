@@ -296,6 +296,18 @@ export interface TerminalSnapshotResponse {
   bytes: number
   maxBytes: number
   truncated: boolean
+  currentSeq: number
+}
+
+export interface TerminalDeltaResponse {
+  sessionId: string
+  chunk: string
+  afterSeq: number
+  fromSeq: number | null
+  toSeq: number
+  currentSeq: number
+  gap: boolean
+  truncated: boolean
 }
 
 export interface FsEntry {
@@ -559,6 +571,7 @@ export interface AgentRuntimeRegisterRequest {
   stationId: string
   roleKey?: string | null
   sessionId: string
+  submitSequence?: string | null
   online?: boolean
 }
 
@@ -568,6 +581,7 @@ export interface AgentRuntimeRegisterResponse {
   stationId: string
   roleKey?: string | null
   sessionId: string
+  submitSequence?: string | null
   registered: boolean
 }
 
@@ -1197,6 +1211,13 @@ export const desktopApi = {
       maxBytes: maxBytes ?? null,
     })
   },
+  terminalReadDelta(sessionId: string, afterSeq: number, maxBytes?: number) {
+    return invokeCommand<TerminalDeltaResponse>('terminal_read_delta', {
+      sessionId,
+      afterSeq,
+      maxBytes: maxBytes ?? null,
+    })
+  },
   taskDispatchBatch(request: TaskDispatchBatchRequest) {
     return invokeCommand<TaskDispatchBatchResponse>('task_dispatch_batch', {
       request: {
@@ -1289,6 +1310,19 @@ export const desktopApi = {
       },
     })
   },
+  channelBindingDelete(binding: ChannelRouteBinding) {
+    return invokeCommand<Record<string, unknown>>('channel_binding_delete', {
+      binding: {
+        workspaceId: binding.workspaceId,
+        channel: binding.channel,
+        accountId: binding.accountId ?? null,
+        peerKind: binding.peerKind ?? null,
+        peerPattern: binding.peerPattern ?? null,
+        targetAgentId: binding.targetAgentId,
+        priority: binding.priority ?? 0,
+      },
+    })
+  },
   channelAccessPolicySet(
     channel: string,
     mode: ExternalAccessPolicyMode,
@@ -1368,6 +1402,7 @@ export const desktopApi = {
         stationId: request.stationId,
         roleKey: request.roleKey ?? null,
         sessionId: request.sessionId,
+        submitSequence: request.submitSequence ?? null,
         online: request.online ?? true,
       },
     })

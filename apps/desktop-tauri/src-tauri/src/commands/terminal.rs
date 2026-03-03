@@ -65,14 +65,42 @@ fn build_terminal_visibility_response(session_id: &str, visible: bool, updated: 
     })
 }
 
-fn build_terminal_snapshot_response(session_id: &str, chunk: Vec<u8>, max_bytes: usize) -> Value {
+fn build_terminal_snapshot_response(
+    session_id: &str,
+    chunk: Vec<u8>,
+    max_bytes: usize,
+    current_seq: u64,
+) -> Value {
     let bytes = chunk.len();
     json!({
         "sessionId": session_id,
         "chunk": base64::engine::general_purpose::STANDARD.encode(chunk),
         "bytes": bytes,
         "maxBytes": max_bytes,
-        "truncated": bytes >= max_bytes
+        "truncated": bytes >= max_bytes,
+        "currentSeq": current_seq
+    })
+}
+
+fn build_terminal_delta_response(
+    session_id: &str,
+    chunk: Vec<u8>,
+    after_seq: u64,
+    from_seq: Option<u64>,
+    to_seq: u64,
+    current_seq: u64,
+    gap: bool,
+    truncated: bool,
+) -> Value {
+    json!({
+        "sessionId": session_id,
+        "chunk": base64::engine::general_purpose::STANDARD.encode(chunk),
+        "afterSeq": after_seq,
+        "fromSeq": from_seq,
+        "toSeq": to_seq,
+        "currentSeq": current_seq,
+        "gap": gap,
+        "truncated": truncated
     })
 }
 
@@ -197,17 +225,43 @@ pub fn terminal_read_snapshot(
         .map_err(to_terminal_error)?;
     Ok(build_terminal_snapshot_response(
         &session_id,
-        snapshot,
+        snapshot.chunk,
         max_bytes,
+        snapshot.current_seq,
+    ))
+}
+
+#[tauri::command]
+pub fn terminal_read_delta(
+    session_id: String,
+    after_seq: u64,
+    max_bytes: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let max_bytes = max_bytes.unwrap_or(262_144).clamp(1, 2_097_152) as usize;
+    let delta = state
+        .terminal_provider
+        .read_session_delta(&session_id, after_seq, max_bytes)
+        .map_err(to_terminal_error)?;
+    Ok(build_terminal_delta_response(
+        &session_id,
+        delta.chunk,
+        after_seq,
+        delta.from_seq,
+        delta.to_seq,
+        delta.current_seq,
+        delta.gap,
+        delta.truncated,
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_terminal_create_response, build_terminal_kill_response,
-        build_terminal_resize_response, build_terminal_snapshot_response,
-        build_terminal_visibility_response, build_terminal_write_response, parse_cwd_mode,
+        build_terminal_create_response, build_terminal_delta_response,
+        build_terminal_kill_response, build_terminal_resize_response,
+        build_terminal_snapshot_response, build_terminal_visibility_response,
+        build_terminal_write_response, parse_cwd_mode,
     };
     use vb_abstractions::TerminalCwdMode;
 
@@ -279,10 +333,25 @@ mod tests {
 
     #[test]
     fn terminal_snapshot_response_keeps_contract_fields() {
-        let payload = build_terminal_snapshot_response("ts-1", b"abc".to_vec(), 4);
+        let payload = build_terminal_snapshot_response("ts-1", b"abc".to_vec(), 4, 9);
         assert_eq!(payload["sessionId"], "ts-1");
         assert_eq!(payload["bytes"], 3);
         assert_eq!(payload["maxBytes"], 4);
+        assert_eq!(payload["truncated"], false);
+        assert_eq!(payload["currentSeq"], 9);
+        assert!(payload["chunk"].as_str().unwrap_or_default().len() > 0);
+    }
+
+    #[test]
+    fn terminal_delta_response_keeps_contract_fields() {
+        let payload =
+            build_terminal_delta_response("ts-1", b"abc".to_vec(), 2, Some(3), 5, 5, false, false);
+        assert_eq!(payload["sessionId"], "ts-1");
+        assert_eq!(payload["afterSeq"], 2);
+        assert_eq!(payload["fromSeq"], 3);
+        assert_eq!(payload["toSeq"], 5);
+        assert_eq!(payload["currentSeq"], 5);
+        assert_eq!(payload["gap"], false);
         assert_eq!(payload["truncated"], false);
         assert!(payload["chunk"].as_str().unwrap_or_default().len() > 0);
     }

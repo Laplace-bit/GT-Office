@@ -600,6 +600,7 @@
    - 幂等命中返回 `duplicate`，不得重复派发任务。
    - 路由未命中返回 `route_not_found` 并发射错误事件。
    - 当 `targetAgentId` 为 `role:<role_key|role_id>` 时，入站派发前按岗位解析目标集合（优先岗位下 agent 档案，同时吸收 `agent.runtime_register.roleKey` 匹配的在线实例）；若岗位不存在或无可投递目标，返回 `failed` 并附错误详情。
+   - 入站派发成功后需将目标 runtime session 与外部会话上下文绑定；终端输出若为流式，需按“节流窗口更新同一预览消息 + 静默窗口/会话结束最终收敛”回传，禁止逐 chunk 新消息出站（当前回传通道：Telegram）。
 14. runtime 约束：
    - 桌面端启动后自动监听 `127.0.0.1:<random_port>`，并写入 `~/.gtoffice/channel/runtime.json`。
    - 回调路径：`POST /webhook/feishu/<token>`、`POST /webhook/telegram/<token>`。

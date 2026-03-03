@@ -303,6 +303,8 @@ pub struct AgentRuntimeRegistration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role_key: Option<String>,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit_sequence: Option<String>,
     #[serde(default = "default_true")]
     pub online: bool,
 }
@@ -390,7 +392,8 @@ impl TaskService {
             Ok(guard) => guard,
             Err(_) => return Vec::new(),
         };
-        let mut runtimes: Vec<AgentRuntimeRegistration> = guard.runtimes.values().cloned().collect();
+        let mut runtimes: Vec<AgentRuntimeRegistration> =
+            guard.runtimes.values().cloned().collect();
         if let Some(workspace_id) = workspace_id {
             runtimes.retain(|runtime| runtime.workspace_id == workspace_id);
         }
@@ -419,6 +422,27 @@ impl TaskService {
 
         guard.route_bindings.push(normalized);
         true
+    }
+
+    pub fn delete_route_binding(&self, binding: ChannelRouteBinding) -> bool {
+        let normalized = normalize_binding(binding);
+        let mut guard = match self.state.write() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+
+        let initial_len = guard.route_bindings.len();
+        guard.route_bindings.retain(|entry| {
+            !(entry.workspace_id == normalized.workspace_id
+                && normalize_token(&entry.channel) == normalize_token(&normalized.channel)
+                && normalize_optional_token(&entry.account_id)
+                    == normalize_optional_token(&normalized.account_id)
+                && entry.peer_kind == normalized.peer_kind
+                && normalize_optional_token(&entry.peer_pattern)
+                    == normalize_optional_token(&normalized.peer_pattern))
+        });
+
+        guard.route_bindings.len() < initial_len
     }
 
     pub fn list_route_bindings(&self, workspace_id: Option<&str>) -> Vec<ChannelRouteBinding> {
@@ -806,8 +830,8 @@ impl TaskService {
                 },
             });
 
-            let submit_sequence = resolve_submit_sequence(request, &target_agent_id);
-            let command = build_task_dispatch_command(&task_id, &task_file_path);
+            let submit_sequence = resolve_submit_sequence(request, &target_agent_id, &runtime);
+            let command = build_task_dispatch_command(&request.markdown, &task_id, &task_file_path);
             if let Err(error) = write_terminal(&runtime.session_id, &command, &submit_sequence) {
                 warn!(
                     workspace_id = %request.workspace_id,
@@ -1126,7 +1150,8 @@ fn is_modify_other_keys_enter_sequence(raw: &str) -> bool {
 
 fn normalize_submit_sequence(raw: &str) -> Option<String> {
     match raw {
-        "\r" | "\n" | "\r\n" | "\x1bOM" => Some(raw.to_string()),
+        "\r" | "\n" | "\r\n" => Some("\r".to_string()),
+        "\x1bOM" => Some(raw.to_string()),
         _ if is_csi_u_enter_sequence(raw) => Some(raw.to_string()),
         _ if is_csi_tilde_enter_sequence(raw) => Some(raw.to_string()),
         _ if is_modify_other_keys_enter_sequence(raw) => Some(raw.to_string()),
@@ -1134,15 +1159,30 @@ fn normalize_submit_sequence(raw: &str) -> Option<String> {
     }
 }
 
-fn resolve_submit_sequence(request: &TaskDispatchBatchRequest, target_agent_id: &str) -> String {
+fn resolve_submit_sequence(
+    request: &TaskDispatchBatchRequest,
+    target_agent_id: &str,
+    runtime: &AgentRuntimeRegistration,
+) -> String {
+    if let Some(sequence) = runtime
+        .submit_sequence
+        .as_deref()
+        .and_then(normalize_submit_sequence)
+    {
+        return sequence;
+    }
     request
         .submit_sequences
         .get(target_agent_id)
         .and_then(|value| normalize_submit_sequence(value))
-        .unwrap_or_else(|| "\r\n".to_string())
+        .unwrap_or_else(|| "\r".to_string())
 }
 
-fn build_task_dispatch_command(task_id: &str, task_file_path: &str) -> String {
+fn build_task_dispatch_command(markdown: &str, task_id: &str, task_file_path: &str) -> String {
+    let command = markdown.trim();
+    if !command.is_empty() {
+        return command.to_string();
+    }
     let escaped = task_file_path.replace('\'', "'\\''");
     format!("echo '[vb-task] assigned {task_id} from {escaped}'")
 }
@@ -1274,6 +1314,7 @@ mod tests {
             station_id: "agent-1".to_string(),
             role_key: None,
             session_id: "ts-1".to_string(),
+            submit_sequence: None,
             online: true,
         });
 
@@ -1317,6 +1358,7 @@ mod tests {
             station_id: "agent-1".to_string(),
             role_key: None,
             session_id: "ts-1".to_string(),
+            submit_sequence: None,
             online: true,
         });
         let workspace_root = new_workspace_root();
@@ -1365,6 +1407,7 @@ mod tests {
             station_id: "agent-1".to_string(),
             role_key: None,
             session_id: "ts-1".to_string(),
+            submit_sequence: None,
             online: true,
         });
         let workspace_root = new_workspace_root();
@@ -1406,7 +1449,7 @@ mod tests {
             !written_commands[0].contains("\\n"),
             "dispatch command must not include literal backslash-n"
         );
-        assert_eq!(written_submit_sequences[0], "\r\n");
+        assert_eq!(written_submit_sequences[0], "\r");
 
         let _ = fs::remove_dir_all(workspace_root);
     }
@@ -1420,6 +1463,7 @@ mod tests {
             station_id: "agent-1".to_string(),
             role_key: None,
             session_id: "ts-1".to_string(),
+            submit_sequence: None,
             online: true,
         });
         let workspace_root = new_workspace_root();
@@ -1439,6 +1483,47 @@ mod tests {
                 markdown: "- [ ] check submit override".to_string(),
                 attachments: vec![],
                 submit_sequences,
+            },
+            &workspace_root,
+            |_session_id, _command, submit_sequence| {
+                written_submit_sequences.push(submit_sequence.to_string());
+                Ok(())
+            },
+        );
+
+        assert_eq!(written_submit_sequences.len(), 1);
+        assert_eq!(written_submit_sequences[0], "\r");
+
+        let _ = fs::remove_dir_all(workspace_root);
+    }
+
+    #[test]
+    fn dispatch_batch_runtime_lf_submit_is_canonicalized_to_cr() {
+        let service = TaskService::default();
+        service.register_runtime(AgentRuntimeRegistration {
+            workspace_id: "ws-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            station_id: "agent-1".to_string(),
+            role_key: None,
+            session_id: "ts-1".to_string(),
+            submit_sequence: Some("\n".to_string()),
+            online: true,
+        });
+        let workspace_root = new_workspace_root();
+        let mut written_submit_sequences: Vec<String> = Vec::new();
+
+        let _outcome = service.dispatch_batch(
+            &TaskDispatchBatchRequest {
+                workspace_id: "ws-1".to_string(),
+                sender: DispatchSender {
+                    sender_type: DispatchSenderType::Human,
+                    agent_id: None,
+                },
+                targets: vec!["agent-1".to_string()],
+                title: "Runtime LF".to_string(),
+                markdown: "hello".to_string(),
+                attachments: vec![],
+                submit_sequences: HashMap::new(),
             },
             &workspace_root,
             |_session_id, _command, submit_sequence| {

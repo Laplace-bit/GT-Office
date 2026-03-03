@@ -9,6 +9,7 @@ mod mcp_bridge;
 use base64::Engine;
 use serde_json::json;
 use tauri::{Emitter, Manager};
+use tracing::warn;
 use vb_terminal::TerminalRuntimeEvent;
 
 use commands::{
@@ -23,20 +24,36 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
+            if let Err(error) =
+                channel_adapter::restore_persisted_channel_state(&app_handle, state.inner())
+            {
+                warn!(error = %error, "restore persisted channel state failed");
+            }
             mcp_bridge::spawn(app_handle.clone(), state.inner().clone());
             channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
             connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
+            channel_adapter::spawn_external_reply_flush_worker(
+                app_handle.clone(),
+                state.inner().clone(),
+            );
             let receiver = state.terminal_provider.take_event_receiver().map_err(|error| {
                 format!(
                     "failed to subscribe terminal runtime events during setup: {}",
                     error
                 )
             })?;
+            let relay_state = state.inner().clone();
 
             std::thread::spawn(move || {
                 while let Ok(event) = receiver.recv() {
                     match event {
                         TerminalRuntimeEvent::Output(output) => {
+                            channel_adapter::ingest_external_reply_terminal_output(
+                                &relay_state,
+                                &output.session_id,
+                                &output.chunk,
+                                output.ts_ms,
+                            );
                             let _ = app_handle.emit(
                                 "terminal/output",
                                 json!({
@@ -47,14 +64,20 @@ pub fn run() {
                                 }),
                             );
                         }
-                        TerminalRuntimeEvent::StateChanged(state) => {
+                        TerminalRuntimeEvent::StateChanged(terminal_state) => {
+                            channel_adapter::ingest_external_reply_terminal_state(
+                                &relay_state,
+                                &terminal_state.session_id,
+                                terminal_state.to.as_str(),
+                                terminal_state.ts_ms,
+                            );
                             let _ = app_handle.emit(
                                 "terminal/state_changed",
                                 json!({
-                                    "sessionId": state.session_id,
-                                    "from": state.from,
-                                    "to": state.to,
-                                    "tsMs": state.ts_ms,
+                                    "sessionId": terminal_state.session_id,
+                                    "from": terminal_state.from,
+                                    "to": terminal_state.to,
+                                    "tsMs": terminal_state.ts_ms,
                                 }),
                             );
                         }
@@ -104,6 +127,7 @@ pub fn run() {
             terminal::terminal_kill,
             terminal::terminal_set_visibility,
             terminal::terminal_read_snapshot,
+            terminal::terminal_read_delta,
             git::git_status,
             git::git_init,
             git::git_diff_file,
@@ -137,6 +161,7 @@ pub fn run() {
             channel_adapter::channel_connector_webhook_sync,
             channel_adapter::channel_binding_upsert,
             channel_adapter::channel_binding_list,
+            channel_adapter::channel_binding_delete,
             channel_adapter::channel_access_policy_set,
             channel_adapter::channel_access_approve,
             channel_adapter::channel_access_list,

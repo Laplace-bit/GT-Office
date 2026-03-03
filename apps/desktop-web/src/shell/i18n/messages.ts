@@ -542,6 +542,86 @@ export const messages = {
     'zh-CN': '统一配置机器人账户、路由规则、准入策略与 webhook 运行状态。',
     'en-US': 'Configure bot accounts, routes, access policy, and webhook runtime status in one place.',
   },
+  'settings.channel.wizard.error.targetRequired': {
+    'zh-CN': '请选择绑定目标（Agent 或岗位）。',
+    'en-US': 'Select a binding target (agent or role).',
+  },
+  'settings.channel.wizard.error.telegramTokenRequired': {
+    'zh-CN': '请输入 Telegram Bot Token。',
+    'en-US': 'Enter Telegram bot token first.',
+  },
+  'settings.channel.wizard.step2.title': {
+    'zh-CN': 'Step 2 路由绑定（目标）',
+    'en-US': 'Step 2 Route binding (Target)',
+  },
+  'settings.channel.wizard.step2.bindAgent': {
+    'zh-CN': '绑定 Agent',
+    'en-US': 'Bind Agent',
+  },
+  'settings.channel.wizard.step2.bindRole': {
+    'zh-CN': '绑定岗位',
+    'en-US': 'Bind Role',
+  },
+  'settings.channel.wizard.step2.roleSelect': {
+    'zh-CN': '目标岗位',
+    'en-US': 'Target Role',
+  },
+  'settings.channel.wizard.step2.emptyRole': {
+    'zh-CN': '暂无岗位',
+    'en-US': 'No roles',
+  },
+  'settings.channel.wizard.step2.roleManual': {
+    'zh-CN': '或手动输入岗位 key',
+    'en-US': 'Or input role key manually',
+  },
+  'settings.channel.wizard.step2.rolePlaceholder': {
+    'zh-CN': '例如 manager / product / build',
+    'en-US': 'e.g. manager / product / build',
+  },
+  'settings.channel.wizard.step2.agentSelect': {
+    'zh-CN': '目标 Agent',
+    'en-US': 'Target Agent',
+  },
+  'settings.channel.wizard.step2.emptyAgent': {
+    'zh-CN': '暂无 Agent',
+    'en-US': 'No agents',
+  },
+  'settings.channel.wizard.step2.agentManual': {
+    'zh-CN': '或手动输入 Agent ID',
+    'en-US': 'Or input agent ID manually',
+  },
+  'settings.channel.wizard.step2.agentPlaceholder': {
+    'zh-CN': '例如 agent-01',
+    'en-US': 'e.g. agent-01',
+  },
+  'settings.channel.wizard.step2.refreshTargets': {
+    'zh-CN': '刷新目标列表',
+    'en-US': 'Refresh Targets',
+  },
+  'settings.channel.wizard.step2.roleCount': {
+    'zh-CN': '已发现 {count} 个岗位',
+    'en-US': 'Found {count} roles',
+  },
+  'settings.channel.wizard.step2.roleEmptyHint': {
+    'zh-CN': '未发现岗位，可手动输入 role key。',
+    'en-US': 'No roles found. Manual role key is allowed.',
+  },
+  'settings.channel.wizard.step2.agentCount': {
+    'zh-CN': '已发现 {count} 个 Agent',
+    'en-US': 'Found {count} agents',
+  },
+  'settings.channel.wizard.step2.agentEmptyHint': {
+    'zh-CN': '未发现 Agent，可手动输入 agent id。',
+    'en-US': 'No agents found. Manual agent id is allowed.',
+  },
+  'settings.channel.wizard.step2.targetType': {
+    'zh-CN': '绑定类型',
+    'en-US': 'Binding Type',
+  },
+  'settings.channel.wizard.step2.targetValue': {
+    'zh-CN': '绑定目标',
+    'en-US': 'Binding Target',
+  },
 
   'statusBar.activeWorkspace': { 'zh-CN': '激活工作区', 'en-US': 'Active Workspace' },
   'statusBar.agentsOnline': { 'zh-CN': 'Agent 在线', 'en-US': 'Agents Online' },

@@ -43,6 +43,8 @@ interface TaskCenterPaneProps {
     } | null
     lastSyncAtMs: number | null
     error: string | null
+    bindings?: Array<{ channel: string }>
+    configuredChannels?: string[]
   }
   externalEvents: Array<{
     id: string
@@ -551,44 +553,19 @@ function TaskCenterPaneView({
             </button>
           </div>
         </header>
-        <div className="task-center-external-endpoints">
-          <p>
-            <strong>{t(locale, 'taskCenter.external.runtime.baseUrl')}</strong>
-            <code>{externalStatus.runtimeBaseUrl ?? '-'}</code>
-          </p>
-          <p>
-            <strong>{t(locale, 'taskCenter.external.runtime.feishuWebhook')}</strong>
-            <code>{externalStatus.feishuWebhook ?? '-'}</code>
-          </p>
-          <p>
-            <strong>{t(locale, 'taskCenter.external.runtime.telegramWebhook')}</strong>
-            <code>{externalStatus.telegramWebhook ?? '-'}</code>
-          </p>
-        </div>
-        {externalStatus.summary ? (
-          <div className="task-center-external-summary">
-            <span>
-              {t(locale, 'taskCenter.external.summary.routeBindings', {
-                count: String(externalStatus.summary.routeBindings),
-              })}
-            </span>
-            <span>
-              {t(locale, 'taskCenter.external.summary.allowlistEntries', {
-                count: String(externalStatus.summary.allowlistEntries),
-              })}
-            </span>
-            <span>
-              {t(locale, 'taskCenter.external.summary.pairingPending', {
-                count: String(externalStatus.summary.pairingPending),
-              })}
-            </span>
-            <span>
-              {t(locale, 'taskCenter.external.summary.idempotencyEntries', {
-                count: String(externalStatus.summary.idempotencyEntries),
-              })}
-            </span>
+        {externalStatus.configuredChannels && externalStatus.configuredChannels.length > 0 ? (
+          <div className="task-center-external-summary" style={{ justifyContent: 'flex-start', gap: '8px' }}>
+            {externalStatus.configuredChannels.map((channel) => (
+              <span key={channel}>
+                {channel === 'telegram' ? 'Telegram' : t(locale, '飞书', 'Feishu')}
+              </span>
+            ))}
           </div>
-        ) : null}
+        ) : (
+          <div className="task-center-external-summary">
+            <span>{t(locale, '未配置外部通道', 'No external channels configured')}</span>
+          </div>
+        )}
         <div className="task-center-external-meta">
           {externalStatus.lastSyncAtMs ? (
             <span>

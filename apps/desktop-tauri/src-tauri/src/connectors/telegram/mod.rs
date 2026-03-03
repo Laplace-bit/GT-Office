@@ -1,21 +1,28 @@
+mod api;
+mod inbound;
+mod offset_store;
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
-    process::Command,
     sync::{OnceLock, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
-use vb_task::{ExternalInboundMessage, ExternalPeerKind};
 
 use crate::{app_state::AppState, commands::channel_adapter::process_external_inbound_message};
 
 use super::credential_store::{load_secret, store_secret};
+use api::{
+    telegram_delete_webhook, telegram_edit_message, telegram_get_me, telegram_get_updates,
+    telegram_get_webhook_info, telegram_send_message, telegram_set_webhook,
+};
+use inbound::parse_telegram_update;
+use offset_store::{read_offset, write_offset};
 
 const CONNECTOR_STORE_VERSION: &str = "1";
 const TELEGRAM_POLL_INTERVAL_MS: u64 = 1_500;
@@ -93,6 +100,16 @@ pub struct TelegramWebhookSyncSnapshot {
     pub checked_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelegramSendSnapshot {
+    pub channel: String,
+    pub account_id: String,
+    pub peer_id: String,
+    pub message_id: String,
+    pub delivered_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConnectorStoreFile {
@@ -122,28 +139,6 @@ struct TelegramAccountRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     webhook_path: Option<String>,
     updated_at_ms: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct TelegramApiEnvelope<T> {
-    ok: bool,
-    result: Option<T>,
-    #[serde(default)]
-    description: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TelegramGetMeResult {
-    #[serde(default)]
-    username: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TelegramWebhookInfoResult {
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    last_error_message: Option<String>,
 }
 
 fn now_ms() -> u64 {
@@ -186,6 +181,28 @@ fn write_poll_offset(account_id: &str, value: i64) {
     let lock = TELEGRAM_POLL_OFFSETS.get_or_init(|| RwLock::new(HashMap::new()));
     if let Ok(mut guard) = lock.write() {
         guard.insert(account_id.to_string(), value);
+    }
+}
+
+fn resolve_poll_offset(app: &AppHandle, account_id: &str, token: &str) -> Option<i64> {
+    if let Some(value) = read_poll_offset(account_id) {
+        return Some(value);
+    }
+    let persisted = read_offset(app, account_id, token).ok().flatten();
+    if let Some(value) = persisted {
+        write_poll_offset(account_id, value);
+    }
+    persisted
+}
+
+fn persist_poll_offset(app: &AppHandle, account_id: &str, token: &str, value: i64) {
+    write_poll_offset(account_id, value);
+    if let Err(error) = write_offset(app, account_id, token, value) {
+        warn!(
+            account_id = %account_id,
+            error = %error,
+            "telegram polling offset persistence failed"
+        );
     }
 }
 
@@ -263,252 +280,6 @@ fn load_webhook_secret(record: &TelegramAccountRecord) -> Result<Option<String>,
         return Ok(None);
     }
     Ok(Some(secret))
-}
-
-fn api_base_url(token: &str) -> String {
-    format!("https://api.telegram.org/bot{}", token.trim())
-}
-
-#[cfg(target_os = "windows")]
-fn looks_like_windows_schannel_error(stderr: &str) -> bool {
-    let lower = stderr.to_ascii_lowercase();
-    lower.contains("schannel")
-        || lower.contains("ssl/tls connection failed")
-        || lower.contains("failed to receive handshake")
-}
-
-fn run_curl_json(args: &[&str]) -> Result<Value, String> {
-    let output = Command::new("curl")
-        .args(args)
-        .output()
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
-    if !output.status.success() {
-        let stderr_text = String::from_utf8_lossy(&output.stderr).to_string();
-        #[cfg(target_os = "windows")]
-        if looks_like_windows_schannel_error(&stderr_text) {
-            let mut retry_args = vec!["-4", "--http1.1", "--ssl-no-revoke"];
-            retry_args.extend_from_slice(args);
-            let retry_output = Command::new("curl")
-                .args(retry_args)
-                .output()
-                .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
-            if retry_output.status.success() {
-                return serde_json::from_slice::<Value>(&retry_output.stdout)
-                    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"));
-            }
-            return Err(format!(
-                "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
-                String::from_utf8_lossy(&retry_output.stderr)
-            ));
-        }
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
-            stderr_text
-        ));
-    }
-    serde_json::from_slice::<Value>(&output.stdout)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))
-}
-
-fn telegram_get_me(token: &str) -> Result<TelegramApiEnvelope<TelegramGetMeResult>, String> {
-    let endpoint = format!("{}/getMe", api_base_url(token));
-    let payload = run_curl_json(&["-sS", "--max-time", "8", endpoint.as_str()])?;
-    serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))
-}
-
-fn telegram_get_webhook_info(
-    token: &str,
-) -> Result<TelegramApiEnvelope<TelegramWebhookInfoResult>, String> {
-    let endpoint = format!("{}/getWebhookInfo", api_base_url(token));
-    let payload = run_curl_json(&["-sS", "--max-time", "8", endpoint.as_str()])?;
-    serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))
-}
-
-fn telegram_set_webhook(token: &str, url: &str, secret: Option<&str>) -> Result<(), String> {
-    let endpoint = format!("{}/setWebhook", api_base_url(token));
-    let mut args = vec![
-        "-sS",
-        "--max-time",
-        "8",
-        "-X",
-        "POST",
-        endpoint.as_str(),
-        "-d",
-    ];
-    let url_form = format!("url={}", url);
-    args.push(url_form.as_str());
-
-    let secret_form = secret
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| format!("secret_token={value}"));
-    if let Some(secret_form) = secret_form.as_deref() {
-        args.push("-d");
-        args.push(secret_form);
-    }
-
-    let payload = run_curl_json(&args)?;
-    let response: TelegramApiEnvelope<Value> = serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
-    if !response.ok {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_AUTH_FAILED: {}",
-            response
-                .description
-                .unwrap_or_else(|| "telegram setWebhook failed".to_string())
-        ));
-    }
-    Ok(())
-}
-
-fn telegram_delete_webhook(token: &str) -> Result<(), String> {
-    let endpoint = format!("{}/deleteWebhook", api_base_url(token));
-    let payload = run_curl_json(&[
-        "-sS",
-        "--max-time",
-        "8",
-        "-X",
-        "POST",
-        endpoint.as_str(),
-        "-d",
-        "drop_pending_updates=false",
-    ])?;
-    let response: TelegramApiEnvelope<Value> = serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
-    if !response.ok {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_AUTH_FAILED: {}",
-            response
-                .description
-                .unwrap_or_else(|| "telegram deleteWebhook failed".to_string())
-        ));
-    }
-    Ok(())
-}
-
-fn telegram_get_updates(token: &str, offset: Option<i64>) -> Result<TelegramApiEnvelope<Vec<Value>>, String> {
-    let endpoint = format!("{}/getUpdates", api_base_url(token));
-    let timeout_form = "timeout=20".to_string();
-    let mut args = vec![
-        "-sS",
-        "--max-time",
-        "30",
-        "-X",
-        "POST",
-        endpoint.as_str(),
-        "-d",
-        timeout_form.as_str(),
-    ];
-    let offset_form = offset.map(|value| format!("offset={value}"));
-    if let Some(offset_form) = offset_form.as_deref() {
-        args.push("-d");
-        args.push(offset_form);
-    }
-    let payload = run_curl_json(&args)?;
-    serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))
-}
-
-fn json_to_string(value: Option<&Value>) -> Option<String> {
-    let value = value?;
-    if let Some(raw) = value.as_str() {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-        return None;
-    }
-    if let Some(raw) = value.as_i64() {
-        return Some(raw.to_string());
-    }
-    if let Some(raw) = value.as_u64() {
-        return Some(raw.to_string());
-    }
-    None
-}
-
-fn derive_telegram_sender_name(from: &Value) -> Option<String> {
-    if let Some(username) = from.get("username").and_then(Value::as_str) {
-        let trimmed = username.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
-    let first = from
-        .get("first_name")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
-    let last = from
-        .get("last_name")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
-    let full = format!("{first} {last}").trim().to_string();
-    if full.is_empty() {
-        None
-    } else {
-        Some(full)
-    }
-}
-
-fn parse_telegram_update(
-    update: &Value,
-    account_id: &str,
-) -> Result<(ExternalInboundMessage, i64), String> {
-    let update_id = update
-        .get("update_id")
-        .and_then(Value::as_i64)
-        .or_else(|| update.get("update_id").and_then(Value::as_u64).map(|value| value as i64))
-        .ok_or_else(|| "missing update_id".to_string())?;
-    let message = update
-        .get("message")
-        .or_else(|| update.get("edited_message"))
-        .or_else(|| update.get("channel_post"))
-        .ok_or_else(|| "missing message/edited_message/channel_post".to_string())?;
-    let chat = message
-        .get("chat")
-        .ok_or_else(|| "missing message.chat".to_string())?;
-    let peer_id = json_to_string(chat.get("id")).ok_or_else(|| "missing chat.id".to_string())?;
-    let chat_type = json_to_string(chat.get("type")).unwrap_or_else(|| "private".to_string());
-    let peer_kind = if chat_type.eq_ignore_ascii_case("group")
-        || chat_type.eq_ignore_ascii_case("supergroup")
-        || chat_type.eq_ignore_ascii_case("channel")
-    {
-        ExternalPeerKind::Group
-    } else {
-        ExternalPeerKind::Direct
-    };
-
-    let sender = message.get("from");
-    let sender_id = sender
-        .and_then(|value| json_to_string(value.get("id")))
-        .unwrap_or_else(|| peer_id.clone());
-    let sender_name = sender.and_then(derive_telegram_sender_name);
-    let message_id = json_to_string(message.get("message_id"))
-        .unwrap_or_else(|| format!("update-{update_id}"));
-    let text = json_to_string(message.get("text"))
-        .or_else(|| json_to_string(message.get("caption")))
-        .unwrap_or_else(|| "[telegram non-text message]".to_string());
-
-    Ok((
-        ExternalInboundMessage {
-            channel: "telegram".to_string(),
-            account_id: account_id.to_string(),
-            peer_kind,
-            peer_id,
-            sender_id,
-            sender_name,
-            message_id,
-            text,
-            idempotency_key: None,
-            workspace_id_hint: None,
-            target_agent_id_hint: None,
-            metadata: update.clone(),
-        },
-        update_id,
-    ))
 }
 
 fn to_view(record: &TelegramAccountRecord) -> TelegramConnectorAccountView {
@@ -704,15 +475,10 @@ pub async fn health_check(
     }
 
     let webhook_info = telegram_get_webhook_info(&token)?;
-    let (configured_webhook_url, webhook_last_error) = if let Some(result) = webhook_info.result {
-        let url = result
-            .url
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-        (url, result.last_error_message)
-    } else {
-        (None, None)
-    };
+    let configured_webhook_url = webhook_info
+        .url
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     let webhook_matched = runtime_webhook_url.as_ref().map(|runtime_url| {
         configured_webhook_url
@@ -721,9 +487,15 @@ pub async fn health_check(
             .unwrap_or(false)
     });
 
-    let detail = if let Some(last_error) = webhook_last_error.filter(|item| !item.trim().is_empty())
+    let detail = if let Some(last_error) = webhook_info
+        .last_error_message
+        .filter(|item| !item.trim().is_empty())
     {
         format!("telegram webhook reports error: {last_error}")
+    } else if !webhook_info.ok {
+        webhook_info
+            .description
+            .unwrap_or_else(|| "telegram getWebhookInfo failed".to_string())
     } else {
         "telegram account health check passed".to_string()
     };
@@ -731,11 +503,15 @@ pub async fn health_check(
     Ok(TelegramHealthSnapshot {
         channel: "telegram".to_string(),
         account_id: record.account_id.clone(),
-        ok: true,
-        status: "ok".to_string(),
+        ok: me.ok,
+        status: if me.ok {
+            "ok".to_string()
+        } else {
+            "auth_failed".to_string()
+        },
         detail,
         mode: record.mode.clone(),
-        bot_username: me.result.and_then(|item| item.username),
+        bot_username: me.username,
         configured_webhook_url,
         runtime_webhook_url,
         webhook_matched,
@@ -781,8 +557,7 @@ pub async fn sync_runtime_webhook(
     telegram_set_webhook(&token, runtime_webhook_url, webhook_secret.as_deref())?;
     let webhook_info = telegram_get_webhook_info(&token)?;
     let configured_webhook_url = webhook_info
-        .result
-        .and_then(|item| item.url)
+        .url
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_default();
@@ -800,6 +575,106 @@ pub async fn sync_runtime_webhook(
             "telegram webhook mismatch after setWebhook".to_string()
         },
         checked_at_ms: now_ms(),
+    })
+}
+
+pub async fn send_text_reply(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    peer_id: &str,
+    text: &str,
+    reply_to_message_id: Option<&str>,
+) -> Result<TelegramSendSnapshot, String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
+    }
+
+    let account_id = normalize_account_id(account_id);
+    let key = account_id.to_ascii_lowercase();
+    let store = load_store(app)?;
+    let Some(record) = store.telegram_accounts.get(&key).cloned() else {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_NOT_FOUND: telegram account {}",
+            account_id
+        ));
+    };
+    if !record.enabled {
+        return Err("CHANNEL_CONNECTOR_DISABLED: telegram account is disabled".to_string());
+    }
+
+    let token = load_bot_token(&record)?;
+    let peer_owned = peer_id.to_string();
+    let text_owned = text.to_string();
+    let reply_to_owned = reply_to_message_id.map(ToString::to_string);
+    let send_result = tokio::task::spawn_blocking(move || {
+        telegram_send_message(&token, &peer_owned, &text_owned, reply_to_owned.as_deref())
+    })
+    .await
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+
+    Ok(TelegramSendSnapshot {
+        channel: "telegram".to_string(),
+        account_id: record.account_id,
+        peer_id: send_result.peer_id,
+        message_id: send_result.message_id,
+        delivered_at_ms: now_ms(),
+    })
+}
+
+pub async fn edit_text_reply(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    peer_id: &str,
+    message_id: &str,
+    text: &str,
+) -> Result<TelegramSendSnapshot, String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let message_id = message_id.trim();
+    if message_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: message id is required".to_string());
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
+    }
+
+    let account_id = normalize_account_id(account_id);
+    let key = account_id.to_ascii_lowercase();
+    let store = load_store(app)?;
+    let Some(record) = store.telegram_accounts.get(&key).cloned() else {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_NOT_FOUND: telegram account {}",
+            account_id
+        ));
+    };
+    if !record.enabled {
+        return Err("CHANNEL_CONNECTOR_DISABLED: telegram account is disabled".to_string());
+    }
+
+    let token = load_bot_token(&record)?;
+    let peer_owned = peer_id.to_string();
+    let message_id_owned = message_id.to_string();
+    let text_owned = text.to_string();
+    let edit_result = tokio::task::spawn_blocking(move || {
+        telegram_edit_message(&token, &peer_owned, &message_id_owned, &text_owned)
+    })
+    .await
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+
+    Ok(TelegramSendSnapshot {
+        channel: "telegram".to_string(),
+        account_id: record.account_id,
+        peer_id: edit_result.peer_id,
+        message_id: edit_result.message_id,
+        delivered_at_ms: now_ms(),
     })
 }
 
@@ -827,9 +702,10 @@ async fn poll_account_once(
 
     if !is_poll_primed(&account_id) {
         let token_for_delete = token.clone();
-        if let Err(error) = tokio::task::spawn_blocking(move || telegram_delete_webhook(&token_for_delete))
-            .await
-            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
+        if let Err(error) =
+            tokio::task::spawn_blocking(move || telegram_delete_webhook(&token_for_delete))
+                .await
+                .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
         {
             debug!(
                 account_id = %account_id,
@@ -840,11 +716,12 @@ async fn poll_account_once(
         mark_poll_primed(&account_id);
     }
 
-    let offset = read_poll_offset(&account_id);
+    let offset = resolve_poll_offset(app, &account_id, &token);
     let token_for_updates = token.clone();
-    let updates = tokio::task::spawn_blocking(move || telegram_get_updates(&token_for_updates, offset))
-        .await
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    let updates =
+        tokio::task::spawn_blocking(move || telegram_get_updates(&token_for_updates, offset))
+            .await
+            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
     if !updates.ok {
         return Err(format!(
             "CHANNEL_CONNECTOR_AUTH_FAILED: {}",
@@ -853,7 +730,7 @@ async fn poll_account_once(
                 .unwrap_or_else(|| "telegram getUpdates failed".to_string())
         ));
     }
-    let Some(items) = updates.result else {
+    let Some(items) = updates.items else {
         return Ok(());
     };
 
@@ -861,8 +738,12 @@ async fn poll_account_once(
     for item in items {
         if let Some(update_id) = item
             .get("update_id")
-            .and_then(Value::as_i64)
-            .or_else(|| item.get("update_id").and_then(Value::as_u64).map(|value| value as i64))
+            .and_then(serde_json::Value::as_i64)
+            .or_else(|| {
+                item.get("update_id")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|value| value as i64)
+            })
         {
             max_update_id = Some(max_update_id.map_or(update_id, |value| value.max(update_id)));
         }
@@ -887,7 +768,7 @@ async fn poll_account_once(
     }
 
     if let Some(max_update_id) = max_update_id {
-        write_poll_offset(&account_id, max_update_id.saturating_add(1));
+        persist_poll_offset(app, &account_id, &token, max_update_id.saturating_add(1));
     }
     Ok(())
 }

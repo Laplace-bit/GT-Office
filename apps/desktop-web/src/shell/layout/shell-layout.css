@@ -1289,7 +1289,9 @@ textarea:focus:not(.xterm-helper-textarea) {
   display: grid;
   grid-template-rows: auto auto auto auto auto 1fr;
   gap: 12px;
+  grid-row: 1 / -1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .task-center-header {
@@ -4840,7 +4842,16 @@ textarea:focus:not(.xterm-helper-textarea) {
   overflow: hidden;
 }
 
-.settings-channel-binding-list li,
+.settings-channel-binding-list li {
+  display: grid;
+  grid-template-columns: minmax(88px, 1fr) repeat(5, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  font-size: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--vb-border) 84%, transparent);
+}
+
 .settings-channel-access-list li {
   display: grid;
   grid-template-columns: minmax(88px, 1fr) repeat(5, minmax(0, 1fr));
@@ -4971,8 +4982,9 @@ textarea:focus:not(.xterm-helper-textarea) {
 }
 
 .settings-channel-segmented button.active {
-  background: var(--vb-chip);
-  color: var(--vb-text);
+  background: color-mix(in srgb, var(--vb-accent) 90%, transparent);
+  color: #ffffff;
+  font-weight: 500;
 }
 
 .settings-channel-code-row {

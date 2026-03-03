@@ -61,6 +61,7 @@ import {
   type ExternalChannelInboundPayload,
   type ExternalChannelReplyPayload,
   type ExternalChannelRoutedPayload,
+  type ChannelRouteBinding,
   desktopApi,
   type FilesystemChangedPayload,
   type FsSearchFileMatch,
@@ -114,6 +115,47 @@ const LEFT_PANE_WIDTH_MIN = 210
 const LEFT_PANE_WIDTH_MAX = 390
 const LEFT_PANE_WIDTH_DEFAULT = 270
 const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
+
+function isDigitsOnly(value: string): boolean {
+  return value.length > 0 && /^\d+$/.test(value)
+}
+
+function isCsiUEnterSequence(raw: string): boolean {
+  if (!raw.startsWith('\x1b[13;') || !raw.endsWith('u')) {
+    return false
+  }
+  return isDigitsOnly(raw.slice('\x1b[13;'.length, -1))
+}
+
+function isCsiTildeEnterSequence(raw: string): boolean {
+  if (raw === '\x1b[13~') {
+    return true
+  }
+  if (!raw.startsWith('\x1b[13;') || !raw.endsWith('~')) {
+    return false
+  }
+  return isDigitsOnly(raw.slice('\x1b[13;'.length, -1))
+}
+
+function isModifyOtherKeysEnterSequence(raw: string): boolean {
+  if (!raw.startsWith('\x1b[27;13;') || !raw.endsWith('~')) {
+    return false
+  }
+  return isDigitsOnly(raw.slice('\x1b[27;13;'.length, -1))
+}
+
+function normalizeSubmitSequence(raw: string): string | null {
+  if (raw === '\r' || raw === '\n' || raw === '\r\n') {
+    return '\r'
+  }
+  if (raw === '\x1bOM') {
+    return raw
+  }
+  if (isCsiUEnterSequence(raw) || isCsiTildeEnterSequence(raw) || isModifyOtherKeysEnterSequence(raw)) {
+    return raw
+  }
+  return null
+}
 
 type ExternalChannelEventItem = {
   id: string
@@ -590,6 +632,8 @@ export function ShellRoot() {
     } | null
     lastSyncAtMs: number | null
     error: string | null
+    bindings?: ChannelRouteBinding[]
+    configuredChannels?: string[]
   }>({
     loading: false,
     running: false,
@@ -600,6 +644,7 @@ export function ShellRoot() {
     summary: null,
     lastSyncAtMs: null,
     error: null,
+    bindings: [],
   })
   const [externalChannelEvents, setExternalChannelEvents] = useState<ExternalChannelEventItem[]>(
     [],
@@ -635,9 +680,12 @@ export function ShellRoot() {
   const stationTerminalsRef = useRef(stationTerminals)
   const stationsRef = useRef(stations)
   const sessionStationRef = useRef<Record<string, string>>({})
+  const terminalSessionSeqRef = useRef<Record<string, number>>({})
+  const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
   const stationTerminalSinkRef = useRef<Record<string, StationTerminalSink>>({})
   const stationTerminalOutputCacheRef = useRef<Record<string, string>>({})
   const stationTerminalInputQueueRef = useRef<Record<string, string>>({})
+  const stationSubmitSequenceRef = useRef<Record<string, string>>({})
   const stationTerminalInputFlushTimerRef = useRef<Record<string, number | null>>({})
   const stationTerminalInputSendingRef = useRef<Record<string, boolean>>({})
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
@@ -1304,10 +1352,19 @@ export function ShellRoot() {
       error: null,
     }))
     try {
-      const [adapterStatus, doctorStatus] = await Promise.all([
+      const [adapterStatus, doctorStatus, bindingsResponse] = await Promise.all([
         desktopApi.channelAdapterStatus(),
         desktopApi.systemGtoDoctor(),
+        activeWorkspaceId ? desktopApi.channelBindingList(activeWorkspaceId) : Promise.resolve({ bindings: [] })
       ])
+
+      let telegramAccounts: Array<{ enabled: boolean, hasBotToken: boolean }> = []
+      try {
+        const { accounts } = await desktopApi.channelConnectorAccountList('telegram')
+        telegramAccounts = accounts
+      } catch {
+        // ignore external errors
+      }
 
       const runtimeRecord = readRecord(adapterStatus.runtime)
       const snapshotRecord = readRecord(adapterStatus.snapshot)
@@ -1315,13 +1372,23 @@ export function ShellRoot() {
       const summaryRecord = readRecord(snapshotRecord)
       const doctorOk = typeof doctorRecord?.ok === 'boolean' ? doctorRecord.ok : null
 
+      const feishuWebHit = readString(runtimeRecord?.feishuWebhook)
+      const telegramWebHit = readString(runtimeRecord?.telegramWebhook)
+      
+      const activeSet = new Set<string>()
+      bindingsResponse.bindings.forEach(b => activeSet.add(b.channel))
+      if (feishuWebHit) activeSet.add('feishu')
+      if (telegramAccounts.some(acc => acc.hasBotToken || (telegramWebHit && acc.enabled))) {
+        activeSet.add('telegram')
+      }
+
       setExternalChannelStatus({
         loading: false,
         running: Boolean(adapterStatus.running),
         doctorOk,
         runtimeBaseUrl: readString(runtimeRecord?.baseUrl),
-        feishuWebhook: readString(runtimeRecord?.feishuWebhook),
-        telegramWebhook: readString(runtimeRecord?.telegramWebhook),
+        feishuWebhook: feishuWebHit,
+        telegramWebhook: telegramWebHit,
         summary: summaryRecord
           ? {
               routeBindings: Math.max(0, readNumber(summaryRecord.routeBindings) ?? 0),
@@ -1332,6 +1399,8 @@ export function ShellRoot() {
           : null,
         lastSyncAtMs: Date.now(),
         error: null,
+        bindings: bindingsResponse.bindings,
+        configuredChannels: Array.from(activeSet),
       })
     } catch (error) {
       setExternalChannelStatus((prev) => ({
@@ -1341,7 +1410,7 @@ export function ShellRoot() {
         lastSyncAtMs: Date.now(),
       }))
     }
-  }, [])
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     return () => {
@@ -1681,17 +1750,65 @@ export function ShellRoot() {
     void desktopApi
       .subscribeTerminalEvents({
         onOutput: (payload: TerminalOutputPayload) => {
-          const stationId = sessionStationRef.current[payload.sessionId]
-          if (!stationId) {
-            return
-          }
-          const text = decodeBase64Chunk(payload.chunk)
-          if (text) {
-            appendStationTerminalOutput(stationId, text)
-          }
-          if (stationId !== activeStationId) {
-            incrementStationUnread(stationId, 1)
-          }
+          const previous = terminalOutputQueueRef.current[payload.sessionId] ?? Promise.resolve()
+          terminalOutputQueueRef.current[payload.sessionId] = previous
+            .catch(() => undefined)
+            .then(async () => {
+              if (disposed) {
+                return
+              }
+              const stationId = sessionStationRef.current[payload.sessionId]
+              if (!stationId) {
+                return
+              }
+              const unread = stationId !== activeStationId
+              const seq = terminalSessionSeqRef.current[payload.sessionId] ?? 0
+              if (payload.seq <= seq) {
+                return
+              }
+              if (payload.seq === seq + 1) {
+                const text = decodeBase64Chunk(payload.chunk)
+                if (text) {
+                  appendStationTerminalOutput(stationId, text)
+                }
+                terminalSessionSeqRef.current[payload.sessionId] = payload.seq
+                if (unread) {
+                  incrementStationUnread(stationId, 1)
+                }
+                return
+              }
+
+              const delta = await desktopApi
+                .terminalReadDelta(payload.sessionId, seq)
+                .catch(() => null)
+              if (
+                delta &&
+                !delta.gap &&
+                !delta.truncated &&
+                delta.fromSeq === seq + 1 &&
+                delta.toSeq >= payload.seq
+              ) {
+                const text = decodeBase64Chunk(delta.chunk)
+                if (text) {
+                  appendStationTerminalOutput(stationId, text)
+                }
+                terminalSessionSeqRef.current[payload.sessionId] = delta.toSeq
+                if (unread) {
+                  incrementStationUnread(stationId, 1)
+                }
+                return
+              }
+
+              const snapshot = await desktopApi.terminalReadSnapshot(payload.sessionId).catch(() => null)
+              if (!snapshot) {
+                return
+              }
+              resetStationTerminalOutput(stationId, decodeBase64Chunk(snapshot.chunk))
+              terminalSessionSeqRef.current[payload.sessionId] = snapshot.currentSeq
+              if (unread) {
+                incrementStationUnread(stationId, 1)
+              }
+            })
         },
         onStateChanged: (payload: TerminalStatePayload) => {
           const stationId = sessionStationRef.current[payload.sessionId]
@@ -1700,6 +1817,10 @@ export function ShellRoot() {
           }
           setStationTerminalState(stationId, { stateRaw: payload.to })
           appendStationTerminalOutput(stationId, `\n[terminal:${payload.to}]\n`)
+          if (payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed') {
+            delete terminalSessionSeqRef.current[payload.sessionId]
+            delete terminalOutputQueueRef.current[payload.sessionId]
+          }
         },
         onMeta: (payload: TerminalMetaPayload) => {
           const stationId = sessionStationRef.current[payload.sessionId]
@@ -1735,6 +1856,7 @@ export function ShellRoot() {
     appendStationTerminalOutput,
     decodeBase64Chunk,
     incrementStationUnread,
+    resetStationTerminalOutput,
     setStationTerminalState,
   ])
 
@@ -1786,6 +1908,7 @@ export function ShellRoot() {
       }
       const stationRole =
         stationsRef.current.find((station) => station.id === agentId)?.role ?? null
+      const submitSequence = stationSubmitSequenceRef.current[agentId] ?? null
       void desktopApi
         .agentRuntimeRegister({
           workspaceId: runtime.workspaceId,
@@ -1793,6 +1916,7 @@ export function ShellRoot() {
           stationId: agentId,
           roleKey: stationRole,
           sessionId: runtime.sessionId,
+          submitSequence,
           online: true,
         })
         .catch(() => {
@@ -1900,6 +2024,8 @@ export function ShellRoot() {
   useEffect(() => {
     setStationTerminals(createInitialStationTerminals(stationsRef.current))
     sessionStationRef.current = {}
+    terminalSessionSeqRef.current = {}
+    terminalOutputQueueRef.current = {}
     terminalSessionVisibilityRef.current = {}
     stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
       acc[station.id] = getStationIdleBanner(localeRef.current, station)
@@ -1913,6 +2039,7 @@ export function ShellRoot() {
     stationTerminalInputFlushTimerRef.current = {}
     stationTerminalInputQueueRef.current = {}
     stationTerminalInputSendingRef.current = {}
+    stationSubmitSequenceRef.current = {}
     Object.entries(stationTerminalSinkRef.current).forEach(([stationId, sink]) => {
       sink.reset(stationTerminalOutputCacheRef.current[stationId])
     })
@@ -1978,6 +2105,8 @@ export function ShellRoot() {
     Object.entries(sessionStationRef.current).forEach(([sessionId, stationId]) => {
       if (!stationIdSet.has(stationId)) {
         delete sessionStationRef.current[sessionId]
+        delete terminalSessionSeqRef.current[sessionId]
+        delete terminalOutputQueueRef.current[sessionId]
         delete terminalSessionVisibilityRef.current[sessionId]
       }
     })
@@ -2281,6 +2410,8 @@ export function ShellRoot() {
           cwdMode: 'custom',
         })
         sessionStationRef.current[session.sessionId] = stationId
+        terminalSessionSeqRef.current[session.sessionId] = 0
+        terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
         const currentRuntime = stationTerminalsRef.current[stationId] ?? {
           sessionId: null,
           stateRaw: 'idle',
@@ -2454,6 +2585,26 @@ export function ShellRoot() {
 
   const handleStationTerminalInput = useCallback(
     (stationId: string, data: string) => {
+      const submitSequence = normalizeSubmitSequence(data)
+      if (submitSequence) {
+        stationSubmitSequenceRef.current[stationId] = submitSequence
+        const workspaceId = activeWorkspaceIdRef.current
+        const sessionId = stationTerminalsRef.current[stationId]?.sessionId
+        const stationRole = stationsRef.current.find((station) => station.id === stationId)?.role ?? null
+        if (workspaceId && sessionId) {
+          void desktopApi.agentRuntimeRegister({
+            workspaceId,
+            agentId: stationId,
+            stationId,
+            roleKey: stationRole,
+            sessionId,
+            submitSequence,
+            online: true,
+          }).catch(() => {
+            // Best-effort runtime update; next periodic sync will retry.
+          })
+        }
+      }
       sendStationTerminalInput(stationId, data)
     },
     [sendStationTerminalInput],
@@ -2526,6 +2677,7 @@ export function ShellRoot() {
         stationId: station.id,
         roleKey: station.role,
         sessionId,
+        submitSequence: stationSubmitSequenceRef.current[station.id] ?? null,
         online: true,
       })
     },
@@ -2803,11 +2955,15 @@ export function ShellRoot() {
       Object.entries(sessionStationRef.current).forEach(([sessionId, mappedStationId]) => {
         if (mappedStationId === stationId) {
           delete sessionStationRef.current[sessionId]
+          delete terminalSessionSeqRef.current[sessionId]
+          delete terminalOutputQueueRef.current[sessionId]
           delete terminalSessionVisibilityRef.current[sessionId]
         }
       })
       if (targetSessionId) {
         delete sessionStationRef.current[targetSessionId]
+        delete terminalSessionSeqRef.current[targetSessionId]
+        delete terminalOutputQueueRef.current[targetSessionId]
         delete terminalSessionVisibilityRef.current[targetSessionId]
       }
       const flushTimerId = stationTerminalInputFlushTimerRef.current[stationId]
@@ -3138,6 +3294,8 @@ export function ShellRoot() {
               cwd: restoreCwd,
             })
             sessionStationRef.current[session.sessionId] = terminal.stationId
+            terminalSessionSeqRef.current[session.sessionId] = 0
+            terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
             setStationTerminalState(terminal.stationId, {
               sessionId: session.sessionId,
               stateRaw: 'running',
