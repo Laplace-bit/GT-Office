@@ -10,6 +10,7 @@ import {
 } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
+import { AppIcon } from '../ui/icons'
 
 export interface TaskMentionFileCandidate {
   path: string
@@ -157,6 +158,7 @@ function TaskCenterPaneView({
   const [activeMentionIndex, setActiveMentionIndex] = useState(0)
   const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [targetFilter, setTargetFilter] = useState('')
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(true)
   const [targetPopoverStyle, setTargetPopoverStyle] = useState<{
     top: number
     left: number
@@ -607,12 +609,43 @@ function TaskCenterPaneView({
       </section>
 
       <section className="task-center-history">
-        <h3>{t(locale, 'taskCenter.history')}</h3>
-        {dispatchHistory.length === 0 ? (
-          <p className="task-center-empty">{t(locale, 'taskCenter.historyEmpty')}</p>
-        ) : (
-          <ul>
-            {dispatchHistory.map((record) => (
+        <header 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            cursor: 'pointer', 
+            userSelect: 'none' 
+          }}
+          onClick={() => setIsHistoryExpanded((prev) => !prev)}
+        >
+          <h3 style={{ margin: 0 }}>{t(locale, 'taskCenter.history')}</h3>
+          <AppIcon 
+            name="chevron-down" 
+            style={{ 
+              width: 16, 
+              height: 16, 
+              flex: '0 0 auto', 
+              color: 'var(--vb-text-muted)',
+              transition: 'transform 250ms cubic-bezier(0.4, 0, 0.2, 1)',
+              transform: isHistoryExpanded ? 'rotate(-180deg)' : 'rotate(0deg)'
+            }} 
+          />
+        </header>
+        <div 
+          style={{ 
+            display: 'grid', 
+            gridTemplateRows: isHistoryExpanded ? '1fr' : '0fr', 
+            transition: 'grid-template-rows 250ms cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: 'hidden'
+          }}
+        >
+          <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            {dispatchHistory.length === 0 ? (
+              <p className="task-center-empty">{t(locale, 'taskCenter.historyEmpty')}</p>
+            ) : (
+              <ul>
+                {dispatchHistory.map((record) => (
               <li key={`${record.batchId}:${record.taskId}`}>
                 <div className="task-center-history-title-row">
                   <strong>{record.title}</strong>
@@ -646,7 +679,9 @@ function TaskCenterPaneView({
               </li>
             ))}
           </ul>
-        )}
+            )}
+          </div>
+        </div>
       </section>
     </aside>
   )

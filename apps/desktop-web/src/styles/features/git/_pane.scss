@@ -35,6 +35,24 @@
   opacity: 0.4;
 }
 
+/* AppIcon SVGs are rendered with fill="none", so Git domain icons must
+   explicitly define stroke styles to remain visible after CSS refactor. */
+.git-pane__branch-icon,
+.git-pane__empty-icon,
+.git-section-header__toggle,
+.git-icon-btn__icon,
+.git-view-toggle__icon,
+.git-graph-empty__icon,
+.git-graph-btn__icon,
+.git-split-diff__empty-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
 .git-pane__empty h2 {
   font-size: 14px;
   font-weight: 600;

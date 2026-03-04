@@ -1,0 +1,18 @@
+:root {
+  --vb-primary: var(--vb-accent);
+  --vb-bg-primary: var(--vb-surface);
+  --vb-bg-secondary: var(--vb-surface-muted);
+  --vb-bg-tertiary: color-mix(in srgb, var(--vb-surface-muted) 74%, transparent);
+  --vb-border-subtle: color-mix(in srgb, var(--vb-border) 72%, transparent);
+  --vb-panel-bg: color-mix(in srgb, var(--vb-surface) 84%, transparent);
+  --vb-shadow-md: var(--vb-shadow);
+  --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 92%, #ffffff 8%);
+  --vb-text-primary: var(--vb-text);
+  --vb-text-tertiary: var(--vb-text-muted);
+}
+
+:root[data-theme='graphite-dark'] {
+  --vb-panel-bg: color-mix(in srgb, var(--vb-surface) 86%, #000000 14%);
+  --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 88%, #000000 12%);
+  --vb-text-tertiary: var(--vb-text-subtle);
+}

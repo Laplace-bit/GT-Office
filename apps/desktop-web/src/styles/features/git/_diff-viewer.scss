@@ -60,6 +60,11 @@
   height: 14px;
   flex-shrink: 0;
   color: var(--vb-text-muted);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .diff-viewer__badge {
@@ -169,6 +174,11 @@
   width: 32px;
   height: 32px;
   opacity: 0.4;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .diff-viewer__spinner {

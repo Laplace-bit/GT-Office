@@ -1,0 +1,25 @@
+@use 'sass:meta';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer reset, tokens, base, components, features, utilities;
+
+@layer tokens {
+  @include meta.load-css('tokens/theme-compat');
+}
+
+@layer base {
+  @include meta.load-css('foundations/legacy-foundations');
+}
+
+@layer features {
+  @include meta.load-css('features/shell/layout');
+  @include meta.load-css('features/git/pane');
+  @include meta.load-css('features/git/diff-viewer');
+}
+
+@layer utilities {
+  @include meta.load-css('utilities/helpers');
+}

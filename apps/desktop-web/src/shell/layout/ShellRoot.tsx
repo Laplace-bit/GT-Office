@@ -85,7 +85,6 @@ import {
   resolveShortcutBindingsFromSettings,
 } from '../state/shortcut-bindings'
 import { pickDirectory } from '../integration/directory-picker'
-import './shell-layout.css'
 
 type FileReadMode = 'full'
 type StationTerminalRuntime = {
@@ -3875,7 +3874,10 @@ export function ShellRoot() {
         </div>
 
         {leftPaneVisible ? (
-          <div ref={shellLeftPaneRef} className="shell-pane-shell shell-left-pane">
+          <div
+            ref={shellLeftPaneRef}
+            className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''}`}
+          >
             {activeNavId === 'files' ? (
               <FileTreePane
                 locale={locale}
@@ -3898,34 +3900,36 @@ export function ShellRoot() {
                 onMovePath={movePathInWorkspace}
               />
             ) : activeNavId === 'tasks' ? (
-              <TaskCenterPane
-                locale={locale}
-                stations={stations}
-                draft={taskDraft}
-                dispatchHistory={taskDispatchHistory}
-                sending={taskSending}
-                retryingTaskId={taskRetryingTaskId}
-                draftSavedAtMs={taskDraftSavedAtMs}
-                notice={taskNotice}
-                mentionCandidates={taskMentionCandidates}
-                mentionLoading={taskMentionLoading}
-                mentionError={taskMentionError}
-                externalStatus={externalChannelStatus}
-                externalEvents={externalChannelEvents}
-                onDraftChange={updateTaskDraft}
-                onInsertSnippet={insertTaskSnippet}
-                onSendTask={() => {
-                  void dispatchTaskToAgent()
-                }}
-                onRetryDispatchTask={(taskId) => {
-                  void retryTaskDispatch(taskId)
-                }}
-                onSearchMentionFiles={searchTaskMentionFiles}
-                onClearMentionSearch={clearTaskMentionSearch}
-                onRefreshExternalStatus={() => {
-                  void refreshExternalChannelStatus()
-                }}
-              />
+              <div className="task-center-scroll-host">
+                <TaskCenterPane
+                  locale={locale}
+                  stations={stations}
+                  draft={taskDraft}
+                  dispatchHistory={taskDispatchHistory}
+                  sending={taskSending}
+                  retryingTaskId={taskRetryingTaskId}
+                  draftSavedAtMs={taskDraftSavedAtMs}
+                  notice={taskNotice}
+                  mentionCandidates={taskMentionCandidates}
+                  mentionLoading={taskMentionLoading}
+                  mentionError={taskMentionError}
+                  externalStatus={externalChannelStatus}
+                  externalEvents={externalChannelEvents}
+                  onDraftChange={updateTaskDraft}
+                  onInsertSnippet={insertTaskSnippet}
+                  onSendTask={() => {
+                    void dispatchTaskToAgent()
+                  }}
+                  onRetryDispatchTask={(taskId) => {
+                    void retryTaskDispatch(taskId)
+                  }}
+                  onSearchMentionFiles={searchTaskMentionFiles}
+                  onClearMentionSearch={clearTaskMentionSearch}
+                  onRefreshExternalStatus={() => {
+                    void refreshExternalChannelStatus()
+                  }}
+                />
+              </div>
             ) : activeNavId === 'stations' ? (
               <StationOverviewPane
                 locale={locale}

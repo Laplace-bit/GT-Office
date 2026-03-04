@@ -14,8 +14,6 @@ import {
 } from '@features/git'
 import { DiffViewer } from './DiffViewer'
 import { GitGraphView } from './GitGraphView'
-import './diff-viewer.css'
-import './git-pane.css'
 
 function describeUnknownError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
@@ -151,30 +149,32 @@ const GitFileRow = memo(function GitFileRow({
       <div className="git-file-row__actions">
         {file.staged ? (
           <GitIconButton
-            icon="x-mark"
+            icon="undo"
             label={t(locale, 'git.action.unstage')}
             onClick={onUnstage}
             disabled={Boolean(actionLoading)}
             size="sm"
           />
         ) : (
-          <GitIconButton
-            icon="check"
-            label={t(locale, 'git.action.stage')}
-            onClick={onStage}
-            disabled={Boolean(actionLoading)}
-            size="sm"
-            variant="success"
-          />
+          <>
+            <GitIconButton
+              icon="check"
+              label={t(locale, 'git.action.stage')}
+              onClick={onStage}
+              disabled={Boolean(actionLoading)}
+              size="sm"
+              variant="success"
+            />
+            <GitIconButton
+              icon="trash"
+              label={t(locale, 'git.action.discard')}
+              onClick={() => onDiscard()}
+              disabled={Boolean(actionLoading)}
+              size="sm"
+              variant="danger"
+            />
+          </>
         )}
-        <GitIconButton
-          icon="trash"
-          label={t(locale, 'git.action.discard')}
-          onClick={() => onDiscard()}
-          disabled={Boolean(actionLoading)}
-          size="sm"
-          variant="danger"
-        />
       </div>
     </div>
   )
