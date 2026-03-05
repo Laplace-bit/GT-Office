@@ -595,6 +595,8 @@
      - `webhookUrl` 为空时使用 runtime 的本机 webhook 地址（`channel_adapter_status.runtime.telegramWebhook`）。
      - Telegram 要求 `setWebhook` 为 HTTPS URL，传入非 HTTPS 将返回 `CHANNEL_CONNECTOR_WEBHOOK_INVALID`。
 13. 语义约束：
+   - `channel + accountId` 共同标识一个 bot 实例；同一 `channel` 可存在多个 `accountId`，绑定规则需按 bot 维度独立生效。
+   - `channel_binding.list` 返回扁平绑定数组，前端展示层应按 `channel -> accountId(bot) -> route` 聚合，避免多 bot 场景信息混叠。
    - Telegram connector 建议默认 `polling` 模式（token 可用即可完成入站），`webhook` 作为高级可选模式。
    - 默认准入策略为 `pairing`。
    - 幂等命中返回 `duplicate`，不得重复派发任务。

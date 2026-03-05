@@ -172,7 +172,7 @@ const darkTheme = EditorView.theme({
   '.cm-content': {
     caretColor: 'var(--vb-accent)',
     fontFamily: 'var(--vb-font-mono)',
-    fontSize: '13px',
+    fontSize: 'var(--vb-font-size-base, 13px)',
     lineHeight: '1.5',
   },
   '.cm-cursor': {
@@ -228,8 +228,10 @@ export function CodeMirrorEditor({
   const phrasesCompartment = useRef(new Compartment())
 
   // 同步 refs
-  onChangeRef.current = onChange
-  onSaveRef.current = onSave
+  useEffect(() => {
+    onChangeRef.current = onChange
+    onSaveRef.current = onSave
+  })
 
   // 初始化编辑器 - 只执行一次
   useEffect(() => {

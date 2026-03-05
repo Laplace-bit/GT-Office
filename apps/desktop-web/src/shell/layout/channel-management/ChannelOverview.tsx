@@ -1,0 +1,79 @@
+import { t, type Locale } from '../../i18n/ui-locale'
+import { ChannelBotCard } from './ChannelBotCard'
+import { buildChannelBotBindingGroups } from '../channel-bot-binding-model'
+import { type AgentRole, type AgentProfile, type ChannelRouteBinding } from '../../integration/desktop-api'
+
+interface ChannelOverviewProps {
+  locale: Locale
+  runtimeRunning: boolean
+  onAddChannel: () => void
+  channelBotGroups: ReturnType<typeof buildChannelBotBindingGroups>
+  roles: AgentRole[]
+  agents: AgentProfile[]
+  onEditBinding: (binding: ChannelRouteBinding) => void
+  onDeleteBinding: (binding: ChannelRouteBinding) => void
+  loading: boolean
+}
+
+export function ChannelOverview({
+  locale,
+  runtimeRunning,
+  onAddChannel,
+  channelBotGroups,
+  roles,
+  agents,
+  onEditBinding,
+  onDeleteBinding,
+  loading
+}: ChannelOverviewProps) {
+  return (
+    <>
+      <div className="channel-overview-top">
+        <div className="channel-overview-status">
+          <h4>{t(locale, '通道连接管理', 'Channel Connection Management')}</h4>
+          <p>{t(locale, '管理您的 Telegram 和 Feishu 机器人。', 'Manage your Telegram and Feishu bots.')}</p>
+        </div>
+        <div className="settings-channel-header-actions">
+          <span className={`channel-runtime-pill ${runtimeRunning ? 'running' : 'stopped'}`}>
+            {runtimeRunning ? t(locale, '运行中', 'Running') : t(locale, '未就绪', 'Not Ready')}
+          </span>
+          <button 
+            type="button" 
+            className="settings-btn settings-btn-primary" 
+            onClick={onAddChannel} 
+            disabled={loading}
+          >
+            {t(locale, '添加 Channel', 'Add Channel')}
+          </button>
+        </div>
+      </div>
+
+      {channelBotGroups.length === 0 ? (
+        <div className="settings-pane-section" style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--vb-text-muted)' }}>
+          <p>
+            {t(
+              locale,
+              '当前没有已添加的 Channel。点击右上角“添加 Channel”开始配置。',
+              'No channels added yet. Click "Add Channel" to start setup.',
+            )}
+          </p>
+        </div>
+      ) : (
+        <div className="channel-bot-list">
+          {channelBotGroups.map((group) => (
+            <ChannelBotCard
+              key={`${group.channel}:${group.accountId}`}
+              group={group}
+              locale={locale}
+              roles={roles}
+              agents={agents}
+              onEditBinding={onEditBinding}
+              onDeleteBinding={onDeleteBinding}
+              loading={loading}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}

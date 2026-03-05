@@ -98,6 +98,16 @@ function externalEventKindLabel(
   return t(locale, 'taskCenter.external.events.kind.error')
 }
 
+function externalChannelLabel(locale: Locale, channel: string): string {
+  if (channel === 'telegram') {
+    return 'Telegram'
+  }
+  if (channel === 'feishu') {
+    return t(locale, '飞书', 'Feishu')
+  }
+  return channel
+}
+
 function formatTimestamp(value: number): string {
   const date = new Date(value)
   const hour = String(date.getHours()).padStart(2, '0')
@@ -559,7 +569,7 @@ function TaskCenterPaneView({
           <div className="task-center-external-summary" style={{ justifyContent: 'flex-start', gap: '8px' }}>
             {externalStatus.configuredChannels.map((channel) => (
               <span key={channel}>
-                {channel === 'telegram' ? 'Telegram' : t(locale, '飞书', 'Feishu')}
+                {externalChannelLabel(locale, channel)}
               </span>
             ))}
           </div>

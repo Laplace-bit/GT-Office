@@ -76,7 +76,6 @@ import {
   loadUiPreferences,
   saveUiPreferences,
   type AmbientLightingIntensity,
-  type UiPreferences,
 } from '../state/ui-preferences'
 import {
   areShortcutBindingsEqual,
@@ -85,6 +84,8 @@ import {
   resolveShortcutBindingsFromSettings,
 } from '../state/shortcut-bindings'
 import { pickDirectory } from '../integration/directory-picker'
+import { resolveConnectorAccounts } from './channel-connector-runtime'
+import { buildStationChannelBotBindingMap } from './channel-bot-binding-model'
 
 type FileReadMode = 'full'
 type StationTerminalRuntime = {
@@ -293,10 +294,7 @@ function createInitialStationTerminals(
   }, {})
 }
 
-function getStationIdleBanner(
-  locale: UiPreferences['locale'],
-  station: AgentStation | undefined,
-): string {
+function getStationIdleBanner(station: AgentStation | undefined): string {
   if (!station) {
     return ''
   }
@@ -1123,6 +1121,15 @@ export function ShellRoot() {
     [runtimeStateByStationId, stationOverviewState, stations],
   )
 
+  const channelBotBindingsByStationId = useMemo(
+    () =>
+      buildStationChannelBotBindingMap(
+        stations.map((station) => ({ id: station.id, role: station.role })),
+        externalChannelStatus.bindings ?? [],
+      ),
+    [externalChannelStatus.bindings, stations],
+  )
+
   const appendStationTerminalOutput = useMemo(
     () => (stationId: string, chunk: string) => {
       const previous = stationTerminalOutputCacheRef.current[stationId] ?? ''
@@ -1137,7 +1144,7 @@ export function ShellRoot() {
   const resetStationTerminalOutput = useMemo(
     () => (stationId: string, content?: string) => {
       const station = stationsRef.current.find((item) => item.id === stationId)
-      const fallback = getStationIdleBanner(localeRef.current, station)
+      const fallback = getStationIdleBanner(station)
       const nextContent = content ?? fallback
       stationTerminalOutputCacheRef.current[stationId] = nextContent
       stationTerminalSinkRef.current[stationId]?.reset(nextContent)
@@ -1352,16 +1359,11 @@ export function ShellRoot() {
       const [adapterStatus, doctorStatus, bindingsResponse] = await Promise.all([
         desktopApi.channelAdapterStatus(),
         desktopApi.systemGtoDoctor(),
-        activeWorkspaceId ? desktopApi.channelBindingList(activeWorkspaceId) : Promise.resolve({ bindings: [] })
+        activeWorkspaceId ? desktopApi.channelBindingList(activeWorkspaceId) : Promise.resolve({ bindings: [] }),
       ])
-
-      let telegramAccounts: Array<{ enabled: boolean, hasBotToken: boolean }> = []
-      try {
-        const { accounts } = await desktopApi.channelConnectorAccountList('telegram')
-        telegramAccounts = accounts
-      } catch {
-        // ignore external errors
-      }
+      const connectorAccounts = await resolveConnectorAccounts(adapterStatus, (channel) =>
+        desktopApi.channelConnectorAccountList(channel),
+      )
 
       const runtimeRecord = readRecord(adapterStatus.runtime)
       const snapshotRecord = readRecord(adapterStatus.snapshot)
@@ -1371,11 +1373,16 @@ export function ShellRoot() {
 
       const feishuWebHit = readString(runtimeRecord?.feishuWebhook)
       const telegramWebHit = readString(runtimeRecord?.telegramWebhook)
-      
+
       const activeSet = new Set<string>()
-      bindingsResponse.bindings.forEach(b => activeSet.add(b.channel))
+      bindingsResponse.bindings.forEach((binding) => activeSet.add(binding.channel))
+      connectorAccounts.forEach((account) => {
+        if (account.enabled || account.hasBotToken || account.hasWebhookSecret) {
+          activeSet.add(account.channel)
+        }
+      })
       if (feishuWebHit) activeSet.add('feishu')
-      if (telegramAccounts.some(acc => acc.hasBotToken || (telegramWebHit && acc.enabled))) {
+      if (telegramWebHit) {
         activeSet.add('telegram')
       }
 
@@ -1408,6 +1415,13 @@ export function ShellRoot() {
       }))
     }
   }, [activeWorkspaceId])
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    void refreshExternalChannelStatus()
+  }, [refreshExternalChannelStatus])
 
   useEffect(() => {
     return () => {
@@ -1461,7 +1475,7 @@ export function ShellRoot() {
       const station = stationsRef.current.find((item) => item.id === stationId)
       const snapshot =
         stationTerminalOutputCacheRef.current[stationId] ??
-        getStationIdleBanner(localeRef.current, station)
+        getStationIdleBanner(station)
       sink.reset(snapshot)
     },
     [],
@@ -2025,7 +2039,7 @@ export function ShellRoot() {
     terminalOutputQueueRef.current = {}
     terminalSessionVisibilityRef.current = {}
     stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
-      acc[station.id] = getStationIdleBanner(localeRef.current, station)
+      acc[station.id] = getStationIdleBanner(station)
       return acc
     }, {})
     Object.values(stationTerminalInputFlushTimerRef.current).forEach((timerId) => {
@@ -2096,7 +2110,7 @@ export function ShellRoot() {
     })
     stations.forEach((station) => {
       if (!stationTerminalOutputCacheRef.current[station.id]) {
-        stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(localeRef.current, station)
+        stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
       }
     })
     Object.entries(sessionStationRef.current).forEach(([sessionId, stationId]) => {
@@ -2894,7 +2908,7 @@ export function ShellRoot() {
           resolvedCwd: null,
         },
       }))
-      stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(localeRef.current, station)
+      stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
       setActiveStationId(station.id)
     },
     [activeWorkspaceId],
@@ -3999,6 +4013,7 @@ export function ShellRoot() {
               activeStationId={activeStationId}
               terminalByStation={stationTerminals}
               taskSignalByStationId={stationTaskSignals}
+              channelBotBindingsByStationId={channelBotBindingsByStationId}
               onSelectStation={handleCanvasSelectStation}
               onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
               onLaunchCliAgent={handleCanvasLaunchCliAgent}
@@ -4039,6 +4054,7 @@ export function ShellRoot() {
         themeMode={uiPreferences.themeMode}
         uiFont={uiPreferences.uiFont}
         monoFont={uiPreferences.monoFont}
+        uiFontSize={uiPreferences.uiFontSize}
         ambientLightingEnabled={uiPreferences.ambientLightingEnabled}
         ambientLightingIntensity={uiPreferences.ambientLightingIntensity}
         onClose={() => {
@@ -4061,6 +4077,12 @@ export function ShellRoot() {
           setUiPreferences((prev) => ({
             ...prev,
             monoFont: value,
+          }))
+        }
+        onUiFontSizeChange={(value) =>
+          setUiPreferences((prev) => ({
+            ...prev,
+            uiFontSize: value,
           }))
         }
         onAmbientLightingChange={handleAmbientLightingChange}

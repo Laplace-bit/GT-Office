@@ -4,12 +4,14 @@ export type ThemeMode = 'graphite-light' | 'graphite-dark'
 export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type AmbientLightingIntensity = 'low' | 'medium' | 'high'
+export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
 
 export interface UiPreferences {
   locale: Locale
   themeMode: ThemeMode
   uiFont: UiFont
   monoFont: MonoFont
+  uiFontSize: UiFontSize
   ambientLightingEnabled: boolean
   ambientLightingIntensity: AmbientLightingIntensity
 }
@@ -21,6 +23,7 @@ export const defaultUiPreferences: UiPreferences = {
   themeMode: 'graphite-light',
   uiFont: 'sf-pro',
   monoFont: 'jetbrains-mono',
+  uiFontSize: 'medium',
   ambientLightingEnabled: true,
   ambientLightingIntensity: 'medium',
 }
@@ -41,6 +44,20 @@ export const monoFontOptions: Array<{ value: MonoFont; label: string }> = [
   { value: 'cascadia-code', label: 'Cascadia Code' },
   { value: 'fira-code', label: 'Fira Code' },
 ]
+
+export const uiFontSizeOptions: Array<{ value: UiFontSize; labelKey: TranslationKey }> = [
+  { value: 'small', labelKey: 'displayPreferences.fontSizeSmall' },
+  { value: 'medium', labelKey: 'displayPreferences.fontSizeMedium' },
+  { value: 'large', labelKey: 'displayPreferences.fontSizeLarge' },
+  { value: 'xlarge', labelKey: 'displayPreferences.fontSizeXLarge' },
+]
+
+const uiFontSizeCssMap: Record<UiFontSize, string> = {
+  small: '13px',
+  medium: '14px',
+  large: '15px',
+  xlarge: '16px',
+}
 
 const uiFontCssMap: Record<UiFont, string> = {
   'sf-pro': "'SF Pro Text', 'Segoe UI Variable', 'PingFang SC', 'Noto Sans CJK SC', sans-serif",
@@ -70,6 +87,11 @@ export function loadUiPreferences(): UiPreferences {
       themeMode: parsed.themeMode ?? defaultUiPreferences.themeMode,
       uiFont: parsed.uiFont ?? defaultUiPreferences.uiFont,
       monoFont: parsed.monoFont ?? defaultUiPreferences.monoFont,
+      uiFontSize:
+        parsed.uiFontSize === 'small' || parsed.uiFontSize === 'medium' ||
+        parsed.uiFontSize === 'large' || parsed.uiFontSize === 'xlarge'
+          ? parsed.uiFontSize
+          : defaultUiPreferences.uiFontSize,
       ambientLightingEnabled:
         typeof parsed.ambientLightingEnabled === 'boolean'
           ? parsed.ambientLightingEnabled
@@ -103,4 +125,5 @@ export function applyUiPreferences(preferences: UiPreferences): void {
   root.dataset.ambientIntensity = preferences.ambientLightingIntensity
   root.style.setProperty('--vb-font-ui', uiFontCssMap[preferences.uiFont])
   root.style.setProperty('--vb-font-mono', monoFontCssMap[preferences.monoFont])
+  root.style.setProperty('--vb-font-size-base', uiFontSizeCssMap[preferences.uiFontSize])
 }

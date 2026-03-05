@@ -7,6 +7,7 @@ import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import { StationXtermTerminal, type StationTerminalSink } from './StationXtermTerminal'
+import type { StationChannelBotBindingSummary } from './channel-bot-binding-model'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
@@ -28,6 +29,16 @@ const roleKeyMap: Record<
 
 function roleLabel(locale: Locale, role: StationRole): string {
   return t(locale, roleKeyMap[role])
+}
+
+function stationChannelLabel(locale: Locale, channel: string): string {
+  if (channel === 'telegram') {
+    return 'Telegram'
+  }
+  if (channel === 'feishu') {
+    return t(locale, '飞书', 'Feishu')
+  }
+  return channel
 }
 
 interface StationIconButtonProps {
@@ -156,6 +167,7 @@ interface StationCardProps {
   active: boolean
   runtime?: StationTerminalRuntime
   taskSignal?: StationTaskSignal
+  channelBotBindings?: StationChannelBotBindingSummary[]
   isFullscreen: boolean
   isFullscreenMode: boolean
   onSelectStation: (stationId: string) => void
@@ -191,6 +203,7 @@ function StationCardView({
   active,
   runtime,
   taskSignal,
+  channelBotBindings,
   isFullscreen,
   isFullscreenMode,
   onSelectStation,
@@ -306,6 +319,12 @@ function StationCardView({
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
   const unreadLabel =
     runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
+  const channelBindingSummaries = channelBotBindings ?? []
+  const visibleChannelBindingSummaries = channelBindingSummaries.slice(0, 2)
+  const hiddenChannelBindingCount = Math.max(
+    0,
+    channelBindingSummaries.length - visibleChannelBindingSummaries.length,
+  )
   const requestTerminalFocus = useCallback(() => {
     pendingTerminalFocusRef.current = true
     terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
@@ -410,7 +429,31 @@ function StationCardView({
       <header className="station-window-header">
         <div className="station-window-title-wrap">
           <h3>{station.name}</h3>
-          <p>{roleLabel(locale, station.role)}</p>
+          <div className="station-window-title-subline">
+            <p>{roleLabel(locale, station.role)}</p>
+            {visibleChannelBindingSummaries.length > 0 ? (
+              <div className="station-header-bot-chips" aria-label={t(locale, 'station.channelBindings.aria')}>
+                {visibleChannelBindingSummaries.map((summary) => (
+                  <span
+                    key={`${station.id}:${summary.channel}:${summary.accountId}`}
+                    className="station-header-bot-chip"
+                    title={t(locale, 'station.channelBindings.botRoute', {
+                      channel: stationChannelLabel(locale, summary.channel),
+                      accountId: summary.accountId,
+                      count: summary.routeCount,
+                    })}
+                  >
+                    {summary.accountId}
+                  </span>
+                ))}
+                {hiddenChannelBindingCount > 0 ? (
+                  <span className="station-header-bot-chip station-header-bot-chip-muted">
+                    {t(locale, 'station.channelBindings.more', { count: hiddenChannelBindingCount })}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         {unreadLabel ? (
           <span
@@ -498,6 +541,29 @@ function StationCardView({
   )
 }
 
+function areStationChannelBindingsEqual(
+  prev: StationChannelBotBindingSummary[] | undefined,
+  next: StationChannelBotBindingSummary[] | undefined,
+): boolean {
+  const prevItems = prev ?? []
+  const nextItems = next ?? []
+  if (prevItems.length !== nextItems.length) {
+    return false
+  }
+  for (let index = 0; index < prevItems.length; index += 1) {
+    const prevItem = prevItems[index]
+    const nextItem = nextItems[index]
+    if (
+      prevItem.channel !== nextItem.channel ||
+      prevItem.accountId !== nextItem.accountId ||
+      prevItem.routeCount !== nextItem.routeCount
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps): boolean {
   return (
     prev.locale === next.locale &&
@@ -509,7 +575,8 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&
-    (prev.taskSignal?.taskId ?? null) === (next.taskSignal?.taskId ?? null)
+    (prev.taskSignal?.taskId ?? null) === (next.taskSignal?.taskId ?? null) &&
+    areStationChannelBindingsEqual(prev.channelBotBindings, next.channelBotBindings)
   )
 }
 

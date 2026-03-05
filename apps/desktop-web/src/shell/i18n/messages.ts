@@ -276,6 +276,15 @@ export const messages = {
   'station.runtime.idle': { 'zh-CN': '空闲', 'en-US': 'Idle' },
   'station.runtime.exited': { 'zh-CN': '已退出', 'en-US': 'Exited' },
   'station.runtime.killed': { 'zh-CN': '已终止', 'en-US': 'Killed' },
+  'station.channelBindings.aria': { 'zh-CN': '通道机器人绑定', 'en-US': 'Channel Bot Bindings' },
+  'station.channelBindings.botRoute': {
+    'zh-CN': '{channel} · Bot {accountId} · {count} 条',
+    'en-US': '{channel} · Bot {accountId} · {count} routes',
+  },
+  'station.channelBindings.more': {
+    'zh-CN': '+{count} 个更多',
+    'en-US': '+{count} more',
+  },
   'pane.tasks.title': { 'zh-CN': '任务队列', 'en-US': 'Task Queue' },
   'pane.tasks.subtitle': {
     'zh-CN': '查看任务状态、重试和阻塞链路',
@@ -516,6 +525,16 @@ export const messages = {
     'en-US': 'Manage display preferences and channel onboarding in one place',
   },
   'settingsModal.close': { 'zh-CN': '关闭', 'en-US': 'Close' },
+  'settingsModal.nav.general': { 'zh-CN': '通用', 'en-US': 'General' },
+  'settingsModal.nav.channels': { 'zh-CN': '外部通道', 'en-US': 'External Channels' },
+  'settingsModal.nav.about': { 'zh-CN': '关于', 'en-US': 'About' },
+  'displayPreferences.fontSize': { 'zh-CN': '字体大小', 'en-US': 'Font Size' },
+  'displayPreferences.fontSizeSmall': { 'zh-CN': '小', 'en-US': 'Small' },
+  'displayPreferences.fontSizeMedium': { 'zh-CN': '中（默认）', 'en-US': 'Medium (Default)' },
+  'displayPreferences.fontSizeLarge': { 'zh-CN': '大', 'en-US': 'Large' },
+  'displayPreferences.fontSizeXLarge': { 'zh-CN': '超大', 'en-US': 'XLarge' },
+
+
   'settings.channel.entry.title': { 'zh-CN': 'Channel 管理', 'en-US': 'Channel Management' },
   'settings.channel.entry.subtitle': {
     'zh-CN': '在独立弹窗中集中管理 Telegram/飞书机器人、路由绑定、准入策略和健康检查。',
@@ -528,6 +547,22 @@ export const messages = {
   'settings.channel.entry.defaultModeValue': {
     'zh-CN': 'Telegram polling',
     'en-US': 'Telegram polling',
+  },
+  'settings.channel.entry.botLabel': {
+    'zh-CN': 'Bot: {accountId}',
+    'en-US': 'Bot: {accountId}',
+  },
+  'settings.channel.entry.routeCount': {
+    'zh-CN': '{count} 条路由',
+    'en-US': '{count} routes',
+  },
+  'settings.channel.entry.targetMore': {
+    'zh-CN': '+{count} 个目标',
+    'en-US': '+{count} targets',
+  },
+  'settings.channel.entry.noTarget': {
+    'zh-CN': '未绑定目标规则',
+    'en-US': 'No routing targets bound',
   },
   'settings.channel.entry.webhookRequirement': {
     'zh-CN': 'Webhook 要求',

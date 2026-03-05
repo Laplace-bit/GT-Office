@@ -171,7 +171,7 @@ function StationXtermTerminalView({
           cursorStyle: 'bar',
           cursorWidth: 2,
           fontFamily: readCssVar('--vb-font-mono'),
-          fontSize: 12,
+          fontSize: Math.max(10, parseInt(readCssVar('--vb-font-size-base') || '14', 10) - 1),
           fontWeight: '500',
           fontWeightBold: '700',
           scrollback: 4000,
@@ -384,6 +384,7 @@ function StationXtermTerminalView({
       return
     }
     terminal.options.fontFamily = readCssVar('--vb-font-mono')
+    terminal.options.fontSize = Math.max(10, parseInt(readCssVar('--vb-font-size-base') || '14', 10) - 1)
     terminal.options.theme = getTerminalTheme()
     terminal.options.cursorStyle = 'bar'
     terminal.options.cursorWidth = 2

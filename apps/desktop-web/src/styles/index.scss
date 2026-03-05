@@ -16,6 +16,7 @@
 
 @layer features {
   @include meta.load-css('features/shell/layout');
+  @include meta.load-css('features/shell/settings');
   @include meta.load-css('features/git/pane');
   @include meta.load-css('features/git/diff-viewer');
 }

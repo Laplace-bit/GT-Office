@@ -3,10 +3,12 @@ import {
   monoFontOptions,
   themeOptions,
   uiFontOptions,
+  uiFontSizeOptions,
   type AmbientLightingIntensity,
   type MonoFont,
   type ThemeMode,
   type UiFont,
+  type UiFontSize,
 } from '../state/ui-preferences'
 
 interface DisplayPreferencesProps {
@@ -14,12 +16,14 @@ interface DisplayPreferencesProps {
   themeMode: ThemeMode
   uiFont: UiFont
   monoFont: MonoFont
+  uiFontSize: UiFontSize
   ambientLightingEnabled: boolean
   ambientLightingIntensity: AmbientLightingIntensity
   onLocaleChange: (value: Locale) => void
   onThemeModeChange: (value: ThemeMode) => void
   onUiFontChange: (value: UiFont) => void
   onMonoFontChange: (value: MonoFont) => void
+  onUiFontSizeChange: (value: UiFontSize) => void
   onAmbientLightingChange: (enabled: boolean) => void
   onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
 }
@@ -29,12 +33,14 @@ export function DisplayPreferences({
   themeMode,
   uiFont,
   monoFont,
+  uiFontSize,
   ambientLightingEnabled,
   ambientLightingIntensity,
   onLocaleChange,
   onThemeModeChange,
   onUiFontChange,
   onMonoFontChange,
+  onUiFontSizeChange,
   onAmbientLightingChange,
   onAmbientLightingIntensityChange,
 }: DisplayPreferencesProps) {
@@ -88,6 +94,19 @@ export function DisplayPreferences({
           {monoFontOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        {t(locale, 'displayPreferences.fontSize')}
+        <select
+          value={uiFontSize}
+          onChange={(event) => onUiFontSizeChange(event.target.value as UiFontSize)}
+        >
+          {uiFontSizeOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {t(locale, option.labelKey)}
             </option>
           ))}
         </select>

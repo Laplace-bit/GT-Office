@@ -7,6 +7,7 @@ import { t } from '../i18n/ui-locale'
 import type { StationTerminalSink } from './StationXtermTerminal'
 import { StationCard } from './StationCard'
 import { AppIcon } from '../ui/icons'
+import type { StationChannelBotBindingSummary } from './channel-bot-binding-model'
 
 interface StationTerminalRuntime {
   sessionId: string | null
@@ -37,6 +38,7 @@ interface WorkbenchCanvasProps {
   activeStationId: string
   terminalByStation: Record<string, StationTerminalRuntime>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
+  channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   onSelectStation: (stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
@@ -90,6 +92,7 @@ function WorkbenchCanvasView({
   activeStationId,
   terminalByStation,
   taskSignalByStationId,
+  channelBotBindingsByStationId = {},
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -403,6 +406,7 @@ function WorkbenchCanvasView({
               active={fullscreenStation.id === activeStationId}
               runtime={terminalByStation[fullscreenStation.id]}
               taskSignal={taskSignalByStationId[fullscreenStation.id]}
+              channelBotBindings={channelBotBindingsByStationId[fullscreenStation.id]}
               isFullscreen
               isFullscreenMode
               onSelectStation={onSelectStation}
@@ -455,6 +459,7 @@ function WorkbenchCanvasView({
                         active={station.id === activeStationId}
                         runtime={terminalByStation[station.id]}
                         taskSignal={taskSignalByStationId[station.id]}
+                        channelBotBindings={channelBotBindingsByStationId[station.id]}
                         isFullscreen={false}
                         isFullscreenMode={false}
                         onSelectStation={onSelectStation}
@@ -493,6 +498,7 @@ function WorkbenchCanvasView({
                 active={station.id === activeStationId}
                 runtime={terminalByStation[station.id]}
                 taskSignal={taskSignalByStationId[station.id]}
+                channelBotBindings={channelBotBindingsByStationId[station.id]}
                 isFullscreen={false}
                 isFullscreenMode={false}
                 onSelectStation={onSelectStation}
