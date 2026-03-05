@@ -305,8 +305,6 @@ $ role: ${station.role}
 $ role_dir: ${station.roleWorkdirRel}
 $ agent_dir: ${station.agentWorkdirRel}
 $ tool: ${station.tool}
-
-> ${t(locale, 'workbench.noLiveOutput')}
 `
 }
 

@@ -63,6 +63,17 @@ fn api_base_url(token: &str) -> String {
     format!("https://api.telegram.org/bot{}", token.trim())
 }
 
+/// Convert a peer_id string to the correct JSON type for chat_id.
+/// Telegram's JSON API requires numeric IDs as JSON integers;
+/// channel usernames (e.g. "@channelusername") remain as strings.
+fn parse_chat_id(peer_id: &str) -> serde_json::Value {
+    if let Ok(numeric_id) = peer_id.parse::<i64>() {
+        serde_json::json!(numeric_id)
+    } else {
+        serde_json::json!(peer_id)
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn looks_like_windows_schannel_error(stderr: &str) -> bool {
     let lower = stderr.to_ascii_lowercase();
@@ -251,6 +262,41 @@ pub(super) fn telegram_get_updates(
     })
 }
 
+/// Send a chat action (e.g. "typing") to indicate the bot is processing.
+///
+/// This is a fire-and-forget API call — errors are non-fatal and should be
+/// handled gracefully by callers. The typing indicator automatically expires
+/// after ~5 seconds or when a message is sent.
+pub(super) fn telegram_send_chat_action(
+    token: &str,
+    peer_id: &str,
+    action: &str,
+) -> Result<(), String> {
+    let endpoint = format!("{}/sendChatAction", api_base_url(token));
+    let body = serde_json::json!({
+        "chat_id": parse_chat_id(peer_id),
+        "action": action,
+    });
+    let body_str = serde_json::to_string(&body)
+        .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
+
+    let args = vec![
+        "-sS",
+        "--max-time",
+        "5",
+        "-X",
+        "POST",
+        endpoint.as_str(),
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        body_str.as_str(),
+    ];
+
+    let _ = run_curl_json(&args)?;
+    Ok(())
+}
+
 pub(super) fn telegram_send_message(
     token: &str,
     peer_id: &str,
@@ -258,30 +304,31 @@ pub(super) fn telegram_send_message(
     reply_to_message_id: Option<&str>,
 ) -> Result<TelegramSendResult, String> {
     let endpoint = format!("{}/sendMessage", api_base_url(token));
-    let chat_form = format!("chat_id={peer_id}");
-    let text_form = format!("text={text}");
+    let mut body = serde_json::json!({
+        "chat_id": parse_chat_id(peer_id),
+        "text": text,
+    });
+    if let Some(reply_id) = reply_to_message_id
+        .map(str::trim)
+        .filter(|value| value.parse::<i64>().is_ok())
+    {
+        body["reply_to_message_id"] = serde_json::json!(reply_id.parse::<i64>().unwrap_or(0));
+    }
+    let body_str = serde_json::to_string(&body)
+        .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
 
-    let mut args = vec![
+    let args = vec![
         "-sS",
         "--max-time",
         "15",
         "-X",
         "POST",
         endpoint.as_str(),
-        "--data-urlencode",
-        chat_form.as_str(),
-        "--data-urlencode",
-        text_form.as_str(),
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        body_str.as_str(),
     ];
-
-    let reply_form = reply_to_message_id
-        .map(str::trim)
-        .filter(|value| value.parse::<i64>().is_ok())
-        .map(|value| format!("reply_to_message_id={value}"));
-    if let Some(reply_form) = reply_form.as_deref() {
-        args.push("--data-urlencode");
-        args.push(reply_form);
-    }
 
     let payload = run_curl_json(&args)?;
     let response: TelegramApiEnvelope<Value> = parse_envelope(payload)?;
@@ -324,9 +371,13 @@ pub(super) fn telegram_edit_message(
     text: &str,
 ) -> Result<TelegramEditResult, String> {
     let endpoint = format!("{}/editMessageText", api_base_url(token));
-    let chat_form = format!("chat_id={peer_id}");
-    let message_form = format!("message_id={message_id}");
-    let text_form = format!("text={text}");
+    let body = serde_json::json!({
+        "chat_id": parse_chat_id(peer_id),
+        "message_id": message_id.parse::<i64>().unwrap_or(0),
+        "text": text,
+    });
+    let body_str = serde_json::to_string(&body)
+        .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
 
     let args = vec![
         "-sS",
@@ -335,12 +386,10 @@ pub(super) fn telegram_edit_message(
         "-X",
         "POST",
         endpoint.as_str(),
-        "--data-urlencode",
-        chat_form.as_str(),
-        "--data-urlencode",
-        message_form.as_str(),
-        "--data-urlencode",
-        text_form.as_str(),
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        body_str.as_str(),
     ];
 
     let payload = run_curl_json(&args)?;

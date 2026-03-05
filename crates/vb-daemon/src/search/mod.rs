@@ -1,3 +1,3 @@
 mod service;
 
-pub use service::SearchService;
+pub use service::{run_search, SearchService};

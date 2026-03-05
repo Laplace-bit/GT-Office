@@ -7,7 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::time::{sleep, Duration};
-use tracing::warn;
+use tracing::{debug, warn};
 use vb_abstractions::WorkspaceService;
 use vb_agent::{AgentRepository, AgentState, RoleStatus};
 use vb_storage::{SqliteAgentRepository, SqliteStorage};
@@ -497,6 +497,21 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                 }
                             }
                         } else {
+                            // First preview message — send a "typing" indicator
+                            // before the actual message for better UX
+                            if let Err(error) = telegram::send_typing_action(
+                                app,
+                                Some(&candidate.target.account_id),
+                                &candidate.target.peer_id,
+                            )
+                            .await
+                            {
+                                debug!(
+                                    trace_id = %candidate.target.trace_id,
+                                    error = %error,
+                                    "telegram typing action failed (non-fatal)"
+                                );
+                            }
                             telegram::send_text_reply(
                                 app,
                                 Some(&candidate.target.account_id),
@@ -1105,11 +1120,13 @@ Approve this identity in Channel settings or switch policy to open."
             if !accepted_command {
                 Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
             } else {
+                std::thread::sleep(std::time::Duration::from_millis(50));
                 let accepted_submit = state
                     .terminal_provider
                     .write_session(session_id, submit_sequence)
                     .map_err(|error| error.to_string())?;
                 if accepted_submit {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                     // Some interactive CLIs may consume the first Enter for suggestion/menu handling.
                     // Send a second hard Enter to make external inbound submission deterministic.
                     let _ = state

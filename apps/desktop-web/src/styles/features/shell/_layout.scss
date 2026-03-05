@@ -3192,14 +3192,12 @@ textarea:focus:not(.xterm-helper-textarea) {
 }
 
 .station-meta-compact {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   align-items: center;
-  gap: 6px 10px;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in srgb, var(--vb-border) 78%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--vb-surface-muted) 86%, transparent);
+  gap: 12px;
+  padding: 0 4px 4px;
+  border: none;
+  background: transparent;
   overflow: hidden;
 }
 
@@ -3218,13 +3216,9 @@ textarea:focus:not(.xterm-helper-textarea) {
   height: 100%;
   min-height: 220px;
   overflow: hidden;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--vb-terminal-border) 92%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--vb-terminal-bg-top, var(--vb-terminal-bg)) 98%, transparent),
-    color-mix(in srgb, var(--vb-terminal-bg) 94%, transparent)
-  );
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--vb-terminal-bg);
   color: var(--vb-terminal-text);
   outline: none;
   transition: box-shadow 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -3278,34 +3272,28 @@ textarea:focus:not(.xterm-helper-textarea) {
 .station-terminal-host .xterm .xterm-viewport {
   background: color-mix(in srgb, var(--vb-terminal-bg) 96%, transparent) !important;
   border-radius: 8px;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--vb-terminal-scrollbar-thumb) var(--vb-terminal-scrollbar-track);
+  /* Hide native scrollbar entirely – xterm renders its own custom overlay scrollbar */
+  scrollbar-width: none !important;
 }
 
 .station-terminal-host .xterm .xterm-viewport::-webkit-scrollbar {
-  width: 10px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .station-terminal-host .xterm .xterm-viewport::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .station-terminal-host .xterm .xterm-viewport::-webkit-scrollbar-track {
-  background: var(--vb-terminal-scrollbar-track);
-  border-radius: 999px;
+  display: none !important;
 }
 
 .station-terminal-host .xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--vb-terminal-scrollbar-thumb);
-  border-radius: 999px;
-  border: 2px solid color-mix(in srgb, var(--vb-terminal-bg) 90%, transparent);
-}
-
-.station-terminal-host .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--vb-terminal-scrollbar-thumb-hover);
+  display: none !important;
 }
 
 .station-terminal-host .xterm .xterm-screen {
@@ -3317,9 +3305,10 @@ textarea:focus:not(.xterm-helper-textarea) {
 }
 
 .station-terminal-host .xterm .xterm-scrollable-element .scrollbar.vertical {
-  width: 14px !important;
+  width: 6px !important;
   right: 1px !important;
   border-radius: 999px;
+  overflow: hidden !important;
   background: color-mix(in srgb, var(--vb-terminal-scrollbar-track) 68%, transparent);
   opacity: 0.92;
   transition:
@@ -3327,11 +3316,21 @@ textarea:focus:not(.xterm-helper-textarea) {
     background-color 180ms var(--vb-ease-out);
 }
 
-.station-terminal-host .xterm .xterm-scrollable-element .scrollbar.vertical > .scra {
-  display: none !important;
-  width: 0 !important;
+/* Completely suppress xterm scrollbar arrows (.scra) regardless of JS-injected inline position */
+.station-terminal-host .xterm .xterm-scrollable-element .scrollbar > .scra {
+  max-height: 0 !important;
+  max-width: 0 !important;
   height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
   pointer-events: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important; /* keep display:block so flex/grid don't restore size */
+  font-size: 0 !important;
+  line-height: 0 !important;
 }
 
 .station-terminal-host .xterm .xterm-scrollable-element .scrollbar.vertical.fade {
@@ -3343,8 +3342,8 @@ textarea:focus:not(.xterm-helper-textarea) {
 }
 
 .station-terminal-host .xterm .xterm-scrollable-element .scrollbar.vertical .slider {
-  left: 3px !important;
-  width: 8px !important;
+  left: 1px !important;
+  width: 4px !important;
   border-radius: 999px !important;
   border: 1px solid color-mix(in srgb, var(--vb-terminal-bg) 86%, transparent);
   background: linear-gradient(

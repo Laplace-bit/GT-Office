@@ -21,7 +21,32 @@
       "Bash(npm run build:*)",
       "Bash(npx eslint:*)",
       "Bash(cargo metadata:*)",
-      "mcp__context7__query-docs"
+      "mcp__context7__query-docs",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(cargo test --lib app_state 2>&1 | tail -100)",
+      "Bash(cargo test --lib app_state 2>&1 | tail -50)",
+      "Bash(cargo test --lib app_state 2>&1 | tail -30)",
+      "Bash(cargo test --lib app_state 2>&1 | grep -E \"\\(test result:|FAILED|passed\\)\")",
+      "Bash(cargo test --lib app_state::tests::sanitize_terminal_chunk_handles_crlf_correctly 2>&1 | tail -20)",
+      "Bash(cargo test --lib app_state::tests::normalize_terminal_text_handles_cr_correctly 2>&1 | tail -20)",
+      "Bash(cargo test --lib normalize_terminal_text_handles_cr_correctly 2>&1 | grep -A 20 \"test app_state\")",
+      "Bash(cargo test --lib sanitize_terminal_chunk_handles_crlf_correctly 2>&1 | grep -A 30 \"test app_state\")",
+      "Bash(cargo tree -p strip-ansi-escapes 2>&1 | head -5)",
+      "Bash(cat > /tmp/test_strip.txt << 'EOF'\nInput bytes: b\"overwrite\\\\rreplace\"\nAfter from_utf8_lossy: \"overwrite\\\\rreplace\"\nAfter strip_ansi_escapes::strip_str: should still be \"overwrite\\\\rreplace\"\nAfter normalize_terminal_text: should be \"replace\"\n\nThe issue is that strip_str might be doing something unexpected with \\\\r.\nLet me check if it's treating \\\\r as a control character.\nEOF\ncat /tmp/test_strip.txt)",
+      "Bash(cargo test --lib sanitize_terminal_chunk_handles_crlf_correctly 2>&1 | tail -25)",
+      "Bash(cargo test --lib app_state 2>&1 | grep -E \"\\(sanitize_terminal_chunk_handles_crlf|test result\\)\")",
+      "Bash(cargo test --lib app_state 2>&1 | grep -E \"^test app_state\" | head -40)",
+      "Bash(cargo test --lib sanitize_terminal_chunk_handles_progress_spinner_overwrites 2>&1 | tail -20)",
+      "Bash(cargo test --lib app_state 2>&1 | grep -E \"\\(test result:|FAILED\\)\")",
+      "Bash(cargo test --lib app_state 2>&1 | grep -E \"\\(test result:|FAILED\\)\" | head -5)",
+      "Bash(cargo test --lib sanitize_terminal_chunk_strips_ansi 2>&1 | grep -A 10 \"panicked\")",
+      "Bash(cargo test --lib sanitize_terminal_chunk_handles_progress_spinner_overwrites 2>&1 | grep -A 10 \"panicked\")",
+      "Bash(cargo test --lib app_state 2>&1 | grep -E \"test result:\")",
+      "Bash(cd /mnt/c/personal/vbCode/apps/desktop-tauri/src-tauri && cargo test --lib app_state -- --nocapture 2>&1 | head -100)",
+      "Bash(cargo test test_user_reported_issue_with_menu_and_status_bar -- --nocapture 2>&1)",
+      "Bash(cargo test normalize_reply_text_filters_menu_items_and_status_bars -- --nocapture 2>&1)",
+      "Bash(awk 'BEGIN {indent=0} /^#\\\\[cfg\\\\\\(test\\\\\\)\\\\]/ {next} /^pub mod tests \\\\{/ || /^mod tests \\\\{/ {indent=1; print NR\": START mod tests\"; next} /^}/ && indent==1 {indent=0; print NR\": END mod tests\"; next} indent==1 && /^    #\\\\[test\\\\]/ {print NR\": test inside mod\"}' /mnt/c/personal/vbCode/apps/desktop-tauri/src-tauri/src/app_state_tests.rs)",
+      "Bash(cargo test normalize_reply_text_filters_menu_items_and_status_bars 2>&1 | grep -A 20 \"running 1 test\")"
     ]
   }
 }

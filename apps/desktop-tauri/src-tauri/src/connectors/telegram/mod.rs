@@ -19,7 +19,8 @@ use crate::{app_state::AppState, commands::channel_adapter::process_external_inb
 use super::credential_store::{load_secret, store_secret};
 use api::{
     telegram_delete_webhook, telegram_edit_message, telegram_get_me, telegram_get_updates,
-    telegram_get_webhook_info, telegram_send_message, telegram_set_webhook,
+    telegram_get_webhook_info, telegram_send_chat_action, telegram_send_message,
+    telegram_set_webhook,
 };
 use inbound::parse_telegram_update;
 use offset_store::{read_offset, write_offset};
@@ -576,6 +577,44 @@ pub async fn sync_runtime_webhook(
         },
         checked_at_ms: now_ms(),
     })
+}
+
+/// Send a "typing" chat action to the Telegram chat to indicate the bot is
+/// composing a reply. This should be called before the first preview message
+/// is sent. The indicator automatically expires after ~5s or when a message
+/// is delivered.
+pub async fn send_typing_action(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    peer_id: &str,
+) -> Result<(), String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+
+    let account_id = normalize_account_id(account_id);
+    let key = account_id.to_ascii_lowercase();
+    let store = load_store(app)?;
+    let Some(record) = store.telegram_accounts.get(&key).cloned() else {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_NOT_FOUND: telegram account {}",
+            account_id
+        ));
+    };
+    if !record.enabled {
+        return Err("CHANNEL_CONNECTOR_DISABLED: telegram account is disabled".to_string());
+    }
+
+    let token = load_bot_token(&record)?;
+    let peer_owned = peer_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        telegram_send_chat_action(&token, &peer_owned, "typing")
+    })
+    .await
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+
+    Ok(())
 }
 
 pub async fn send_text_reply(

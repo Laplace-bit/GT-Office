@@ -65,8 +65,8 @@ export const messages = {
     'en-US': 'Click here, type directly, and press Enter',
   },
   'workbench.noLiveOutput': {
-    'zh-CN': '暂无实时输出。点击“启动终端会话”或“启动 CLI Agent”。',
-    'en-US': 'No live output yet. Launch a terminal session or start a CLI agent.',
+    'zh-CN': '',
+    'en-US': '',
   },
 
   'fileContent.title': { 'zh-CN': '文件编辑器', 'en-US': 'File Editor' },

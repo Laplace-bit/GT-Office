@@ -333,9 +333,7 @@ impl AppState {
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
             let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
             let should_finalize_with_text = has_text
-                && (session.ended
-                    || expired
-                    || (session.preview_message_id.is_some() && idle_elapsed));
+                && (session.ended || expired || idle_elapsed);
             let should_drop_without_text = !has_text && (session.ended || expired);
 
             if should_finalize_with_text || should_drop_without_text {
@@ -408,54 +406,62 @@ fn trim_utf8_tail(buffer: &mut String, max_bytes: usize) {
 }
 
 fn sanitize_terminal_chunk(chunk: &[u8]) -> String {
-    let raw = String::from_utf8_lossy(chunk);
-    strip_ansi_sequences(&raw)
+    // First convert to string, preserving \r for proper handling
+    let raw_text = String::from_utf8_lossy(chunk);
+    // Strip ANSI escapes (note: strip_ansi_escapes silently drops \r via VTE parser)
+    // So we need to handle \r before stripping, or use a different approach
+    // Let's normalize \r first, then strip ANSI
+    let normalized_cr = normalize_carriage_returns(&raw_text);
+    let stripped = strip_ansi_escapes::strip_str(&normalized_cr);
+    normalize_terminal_text(&stripped)
 }
 
-fn strip_ansi_sequences(input: &str) -> String {
+/// Pre-process carriage returns before ANSI stripping.
+/// This is necessary because strip_ansi_escapes uses VTE parser which silently
+/// drops \r characters, preventing us from handling terminal overwrites correctly.
+fn normalize_carriage_returns(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            match chars.peek().copied() {
-                Some('[') => {
-                    let _ = chars.next();
-                    for next in chars.by_ref() {
-                        if ('@'..='~').contains(&next) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                Some(']') => {
-                    let _ = chars.next();
-                    let mut prev_escape = false;
-                    for next in chars.by_ref() {
-                        if next == '\u{7}' {
-                            break;
-                        }
-                        if prev_escape && next == '\\' {
-                            break;
-                        }
-                        prev_escape = next == '\u{1b}';
-                    }
-                    continue;
-                }
-                _ => continue,
-            }
-        }
         if ch == '\r' {
-            output.push('\n');
-            continue;
+            // Check if \n follows (standard line ending \r\n)
+            if chars.peek() == Some(&'\n') {
+                // \r\n is a standard line ending, just convert to \n
+                output.push('\n');
+                let _ = chars.next();
+            } else {
+                // Lone \r clears the current line (for terminal overwriting)
+                if let Some(last_newline_pos) = output.rfind('\n') {
+                    output.truncate(last_newline_pos + 1);
+                } else {
+                    output.clear();
+                }
+            }
+        } else {
+            output.push(ch);
         }
-        if ch == '\u{8}' {
-            let _ = output.pop();
-            continue;
+    }
+    output
+}
+
+/// Normalize raw terminal text after ANSI escape sequences have been stripped.
+///
+/// 1. Backspace (BS, 0x08) → pop previous character (terminal overwrite emulation)
+/// 2. Strip remaining control characters except LF and TAB
+/// Note: CR handling is done in normalize_carriage_returns before ANSI stripping
+fn normalize_terminal_text(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\u{8}' => {
+                // Backspace: remove the last character (terminal overwrite emulation)
+                let _ = output.pop();
+            }
+            c if c.is_control() && c != '\n' && c != '\t' => {
+                // Drop all other control characters
+            }
+            c => output.push(c),
         }
-        if ch.is_control() && ch != '\n' && ch != '\t' {
-            continue;
-        }
-        output.push(ch);
     }
     output
 }
@@ -472,6 +478,12 @@ fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
             continue;
         }
         if should_skip_runtime_noise_line(trimmed_end) {
+            continue;
+        }
+        if should_skip_startup_banner_line(trimmed_end) {
+            continue;
+        }
+        if should_skip_log_prefix_line(trimmed_end) {
             continue;
         }
         if is_echo_of_injected_line(trimmed_end, injected_input) {
@@ -513,6 +525,7 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
     if normalized.is_empty() {
         return false;
     }
+    // Terminal percentage indicator (e.g. "100%")
     if normalized
         .strip_suffix('%')
         .is_some_and(|prefix| !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_digit()))
@@ -520,25 +533,250 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
         return true;
     }
     let lower = normalized.to_ascii_lowercase();
+    // Agent status/working indicators (tool-agnostic)
     if lower.contains("esc to interrupt") {
         return true;
     }
     if lower.contains("implement {feature}") {
         return true;
     }
-    if lower.starts_with("› ") && normalized.chars().count() <= 3 {
-        return true;
-    }
     if lower.starts_with("• working") || lower.starts_with("working (") {
         return true;
     }
-    if lower.contains("gpt-") && lower.contains("·") && lower.contains("% left") {
+    // Empty prompt marker (e.g. just "› " with nothing after)
+    if lower.starts_with("› ") && normalized.chars().count() <= 3 {
         return true;
     }
-    looks_like_spinner_fragment(normalized)
+    // Menu items with status bar on same line (e.g., "› Command    model · quality · /path")
+    // These lines contain both a menu prompt and a status bar
+    if normalized.contains('›') && normalized.matches('·').count() >= 2 {
+        // Check if there's a path segment after the dots
+        if let Some(after_prompt) = normalized.split('›').nth(1) {
+            if after_prompt.contains('·') {
+                let segments: Vec<&str> = after_prompt.split('·').map(str::trim).collect();
+                let has_path = segments.iter().any(|seg| {
+                    seg.starts_with('/') || seg.starts_with('~') || seg.starts_with("C:\\")
+                        || seg.starts_with("c:\\")
+                });
+                if has_path {
+                    return true;
+                }
+            }
+        }
+    }
+    // Generic status words that appear alone with punctuation (terminal status indicators)
+    // Only match when they appear as standalone status messages, not as part of content
+    if matches!(
+        lower.as_str(),
+        "ready." | "done." | "complete." | "completed." | "finished." | "ok." | "success."
+    ) {
+        return true;
+    }
+    // Help hints and usage tips
+    if lower.starts_with("type ") && (lower.contains("help") || lower.contains("for more")) {
+        return true;
+    }
+    if lower.contains("press ") && (lower.contains("to ") || lower.contains("for ")) {
+        return true;
+    }
+    // Generalized TUI status bar detection (works across Codex CLI, Claude
+    // Code, Gemini CLI, and any ratatui/ink/blessed-based TUI agent)
+    if is_tui_status_bar_line(normalized) {
+        return true;
+    }
+    is_known_spinner_token(normalized)
 }
 
-fn looks_like_spinner_fragment(line: &str) -> bool {
+/// Detect TUI status bar lines by structural pattern.
+///
+/// CLI agent TUIs (Codex, Claude Code, Gemini CLI, etc.) render status bars
+/// that share a common structural pattern: segments separated by middle-dot
+/// (`·`) containing model info, paths, and resource indicators. This detector
+/// is tool-agnostic — it looks for the structural signature rather than
+/// specific tool names.
+///
+/// Matched patterns include:
+/// - `gpt-5.3-codex · gpt-5.3-codex high · /mnt/c/project · 100%…`
+/// - `claude-sonnet-4 · /home/user/project · 95% left`
+/// - `gemini-2.5-pro · medium · ~/workspace · 42% left`
+/// - `gpt-5.3-codex · gpt-5.3-codex xhigh · /mnt/…` (model + quality + path)
+fn is_tui_status_bar_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    // Must contain at least 2 middle-dot separators (3+ segments)
+    let dot_count = trimmed.matches('·').count();
+    if dot_count < 2 {
+        return false;
+    }
+    let segments: Vec<&str> = trimmed.split('·').map(str::trim).collect();
+    let has_path_segment = segments.iter().any(|seg| {
+        let s = seg.trim();
+        s.starts_with('/')
+            || s.starts_with('~')
+            || s.starts_with("C:\\")
+            || s.starts_with("c:\\")
+            || s.contains("/.")
+            || s.contains("/org/")
+    });
+    let has_resource_segment = segments.iter().any(|seg| {
+        let s = seg.trim().to_ascii_lowercase();
+        s.contains("% left")
+            || s.ends_with('%')
+            || s.ends_with("%…")
+            || s.ends_with("% remaining")
+            || s.contains("tokens")
+            || s.contains("context")
+    });
+
+    // Check for model name patterns (common in AI CLI tools)
+    let has_model_segment = segments.iter().any(|seg| {
+        let s = seg.trim().to_ascii_lowercase();
+        // Model names often contain: gpt, claude, gemini, codex, sonnet, opus, haiku
+        // or quality indicators: high, medium, low, xhigh
+        s.contains("gpt") || s.contains("claude") || s.contains("gemini")
+            || s.contains("codex") || s.contains("sonnet") || s.contains("opus")
+            || s.contains("haiku") || s == "high" || s == "medium" || s == "low"
+            || s == "xhigh" || s.contains("xhigh")
+    });
+
+    // A status bar line typically has:
+    // 1. Path + resource indicator, OR
+    // 2. Path + model name (common pattern: "model · quality · /path"), OR
+    // 3. 3+ segments with path (very likely status bar)
+    has_path_segment && (has_resource_segment || has_model_segment || dot_count >= 3)
+}
+
+/// Detect TUI-padded content fragments.
+///
+/// NOTE: Currently unused. TUI-padded lines often contain legitimate response
+/// content that was cursor-positioned by the TUI framework. We keep this
+/// function for potential future use with additional context-aware heuristics.
+#[allow(dead_code)]
+fn is_tui_padded_fragment(line: &str) -> bool {
+    let total_len = line.len();
+    let trimmed = line.trim_start();
+    let leading_spaces = total_len - trimmed.len();
+    if leading_spaces < 20 {
+        return false;
+    }
+    let content_chars = trimmed.trim_end().chars().count();
+    // TUI padding: lots of whitespace, small content fragment
+    // (content shorter than leading whitespace, and reasonably small)
+    content_chars > 0 && content_chars < leading_spaces && content_chars < 80
+}
+
+/// Skip startup banners, version info, and initialization messages.
+///
+/// CLI tools and agents often output startup information that should not be
+/// included in the response to external channels. This function detects:
+/// - Version information (e.g., "v1.0.0", "version 2.3.4")
+/// - Tool name banners (e.g., "Claude Code", "Gemini CLI")
+/// - Initialization messages (e.g., "Initializing...", "Loading model...")
+/// - Connection status (e.g., "Connected to API", "Authenticating...")
+/// - Configuration messages (e.g., "Configuration loaded", "Settings applied")
+fn should_skip_startup_banner_line(line: &str) -> bool {
+    let normalized = line.trim();
+    if normalized.is_empty() {
+        return false;
+    }
+    let lower = normalized.to_ascii_lowercase();
+
+    // Version patterns: "v1.0.0", "version 2.3", "ver 1.2"
+    if lower.starts_with("v") && lower.chars().nth(1).map_or(false, |c| c.is_ascii_digit()) {
+        return true;
+    }
+    if lower.starts_with("version ") || lower.starts_with("ver ") {
+        return true;
+    }
+
+    // Initialization and loading messages
+    if lower.starts_with("initializing") || lower.starts_with("loading") {
+        return true;
+    }
+    if lower.starts_with("starting") && !lower.contains("task") {
+        return true;
+    }
+
+    // Connection and authentication status
+    if lower.starts_with("connected") || lower.starts_with("authenticating") {
+        return true;
+    }
+    if lower.starts_with("connecting to") || lower.starts_with("authenticated") {
+        return true;
+    }
+
+    // Configuration messages
+    if lower.contains("configuration") && (lower.contains("loaded") || lower.contains("applied")) {
+        return true;
+    }
+    if lower.contains("settings") && (lower.contains("loaded") || lower.contains("applied")) {
+        return true;
+    }
+
+    // Welcome messages and banners (but avoid false positives with actual content)
+    if lower.starts_with("welcome to") || lower.starts_with("welcome!") {
+        return true;
+    }
+
+    // Tool initialization complete messages
+    if matches!(lower.as_str(), "ready." | "initialized." | "started.") {
+        return true;
+    }
+
+    false
+}
+
+/// Skip lines with log level prefixes.
+///
+/// Many CLI tools output structured logs with level prefixes that should not
+/// be included in responses. This function detects:
+/// - Log level prefixes: [INFO], [DEBUG], [WARN], [ERROR], [STATUS], [TRACE]
+/// - Timestamp prefixes: [2024-03-04 10:30:45], [10:30:45]
+/// - Combined patterns: [INFO] [2024-03-04] message
+fn should_skip_log_prefix_line(line: &str) -> bool {
+    let normalized = line.trim();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    // Check for log level prefixes at the start
+    let lower = normalized.to_ascii_lowercase();
+    if lower.starts_with("[info]")
+        || lower.starts_with("[debug]")
+        || lower.starts_with("[warn]")
+        || lower.starts_with("[warning]")
+        || lower.starts_with("[error]")
+        || lower.starts_with("[status]")
+        || lower.starts_with("[trace]")
+        || lower.starts_with("[log]")
+    {
+        return true;
+    }
+
+    // Check for timestamp patterns: [YYYY-MM-DD HH:MM:SS] or [HH:MM:SS]
+    if normalized.starts_with('[') {
+        if let Some(end_bracket) = normalized.find(']') {
+            let bracket_content = &normalized[1..end_bracket];
+            // Timestamp pattern: contains digits, colons, and possibly dashes/spaces
+            if bracket_content.len() >= 8
+                && bracket_content
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || matches!(c, ':' | '-' | ' ' | '.'))
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Match only known terminal spinner/progress partial rendering tokens.
+/// These are fragmentary text that appear during progressive rendering of
+/// "Working" or similar status indicators.
+///
+/// IMPORTANT: This function intentionally uses a closed set of known tokens
+/// rather than heuristic matching, to avoid eating legitimate short content.
+fn is_known_spinner_token(line: &str) -> bool {
     let stripped = line
         .trim_start_matches(|ch: char| {
             ch.is_whitespace() || matches!(ch, '•' | '◦' | '›' | '>' | '|' | '.')
@@ -547,20 +785,12 @@ fn looks_like_spinner_fragment(line: &str) -> bool {
     if stripped.is_empty() {
         return true;
     }
-    if stripped.len() <= 2 && stripped.chars().all(|ch| ch.is_ascii_digit()) {
-        return true;
-    }
+    // Non-ASCII content is never a spinner token — this protects CJK, emoji, etc.
     if !stripped.is_ascii() {
         return false;
     }
-    if stripped.len() <= 8
-        && stripped
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-    {
-        return true;
-    }
     let token = stripped.to_ascii_lowercase();
+    // Closed set: partial renderings of "Working" and known transient fragments
     matches!(
         token.as_str(),
         "w" | "wo"
@@ -569,17 +799,6 @@ fn looks_like_spinner_fragment(line: &str) -> bool {
             | "worki"
             | "workin"
             | "working"
-            | "o"
-            | "or"
-            | "r"
-            | "rk"
-            | "k"
-            | "ki"
-            | "i"
-            | "in"
-            | "n"
-            | "ng"
-            | "g"
             | "wng"
             | "wog"
             | "wlen"
@@ -587,12 +806,29 @@ fn looks_like_spinner_fragment(line: &str) -> bool {
     )
 }
 
+/// Skip lines that are purely CLI prompt markers with a command/placeholder.
+/// Only skips when the prompt character is followed by content that looks like
+/// a CLI command or empty prompt — not arbitrary user content.
 fn should_skip_cli_prompt_line(line: &str) -> bool {
     let trimmed = line.trim_start();
-    trimmed.starts_with("› ")
-        || trimmed.starts_with("❯ ")
-        || trimmed.starts_with("$ ")
-        || trimmed == ">"
+    // Bare prompt characters with no meaningful content
+    if trimmed == ">" || trimmed == "$" || trimmed == "›" || trimmed == "❯" {
+        return true;
+    }
+    // Prompt followed by a command-like token (starts with prompt char + space)
+    if let Some(after) = trimmed
+        .strip_prefix("› ")
+        .or_else(|| trimmed.strip_prefix("❯ "))
+        .or_else(|| trimmed.strip_prefix("$ "))
+    {
+        let after = after.trim();
+        // Skip if the content after prompt looks like a typed command
+        // (contains only ASCII, common CLI patterns)
+        if after.is_ascii() || after.is_empty() {
+            return true;
+        }
+    }
+    false
 }
 
 fn normalize_prompt_prefixed_line(line: &str) -> &str {
@@ -612,6 +848,12 @@ fn is_echo_of_injected_line(line: &str, injected_input: Option<&str>) -> bool {
     normalize_prompt_prefixed_line(line) == injected
 }
 
+/// Extract the last assistant response block from terminal output.
+///
+/// Assistant blocks start with a line beginning with `• ` (not `• working`).
+/// Once inside a block, content is preserved faithfully. Only known TUI
+/// artifacts (status bars, padded fragments) and interleaved prompts are
+/// skipped to avoid eating legitimate response content.
 fn extract_last_assistant_block(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut start: Option<usize> = None;
@@ -632,24 +874,20 @@ fn extract_last_assistant_block(text: &str) -> Option<String> {
             }
             continue;
         }
-        if should_skip_runtime_noise_line(trimmed) {
-            continue;
-        }
-        if trimmed.starts_with("› ")
-            || trimmed.starts_with("◦ ")
-            || trimmed.starts_with("> ")
-            || trimmed.starts_with("❯ ")
-            || trimmed.starts_with("$ ")
-            || trimmed.starts_with("# ")
-        {
-            // CLI/TUI prompt or transient marker can be interleaved in stream output;
-            // skip it instead of terminating the assistant block early.
-            continue;
-        }
+        // A new assistant block marker terminates the current block
         if trimmed.starts_with("• ") {
             if !trimmed.to_ascii_lowercase().starts_with("• working") {
                 break;
             }
+            // "• Working" lines are status indicators, skip them
+            continue;
+        }
+        // Skip TUI status bar lines that get interleaved during streaming
+        if is_tui_status_bar_line(trimmed) {
+            continue;
+        }
+        // Skip only pure CLI prompt lines that are clearly interleaved
+        if is_interleaved_prompt_line(trimmed) {
             continue;
         }
         result.push(line.trim_end().to_string());
@@ -674,6 +912,20 @@ fn extract_last_assistant_block(text: &str) -> Option<String> {
     } else {
         Some(joined)
     }
+}
+
+/// Detect lines that are clearly interleaved CLI prompts within an assistant block.
+/// Only matches patterns that are unambiguously prompt/TUI artifacts.
+fn is_interleaved_prompt_line(trimmed: &str) -> bool {
+    // Prompt characters followed by ASCII command text (typed commands)
+    for prefix in ["› ", "❯ ", "$ ", "◦ "] {
+        if let Some(after) = trimmed.strip_prefix(prefix) {
+            if after.trim().is_ascii() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn suppress_injected_input_echo(text: &str, injected_input: Option<&str>) -> String {
@@ -707,292 +959,5 @@ fn suppress_injected_input_echo(text: &str, injected_input: Option<&str>) -> Str
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        normalize_reply_text, sanitize_terminal_chunk, should_skip_cli_prompt_line,
-        should_skip_external_reply_line, should_skip_runtime_noise_line, AppState,
-        ExternalReplyDispatchPhase, ExternalReplyRelayTarget,
-    };
-
-    fn now_ms_for_test(value: u64) -> u64 {
-        value
-    }
-
-    #[test]
-    fn sanitize_terminal_chunk_strips_ansi() {
-        let text = sanitize_terminal_chunk(b"\x1b[31mhello\x1b[0m\r\nworld");
-        assert_eq!(text, "hello\n\nworld");
-    }
-
-    #[test]
-    fn normalize_reply_text_collapses_blank_lines() {
-        let normalized = normalize_reply_text("\n\nhello\n\n\nworld\n\n", None);
-        assert_eq!(normalized, "hello\n\nworld");
-    }
-
-    #[test]
-    fn normalize_reply_text_skips_vb_task_assignment_lines() {
-        let normalized = normalize_reply_text(
-            "echo '[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md'\n\
-[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md\n\
-agent output line",
-            None,
-        );
-        assert_eq!(normalized, "agent output line");
-    }
-
-    #[test]
-    fn should_skip_external_reply_line_only_for_vb_task_markers() {
-        assert!(should_skip_external_reply_line(
-            "echo '[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md'"
-        ));
-        assert!(should_skip_external_reply_line(
-            "[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md"
-        ));
-        assert!(!should_skip_external_reply_line("plain agent response"));
-    }
-
-    #[test]
-    fn normalize_reply_text_suppresses_injected_input_echo() {
-        let only_echo = normalize_reply_text("hello world", Some("hello world"));
-        assert_eq!(only_echo, "");
-
-        let with_tail = normalize_reply_text("hello world\nresult line", Some("hello world"));
-        assert_eq!(with_tail, "result line");
-
-        let with_prompt_prefix =
-            normalize_reply_text("> hello world\nagent response", Some("hello world"));
-        assert_eq!(with_prompt_prefix, "agent response");
-    }
-
-    #[test]
-    fn normalize_reply_text_skips_runtime_noise_lines() {
-        let normalized = normalize_reply_text(
-            "› hi\n\
-• Working (0s • esc to interrupt)\n\
-› Implement {feature}\n\
-gpt-5.3-codex · gpt-5.3-codex medium · /mnt/c/personal/vbCode · main · 100% left\n\
-◦\n\
-Wo\n\
-• 哈哈哈 😄\n\
-  在的，你想先从哪个任务开始？",
-            Some("hi"),
-        );
-        assert_eq!(normalized, "• 哈哈哈 😄\n在的，你想先从哪个任务开始？");
-    }
-
-    #[test]
-    fn should_skip_runtime_noise_line_filters_status_and_spinner() {
-        assert!(should_skip_runtime_noise_line(
-            "• Working (0s • esc to interrupt)"
-        ));
-        assert!(should_skip_runtime_noise_line(
-            "gpt-5.3-codex · gpt-5.3-codex medium · /tmp · 100% left"
-        ));
-        assert!(should_skip_runtime_noise_line("› Implement {feature}"));
-        assert!(should_skip_runtime_noise_line("Wo"));
-        assert!(should_skip_runtime_noise_line("Wng1"));
-        assert!(should_skip_runtime_noise_line("100%"));
-        assert!(should_skip_runtime_noise_line("Wng"));
-        assert!(should_skip_runtime_noise_line("Wog"));
-        assert!(!should_skip_runtime_noise_line("• 哈哈哈 😄"));
-    }
-
-    #[test]
-    fn should_skip_cli_prompt_lines() {
-        assert!(should_skip_cli_prompt_line(
-            "› Find and fix a bug in @filename"
-        ));
-        assert!(should_skip_cli_prompt_line("❯ hi"));
-        assert!(should_skip_cli_prompt_line("$ ls"));
-        assert!(!should_skip_cli_prompt_line("• 我在，直接说你想做的事。"));
-    }
-
-    #[test]
-    fn normalize_reply_text_extracts_last_assistant_block() {
-        let normalized = normalize_reply_text(
-            "› Write tests for @filename\n\
-› 👻\n\
-› Write tests for @filename\n\
-Wng1\n\
-Wog\n\
-• 我在，直接说你想做的事。\n\
-› Write tests for @filename\n\
-wlen\n\
-› Write tests for @filename",
-            Some("Write tests for @filename"),
-        );
-        assert_eq!(normalized, "• 我在，直接说你想做的事。");
-    }
-
-    #[test]
-    fn normalize_reply_text_keeps_multiline_block_with_interleaved_prompts() {
-        let normalized = normalize_reply_text(
-            "• 在快与慢之间，找回生活的节奏\n\
-\n\
-› hi\n\
-  城市里的每一天都很快。\n\
-  但真正重要的东西，往往生长得很慢。\n\
-› Write tests for @filename\n\
-  人生不是短跑，而是一场漫长而值得认真走完的旅程。",
-            Some("hi"),
-        );
-        assert_eq!(
-            normalized,
-            "• 在快与慢之间，找回生活的节奏\n\n城市里的每一天都很快。\n但真正重要的东西，往往生长得很慢。\n人生不是短跑，而是一场漫长而值得认真走完的旅程。"
-        );
-    }
-
-    #[test]
-    fn external_reply_flush_is_single_shot_after_idle() {
-        let state = AppState::default();
-        let target = ExternalReplyRelayTarget {
-            trace_id: "trace_1".to_string(),
-            channel: "telegram".to_string(),
-            account_id: "default".to_string(),
-            peer_id: "12345".to_string(),
-            inbound_message_id: "m1".to_string(),
-            workspace_id: "ws".to_string(),
-            target_agent_id: "agent-1".to_string(),
-            injected_input: None,
-        };
-        state
-            .bind_external_reply_session("s1", target, now_ms_for_test(1_000))
-            .expect("bind session");
-        state
-            .append_external_reply_chunk("s1", b"hello", now_ms_for_test(1_100))
-            .expect("append chunk");
-
-        let none_ready = state
-            .take_external_reply_dispatch_candidates(
-                now_ms_for_test(2_000),
-                1_000,
-                10_000,
-                200,
-                usize::MAX,
-            )
-            .expect("take candidates");
-        assert!(none_ready.is_empty());
-
-        let ready = state
-            .take_external_reply_dispatch_candidates(
-                now_ms_for_test(2_200),
-                1_000,
-                10_000,
-                200,
-                usize::MAX,
-            )
-            .expect("take candidates");
-        assert_eq!(ready.len(), 1);
-        assert_eq!(ready[0].phase, ExternalReplyDispatchPhase::Finalize);
-        assert_eq!(ready[0].text, "hello");
-
-        let already_taken = state
-            .take_external_reply_dispatch_candidates(
-                now_ms_for_test(3_500),
-                1_000,
-                10_000,
-                200,
-                usize::MAX,
-            )
-            .expect("take candidates");
-        assert!(already_taken.is_empty());
-    }
-
-    #[test]
-    fn external_reply_binding_kept_when_no_output_yet() {
-        let state = AppState::default();
-        let target = ExternalReplyRelayTarget {
-            trace_id: "trace_2".to_string(),
-            channel: "telegram".to_string(),
-            account_id: "default".to_string(),
-            peer_id: "12345".to_string(),
-            inbound_message_id: "m2".to_string(),
-            workspace_id: "ws".to_string(),
-            target_agent_id: "agent-2".to_string(),
-            injected_input: None,
-        };
-        state
-            .bind_external_reply_session("s2", target, now_ms_for_test(1_000))
-            .expect("bind session");
-
-        let none_ready = state
-            .take_external_reply_dispatch_candidates(
-                now_ms_for_test(4_000),
-                1_000,
-                10_000,
-                200,
-                usize::MAX,
-            )
-            .expect("take candidates");
-        assert!(none_ready.is_empty());
-
-        state
-            .append_external_reply_chunk("s2", b"later reply", now_ms_for_test(4_100))
-            .expect("append chunk");
-        let ready = state
-            .take_external_reply_dispatch_candidates(
-                now_ms_for_test(5_200),
-                1_000,
-                10_000,
-                200,
-                usize::MAX,
-            )
-            .expect("take candidates");
-        assert_eq!(ready.len(), 1);
-        assert_eq!(ready[0].phase, ExternalReplyDispatchPhase::Finalize);
-        assert_eq!(ready[0].text, "later reply");
-    }
-
-    #[test]
-    fn external_reply_dispatch_emits_preview_then_finalize() {
-        let state = AppState::default();
-        let target = ExternalReplyRelayTarget {
-            trace_id: "trace_3".to_string(),
-            channel: "telegram".to_string(),
-            account_id: "default".to_string(),
-            peer_id: "12345".to_string(),
-            inbound_message_id: "m3".to_string(),
-            workspace_id: "ws".to_string(),
-            target_agent_id: "agent-3".to_string(),
-            injected_input: None,
-        };
-        state
-            .bind_external_reply_session("s3", target, now_ms_for_test(1_000))
-            .expect("bind session");
-        state
-            .append_external_reply_chunk(
-                "s3",
-                b"this is a long enough preview text",
-                now_ms_for_test(1_100),
-            )
-            .expect("append chunk");
-
-        let preview = state
-            .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 5_000, 20_000, 200, 10)
-            .expect("take preview candidates");
-        assert_eq!(preview.len(), 1);
-        assert_eq!(preview[0].phase, ExternalReplyDispatchPhase::Preview);
-        assert!(preview[0].preview_message_id.is_none());
-
-        state
-            .set_external_reply_preview_message_id("s3", "msg_telegram_preview")
-            .expect("set preview message");
-        state
-            .mark_external_reply_session_ended("s3", now_ms_for_test(2_500))
-            .expect("mark ended");
-
-        let final_candidates = state
-            .take_external_reply_dispatch_candidates(now_ms_for_test(2_700), 5_000, 20_000, 200, 10)
-            .expect("take final candidates");
-        assert_eq!(final_candidates.len(), 1);
-        assert_eq!(
-            final_candidates[0].phase,
-            ExternalReplyDispatchPhase::Finalize
-        );
-        assert_eq!(
-            final_candidates[0].preview_message_id.as_deref(),
-            Some("msg_telegram_preview")
-        );
-    }
-}
+#[path = "app_state_tests.rs"]
+mod tests;
