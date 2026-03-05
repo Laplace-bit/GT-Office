@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { desktopApi, type AgentRole, type AgentProfile, type ChannelConnectorAccount, type ChannelRouteBinding } from '../../integration/desktop-api'
 import { t, type Locale } from '../../i18n/ui-locale'
-import { buildChannelBotBindingGroups } from '../channel-bot-binding-model'
+import { buildChannelBotBindingGroups, normalizeChannelAccountId } from '../channel-bot-binding-model'
 import { resolveConnectorAccounts } from '../channel-connector-runtime'
 import { ChannelOverview } from './ChannelOverview'
 import { ChannelWizard } from './ChannelWizard'
@@ -23,8 +23,29 @@ function describeError(value: unknown): string {
   return 'unknown'
 }
 
+function buildHealthCheckKey(binding: ChannelRouteBinding): string {
+  return `${binding.channel.trim().toLowerCase()}::${normalizeChannelAccountId(binding.accountId).toLowerCase()}`
+}
+
+function formatCheckedAt(locale: Locale, timestampMs: number): string {
+  if (!Number.isFinite(timestampMs) || timestampMs <= 0) {
+    return locale === 'zh-CN' ? '未知时间' : 'Unknown time'
+  }
+  const localeTag = locale === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return new Intl.DateTimeFormat(localeTag, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(timestampMs))
+}
+
 export function ChannelManagerPane({ locale, workspaceId }: ChannelManagerPaneProps) {
   const [loading, setLoading] = useState(false)
+  const [healthCheckingKey, setHealthCheckingKey] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -119,6 +140,52 @@ export function ChannelManagerPane({ locale, workspaceId }: ChannelManagerPanePr
     }
   }
 
+  const handleHealthCheckBinding = async (binding: ChannelRouteBinding) => {
+    const healthCheckKey = buildHealthCheckKey(binding)
+    setHealthCheckingKey(healthCheckKey)
+    setErrorMessage(null)
+    try {
+      const response = await desktopApi.channelConnectorHealth(binding.channel, binding.accountId ?? null)
+      const health = response.health
+      const healthBotName = (health.botUsername ?? '').trim()
+      const previousBotName = (binding.botName ?? '').trim()
+      if (healthBotName && healthBotName !== previousBotName) {
+        await desktopApi.channelBindingUpsert({
+          ...binding,
+          botName: healthBotName,
+        })
+        await loadBindingsAndRoles()
+      }
+      const botName = healthBotName || previousBotName || normalizeChannelAccountId(binding.accountId)
+      const checkedAt = formatCheckedAt(locale, health.checkedAtMs)
+      if (health.ok) {
+        setStatusMessage(
+          t(locale, '健康检查通过：{bot} · {time}', 'Health check passed: {bot} · {time}', {
+            bot: botName,
+            time: checkedAt,
+          }),
+        )
+        setTimeout(() => setStatusMessage(null), 4000)
+      } else {
+        setErrorMessage(
+          t(locale, '健康检查异常：{bot} · {status} · {detail}', 'Health check failed: {bot} · {status} · {detail}', {
+            bot: botName,
+            status: health.status,
+            detail: health.detail || '-',
+          }),
+        )
+      }
+    } catch (error) {
+      setErrorMessage(
+        t(locale, '健康检查失败: {detail}', 'Health check failed: {detail}', {
+          detail: describeError(error),
+        }),
+      )
+    } finally {
+      setHealthCheckingKey(null)
+    }
+  }
+
   const handleWizardClose = () => {
     setWizardOpen(false)
     setEditingBinding(null)
@@ -177,6 +244,8 @@ export function ChannelManagerPane({ locale, workspaceId }: ChannelManagerPanePr
         agents={agents}
         onEditBinding={handleEditBinding}
         onDeleteBinding={handleDeleteBinding}
+        onHealthCheckBinding={handleHealthCheckBinding}
+        healthCheckingKey={healthCheckingKey}
         loading={loading}
       />
       

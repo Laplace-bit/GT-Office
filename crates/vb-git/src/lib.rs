@@ -402,6 +402,11 @@ where
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if Self::is_not_git_repository_message(&stderr) {
+                return Err(AbstractionError::InvalidArgument {
+                    message: "GIT_REPO_INVALID: not a git repository".to_string(),
+                });
+            }
             return Err(AbstractionError::Internal {
                 message: format!("{error_code}: {stderr}"),
             });
@@ -505,6 +510,13 @@ where
             .collect::<Vec<_>>()
     }
 
+    fn is_not_git_repository_message(message: &str) -> bool {
+        let normalized = message.to_ascii_lowercase();
+        normalized.contains("git_repo_invalid")
+            || normalized.contains("not a git repository")
+            || normalized.contains("must be run in a work tree")
+    }
+
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
     pub fn status(&self, workspace_id: &WorkspaceId) -> AbstractionResult<GitStatusSummary> {
         let root = self.workspace_root(workspace_id)?;
@@ -525,7 +537,7 @@ where
                 Ok(summary) => Ok(summary),
                 Err(error) => {
                     let message = error.to_string();
-                    if message.contains("not a git repository") {
+                    if Self::is_not_git_repository_message(&message) {
                         return Err(AbstractionError::InvalidArgument {
                             message: "GIT_REPO_INVALID: not a git repository".to_string(),
                         });
@@ -1602,5 +1614,3 @@ where
         Ok(entries)
     }
 }
-
-

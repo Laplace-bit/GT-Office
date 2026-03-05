@@ -252,5 +252,3 @@ impl WorkspaceService for InMemoryWorkspaceService {
         Ok(Self::load_session_snapshot(&record.root))
     }
 }
-
-

@@ -9,6 +9,7 @@ import {
   type GitStatusResponse,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
+import { isNotGitRepositoryError } from './git-error'
 
 // ============================================
 // Types
@@ -33,6 +34,7 @@ export interface GitGraphCommitView {
 export interface GitWorkspaceController {
   locale: Locale
   workspaceId: string | null
+  isGitRepository: boolean
   summary: GitStatusResponse | null
   stagedFiles: GitStatusFile[]
   unstagedFiles: GitStatusFile[]
@@ -197,6 +199,7 @@ export function useGitWorkspaceController({
   const [diffPatch, setDiffPatch] = useState('')
   const [diffLoading, setDiffLoading] = useState(false)
   const [metaLoading, setMetaLoading] = useState(false)
+  const [isGitRepository, setIsGitRepository] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
@@ -303,6 +306,7 @@ export function useGitWorkspaceController({
       setStashEntries([])
       setHasMoreHistory(false)
       setHistorySkip(0)
+      setIsGitRepository(true)
       return
     }
     setMetaLoading(true)
@@ -319,8 +323,21 @@ export function useGitWorkspaceController({
         ''
       setCheckoutTarget((prev) => prev || currentBranch)
       await fetchHistoryPage(0, 'replace')
+      setIsGitRepository(true)
       setErrorMessage(null)
     } catch (error) {
+      if (isNotGitRepositoryError(error)) {
+        setLogEntries([])
+        setBranches([])
+        setStashEntries([])
+        setHasMoreHistory(false)
+        setHistorySkip(0)
+        setCheckoutTarget('')
+        setIsGitRepository(false)
+        setErrorMessage(t(locale, 'git.info.notRepository'))
+        return
+      }
+      setIsGitRepository(true)
       setErrorMessage(t(locale, 'git.error.metaLoad', { detail: describeUnknownError(error) }))
     } finally {
       setMetaLoading(false)
@@ -339,17 +356,22 @@ export function useGitWorkspaceController({
         await runner()
         setErrorMessage(null)
       } catch (error) {
-        setErrorMessage(describeUnknownError(error))
+        if (isNotGitRepositoryError(error)) {
+          setIsGitRepository(false)
+          setErrorMessage(t(locale, 'git.info.notRepository'))
+        } else {
+          setErrorMessage(describeUnknownError(error))
+        }
       } finally {
         setActionLoading(null)
       }
     },
-    [],
+    [locale],
   )
 
   const stagePath = useCallback(
     async (path: string) => {
-      if (!workspaceId || !path) {
+      if (!workspaceId || !isGitRepository || !path) {
         return
       }
       await runAction('stage', async () => {
@@ -357,12 +379,12 @@ export function useGitWorkspaceController({
         await refreshAll()
       })
     },
-    [refreshAll, runAction, workspaceId],
+    [isGitRepository, refreshAll, runAction, workspaceId],
   )
 
   const unstagePath = useCallback(
     async (path: string) => {
-      if (!workspaceId || !path) {
+      if (!workspaceId || !isGitRepository || !path) {
         return
       }
       await runAction('unstage', async () => {
@@ -370,11 +392,11 @@ export function useGitWorkspaceController({
         await refreshAll()
       })
     },
-    [refreshAll, runAction, workspaceId],
+    [isGitRepository, refreshAll, runAction, workspaceId],
   )
 
   const stageAll = useCallback(async () => {
-    if (!workspaceId || unstagedFiles.length === 0) {
+    if (!workspaceId || !isGitRepository || unstagedFiles.length === 0) {
       return
     }
     await runAction('stage-all', async () => {
@@ -384,10 +406,10 @@ export function useGitWorkspaceController({
       )
       await refreshAll()
     })
-  }, [refreshAll, runAction, unstagedFiles, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, unstagedFiles, workspaceId])
 
   const unstageAll = useCallback(async () => {
-    if (!workspaceId || stagedFiles.length === 0) {
+    if (!workspaceId || !isGitRepository || stagedFiles.length === 0) {
       return
     }
     await runAction('unstage-all', async () => {
@@ -397,11 +419,11 @@ export function useGitWorkspaceController({
       )
       await refreshAll()
     })
-  }, [refreshAll, runAction, stagedFiles, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, stagedFiles, workspaceId])
 
   const discardPath = useCallback(
     async (path: string, includeUntracked = false) => {
-      if (!workspaceId || !path) {
+      if (!workspaceId || !isGitRepository || !path) {
         return
       }
       if (!window.confirm(t(locale, 'git.confirm.discard', { path }))) {
@@ -412,12 +434,12 @@ export function useGitWorkspaceController({
         await refreshAll()
       })
     },
-    [locale, refreshAll, runAction, workspaceId],
+    [isGitRepository, locale, refreshAll, runAction, workspaceId],
   )
 
   const commit = useCallback(async () => {
     const trimmed = commitMessage.trim()
-    if (!workspaceId || !trimmed) {
+    if (!workspaceId || !isGitRepository || !trimmed) {
       return
     }
     await runAction('commit', async () => {
@@ -425,41 +447,41 @@ export function useGitWorkspaceController({
       setCommitMessage('')
       await refreshAll()
     })
-  }, [commitMessage, refreshAll, runAction, workspaceId])
+  }, [commitMessage, isGitRepository, refreshAll, runAction, workspaceId])
 
   const fetch = useCallback(async () => {
-    if (!workspaceId) {
+    if (!workspaceId || !isGitRepository) {
       return
     }
     await runAction('fetch', async () => {
       await desktopApi.gitFetch(workspaceId)
       await refreshAll()
     })
-  }, [refreshAll, runAction, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, workspaceId])
 
   const pull = useCallback(async () => {
-    if (!workspaceId) {
+    if (!workspaceId || !isGitRepository) {
       return
     }
     await runAction('pull', async () => {
       await desktopApi.gitPull(workspaceId)
       await refreshAll()
     })
-  }, [refreshAll, runAction, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, workspaceId])
 
   const push = useCallback(async () => {
-    if (!workspaceId) {
+    if (!workspaceId || !isGitRepository) {
       return
     }
     await runAction('push', async () => {
       await desktopApi.gitPush(workspaceId)
       await refreshAll()
     })
-  }, [refreshAll, runAction, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, workspaceId])
 
   const checkoutTo = useCallback(async (target: string) => {
     const nextTarget = target.trim()
-    if (!workspaceId || !nextTarget) {
+    if (!workspaceId || !isGitRepository || !nextTarget) {
       return
     }
     setCheckoutTarget(nextTarget)
@@ -467,7 +489,7 @@ export function useGitWorkspaceController({
       await desktopApi.gitCheckout(workspaceId, nextTarget, { create: false })
       await refreshAll()
     })
-  }, [refreshAll, runAction, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, workspaceId])
 
   const checkout = useCallback(async () => {
     await checkoutTo(checkoutTarget)
@@ -475,7 +497,7 @@ export function useGitWorkspaceController({
 
   const createBranch = useCallback(async () => {
     const branch = newBranchName.trim()
-    if (!workspaceId || !branch) {
+    if (!workspaceId || !isGitRepository || !branch) {
       return
     }
     await runAction('create-branch', async () => {
@@ -484,10 +506,10 @@ export function useGitWorkspaceController({
       setCheckoutTarget(branch)
       await refreshAll()
     })
-  }, [newBranchName, refreshAll, runAction, workspaceId])
+  }, [newBranchName, isGitRepository, refreshAll, runAction, workspaceId])
 
   const deleteBranch = useCallback(async () => {
-    if (!workspaceId || !checkoutTarget.trim()) {
+    if (!workspaceId || !isGitRepository || !checkoutTarget.trim()) {
       return
     }
     if (selectedBranchEntry?.current) {
@@ -500,10 +522,18 @@ export function useGitWorkspaceController({
       await desktopApi.gitDeleteBranch(workspaceId, checkoutTarget, false)
       await refreshAll()
     })
-  }, [checkoutTarget, locale, refreshAll, runAction, selectedBranchEntry?.current, workspaceId])
+  }, [
+    checkoutTarget,
+    isGitRepository,
+    locale,
+    refreshAll,
+    runAction,
+    selectedBranchEntry?.current,
+    workspaceId,
+  ])
 
   const stashPush = useCallback(async () => {
-    if (!workspaceId) {
+    if (!workspaceId || !isGitRepository) {
       return
     }
     await runAction('stash-push', async () => {
@@ -513,11 +543,11 @@ export function useGitWorkspaceController({
       setStashMessage('')
       await refreshAll()
     })
-  }, [refreshAll, runAction, stashMessage, workspaceId])
+  }, [isGitRepository, refreshAll, runAction, stashMessage, workspaceId])
 
   const stashPop = useCallback(
     async (stash: string | null) => {
-      if (!workspaceId) {
+      if (!workspaceId || !isGitRepository) {
         return
       }
       await runAction('stash-pop', async () => {
@@ -525,7 +555,7 @@ export function useGitWorkspaceController({
         await refreshAll()
       })
     },
-    [refreshAll, runAction, workspaceId],
+    [isGitRepository, refreshAll, runAction, workspaceId],
   )
 
   const loadOlderHistory = useCallback(async () => {
@@ -549,6 +579,7 @@ export function useGitWorkspaceController({
     setCheckoutTarget('')
     setHistorySkip(0)
     setHasMoreHistory(false)
+    setIsGitRepository(true)
     if (!workspaceId) {
       setLogEntries([])
       setBranches([])
@@ -571,7 +602,7 @@ export function useGitWorkspaceController({
   }, [selectedPath, summary])
 
   useEffect(() => {
-    if (!workspaceId || !selectedPath) {
+    if (!workspaceId || !isGitRepository || !selectedPath) {
       setDiffPatch('')
       setStructuredDiff(null)
       return
@@ -627,12 +658,12 @@ export function useGitWorkspaceController({
           setDiffLoading(false)
         }
       })
-  }, [selectedPath, workspaceId])
+  }, [isGitRepository, selectedPath, workspaceId])
 
   // Preload diff for hover preview (non-blocking, debounced)
   const preloadDiff = useCallback(
     (path: string) => {
-      if (!workspaceId || !path) return
+      if (!workspaceId || !isGitRepository || !path) return
 
       const cacheKey = `${workspaceId}:${path}`
       // Skip if already cached or pending
@@ -658,12 +689,13 @@ export function useGitWorkspaceController({
           pendingPreloadsRef.current.delete(cacheKey)
         })
     },
-    [workspaceId],
+    [isGitRepository, workspaceId],
   )
 
   return {
     locale,
     workspaceId,
+    isGitRepository,
     summary,
     stagedFiles,
     unstagedFiles,

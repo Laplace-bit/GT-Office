@@ -148,6 +148,15 @@
   flex-shrink: 0;
 }
 
+.git-pane__error {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vb-border);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--vb-text-muted);
+  background: color-mix(in srgb, var(--vb-surface-muted) 86%, transparent);
+}
+
 .git-history-switch {
   border: 1px solid color-mix(in srgb, var(--vb-border-strong) 72%, transparent);
   border-radius: var(--vb-radius-full);

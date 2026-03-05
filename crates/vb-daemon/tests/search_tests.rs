@@ -1,7 +1,7 @@
-use vb_daemon::search::run_search;
-use vb_daemon::protocol::{Event, SearchStartRequest, ServerFrame, ServerPayload};
 use std::sync::{atomic::AtomicBool, Arc};
 use tokio::sync::mpsc;
+use vb_daemon::protocol::{Event, SearchStartRequest, ServerFrame, ServerPayload};
+use vb_daemon::search::run_search;
 
 fn collect_events(root: &std::path::Path, query: &str) -> Vec<Event> {
     let (tx, mut rx) = mpsc::channel::<ServerFrame>(128);

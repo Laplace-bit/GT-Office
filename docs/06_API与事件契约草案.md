@@ -531,10 +531,12 @@
      - `peerPattern?: string`
      - `targetAgentId: string`（支持直接 agent_id，或岗位选择器 `role:<role_key|role_id>`）
      - `priority?: number`
-   - resp: `{ "updated":true, "created":true|false, "binding":{} }`
+     - `createdAtMs?: number`（可选；缺省时由服务端首次创建时自动填充）
+     - `botName?: string`（可选；缺省时服务端在首次绑定后尝试做一次 connector health 自动回填）
+   - resp: `{ "updated":true, "created":true|false, "binding":{"workspaceId":"string","channel":"string","accountId":"string?","peerKind":"direct|group?","peerPattern":"string?","targetAgentId":"string","priority":0,"createdAtMs":1738932000456,"botName":"laplaceBitBot"} }`
 3. 新增命令：`channel_binding.list`
    - req: `{ "workspaceId":"string?" }`
-   - resp: `{ "bindings":[...] }`
+   - resp: `{ "bindings":[{"workspaceId":"string","channel":"string","accountId":"string?","peerKind":"direct|group?","peerPattern":"string?","targetAgentId":"string","priority":0,"createdAtMs":1738932000456,"botName":"laplaceBitBot?"}] }`
 4. 新增命令：`channel_access.policy_set`
    - req: `{ "channel":"string", "accountId":"string?", "mode":"pairing|allowlist|open|disabled" }`
    - resp: `{ "updated":true, "channel":"string", "accountId":"string", "mode":"..." }`
@@ -597,6 +599,8 @@
 13. 语义约束：
    - `channel + accountId` 共同标识一个 bot 实例；同一 `channel` 可存在多个 `accountId`，绑定规则需按 bot 维度独立生效。
    - `channel_binding.list` 返回扁平绑定数组，前端展示层应按 `channel -> accountId(bot) -> route` 聚合，避免多 bot 场景信息混叠。
+   - `createdAtMs` 记录绑定首建时间；更新既有绑定（同路由主键）时保持原时间不变。
+   - `botName` 来源于 connector 健康检查：首次绑定时尝试回填一次；后续健康检查发现变更可通过再次 upsert 更新并持久化。
    - Telegram connector 建议默认 `polling` 模式（token 可用即可完成入站），`webhook` 作为高级可选模式。
    - 默认准入策略为 `pairing`。
    - 幂等命中返回 `duplicate`，不得重复派发任务。

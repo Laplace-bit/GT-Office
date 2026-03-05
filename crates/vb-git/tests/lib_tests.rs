@@ -1,4 +1,3 @@
-use vb_git::GitService;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -6,6 +5,7 @@ use std::{
 };
 use uuid::Uuid;
 use vb_abstractions::WorkspaceService;
+use vb_git::GitService;
 use vb_workspace::InMemoryWorkspaceService;
 
 struct TempRepo {
@@ -198,6 +198,22 @@ fn init_repo_bootstraps_non_git_workspace() {
         .init_repo(&workspace.workspace_id, Some("main"))
         .expect("init repo");
     assert_eq!(branch, "main");
+
+    fs::remove_dir_all(&path).expect("cleanup temp dir");
+}
+
+#[test]
+fn list_branches_returns_repo_invalid_for_non_git_workspace() {
+    let path = std::env::temp_dir().join(format!("gtoffice-git-nonrepo-test-{}", Uuid::new_v4()));
+    fs::create_dir_all(&path).expect("create temp dir");
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&path).expect("open workspace");
+    let git_service = GitService::new(service);
+
+    let error = git_service
+        .list_branches(&workspace.workspace_id, true)
+        .expect_err("non git workspace should not list branches");
+    assert!(error.to_string().contains("GIT_REPO_INVALID"));
 
     fs::remove_dir_all(&path).expect("cleanup temp dir");
 }

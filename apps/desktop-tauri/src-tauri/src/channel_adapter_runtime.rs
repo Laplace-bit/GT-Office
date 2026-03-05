@@ -969,4 +969,3 @@ fn user_home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 #[path = "channel_adapter_runtime_tests.rs"]
 mod tests;
-

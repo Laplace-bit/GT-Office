@@ -169,6 +169,27 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+async fn resolve_binding_bot_name(
+    app: &AppHandle,
+    binding: &ChannelRouteBinding,
+) -> Option<String> {
+    let channel = binding.channel.trim().to_ascii_lowercase();
+    if channel.as_str() != "telegram" {
+        return None;
+    }
+    let runtime_webhook =
+        crate::channel_adapter_runtime::runtime_snapshot().map(|runtime| runtime.telegram_webhook);
+    let snapshot = telegram::health_check(app, binding.account_id.as_deref(), runtime_webhook)
+        .await
+        .ok()?;
+    snapshot
+        .bot_username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn channel_state_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data = app
         .path()
@@ -1360,8 +1381,8 @@ pub fn channel_adapter_status(state: State<'_, AppState>, app: AppHandle) -> Res
 }
 
 #[tauri::command]
-pub fn channel_binding_upsert(
-    binding: ChannelRouteBinding,
+pub async fn channel_binding_upsert(
+    mut binding: ChannelRouteBinding,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
@@ -1373,6 +1394,17 @@ pub fn channel_binding_upsert(
     }
     if binding.target_agent_id.trim().is_empty() {
         return Err("CHANNEL_BINDING_INVALID: targetAgentId is required".to_string());
+    }
+    let needs_bot_name = binding
+        .bot_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none();
+    if needs_bot_name {
+        if let Some(bot_name) = resolve_binding_bot_name(&app, &binding).await {
+            binding.bot_name = Some(bot_name);
+        }
     }
     let created = state.task_service.upsert_route_binding(binding.clone());
     persist_route_bindings(&app, state.inner())?;

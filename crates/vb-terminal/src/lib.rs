@@ -1029,12 +1029,12 @@ where
             })?;
 
         let mut command = CommandBuilder::new(&shell_name);
-        
+
         let shell_lower = shell_name.to_lowercase();
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
             command.arg("-NoLogo");
         }
-        
+
         command.cwd(&resolved_cwd);
         for (key, value) in &request.env {
             command.env(key, value);
@@ -1153,5 +1153,3 @@ fn resolve_shell_name(shell: Option<&str>) -> String {
             .unwrap_or_else(|| "/bin/bash".to_string())
     }
 }
-
-

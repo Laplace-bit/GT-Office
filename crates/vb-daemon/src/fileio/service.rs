@@ -111,6 +111,3 @@ fn resolve_inside_workspace(workspace_root: &Path, rel_path: &str) -> DaemonResu
     }
     Ok(canonical)
 }
-
-
-

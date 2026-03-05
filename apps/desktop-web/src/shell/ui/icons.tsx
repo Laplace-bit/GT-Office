@@ -42,6 +42,10 @@ export type AppIconName =
   | 'archive'
   | 'trash'
   | 'sync'
+  | 'telegram'
+  | 'feishu'
+  | 'activity'
+  | 'pencil'
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {
   name: AppIconName
@@ -312,6 +316,31 @@ export function AppIcon({ name, className, ...props }: AppIconProps) {
       return (
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
           <path d="M15 7H5l2-2M5 13h10l-2 2" />
+        </svg>
+      )
+    case 'telegram':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+          <line x1="22" x2="11" y1="2" y2="13" />
+          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+        </svg>
+      )
+    case 'feishu':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+          <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+        </svg>
+      )
+    case 'activity':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+      )
+    case 'pencil':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
         </svg>
       )
     default:

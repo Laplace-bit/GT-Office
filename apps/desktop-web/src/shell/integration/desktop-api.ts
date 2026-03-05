@@ -634,6 +634,8 @@ export interface ChannelRouteBinding {
   peerPattern?: string | null
   targetAgentId: string
   priority?: number
+  createdAtMs?: number | null
+  botName?: string | null
 }
 
 export interface ChannelAdapterStatusResponse {
@@ -1300,6 +1302,8 @@ export const desktopApi = {
         peerPattern: binding.peerPattern ?? null,
         targetAgentId: binding.targetAgentId,
         priority: binding.priority ?? 0,
+        createdAtMs: binding.createdAtMs ?? null,
+        botName: binding.botName ?? null,
       },
     })
   },

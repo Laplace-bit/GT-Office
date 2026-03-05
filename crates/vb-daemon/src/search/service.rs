@@ -325,6 +325,3 @@ fn to_rel_path(root: &Path, path: &Path) -> String {
         .to_string_lossy()
         .replace('\\', "/")
 }
-
-
-

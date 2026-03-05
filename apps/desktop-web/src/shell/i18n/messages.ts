@@ -688,6 +688,10 @@ export const messages = {
     'zh-CN': 'Git 元数据加载失败: {detail}',
     'en-US': 'Failed to load Git metadata: {detail}',
   },
+  'git.info.notRepository': {
+    'zh-CN': '当前目录不是 Git 仓库，可先执行初始化后再使用 Git 协作。',
+    'en-US': 'Current directory is not a Git repository. Initialize it first to use Git collaboration.',
+  },
   'git.files.title': { 'zh-CN': '变更文件', 'en-US': 'Changed Files' },
   'git.files.count': { 'zh-CN': '共 {count} 个', 'en-US': '{count} total' },
   'git.files.countLabel': { 'zh-CN': '个文件', 'en-US': 'files' },

@@ -11,7 +11,7 @@ import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
 import { FileEditorPane, type OpenedFile } from './FileEditorPane'
 import { FileTreePane } from './FileTreePane'
 import { GitHistoryPane, GitOperationsPane } from './GitPane'
-import { useGitWorkspaceController } from '@features/git'
+import { isNotGitRepositoryError, useGitWorkspaceController } from '@features/git'
 import { LeftBusinessPane } from './LeftBusinessPane'
 import { SettingsModal } from './SettingsModal'
 import { StationManageModal } from './StationManageModal'
@@ -1506,6 +1506,9 @@ export function ShellRoot() {
         setGitSummary(summary)
       } catch (error) {
         setGitSummary(null)
+        if (isNotGitRepositoryError(error)) {
+          return
+        }
         setConnectionState({
           code: 'git-read-failed',
           detail: describeError(error),

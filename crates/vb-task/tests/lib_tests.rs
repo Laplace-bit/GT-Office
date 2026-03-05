@@ -1,16 +1,16 @@
-use vb_task::{
-    AgentRuntimeRegistration, ChannelDescriptor, ChannelKind, ChannelMessageType,
-    ChannelPublishRequest, ChannelRouteBinding, DispatchSender, DispatchSenderType,
-    ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
-    ExternalInboundStatus, ExternalPeerKind, TaskDispatchBatchRequest, TaskDispatchStatus,
-    TaskService,
-};
 use serde_json::json;
 use std::{
     collections::HashMap,
     env, fs,
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
+};
+use vb_task::{
+    AgentRuntimeRegistration, ChannelDescriptor, ChannelKind, ChannelMessageType,
+    ChannelPublishRequest, ChannelRouteBinding, DispatchSender, DispatchSenderType,
+    ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
+    ExternalInboundStatus, ExternalPeerKind, TaskDispatchBatchRequest, TaskDispatchStatus,
+    TaskService,
 };
 
 fn now_ms() -> u64 {
@@ -269,7 +269,7 @@ fn dispatch_batch_runtime_lf_submit_is_canonicalized_to_cr() {
             markdown: "hello".to_string(),
             attachments: vec![],
             submit_sequences: HashMap::new(),
-            },
+        },
         &workspace_root,
         |_session_id, _command, submit_sequence| {
             written_submit_sequences.push(submit_sequence.to_string());
@@ -294,6 +294,8 @@ fn resolve_external_route_prefers_specific_binding() {
         peer_pattern: None,
         target_agent_id: "manager".to_string(),
         priority: 0,
+        created_at_ms: None,
+        bot_name: None,
     };
     let specific_binding = ChannelRouteBinding {
         workspace_id: "ws-alpha".to_string(),
@@ -303,6 +305,8 @@ fn resolve_external_route_prefers_specific_binding() {
         peer_pattern: Some("user-*".to_string()),
         target_agent_id: "assistant-a".to_string(),
         priority: 10,
+        created_at_ms: None,
+        bot_name: None,
     };
     service.upsert_route_binding(generic_binding);
     service.upsert_route_binding(specific_binding);

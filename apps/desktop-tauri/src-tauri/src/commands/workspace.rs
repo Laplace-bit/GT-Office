@@ -226,4 +226,3 @@ pub fn workspace_get_window_active(
 #[cfg(test)]
 #[path = "workspace_tests.rs"]
 mod tests;
-

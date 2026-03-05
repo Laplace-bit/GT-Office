@@ -183,6 +183,10 @@ pub struct ChannelRouteBinding {
     pub target_agent_id: String,
     #[serde(default)]
     pub priority: i32,
+    #[serde(default)]
+    pub created_at_ms: Option<u64>,
+    #[serde(default)]
+    pub bot_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -401,7 +405,7 @@ impl TaskService {
     }
 
     pub fn upsert_route_binding(&self, binding: ChannelRouteBinding) -> bool {
-        let normalized = normalize_binding(binding);
+        let mut normalized = normalize_binding(binding);
         let mut guard = match self.state.write() {
             Ok(guard) => guard,
             Err(_) => return false,
@@ -416,10 +420,18 @@ impl TaskService {
                 && normalize_optional_token(&entry.peer_pattern)
                     == normalize_optional_token(&normalized.peer_pattern)
         }) {
+            normalized.created_at_ms = existing
+                .created_at_ms
+                .or(normalized.created_at_ms)
+                .or(Some(now_ms()));
+            normalized.bot_name = normalized.bot_name.or_else(|| existing.bot_name.clone());
             *existing = normalized;
             return false;
         }
 
+        if normalized.created_at_ms.is_none() {
+            normalized.created_at_ms = Some(now_ms());
+        }
         guard.route_bindings.push(normalized);
         true
     }
@@ -949,6 +961,14 @@ fn normalize_optional_token(value: &Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn normalize_optional_text(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn normalize_account_id(value: &str) -> String {
     let normalized = normalize_token(value);
     if normalized.is_empty() {
@@ -969,6 +989,7 @@ fn normalize_binding(mut binding: ChannelRouteBinding) -> ChannelRouteBinding {
         .map(str::trim)
         .map(str::to_string)
         .filter(|value| !value.is_empty());
+    binding.bot_name = normalize_optional_text(&binding.bot_name);
     binding
 }
 
@@ -1258,4 +1279,3 @@ fn write_task_bundle(
 pub fn module_name() -> &'static str {
     "vb-task"
 }
-

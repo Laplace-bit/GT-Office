@@ -258,4 +258,3 @@ pub fn terminal_read_delta(
 #[cfg(test)]
 #[path = "terminal_tests.rs"]
 mod tests;
-

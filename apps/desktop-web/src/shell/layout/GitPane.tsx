@@ -191,6 +191,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const {
     locale,
     workspaceId,
+    isGitRepository,
     summary,
     visibleFiles,
     filter,
@@ -275,7 +276,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         <div className="git-pane__header-left">
           <AppIcon name="git-branch" className="git-pane__branch-icon" />
           <div className="git-pane__branch-info">
-            <span className="git-pane__branch-name">{summary?.branch || 'main'}</span>
+            <span className="git-pane__branch-name">{summary?.branch || (isGitRepository ? 'main' : '—')}</span>
             <span className="git-pane__branch-status">
               {summary ? (
                 <>
@@ -290,9 +291,9 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         </div>
         <div className="git-pane__header-actions">
           <GitIconButton icon="refresh" label={t(locale, 'fileTree.refresh')} onClick={() => void refreshAll()} disabled={Boolean(actionLoading)} />
-          <GitIconButton icon="cloud-download" label={t(locale, 'git.action.fetch')} onClick={() => void fetch()} disabled={Boolean(actionLoading)} />
-          <GitIconButton icon="arrow-down" label={t(locale, 'git.action.pull')} onClick={() => void pull()} disabled={Boolean(actionLoading)} />
-          <GitIconButton icon="arrow-up" label={t(locale, 'git.action.push')} onClick={() => void push()} disabled={Boolean(actionLoading)} />
+          <GitIconButton icon="cloud-download" label={t(locale, 'git.action.fetch')} onClick={() => void fetch()} disabled={!isGitRepository || Boolean(actionLoading)} />
+          <GitIconButton icon="arrow-down" label={t(locale, 'git.action.pull')} onClick={() => void pull()} disabled={!isGitRepository || Boolean(actionLoading)} />
+          <GitIconButton icon="arrow-up" label={t(locale, 'git.action.push')} onClick={() => void push()} disabled={!isGitRepository || Boolean(actionLoading)} />
         </div>
       </header>
 
@@ -330,7 +331,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     icon="check"
                     label={t(locale, 'git.action.stageAll')}
                     onClick={() => void stageAll()}
-                    disabled={!hasUnstagedFiles || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)}
                     variant="success"
                     size="sm"
                     title={t(locale, 'git.action.stageAll')}
@@ -339,7 +340,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     icon="x-mark"
                     label={t(locale, 'git.action.unstageAll')}
                     onClick={() => void unstageAll()}
-                    disabled={!hasStagedFiles || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !hasStagedFiles || Boolean(actionLoading)}
                     size="sm"
                     title={t(locale, 'git.action.unstageAll')}
                   />
@@ -395,6 +396,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                   value={commitMessage}
                   onChange={(e) => setCommitMessage(e.target.value)}
                   placeholder={t(locale, 'git.commit.placeholder')}
+                  disabled={!isGitRepository}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey && hasStagedFiles && commitMessage.trim()) {
                       e.preventDefault()
@@ -407,7 +409,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     icon="git-commit"
                     label={t(locale, 'git.action.commit')}
                     onClick={() => void commit()}
-                    disabled={!hasStagedFiles || !commitMessage.trim() || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !hasStagedFiles || !commitMessage.trim() || Boolean(actionLoading)}
                     variant="primary"
                     showLabel
                   />
@@ -433,6 +435,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     className="git-branch-form__select"
                     value={checkoutTarget}
                     onChange={(e) => setCheckoutTarget(e.target.value)}
+                    disabled={!isGitRepository}
                   >
                     {branches.map((branch) => (
                       <option key={branch.name} value={branch.name}>
@@ -444,13 +447,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     icon="git-merge"
                     label={t(locale, 'git.action.checkout')}
                     onClick={() => void checkout()}
-                    disabled={!checkoutTarget || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !checkoutTarget || Boolean(actionLoading)}
                   />
                   <GitIconButton
                     icon="trash"
                     label={t(locale, 'git.action.deleteBranch')}
                     onClick={() => void deleteBranch()}
-                    disabled={!checkoutTarget || selectedBranchEntry?.current || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !checkoutTarget || selectedBranchEntry?.current || Boolean(actionLoading)}
                     variant="danger"
                   />
                 </div>
@@ -461,12 +464,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     value={newBranchName}
                     onChange={(e) => setNewBranchName(e.target.value)}
                     placeholder={t(locale, 'git.branch.createPlaceholder')}
+                    disabled={!isGitRepository}
                   />
                   <GitIconButton
                     icon="plus"
                     label={t(locale, 'git.action.createBranch')}
                     onClick={() => void createBranch()}
-                    disabled={!newBranchName.trim() || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !newBranchName.trim() || Boolean(actionLoading)}
                     variant="primary"
                   />
                 </div>
@@ -493,12 +497,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                     value={stashMessage}
                     onChange={(e) => setStashMessage(e.target.value)}
                     placeholder={t(locale, 'git.stash.messagePlaceholder')}
+                    disabled={!isGitRepository}
                   />
                   <GitIconButton
                     icon="archive"
                     label={t(locale, 'git.action.stashPush')}
                     onClick={() => void stashPush()}
-                    disabled={!hasUnstagedFiles || Boolean(actionLoading)}
+                    disabled={!isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)}
                     showLabel
                   />
                 </div>
@@ -515,7 +520,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                         icon="arrow-down"
                         label={t(locale, 'git.action.stashPop')}
                         onClick={() => void stashPop(entry.stash)}
-                        disabled={Boolean(actionLoading)}
+                        disabled={!isGitRepository || Boolean(actionLoading)}
                         size="sm"
                       />
                     </div>
@@ -542,6 +547,7 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
   const {
     locale,
     workspaceId,
+    isGitRepository,
     summary,
     diffLoading,
     structuredDiff,
@@ -565,7 +571,7 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
   const [commitDetailError, setCommitDetailError] = useState<string | null>(null)
   const commitDetailCacheRef = useRef<Map<string, GitCommitDetailResponse>>(new Map())
   const commitDetailSeqRef = useRef(0)
-  const diffSwitchDisabled = !selectedPath && !showDiffView
+  const diffSwitchDisabled = !isGitRepository || (!selectedPath && !showDiffView)
   const currentViewLabel = showDiffView
     ? t(locale, 'git.history.view.diff')
     : t(locale, 'git.history.view.latest')
@@ -665,7 +671,7 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
         <div className="git-pane__header-left">
           <AppIcon name="git-branch" className="git-pane__branch-icon" />
           <div className="git-pane__branch-info">
-            <span className="git-pane__branch-name">{summary?.branch || 'main'}</span>
+            <span className="git-pane__branch-name">{summary?.branch || (isGitRepository ? 'main' : '—')}</span>
             <span className="git-pane__branch-status">
               {summary ? (
                 <>

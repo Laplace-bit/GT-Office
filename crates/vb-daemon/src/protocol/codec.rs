@@ -14,5 +14,3 @@ pub fn decode_client_frame(bytes: &[u8]) -> DaemonResult<ClientFrame> {
     let frame = bincode::deserialize::<ClientFrame>(bytes).map_err(DaemonError::Codec)?;
     Ok(frame)
 }
-
-

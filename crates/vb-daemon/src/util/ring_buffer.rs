@@ -36,5 +36,3 @@ impl<T> RingBuffer<T> {
         self.inner.len()
     }
 }
-
-

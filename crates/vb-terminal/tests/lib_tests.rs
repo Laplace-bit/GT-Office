@@ -1,4 +1,3 @@
-use vb_terminal::{InMemoryTerminalProvider, PtyTerminalProvider, TerminalRuntimeEvent};
 use std::{
     collections::BTreeMap,
     fs,
@@ -9,6 +8,7 @@ use vb_abstractions::{
     AbstractionError, AllowAllPolicyEvaluator, TerminalCreateRequest, TerminalCwdMode,
     TerminalProvider, WorkspaceService,
 };
+use vb_terminal::{InMemoryTerminalProvider, PtyTerminalProvider, TerminalRuntimeEvent};
 use vb_workspace::InMemoryWorkspaceService;
 
 struct TempDir {
@@ -108,11 +108,13 @@ fn custom_mode_resolves_relative_path_inside_workspace() {
         })
         .expect("create session");
 
-    let expected = normalize_test_path(&workspace_dir
-        .path
-        .join("src")
-        .canonicalize()
-        .expect("canonical src"));
+    let expected = normalize_test_path(
+        &workspace_dir
+            .path
+            .join("src")
+            .canonicalize()
+            .expect("canonical src"),
+    );
     assert_eq!(PathBuf::from(session.resolved_cwd), expected);
 }
 

@@ -561,4 +561,3 @@ pub fn git_stash_list(
 #[cfg(test)]
 #[path = "git_tests.rs"]
 mod tests;
-

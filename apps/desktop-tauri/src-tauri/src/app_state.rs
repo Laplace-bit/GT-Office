@@ -332,8 +332,7 @@ impl AppState {
             let has_text = !normalized_text.is_empty();
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
             let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
-            let should_finalize_with_text = has_text
-                && (session.ended || expired || idle_elapsed);
+            let should_finalize_with_text = has_text && (session.ended || expired || idle_elapsed);
             let should_drop_without_text = !has_text && (session.ended || expired);
 
             if should_finalize_with_text || should_drop_without_text {
@@ -555,7 +554,9 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
             if after_prompt.contains('·') {
                 let segments: Vec<&str> = after_prompt.split('·').map(str::trim).collect();
                 let has_path = segments.iter().any(|seg| {
-                    seg.starts_with('/') || seg.starts_with('~') || seg.starts_with("C:\\")
+                    seg.starts_with('/')
+                        || seg.starts_with('~')
+                        || seg.starts_with("C:\\")
                         || seg.starts_with("c:\\")
                 });
                 if has_path {
@@ -632,10 +633,18 @@ fn is_tui_status_bar_line(line: &str) -> bool {
         let s = seg.trim().to_ascii_lowercase();
         // Model names often contain: gpt, claude, gemini, codex, sonnet, opus, haiku
         // or quality indicators: high, medium, low, xhigh
-        s.contains("gpt") || s.contains("claude") || s.contains("gemini")
-            || s.contains("codex") || s.contains("sonnet") || s.contains("opus")
-            || s.contains("haiku") || s == "high" || s == "medium" || s == "low"
-            || s == "xhigh" || s.contains("xhigh")
+        s.contains("gpt")
+            || s.contains("claude")
+            || s.contains("gemini")
+            || s.contains("codex")
+            || s.contains("sonnet")
+            || s.contains("opus")
+            || s.contains("haiku")
+            || s == "high"
+            || s == "medium"
+            || s == "low"
+            || s == "xhigh"
+            || s.contains("xhigh")
     });
 
     // A status bar line typically has:

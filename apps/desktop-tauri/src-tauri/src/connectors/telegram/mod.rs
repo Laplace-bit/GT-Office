@@ -608,11 +608,9 @@ pub async fn send_typing_action(
 
     let token = load_bot_token(&record)?;
     let peer_owned = peer_id.to_string();
-    tokio::task::spawn_blocking(move || {
-        telegram_send_chat_action(&token, &peer_owned, "typing")
-    })
-    .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    tokio::task::spawn_blocking(move || telegram_send_chat_action(&token, &peer_owned, "typing"))
+        .await
+        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
 
     Ok(())
 }

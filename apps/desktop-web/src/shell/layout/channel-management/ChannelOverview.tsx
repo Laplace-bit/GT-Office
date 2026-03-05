@@ -2,6 +2,7 @@ import { t, type Locale } from '../../i18n/ui-locale'
 import { ChannelBotCard } from './ChannelBotCard'
 import { buildChannelBotBindingGroups } from '../channel-bot-binding-model'
 import { type AgentRole, type AgentProfile, type ChannelRouteBinding } from '../../integration/desktop-api'
+import { AppIcon } from '../../ui/icons'
 
 interface ChannelOverviewProps {
   locale: Locale
@@ -12,6 +13,8 @@ interface ChannelOverviewProps {
   agents: AgentProfile[]
   onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
+  onHealthCheckBinding: (binding: ChannelRouteBinding) => void
+  healthCheckingKey: string | null
   loading: boolean
 }
 
@@ -24,6 +27,8 @@ export function ChannelOverview({
   agents,
   onEditBinding,
   onDeleteBinding,
+  onHealthCheckBinding,
+  healthCheckingKey,
   loading
 }: ChannelOverviewProps) {
   return (
@@ -43,13 +48,14 @@ export function ChannelOverview({
             onClick={onAddChannel} 
             disabled={loading}
           >
+            <AppIcon name="plus" className="vb-icon" />
             {t(locale, '添加 Channel', 'Add Channel')}
           </button>
         </div>
       </div>
 
       {channelBotGroups.length === 0 ? (
-        <div className="settings-pane-section" style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--vb-text-muted)' }}>
+        <div className="settings-pane-section channel-empty-state">
           <p>
             {t(
               locale,
@@ -69,6 +75,8 @@ export function ChannelOverview({
               agents={agents}
               onEditBinding={onEditBinding}
               onDeleteBinding={onDeleteBinding}
+              onHealthCheckBinding={onHealthCheckBinding}
+              healthCheckingKey={healthCheckingKey}
               loading={loading}
             />
           ))}
