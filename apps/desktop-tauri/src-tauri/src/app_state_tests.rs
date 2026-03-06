@@ -1,8 +1,10 @@
 use super::{
-    normalize_carriage_returns, normalize_reply_text, normalize_terminal_text,
-    sanitize_terminal_chunk, should_skip_cli_prompt_line, should_skip_external_reply_line,
-    should_skip_log_prefix_line, should_skip_runtime_noise_line, should_skip_startup_banner_line,
-    AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget,
+    extract_last_assistant_block, normalize_carriage_returns, normalize_reply_text,
+    normalize_terminal_text, sanitize_terminal_chunk, should_skip_cli_prompt_line,
+    should_skip_external_reply_line, should_skip_log_prefix_line,
+    should_skip_runtime_noise_line, should_skip_startup_banner_line, should_skip_thinking_line,
+    should_skip_tool_execution_line, AppState, ExternalReplyDispatchPhase,
+    ExternalReplyRelayTarget,
 };
 
 fn now_ms_for_test(value: u64) -> u64 {
@@ -614,4 +616,479 @@ fn normalize_reply_text_filters_menu_items_and_status_bars() {
 
     // Should only keep the actual message, filtering out menu items and status bars
     assert_eq!(result, "• 嗨，在呢。要我帮你处理什么？");
+}
+
+// Phase 1: VT100 Parser Tests
+
+#[test]
+fn vt100_parser_handles_cross_chunk_cr_overwrite() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt100_1".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_vt100_1".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-vt100".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_vt100_1", target, now_ms_for_test(1_000))
+        .expect("bind session");
+
+    // Feed "Working..." in first chunk
+    state
+        .append_external_reply_chunk("s_vt100_1", b"Working...", now_ms_for_test(1_100))
+        .expect("append chunk 1");
+
+    // Feed "\r\x1b[KDone!" in second chunk - CR + clear line + new text
+    // This is what real TUI frameworks do
+    state
+        .append_external_reply_chunk("s_vt100_1", b"\r\x1b[KDone!", now_ms_for_test(1_200))
+        .expect("append chunk 2");
+
+    state
+        .mark_external_reply_session_ended("s_vt100_1", now_ms_for_test(1_300))
+        .expect("mark ended");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(
+            now_ms_for_test(1_400),
+            1_000,
+            10_000,
+            200,
+            usize::MAX,
+        )
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].text, "Done!");
+}
+
+#[test]
+fn vt100_parser_handles_tui_status_bar_redraw() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt100_2".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_vt100_2".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-vt100".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_vt100_2", target, now_ms_for_test(1_000))
+        .expect("bind session");
+
+    // Simulate cursor-positioned status bar overwrites
+    // First write content
+    state
+        .append_external_reply_chunk("s_vt100_2", "• Response line 1\n".as_bytes(), now_ms_for_test(1_100))
+        .expect("append chunk 1");
+
+    // Status bar with cursor positioning (move to line 1, col 1)
+    state
+        .append_external_reply_chunk(
+            "s_vt100_2",
+            "\x1b[1;1Hgpt-5 · /path · 100%".as_bytes(),
+            now_ms_for_test(1_200),
+        )
+        .expect("append chunk 2");
+
+    // More content
+    state
+        .append_external_reply_chunk("s_vt100_2", b"\nResponse line 2", now_ms_for_test(1_300))
+        .expect("append chunk 3");
+
+    state
+        .mark_external_reply_session_ended("s_vt100_2", now_ms_for_test(1_400))
+        .expect("mark ended");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(
+            now_ms_for_test(1_500),
+            1_000,
+            10_000,
+            200,
+            usize::MAX,
+        )
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    // The status bar line should be filtered by line-level filters
+    assert!(candidates[0].text.contains("Response line 2"));
+}
+
+#[test]
+fn vt100_parser_handles_progress_spinner_across_chunks() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt100_3".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_vt100_3".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-vt100".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_vt100_3", target, now_ms_for_test(1_000))
+        .expect("bind session");
+
+    // Simulate spinner fragments across multiple chunks with proper line clearing
+    let spinner_chunks = [
+        b"Working" as &[u8],
+        b"\r\x1b[KWorking.",
+        b"\r\x1b[KWorking..",
+        b"\r\x1b[KWorking...",
+        b"\r\x1b[K",
+        b"Done!",
+    ];
+
+    for (i, chunk) in spinner_chunks.iter().enumerate() {
+        state
+            .append_external_reply_chunk(
+                "s_vt100_3",
+                chunk,
+                now_ms_for_test(1_100 + (i as u64 * 50)),
+            )
+            .expect("append chunk");
+    }
+
+    state
+        .mark_external_reply_session_ended("s_vt100_3", now_ms_for_test(1_500))
+        .expect("mark ended");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(
+            now_ms_for_test(1_600),
+            1_000,
+            10_000,
+            200,
+            usize::MAX,
+        )
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].text, "Done!");
+}
+
+#[test]
+fn vt100_parser_preserves_scrollback_content() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt100_4".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_vt100_4".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-vt100".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_vt100_4", target, now_ms_for_test(1_000))
+        .expect("bind session");
+
+    // Write many lines to trigger scrollback
+    for i in 1..=40 {
+        let line = format!("Line {}\n", i);
+        state
+            .append_external_reply_chunk(
+                "s_vt100_4",
+                line.as_bytes(),
+                now_ms_for_test(1_000 + (i as u64 * 10)),
+            )
+            .expect("append chunk");
+    }
+
+    state
+        .mark_external_reply_session_ended("s_vt100_4", now_ms_for_test(2_000))
+        .expect("mark ended");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(
+            now_ms_for_test(2_100),
+            1_000,
+            10_000,
+            200,
+            usize::MAX,
+        )
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    // Should contain content from scrollback
+    assert!(candidates[0].text.contains("Line 1"));
+    assert!(candidates[0].text.contains("Line 40"));
+}
+
+#[test]
+fn vt100_parser_handles_cjk_content() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt100_5".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_vt100_5".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-vt100".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_vt100_5", target, now_ms_for_test(1_000))
+        .expect("bind session");
+
+    // CJK characters with double-width handling
+    state
+        .append_external_reply_chunk(
+            "s_vt100_5",
+            "你好世界\n这是测试\n日本語テスト\n한글 테스트".as_bytes(),
+            now_ms_for_test(1_100),
+        )
+        .expect("append chunk");
+
+    state
+        .mark_external_reply_session_ended("s_vt100_5", now_ms_for_test(1_200))
+        .expect("mark ended");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(
+            now_ms_for_test(1_300),
+            1_000,
+            10_000,
+            200,
+            usize::MAX,
+        )
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    assert!(candidates[0].text.contains("你好世界"));
+    assert!(candidates[0].text.contains("这是测试"));
+    assert!(candidates[0].text.contains("日本語テスト"));
+    assert!(candidates[0].text.contains("한글 테스트"));
+}
+
+// Phase 2: Enhanced Line-Level Filter Tests
+
+#[test]
+fn should_skip_tool_execution_line_filters_known_tools() {
+    use super::should_skip_tool_execution_line;
+
+    assert!(should_skip_tool_execution_line("Read(file.txt)"));
+    assert!(should_skip_tool_execution_line("Edit(src/main.rs)"));
+    assert!(should_skip_tool_execution_line("Bash(ls -la)"));
+    assert!(should_skip_tool_execution_line("Write(output.txt)"));
+    assert!(should_skip_tool_execution_line("Grep(pattern)"));
+    assert!(should_skip_tool_execution_line("WebFetch(https://example.com)"));
+    assert!(should_skip_tool_execution_line("Running: cargo test"));
+    assert!(should_skip_tool_execution_line("Executing: npm install"));
+    assert!(should_skip_tool_execution_line("Tool result: success"));
+}
+
+#[test]
+fn should_skip_tool_execution_line_preserves_content() {
+    use super::should_skip_tool_execution_line;
+
+    assert!(!should_skip_tool_execution_line("Read the documentation"));
+    assert!(!should_skip_tool_execution_line("Edit your code carefully"));
+    assert!(!should_skip_tool_execution_line("I will write (and test) the code"));
+    assert!(!should_skip_tool_execution_line("Running tests is important"));
+}
+
+#[test]
+fn should_skip_thinking_line_filters_indicators() {
+    use super::should_skip_thinking_line;
+
+    assert!(should_skip_thinking_line("Thinking..."));
+    assert!(should_skip_thinking_line("Thinking…"));
+    assert!(should_skip_thinking_line("Reasoning..."));
+    assert!(should_skip_thinking_line("Planning..."));
+    assert!(should_skip_thinking_line("Thinking (3s)"));
+    assert!(should_skip_thinking_line("Reasoning (12s)"));
+}
+
+#[test]
+fn should_skip_thinking_line_preserves_content() {
+    use super::should_skip_thinking_line;
+
+    assert!(!should_skip_thinking_line("Thinking about this problem"));
+    assert!(!should_skip_thinking_line("I'm thinking we should refactor"));
+    assert!(!should_skip_thinking_line("Reasoning: the code is correct"));
+}
+
+#[test]
+fn normalize_reply_text_filters_tool_execution_blocks() {
+    let input = "Read(file.txt)\n\
+                 File contents loaded\n\
+                 Edit(file.txt)\n\
+                 Thinking...\n\
+                 • Here is my response\n\
+                 Bash(ls)\n\
+                 This is the actual content";
+    let normalized = normalize_reply_text(input, None);
+    assert_eq!(normalized, "• Here is my response\nThis is the actual content");
+}
+
+#[test]
+fn normalize_reply_text_filters_cost_and_token_displays() {
+    let input = "$0.05\n\
+                 1500 tokens\n\
+                 • Actual response here\n\
+                 Cost: $0.10\n\
+                 More content";
+    let normalized = normalize_reply_text(input, None);
+    assert_eq!(normalized, "• Actual response here\nMore content");
+}
+
+#[test]
+fn normalize_reply_text_filters_progress_bars() {
+    let input = "█████████░░░░░░░░░░ 45%\n\
+                 ━━━━━━━━━━╸         \n\
+                 • Response content\n\
+                 ▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░\n\
+                 Final text";
+    let normalized = normalize_reply_text(input, None);
+    assert_eq!(normalized, "• Response content\nFinal text");
+}
+
+#[test]
+fn normalize_reply_text_filters_compact_status_patterns() {
+    let input = "[1/5]\n\
+                 Step 2 of 4\n\
+                 • Content here\n\
+                 (3/10)\n\
+                 More content";
+    let normalized = normalize_reply_text(input, None);
+    assert_eq!(normalized, "• Content here\nMore content");
+}
+
+#[test]
+fn should_skip_startup_banner_line_filters_box_drawing() {
+    assert!(should_skip_startup_banner_line("╭─────────────────────────────────────────────╮"));
+    assert!(should_skip_startup_banner_line("│ >_ OpenAI Codex (v0.110.0)"));
+    assert!(should_skip_startup_banner_line("╰─────────────────────────────────────────────╯"));
+    assert!(should_skip_startup_banner_line("┌─────────────────┐"));
+    assert!(should_skip_startup_banner_line("│ model: gpt-5.4 xhigh │"));
+}
+
+#[test]
+fn should_skip_startup_banner_line_filters_tips_and_pairing() {
+    assert!(should_skip_startup_banner_line("Tip: New 2x rate limits until April 2nd."));
+    assert!(should_skip_startup_banner_line("Hint: Use /help for more info"));
+    assert!(should_skip_startup_banner_line("Pairing code: KMZYMEZZ"));
+    assert!(should_skip_startup_banner_line("OpenClaw: access not configured."));
+    assert!(should_skip_startup_banner_line("Your Telegram user id: 5799948766"));
+    assert!(should_skip_startup_banner_line("Ask the bot owner to approve with:"));
+}
+
+#[test]
+fn normalize_reply_text_filters_codex_banner_and_tips() {
+    let input = "╭─────────────────────────────────────────────╮\n\
+                 │ >_ OpenAI Codex (v0.110.0)\n\
+                 │\n\
+                 │\n\
+                 │ model:     gpt-5.4 xhigh   /model to change │\n\
+                 ╰─────────────────────────────────────────────╯\n\
+                 \n\
+                 Tip: New 2x rate limits until April 2nd.\n\
+                 \n\
+                 • 在。说任务。";
+    let normalized = normalize_reply_text(input, None);
+    assert_eq!(normalized, "• 在。说任务。");
+}
+
+#[test]
+fn extract_last_assistant_block_handles_multiline_song() {
+    use super::extract_last_assistant_block;
+
+    let input = "• 《夜里有光》\n\
+                 \n\
+                 主歌一\n\
+                 天色慢慢落下来\n\
+                 街灯一盏一盏开\n\
+                 \n\
+                 副歌\n\
+                 如果夜太长\n\
+                 我就为你唱\n\
+                 \n\
+                 如果你要，我也可以继续把这首歌改成 民谣版、流行版 或 说唱版。";
+
+    let result = extract_last_assistant_block(input);
+    assert!(result.is_some());
+    let text = result.unwrap();
+    assert!(text.contains("《夜里有光》"));
+    assert!(text.contains("天色慢慢落下来"));
+    assert!(text.contains("如果夜太长"));
+    assert!(text.contains("如果你要"));
+}
+
+#[test]
+fn extract_last_assistant_block_stops_at_user_prompt() {
+    use super::extract_last_assistant_block;
+
+    let input = "• First response\n\
+                 Some content\n\
+                 \n\
+                 › next command\n\
+                 \n\
+                 • Second response\n\
+                 More content";
+
+    let result = extract_last_assistant_block(input);
+    assert!(result.is_some());
+    let text = result.unwrap();
+    // Should extract the LAST assistant block (Second response)
+    assert!(text.contains("Second response"));
+    assert!(text.contains("More content"));
+    assert!(!text.contains("First response"));
+}
+
+#[test]
+fn extract_last_assistant_block_works_without_bullet_marker() {
+    use super::extract_last_assistant_block;
+
+    // Agent without • marker (e.g., Gemini CLI, other agents)
+    let input = "Here is my response\n\
+                 With multiple lines\n\
+                 And some content";
+
+    let result = extract_last_assistant_block(input);
+    assert!(result.is_some());
+    let text = result.unwrap();
+    assert_eq!(text, "Here is my response\nWith multiple lines\nAnd some content");
+}
+
+#[test]
+fn normalize_reply_text_handles_codex_cli_output() {
+    // Real Codex CLI output without • markers
+    let input = "Running: date '+%Y-%m-%d %H:%M:%S'\n\
+                 2026-03-06 09:39:20\n\
+                 \n\
+                 The current time is 2026-03-06 09:39:20.";
+
+    let normalized = normalize_reply_text(input, None);
+    // Tool execution line should be filtered
+    assert!(!normalized.contains("Running:"));
+    assert!(normalized.contains("The current time is"));
+}
+
+#[test]
+fn normalize_reply_text_handles_gemini_cli_output() {
+    // Hypothetical Gemini CLI output
+    let input = "Thinking (2s)\n\
+                 \n\
+                 Based on your request, here's the solution:\n\
+                 \n\
+                 Step 1: Analysis\n\
+                 Step 2: Implementation";
+
+    let normalized = normalize_reply_text(input, None);
+    assert!(!normalized.contains("Thinking"));
+    assert!(normalized.contains("Based on your request"));
+    assert!(normalized.contains("Step 1"));
 }

@@ -13,8 +13,6 @@ use vb_workspace::InMemoryWorkspaceService;
 use crate::daemon_bridge::DaemonBridge;
 use crate::filesystem_watcher::WorkspaceWatcherRegistry;
 
-const EXTERNAL_REPLY_BUFFER_MAX_BYTES: usize = 32 * 1024;
-
 #[derive(Debug, Clone)]
 pub struct ExternalReplyRelayTarget {
     pub trace_id: String,
@@ -42,14 +40,13 @@ pub struct ExternalReplyDispatchCandidate {
     pub phase: ExternalReplyDispatchPhase,
 }
 
-#[derive(Debug, Clone)]
 struct ExternalReplyRelaySession {
     target: ExternalReplyRelayTarget,
     created_at_ms: u64,
     last_chunk_at_ms: u64,
     last_preview_sent_at_ms: u64,
     ended: bool,
-    buffer: String,
+    vt_parser: vt100::Parser,
     last_preview_text: String,
     preview_message_id: Option<String>,
 }
@@ -246,7 +243,7 @@ impl AppState {
                 last_chunk_at_ms: now_ms,
                 last_preview_sent_at_ms: 0,
                 ended: false,
-                buffer: String::new(),
+                vt_parser: vt100::Parser::new(36, 120, 500),
                 last_preview_text: String::new(),
                 preview_message_id: None,
             },
@@ -270,12 +267,7 @@ impl AppState {
             return Ok(());
         };
         session.last_chunk_at_ms = ts_ms;
-        let text = sanitize_terminal_chunk(chunk);
-        if text.is_empty() {
-            return Ok(());
-        }
-        session.buffer.push_str(&text);
-        trim_utf8_tail(&mut session.buffer, EXTERNAL_REPLY_BUFFER_MAX_BYTES);
+        session.vt_parser.process(chunk);
         Ok(())
     }
 
@@ -327,8 +319,10 @@ impl AppState {
         let mut ready_final_session_ids = Vec::new();
 
         for (session_id, session) in guard.iter_mut() {
+            let screen_text = session.vt_parser.screen().contents();
+            let stripped = strip_ansi_escapes::strip_str(&screen_text);
             let normalized_text =
-                normalize_reply_text(&session.buffer, session.target.injected_input.as_deref());
+                normalize_reply_text(&stripped, session.target.injected_input.as_deref());
             let has_text = !normalized_text.is_empty();
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
             let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
@@ -371,8 +365,10 @@ impl AppState {
             let Some(session) = guard.remove(&session_id) else {
                 continue;
             };
+            let screen_text = session.vt_parser.screen().contents();
+            let stripped = strip_ansi_escapes::strip_str(&screen_text);
             let normalized_text =
-                normalize_reply_text(&session.buffer, session.target.injected_input.as_deref());
+                normalize_reply_text(&stripped, session.target.injected_input.as_deref());
             if normalized_text.is_empty() {
                 continue;
             }
@@ -387,21 +383,6 @@ impl AppState {
 
         Ok(candidates)
     }
-}
-
-fn trim_utf8_tail(buffer: &mut String, max_bytes: usize) {
-    if buffer.len() <= max_bytes {
-        return;
-    }
-    let mut start = buffer.len().saturating_sub(max_bytes);
-    while start < buffer.len() && !buffer.is_char_boundary(start) {
-        start += 1;
-    }
-    if start >= buffer.len() {
-        buffer.clear();
-        return;
-    }
-    *buffer = buffer[start..].to_string();
 }
 
 fn sanitize_terminal_chunk(chunk: &[u8]) -> String {
@@ -476,6 +457,12 @@ fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
         if should_skip_cli_prompt_line(trimmed_end) {
             continue;
         }
+        if should_skip_tool_execution_line(trimmed_end) {
+            continue;
+        }
+        if should_skip_thinking_line(trimmed_end) {
+            continue;
+        }
         if should_skip_runtime_noise_line(trimmed_end) {
             continue;
         }
@@ -508,15 +495,6 @@ fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
     let normalized = lines.join("\n");
     let suppressed = suppress_injected_input_echo(&normalized, injected_input);
     extract_last_assistant_block(&suppressed).unwrap_or(suppressed)
-}
-
-fn should_skip_external_reply_line(line: &str) -> bool {
-    let normalized = line.trim();
-    if normalized.is_empty() {
-        return false;
-    }
-    normalized.contains("[vb-task] assigned task_")
-        || normalized.contains("echo '[vb-task] assigned task_")
 }
 
 fn should_skip_runtime_noise_line(line: &str) -> bool {
@@ -580,12 +558,99 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
     if lower.contains("press ") && (lower.contains("to ") || lower.contains("for ")) {
         return true;
     }
+    // Cost/token display patterns
+    if (lower.contains('$') && lower.chars().filter(|c| c.is_ascii_digit()).count() > 0)
+        || (lower.contains("token") && lower.chars().filter(|c| c.is_ascii_digit()).count() > 0)
+    {
+        // Check if this is a standalone cost/token line
+        let words: Vec<&str> = normalized.split_whitespace().collect();
+        if words.len() <= 5 {
+            return true;
+        }
+    }
+    // Progress bar patterns
+    let progress_chars = ['█', '▓', '░', '─', '━', '╸', '╺'];
+    let progress_char_count = normalized.chars().filter(|c| progress_chars.contains(c)).count();
+    let total_char_count = normalized.chars().count();
+    if total_char_count > 0 && progress_char_count > total_char_count / 3 {
+        return true;
+    }
+    // Compact status patterns: [1/5], Step 2 of 4, (3/10)
+    if (normalized.starts_with('[') && normalized.contains('/') && normalized.ends_with(']'))
+        || (lower.starts_with("step ") && lower.contains(" of "))
+        || (normalized.starts_with('(') && normalized.contains('/') && normalized.ends_with(')'))
+    {
+        let words: Vec<&str> = normalized.split_whitespace().collect();
+        if words.len() <= 4 {
+            return true;
+        }
+    }
     // Generalized TUI status bar detection (works across Codex CLI, Claude
     // Code, Gemini CLI, and any ratatui/ink/blessed-based TUI agent)
     if is_tui_status_bar_line(normalized) {
         return true;
     }
     is_known_spinner_token(normalized)
+}
+
+fn should_skip_tool_execution_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    // Claude Code tool markers: Read(file), Edit(file), Bash(cmd), Write(file)
+    if let Some(paren_start) = trimmed.find('(') {
+        let prefix = &trimmed[..paren_start];
+        if prefix.chars().all(|c| c.is_ascii_alphanumeric())
+            && prefix.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+            && trimmed.ends_with(')')
+        {
+            let known_tools = [
+                "Read", "Edit", "Write", "Bash", "Glob", "Grep",
+                "Search", "Replace", "MultiEdit", "TodoRead", "TodoWrite",
+                "WebFetch", "WebSearch", "NotebookEdit",
+            ];
+            if known_tools.iter().any(|t| prefix == *t) {
+                return true;
+            }
+        }
+    }
+    // Codex CLI tool execution display
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("running: ") || lower.starts_with("executing: ") {
+        return true;
+    }
+    // Tool result markers
+    if lower.starts_with("tool result") || lower.starts_with("tool output") {
+        return true;
+    }
+    false
+}
+
+fn should_skip_thinking_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    // Thinking/reasoning indicators
+    if lower == "thinking..." || lower == "thinking…"
+        || lower == "reasoning..." || lower == "reasoning…"
+        || lower == "planning..." || lower == "planning…"
+    {
+        return true;
+    }
+    // Thinking with duration: "Thinking (3s)", "Reasoning (12s)"
+    if (lower.starts_with("thinking (") || lower.starts_with("reasoning ("))
+        && lower.ends_with(")")
+        && lower.contains("s)")
+    {
+        return true;
+    }
+    false
+}
+
+fn should_skip_external_reply_line(line: &str) -> bool {
+    let normalized = line.trim();
+    if normalized.is_empty() {
+        return false;
+    }
+    normalized.contains("[vb-task] assigned task_")
+        || normalized.contains("echo '[vb-task] assigned task_")
 }
 
 /// Detect TUI status bar lines by structural pattern.
@@ -687,6 +752,28 @@ fn should_skip_startup_banner_line(line: &str) -> bool {
     if normalized.is_empty() {
         return false;
     }
+
+    // TUI box drawing characters (banner frames)
+    let box_chars = ['╭', '╮', '╰', '╯', '│', '─', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼'];
+    let box_char_count = normalized.chars().filter(|c| box_chars.contains(c)).count();
+    let total_chars = normalized.chars().count();
+    // If more than 30% of the line is box drawing characters, it's likely a banner frame
+    if total_chars > 0 && box_char_count > total_chars * 3 / 10 {
+        return true;
+    }
+
+    // Lines that start and end with box chars and contain model/config info
+    if (normalized.starts_with('│') || normalized.starts_with('┃'))
+        && (normalized.ends_with('│') || normalized.ends_with('┃'))
+    {
+        let lower = normalized.to_ascii_lowercase();
+        if lower.contains("model:") || lower.contains("gpt-") || lower.contains("claude-")
+            || lower.contains("gemini-") || lower.contains("/model to")
+        {
+            return true;
+        }
+    }
+
     let lower = normalized.to_ascii_lowercase();
 
     // Version patterns: "v1.0.0", "version 2.3", "ver 1.2"
@@ -728,6 +815,23 @@ fn should_skip_startup_banner_line(line: &str) -> bool {
 
     // Tool initialization complete messages
     if matches!(lower.as_str(), "ready." | "initialized." | "started.") {
+        return true;
+    }
+
+    // Tip messages from CLI tools
+    if lower.starts_with("tip:") || lower.starts_with("hint:") {
+        return true;
+    }
+
+    // Model/tool name banners (e.g., ">_ OpenAI Codex (v0.110.0)")
+    if (lower.contains(">_") || lower.contains("│")) &&
+       (lower.contains("codex") || lower.contains("claude") || lower.contains("gemini")) {
+        return true;
+    }
+
+    // Pairing/access messages
+    if lower.contains("pairing code:") || lower.contains("access not configured")
+       || lower.contains("ask the bot owner") || lower.contains("your telegram user id") {
         return true;
     }
 
@@ -859,48 +963,75 @@ fn is_echo_of_injected_line(line: &str, injected_input: Option<&str>) -> bool {
 
 /// Extract the last assistant response block from terminal output.
 ///
-/// Assistant blocks start with a line beginning with `• ` (not `• working`).
-/// Once inside a block, content is preserved faithfully. Only known TUI
-/// artifacts (status bars, padded fragments) and interleaved prompts are
-/// skipped to avoid eating legitimate response content.
+/// Strategy:
+/// 1. If there are `• ` markers (Claude Code style), use the LAST non-working one
+/// 2. Otherwise, return the full normalized text (already filtered by line-level filters)
+///
+/// This makes the function work for agents that don't use `• ` markers.
 fn extract_last_assistant_block(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut start: Option<usize> = None;
+
+    // Find the LAST assistant block marker (• that's not "• working")
     for (idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("• ") && !trimmed.to_ascii_lowercase().starts_with("• working") {
             start = Some(idx);
         }
     }
-    let start = start?;
+
+    // If no `• ` marker found, return the full text (line-level filters already applied)
+    let start = match start {
+        Some(s) => s,
+        None => {
+            let trimmed = text.trim().to_string();
+            return if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            };
+        }
+    };
+
     let mut result = Vec::new();
     result.push(lines[start].trim_end().to_string());
+
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
+
+        // Stop if we encounter a user prompt (new input)
+        if trimmed.starts_with("› ") {
+            let after_prompt = trimmed.strip_prefix("› ").unwrap_or("");
+            if !after_prompt.trim().is_empty() {
+                break;
+            }
+        }
+
         if trimmed.is_empty() {
             if result.last().is_some_and(|last| !last.is_empty()) {
                 result.push(String::new());
             }
             continue;
         }
-        // A new assistant block marker terminates the current block
-        if trimmed.starts_with("• ") {
-            if !trimmed.to_ascii_lowercase().starts_with("• working") {
-                break;
-            }
-            // "• Working" lines are status indicators, skip them
+
+        // Skip "• Working" status lines but continue processing
+        if trimmed.to_ascii_lowercase().starts_with("• working") {
             continue;
         }
+
         // Skip TUI status bar lines that get interleaved during streaming
         if is_tui_status_bar_line(trimmed) {
             continue;
         }
+
         // Skip only pure CLI prompt lines that are clearly interleaved
         if is_interleaved_prompt_line(trimmed) {
             continue;
         }
+
         result.push(line.trim_end().to_string());
     }
+
     while result
         .first()
         .map(|line| line.trim().is_empty())
