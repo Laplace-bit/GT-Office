@@ -310,6 +310,31 @@ export interface TerminalDeltaResponse {
   truncated: boolean
 }
 
+export interface RenderedScreenSnapshotRow {
+  rowIndex: number
+  text: string
+  trimmedText: string
+  isBlank: boolean
+}
+
+export interface RenderedScreenSnapshot {
+  sessionId: string
+  screenRevision: number
+  capturedAtMs: number
+  viewportTop: number
+  viewportHeight: number
+  baseY: number
+  cursorRow?: number | null
+  cursorCol?: number | null
+  rows: RenderedScreenSnapshotRow[]
+}
+
+export interface TerminalReportRenderedScreenResponse {
+  sessionId: string
+  screenRevision: number
+  accepted: boolean
+}
+
 export interface FsEntry {
   path: string
   name: string
@@ -571,6 +596,8 @@ export interface AgentRuntimeRegisterRequest {
   stationId: string
   roleKey?: string | null
   sessionId: string
+  toolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+  resolvedCwd?: string | null
   submitSequence?: string | null
   online?: boolean
 }
@@ -581,6 +608,8 @@ export interface AgentRuntimeRegisterResponse {
   stationId: string
   roleKey?: string | null
   sessionId: string
+  toolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+  resolvedCwd?: string | null
   submitSequence?: string | null
   registered: boolean
 }
@@ -1220,6 +1249,26 @@ export const desktopApi = {
       maxBytes: maxBytes ?? null,
     })
   },
+  terminalReportRenderedScreen(snapshot: RenderedScreenSnapshot) {
+    return invokeCommand<TerminalReportRenderedScreenResponse>('terminal_report_rendered_screen', {
+      snapshot: {
+        sessionId: snapshot.sessionId,
+        screenRevision: snapshot.screenRevision,
+        capturedAtMs: snapshot.capturedAtMs,
+        viewportTop: snapshot.viewportTop,
+        viewportHeight: snapshot.viewportHeight,
+        baseY: snapshot.baseY,
+        cursorRow: snapshot.cursorRow ?? null,
+        cursorCol: snapshot.cursorCol ?? null,
+        rows: snapshot.rows.map((row) => ({
+          rowIndex: row.rowIndex,
+          text: row.text,
+          trimmedText: row.trimmedText,
+          isBlank: row.isBlank,
+        })),
+      },
+    })
+  },
   taskDispatchBatch(request: TaskDispatchBatchRequest) {
     return invokeCommand<TaskDispatchBatchResponse>('task_dispatch_batch', {
       request: {
@@ -1406,6 +1455,8 @@ export const desktopApi = {
         stationId: request.stationId,
         roleKey: request.roleKey ?? null,
         sessionId: request.sessionId,
+        toolKind: request.toolKind ?? 'unknown',
+        resolvedCwd: request.resolvedCwd ?? null,
         submitSequence: request.submitSequence ?? null,
         online: request.online ?? true,
       },

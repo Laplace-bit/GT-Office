@@ -307,10 +307,25 @@ pub struct AgentRuntimeRegistration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role_key: Option<String>,
     pub session_id: String,
+    #[serde(default)]
+    pub tool_kind: AgentToolKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submit_sequence: Option<String>,
     #[serde(default = "default_true")]
     pub online: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentToolKind {
+    Claude,
+    Codex,
+    Gemini,
+    Shell,
+    #[default]
+    Unknown,
 }
 
 fn default_true() -> bool {
@@ -376,6 +391,8 @@ impl TaskService {
             agent_id = %registration.agent_id,
             station_id = %registration.station_id,
             session_id = %registration.session_id,
+            tool_kind = ?registration.tool_kind,
+            resolved_cwd = ?registration.resolved_cwd,
             "registered agent runtime"
         );
         guard.runtimes.insert(key, registration);

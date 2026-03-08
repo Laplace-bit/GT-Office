@@ -6,7 +6,7 @@ use vb_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
 
-use crate::app_state::AppState;
+use crate::app_state::{AppState, RenderedScreenSnapshot};
 
 fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
     match cwd_mode.as_deref().unwrap_or("workspace_root") {
@@ -101,6 +101,18 @@ fn build_terminal_delta_response(
         "currentSeq": current_seq,
         "gap": gap,
         "truncated": truncated
+    })
+}
+
+fn build_terminal_report_rendered_screen_response(
+    session_id: &str,
+    screen_revision: u64,
+    accepted: bool,
+) -> Value {
+    json!({
+        "sessionId": session_id,
+        "screenRevision": screen_revision,
+        "accepted": accepted
     })
 }
 
@@ -252,6 +264,19 @@ pub fn terminal_read_delta(
         delta.current_seq,
         delta.gap,
         delta.truncated,
+    ))
+}
+
+#[tauri::command]
+pub fn terminal_report_rendered_screen(
+    snapshot: RenderedScreenSnapshot,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let accepted = state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
+    Ok(build_terminal_report_rendered_screen_response(
+        &snapshot.session_id,
+        snapshot.screen_revision,
+        accepted,
     ))
 }
 

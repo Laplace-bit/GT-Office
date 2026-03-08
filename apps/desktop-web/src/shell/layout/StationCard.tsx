@@ -8,6 +8,7 @@ import { t } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import { StationXtermTerminal, type StationTerminalSink } from './StationXtermTerminal'
 import type { StationChannelBotBindingSummary } from './channel-bot-binding-model'
+import type { RenderedScreenSnapshot } from '../integration/desktop-api'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
@@ -176,6 +177,7 @@ interface StationCardProps {
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
+  onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
@@ -212,6 +214,7 @@ function StationCardView({
   onSendInputData,
   onResizeTerminal,
   onBindTerminalSink,
+  onRenderedScreenSnapshot,
   onRemoveStation,
   onEnterFullscreen,
   onExitFullscreen,
@@ -535,6 +538,7 @@ function StationCardView({
         onData={onSendInputData}
         onResize={onResizeTerminal}
         onBindSink={handleBindSink}
+        onRenderedScreenSnapshot={onRenderedScreenSnapshot}
       />
 
     </article>

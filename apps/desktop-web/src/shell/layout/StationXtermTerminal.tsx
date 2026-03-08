@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import type { ITheme } from '@xterm/xterm'
+import type { RenderedScreenSnapshot } from '../integration/desktop-api'
 
 export interface StationTerminalSink {
   write: (chunk: string) => void
@@ -17,11 +18,24 @@ interface StationXtermTerminalProps {
   onData: (stationId: string, data: string) => void
   onResize: (stationId: string, cols: number, rows: number) => void
   onBindSink: (stationId: string, sink: StationTerminalSink | null) => void
+  onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
 }
 
 const DOM_DELTA_LINE = 1
 const DOM_DELTA_PAGE = 2
 const TERMINAL_MIN_VISIBLE_SIZE_PX = 4
+const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
+const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
+
+function isPromptAnchorText(text: string): boolean {
+  const trimmed = text.trimStart()
+  for (const prefix of ['› ', '❯ ', '$ ', '> ']) {
+    if (trimmed.startsWith(prefix) && trimmed.slice(prefix.length).trim().length > 0) {
+      return true
+    }
+  }
+  return false
+}
 
 function normalizeWheelDeltaY(event: WheelEvent, viewport: HTMLElement): number {
   if (event.deltaMode === DOM_DELTA_LINE) {
@@ -122,6 +136,7 @@ function StationXtermTerminalView({
   onData,
   onResize,
   onBindSink,
+  onRenderedScreenSnapshot,
 }: StationXtermTerminalProps) {
   const shellRef = useRef<HTMLDivElement | null>(null)
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -129,6 +144,9 @@ function StationXtermTerminalView({
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
+  const onRenderedScreenSnapshotRef = useRef(onRenderedScreenSnapshot)
+  const screenRevisionRef = useRef(0)
+  const lastSnapshotSignatureRef = useRef('')
 
   useEffect(() => {
     onDataRef.current = onData
@@ -137,6 +155,15 @@ function StationXtermTerminalView({
   useEffect(() => {
     onResizeRef.current = onResize
   }, [onResize])
+
+  useEffect(() => {
+    onRenderedScreenSnapshotRef.current = onRenderedScreenSnapshot
+  }, [onRenderedScreenSnapshot])
+
+  useEffect(() => {
+    screenRevisionRef.current = 0
+    lastSnapshotSignatureRef.current = ''
+  }, [sessionId])
 
   useEffect(() => {
     const terminal = terminalRef.current
@@ -159,6 +186,9 @@ function StationXtermTerminalView({
     let resizeObserver: ResizeObserver | null = null
     let refreshFrameId: number | null = null
     let readyFitFrameId: number | null = null
+    let reportFrameId: number | null = null
+    let reportTimeoutId: number | null = null
+    let lastReportAtMs = 0
     void Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]).then(
       ([xtermModule, fitModule]) => {
         if (!active) {
@@ -201,6 +231,96 @@ function StationXtermTerminalView({
             refreshFrameId = null
             refreshTerminal()
           })
+        }
+        const captureRenderedScreenSnapshot = (): RenderedScreenSnapshot | null => {
+          const activeSessionId = sessionId?.trim()
+          if (!activeSessionId) {
+            return null
+          }
+          const buffer = terminal.buffer.active
+          const viewportTop = buffer.viewportY
+          const viewportHeight = terminal.rows
+          const baseY = buffer.baseY
+          const absoluteCursorRow = baseY + buffer.cursorY
+          const bufferLineCount =
+            typeof buffer.length === 'number'
+              ? buffer.length
+              : Math.max(viewportTop + viewportHeight, baseY + terminal.rows)
+          const lastBufferRow = Math.max(0, bufferLineCount - 1)
+          const searchFloor = Math.max(0, bufferLineCount - RENDERED_SCREEN_CAPTURE_MAX_LINES)
+          let captureStart = searchFloor
+          for (let absoluteRow = lastBufferRow; absoluteRow >= searchFloor; absoluteRow -= 1) {
+            const line = buffer.getLine(absoluteRow)
+            const text = line?.translateToString(false) ?? ''
+            if (isPromptAnchorText(text)) {
+              captureStart = absoluteRow
+              break
+            }
+          }
+          const rows: RenderedScreenSnapshot['rows'] = []
+          for (let absoluteRow = captureStart; absoluteRow < bufferLineCount; absoluteRow += 1) {
+            const line = buffer.getLine(absoluteRow)
+            const text = line?.translateToString(false) ?? ''
+            const trimmedText = text.trim()
+            rows.push({
+              rowIndex: absoluteRow,
+              text,
+              trimmedText,
+              isBlank: trimmedText.length === 0,
+            })
+          }
+          return {
+            sessionId: activeSessionId,
+            screenRevision: screenRevisionRef.current + 1,
+            capturedAtMs: Date.now(),
+            viewportTop,
+            viewportHeight,
+            baseY,
+            cursorRow: Number.isFinite(absoluteCursorRow) ? absoluteCursorRow : null,
+            cursorCol: Number.isFinite(buffer.cursorX) ? buffer.cursorX : null,
+            rows,
+          }
+        }
+        const flushRenderedScreenSnapshot = () => {
+          if (reportFrameId !== null) {
+            window.cancelAnimationFrame(reportFrameId)
+          }
+          reportFrameId = window.requestAnimationFrame(() => {
+            reportFrameId = null
+            const snapshot = captureRenderedScreenSnapshot()
+            if (!snapshot) {
+              return
+            }
+            const signature = [
+              snapshot.viewportTop,
+              snapshot.viewportHeight,
+              snapshot.baseY,
+              snapshot.cursorRow ?? '',
+              snapshot.cursorCol ?? '',
+              snapshot.rows.map((row) => row.text).join('\u241e'),
+            ].join('\u241f')
+            if (signature === lastSnapshotSignatureRef.current) {
+              return
+            }
+            lastSnapshotSignatureRef.current = signature
+            screenRevisionRef.current = snapshot.screenRevision
+            lastReportAtMs = Date.now()
+            onRenderedScreenSnapshotRef.current?.(stationId, snapshot)
+          })
+        }
+        const scheduleRenderedScreenSnapshot = () => {
+          const now = Date.now()
+          const elapsed = now - lastReportAtMs
+          const delay = elapsed >= RENDERED_SCREEN_REPORT_THROTTLE_MS
+            ? 0
+            : RENDERED_SCREEN_REPORT_THROTTLE_MS - elapsed
+          if (reportTimeoutId !== null) {
+            return
+          }
+          reportTimeoutId = window.setTimeout(() => {
+            reportTimeoutId = null
+            flushRenderedScreenSnapshot()
+          }, delay)
         }
         const ensureTerminalMinSize = () => {
           if (terminal.cols > 0 && terminal.rows > 0) {
@@ -336,7 +456,10 @@ function StationXtermTerminalView({
             if (terminal.cols <= 0 || terminal.rows <= 0) {
               scheduleFitRetry()
             }
-            terminal.write(chunk, scheduleRefresh)
+            terminal.write(chunk, () => {
+              scheduleRefresh()
+              scheduleRenderedScreenSnapshot()
+            })
           },
           reset: (content?: string) => {
             terminal.reset()
@@ -344,7 +467,9 @@ function StationXtermTerminalView({
               if (terminal.cols <= 0 || terminal.rows <= 0) {
                 scheduleFitRetry()
               }
-              terminal.write(content, scheduleRefresh)
+              terminal.write(content, () => {
+                scheduleRefresh()
+              })
             }
             scheduleRefresh()
           },
@@ -372,11 +497,17 @@ function StationXtermTerminalView({
       if (readyFitFrameId !== null) {
         window.cancelAnimationFrame(readyFitFrameId)
       }
+      if (reportFrameId !== null) {
+        window.cancelAnimationFrame(reportFrameId)
+      }
+      if (reportTimeoutId !== null) {
+        window.clearTimeout(reportTimeoutId)
+      }
       terminalRef.current?.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [onBindSink, stationId])
+  }, [onBindSink, onRenderedScreenSnapshot, sessionId, stationId])
 
   useEffect(() => {
     const terminal = terminalRef.current

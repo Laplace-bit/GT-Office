@@ -1,20 +1,26 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Stdio;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
+use uuid::Uuid;
 use vb_abstractions::WorkspaceService;
 use vb_agent::{AgentRepository, AgentState, RoleStatus};
 use vb_storage::{SqliteAgentRepository, SqliteStorage};
 use vb_task::{
-    ChannelAckEvent, ChannelRouteBinding, ExternalAccessPolicyMode, ExternalInboundMessage,
-    ExternalInboundResponse, ExternalInboundStatus, ExternalRouteResolution,
-    TaskDispatchBatchRequest, TaskDispatchProgressEvent, TaskDispatchStatus,
+    AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelRouteBinding,
+    ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
+    ExternalInboundStatus, ExternalRouteResolution, TaskDispatchBatchRequest,
+    TaskDispatchProgressEvent, TaskDispatchStatus,
 };
 
 use crate::{
@@ -23,10 +29,10 @@ use crate::{
 };
 
 const EXTERNAL_REPLY_FLUSH_LOOP_MS: u64 = 700;
-const EXTERNAL_REPLY_IDLE_FLUSH_MS: u64 = 2_000;  // 降低到2秒，更快响应
+const EXTERNAL_REPLY_IDLE_FLUSH_MS: u64 = 2_000; // 降低到2秒，更快响应
 const EXTERNAL_REPLY_MAX_WAIT_MS: u64 = 15 * 60 * 1000;
-const EXTERNAL_REPLY_STREAM_THROTTLE_MS: u64 = 800;  // 降低到800ms，更快的预览更新
-const EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS: usize = 16;  // 降低到16个字符，更早开始发送
+const EXTERNAL_REPLY_STREAM_THROTTLE_MS: u64 = 800; // 降低到800ms，更快的预览更新
+const EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS: usize = 16; // 降低到16个字符，更早开始发送
 const EXTERNAL_REPLY_MAX_TEXT_CHARS: usize = 3_800;
 const CHANNEL_STATE_FILE_VERSION: u32 = 1;
 
@@ -167,6 +173,22 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|value| value.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn user_home_dir() -> Option<PathBuf> {
+    if let Some(value) = env::var_os("HOME") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            return Some(path);
+        }
+    }
+    if let Some(value) = env::var_os("USERPROFILE") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 async fn resolve_binding_bot_name(
@@ -351,6 +373,909 @@ fn truncate_text_for_channel(text: &str, max_chars: usize) -> String {
     truncated
 }
 
+fn split_text_for_channel(text: &str, max_chars: usize) -> Vec<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Vec::new();
+    }
+    if text.chars().count() <= max_chars {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        if remaining.chars().count() <= max_chars {
+            chunks.push(remaining.to_string());
+            break;
+        }
+
+        let mut split_byte = 0usize;
+        let mut last_newline_byte = None;
+        let mut char_count = 0usize;
+        for (idx, ch) in remaining.char_indices() {
+            char_count += 1;
+            split_byte = idx + ch.len_utf8();
+            if ch == '\n' {
+                last_newline_byte = Some(split_byte);
+            }
+            if char_count >= max_chars {
+                break;
+            }
+        }
+
+        let chunk_end = last_newline_byte
+            .filter(|value| *value > 0)
+            .unwrap_or(split_byte);
+        let chunk = remaining[..chunk_end].trim_end().to_string();
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+        remaining = remaining[chunk_end..].trim_start_matches('\n');
+    }
+
+    chunks
+}
+
+fn structured_cli_spec(tool_kind: AgentToolKind) -> Option<(&'static str, &'static str)> {
+    match tool_kind {
+        AgentToolKind::Claude => Some(("claude", "GTO_CLAUDE_COMMAND")),
+        AgentToolKind::Codex => Some(("codex", "GTO_CODEX_COMMAND")),
+        AgentToolKind::Gemini => Some(("gemini", "GTO_GEMINI_COMMAND")),
+        _ => None,
+    }
+}
+
+fn resolve_structured_cli_command(tool_kind: AgentToolKind) -> Result<PathBuf, String> {
+    let (command_name, override_var) = structured_cli_spec(tool_kind)
+        .ok_or_else(|| format!("unsupported structured relay tool: {:?}", tool_kind))?;
+
+    if let Some(override_value) = env::var(override_var)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(path) = resolve_cli_candidate(&override_value, command_name) {
+            debug!(
+                tool = command_name,
+                resolved = %path.display(),
+                source = override_var,
+                "resolved structured relay command from override"
+            );
+            return Ok(path);
+        }
+
+        return Err(format!(
+            "{override_var} is set to '{override_value}' but does not resolve to an executable for '{command_name}'"
+        ));
+    }
+
+    if let Some(path) = resolve_cli_candidate(command_name, command_name) {
+        debug!(
+            tool = command_name,
+            resolved = %path.display(),
+            source = "PATH/common",
+            "resolved structured relay command"
+        );
+        return Ok(path);
+    }
+
+    let mut attempted = vec![override_var.to_string(), "PATH".to_string()];
+    attempted.extend(
+        common_cli_search_roots()
+            .into_iter()
+            .map(|path| path.display().to_string()),
+    );
+    #[cfg(not(target_os = "windows"))]
+    attempted.push("login-shell".to_string());
+
+    Err(format!(
+        "unable to resolve executable '{command_name}'; searched {}",
+        attempted.join(", ")
+    ))
+}
+
+fn resolve_cli_candidate(candidate: &str, command_name: &str) -> Option<PathBuf> {
+    let trimmed = candidate.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let path = PathBuf::from(trimmed);
+    if path.components().count() > 1 || path.is_absolute() {
+        return normalize_executable_path(path);
+    }
+
+    if let Some(path) = resolve_command_in_path(trimmed) {
+        return Some(path);
+    }
+
+    if trimmed != command_name {
+        for root in common_cli_search_roots() {
+            if let Some(path) = find_command_in_dir(&root, trimmed) {
+                return Some(path);
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        if let Some(path) = resolve_command_via_login_shell(trimmed) {
+            return Some(path);
+        }
+    } else {
+        if let Some(path) = resolve_command_in_common_roots(command_name) {
+            return Some(path);
+        }
+        #[cfg(not(target_os = "windows"))]
+        if let Some(path) = resolve_command_via_login_shell(command_name) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn resolve_command_in_path(command_name: &str) -> Option<PathBuf> {
+    let path_var = env::var_os("PATH")?;
+    for dir in env::split_paths(&path_var) {
+        if let Some(path) = find_command_in_dir(&dir, command_name) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn resolve_command_in_common_roots(command_name: &str) -> Option<PathBuf> {
+    for root in common_cli_search_roots() {
+        if let Some(path) = find_command_in_dir(&root, command_name) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn common_cli_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(home) = user_home_dir() {
+        roots.push(home.join(".local/bin"));
+        roots.push(home.join(".cargo/bin"));
+        roots.push(home.join(".volta/bin"));
+        roots.push(home.join(".asdf/shims"));
+        roots.push(home.join(".fnm/current/bin"));
+        roots.extend(nvm_bin_dirs(&home));
+    }
+
+    if let Some(appdata) = env::var_os("APPDATA").map(PathBuf::from) {
+        roots.push(appdata.join("npm"));
+    }
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        roots.push(local_app_data.join("Programs/nodejs"));
+    }
+    if let Some(nvm_home) = env::var_os("NVM_HOME").map(PathBuf::from) {
+        roots.push(nvm_home);
+    }
+    if let Some(nvm_symlink) = env::var_os("NVM_SYMLINK").map(PathBuf::from) {
+        roots.push(nvm_symlink);
+    }
+
+    if cfg!(target_os = "windows") {
+        if let Some(program_files) = env::var_os("ProgramFiles").map(PathBuf::from) {
+            roots.push(program_files.join("nodejs"));
+        }
+    } else {
+        roots.push(PathBuf::from("/usr/local/bin"));
+        roots.push(PathBuf::from("/opt/homebrew/bin"));
+        roots.push(PathBuf::from("/usr/bin"));
+        roots.push(PathBuf::from("/bin"));
+    }
+
+    let mut deduped = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots {
+        let normalized = root;
+        let key = normalized.to_string_lossy().to_string();
+        if seen.insert(key) {
+            deduped.push(normalized);
+        }
+    }
+    deduped
+}
+
+fn nvm_bin_dirs(home: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let versions_root = home.join(".nvm/versions/node");
+    let Ok(entries) = fs::read_dir(&versions_root) else {
+        return dirs;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            dirs.push(path.join("bin"));
+        }
+    }
+    dirs
+}
+
+fn find_command_in_dir(dir: &Path, command_name: &str) -> Option<PathBuf> {
+    for file_name in command_name_variants(command_name) {
+        let candidate = dir.join(file_name);
+        if let Some(path) = normalize_executable_path(candidate) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn command_name_variants(command_name: &str) -> Vec<String> {
+    let mut variants = vec![command_name.to_string()];
+    if cfg!(target_os = "windows") {
+        for suffix in [".cmd", ".exe", ".bat"] {
+            if !command_name.ends_with(suffix) {
+                variants.push(format!("{command_name}{suffix}"));
+            }
+        }
+    }
+    variants
+}
+
+fn normalize_executable_path(path: PathBuf) -> Option<PathBuf> {
+    if !path.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = fs::metadata(&path).ok()?;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+    }
+    Some(path)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_command_via_login_shell(command_name: &str) -> Option<PathBuf> {
+    for shell in [("bash", "-lc"), ("zsh", "-lc"), ("sh", "-lc")] {
+        let Ok(output) = std::process::Command::new(shell.0)
+            .arg(shell.1)
+            .arg(format!("command -v {command_name}"))
+            .output()
+        else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let candidate = stdout.trim();
+        if candidate.is_empty() {
+            continue;
+        }
+        if let Some(path) = normalize_executable_path(PathBuf::from(candidate)) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn runtime_supports_structured_relay(runtime: &AgentRuntimeRegistration) -> bool {
+    matches!(
+        runtime.tool_kind,
+        AgentToolKind::Claude | AgentToolKind::Codex
+    ) && runtime
+        .resolved_cwd
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
+fn emit_external_outbound_result(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    message_id: &str,
+    status: &str,
+    detail: &str,
+    ts_ms: u64,
+    relay_mode: &str,
+    confidence: &str,
+) {
+    let _ = app.emit(
+        "external/channel_outbound_result",
+        json!({
+            "traceId": target.trace_id,
+            "workspaceId": target.workspace_id,
+            "messageId": message_id,
+            "targetAgentId": target.target_agent_id,
+            "status": status,
+            "detail": detail,
+            "tsMs": ts_ms,
+            "relayMode": relay_mode,
+            "confidence": confidence,
+        }),
+    );
+}
+
+fn emit_structured_reply_skipped(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    detail: &str,
+    relay_mode: &str,
+) {
+    emit_external_outbound_result(
+        app,
+        target,
+        &target.inbound_message_id,
+        "skipped",
+        detail,
+        now_ms(),
+        relay_mode,
+        "high",
+    );
+}
+
+async fn deliver_external_reply_text(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    phase: ExternalReplyDispatchPhase,
+    raw_text: &str,
+    preview_message_id: &mut Option<String>,
+    relay_mode: &str,
+    confidence: &str,
+) -> Result<(), String> {
+    let text = truncate_text_for_channel(raw_text.trim(), EXTERNAL_REPLY_MAX_TEXT_CHARS);
+    if text.is_empty() {
+        return Ok(());
+    }
+
+    let delivery_result = match target.channel.as_str() {
+        "telegram" => match phase {
+            ExternalReplyDispatchPhase::Preview => {
+                if let Some(message_id) = preview_message_id.as_deref() {
+                    telegram::edit_text_reply(
+                        app,
+                        Some(&target.account_id),
+                        &target.peer_id,
+                        message_id,
+                        &text,
+                    )
+                    .await
+                } else {
+                    if let Err(error) =
+                        telegram::send_typing_action(app, Some(&target.account_id), &target.peer_id)
+                            .await
+                    {
+                        debug!(
+                            trace_id = %target.trace_id,
+                            error = %error,
+                            "telegram typing action failed (non-fatal)"
+                        );
+                    }
+                    telegram::send_text_reply(
+                        app,
+                        Some(&target.account_id),
+                        &target.peer_id,
+                        &text,
+                        Some(&target.inbound_message_id),
+                    )
+                    .await
+                }
+            }
+            ExternalReplyDispatchPhase::Finalize => {
+                if let Some(message_id) = preview_message_id.as_deref() {
+                    match telegram::edit_text_reply(
+                        app,
+                        Some(&target.account_id),
+                        &target.peer_id,
+                        message_id,
+                        &text,
+                    )
+                    .await
+                    {
+                        Ok(snapshot) => Ok(snapshot),
+                        Err(_) => {
+                            telegram::send_text_reply(
+                                app,
+                                Some(&target.account_id),
+                                &target.peer_id,
+                                &text,
+                                Some(&target.inbound_message_id),
+                            )
+                            .await
+                        }
+                    }
+                } else {
+                    telegram::send_text_reply(
+                        app,
+                        Some(&target.account_id),
+                        &target.peer_id,
+                        &text,
+                        Some(&target.inbound_message_id),
+                    )
+                    .await
+                }
+            }
+        },
+        _ => Err(format!(
+            "CHANNEL_REPLY_SEND_UNSUPPORTED: channel {} outbound is unsupported",
+            target.channel
+        )),
+    };
+
+    match delivery_result {
+        Ok(send_result) => {
+            if phase == ExternalReplyDispatchPhase::Preview {
+                *preview_message_id = Some(send_result.message_id.clone());
+            }
+            emit_external_outbound_result(
+                app,
+                target,
+                &send_result.message_id,
+                "delivered",
+                if phase == ExternalReplyDispatchPhase::Preview {
+                    "stream preview updated"
+                } else {
+                    "reply finalized"
+                },
+                send_result.delivered_at_ms,
+                relay_mode,
+                confidence,
+            );
+            Ok(())
+        }
+        Err(error) => {
+            emit_external_outbound_result(
+                app,
+                target,
+                preview_message_id
+                    .as_deref()
+                    .unwrap_or(&target.inbound_message_id),
+                "failed",
+                &error,
+                now_ms(),
+                relay_mode,
+                confidence,
+            );
+            Err(error)
+        }
+    }
+}
+
+fn spawn_structured_reply_jobs(
+    app: &AppHandle,
+    message: &ExternalInboundMessage,
+    trace_id: &str,
+    workspace_id: &str,
+    results: &[vb_task::TaskDispatchTargetResult],
+    runtimes_by_agent: &HashMap<String, AgentRuntimeRegistration>,
+) {
+    if !message.channel.trim().eq_ignore_ascii_case("telegram") {
+        return;
+    }
+
+    for result in results {
+        if result.status != TaskDispatchStatus::Sent {
+            continue;
+        }
+
+        let target = ExternalReplyRelayTarget {
+            trace_id: trace_id.to_string(),
+            channel: message.channel.trim().to_ascii_lowercase(),
+            account_id: normalize_account_id(Some(&message.account_id)),
+            peer_id: message.peer_id.clone(),
+            inbound_message_id: message.message_id.clone(),
+            workspace_id: workspace_id.to_string(),
+            target_agent_id: result.target_agent_id.clone(),
+            injected_input: Some(message.text.trim().to_string()).filter(|text| !text.is_empty()),
+        };
+
+        let Some(runtime) = runtimes_by_agent.get(&result.target_agent_id).cloned() else {
+            emit_structured_reply_skipped(
+                app,
+                &target,
+                "CHANNEL_REPLY_RUNTIME_MISSING: target runtime metadata unavailable",
+                "unsupported",
+            );
+            continue;
+        };
+
+        if !runtime_supports_structured_relay(&runtime) {
+            emit_structured_reply_skipped(
+                app,
+                &target,
+                &format!(
+                    "CHANNEL_REPLY_RELAY_SKIPPED: tool {:?} does not provide a structured reply stream",
+                    runtime.tool_kind
+                ),
+                "unsupported",
+            );
+            continue;
+        }
+
+        let prompt = message.text.clone();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) =
+                run_structured_reply_job(&app, target.clone(), runtime, prompt).await
+            {
+                emit_external_error(
+                    &app,
+                    &target.trace_id,
+                    "CHANNEL_REPLY_STRUCTURED_FAILED",
+                    &error,
+                );
+                emit_external_outbound_result(
+                    &app,
+                    &target,
+                    &target.inbound_message_id,
+                    "failed",
+                    &error,
+                    now_ms(),
+                    "structured-headless",
+                    "high",
+                );
+            }
+        });
+    }
+}
+
+async fn run_structured_reply_job(
+    app: &AppHandle,
+    target: ExternalReplyRelayTarget,
+    runtime: AgentRuntimeRegistration,
+    prompt: String,
+) -> Result<(), String> {
+    match runtime.tool_kind {
+        AgentToolKind::Claude => run_claude_structured_relay(app, &target, &runtime, &prompt).await,
+        AgentToolKind::Codex => run_codex_structured_relay(app, &target, &runtime, &prompt).await,
+        _ => Err(format!(
+            "CHANNEL_REPLY_STRUCTURED_UNSUPPORTED: tool {:?} is not supported",
+            runtime.tool_kind
+        )),
+    }
+}
+
+async fn run_claude_structured_relay(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    runtime: &AgentRuntimeRegistration,
+    prompt: &str,
+) -> Result<(), String> {
+    let mut last_error = String::new();
+    for continue_session in [true, false] {
+        match stream_claude_once(app, target, runtime, prompt, continue_session).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn stream_claude_once(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    runtime: &AgentRuntimeRegistration,
+    prompt: &str,
+    continue_session: bool,
+) -> Result<(), String> {
+    let cwd = runtime
+        .resolved_cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .ok_or_else(|| "CHANNEL_REPLY_RUNTIME_INVALID: resolved cwd is required".to_string())?;
+    let command_path = resolve_structured_cli_command(AgentToolKind::Claude)
+        .map_err(|error| format!("CHANNEL_REPLY_CLAUDE_COMMAND_NOT_FOUND: {error}"))?;
+    let mut command = Command::new(&command_path);
+    command
+        .current_dir(cwd)
+        .arg("-p")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--include-partial-messages");
+    if continue_session {
+        command.arg("-c");
+    }
+    command.arg(prompt);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("CHANNEL_REPLY_CLAUDE_SPAWN_FAILED: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "CHANNEL_REPLY_CLAUDE_STDOUT_MISSING".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "CHANNEL_REPLY_CLAUDE_STDERR_MISSING".to_string())?;
+    let stderr_task = tauri::async_runtime::spawn(async move {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(stderr);
+        let _ = reader.read_to_string(&mut buf).await;
+        buf
+    });
+
+    let mut lines = BufReader::new(stdout).lines();
+    let mut final_text = String::new();
+    let mut last_preview_text = String::new();
+    let mut last_preview_sent_at_ms = 0u64;
+    let mut preview_message_id: Option<String> = None;
+
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_CLAUDE_READ_FAILED: {error}"))?
+    {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let event: Value = serde_json::from_str(trimmed).map_err(|error| {
+            format!("CHANNEL_REPLY_CLAUDE_JSON_INVALID: {error}; line={trimmed}")
+        })?;
+        let Some(event_type) = event.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        if event_type == "content_block_delta"
+            && event
+                .pointer("/delta/type")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value == "text_delta")
+        {
+            if let Some(delta) = event.pointer("/delta/text").and_then(Value::as_str) {
+                final_text.push_str(delta);
+                let preview_due = now_ms().saturating_sub(last_preview_sent_at_ms)
+                    >= EXTERNAL_REPLY_STREAM_THROTTLE_MS;
+                let preview_ready = final_text.chars().count()
+                    >= EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS
+                    || preview_message_id.is_some();
+                if preview_due && preview_ready && final_text != last_preview_text {
+                    deliver_external_reply_text(
+                        app,
+                        target,
+                        ExternalReplyDispatchPhase::Preview,
+                        &final_text,
+                        &mut preview_message_id,
+                        "structured-headless",
+                        "high",
+                    )
+                    .await?;
+                    last_preview_text = final_text.clone();
+                    last_preview_sent_at_ms = now_ms();
+                }
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_CLAUDE_WAIT_FAILED: {error}"))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_CLAUDE_STDERR_JOIN_FAILED: {error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "CHANNEL_REPLY_CLAUDE_EXIT_FAILED: status={status}; stderr={}",
+            stderr.trim()
+        ));
+    }
+    if final_text.trim().is_empty() {
+        return Err(format!(
+            "CHANNEL_REPLY_CLAUDE_EMPTY: no assistant text produced; stderr={}",
+            stderr.trim()
+        ));
+    }
+
+    deliver_external_reply_text(
+        app,
+        target,
+        ExternalReplyDispatchPhase::Finalize,
+        &final_text,
+        &mut preview_message_id,
+        "structured-headless",
+        "high",
+    )
+    .await
+}
+
+async fn run_codex_structured_relay(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    runtime: &AgentRuntimeRegistration,
+    prompt: &str,
+) -> Result<(), String> {
+    let mut last_error = String::new();
+    for resume_last in [true, false] {
+        match stream_codex_once(app, target, runtime, prompt, resume_last).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
+}
+
+fn codex_event_text(event: &Value) -> Option<(String, bool)> {
+    let event_type = event.get("type").and_then(Value::as_str)?;
+    match event_type {
+        "item.completed" => {
+            let item = event.get("item")?;
+            let item_type = item.get("type").and_then(Value::as_str)?;
+            if matches!(item_type, "agent_message" | "assistant_message") {
+                let text = item
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if !text.trim().is_empty() {
+                    return Some((text, true));
+                }
+            }
+            None
+        }
+        "item.updated" | "agent_message_delta" | "assistant_message_delta" => {
+            let delta = event
+                .pointer("/delta/text")
+                .and_then(Value::as_str)
+                .or_else(|| event.pointer("/item/text").and_then(Value::as_str))
+                .or_else(|| event.get("text").and_then(Value::as_str))?;
+            if delta.is_empty() {
+                None
+            } else {
+                Some((delta.to_string(), false))
+            }
+        }
+        _ => None,
+    }
+}
+
+async fn stream_codex_once(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    runtime: &AgentRuntimeRegistration,
+    prompt: &str,
+    resume_last: bool,
+) -> Result<(), String> {
+    let cwd = runtime
+        .resolved_cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .ok_or_else(|| "CHANNEL_REPLY_RUNTIME_INVALID: resolved cwd is required".to_string())?;
+    let temp_output = std::env::temp_dir().join(format!(
+        "gtoffice-codex-last-message-{}.txt",
+        Uuid::new_v4()
+    ));
+
+    let command_path = resolve_structured_cli_command(AgentToolKind::Codex)
+        .map_err(|error| format!("CHANNEL_REPLY_CODEX_COMMAND_NOT_FOUND: {error}"))?;
+    let mut command = Command::new(&command_path);
+    command.current_dir(cwd);
+    if resume_last {
+        command
+            .arg("exec")
+            .arg("resume")
+            .arg("--last")
+            .arg("--json");
+    } else {
+        command.arg("exec").arg("--json");
+    }
+    command
+        .arg("--skip-git-repo-check")
+        .arg("--output-last-message")
+        .arg(&temp_output)
+        .arg(prompt)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("CHANNEL_REPLY_CODEX_SPAWN_FAILED: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "CHANNEL_REPLY_CODEX_STDOUT_MISSING".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "CHANNEL_REPLY_CODEX_STDERR_MISSING".to_string())?;
+    let stderr_task = tauri::async_runtime::spawn(async move {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(stderr);
+        let _ = reader.read_to_string(&mut buf).await;
+        buf
+    });
+
+    let mut lines = BufReader::new(stdout).lines();
+    let mut final_text = String::new();
+    let mut last_preview_text = String::new();
+    let mut last_preview_sent_at_ms = 0u64;
+    let mut preview_message_id: Option<String> = None;
+
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_CODEX_READ_FAILED: {error}"))?
+    {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let event: Value = serde_json::from_str(trimmed).map_err(|error| {
+            format!("CHANNEL_REPLY_CODEX_JSON_INVALID: {error}; line={trimmed}")
+        })?;
+        if let Some((text, is_final)) = codex_event_text(&event) {
+            if is_final {
+                final_text = text;
+            } else {
+                final_text.push_str(&text);
+            }
+            let preview_due = now_ms().saturating_sub(last_preview_sent_at_ms)
+                >= EXTERNAL_REPLY_STREAM_THROTTLE_MS;
+            let preview_ready = final_text.chars().count()
+                >= EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS
+                || preview_message_id.is_some();
+            if preview_due && preview_ready && final_text != last_preview_text {
+                deliver_external_reply_text(
+                    app,
+                    target,
+                    ExternalReplyDispatchPhase::Preview,
+                    &final_text,
+                    &mut preview_message_id,
+                    "structured-headless",
+                    "high",
+                )
+                .await?;
+                last_preview_text = final_text.clone();
+                last_preview_sent_at_ms = now_ms();
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_CODEX_WAIT_FAILED: {error}"))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_CODEX_STDERR_JOIN_FAILED: {error}"))?;
+
+    if let Ok(text) = tokio::fs::read_to_string(&temp_output).await {
+        if !text.trim().is_empty() {
+            final_text = text;
+        }
+    }
+    let _ = tokio::fs::remove_file(&temp_output).await;
+
+    if !status.success() {
+        return Err(format!(
+            "CHANNEL_REPLY_CODEX_EXIT_FAILED: status={status}; stderr={}",
+            stderr.trim()
+        ));
+    }
+    if final_text.trim().is_empty() {
+        return Err(format!(
+            "CHANNEL_REPLY_CODEX_EMPTY: no assistant text produced; stderr={}",
+            stderr.trim()
+        ));
+    }
+
+    deliver_external_reply_text(
+        app,
+        target,
+        ExternalReplyDispatchPhase::Finalize,
+        &final_text,
+        &mut preview_message_id,
+        "structured-headless",
+        "high",
+    )
+    .await
+}
+
 fn resolve_workspace_from_persisted_route(
     app: &AppHandle,
     state: &AppState,
@@ -386,6 +1311,7 @@ fn resolve_workspace_from_persisted_route(
     None
 }
 
+#[allow(dead_code)]
 fn bind_external_reply_sessions(
     state: &AppState,
     app: &AppHandle,
@@ -483,7 +1409,11 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
         EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS,
     )?;
     for candidate in candidates {
-        let text = truncate_text_for_channel(&candidate.text, EXTERNAL_REPLY_MAX_TEXT_CHARS);
+        let chunks = split_text_for_channel(&candidate.text, EXTERNAL_REPLY_MAX_TEXT_CHARS);
+        if chunks.is_empty() {
+            continue;
+        }
+        let text = chunks[0].clone();
         match candidate.target.channel.as_str() {
             "telegram" => {
                 let delivery_result = match candidate.phase {
@@ -588,6 +1518,24 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
 
                 match delivery_result {
                     Ok(send_result) => {
+                        if candidate.phase == ExternalReplyDispatchPhase::Finalize {
+                            for extra_chunk in chunks.iter().skip(1) {
+                                telegram::send_text_reply(
+                                    app,
+                                    Some(&candidate.target.account_id),
+                                    &candidate.target.peer_id,
+                                    extra_chunk,
+                                    Some(&candidate.target.inbound_message_id),
+                                )
+                                .await
+                                .map_err(|error| {
+                                    format!(
+                                        "CHANNEL_REPLY_CONTINUATION_SEND_FAILED: {}",
+                                        error
+                                    )
+                                })?;
+                            }
+                        }
                         if candidate.phase == ExternalReplyDispatchPhase::Preview {
                             let _ = state.set_external_reply_preview_message_id(
                                 &candidate.session_id,
@@ -604,10 +1552,14 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                 "status": "delivered",
                                 "detail": if candidate.phase == ExternalReplyDispatchPhase::Preview {
                                     "stream preview updated"
+                                } else if chunks.len() > 1 {
+                                    "reply finalized with continuation chunks"
                                 } else {
                                     "reply finalized"
                                 },
                                 "tsMs": send_result.delivered_at_ms,
+                                "relayMode": "pty-fallback",
+                                "confidence": "low",
                             }),
                         );
                     }
@@ -622,6 +1574,8 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                 "status": "failed",
                                 "detail": error,
                                 "tsMs": now_ms(),
+                                "relayMode": "pty-fallback",
+                                "confidence": "low",
                             }),
                         );
                         emit_external_error(
@@ -641,13 +1595,15 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                 let _ = app.emit(
                     "external/channel_outbound_result",
                     json!({
-                        "traceId": candidate.target.trace_id,
-                        "workspaceId": candidate.target.workspace_id,
-                        "messageId": candidate.target.inbound_message_id,
+                    "traceId": candidate.target.trace_id,
+                    "workspaceId": candidate.target.workspace_id,
+                    "messageId": candidate.target.inbound_message_id,
                         "targetAgentId": candidate.target.target_agent_id,
                         "status": "failed",
                         "detail": detail,
                         "tsMs": now_ms(),
+                        "relayMode": "unsupported",
+                        "confidence": "high",
                     }),
                 );
             }
@@ -729,6 +1685,8 @@ fn emit_channel_events(app: &AppHandle, ack_events: &[ChannelAckEvent], trace_id
                 "status": event.status,
                 "detail": event.reason,
                 "tsMs": event.ts_ms,
+                "relayMode": "dispatch-ack",
+                "confidence": "high",
             }),
         );
     }
@@ -1531,3 +2489,7 @@ pub fn channel_external_inbound(
     let response = process_external_inbound_message(state.inner(), &app, request.message)?;
     into_value(response)
 }
+
+#[cfg(test)]
+#[path = "../channel_adapter_tests.rs"]
+mod tests;

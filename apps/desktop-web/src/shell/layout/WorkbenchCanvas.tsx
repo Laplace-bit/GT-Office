@@ -5,6 +5,7 @@ import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import type { StationTerminalSink } from './StationXtermTerminal'
+import type { RenderedScreenSnapshot } from '../integration/desktop-api'
 import { StationCard } from './StationCard'
 import { AppIcon } from '../ui/icons'
 import type { StationChannelBotBindingSummary } from './channel-bot-binding-model'
@@ -45,6 +46,7 @@ interface WorkbenchCanvasProps {
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
+  onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   layoutPreset: WorkbenchLayoutPreset
   onLayoutPresetChange: (preset: WorkbenchLayoutPreset) => void
   scrollToStationId?: string | null
@@ -99,6 +101,7 @@ function WorkbenchCanvasView({
   onSendInputData,
   onResizeTerminal,
   onBindTerminalSink,
+  onRenderedScreenSnapshot,
   layoutPreset,
   onLayoutPresetChange,
   scrollToStationId = null,
@@ -415,6 +418,7 @@ function WorkbenchCanvasView({
               onSendInputData={onSendInputData}
               onResizeTerminal={onResizeTerminal}
               onBindTerminalSink={onBindTerminalSink}
+              onRenderedScreenSnapshot={onRenderedScreenSnapshot}
               onRemoveStation={onRemoveStation}
               onEnterFullscreen={handleEnterFullscreen}
               onExitFullscreen={handleExitFullscreen}
@@ -468,6 +472,7 @@ function WorkbenchCanvasView({
                         onSendInputData={onSendInputData}
                         onResizeTerminal={onResizeTerminal}
                         onBindTerminalSink={onBindTerminalSink}
+                        onRenderedScreenSnapshot={onRenderedScreenSnapshot}
                         onRemoveStation={onRemoveStation}
                         onEnterFullscreen={handleEnterFullscreen}
                         onExitFullscreen={handleExitFullscreen}
@@ -507,6 +512,7 @@ function WorkbenchCanvasView({
                 onSendInputData={onSendInputData}
                 onResizeTerminal={onResizeTerminal}
                 onBindTerminalSink={onBindTerminalSink}
+                onRenderedScreenSnapshot={onRenderedScreenSnapshot}
                 onRemoveStation={onRemoveStation}
                 onEnterFullscreen={handleEnterFullscreen}
                 onExitFullscreen={handleExitFullscreen}

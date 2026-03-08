@@ -281,14 +281,14 @@
      - `acceptedTargets: string[]`
      - `failedTargets: [{ agentId, reason }]`
 3. 新增命令：`agent.runtime_register` / `agent.runtime_unregister`
-   - register req: `{ workspaceId, agentId, stationId, roleKey?: string, sessionId, online?: true }`
-   - register resp: `{ workspaceId, agentId, stationId, roleKey?: string, sessionId, registered: true|false }`
+   - register req: `{ workspaceId, agentId, stationId, roleKey?: string, sessionId, toolKind?: "claude"|"codex"|"gemini"|"shell"|"unknown", resolvedCwd?: string|null, online?: true }`
+   - register resp: `{ workspaceId, agentId, stationId, roleKey?: string, sessionId, toolKind?: "claude"|"codex"|"gemini"|"shell"|"unknown", resolvedCwd?: string|null, registered: true|false }`
    - unregister req: `{ workspaceId, agentId }`
    - unregister resp: `{ workspaceId, agentId, unregistered: true|false }`
 4. 语义约束：
    - 通道本期仅做传输，不做持久化；应用重启后消息不恢复。
    - 在线目标要求 ACK，离线目标立即失败（`AGENT_OFFLINE`）。
-   - `agent.runtime_register` 建议携带 `roleKey`，供外部通道 `role:<role_key|role_id>` 路由时解析在线岗位实例。
+   - `agent.runtime_register` 建议携带 `roleKey`；`toolKind/resolvedCwd` 可作为后续增强字段保留，但当前 external inbound 主链路不得因为这些字段改变“消息直接写入 live terminal session 执行”的语义。
    - `task.dispatch_batch` 采用“一发多单”：每个目标独立 `taskId` 与状态。
    - `task.dispatch_batch` 当前仅负责向目标 session 写入命令文本，不在命令文本后拼接回车控制字符。
    - 自动提交统一走前端 xterm sink：`StationXtermTerminal.submit -> terminal.input('\r', true)`，以终端原生输入链路触发 `onData`。
@@ -596,7 +596,19 @@
    - 说明：
      - `webhookUrl` 为空时使用 runtime 的本机 webhook 地址（`channel_adapter_status.runtime.telegramWebhook`）。
      - Telegram 要求 `setWebhook` 为 HTTPS URL，传入非 HTTPS 将返回 `CHANNEL_CONNECTOR_WEBHOOK_INVALID`。
-13. 语义约束：
+13. 新增命令：`terminal.report_rendered_screen`
+   - req:
+     - `sessionId: string`
+     - `screenRevision: number`
+     - `capturedAtMs: number`
+     - `viewportTop: number`
+     - `viewportHeight: number`
+     - `baseY: number`
+     - `cursorRow?: number|null`
+     - `cursorCol?: number|null`
+     - `rows: Array<{ rowIndex: number, text: string, trimmedText: string, isBlank: boolean }>`
+   - resp: `{ "accepted": true, "sessionId":"string", "screenRevision": 12 }`
+14. 语义约束：
    - `channel + accountId` 共同标识一个 bot 实例；同一 `channel` 可存在多个 `accountId`，绑定规则需按 bot 维度独立生效。
    - `channel_binding.list` 返回扁平绑定数组，前端展示层应按 `channel -> accountId(bot) -> route` 聚合，避免多 bot 场景信息混叠。
    - `createdAtMs` 记录绑定首建时间；更新既有绑定（同路由主键）时保持原时间不变。
@@ -606,8 +618,12 @@
    - 幂等命中返回 `duplicate`，不得重复派发任务。
    - 路由未命中返回 `route_not_found` 并发射错误事件。
    - 当 `targetAgentId` 为 `role:<role_key|role_id>` 时，入站派发前按岗位解析目标集合（优先岗位下 agent 档案，同时吸收 `agent.runtime_register.roleKey` 匹配的在线实例）；若岗位不存在或无可投递目标，返回 `failed` 并附错误详情。
-   - 入站派发成功后需将目标 runtime session 与外部会话上下文绑定；终端输出若为流式，需按“节流窗口更新同一预览消息 + 静默窗口/会话结束最终收敛”回传，禁止逐 chunk 新消息出站（当前回传通道：Telegram）。
-14. runtime 约束：
+   - 入站派发成功后，消息必须直接写入目标 runtime 当前绑定的 live terminal session，并复用该 session 的提交序列执行；不得额外启动第二个 headless `claude/codex` 进程替代当前会话。
+   - 当前 Telegram 回复链路主事实源改为前端 `xterm.buffer.active` 派生的 `RenderedScreenSnapshot`；旧 PTY/session 文本监听仅保留为遗留兼容代码，不得继续作为正文提取主链路。
+   - `terminal.report_rendered_screen` 只接受 `screenRevision` 单调递增的快照；乱序或重复 revision 必须静默丢弃。
+   - `rows` 来源于 `xterm.buffer.active.getLine(...)`，不是 DOM 文本树；实现不得依赖 renderer DOM 结构。
+   - 对不支持结构化输出的工具（如 `shell` / `unknown`）不得自动回传 AI 正文，可仅输出 `external/channel_outbound_result(status=skipped)`。
+15. runtime 约束：
    - 桌面端启动后自动监听 `127.0.0.1:<random_port>`，并写入 `~/.gtoffice/channel/runtime.json`。
    - 回调路径：`POST /webhook/feishu/<token>`、`POST /webhook/telegram/<token>`。
    - 健康检查：`GET /health`。
@@ -672,7 +688,7 @@
 28. `external/channel_error`
    - payload: `{ "traceId":"string", "code":"string", "detail":"string" }`
 29. `external/channel_outbound_result`
-   - payload: `{ "traceId":"string?", "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed", "detail":"string?", "tsMs":1738932000456 }`
+   - payload: `{ "traceId":"string?", "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed|skipped", "detail":"string?", "tsMs":1738932000456, "relayMode":"dispatch-ack|structured-headless|pty-fallback|unsupported", "confidence":"high|low" }`
 30. `external/channel_connector_health_changed`
    - payload: `{ "channel":"telegram|feishu", "accountId":"string", "ok":true|false, "status":"ok|auth_failed|disabled", "detail":"string", "checkedAtMs":1738932000456 }`
 

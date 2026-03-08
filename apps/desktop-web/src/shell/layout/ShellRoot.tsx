@@ -61,11 +61,13 @@ import {
   type ExternalChannelInboundPayload,
   type ExternalChannelReplyPayload,
   type ExternalChannelRoutedPayload,
+  type AgentRuntimeRegisterRequest,
   type ChannelRouteBinding,
   desktopApi,
   type FilesystemChangedPayload,
   type FsSearchFileMatch,
   type GitStatusResponse,
+  type RenderedScreenSnapshot,
   type TerminalMetaPayload,
   type TerminalOutputPayload,
   type TerminalStatePayload,
@@ -115,6 +117,38 @@ const LEFT_PANE_WIDTH_MIN = 210
 const LEFT_PANE_WIDTH_MAX = 390
 const LEFT_PANE_WIDTH_DEFAULT = 270
 const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
+
+function normalizeStationToolKind(
+  tool: string | null | undefined,
+): NonNullable<AgentRuntimeRegisterRequest['toolKind']> {
+  const normalized = tool?.trim().toLowerCase() ?? ''
+  if (normalized.includes('claude')) {
+    return 'claude'
+  }
+  if (normalized.includes('codex')) {
+    return 'codex'
+  }
+  if (normalized.includes('gemini')) {
+    return 'gemini'
+  }
+  if (normalized.includes('shell')) {
+    return 'shell'
+  }
+  return 'unknown'
+}
+
+function buildStationLaunchCommand(station: AgentStation): string | null {
+  switch (normalizeStationToolKind(station.tool)) {
+    case 'claude':
+      return 'claude\n'
+    case 'codex':
+      return 'codex\n'
+    case 'gemini':
+      return 'gemini\n'
+    default:
+      return null
+  }
+}
 
 function isDigitsOnly(value: string): boolean {
   return value.length > 0 && /^\d+$/.test(value)
@@ -731,7 +765,7 @@ export function ShellRoot() {
   const externalChannelEventSeqRef = useRef(0)
   const telegramDebugToastTimerRef = useRef<number | null>(null)
   const registeredAgentRuntimeRef = useRef<
-    Record<string, { workspaceId: string; sessionId: string }>
+    Record<string, { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }>
   >({})
   const tabSessionSnapshotRef = useRef<Array<{ path: string; active: boolean }>>([])
   const terminalSessionSnapshotRef = useRef<WorkspaceSessionTerminalSnapshot[]>([])
@@ -1880,7 +1914,10 @@ export function ShellRoot() {
       return
     }
     const previous = registeredAgentRuntimeRef.current
-    const desired: Record<string, { workspaceId: string; sessionId: string }> = {}
+    const desired: Record<
+      string,
+      { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }
+    > = {}
 
     if (activeWorkspaceId) {
       stations.forEach((station) => {
@@ -1891,6 +1928,8 @@ export function ShellRoot() {
         desired[station.id] = {
           workspaceId: activeWorkspaceId,
           sessionId,
+          toolKind: normalizeStationToolKind(station.tool),
+          resolvedCwd: stationTerminals[station.id]?.resolvedCwd ?? null,
         }
       })
     }
@@ -1900,7 +1939,9 @@ export function ShellRoot() {
       if (
         next &&
         next.workspaceId === runtime.workspaceId &&
-        next.sessionId === runtime.sessionId
+        next.sessionId === runtime.sessionId &&
+        next.toolKind === runtime.toolKind &&
+        next.resolvedCwd === runtime.resolvedCwd
       ) {
         return
       }
@@ -1916,7 +1957,9 @@ export function ShellRoot() {
       if (
         prev &&
         prev.workspaceId === runtime.workspaceId &&
-        prev.sessionId === runtime.sessionId
+        prev.sessionId === runtime.sessionId &&
+        prev.toolKind === runtime.toolKind &&
+        prev.resolvedCwd === runtime.resolvedCwd
       ) {
         return
       }
@@ -1930,6 +1973,8 @@ export function ShellRoot() {
           stationId: agentId,
           roleKey: stationRole,
           sessionId: runtime.sessionId,
+          toolKind: runtime.toolKind as AgentRuntimeRegisterRequest['toolKind'],
+          resolvedCwd: runtime.resolvedCwd,
           submitSequence,
           online: true,
         })
@@ -2604,7 +2649,8 @@ export function ShellRoot() {
         stationSubmitSequenceRef.current[stationId] = submitSequence
         const workspaceId = activeWorkspaceIdRef.current
         const sessionId = stationTerminalsRef.current[stationId]?.sessionId
-        const stationRole = stationsRef.current.find((station) => station.id === stationId)?.role ?? null
+        const station = stationsRef.current.find((entry) => entry.id === stationId)
+        const stationRole = station?.role ?? null
         if (workspaceId && sessionId) {
           void desktopApi.agentRuntimeRegister({
             workspaceId,
@@ -2612,6 +2658,8 @@ export function ShellRoot() {
             stationId,
             roleKey: stationRole,
             sessionId,
+            toolKind: normalizeStationToolKind(station?.tool),
+            resolvedCwd: stationTerminalsRef.current[stationId]?.resolvedCwd ?? null,
             submitSequence,
             online: true,
           }).catch(() => {
@@ -2660,13 +2708,38 @@ export function ShellRoot() {
     [],
   )
 
+  const reportRenderedScreenSnapshot = useMemo(
+    () => (stationId: string, snapshot: RenderedScreenSnapshot) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      if ((channelBotBindingsByStationId[stationId]?.length ?? 0) === 0) {
+        return
+      }
+      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      if (!sessionId || snapshot.sessionId !== sessionId) {
+        return
+      }
+      void desktopApi.terminalReportRenderedScreen(snapshot).catch(() => {
+        // Snapshot reporting is best-effort and must not affect terminal interaction.
+      })
+    },
+    [channelBotBindingsByStationId],
+  )
+
   const launchStationCliAgent = useMemo(
     () => async (stationId: string) => {
       const sessionId = await ensureStationTerminalSession(stationId)
       if (!sessionId) {
         return
       }
-      sendStationTerminalInput(stationId, 'codex\n')
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      const launchCommand = station ? buildStationLaunchCommand(station) : null
+      if (!launchCommand) {
+        stationTerminalSinkRef.current[stationId]?.focus()
+        return
+      }
+      sendStationTerminalInput(stationId, launchCommand)
       stationTerminalSinkRef.current[stationId]?.focus()
     },
     [ensureStationTerminalSession, sendStationTerminalInput],
@@ -2691,6 +2764,8 @@ export function ShellRoot() {
         stationId: station.id,
         roleKey: station.role,
         sessionId,
+        toolKind: normalizeStationToolKind(station.tool),
+        resolvedCwd: stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
         submitSequence: stationSubmitSequenceRef.current[station.id] ?? null,
         online: true,
       })
@@ -4023,6 +4098,7 @@ export function ShellRoot() {
               onSendInputData={handleStationTerminalInput}
               onResizeTerminal={resizeStationTerminal}
               onBindTerminalSink={bindStationTerminalSink}
+              onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
               layoutPreset={canvasLayoutPreset}
               onLayoutPresetChange={handleCanvasLayoutPresetChange}
               scrollToStationId={pendingScrollStationId}

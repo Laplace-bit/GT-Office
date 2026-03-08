@@ -1,10 +1,9 @@
 use super::{
-    extract_last_assistant_block, normalize_carriage_returns, normalize_reply_text,
-    normalize_terminal_text, sanitize_terminal_chunk, should_skip_cli_prompt_line,
-    should_skip_external_reply_line, should_skip_log_prefix_line,
-    should_skip_runtime_noise_line, should_skip_startup_banner_line, should_skip_thinking_line,
-    should_skip_tool_execution_line, AppState, ExternalReplyDispatchPhase,
-    ExternalReplyRelayTarget,
+    normalize_carriage_returns, normalize_reply_text, normalize_terminal_text,
+    RenderedScreenSnapshot, RenderedScreenSnapshotRow,
+    sanitize_terminal_chunk, should_skip_cli_prompt_line, should_skip_external_reply_line,
+    should_skip_log_prefix_line, should_skip_runtime_noise_line, should_skip_startup_banner_line,
+    AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget,
 };
 
 fn now_ms_for_test(value: u64) -> u64 {
@@ -686,7 +685,11 @@ fn vt100_parser_handles_tui_status_bar_redraw() {
     // Simulate cursor-positioned status bar overwrites
     // First write content
     state
-        .append_external_reply_chunk("s_vt100_2", "• Response line 1\n".as_bytes(), now_ms_for_test(1_100))
+        .append_external_reply_chunk(
+            "s_vt100_2",
+            "• Response line 1\n".as_bytes(),
+            now_ms_for_test(1_100),
+        )
         .expect("append chunk 1");
 
     // Status bar with cursor positioning (move to line 1, col 1)
@@ -884,7 +887,9 @@ fn should_skip_tool_execution_line_filters_known_tools() {
     assert!(should_skip_tool_execution_line("Bash(ls -la)"));
     assert!(should_skip_tool_execution_line("Write(output.txt)"));
     assert!(should_skip_tool_execution_line("Grep(pattern)"));
-    assert!(should_skip_tool_execution_line("WebFetch(https://example.com)"));
+    assert!(should_skip_tool_execution_line(
+        "WebFetch(https://example.com)"
+    ));
     assert!(should_skip_tool_execution_line("Running: cargo test"));
     assert!(should_skip_tool_execution_line("Executing: npm install"));
     assert!(should_skip_tool_execution_line("Tool result: success"));
@@ -896,8 +901,12 @@ fn should_skip_tool_execution_line_preserves_content() {
 
     assert!(!should_skip_tool_execution_line("Read the documentation"));
     assert!(!should_skip_tool_execution_line("Edit your code carefully"));
-    assert!(!should_skip_tool_execution_line("I will write (and test) the code"));
-    assert!(!should_skip_tool_execution_line("Running tests is important"));
+    assert!(!should_skip_tool_execution_line(
+        "I will write (and test) the code"
+    ));
+    assert!(!should_skip_tool_execution_line(
+        "Running tests is important"
+    ));
 }
 
 #[test]
@@ -917,7 +926,9 @@ fn should_skip_thinking_line_preserves_content() {
     use super::should_skip_thinking_line;
 
     assert!(!should_skip_thinking_line("Thinking about this problem"));
-    assert!(!should_skip_thinking_line("I'm thinking we should refactor"));
+    assert!(!should_skip_thinking_line(
+        "I'm thinking we should refactor"
+    ));
     assert!(!should_skip_thinking_line("Reasoning: the code is correct"));
 }
 
@@ -931,7 +942,10 @@ fn normalize_reply_text_filters_tool_execution_blocks() {
                  Bash(ls)\n\
                  This is the actual content";
     let normalized = normalize_reply_text(input, None);
-    assert_eq!(normalized, "• Here is my response\nThis is the actual content");
+    assert_eq!(
+        normalized,
+        "• Here is my response\nThis is the actual content"
+    );
 }
 
 #[test]
@@ -969,21 +983,37 @@ fn normalize_reply_text_filters_compact_status_patterns() {
 
 #[test]
 fn should_skip_startup_banner_line_filters_box_drawing() {
-    assert!(should_skip_startup_banner_line("╭─────────────────────────────────────────────╮"));
-    assert!(should_skip_startup_banner_line("│ >_ OpenAI Codex (v0.110.0)"));
-    assert!(should_skip_startup_banner_line("╰─────────────────────────────────────────────╯"));
+    assert!(should_skip_startup_banner_line(
+        "╭─────────────────────────────────────────────╮"
+    ));
+    assert!(should_skip_startup_banner_line(
+        "│ >_ OpenAI Codex (v0.110.0)"
+    ));
+    assert!(should_skip_startup_banner_line(
+        "╰─────────────────────────────────────────────╯"
+    ));
     assert!(should_skip_startup_banner_line("┌─────────────────┐"));
     assert!(should_skip_startup_banner_line("│ model: gpt-5.4 xhigh │"));
 }
 
 #[test]
 fn should_skip_startup_banner_line_filters_tips_and_pairing() {
-    assert!(should_skip_startup_banner_line("Tip: New 2x rate limits until April 2nd."));
-    assert!(should_skip_startup_banner_line("Hint: Use /help for more info"));
+    assert!(should_skip_startup_banner_line(
+        "Tip: New 2x rate limits until April 2nd."
+    ));
+    assert!(should_skip_startup_banner_line(
+        "Hint: Use /help for more info"
+    ));
     assert!(should_skip_startup_banner_line("Pairing code: KMZYMEZZ"));
-    assert!(should_skip_startup_banner_line("OpenClaw: access not configured."));
-    assert!(should_skip_startup_banner_line("Your Telegram user id: 5799948766"));
-    assert!(should_skip_startup_banner_line("Ask the bot owner to approve with:"));
+    assert!(should_skip_startup_banner_line(
+        "OpenClaw: access not configured."
+    ));
+    assert!(should_skip_startup_banner_line(
+        "Your Telegram user id: 5799948766"
+    ));
+    assert!(should_skip_startup_banner_line(
+        "Ask the bot owner to approve with:"
+    ));
 }
 
 #[test]
@@ -1060,7 +1090,10 @@ fn extract_last_assistant_block_works_without_bullet_marker() {
     let result = extract_last_assistant_block(input);
     assert!(result.is_some());
     let text = result.unwrap();
-    assert_eq!(text, "Here is my response\nWith multiple lines\nAnd some content");
+    assert_eq!(
+        text,
+        "Here is my response\nWith multiple lines\nAnd some content"
+    );
 }
 
 #[test]
@@ -1091,4 +1124,907 @@ fn normalize_reply_text_handles_gemini_cli_output() {
     assert!(!normalized.contains("Thinking"));
     assert!(normalized.contains("Based on your request"));
     assert!(normalized.contains("Step 1"));
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_is_used_for_preview() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_1".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-1".to_string(),
+        inbound_message_id: "msg-1".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-1".to_string(),
+        injected_input: Some("please fix this".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_1", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .append_external_reply_chunk("s_rendered_1", b"Working...\r", now_ms_for_test(1_100))
+        .expect("append");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_1",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_1".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_300),
+                viewport_top: 0,
+                viewport_height: 6,
+                base_y: 0,
+                cursor_row: Some(5),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "• Working (2s • esc to interrupt)".to_string(),
+                        trimmed_text: "• Working (2s • esc to interrupt)".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "Here is the fix plan:".to_string(),
+                        trimmed_text: "Here is the fix plan:".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "1. Update the parser gate.".to_string(),
+                        trimmed_text: "1. Update the parser gate.".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "2. Ignore spinner redraws.".to_string(),
+                        trimmed_text: "2. Ignore spinner redraws.".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "› ".to_string(),
+                        trimmed_text: "›".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered screen");
+
+    let preview = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 5_000, 20_000, 200, 10)
+        .expect("take preview");
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].phase, ExternalReplyDispatchPhase::Preview);
+    assert_eq!(
+        preview[0].text,
+        "Here is the fix plan:\n1. Update the parser gate.\n2. Ignore spinner redraws."
+    );
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_drops_spinner_and_progress_noise() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_2".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-2".to_string(),
+        inbound_message_id: "msg-2".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-2".to_string(),
+        injected_input: Some("status?".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_2", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_2",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_2".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_200),
+                viewport_top: 0,
+                viewport_height: 5,
+                base_y: 0,
+                cursor_row: Some(4),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "Working...".to_string(),
+                        trimmed_text: "Working...".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "████████░░ 80%".to_string(),
+                        trimmed_text: "████████░░ 80%".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "gpt-5.3-codex · high · /repo · 80% left".to_string(),
+                        trimmed_text: "gpt-5.3-codex · high · /repo · 80% left".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "› status?".to_string(),
+                        trimmed_text: "› status?".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "› ".to_string(),
+                        trimmed_text: "›".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered screen");
+    state
+        .mark_external_reply_session_ended("s_rendered_2", now_ms_for_test(1_500))
+        .expect("ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 5_000, 200, 10)
+        .expect("take final");
+    assert!(final_candidates.is_empty());
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_prefers_reply_after_latest_prompt() {
+    use super::extract_rendered_reply_text;
+
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_3".to_string(),
+        screen_revision: 4,
+        captured_at_ms: now_ms_for_test(2_000),
+        viewport_top: 0,
+        viewport_height: 18,
+        base_y: 0,
+        cursor_row: Some(17),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "• 我没有手机，也不会换手机。你是想让我帮你挑新手机，还是想回别人一".to_string(),
+                trimmed_text: "• 我没有手机，也不会换手机。你是想让我帮你挑新手机，还是想回别人一".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "  句“你换手机了？”".to_string(),
+                trimmed_text: "句“你换手机了？”".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "› 发错了".to_string(),
+                trimmed_text: "› 发错了".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "• 没事。继续发你真正想问的就行。".to_string(),
+                trimmed_text: "• 没事。继续发你真正想问的就行。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "› 现在几点了".to_string(),
+                trimmed_text: "› 现在几点了".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "• Ran date '+%Y-%m-%d %H:%M:%S %Z (%z)'".to_string(),
+                trimmed_text: "• Ran date '+%Y-%m-%d %H:%M:%S %Z (%z)'".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "  └ 2026-03-06 15:08:18 CST (+0800)".to_string(),
+                trimmed_text: "└ 2026-03-06 15:08:18 CST (+0800)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "• 现在是 2026-03-06 15:08:18 CST（UTC+08:00）。".to_string(),
+                trimmed_text: "• 现在是 2026-03-06 15:08:18 CST（UTC+08:00）。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "› Implement {feature}".to_string(),
+                trimmed_text: "› Implement {feature}".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let text = extract_rendered_reply_text(&snapshot, Some("现在几点了"));
+    assert_eq!(text, "• 现在是 2026-03-06 15:08:18 CST（UTC+08:00）。");
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_keeps_multiline_reply_island_intact() {
+    use super::extract_rendered_reply_text;
+
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_4".to_string(),
+        screen_revision: 5,
+        captured_at_ms: now_ms_for_test(3_000),
+        viewport_top: 0,
+        viewport_height: 20,
+        base_y: 0,
+        cursor_row: Some(18),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "› Higress  是啥".to_string(),
+                trimmed_text: "› Higress  是啥".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "• Higress 是一个开源 API 网关，由阿里云团队发起，基于 Istio/Envoy 生态做了增强，主打：".to_string(),
+                trimmed_text: "• Higress 是一个开源 API 网关，由阿里云团队发起，基于 Istio/Envoy 生态做了增强，主打：".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "  - 云原生网关能力（路由、鉴权、限流、灰度等）".to_string(),
+                trimmed_text: "- 云原生网关能力（路由、鉴权、限流、灰度等）".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  - AI 网关能力（对接大模型 API、统一鉴权与流量治理）".to_string(),
+                trimmed_text: "- AI 网关能力（对接大模型 API、统一鉴权与流量治理）".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "  - 插件扩展（WASM/Go 等）".to_string(),
+                trimmed_text: "- 插件扩展（WASM/Go 等）".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "  - 比较友好的配置与控制台体验".to_string(),
+                trimmed_text: "- 比较友好的配置与控制台体验".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "  你可以把它理解成：面向微服务和 AI 场景的“更现代化网关”。如果你愿意，我可以再给你一版“和".to_string(),
+                trimmed_text: "你可以把它理解成：面向微服务和 AI 场景的“更现代化网关”。如果你愿意，我可以再给你一版“和".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "  Nginx / Kong / APISIX 的区别”对比表。".to_string(),
+                trimmed_text: "Nginx / Kong / APISIX 的区别”对比表。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "› ".to_string(),
+                trimmed_text: "›".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let text = extract_rendered_reply_text(&snapshot, Some("Higress  是啥"));
+    assert_eq!(
+        text,
+        "• Higress 是一个开源 API 网关，由阿里云团队发起，基于 Istio/Envoy 生态做了增强，主打：\n\n  - 云原生网关能力（路由、鉴权、限流、灰度等）\n  - AI 网关能力（对接大模型 API、统一鉴权与流量治理）\n  - 插件扩展（WASM/Go 等）\n  - 比较友好的配置与控制台体验\n\n  你可以把它理解成：面向微服务和 AI 场景的“更现代化网关”。如果你愿意，我可以再给你一版“和\n  Nginx / Kong / APISIX 的区别”对比表。"
+    );
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_skips_permission_prompt_and_tool_blocks() {
+    use super::extract_rendered_reply_text;
+
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_5".to_string(),
+        screen_revision: 8,
+        captured_at_ms: now_ms_for_test(4_000),
+        viewport_top: 0,
+        viewport_height: 24,
+        base_y: 0,
+        cursor_row: Some(22),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "❯ 这个项目干啥的".to_string(),
+                trimmed_text: "❯ 这个项目干啥的".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "2. Yes, allow reading from build/ from this project".to_string(),
+                trimmed_text: "2. Yes, allow reading from build/ from this project".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "3. No".to_string(),
+                trimmed_text: "3. No".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "Esc to cancel · Tab to amend · ctrl+e to explain".to_string(),
+                trimmed_text: "Esc to cancel · Tab to amend · ctrl+e to explain".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "● Bash(cd /repo && ls -la)".to_string(),
+                trimmed_text: "● Bash(cd /repo && ls -la)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "  ⎿  total 24".to_string(),
+                trimmed_text: "⎿  total 24".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "     … +17 lines (ctrl+o to expand)".to_string(),
+                trimmed_text: "… +17 lines (ctrl+o to expand)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "  ⎿  Shell cwd was reset to /repo/agent-03".to_string(),
+                trimmed_text: "⎿  Shell cwd was reset to /repo/agent-03".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。".to_string(),
+                trimmed_text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 12,
+                text: "  📱 项目架构".to_string(),
+                trimmed_text: "📱 项目架构".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 13,
+                text: "  1. 客户端（Flutter） - ar-agent-client/".to_string(),
+                trimmed_text: "1. 客户端（Flutter） - ar-agent-client/".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 14,
+                text: "  2. 管理后台（Vue 3） - ar-agent-admin/".to_string(),
+                trimmed_text: "2. 管理后台（Vue 3） - ar-agent-admin/".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 15,
+                text: "✻ Worked for 2m 23s".to_string(),
+                trimmed_text: "✻ Worked for 2m 23s".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let text = extract_rendered_reply_text(&snapshot, Some("这个项目干啥的"));
+    assert_eq!(
+        text,
+        "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。\n\n  📱 项目架构\n  1. 客户端（Flutter） - ar-agent-client/\n  2. 管理后台（Vue 3） - ar-agent-admin/"
+    );
+}
+
+#[test]
+fn rendered_screen_reply_session_merges_scrolled_reply_fragments() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_5".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-5".to_string(),
+        inbound_message_id: "msg-5".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-5".to_string(),
+        injected_input: Some("这个项目干啥的".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_6", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_6",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_6".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_200),
+                viewport_top: 0,
+                viewport_height: 8,
+                base_y: 0,
+                cursor_row: Some(7),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "❯ 这个项目干啥的".to_string(),
+                        trimmed_text: "❯ 这个项目干啥的".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。".to_string(),
+                        trimmed_text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "  📱 项目架构".to_string(),
+                        trimmed_text: "📱 项目架构".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "  1. 客户端（Flutter） - ar-agent-client/".to_string(),
+                        trimmed_text: "1. 客户端（Flutter） - ar-agent-client/".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "  2. 管理后台（Vue 3） - ar-agent-admin/".to_string(),
+                        trimmed_text: "2. 管理后台（Vue 3） - ar-agent-admin/".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "  3. 服务端（Python） - ar-agent-server/".to_string(),
+                        trimmed_text: "3. 服务端（Python） - ar-agent-server/".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 7,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report snapshot 1");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_6",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_6".to_string(),
+                screen_revision: 2,
+                captured_at_ms: now_ms_for_test(1_500),
+                viewport_top: 4,
+                viewport_height: 8,
+                base_y: 4,
+                cursor_row: Some(11),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "  1. 客户端（Flutter） - ar-agent-client/".to_string(),
+                        trimmed_text: "1. 客户端（Flutter） - ar-agent-client/".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "  2. 管理后台（Vue 3） - ar-agent-admin/".to_string(),
+                        trimmed_text: "2. 管理后台（Vue 3） - ar-agent-admin/".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "  3. 服务端（Python） - ar-agent-server/".to_string(),
+                        trimmed_text: "3. 服务端（Python） - ar-agent-server/".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 7,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 8,
+                        text: "  🔧 核心功能".to_string(),
+                        trimmed_text: "🔧 核心功能".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 9,
+                        text: "  - 语音命令系统".to_string(),
+                        trimmed_text: "- 语音命令系统".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 10,
+                        text: "  - 物理按键交互".to_string(),
+                        trimmed_text: "- 物理按键交互".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 11,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report snapshot 2");
+    state
+        .mark_external_reply_session_ended("s_rendered_6", now_ms_for_test(1_900))
+        .expect("ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_100), 200, 5_000, 200, 10)
+        .expect("take final");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].text,
+        "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。\n\n  📱 项目架构\n  1. 客户端（Flutter） - ar-agent-client/\n  2. 管理后台（Vue 3） - ar-agent-admin/\n  3. 服务端（Python） - ar-agent-server/\n\n  🔧 核心功能\n  - 语音命令系统\n  - 物理按键交互"
+    );
+}
+
+#[test]
+fn permission_response_input_does_not_replace_active_reply_session() {
+    let state = AppState::default();
+    let original_target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_6".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-6".to_string(),
+        inbound_message_id: "msg-original".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-6".to_string(),
+        injected_input: Some("这个项目干啥的".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_7", original_target, now_ms_for_test(1_000))
+        .expect("bind original");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_7",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_7".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 4,
+                base_y: 0,
+                cursor_row: Some(3),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "2. Yes, allow reading from ARGlasses/ from this project".to_string(),
+                        trimmed_text: "2. Yes, allow reading from ARGlasses/ from this project".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "3. No".to_string(),
+                        trimmed_text: "3. No".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "Esc to cancel · Tab to amend · ctrl+e to explain".to_string(),
+                        trimmed_text: "Esc to cancel · Tab to amend · ctrl+e to explain".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report permission prompt");
+
+    let control_target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_6b".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-6".to_string(),
+        inbound_message_id: "msg-control".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-6".to_string(),
+        injected_input: Some("2".to_string()),
+    };
+    state
+        .bind_external_reply_session("s_rendered_7", control_target, now_ms_for_test(1_200))
+        .expect("bind control");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_7",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_7".to_string(),
+                screen_revision: 2,
+                captured_at_ms: now_ms_for_test(1_400),
+                viewport_top: 0,
+                viewport_height: 5,
+                base_y: 0,
+                cursor_row: Some(4),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "❯ 这个项目干啥的".to_string(),
+                        trimmed_text: "❯ 这个项目干啥的".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "● 这是一个 AR 眼镜开发项目。".to_string(),
+                        trimmed_text: "● 这是一个 AR 眼镜开发项目。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "  包含客户端、管理后台和服务端。".to_string(),
+                        trimmed_text: "包含客户端、管理后台和服务端。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "✻ Worked for 2m 23s".to_string(),
+                        trimmed_text: "✻ Worked for 2m 23s".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report answer");
+    state
+        .mark_external_reply_session_ended("s_rendered_7", now_ms_for_test(1_600))
+        .expect("ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 200, 5_000, 200, 10)
+        .expect("take final");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(final_candidates[0].target.inbound_message_id, "msg-original");
+    assert_eq!(
+        final_candidates[0].text,
+        "● 这是一个 AR 眼镜开发项目。\n  包含客户端、管理后台和服务端。"
+    );
+}
+
+#[test]
+fn rendered_screen_reply_does_not_finalize_mid_response_without_ready_prompt() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_8".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-8".to_string(),
+        inbound_message_id: "msg-8".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-8".to_string(),
+        injected_input: Some("写一段长文".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_8", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_8",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_8".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 6,
+                base_y: 0,
+                cursor_row: Some(5),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "❯ 写一段长文".to_string(),
+                        trimmed_text: "❯ 写一段长文".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "  这个时代似乎总在催促人向前。".to_string(),
+                        trimmed_text: "这个时代似乎总在催促人向前。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "  消息要秒回，计划要立刻完成。".to_string(),
+                        trimmed_text: "消息要秒回，计划要立刻完成。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "  慢，并不意味着懒散。".to_string(),
+                        trimmed_text: "慢，并不意味着懒散。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "  一种清醒。".to_string(),
+                        trimmed_text: "一种清醒。".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report partial snapshot");
+
+    let premature = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(3_500), 2_000, 20_000, 200, 10)
+        .expect("take candidates");
+    assert_eq!(premature.len(), 1);
+    assert_eq!(premature[0].phase, ExternalReplyDispatchPhase::Preview);
+    assert_eq!(
+        premature[0].text,
+        "  这个时代似乎总在催促人向前。\n  消息要秒回，计划要立刻完成。\n\n  慢，并不意味着懒散。\n  一种清醒。"
+    );
+
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_8",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_8".to_string(),
+                screen_revision: 2,
+                captured_at_ms: now_ms_for_test(4_200),
+                viewport_top: 2,
+                viewport_height: 8,
+                base_y: 2,
+                cursor_row: Some(9),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "  消息要秒回，计划要立刻完成。".to_string(),
+                        trimmed_text: "消息要秒回，计划要立刻完成。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "  慢，并不意味着懒散。".to_string(),
+                        trimmed_text: "慢，并不意味着懒散。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "  一种清醒。".to_string(),
+                        trimmed_text: "一种清醒。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 7,
+                        text: "  它让人有机会看清方向。".to_string(),
+                        trimmed_text: "它让人有机会看清方向。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 8,
+                        text: "  而不是在匆忙中盲目前进。".to_string(),
+                        trimmed_text: "而不是在匆忙中盲目前进。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 9,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report completed snapshot");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(6_500), 2_000, 20_000, 200, 10)
+        .expect("take final");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(final_candidates[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(
+        final_candidates[0].text,
+        "  这个时代似乎总在催促人向前。\n  消息要秒回，计划要立刻完成。\n\n  慢，并不意味着懒散。\n  一种清醒。\n\n  它让人有机会看清方向。\n  而不是在匆忙中盲目前进。"
+    );
 }

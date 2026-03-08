@@ -1,5 +1,6 @@
 use super::{
     build_terminal_create_response, build_terminal_delta_response, build_terminal_kill_response,
+    build_terminal_report_rendered_screen_response,
     build_terminal_resize_response, build_terminal_snapshot_response,
     build_terminal_visibility_response, build_terminal_write_response, parse_cwd_mode,
 };
@@ -94,4 +95,12 @@ fn terminal_delta_response_keeps_contract_fields() {
     assert_eq!(payload["gap"], false);
     assert_eq!(payload["truncated"], false);
     assert!(payload["chunk"].as_str().unwrap_or_default().len() > 0);
+}
+
+#[test]
+fn terminal_report_rendered_screen_response_keeps_contract_fields() {
+    let payload = build_terminal_report_rendered_screen_response("ts-1", 12, true);
+    assert_eq!(payload["sessionId"], "ts-1");
+    assert_eq!(payload["screenRevision"], 12);
+    assert_eq!(payload["accepted"], true);
 }

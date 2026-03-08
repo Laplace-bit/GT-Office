@@ -24,7 +24,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 strip-ansi-escapes = "0.2"
 tauri = { version = "2", features = [] }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "process"] }
 vt100 = "0.15"
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { workspace = true }

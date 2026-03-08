@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+use serde::{Deserialize, Serialize};
 use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
 use vb_git::GitService;
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
@@ -40,6 +41,30 @@ pub struct ExternalReplyDispatchCandidate {
     pub phase: ExternalReplyDispatchPhase,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedScreenSnapshotRow {
+    pub row_index: u32,
+    pub text: String,
+    pub trimmed_text: String,
+    pub is_blank: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedScreenSnapshot {
+    pub session_id: String,
+    pub screen_revision: u64,
+    pub captured_at_ms: u64,
+    pub viewport_top: u32,
+    pub viewport_height: u32,
+    pub base_y: u32,
+    pub cursor_row: Option<u32>,
+    pub cursor_col: Option<u32>,
+    #[serde(default)]
+    pub rows: Vec<RenderedScreenSnapshotRow>,
+}
+
 struct ExternalReplyRelaySession {
     target: ExternalReplyRelayTarget,
     created_at_ms: u64,
@@ -49,6 +74,9 @@ struct ExternalReplyRelaySession {
     vt_parser: vt100::Parser,
     last_preview_text: String,
     preview_message_id: Option<String>,
+    last_rendered_snapshot: Option<RenderedScreenSnapshot>,
+    last_rendered_reply_text: String,
+    permission_prompt_active: bool,
 }
 
 #[derive(Clone)]
@@ -223,6 +251,7 @@ impl AppState {
             .map_err(|error| error.to_string())
     }
 
+    #[allow(dead_code)]
     pub fn bind_external_reply_session(
         &self,
         session_id: &str,
@@ -235,6 +264,15 @@ impl AppState {
         let mut guard = self.external_reply_sessions.lock().map_err(|_| {
             "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
         })?;
+        if let Some(existing) = guard.get_mut(session_id) {
+            if !existing.ended
+                && existing.permission_prompt_active
+                && looks_like_permission_response_input(target.injected_input.as_deref())
+            {
+                existing.last_chunk_at_ms = now_ms;
+                return Ok(());
+            }
+        }
         guard.insert(
             session_id.to_string(),
             ExternalReplyRelaySession {
@@ -246,6 +284,9 @@ impl AppState {
                 vt_parser: vt100::Parser::new(36, 120, 500),
                 last_preview_text: String::new(),
                 preview_message_id: None,
+                last_rendered_snapshot: None,
+                last_rendered_reply_text: String::new(),
+                permission_prompt_active: false,
             },
         );
         Ok(())
@@ -269,6 +310,35 @@ impl AppState {
         session.last_chunk_at_ms = ts_ms;
         session.vt_parser.process(chunk);
         Ok(())
+    }
+
+    pub fn report_external_reply_rendered_screen(
+        &self,
+        session_id: &str,
+        snapshot: RenderedScreenSnapshot,
+    ) -> Result<bool, String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        let Some(session) = guard.get_mut(session_id) else {
+            return Ok(false);
+        };
+        if snapshot.session_id.trim() != session_id {
+            return Ok(false);
+        }
+        if let Some(previous) = session.last_rendered_snapshot.as_ref() {
+            if snapshot.screen_revision <= previous.screen_revision {
+                return Ok(false);
+            }
+        }
+        session.last_chunk_at_ms = snapshot.captured_at_ms.max(session.last_chunk_at_ms);
+        let extracted_text =
+            extract_rendered_reply_text(&snapshot, session.target.injected_input.as_deref());
+        session.permission_prompt_active = snapshot_contains_permission_prompt(&snapshot);
+        session.last_rendered_reply_text =
+            merge_rendered_reply_text(&session.last_rendered_reply_text, &extracted_text);
+        session.last_rendered_snapshot = Some(snapshot);
+        Ok(true)
     }
 
     pub fn mark_external_reply_session_ended(
@@ -319,15 +389,24 @@ impl AppState {
         let mut ready_final_session_ids = Vec::new();
 
         for (session_id, session) in guard.iter_mut() {
-            let screen_text = session.vt_parser.screen().contents();
-            let stripped = strip_ansi_escapes::strip_str(&screen_text);
-            let normalized_text =
-                normalize_reply_text(&stripped, session.target.injected_input.as_deref());
+            let normalized_text = external_reply_session_text(session);
             let has_text = !normalized_text.is_empty();
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
             let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
-            let should_finalize_with_text = has_text && (session.ended || expired || idle_elapsed);
-            let should_drop_without_text = !has_text && (session.ended || expired);
+            let rendered_ready_for_finalize = session
+                .last_rendered_snapshot
+                .as_ref()
+                .is_some_and(snapshot_has_ready_prompt);
+            let should_finalize_with_text = has_text
+                && (session.ended
+                    || expired
+                    || (idle_elapsed
+                        && (session.last_rendered_snapshot.is_none() || rendered_ready_for_finalize)));
+            let should_drop_without_text = !has_text
+                && (session.ended
+                    || expired
+                    || (idle_elapsed
+                        && (session.last_rendered_snapshot.is_none() || rendered_ready_for_finalize)));
 
             if should_finalize_with_text || should_drop_without_text {
                 ready_final_session_ids.push(session_id.clone());
@@ -365,10 +444,7 @@ impl AppState {
             let Some(session) = guard.remove(&session_id) else {
                 continue;
             };
-            let screen_text = session.vt_parser.screen().contents();
-            let stripped = strip_ansi_escapes::strip_str(&screen_text);
-            let normalized_text =
-                normalize_reply_text(&stripped, session.target.injected_input.as_deref());
+            let normalized_text = external_reply_session_text(&session);
             if normalized_text.is_empty() {
                 continue;
             }
@@ -385,6 +461,366 @@ impl AppState {
     }
 }
 
+fn external_reply_session_text(session: &ExternalReplyRelaySession) -> String {
+    if session.last_rendered_snapshot.is_some() {
+        return session.last_rendered_reply_text.clone();
+    }
+    let screen_text = session.vt_parser.screen().contents();
+    let stripped = strip_ansi_escapes::strip_str(&screen_text);
+    normalize_reply_text(&stripped, session.target.injected_input.as_deref())
+}
+
+fn extract_rendered_reply_text(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+) -> String {
+    let mut islands: Vec<Vec<String>> = Vec::new();
+    let mut current_island: Vec<String> = Vec::new();
+    let cursor_row = snapshot.cursor_row.map(|value| value as usize);
+    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input);
+    let mut in_tool_block = false;
+    let mut in_permission_block = false;
+
+    for row in &snapshot.rows {
+        let row_index = row.row_index as usize;
+        if anchor_row.is_some_and(|anchor| row_index <= anchor) {
+            continue;
+        }
+        let text = row.text.trim_end();
+        let trimmed = row.trimmed_text.trim();
+
+        if row.is_blank || trimmed.is_empty() {
+            if in_tool_block {
+                in_tool_block = false;
+                continue;
+            }
+            if in_permission_block {
+                in_permission_block = false;
+                continue;
+            }
+            if !current_island.is_empty() && !current_island.last().is_some_and(|line| line.is_empty()) {
+                current_island.push(String::new());
+            }
+            continue;
+        }
+
+        if in_tool_block || in_permission_block {
+            continue;
+        }
+
+        if is_permission_prompt_line(text) {
+            if !current_island.is_empty() {
+                islands.push(current_island);
+                current_island = Vec::new();
+            }
+            in_permission_block = true;
+            continue;
+        }
+
+        if is_tool_block_start_line(text) {
+            if !current_island.is_empty() {
+                islands.push(current_island);
+                current_island = Vec::new();
+            }
+            in_tool_block = true;
+            continue;
+        }
+
+        let in_cursor_tail = cursor_row.is_some_and(|cursor| row_index >= cursor);
+        let is_noise = in_cursor_tail
+            || is_echo_of_injected_line(text, injected_input)
+            || should_skip_external_reply_line(text)
+            || should_skip_thinking_line(text)
+            || should_skip_tool_execution_line(text)
+            || should_skip_runtime_noise_line(text)
+            || is_tui_status_bar_line(text)
+            || should_skip_cli_prompt_line(text)
+            || should_skip_startup_banner_line(text)
+            || should_skip_log_prefix_line(text)
+            || is_interleaved_prompt_line(trimmed);
+
+        if is_noise {
+            if !current_island.is_empty() {
+                islands.push(current_island);
+                current_island = Vec::new();
+            }
+            continue;
+        }
+
+        current_island.push(text.to_string());
+    }
+
+    if !current_island.is_empty() {
+        islands.push(current_island);
+    }
+
+    let best_island = if let Some(best) = pick_best_rendered_reply_island(&islands) {
+        best
+    } else {
+        return String::new();
+    };
+
+    let joined = best_island.join("\n");
+    suppress_injected_input_echo(joined.trim_end(), injected_input)
+}
+
+fn merge_rendered_reply_text(existing: &str, candidate: &str) -> String {
+    let existing = existing.trim_end_matches('\n');
+    let candidate = candidate.trim_end_matches('\n');
+    if candidate.trim().is_empty() {
+        return existing.to_string();
+    }
+    if existing.trim().is_empty() {
+        return candidate.to_string();
+    }
+    if existing == candidate || existing.contains(candidate) {
+        return existing.to_string();
+    }
+    if candidate.contains(existing) {
+        return candidate.to_string();
+    }
+
+    let existing_lines: Vec<&str> = existing.lines().collect();
+    let candidate_lines: Vec<&str> = candidate.lines().collect();
+    let max_overlap = existing_lines.len().min(candidate_lines.len());
+    for overlap in (1..=max_overlap).rev() {
+        if existing_lines[existing_lines.len() - overlap..] == candidate_lines[..overlap] {
+            let mut merged = existing_lines
+                .iter()
+                .map(|line| (*line).to_string())
+                .collect::<Vec<_>>();
+            merged.extend(
+                candidate_lines[overlap..]
+                    .iter()
+                    .map(|line| (*line).to_string()),
+            );
+            return merged.join("\n");
+        }
+    }
+
+    format!("{existing}\n{candidate}")
+}
+
+fn snapshot_contains_permission_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
+    snapshot
+        .rows
+        .iter()
+        .any(|row| is_permission_prompt_line(&row.text))
+}
+
+fn snapshot_has_ready_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
+    let mut inspected = 0usize;
+    for row in snapshot.rows.iter().rev() {
+        let trimmed = row.text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if is_permission_prompt_line(trimmed) {
+            return false;
+        }
+        if is_ready_prompt_line(trimmed) {
+            return true;
+        }
+        if is_editor_mode_line(trimmed) || is_horizontal_rule_line(trimmed) {
+            continue;
+        }
+        inspected += 1;
+        if inspected >= 4 {
+            break;
+        }
+    }
+    false
+}
+
+fn find_rendered_reply_anchor_row(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+) -> Option<usize> {
+    if let Some(injected) = injected_input
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        for row in snapshot.rows.iter().rev() {
+            let text = row.text.trim_end();
+            if is_echo_of_injected_line(text, Some(injected)) {
+                return Some(row.row_index as usize);
+            }
+        }
+    }
+
+    snapshot.rows.iter().rev().find_map(|row| {
+        let text = row.text.trim_end();
+        if is_prompt_anchor_line(text) {
+            Some(row.row_index as usize)
+        } else {
+            None
+        }
+    })
+}
+
+fn is_prompt_anchor_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    for prefix in ["› ", "❯ ", "$ ", "> "] {
+        if let Some(after) = trimmed.strip_prefix(prefix) {
+            let after = after.trim();
+            if !after.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_ready_prompt_line(line: &str) -> bool {
+    matches!(line.trim(), "›" | "❯" | "$" | ">")
+}
+
+fn is_editor_mode_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.eq_ignore_ascii_case("-- insert --")
+        || trimmed.eq_ignore_ascii_case("-- normal --")
+        || trimmed.eq_ignore_ascii_case("-- visual --")
+}
+
+fn is_horizontal_rule_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    !trimmed.is_empty()
+        && trimmed
+            .chars()
+            .all(|ch| matches!(ch, '─' | '━' | '▪' | '·' | ' ' | '—' | '╌' | '╍'))
+}
+
+fn pick_best_rendered_reply_island(islands: &[Vec<String>]) -> Option<Vec<String>> {
+    let mut best: Option<(i32, usize, Vec<String>)> = None;
+
+    for (idx, island) in islands.iter().enumerate() {
+        let text = island
+            .iter()
+            .filter(|line| !line.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        if text.is_empty() {
+            continue;
+        }
+        let candidate = island
+            .iter()
+            .skip_while(|line| line.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        let candidate = candidate
+            .into_iter()
+            .rev()
+            .skip_while(|line| line.trim().is_empty())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+        let joined = text.join("\n");
+        let char_count = joined.chars().count();
+        let line_count = text.len();
+        let has_assistant_marker = text.iter().any(|line| {
+            let trimmed = line.trim_start();
+            (trimmed.starts_with("• ") || trimmed.starts_with("● "))
+                && !trimmed.to_ascii_lowercase().starts_with("• working")
+                && !trimmed.to_ascii_lowercase().starts_with("● working")
+                && !is_tool_block_start_line(trimmed)
+        });
+        let has_cjk = joined.chars().any(is_cjk_char);
+        let has_sentence_punctuation = joined.contains('。')
+            || joined.contains('，')
+            || joined.contains('！')
+            || joined.contains('？')
+            || joined.contains('.')
+            || joined.contains('!')
+            || joined.contains('?')
+            || joined.contains(':');
+        let mostly_ascii = joined.is_ascii();
+        let looks_command = text.iter().all(|line| looks_like_terminal_command(line));
+
+        let mut score = 0;
+        if has_assistant_marker {
+            score += 6;
+        }
+        if line_count >= 2 {
+            score += 3;
+        }
+        if char_count >= 24 {
+            score += 2;
+        }
+        if has_cjk {
+            score += 2;
+        }
+        if has_sentence_punctuation {
+            score += 1;
+        }
+        score += (idx as i32) * 2;
+        if mostly_ascii && char_count < 12 {
+            score -= 3;
+        }
+        if looks_command {
+            score -= 5;
+        }
+
+        if score < 3 {
+            continue;
+        }
+
+        let candidate_key = (score, char_count);
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, best_chars, _)| candidate_key > (*best_score, *best_chars))
+        {
+            best = Some((score, char_count, candidate));
+        }
+    }
+
+    best.map(|(_, _, candidate)| candidate)
+}
+
+fn looks_like_terminal_command(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with("./") || trimmed.starts_with('/') || trimmed.starts_with("git ") {
+        return true;
+    }
+    if trimmed.contains(" --") && trimmed.is_ascii() {
+        return true;
+    }
+    if trimmed.starts_with("npm ")
+        || trimmed.starts_with("pnpm ")
+        || trimmed.starts_with("yarn ")
+        || trimmed.starts_with("cargo ")
+        || trimmed.starts_with("python ")
+        || trimmed.starts_with("node ")
+        || trimmed.starts_with("bash ")
+        || trimmed.starts_with("sh ")
+    {
+        return true;
+    }
+    false
+}
+
+fn trim_display_leader(line: &str) -> &str {
+    line.trim_start_matches(|ch: char| {
+        ch.is_whitespace() || matches!(ch, '●' | '•' | '◦' | '⎿' | '│' | '┃')
+    })
+    .trim()
+}
+
+fn is_cjk_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x4E00..=0x9FFF
+            | 0x3400..=0x4DBF
+            | 0x3040..=0x309F
+            | 0x30A0..=0x30FF
+            | 0xAC00..=0xD7AF
+    )
+}
+
+#[allow(dead_code)]
 fn sanitize_terminal_chunk(chunk: &[u8]) -> String {
     // First convert to string, preserving \r for proper handling
     let raw_text = String::from_utf8_lossy(chunk);
@@ -399,6 +835,7 @@ fn sanitize_terminal_chunk(chunk: &[u8]) -> String {
 /// Pre-process carriage returns before ANSI stripping.
 /// This is necessary because strip_ansi_escapes uses VTE parser which silently
 /// drops \r characters, preventing us from handling terminal overwrites correctly.
+#[allow(dead_code)]
 fn normalize_carriage_returns(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -429,6 +866,7 @@ fn normalize_carriage_returns(input: &str) -> String {
 /// 1. Backspace (BS, 0x08) → pop previous character (terminal overwrite emulation)
 /// 2. Strip remaining control characters except LF and TAB
 /// Note: CR handling is done in normalize_carriage_returns before ANSI stripping
+#[allow(dead_code)]
 fn normalize_terminal_text(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     for ch in input.chars() {
@@ -447,54 +885,74 @@ fn normalize_terminal_text(input: &str) -> String {
 }
 
 fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
-    let mut lines = Vec::new();
-    let mut blank_count = 0usize;
+    let mut islands: Vec<Vec<String>> = Vec::new();
+    let mut current_island: Vec<String> = Vec::new();
+
     for line in input.lines() {
         let trimmed_end = line.trim_end();
-        if should_skip_external_reply_line(trimmed_end) {
-            continue;
-        }
-        if should_skip_cli_prompt_line(trimmed_end) {
-            continue;
-        }
-        if should_skip_tool_execution_line(trimmed_end) {
-            continue;
-        }
-        if should_skip_thinking_line(trimmed_end) {
-            continue;
-        }
-        if should_skip_runtime_noise_line(trimmed_end) {
-            continue;
-        }
-        if should_skip_startup_banner_line(trimmed_end) {
-            continue;
-        }
-        if should_skip_log_prefix_line(trimmed_end) {
-            continue;
-        }
-        if is_echo_of_injected_line(trimmed_end, injected_input) {
-            continue;
-        }
-        if trimmed_end.is_empty() {
-            blank_count += 1;
-            if blank_count > 1 {
-                continue;
+        let trimmed = trimmed_end.trim_start();
+
+        let is_noise = is_echo_of_injected_line(trimmed_end, injected_input)
+            || should_skip_external_reply_line(trimmed_end)
+            || should_skip_thinking_line(trimmed_end)
+            || should_skip_tool_execution_line(trimmed_end)
+            || should_skip_runtime_noise_line(trimmed_end)
+            || is_tui_status_bar_line(trimmed_end)
+            || should_skip_cli_prompt_line(trimmed_end)
+            || should_skip_startup_banner_line(trimmed_end)
+            || should_skip_log_prefix_line(trimmed_end)
+            || is_interleaved_prompt_line(trimmed);
+
+        if is_noise {
+            if !current_island.is_empty() {
+                islands.push(current_island);
+                current_island = Vec::new();
             }
-            lines.push(String::new());
-            continue;
+        } else {
+            if trimmed_end.is_empty() {
+                if !current_island.is_empty() && !current_island.last().unwrap().is_empty() {
+                    current_island.push(String::new());
+                }
+            } else {
+                current_island.push(trimmed_end.to_string());
+            }
         }
-        blank_count = 0;
-        lines.push(trimmed_end.to_string());
     }
-    while lines.first().map(|line| line.is_empty()).unwrap_or(false) {
-        let _ = lines.remove(0);
+    if !current_island.is_empty() {
+        islands.push(current_island);
     }
-    while lines.last().map(|line| line.is_empty()).unwrap_or(false) {
-        let _ = lines.pop();
+
+    // Selection logic:
+    // 1. Find islands that contain a proper assistant marker (• )
+    let marker_island_idx = islands.iter().rposition(|isl| {
+        isl.iter().any(|line| {
+            let t = line.trim_start();
+            t.starts_with("• ") && !t.to_ascii_lowercase().starts_with("• working")
+        })
+    });
+
+    let best_island = if let Some(idx) = marker_island_idx {
+        islands[idx].clone()
+    } else {
+        // Fallback: Take the last island that has non-blank content
+        islands
+            .iter()
+            .rev()
+            .find(|isl| isl.iter().any(|line| !line.trim().is_empty()))
+            .cloned()
+            .unwrap_or_default()
+    };
+
+    let mut result = best_island;
+    while result.first().map_or(false, |l| l.trim().is_empty()) {
+        result.remove(0);
     }
-    let normalized = lines.join("\n");
-    let suppressed = suppress_injected_input_echo(&normalized, injected_input);
-    extract_last_assistant_block(&suppressed).unwrap_or(suppressed)
+    while result.last().map_or(false, |l| l.trim().is_empty()) {
+        result.pop();
+    }
+
+    let joined = result.join("\n");
+    suppress_injected_input_echo(&joined, injected_input)
 }
 
 fn should_skip_runtime_noise_line(line: &str) -> bool {
@@ -551,6 +1009,9 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
     ) {
         return true;
     }
+    if lower.starts_with("✻ worked for") || lower.starts_with("worked for ") {
+        return true;
+    }
     // Help hints and usage tips
     if lower.starts_with("type ") && (lower.contains("help") || lower.contains("for more")) {
         return true;
@@ -570,7 +1031,10 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
     }
     // Progress bar patterns
     let progress_chars = ['█', '▓', '░', '─', '━', '╸', '╺'];
-    let progress_char_count = normalized.chars().filter(|c| progress_chars.contains(c)).count();
+    let progress_char_count = normalized
+        .chars()
+        .filter(|c| progress_chars.contains(c))
+        .count();
     let total_char_count = normalized.chars().count();
     if total_char_count > 0 && progress_char_count > total_char_count / 3 {
         return true;
@@ -595,17 +1059,32 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
 
 fn should_skip_tool_execution_line(line: &str) -> bool {
     let trimmed = line.trim();
+    let display_trimmed = trim_display_leader(trimmed);
     // Claude Code tool markers: Read(file), Edit(file), Bash(cmd), Write(file)
-    if let Some(paren_start) = trimmed.find('(') {
-        let prefix = &trimmed[..paren_start];
+    if let Some(paren_start) = display_trimmed.find('(') {
+        let prefix = &display_trimmed[..paren_start];
         if prefix.chars().all(|c| c.is_ascii_alphanumeric())
-            && prefix.chars().next().map_or(false, |c| c.is_ascii_uppercase())
-            && trimmed.ends_with(')')
+            && prefix
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_ascii_uppercase())
+            && display_trimmed.ends_with(')')
         {
             let known_tools = [
-                "Read", "Edit", "Write", "Bash", "Glob", "Grep",
-                "Search", "Replace", "MultiEdit", "TodoRead", "TodoWrite",
-                "WebFetch", "WebSearch", "NotebookEdit",
+                "Read",
+                "Edit",
+                "Write",
+                "Bash",
+                "Glob",
+                "Grep",
+                "Search",
+                "Replace",
+                "MultiEdit",
+                "TodoRead",
+                "TodoWrite",
+                "WebFetch",
+                "WebSearch",
+                "NotebookEdit",
             ];
             if known_tools.iter().any(|t| prefix == *t) {
                 return true;
@@ -613,24 +1092,88 @@ fn should_skip_tool_execution_line(line: &str) -> bool {
         }
     }
     // Codex CLI tool execution display
-    let lower = trimmed.to_ascii_lowercase();
+    let lower = display_trimmed.to_ascii_lowercase();
     if lower.starts_with("running: ") || lower.starts_with("executing: ") {
+        return true;
+    }
+    if lower.starts_with("• ran ") || lower.starts_with("ran ") {
+        return true;
+    }
+    if lower.starts_with("└ ") {
         return true;
     }
     // Tool result markers
     if lower.starts_with("tool result") || lower.starts_with("tool output") {
         return true;
     }
+    if lower.starts_with("read ")
+        || lower.starts_with("reading ")
+        || lower.starts_with("shell cwd was reset")
+        || lower.contains("(ctrl+o to expand)")
+        || lower.starts_with("bash(")
+    {
+        return true;
+    }
     false
+}
+
+fn is_tool_block_start_line(line: &str) -> bool {
+    let trimmed = trim_display_leader(line);
+    if trimmed.is_empty() {
+        return false;
+    }
+    should_skip_tool_execution_line(trimmed)
+}
+
+fn is_permission_prompt_line(line: &str) -> bool {
+    let trimmed = trim_display_leader(line);
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("esc to cancel")
+        || lower.contains("tab to amend")
+        || lower.contains("ctrl+e to explain")
+    {
+        return true;
+    }
+    if lower.contains("allow reading from") || lower.contains("allow writing to") {
+        return true;
+    }
+    if lower.starts_with("yes, allow ") || lower == "no" {
+        return true;
+    }
+    if let Some((prefix, rest)) = lower.split_once(". ") {
+        if prefix.chars().all(|ch| ch.is_ascii_digit())
+            && (rest.starts_with("yes, allow ") || rest == "no")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn looks_like_permission_response_input(input: Option<&str>) -> bool {
+    let Some(input) = input.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    let lower = input.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "1" | "2" | "3" | "y" | "n" | "yes" | "no" | "allow" | "deny"
+    )
 }
 
 fn should_skip_thinking_line(line: &str) -> bool {
     let trimmed = line.trim();
     let lower = trimmed.to_ascii_lowercase();
     // Thinking/reasoning indicators
-    if lower == "thinking..." || lower == "thinking…"
-        || lower == "reasoning..." || lower == "reasoning…"
-        || lower == "planning..." || lower == "planning…"
+    if lower == "thinking..."
+        || lower == "thinking…"
+        || lower == "reasoning..."
+        || lower == "reasoning…"
+        || lower == "planning..."
+        || lower == "planning…"
     {
         return true;
     }
@@ -754,7 +1297,9 @@ fn should_skip_startup_banner_line(line: &str) -> bool {
     }
 
     // TUI box drawing characters (banner frames)
-    let box_chars = ['╭', '╮', '╰', '╯', '│', '─', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼'];
+    let box_chars = [
+        '╭', '╮', '╰', '╯', '│', '─', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼',
+    ];
     let box_char_count = normalized.chars().filter(|c| box_chars.contains(c)).count();
     let total_chars = normalized.chars().count();
     // If more than 30% of the line is box drawing characters, it's likely a banner frame
@@ -767,8 +1312,11 @@ fn should_skip_startup_banner_line(line: &str) -> bool {
         && (normalized.ends_with('│') || normalized.ends_with('┃'))
     {
         let lower = normalized.to_ascii_lowercase();
-        if lower.contains("model:") || lower.contains("gpt-") || lower.contains("claude-")
-            || lower.contains("gemini-") || lower.contains("/model to")
+        if lower.contains("model:")
+            || lower.contains("gpt-")
+            || lower.contains("claude-")
+            || lower.contains("gemini-")
+            || lower.contains("/model to")
         {
             return true;
         }
@@ -824,14 +1372,18 @@ fn should_skip_startup_banner_line(line: &str) -> bool {
     }
 
     // Model/tool name banners (e.g., ">_ OpenAI Codex (v0.110.0)")
-    if (lower.contains(">_") || lower.contains("│")) &&
-       (lower.contains("codex") || lower.contains("claude") || lower.contains("gemini")) {
+    if (lower.contains(">_") || lower.contains("│"))
+        && (lower.contains("codex") || lower.contains("claude") || lower.contains("gemini"))
+    {
         return true;
     }
 
     // Pairing/access messages
-    if lower.contains("pairing code:") || lower.contains("access not configured")
-       || lower.contains("ask the bot owner") || lower.contains("your telegram user id") {
+    if lower.contains("pairing code:")
+        || lower.contains("access not configured")
+        || lower.contains("ask the bot owner")
+        || lower.contains("your telegram user id")
+    {
         return true;
     }
 
