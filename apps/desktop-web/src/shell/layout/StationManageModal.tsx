@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import type { CreateStationInput, StationRole } from './model'
+import './StationManageModal.scss'
 
 interface StationManageModalProps {
   open: boolean

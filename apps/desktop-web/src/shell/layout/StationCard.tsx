@@ -9,6 +9,7 @@ import { AppIcon } from '../ui/icons'
 import { StationXtermTerminal, type StationTerminalSink } from './StationXtermTerminal'
 import type { StationChannelBotBindingSummary } from './channel-bot-binding-model'
 import type { RenderedScreenSnapshot } from '../integration/desktop-api'
+import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360

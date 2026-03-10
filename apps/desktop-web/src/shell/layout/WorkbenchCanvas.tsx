@@ -9,6 +9,7 @@ import type { RenderedScreenSnapshot } from '../integration/desktop-api'
 import { StationCard } from './StationCard'
 import { AppIcon } from '../ui/icons'
 import type { StationChannelBotBindingSummary } from './channel-bot-binding-model'
+import './WorkbenchCanvas.scss'
 
 interface StationTerminalRuntime {
   sessionId: string | null

@@ -1,6 +1,7 @@
 import { t, type Locale } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import type { AgentStation } from './model'
+import './StationSearchModal.scss'
 
 interface StationSearchModalProps {
   open: boolean
