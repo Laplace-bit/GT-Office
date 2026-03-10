@@ -1,10 +1,12 @@
 use super::{
-    normalize_carriage_returns, normalize_reply_text, normalize_terminal_text,
-    RenderedScreenSnapshot, RenderedScreenSnapshotRow,
-    sanitize_terminal_chunk, should_skip_cli_prompt_line, should_skip_external_reply_line,
-    should_skip_log_prefix_line, should_skip_runtime_noise_line, should_skip_startup_banner_line,
-    AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget,
+    extract_rendered_interaction_prompt, extract_rendered_reply_text, normalize_carriage_returns,
+    normalize_reply_text, normalize_terminal_text, sanitize_terminal_chunk,
+    should_skip_cli_prompt_line, should_skip_external_reply_line, should_skip_log_prefix_line,
+    should_skip_runtime_noise_line, should_skip_startup_banner_line, snapshot_has_ready_prompt,
+    AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget, RenderedScreenSnapshot,
+    RenderedScreenSnapshotRow,
 };
+use vb_task::AgentToolKind;
 
 fn now_ms_for_test(value: u64) -> u64 {
     value
@@ -356,6 +358,9 @@ fn external_reply_flush_is_single_shot_after_idle() {
     assert_eq!(ready.len(), 1);
     assert_eq!(ready[0].phase, ExternalReplyDispatchPhase::Finalize);
     assert_eq!(ready[0].text, "hello");
+    state
+        .mark_external_reply_finalize_delivered("s1")
+        .expect("mark finalize delivered");
 
     let already_taken = state
         .take_external_reply_dispatch_candidates(
@@ -412,6 +417,97 @@ fn external_reply_binding_kept_when_no_output_yet() {
     assert_eq!(ready.len(), 1);
     assert_eq!(ready[0].phase, ExternalReplyDispatchPhase::Finalize);
     assert_eq!(ready[0].text, "later reply");
+}
+
+#[test]
+fn external_reply_finalize_candidate_retries_until_marked_delivered() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_finalize_retry".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_finalize_retry".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-finalize-retry".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_finalize_retry", target, now_ms_for_test(1_000))
+        .expect("bind session");
+    state
+        .append_external_reply_chunk(
+            "s_finalize_retry",
+            b"retryable final reply",
+            now_ms_for_test(1_100),
+        )
+        .expect("append chunk");
+    state
+        .mark_external_reply_session_ended("s_finalize_retry", now_ms_for_test(1_200))
+        .expect("mark ended");
+
+    let first_finalize = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 500, 10_000, 200, 10)
+        .expect("take first finalize");
+    assert_eq!(first_finalize.len(), 1);
+    assert_eq!(first_finalize[0].phase, ExternalReplyDispatchPhase::Finalize);
+
+    let retried_finalize = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_500), 500, 10_000, 200, 10)
+        .expect("take retried finalize");
+    assert_eq!(retried_finalize.len(), 1);
+    assert_eq!(retried_finalize[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(retried_finalize[0].text, "retryable final reply");
+
+    state
+        .mark_external_reply_finalize_delivered("s_finalize_retry")
+        .expect("mark delivered");
+    let drained = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_800), 500, 10_000, 200, 10)
+        .expect("take after delivered");
+    assert!(drained.is_empty());
+}
+
+#[test]
+fn external_reply_preview_failure_resets_throttle_for_retry() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_preview_retry".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_preview_retry".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-preview-retry".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_preview_retry", target, now_ms_for_test(1_000))
+        .expect("bind session");
+    state
+        .append_external_reply_chunk(
+            "s_preview_retry",
+            b"preview retry text long enough",
+            now_ms_for_test(1_100),
+        )
+        .expect("append chunk");
+
+    let first_preview = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 5_000, 20_000, 200, 10)
+        .expect("take first preview");
+    assert_eq!(first_preview.len(), 1);
+    assert_eq!(first_preview[0].phase, ExternalReplyDispatchPhase::Preview);
+
+    state
+        .mark_external_reply_preview_delivery_failed("s_preview_retry", &first_preview[0].text)
+        .expect("mark preview failed");
+
+    let retried_preview = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_500), 5_000, 20_000, 200, 10)
+        .expect("take retried preview");
+    assert_eq!(retried_preview.len(), 1);
+    assert_eq!(retried_preview[0].phase, ExternalReplyDispatchPhase::Preview);
+    assert_eq!(retried_preview[0].text, first_preview[0].text);
 }
 
 #[test]
@@ -1301,8 +1397,10 @@ fn rendered_screen_reply_snapshot_prefers_reply_after_latest_prompt() {
         rows: vec![
             RenderedScreenSnapshotRow {
                 row_index: 0,
-                text: "• 我没有手机，也不会换手机。你是想让我帮你挑新手机，还是想回别人一".to_string(),
-                trimmed_text: "• 我没有手机，也不会换手机。你是想让我帮你挑新手机，还是想回别人一".to_string(),
+                text: "• 我没有手机，也不会换手机。你是想让我帮你挑新手机，还是想回别人一"
+                    .to_string(),
+                trimmed_text: "• 我没有手机，也不会换手机。你是想让我帮你挑新手机，还是想回别人一"
+                    .to_string(),
                 is_blank: false,
             },
             RenderedScreenSnapshotRow {
@@ -1356,8 +1454,144 @@ fn rendered_screen_reply_snapshot_prefers_reply_after_latest_prompt() {
         ],
     };
 
-    let text = extract_rendered_reply_text(&snapshot, Some("现在几点了"));
+    let text = extract_rendered_reply_text(&snapshot, Some("现在几点了"), None);
     assert_eq!(text, "• 现在是 2026-03-06 15:08:18 CST（UTC+08:00）。");
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_falls_back_when_injected_echo_is_wrapped() {
+    use super::extract_rendered_reply_text;
+
+    let injected = "请帮我总结这个问题的背景并给出三条建议，另外补充潜在风险点";
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_anchor_fallback_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(2_100),
+        viewport_top: 0,
+        viewport_height: 10,
+        base_y: 0,
+        cursor_row: Some(8),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "› 请帮我总结这个问题的背景并给出三条建议，".to_string(),
+                trimmed_text: "› 请帮我总结这个问题的背景并给出三条建议，".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "  另外补充潜在风险点".to_string(),
+                trimmed_text: "另外补充潜在风险点".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "• 可以，下面先给你背景，再给建议和风险。".to_string(),
+                trimmed_text: "• 可以，下面先给你背景，再给建议和风险。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "  背景：这个问题本质是资源与时效的权衡。".to_string(),
+                trimmed_text: "背景：这个问题本质是资源与时效的权衡。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "› Use /skills to list available skills".to_string(),
+                trimmed_text: "› Use /skills to list available skills".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let text = extract_rendered_reply_text(&snapshot, Some(injected), None);
+    assert_eq!(
+        text,
+        "• 可以，下面先给你背景，再给建议和风险。\n  背景：这个问题本质是资源与时效的权衡。"
+    );
+}
+
+#[test]
+fn rendered_screen_reply_snapshot_extracts_real_telegram_dom_sample() {
+    use super::extract_rendered_reply_text;
+
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_real_sample_1".to_string(),
+        screen_revision: 42,
+        captured_at_ms: now_ms_for_test(3_000),
+        viewport_top: 0,
+        viewport_height: 34,
+        base_y: 0,
+        cursor_row: Some(12),
+        cursor_col: Some(2),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "• Hello.".to_string(),
+                trimmed_text: "• Hello.".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "› where u".to_string(),
+                trimmed_text: "› where u".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "• In your coding workspace at /mnt/c/".to_string(),
+                trimmed_text: "• In your coding workspace at /mnt/c/".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "  project/ARGlasses/.gtoffice/org/build/".to_string(),
+                trimmed_text: "project/ARGlasses/.gtoffice/org/build/".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 12,
+                text: "› Implement {feature}".to_string(),
+                trimmed_text: "› Implement {feature}".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 14,
+                text: "  gpt-5.3-codex · gpt-5.3-codex high · /mnt/c/project/ARGlasses/.gtoffice/org/build/agent-03 ·…"
+                    .to_string(),
+                trimmed_text:
+                    "gpt-5.3-codex · gpt-5.3-codex high · /mnt/c/project/ARGlasses/.gtoffice/org/build/agent-03 ·…"
+                        .to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let text = extract_rendered_reply_text(&snapshot, Some("where u"), None);
+    assert_eq!(
+        text,
+        "• In your coding workspace at /mnt/c/\n  project/ARGlasses/.gtoffice/org/build/"
+    );
 }
 
 #[test]
@@ -1449,7 +1683,7 @@ fn rendered_screen_reply_snapshot_keeps_multiline_reply_island_intact() {
         ],
     };
 
-    let text = extract_rendered_reply_text(&snapshot, Some("Higress  是啥"));
+    let text = extract_rendered_reply_text(&snapshot, Some("Higress  是啥"), None);
     assert_eq!(
         text,
         "• Higress 是一个开源 API 网关，由阿里云团队发起，基于 Istio/Envoy 生态做了增强，主打：\n\n  - 云原生网关能力（路由、鉴权、限流、灰度等）\n  - AI 网关能力（对接大模型 API、统一鉴权与流量治理）\n  - 插件扩展（WASM/Go 等）\n  - 比较友好的配置与控制台体验\n\n  你可以把它理解成：面向微服务和 AI 场景的“更现代化网关”。如果你愿意，我可以再给你一版“和\n  Nginx / Kong / APISIX 的区别”对比表。"
@@ -1569,7 +1803,7 @@ fn rendered_screen_reply_snapshot_skips_permission_prompt_and_tool_blocks() {
         ],
     };
 
-    let text = extract_rendered_reply_text(&snapshot, Some("这个项目干啥的"));
+    let text = extract_rendered_reply_text(&snapshot, Some("这个项目干啥的"), None);
     assert_eq!(
         text,
         "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。\n\n  📱 项目架构\n  1. 客户端（Flutter） - ar-agent-client/\n  2. 管理后台（Vue 3） - ar-agent-admin/"
@@ -1615,7 +1849,8 @@ fn rendered_screen_reply_session_merges_scrolled_reply_fragments() {
                     RenderedScreenSnapshotRow {
                         row_index: 1,
                         text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。".to_string(),
-                        trimmed_text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。".to_string(),
+                        trimmed_text: "● 根据我查看的项目文件，这是一个 AR 眼镜开发项目。"
+                            .to_string(),
                         is_blank: false,
                     },
                     RenderedScreenSnapshotRow {
@@ -1770,7 +2005,8 @@ fn permission_response_input_does_not_replace_active_reply_session() {
                     RenderedScreenSnapshotRow {
                         row_index: 0,
                         text: "2. Yes, allow reading from ARGlasses/ from this project".to_string(),
-                        trimmed_text: "2. Yes, allow reading from ARGlasses/ from this project".to_string(),
+                        trimmed_text: "2. Yes, allow reading from ARGlasses/ from this project"
+                            .to_string(),
                         is_blank: false,
                     },
                     RenderedScreenSnapshotRow {
@@ -1782,7 +2018,8 @@ fn permission_response_input_does_not_replace_active_reply_session() {
                     RenderedScreenSnapshotRow {
                         row_index: 2,
                         text: "Esc to cancel · Tab to amend · ctrl+e to explain".to_string(),
-                        trimmed_text: "Esc to cancel · Tab to amend · ctrl+e to explain".to_string(),
+                        trimmed_text: "Esc to cancel · Tab to amend · ctrl+e to explain"
+                            .to_string(),
                         is_blank: false,
                     },
                     RenderedScreenSnapshotRow {
@@ -1864,10 +2101,522 @@ fn permission_response_input_does_not_replace_active_reply_session() {
         .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 200, 5_000, 200, 10)
         .expect("take final");
     assert_eq!(final_candidates.len(), 1);
-    assert_eq!(final_candidates[0].target.inbound_message_id, "msg-original");
+    assert_eq!(
+        final_candidates[0].target.inbound_message_id,
+        "msg-original"
+    );
     assert_eq!(
         final_candidates[0].text,
         "● 这是一个 AR 眼镜开发项目。\n  包含客户端、管理后台和服务端。"
+    );
+}
+
+#[test]
+fn rendered_screen_menu_prompt_is_extracted_without_polluting_reply_text() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_menu_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 12,
+        base_y: 0,
+        cursor_row: Some(11),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "› 查看系统时间".to_string(),
+                trimmed_text: "› 查看系统时间".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "• 我先读取当前系统时间，给你精确结果。".to_string(),
+                trimmed_text: "• 我先读取当前系统时间，给你精确结果。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "• 当前系统时间是 2026-03-06 20:46:35 CST +0800。".to_string(),
+                trimmed_text: "• 当前系统时间是 2026-03-06 20:46:35 CST +0800。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "• Model changed to gpt-5.4 low".to_string(),
+                trimmed_text: "• Model changed to gpt-5.4 low".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "Select Reasoning Level for gpt-5.4".to_string(),
+                trimmed_text: "Select Reasoning Level for gpt-5.4".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "› 1. Low (current)     Fast responses with lighter reasoning".to_string(),
+                trimmed_text: "› 1. Low (current)     Fast responses with lighter reasoning"
+                    .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text:
+                    "  2. Medium (default)  Balances speed and reasoning depth for everyday tasks"
+                        .to_string(),
+                trimmed_text:
+                    "2. Medium (default)  Balances speed and reasoning depth for everyday tasks"
+                        .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "  3. High              Greater reasoning depth for complex problems"
+                    .to_string(),
+                trimmed_text: "3. High              Greater reasoning depth for complex problems"
+                    .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "  4. Extra high        Extra high reasoning depth for complex problems"
+                    .to_string(),
+                trimmed_text:
+                    "4. Extra high        Extra high reasoning depth for complex problems"
+                        .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "❯ ".to_string(),
+                trimmed_text: "❯".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let prompt =
+        extract_rendered_interaction_prompt(&snapshot, Some("查看系统时间")).expect("menu prompt");
+    assert_eq!(prompt.title, "Select Reasoning Level for gpt-5.4");
+    assert_eq!(prompt.options.len(), 4);
+    assert_eq!(prompt.options[0].submit_text, "1");
+    assert_eq!(prompt.options[1].submit_text, "2");
+
+    let reply_text = extract_rendered_reply_text(&snapshot, Some("查看系统时间"), Some(&prompt));
+    assert_eq!(
+        reply_text,
+        "• 我先读取当前系统时间，给你精确结果。\n• 当前系统时间是 2026-03-06 20:46:35 CST +0800。"
+    );
+}
+
+#[test]
+fn rendered_screen_gemini_reply_ignores_footer_and_placeholder() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_gemini_1".to_string(),
+        screen_revision: 3,
+        captured_at_ms: now_ms_for_test(1_200),
+        viewport_top: 0,
+        viewport_height: 14,
+        base_y: 0,
+        cursor_row: Some(13),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: " > what the matter".to_string(),
+                trimmed_text: "> what the matter".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "✦ I'm not sure I follow—is there a specific problem you're encountering, or are you asking about the state of this workspace?".to_string(),
+                trimmed_text: "✦ I'm not sure I follow—is there a specific problem you're encountering, or are you asking about the state of this workspace?".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "  I see only a few files here (desktop.png, .claude/settings.local.json). If you're looking to start a new project or if something is missing,".to_string(),
+                trimmed_text: "I see only a few files here (desktop.png, .claude/settings.local.json). If you're looking to start a new project or if something is missing,".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "  please let me know. I can also help you analyze why a build might be failing or investigate any errors you're seeing if you provide".to_string(),
+                trimmed_text: "please let me know. I can also help you analyze why a build might be failing or investigate any errors you're seeing if you provide".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  more details.".to_string(),
+                trimmed_text: "more details.".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: " ? for shortcuts".to_string(),
+                trimmed_text: "? for shortcuts".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: " shift+tab to accept edits                        2 GEMINI.md files | 9 MCP servers | 2 skills ".to_string(),
+                trimmed_text: "shift+tab to accept edits                        2 GEMINI.md files | 9 MCP servers | 2 skills".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: " >   Type your message or @path/to/file".to_string(),
+                trimmed_text: ">   Type your message or @path/to/file".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: " /mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3) ".to_string(),
+                trimmed_text: "/mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3)".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let reply_text = extract_rendered_reply_text(&snapshot, Some("what the matter"), None);
+    assert_eq!(
+        reply_text,
+        "✦ I'm not sure I follow—is there a specific problem you're encountering, or are you asking about the state of this workspace?\n\n  I see only a few files here (desktop.png, .claude/settings.local.json). If you're looking to start a new project or if something is missing,\n  please let me know. I can also help you analyze why a build might be failing or investigate any errors you're seeing if you provide\n  more details."
+    );
+}
+
+#[test]
+fn rendered_screen_gemini_placeholder_prompt_counts_as_ready() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_gemini_ready_1".to_string(),
+        screen_revision: 2,
+        captured_at_ms: now_ms_for_test(1_400),
+        viewport_top: 0,
+        viewport_height: 10,
+        base_y: 0,
+        cursor_row: Some(8),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: " > hello".to_string(),
+                trimmed_text: "> hello".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "✦ Hello! I'm Gemini CLI, your senior software engineering partner.".to_string(),
+                trimmed_text:
+                    "✦ Hello! I'm Gemini CLI, your senior software engineering partner."
+                        .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: " ? for shortcuts ".to_string(),
+                trimmed_text: "? for shortcuts".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: " >   Type your message or @path/to/file".to_string(),
+                trimmed_text: ">   Type your message or @path/to/file".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: " /mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3) ".to_string(),
+                trimmed_text:
+                    "/mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3)"
+                        .to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    assert!(snapshot_has_ready_prompt(&snapshot));
+}
+
+#[test]
+fn rendered_screen_codex_reply_ignores_powershell_prompt_and_banner() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_codex_ps_1".to_string(),
+        screen_revision: 5,
+        captured_at_ms: now_ms_for_test(1_500),
+        viewport_top: 0,
+        viewport_height: 16,
+        base_y: 0,
+        cursor_row: Some(12),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "PS C:\\project\\ARGlasses\\.gtoffice\\org\\build\\agent-03>".to_string(),
+                trimmed_text: "PS C:\\project\\ARGlasses\\.gtoffice\\org\\build\\agent-03>"
+                    .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "│ >_ OpenAI Codex (v0.111.0)".to_string(),
+                trimmed_text: "│ >_ OpenAI Codex (v0.111.0)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "│ model:     gpt-5.4 low   /model to change".to_string(),
+                trimmed_text: "│ model:     gpt-5.4 low   /model to change".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "│ directory: /mnt/c/.../agent-03".to_string(),
+                trimmed_text: "│ directory: /mnt/c/.../agent-03".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "Tip: New Use /fast to enable our fastest".to_string(),
+                trimmed_text: "Tip: New Use /fast to enable our fastest".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "inference at 2X plan usage.".to_string(),
+                trimmed_text: "inference at 2X plan usage.".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "› hello".to_string(),
+                trimmed_text: "› hello".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "• Hi. What do you need?".to_string(),
+                trimmed_text: "• Hi. What do you need?".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "❯ ".to_string(),
+                trimmed_text: "❯".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let reply_text = extract_rendered_reply_text(&snapshot, Some("hello"), None);
+    assert_eq!(reply_text, "• Hi. What do you need?");
+    assert!(snapshot_has_ready_prompt(&snapshot));
+}
+
+#[test]
+fn rendered_screen_codex_banner_does_not_emit_before_prompt_echo() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_codex_ps_2".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_520),
+        viewport_top: 0,
+        viewport_height: 12,
+        base_y: 0,
+        cursor_row: Some(9),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "  Tip: New Use /fast to enable our fastest inference at 2X plan usage."
+                    .to_string(),
+                trimmed_text:
+                    "Tip: New Use /fast to enable our fastest inference at 2X plan usage."
+                        .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "⚠ Heads up, you have less than 10% of your weekly limit left. Run /status for a breakdown."
+                    .to_string(),
+                trimmed_text:
+                    "⚠ Heads up, you have less than 10% of your weekly limit left. Run /status for a breakdown."
+                        .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "› Use /skills to list available skills".to_string(),
+                trimmed_text: "› Use /skills to list available skills".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "  gpt-5.4 · gpt-5.4 low · /mnt/c/project/ARGlasses/.gtoffice/org/build/agent-03 · 100% left · …"
+                    .to_string(),
+                trimmed_text:
+                    "gpt-5.4 · gpt-5.4 low · /mnt/c/project/ARGlasses/.gtoffice/org/build/agent-03 · 100% left · …"
+                        .to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let reply_text = extract_rendered_reply_text(&snapshot, Some("你好"), None);
+    assert_eq!(reply_text, "");
+}
+
+#[test]
+fn menu_response_input_does_not_replace_active_reply_session() {
+    let state = AppState::default();
+    let original_target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_menu_1".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-menu-1".to_string(),
+        inbound_message_id: "msg-menu-original".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-menu-1".to_string(),
+        injected_input: Some("/skill".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_menu_2", original_target, now_ms_for_test(1_000))
+        .expect("bind original");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_menu_2",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_menu_2".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 8,
+                base_y: 0,
+                cursor_row: Some(7),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› /skill".to_string(),
+                        trimmed_text: "› /skill".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "Select Reasoning Level for gpt-5.4".to_string(),
+                        trimmed_text: "Select Reasoning Level for gpt-5.4".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "› 1. Low (current)".to_string(),
+                        trimmed_text: "› 1. Low (current)".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "  2. Medium (default)".to_string(),
+                        trimmed_text: "2. Medium (default)".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "  3. High".to_string(),
+                        trimmed_text: "3. High".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "  4. Extra high".to_string(),
+                        trimmed_text: "4. Extra high".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report menu");
+
+    let control_target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_menu_1_control".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-menu-1".to_string(),
+        inbound_message_id: "msg-menu-control".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-menu-1".to_string(),
+        injected_input: Some("2".to_string()),
+    };
+    state
+        .bind_external_reply_session("s_rendered_menu_2", control_target, now_ms_for_test(1_150))
+        .expect("bind control");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_menu_2",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_menu_2".to_string(),
+                screen_revision: 2,
+                captured_at_ms: now_ms_for_test(1_400),
+                viewport_top: 0,
+                viewport_height: 6,
+                base_y: 0,
+                cursor_row: Some(5),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› /skill".to_string(),
+                        trimmed_text: "› /skill".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "• Reasoning level updated to Medium.".to_string(),
+                        trimmed_text: "• Reasoning level updated to Medium.".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report answer");
+    state
+        .mark_external_reply_session_ended("s_rendered_menu_2", now_ms_for_test(1_600))
+        .expect("ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 200, 5_000, 200, 10)
+        .expect("take final");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].target.inbound_message_id,
+        "msg-menu-original"
+    );
+    assert_eq!(
+        final_candidates[0].text,
+        "• Reasoning level updated to Medium."
     );
 }
 
@@ -2022,9 +2771,116 @@ fn rendered_screen_reply_does_not_finalize_mid_response_without_ready_prompt() {
         .take_external_reply_dispatch_candidates(now_ms_for_test(6_500), 2_000, 20_000, 200, 10)
         .expect("take final");
     assert_eq!(final_candidates.len(), 1);
-    assert_eq!(final_candidates[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(
+        final_candidates[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
     assert_eq!(
         final_candidates[0].text,
         "  这个时代似乎总在催促人向前。\n  消息要秒回，计划要立刻完成。\n\n  慢，并不意味着懒散。\n  一种清醒。\n\n  它让人有机会看清方向。\n  而不是在匆忙中盲目前进。"
     );
+}
+
+#[test]
+fn codex_bound_reply_session_emits_candidate_after_rendered_snapshot() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_codex_bound_1".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-codex-1".to_string(),
+        inbound_message_id: "msg-codex-1".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-codex-1".to_string(),
+        injected_input: Some("你好".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_codex_bound_1", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .set_external_reply_session_tool_kind("s_codex_bound_1", AgentToolKind::Codex)
+        .expect("set tool kind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_codex_bound_1",
+            RenderedScreenSnapshot {
+                session_id: "s_codex_bound_1".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 12,
+                base_y: 0,
+                cursor_row: Some(10),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "  Tip: New Use /fast to enable our fastest inference at 2X plan usage."
+                            .to_string(),
+                        trimmed_text:
+                            "Tip: New Use /fast to enable our fastest inference at 2X plan usage."
+                                .to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "⚠ Heads up, you have less than 10% of your weekly limit left. Run /status for a breakdown."
+                            .to_string(),
+                        trimmed_text:
+                            "⚠ Heads up, you have less than 10% of your weekly limit left. Run /status for a breakdown."
+                                .to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "› 你好".to_string(),
+                        trimmed_text: "› 你好".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "• 你好。有什么需要我处理的？".to_string(),
+                        trimmed_text: "• 你好。有什么需要我处理的？".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "› Use /skills to list available skills".to_string(),
+                        trimmed_text: "› Use /skills to list available skills".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 7,
+                        text: "  gpt-5.4 · gpt-5.4 low · /mnt/c/project/ARGlasses/.gtoffice/org/build/agent-03 · 100% left · …"
+                            .to_string(),
+                        trimmed_text:
+                            "gpt-5.4 · gpt-5.4 low · /mnt/c/project/ARGlasses/.gtoffice/org/build/agent-03 · 100% left · …"
+                                .to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 20_000, 200, 10)
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].phase, ExternalReplyDispatchPhase::Preview);
+    assert_eq!(candidates[0].text, "• 你好。有什么需要我处理的？");
 }

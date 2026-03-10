@@ -21,6 +21,32 @@ fn parse_telegram_text_message() {
 }
 
 #[test]
+fn parse_telegram_callback_query() {
+    let payload = serde_json::json!({
+        "update_id": 10002,
+        "callback_query": {
+            "id": "cbq_123",
+            "data": "gto:2",
+            "from": { "id": 5566, "username": "alice" },
+            "message": {
+                "message_id": 89,
+                "chat": { "id": -100123, "type": "supergroup" }
+            }
+        }
+    });
+    let inbound = parse_telegram_payload(&payload).expect("telegram callback parsed");
+    assert_eq!(inbound.channel, "telegram");
+    assert_eq!(inbound.peer_kind, ExternalPeerKind::Group);
+    assert_eq!(inbound.peer_id, "-100123");
+    assert_eq!(inbound.sender_id, "5566");
+    assert_eq!(inbound.text, "2");
+    assert_eq!(
+        inbound.idempotency_key.as_deref(),
+        Some("telegram-callback-cbq_123")
+    );
+}
+
+#[test]
 fn parse_feishu_receive_message() {
     let payload = serde_json::json!({
         "schema": "2.0",

@@ -18,9 +18,9 @@ use crate::{app_state::AppState, commands::channel_adapter::process_external_inb
 
 use super::credential_store::{load_secret, store_secret};
 use api::{
-    telegram_delete_webhook, telegram_edit_message, telegram_get_me, telegram_get_updates,
-    telegram_get_webhook_info, telegram_send_chat_action, telegram_send_message,
-    telegram_set_webhook,
+    telegram_answer_callback_query, telegram_delete_message, telegram_delete_webhook,
+    telegram_edit_message, telegram_get_me, telegram_get_updates, telegram_get_webhook_info,
+    telegram_send_chat_action, telegram_send_message, telegram_set_webhook,
 };
 use inbound::parse_telegram_update;
 use offset_store::{read_offset, write_offset};
@@ -110,6 +110,14 @@ pub struct TelegramSendSnapshot {
     pub message_id: String,
     pub delivered_at_ms: u64,
 }
+
+#[derive(Debug, Clone)]
+pub struct TelegramInlineKeyboardButton {
+    pub text: String,
+    pub callback_data: String,
+}
+
+pub type TelegramInlineKeyboard = Vec<Vec<TelegramInlineKeyboardButton>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,6 +213,10 @@ fn persist_poll_offset(app: &AppHandle, account_id: &str, token: &str, value: i6
             "telegram polling offset persistence failed"
         );
     }
+}
+
+fn extract_callback_query_id(metadata: &serde_json::Value) -> Option<String> {
+    api::json_to_string(metadata.get("callback_query").and_then(|value| value.get("id")))
 }
 
 fn is_poll_primed(account_id: &str) -> bool {
@@ -622,6 +634,38 @@ pub async fn send_text_reply(
     text: &str,
     reply_to_message_id: Option<&str>,
 ) -> Result<TelegramSendSnapshot, String> {
+    send_text_reply_with_inline_keyboard(app, account_id, peer_id, text, reply_to_message_id, None)
+        .await
+}
+
+fn keyboard_to_reply_markup(keyboard: Option<&TelegramInlineKeyboard>) -> Option<serde_json::Value> {
+    let keyboard = keyboard?;
+    let rows = keyboard
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|button| {
+                    serde_json::json!({
+                        "text": button.text,
+                        "callback_data": button.callback_data,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({
+        "inline_keyboard": rows,
+    }))
+}
+
+pub async fn send_text_reply_with_inline_keyboard(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    peer_id: &str,
+    text: &str,
+    reply_to_message_id: Option<&str>,
+    keyboard: Option<&TelegramInlineKeyboard>,
+) -> Result<TelegramSendSnapshot, String> {
     let peer_id = peer_id.trim();
     if peer_id.is_empty() {
         return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
@@ -648,8 +692,15 @@ pub async fn send_text_reply(
     let peer_owned = peer_id.to_string();
     let text_owned = text.to_string();
     let reply_to_owned = reply_to_message_id.map(ToString::to_string);
+    let reply_markup = keyboard_to_reply_markup(keyboard);
     let send_result = tokio::task::spawn_blocking(move || {
-        telegram_send_message(&token, &peer_owned, &text_owned, reply_to_owned.as_deref())
+        telegram_send_message(
+            &token,
+            &peer_owned,
+            &text_owned,
+            reply_to_owned.as_deref(),
+            reply_markup,
+        )
     })
     .await
     .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
@@ -669,6 +720,17 @@ pub async fn edit_text_reply(
     peer_id: &str,
     message_id: &str,
     text: &str,
+) -> Result<TelegramSendSnapshot, String> {
+    edit_text_reply_with_inline_keyboard(app, account_id, peer_id, message_id, text, None).await
+}
+
+pub async fn edit_text_reply_with_inline_keyboard(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    peer_id: &str,
+    message_id: &str,
+    text: &str,
+    keyboard: Option<&TelegramInlineKeyboard>,
 ) -> Result<TelegramSendSnapshot, String> {
     let peer_id = peer_id.trim();
     if peer_id.is_empty() {
@@ -700,8 +762,15 @@ pub async fn edit_text_reply(
     let peer_owned = peer_id.to_string();
     let message_id_owned = message_id.to_string();
     let text_owned = text.to_string();
+    let reply_markup = keyboard_to_reply_markup(keyboard);
     let edit_result = tokio::task::spawn_blocking(move || {
-        telegram_edit_message(&token, &peer_owned, &message_id_owned, &text_owned)
+        telegram_edit_message(
+            &token,
+            &peer_owned,
+            &message_id_owned,
+            &text_owned,
+            reply_markup,
+        )
     })
     .await
     .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
@@ -713,6 +782,82 @@ pub async fn edit_text_reply(
         message_id: edit_result.message_id,
         delivered_at_ms: now_ms(),
     })
+}
+
+pub async fn delete_message(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    peer_id: &str,
+    message_id: &str,
+) -> Result<(), String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let message_id = message_id.trim();
+    if message_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: message id is required".to_string());
+    }
+
+    let account_id = normalize_account_id(account_id);
+    let key = account_id.to_ascii_lowercase();
+    let store = load_store(app)?;
+    let Some(record) = store.telegram_accounts.get(&key).cloned() else {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_NOT_FOUND: telegram account {}",
+            account_id
+        ));
+    };
+    if !record.enabled {
+        return Err("CHANNEL_CONNECTOR_DISABLED: telegram account is disabled".to_string());
+    }
+
+    let token = load_bot_token(&record)?;
+    let peer_owned = peer_id.to_string();
+    let message_id_owned = message_id.to_string();
+    let delete_result =
+        tokio::task::spawn_blocking(move || telegram_delete_message(&token, &peer_owned, &message_id_owned))
+            .await
+            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    if !delete_result.ok {
+        return Err("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: telegram deleteMessage failed".to_string());
+    }
+    Ok(())
+}
+
+pub async fn answer_callback_query(
+    app: &AppHandle,
+    account_id: Option<&str>,
+    callback_query_id: &str,
+    text: Option<&str>,
+) -> Result<(), String> {
+    let callback_query_id = callback_query_id.trim();
+    if callback_query_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: callback query id is required".to_string());
+    }
+
+    let account_id = normalize_account_id(account_id);
+    let key = account_id.to_ascii_lowercase();
+    let store = load_store(app)?;
+    let Some(record) = store.telegram_accounts.get(&key).cloned() else {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_NOT_FOUND: telegram account {}",
+            account_id
+        ));
+    };
+    if !record.enabled {
+        return Err("CHANNEL_CONNECTOR_DISABLED: telegram account is disabled".to_string());
+    }
+
+    let token = load_bot_token(&record)?;
+    let callback_query_id_owned = callback_query_id.to_string();
+    let text_owned = text.map(ToString::to_string);
+    tokio::task::spawn_blocking(move || {
+        telegram_answer_callback_query(&token, &callback_query_id_owned, text_owned.as_deref())
+    })
+    .await
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    Ok(())
 }
 
 fn polling_accounts(app: &AppHandle) -> Vec<TelegramAccountRecord> {
@@ -795,7 +940,12 @@ async fn poll_account_once(
                 continue;
             }
         };
-        if let Err(error) = process_external_inbound_message(state, app, inbound) {
+        let callback_query_id = extract_callback_query_id(&inbound.metadata);
+        let dispatch_result = process_external_inbound_message(state, app, inbound);
+        if let Some(callback_query_id) = callback_query_id {
+            let _ = answer_callback_query(app, Some(&account_id), &callback_query_id, None).await;
+        }
+        if let Err(error) = dispatch_result {
             warn!(
                 account_id = %account_id,
                 error = %error,

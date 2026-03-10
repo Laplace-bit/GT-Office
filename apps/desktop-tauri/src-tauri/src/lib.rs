@@ -1,8 +1,10 @@
 mod app_state;
+mod channel_sinks;
 mod channel_adapter_runtime;
 mod commands;
 mod connectors;
 mod daemon_bridge;
+mod external_tool_profiles;
 mod filesystem_watcher;
 mod mcp_bridge;
 

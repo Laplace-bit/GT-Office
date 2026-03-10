@@ -622,6 +622,9 @@
    - 当前 Telegram 回复链路主事实源改为前端 `xterm.buffer.active` 派生的 `RenderedScreenSnapshot`；旧 PTY/session 文本监听仅保留为遗留兼容代码，不得继续作为正文提取主链路。
    - `terminal.report_rendered_screen` 只接受 `screenRevision` 单调递增的快照；乱序或重复 revision 必须静默丢弃。
    - `rows` 来源于 `xterm.buffer.active.getLine(...)`，不是 DOM 文本树；实现不得依赖 renderer DOM 结构。
+   - Telegram connector 必须支持 `inline_keyboard` 出站与 `callback_query` 入站；`callback_query.data` 使用 `gto:<submit_text>` 前缀编码，并在入站时归一化回实际 terminal 输入文本。
+   - rendered-screen 回复链路除正文外，还必须从同一快照中提取权限确认/编号菜单/`/command` 菜单等 interaction prompt；interaction prompt 单独走 Telegram 快捷按钮，不得混入正文。
+   - 当 Telegram callback 命中当前 live terminal session 的 interaction prompt 时，该输入必须复用原 reply session，不得替换最初问题的 `inbound_message_id`。
    - 对不支持结构化输出的工具（如 `shell` / `unknown`）不得自动回传 AI 正文，可仅输出 `external/channel_outbound_result(status=skipped)`。
 15. runtime 约束：
    - 桌面端启动后自动监听 `127.0.0.1:<random_port>`，并写入 `~/.gtoffice/channel/runtime.json`。
@@ -679,6 +682,10 @@
    - payload: `{ "searchId":"string" }`
 24. `external/channel_inbound`
    - payload: `{ "traceId":"string", "channel":"string", "accountId":"string", "peerKind":"direct|group", "peerId":"string", "senderId":"string", "senderName":"string?", "messageId":"string", "text":"string?" }`
+   - Telegram `callback_query` 会被归一化为普通 inbound：
+     - `messageId = "callback-<callbackQueryId>"`
+     - `text = <decoded submit_text>`
+     - `idempotencyKey = "telegram-callback-<callbackQueryId>"`
 25. `external/channel_routed`
    - payload: `{ "traceId":"string", "workspaceId":"string", "targetAgentId":"string", "matchedBy":"string", "resolvedTargets":["string"] }`
 26. `external/channel_dispatch_progress`
@@ -688,7 +695,7 @@
 28. `external/channel_error`
    - payload: `{ "traceId":"string", "code":"string", "detail":"string" }`
 29. `external/channel_outbound_result`
-   - payload: `{ "traceId":"string?", "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed|skipped", "detail":"string?", "tsMs":1738932000456, "relayMode":"dispatch-ack|structured-headless|pty-fallback|unsupported", "confidence":"high|low" }`
+   - payload: `{ "traceId":"string?", "workspaceId":"string", "messageId":"string", "targetAgentId":"string", "status":"delivered|failed|skipped", "detail":"string?", "tsMs":1738932000456, "relayMode":"dispatch-ack|structured-headless|pty-fallback|rendered-screen-interaction|unsupported", "confidence":"high|low" }`
 30. `external/channel_connector_health_changed`
    - payload: `{ "channel":"telegram|feishu", "accountId":"string", "ok":true|false, "status":"ok|auth_failed|disabled", "detail":"string", "checkedAtMs":1738932000456 }`
 

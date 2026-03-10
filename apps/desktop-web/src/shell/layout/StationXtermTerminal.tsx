@@ -27,10 +27,47 @@ const TERMINAL_MIN_VISIBLE_SIZE_PX = 4
 const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
 
+function isShellPromptText(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return false
+  }
+  if (trimmed.startsWith('PS ') && trimmed.endsWith('>')) {
+    return true
+  }
+  return false
+}
+
+function isPlaceholderPromptContent(content: string): boolean {
+  const lower = content.trim().toLowerCase()
+  if (lower.includes('implement {feature}')) {
+    return true
+  }
+  return (
+    lower.startsWith('type your message') ||
+    lower.startsWith('type a message') ||
+    lower.includes('@path/to/file') ||
+    (lower.startsWith('use /') && lower.includes('available skills'))
+  )
+}
+
 function isPromptAnchorText(text: string): boolean {
+  if (isShellPromptText(text)) {
+    return true
+  }
   const trimmed = text.trimStart()
   for (const prefix of ['› ', '❯ ', '$ ', '> ']) {
-    if (trimmed.startsWith(prefix) && trimmed.slice(prefix.length).trim().length > 0) {
+    if (!trimmed.startsWith(prefix)) {
+      continue
+    }
+    const content = trimmed.slice(prefix.length).trim()
+    if (!content) {
+      continue
+    }
+    if (isPlaceholderPromptContent(content)) {
+      continue
+    }
+    if (content.length > 0) {
       return true
     }
   }

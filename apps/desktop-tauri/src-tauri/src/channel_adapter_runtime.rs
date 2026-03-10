@@ -17,7 +17,10 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 use vb_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
 
-use crate::{app_state::AppState, commands::channel_adapter::process_external_inbound_message};
+use crate::{
+    app_state::AppState, commands::channel_adapter::process_external_inbound_message,
+    connectors::telegram,
+};
 
 const CHANNEL_RUNTIME_VERSION: &str = "0.1.0";
 const CHANNEL_HOST: &str = "127.0.0.1";
@@ -531,7 +534,23 @@ fn handle_telegram_request(
 }
 
 fn dispatch_inbound(ctx: &RuntimeContext, inbound: ExternalInboundMessage) -> (u16, Value) {
-    match process_external_inbound_message(&ctx.state, &ctx.app, inbound) {
+    let callback_query_id = json_to_string(
+        inbound
+            .metadata
+            .get("callback_query")
+            .and_then(|value| value.get("id")),
+    );
+    let callback_account_id = inbound.account_id.clone();
+    let result = process_external_inbound_message(&ctx.state, &ctx.app, inbound);
+    if let Some(callback_query_id) = callback_query_id {
+        let app = ctx.app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ =
+                telegram::answer_callback_query(&app, Some(&callback_account_id), &callback_query_id, None)
+                    .await;
+        });
+    }
+    match result {
         Ok(response) => {
             let status = match response.status {
                 ExternalInboundStatus::Failed => 500,
@@ -787,11 +806,64 @@ fn parse_feishu_payload(payload: &Value) -> Result<ExternalInboundMessage, Strin
 }
 
 fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, String> {
+    if let Some(callback) = payload.get("callback_query") {
+        let message = callback
+            .get("message")
+            .ok_or_else(|| "missing callback_query.message".to_string())?;
+        let chat = message
+            .get("chat")
+            .ok_or_else(|| "missing callback_query.message.chat".to_string())?;
+
+        let peer_id = json_to_string(chat.get("id")).ok_or_else(|| "missing chat.id".to_string())?;
+        let chat_type = json_to_string(chat.get("type")).unwrap_or_else(|| "private".to_string());
+        let peer_kind = if chat_type.eq_ignore_ascii_case("group")
+            || chat_type.eq_ignore_ascii_case("supergroup")
+            || chat_type.eq_ignore_ascii_case("channel")
+        {
+            ExternalPeerKind::Group
+        } else {
+            ExternalPeerKind::Direct
+        };
+
+        let sender = callback
+            .get("from")
+            .ok_or_else(|| "missing callback_query.from".to_string())?;
+        let sender_id = json_to_string(sender.get("id")).unwrap_or_else(|| peer_id.clone());
+        let sender_name = derive_telegram_sender_name(sender);
+        let callback_id = json_to_string(callback.get("id")).unwrap_or_else(|| {
+            format!(
+                "callback-update-{}",
+                json_to_string(payload.get("update_id")).unwrap_or_else(|| "0".to_string())
+            )
+        });
+        let data = json_to_string(callback.get("data"))
+            .unwrap_or_else(|| "[telegram callback without data]".to_string());
+        let text = data
+            .strip_prefix("gto:")
+            .map(str::to_string)
+            .unwrap_or(data);
+
+        return Ok(ExternalInboundMessage {
+            channel: "telegram".to_string(),
+            account_id: "default".to_string(),
+            peer_kind,
+            peer_id,
+            sender_id,
+            sender_name,
+            message_id: format!("callback-{callback_id}"),
+            text,
+            idempotency_key: Some(format!("telegram-callback-{callback_id}")),
+            workspace_id_hint: None,
+            target_agent_id_hint: None,
+            metadata: payload.clone(),
+        });
+    }
+
     let message = payload
         .get("message")
         .or_else(|| payload.get("edited_message"))
         .or_else(|| payload.get("channel_post"))
-        .ok_or_else(|| "missing message/edited_message/channel_post".to_string())?;
+        .ok_or_else(|| "missing message/edited_message/channel_post/callback_query".to_string())?;
     let chat = message
         .get("chat")
         .ok_or_else(|| "missing message.chat".to_string())?;

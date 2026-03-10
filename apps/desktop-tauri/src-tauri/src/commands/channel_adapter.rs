@@ -1325,18 +1325,18 @@ fn bind_external_reply_sessions(
         return;
     }
 
-    let runtime_by_agent: HashMap<String, String> = state
+    let runtime_by_agent: HashMap<String, AgentRuntimeRegistration> = state
         .task_service
         .list_runtimes(Some(workspace_id))
         .into_iter()
-        .map(|runtime| (runtime.agent_id, runtime.session_id))
+        .map(|runtime| (runtime.agent_id.clone(), runtime))
         .collect();
 
     for result in results {
         if result.status != TaskDispatchStatus::Sent {
             continue;
         }
-        let Some(session_id) = runtime_by_agent.get(&result.target_agent_id) else {
+        let Some(runtime) = runtime_by_agent.get(&result.target_agent_id) else {
             emit_external_error(
                 app,
                 trace_id,
@@ -1348,6 +1348,7 @@ fn bind_external_reply_sessions(
             );
             continue;
         };
+        let session_id = runtime.session_id.as_str();
         let target = ExternalReplyRelayTarget {
             trace_id: trace_id.to_string(),
             channel: channel.clone(),
@@ -1360,7 +1361,20 @@ fn bind_external_reply_sessions(
         };
         if let Err(error) = state.bind_external_reply_session(session_id, target, now_ms()) {
             emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
+            continue;
         }
+        if let Err(error) = state.set_external_reply_session_tool_kind(session_id, runtime.tool_kind) {
+            emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
+            continue;
+        }
+        debug!(
+            trace_id = %trace_id,
+            workspace_id = %workspace_id,
+            target_agent_id = %result.target_agent_id,
+            session_id = %session_id,
+            tool_kind = ?runtime.tool_kind,
+            "bound external reply session"
+        );
     }
 }
 
@@ -1408,11 +1422,23 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
         EXTERNAL_REPLY_STREAM_THROTTLE_MS,
         EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS,
     )?;
+    if !candidates.is_empty() {
+        debug!(count = candidates.len(), "flushing external reply candidates");
+    }
     for candidate in candidates {
         let chunks = split_text_for_channel(&candidate.text, EXTERNAL_REPLY_MAX_TEXT_CHARS);
         if chunks.is_empty() {
             continue;
         }
+        debug!(
+            trace_id = %candidate.target.trace_id,
+            session_id = %candidate.session_id,
+            channel = %candidate.target.channel,
+            phase = ?candidate.phase,
+            text_chars = candidate.text.chars().count(),
+            chunk_count = chunks.len(),
+            "delivering external reply candidate"
+        );
         let text = chunks[0].clone();
         match candidate.target.channel.as_str() {
             "telegram" => {
@@ -1535,6 +1561,16 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                     )
                                 })?;
                             }
+                            if let Err(error) = state
+                                .mark_external_reply_finalize_delivered(&candidate.session_id)
+                            {
+                                warn!(
+                                    trace_id = %candidate.target.trace_id,
+                                    session_id = %candidate.session_id,
+                                    error = %error,
+                                    "failed to clear finalized external reply session"
+                                );
+                            }
                         }
                         if candidate.phase == ExternalReplyDispatchPhase::Preview {
                             let _ = state.set_external_reply_preview_message_id(
@@ -1564,6 +1600,12 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                         );
                     }
                     Err(error) => {
+                        if candidate.phase == ExternalReplyDispatchPhase::Preview {
+                            let _ = state.mark_external_reply_preview_delivery_failed(
+                                &candidate.session_id,
+                                &candidate.text,
+                            );
+                        }
                         let _ = app.emit(
                             "external/channel_outbound_result",
                             json!({

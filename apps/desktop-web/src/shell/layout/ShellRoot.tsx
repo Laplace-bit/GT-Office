@@ -2713,9 +2713,6 @@ export function ShellRoot() {
       if (!desktopApi.isTauriRuntime()) {
         return
       }
-      if ((channelBotBindingsByStationId[stationId]?.length ?? 0) === 0) {
-        return
-      }
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       if (!sessionId || snapshot.sessionId !== sessionId) {
         return
@@ -2724,7 +2721,7 @@ export function ShellRoot() {
         // Snapshot reporting is best-effort and must not affect terminal interaction.
       })
     },
-    [channelBotBindingsByStationId],
+    [],
   )
 
   const launchStationCliAgent = useMemo(

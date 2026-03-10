@@ -45,6 +45,11 @@ pub(super) struct TelegramEditResult {
     pub peer_id: String,
 }
 
+#[derive(Debug)]
+pub(super) struct TelegramDeleteResult {
+    pub ok: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct TelegramGetMeResult {
     #[serde(default)]
@@ -82,6 +87,18 @@ fn looks_like_windows_schannel_error(stderr: &str) -> bool {
         || lower.contains("failed to receive handshake")
 }
 
+fn looks_like_retryable_transport_error(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("connection timed out")
+        || lower.contains("timed out after")
+        || lower.contains("operation timed out")
+        || lower.contains("failed to connect")
+        || lower.contains("connection reset")
+        || lower.contains("empty reply from server")
+        || lower.contains("tlsv1")
+        || lower.contains("recv failure")
+}
+
 fn run_curl_json(args: &[&str]) -> Result<Value, String> {
     let output = Command::new("curl")
         .args(args)
@@ -89,9 +106,33 @@ fn run_curl_json(args: &[&str]) -> Result<Value, String> {
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
     if !output.status.success() {
         let stderr_text = String::from_utf8_lossy(&output.stderr).to_string();
-        #[cfg(target_os = "windows")]
-        if looks_like_windows_schannel_error(&stderr_text) {
-            let mut retry_args = vec!["-4", "--http1.1", "--ssl-no-revoke"];
+        let should_retry = looks_like_retryable_transport_error(&stderr_text)
+            || {
+                #[cfg(target_os = "windows")]
+                {
+                    looks_like_windows_schannel_error(&stderr_text)
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    false
+                }
+            };
+        if should_retry {
+            let mut retry_args = vec![
+                "--connect-timeout",
+                "8",
+                "--retry",
+                "2",
+                "--retry-delay",
+                "1",
+                "--retry-all-errors",
+                "-4",
+                "--http1.1",
+            ];
+            #[cfg(target_os = "windows")]
+            {
+                retry_args.push("--ssl-no-revoke");
+            }
             retry_args.extend_from_slice(args);
             let retry_output = Command::new("curl")
                 .args(retry_args)
@@ -102,9 +143,11 @@ fn run_curl_json(args: &[&str]) -> Result<Value, String> {
                     format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}")
                 });
             }
+            let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
             return Err(format!(
-                "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
-                String::from_utf8_lossy(&retry_output.stderr)
+                "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}; initial={}",
+                retry_stderr.trim(),
+                stderr_text.trim()
             ));
         }
         return Err(format!(
@@ -302,6 +345,7 @@ pub(super) fn telegram_send_message(
     peer_id: &str,
     text: &str,
     reply_to_message_id: Option<&str>,
+    reply_markup: Option<Value>,
 ) -> Result<TelegramSendResult, String> {
     let endpoint = format!("{}/sendMessage", api_base_url(token));
     let mut body = serde_json::json!({
@@ -314,13 +358,16 @@ pub(super) fn telegram_send_message(
     {
         body["reply_to_message_id"] = serde_json::json!(reply_id.parse::<i64>().unwrap_or(0));
     }
+    if let Some(reply_markup) = reply_markup {
+        body["reply_markup"] = reply_markup;
+    }
     let body_str = serde_json::to_string(&body)
         .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
 
     let args = vec![
         "-sS",
         "--max-time",
-        "15",
+        "25",
         "-X",
         "POST",
         endpoint.as_str(),
@@ -369,20 +416,24 @@ pub(super) fn telegram_edit_message(
     peer_id: &str,
     message_id: &str,
     text: &str,
+    reply_markup: Option<Value>,
 ) -> Result<TelegramEditResult, String> {
     let endpoint = format!("{}/editMessageText", api_base_url(token));
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "chat_id": parse_chat_id(peer_id),
         "message_id": message_id.parse::<i64>().unwrap_or(0),
         "text": text,
     });
+    if let Some(reply_markup) = reply_markup {
+        body["reply_markup"] = reply_markup;
+    }
     let body_str = serde_json::to_string(&body)
         .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
 
     let args = vec![
         "-sS",
         "--max-time",
-        "15",
+        "25",
         "-X",
         "POST",
         endpoint.as_str(),
@@ -421,4 +472,84 @@ pub(super) fn telegram_edit_message(
         message_id: resolved_message_id,
         peer_id: delivered_peer,
     })
+}
+
+pub(super) fn telegram_delete_message(
+    token: &str,
+    peer_id: &str,
+    message_id: &str,
+) -> Result<TelegramDeleteResult, String> {
+    let endpoint = format!("{}/deleteMessage", api_base_url(token));
+    let body = serde_json::json!({
+        "chat_id": parse_chat_id(peer_id),
+        "message_id": message_id.parse::<i64>().unwrap_or(0),
+    });
+    let body_str = serde_json::to_string(&body)
+        .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
+    let args = vec![
+        "-sS",
+        "--max-time",
+        "25",
+        "-X",
+        "POST",
+        endpoint.as_str(),
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        body_str.as_str(),
+    ];
+
+    let payload = run_curl_json(&args)?;
+    let response: TelegramApiEnvelope<bool> = parse_envelope(payload)?;
+    if !response.ok {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
+            response
+                .description
+                .unwrap_or_else(|| "telegram deleteMessage failed".to_string())
+        ));
+    }
+    Ok(TelegramDeleteResult {
+        ok: response.result.unwrap_or(true),
+    })
+}
+
+pub(super) fn telegram_answer_callback_query(
+    token: &str,
+    callback_query_id: &str,
+    text: Option<&str>,
+) -> Result<(), String> {
+    let endpoint = format!("{}/answerCallbackQuery", api_base_url(token));
+    let mut body = serde_json::json!({
+        "callback_query_id": callback_query_id,
+    });
+    if let Some(text) = text.map(str::trim).filter(|value| !value.is_empty()) {
+        body["text"] = serde_json::json!(text);
+    }
+    let body_str = serde_json::to_string(&body)
+        .map_err(|error| format!("CHANNEL_CONNECTOR_ENCODE_FAILED: {error}"))?;
+    let args = vec![
+        "-sS",
+        "--max-time",
+        "8",
+        "-X",
+        "POST",
+        endpoint.as_str(),
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        body_str.as_str(),
+    ];
+
+    let payload = run_curl_json(&args)?;
+    let response: TelegramApiEnvelope<bool> = parse_envelope(payload)?;
+    if !response.ok {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
+            response
+                .description
+                .unwrap_or_else(|| "telegram answerCallbackQuery failed".to_string())
+        ));
+    }
+    Ok(())
 }

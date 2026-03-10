@@ -1,17 +1,20 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use serde::{Deserialize, Serialize};
+use tracing::debug;
 use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
 use vb_git::GitService;
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
+use vb_task::AgentToolKind;
 use vb_task::TaskService;
 use vb_terminal::PtyTerminalProvider;
 use vb_workspace::InMemoryWorkspaceService;
 
 use crate::daemon_bridge::DaemonBridge;
+use crate::external_tool_profiles::ToolScreenProfile;
 use crate::filesystem_watcher::WorkspaceWatcherRegistry;
 
 #[derive(Debug, Clone)]
@@ -32,6 +35,12 @@ pub enum ExternalReplyDispatchPhase {
     Finalize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalInteractionDispatchPhase {
+    Show,
+    Clear,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExternalReplyDispatchCandidate {
     pub session_id: String,
@@ -39,6 +48,72 @@ pub struct ExternalReplyDispatchCandidate {
     pub text: String,
     pub preview_message_id: Option<String>,
     pub phase: ExternalReplyDispatchPhase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalInteractionPromptKind {
+    Permission,
+    Menu,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalInteractionOption {
+    pub label: String,
+    pub submit_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalInteractionPrompt {
+    pub kind: ExternalInteractionPromptKind,
+    pub title: String,
+    pub options: Vec<ExternalInteractionOption>,
+    pub hint: Option<String>,
+    start_row: u32,
+    end_row: u32,
+}
+
+impl ExternalInteractionPrompt {
+    pub(crate) fn signature(&self) -> String {
+        let kind = match self.kind {
+            ExternalInteractionPromptKind::Permission => "permission",
+            ExternalInteractionPromptKind::Menu => "menu",
+        };
+        let options = self
+            .options
+            .iter()
+            .map(|option| format!("{}=>{}", option.label, option.submit_text))
+            .collect::<Vec<_>>()
+            .join("|");
+        format!(
+            "{kind}\u{1f}{}\u{1f}{}\u{1f}{}",
+            self.title,
+            self.hint.clone().unwrap_or_default(),
+            options
+        )
+    }
+
+    fn contains_row(&self, row_index: u32) -> bool {
+        row_index >= self.start_row && row_index <= self.end_row
+    }
+
+    fn matches_input(&self, input: &str) -> bool {
+        let normalized = input.trim();
+        if normalized.is_empty() {
+            return false;
+        }
+        self.options
+            .iter()
+            .any(|option| option.submit_text == normalized)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalInteractionDispatchCandidate {
+    pub session_id: String,
+    pub target: ExternalReplyRelayTarget,
+    pub prompt: Option<ExternalInteractionPrompt>,
+    pub message_id: Option<String>,
+    pub phase: ExternalInteractionDispatchPhase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -67,15 +142,20 @@ pub struct RenderedScreenSnapshot {
 
 struct ExternalReplyRelaySession {
     target: ExternalReplyRelayTarget,
+    tool_kind: AgentToolKind,
     created_at_ms: u64,
     last_chunk_at_ms: u64,
     last_preview_sent_at_ms: u64,
+    last_finalize_attempt_at_ms: u64,
     ended: bool,
     vt_parser: vt100::Parser,
     last_preview_text: String,
     preview_message_id: Option<String>,
     last_rendered_snapshot: Option<RenderedScreenSnapshot>,
     last_rendered_reply_text: String,
+    active_interaction_prompt: Option<ExternalInteractionPrompt>,
+    interaction_message_id: Option<String>,
+    last_interaction_signature: Option<String>,
     permission_prompt_active: bool,
 }
 
@@ -266,8 +346,15 @@ impl AppState {
         })?;
         if let Some(existing) = guard.get_mut(session_id) {
             if !existing.ended
-                && existing.permission_prompt_active
-                && looks_like_permission_response_input(target.injected_input.as_deref())
+                && existing
+                    .active_interaction_prompt
+                    .as_ref()
+                    .is_some_and(|prompt| {
+                        target
+                            .injected_input
+                            .as_deref()
+                            .is_some_and(|input| prompt.matches_input(input))
+                    })
             {
                 existing.last_chunk_at_ms = now_ms;
                 return Ok(());
@@ -277,15 +364,20 @@ impl AppState {
             session_id.to_string(),
             ExternalReplyRelaySession {
                 target,
+                tool_kind: AgentToolKind::Unknown,
                 created_at_ms: now_ms,
                 last_chunk_at_ms: now_ms,
                 last_preview_sent_at_ms: 0,
+                last_finalize_attempt_at_ms: 0,
                 ended: false,
                 vt_parser: vt100::Parser::new(36, 120, 500),
                 last_preview_text: String::new(),
                 preview_message_id: None,
                 last_rendered_snapshot: None,
                 last_rendered_reply_text: String::new(),
+                active_interaction_prompt: None,
+                interaction_message_id: None,
+                last_interaction_signature: None,
                 permission_prompt_active: false,
             },
         );
@@ -321,23 +413,62 @@ impl AppState {
             "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
         })?;
         let Some(session) = guard.get_mut(session_id) else {
+            debug!(
+                session_id = %session_id,
+                screen_revision = snapshot.screen_revision,
+                "ignored rendered screen snapshot without bound reply session"
+            );
             return Ok(false);
         };
         if snapshot.session_id.trim() != session_id {
+            debug!(
+                session_id = %session_id,
+                snapshot_session_id = %snapshot.session_id,
+                screen_revision = snapshot.screen_revision,
+                "ignored rendered screen snapshot with mismatched session id"
+            );
             return Ok(false);
         }
         if let Some(previous) = session.last_rendered_snapshot.as_ref() {
             if snapshot.screen_revision <= previous.screen_revision {
+                debug!(
+                    session_id = %session_id,
+                    current_screen_revision = snapshot.screen_revision,
+                    previous_screen_revision = previous.screen_revision,
+                    "ignored stale rendered screen snapshot"
+                );
                 return Ok(false);
             }
         }
         session.last_chunk_at_ms = snapshot.captured_at_ms.max(session.last_chunk_at_ms);
-        let extracted_text =
-            extract_rendered_reply_text(&snapshot, session.target.injected_input.as_deref());
-        session.permission_prompt_active = snapshot_contains_permission_prompt(&snapshot);
+        let profile = ToolScreenProfile::from_tool_kind(session.tool_kind);
+        let interaction_prompt = extract_rendered_interaction_prompt_for_tool(
+            &snapshot,
+            session.target.injected_input.as_deref(),
+            profile,
+        );
+        let extracted_text = extract_rendered_reply_text_for_tool(
+            &snapshot,
+            session.target.injected_input.as_deref(),
+            interaction_prompt.as_ref(),
+            profile,
+        );
+        session.permission_prompt_active = interaction_prompt
+            .as_ref()
+            .is_some_and(|prompt| prompt.kind == ExternalInteractionPromptKind::Permission)
+            || snapshot_contains_permission_prompt(&snapshot);
         session.last_rendered_reply_text =
             merge_rendered_reply_text(&session.last_rendered_reply_text, &extracted_text);
+        session.active_interaction_prompt = interaction_prompt;
         session.last_rendered_snapshot = Some(snapshot);
+        debug!(
+            session_id = %session_id,
+            profile = %profile.id(),
+            reply_chars = session.last_rendered_reply_text.chars().count(),
+            has_interaction_prompt = session.active_interaction_prompt.is_some(),
+            permission_prompt_active = session.permission_prompt_active,
+            "accepted rendered screen snapshot for external reply session"
+        );
         Ok(true)
     }
 
@@ -374,6 +505,118 @@ impl AppState {
         Ok(())
     }
 
+    pub fn mark_external_reply_preview_delivery_failed(
+        &self,
+        session_id: &str,
+        failed_text: &str,
+    ) -> Result<(), String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        let Some(session) = guard.get_mut(session_id) else {
+            return Ok(());
+        };
+        if session.last_preview_text == failed_text {
+            session.last_preview_text.clear();
+            session.last_preview_sent_at_ms = 0;
+        }
+        Ok(())
+    }
+
+    pub fn mark_external_reply_finalize_delivered(&self, session_id: &str) -> Result<(), String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        guard.remove(session_id);
+        Ok(())
+    }
+
+    pub fn set_external_reply_session_tool_kind(
+        &self,
+        session_id: &str,
+        tool_kind: AgentToolKind,
+    ) -> Result<(), String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        if let Some(session) = guard.get_mut(session_id) {
+            session.tool_kind = tool_kind;
+        }
+        Ok(())
+    }
+
+    pub fn set_external_interaction_message_id(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        signature: &str,
+    ) -> Result<(), String> {
+        let message_id = message_id.trim();
+        if message_id.is_empty() {
+            return Ok(());
+        }
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        if let Some(session) = guard.get_mut(session_id) {
+            session.interaction_message_id = Some(message_id.to_string());
+            session.last_interaction_signature = Some(signature.to_string());
+        }
+        Ok(())
+    }
+
+    pub fn clear_external_interaction_message(&self, session_id: &str) -> Result<(), String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        if let Some(session) = guard.get_mut(session_id) {
+            session.interaction_message_id = None;
+            session.last_interaction_signature = None;
+        }
+        Ok(())
+    }
+
+    pub fn take_external_interaction_dispatch_candidates(
+        &self,
+    ) -> Result<Vec<ExternalInteractionDispatchCandidate>, String> {
+        let guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        let mut candidates = Vec::new();
+
+        for (session_id, session) in guard.iter() {
+            if let Some(prompt) = session.active_interaction_prompt.as_ref() {
+                let signature = prompt.signature();
+                let already_sent = session.last_interaction_signature.as_deref()
+                    == Some(signature.as_str())
+                    && session.interaction_message_id.is_some();
+                if already_sent {
+                    continue;
+                }
+                candidates.push(ExternalInteractionDispatchCandidate {
+                    session_id: session_id.clone(),
+                    target: session.target.clone(),
+                    prompt: Some(prompt.clone()),
+                    message_id: session.interaction_message_id.clone(),
+                    phase: ExternalInteractionDispatchPhase::Show,
+                });
+                continue;
+            }
+
+            if session.interaction_message_id.is_some() {
+                candidates.push(ExternalInteractionDispatchCandidate {
+                    session_id: session_id.clone(),
+                    target: session.target.clone(),
+                    prompt: None,
+                    message_id: session.interaction_message_id.clone(),
+                    phase: ExternalInteractionDispatchPhase::Clear,
+                });
+            }
+        }
+
+        Ok(candidates)
+    }
+
     pub fn take_external_reply_dispatch_candidates(
         &self,
         now_ms: u64,
@@ -386,30 +629,71 @@ impl AppState {
             "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
         })?;
         let mut candidates = Vec::new();
-        let mut ready_final_session_ids = Vec::new();
+        let mut drop_session_ids = Vec::new();
 
         for (session_id, session) in guard.iter_mut() {
             let normalized_text = external_reply_session_text(session);
             let has_text = !normalized_text.is_empty();
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
             let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
-            let rendered_ready_for_finalize = session
-                .last_rendered_snapshot
-                .as_ref()
-                .is_some_and(snapshot_has_ready_prompt);
+            let rendered_ready_for_finalize =
+                session
+                    .last_rendered_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| {
+                        snapshot_has_ready_prompt_for_tool(
+                            snapshot,
+                            ToolScreenProfile::from_tool_kind(session.tool_kind),
+                        )
+                    });
             let should_finalize_with_text = has_text
                 && (session.ended
                     || expired
                     || (idle_elapsed
-                        && (session.last_rendered_snapshot.is_none() || rendered_ready_for_finalize)));
+                        && (session.last_rendered_snapshot.is_none()
+                            || rendered_ready_for_finalize)));
             let should_drop_without_text = !has_text
                 && (session.ended
                     || expired
                     || (idle_elapsed
-                        && (session.last_rendered_snapshot.is_none() || rendered_ready_for_finalize)));
+                        && session.last_rendered_snapshot.is_some()
+                        && rendered_ready_for_finalize));
 
-            if should_finalize_with_text || should_drop_without_text {
-                ready_final_session_ids.push(session_id.clone());
+            if should_drop_without_text {
+                debug!(
+                    session_id = %session_id,
+                    profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
+                    has_text,
+                    ended = session.ended,
+                    expired,
+                    idle_elapsed,
+                    rendered_ready_for_finalize,
+                    "external reply session reached finalize boundary"
+                );
+                drop_session_ids.push(session_id.clone());
+                continue;
+            }
+            if should_finalize_with_text {
+                let finalize_retry_ms = preview_throttle_ms.max(1);
+                let finalize_due = now_ms.saturating_sub(session.last_finalize_attempt_at_ms)
+                    >= finalize_retry_ms;
+                if !finalize_due {
+                    continue;
+                }
+                session.last_finalize_attempt_at_ms = now_ms;
+                debug!(
+                    session_id = %session_id,
+                    profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
+                    final_chars = normalized_text.chars().count(),
+                    "queued external reply finalize candidate"
+                );
+                candidates.push(ExternalReplyDispatchCandidate {
+                    session_id: session_id.clone(),
+                    target: session.target.clone(),
+                    text: normalized_text,
+                    preview_message_id: session.preview_message_id.clone(),
+                    phase: ExternalReplyDispatchPhase::Finalize,
+                });
                 continue;
             }
             if !has_text {
@@ -431,6 +715,12 @@ impl AppState {
             }
             session.last_preview_sent_at_ms = now_ms;
             session.last_preview_text = normalized_text.clone();
+            debug!(
+                session_id = %session_id,
+                profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
+                preview_chars = normalized_text.chars().count(),
+                "queued external reply preview candidate"
+            );
             candidates.push(ExternalReplyDispatchCandidate {
                 session_id: session_id.clone(),
                 target: session.target.clone(),
@@ -440,21 +730,10 @@ impl AppState {
             });
         }
 
-        for session_id in ready_final_session_ids {
-            let Some(session) = guard.remove(&session_id) else {
-                continue;
-            };
-            let normalized_text = external_reply_session_text(&session);
-            if normalized_text.is_empty() {
-                continue;
+        for session_id in drop_session_ids {
+            if guard.remove(&session_id).is_some() {
+                debug!(session_id = %session_id, "dropping finalized external reply session without text");
             }
-            candidates.push(ExternalReplyDispatchCandidate {
-                session_id,
-                target: session.target,
-                text: normalized_text,
-                preview_message_id: session.preview_message_id,
-                phase: ExternalReplyDispatchPhase::Finalize,
-            });
         }
 
         Ok(candidates)
@@ -470,20 +749,304 @@ fn external_reply_session_text(session: &ExternalReplyRelaySession) -> String {
     normalize_reply_text(&stripped, session.target.injected_input.as_deref())
 }
 
+fn extract_rendered_interaction_prompt(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+) -> Option<ExternalInteractionPrompt> {
+    extract_rendered_interaction_prompt_for_tool(
+        snapshot,
+        injected_input,
+        ToolScreenProfile::Generic,
+    )
+}
+
+fn extract_rendered_interaction_prompt_for_tool(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+    profile: ToolScreenProfile,
+) -> Option<ExternalInteractionPrompt> {
+    extract_rendered_permission_prompt(snapshot, injected_input, profile)
+        .or_else(|| extract_rendered_menu_prompt(snapshot, injected_input, profile))
+}
+
+fn extract_rendered_permission_prompt(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+    profile: ToolScreenProfile,
+) -> Option<ExternalInteractionPrompt> {
+    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input, profile).unwrap_or(0);
+    let mut block_rows = Vec::new();
+
+    for row in snapshot
+        .rows
+        .iter()
+        .filter(|row| row.row_index as usize > anchor_row)
+    {
+        let text = row.text.trim_end();
+        if is_permission_prompt_line(text) {
+            block_rows.push(row);
+        }
+    }
+
+    if block_rows.is_empty() {
+        return None;
+    }
+
+    let start_row = block_rows.first()?.row_index;
+    let end_row = block_rows.last()?.row_index;
+    let mut options = Vec::new();
+    let mut hint = None;
+
+    for row in block_rows {
+        let trimmed = row.text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.to_ascii_lowercase().contains("esc to cancel") {
+            hint = Some(trimmed.to_string());
+            continue;
+        }
+        if let Some((submit_text, label)) = parse_numbered_option_line(trimmed) {
+            options.push(ExternalInteractionOption { label, submit_text });
+            continue;
+        }
+        let lower = trim_display_leader(trimmed).to_ascii_lowercase();
+        if matches!(
+            lower.as_str(),
+            "yes, allow" | "yes" | "no" | "allow" | "deny"
+        ) {
+            options.push(ExternalInteractionOption {
+                label: trim_display_leader(trimmed).to_string(),
+                submit_text: lower,
+            });
+        }
+    }
+
+    if options.is_empty() {
+        return None;
+    }
+
+    Some(ExternalInteractionPrompt {
+        kind: ExternalInteractionPromptKind::Permission,
+        title: "需要权限确认".to_string(),
+        options,
+        hint,
+        start_row,
+        end_row,
+    })
+}
+
+fn extract_rendered_menu_prompt(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+    profile: ToolScreenProfile,
+) -> Option<ExternalInteractionPrompt> {
+    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input, profile).unwrap_or(0);
+    let filtered_rows = snapshot
+        .rows
+        .iter()
+        .filter(|row| row.row_index as usize > anchor_row)
+        .collect::<Vec<_>>();
+    let last_option_idx = filtered_rows
+        .iter()
+        .rposition(|row| parse_interaction_menu_option(&row.text).is_some())?;
+
+    let mut option_rows = Vec::new();
+    let mut cursor = last_option_idx;
+    loop {
+        let row = filtered_rows[cursor];
+        let trimmed = row.trimmed_text.trim();
+        if parse_interaction_menu_option(trimmed).is_some() {
+            option_rows.push(row);
+        } else if !trimmed.is_empty() {
+            break;
+        }
+        if cursor == 0 {
+            break;
+        }
+        cursor -= 1;
+    }
+    option_rows.reverse();
+
+    let options = option_rows
+        .iter()
+        .filter_map(|row| parse_interaction_menu_option(&row.text))
+        .collect::<Vec<_>>();
+    if options.len() < 2 {
+        return None;
+    }
+    let has_slash_option = options
+        .iter()
+        .any(|option| option.submit_text.trim_start().starts_with('/'));
+
+    let option_start_row = option_rows.first()?.row_index;
+    let end_row = option_rows.last()?.row_index;
+    let title_info = find_menu_title_before_row(&filtered_rows, option_start_row, profile);
+    if title_info.is_none() && !has_slash_option {
+        return None;
+    }
+    let (start_row, title) = title_info
+        .map(|(row, title)| (row, title))
+        .unwrap_or_else(|| (option_start_row, "请选择一个操作".to_string()));
+
+    Some(ExternalInteractionPrompt {
+        kind: ExternalInteractionPromptKind::Menu,
+        title,
+        options,
+        hint: None,
+        start_row,
+        end_row,
+    })
+}
+
+fn find_menu_title_before_row(
+    rows: &[&RenderedScreenSnapshotRow],
+    start_row: u32,
+    profile: ToolScreenProfile,
+) -> Option<(u32, String)> {
+    let start_index = rows.iter().position(|row| row.row_index == start_row)?;
+    for row in rows[..start_index].iter().rev() {
+        let trimmed = row.text.trim();
+        if trimmed.is_empty()
+            || is_horizontal_rule_line(trimmed)
+            || is_ready_prompt_line_for_tool(trimmed, profile)
+        {
+            continue;
+        }
+        if parse_interaction_menu_option(trimmed).is_some()
+            || is_permission_prompt_line(trimmed)
+            || should_skip_runtime_noise_line_for_tool(trimmed, profile)
+            || should_skip_tool_execution_line_for_tool(trimmed, profile)
+            || should_skip_thinking_line(trimmed)
+            || is_tui_status_bar_line(trimmed)
+        {
+            continue;
+        }
+        let normalized = trim_display_leader(trimmed);
+        if normalized.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("• ") || trimmed.starts_with("● ") {
+            continue;
+        }
+        if is_probable_interaction_menu_title(normalized) {
+            return Some((row.row_index, normalized.to_string()));
+        }
+    }
+    None
+}
+
+fn is_probable_interaction_menu_title(text: &str) -> bool {
+    let lower = text.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    lower.contains("select")
+        || lower.contains("choose")
+        || lower.contains("pick")
+        || lower.contains("option")
+        || lower.contains("command")
+        || text.contains("请选择")
+        || text.contains("选择")
+        || text.contains("可选")
+        || text.contains("命令")
+        || text.contains("菜单")
+}
+
+fn parse_numbered_option_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim_start();
+    let without_cursor = trimmed
+        .strip_prefix("› ")
+        .or_else(|| trimmed.strip_prefix("❯ "))
+        .unwrap_or(trimmed)
+        .trim_start();
+    let (prefix, rest) = without_cursor.split_once(". ")?;
+    if prefix.chars().all(|ch| ch.is_ascii_digit()) {
+        let label = collapse_whitespace(rest);
+        if !label.is_empty() {
+            return Some((prefix.to_string(), label));
+        }
+    }
+    None
+}
+
+fn parse_slash_command_option_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim_start();
+    let without_cursor = trimmed
+        .strip_prefix("› ")
+        .or_else(|| trimmed.strip_prefix("❯ "))
+        .unwrap_or(trimmed)
+        .trim_start();
+    let command_end = without_cursor
+        .char_indices()
+        .skip(1)
+        .find_map(|(idx, ch)| if ch.is_whitespace() { Some(idx) } else { None })
+        .unwrap_or(without_cursor.len());
+    let command = without_cursor[..command_end].trim();
+    if !command.starts_with('/') || command.len() < 2 {
+        return None;
+    }
+    let label = collapse_whitespace(without_cursor);
+    if label.is_empty() {
+        return None;
+    }
+    Some((command.to_string(), label))
+}
+
+fn parse_interaction_menu_option(line: &str) -> Option<ExternalInteractionOption> {
+    if let Some((submit_text, label)) = parse_numbered_option_line(line) {
+        return Some(ExternalInteractionOption { label, submit_text });
+    }
+    if let Some((submit_text, label)) = parse_slash_command_option_line(line) {
+        return Some(ExternalInteractionOption { label, submit_text });
+    }
+    None
+}
+
+fn collapse_whitespace(input: &str) -> String {
+    input.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn extract_rendered_reply_text(
     snapshot: &RenderedScreenSnapshot,
     injected_input: Option<&str>,
+    interaction_prompt: Option<&ExternalInteractionPrompt>,
+) -> String {
+    extract_rendered_reply_text_for_tool(
+        snapshot,
+        injected_input,
+        interaction_prompt,
+        ToolScreenProfile::Generic,
+    )
+}
+
+fn extract_rendered_reply_text_for_tool(
+    snapshot: &RenderedScreenSnapshot,
+    injected_input: Option<&str>,
+    interaction_prompt: Option<&ExternalInteractionPrompt>,
+    profile: ToolScreenProfile,
 ) -> String {
     let mut islands: Vec<Vec<String>> = Vec::new();
     let mut current_island: Vec<String> = Vec::new();
     let cursor_row = snapshot.cursor_row.map(|value| value as usize);
-    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input);
+    let anchor_row = extend_wrapped_injected_anchor_row(
+        snapshot,
+        find_rendered_reply_anchor_row(snapshot, injected_input, profile),
+        injected_input,
+    );
     let mut in_tool_block = false;
     let mut in_permission_block = false;
 
     for row in &snapshot.rows {
         let row_index = row.row_index as usize;
         if anchor_row.is_some_and(|anchor| row_index <= anchor) {
+            continue;
+        }
+        if interaction_prompt.is_some_and(|prompt| prompt.contains_row(row.row_index)) {
+            if !current_island.is_empty() {
+                islands.push(current_island);
+                current_island = Vec::new();
+            }
             continue;
         }
         let text = row.text.trim_end();
@@ -498,13 +1061,28 @@ fn extract_rendered_reply_text(
                 in_permission_block = false;
                 continue;
             }
-            if !current_island.is_empty() && !current_island.last().is_some_and(|line| line.is_empty()) {
+            if !current_island.is_empty()
+                && !current_island.last().is_some_and(|line| line.is_empty())
+            {
                 current_island.push(String::new());
             }
             continue;
         }
 
-        if in_tool_block || in_permission_block {
+        if in_tool_block {
+            let trimmed_start = text.trim_start();
+            let is_assistant_marker = profile
+                .assistant_markers()
+                .iter()
+                .any(|marker| trimmed_start.starts_with(marker));
+            if is_assistant_marker && !should_skip_tool_execution_line_for_tool(text, profile) {
+                in_tool_block = false;
+            } else {
+                continue;
+            }
+        }
+
+        if in_permission_block {
             continue;
         }
 
@@ -531,11 +1109,11 @@ fn extract_rendered_reply_text(
             || is_echo_of_injected_line(text, injected_input)
             || should_skip_external_reply_line(text)
             || should_skip_thinking_line(text)
-            || should_skip_tool_execution_line(text)
-            || should_skip_runtime_noise_line(text)
+            || should_skip_tool_execution_line_for_tool(text, profile)
+            || should_skip_runtime_noise_line_for_tool(text, profile)
             || is_tui_status_bar_line(text)
-            || should_skip_cli_prompt_line(text)
-            || should_skip_startup_banner_line(text)
+            || should_skip_cli_prompt_line_for_tool(text, profile)
+            || should_skip_startup_banner_line_for_tool(text, profile)
             || should_skip_log_prefix_line(text)
             || is_interleaved_prompt_line(trimmed);
 
@@ -554,7 +1132,7 @@ fn extract_rendered_reply_text(
         islands.push(current_island);
     }
 
-    let best_island = if let Some(best) = pick_best_rendered_reply_island(&islands) {
+    let best_island = if let Some(best) = pick_best_rendered_reply_island(&islands, profile) {
         best
     } else {
         return String::new();
@@ -609,6 +1187,13 @@ fn snapshot_contains_permission_prompt(snapshot: &RenderedScreenSnapshot) -> boo
 }
 
 fn snapshot_has_ready_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
+    snapshot_has_ready_prompt_for_tool(snapshot, ToolScreenProfile::Generic)
+}
+
+fn snapshot_has_ready_prompt_for_tool(
+    snapshot: &RenderedScreenSnapshot,
+    profile: ToolScreenProfile,
+) -> bool {
     let mut inspected = 0usize;
     for row in snapshot.rows.iter().rev() {
         let trimmed = row.text.trim();
@@ -618,7 +1203,7 @@ fn snapshot_has_ready_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
         if is_permission_prompt_line(trimmed) {
             return false;
         }
-        if is_ready_prompt_line(trimmed) {
+        if is_ready_prompt_line_for_tool(trimmed, profile) {
             return true;
         }
         if is_editor_mode_line(trimmed) || is_horizontal_rule_line(trimmed) {
@@ -635,6 +1220,7 @@ fn snapshot_has_ready_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
 fn find_rendered_reply_anchor_row(
     snapshot: &RenderedScreenSnapshot,
     injected_input: Option<&str>,
+    profile: ToolScreenProfile,
 ) -> Option<usize> {
     if let Some(injected) = injected_input
         .map(str::trim)
@@ -646,11 +1232,24 @@ fn find_rendered_reply_anchor_row(
                 return Some(row.row_index as usize);
             }
         }
+        let normalized_injected = collapse_whitespace(injected);
+        for row in snapshot.rows.iter().rev() {
+            let text = row.text.trim_end();
+            let normalized_line = collapse_whitespace(normalize_prompt_prefixed_line(text));
+            if normalized_line.is_empty()
+                || is_placeholder_prompt_content_for_tool(&normalized_line, profile)
+            {
+                continue;
+            }
+            if normalized_injected.starts_with(&normalized_line) {
+                return Some(row.row_index as usize);
+            }
+        }
     }
 
     snapshot.rows.iter().rev().find_map(|row| {
         let text = row.text.trim_end();
-        if is_prompt_anchor_line(text) {
+        if is_prompt_anchor_line_for_tool(text, profile) {
             Some(row.row_index as usize)
         } else {
             None
@@ -658,12 +1257,78 @@ fn find_rendered_reply_anchor_row(
     })
 }
 
+fn extend_wrapped_injected_anchor_row(
+    snapshot: &RenderedScreenSnapshot,
+    anchor_row: Option<usize>,
+    injected_input: Option<&str>,
+) -> Option<usize> {
+    let Some(anchor_row) = anchor_row else {
+        return None;
+    };
+    let Some(injected) = injected_input
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Some(anchor_row);
+    };
+    let normalized_injected = collapse_whitespace(injected);
+    if normalized_injected.is_empty() {
+        return Some(anchor_row);
+    }
+
+    let mut consumed = String::new();
+    let mut last_anchor_row = anchor_row;
+    for row in snapshot
+        .rows
+        .iter()
+        .filter(|row| row.row_index as usize >= anchor_row)
+    {
+        let segment = if row.row_index as usize == anchor_row {
+            collapse_whitespace(normalize_prompt_prefixed_line(row.text.trim_end()))
+        } else {
+            collapse_whitespace(row.text.trim())
+        };
+        if segment.is_empty() {
+            break;
+        }
+        let (candidate, matches) = if consumed.is_empty() {
+            let exact = segment.clone();
+            (exact.clone(), normalized_injected.starts_with(&exact))
+        } else {
+            let compact = format!("{consumed}{segment}");
+            if normalized_injected.starts_with(&compact) {
+                (compact, true)
+            } else {
+                let spaced = format!("{consumed} {segment}");
+                (spaced.clone(), normalized_injected.starts_with(&spaced))
+            }
+        };
+        if matches {
+            consumed = candidate;
+            last_anchor_row = row.row_index as usize;
+            if consumed == normalized_injected {
+                break;
+            }
+            continue;
+        }
+        break;
+    }
+    Some(last_anchor_row)
+}
+
 fn is_prompt_anchor_line(line: &str) -> bool {
+    is_prompt_anchor_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn is_prompt_anchor_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
+    if is_shell_prompt_line(line) {
+        return true;
+    }
     let trimmed = line.trim_start();
-    for prefix in ["› ", "❯ ", "$ ", "> "] {
+    for prefix in profile.prompt_prefixes() {
         if let Some(after) = trimmed.strip_prefix(prefix) {
             let after = after.trim();
-            if !after.is_empty() {
+            if !after.is_empty() && !is_placeholder_prompt_content_for_tool(after, profile) {
                 return true;
             }
         }
@@ -672,7 +1337,26 @@ fn is_prompt_anchor_line(line: &str) -> bool {
 }
 
 fn is_ready_prompt_line(line: &str) -> bool {
-    matches!(line.trim(), "›" | "❯" | "$" | ">")
+    is_ready_prompt_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn is_ready_prompt_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
+    let trimmed = line.trim();
+    if is_shell_prompt_line(trimmed) {
+        return true;
+    }
+    if matches!(trimmed, "›" | "❯" | "$" | ">") {
+        return true;
+    }
+    let trimmed_start = line.trim_start();
+    for prefix in profile.prompt_prefixes() {
+        if let Some(after) = trimmed_start.strip_prefix(prefix) {
+            if is_placeholder_prompt_content_for_tool(after.trim(), profile) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn is_editor_mode_line(line: &str) -> bool {
@@ -690,7 +1374,10 @@ fn is_horizontal_rule_line(line: &str) -> bool {
             .all(|ch| matches!(ch, '─' | '━' | '▪' | '·' | ' ' | '—' | '╌' | '╍'))
 }
 
-fn pick_best_rendered_reply_island(islands: &[Vec<String>]) -> Option<Vec<String>> {
+fn pick_best_rendered_reply_island(
+    islands: &[Vec<String>],
+    profile: ToolScreenProfile,
+) -> Option<Vec<String>> {
     let mut best: Option<(i32, usize, Vec<String>)> = None;
 
     for (idx, island) in islands.iter().enumerate() {
@@ -720,10 +1407,16 @@ fn pick_best_rendered_reply_island(islands: &[Vec<String>]) -> Option<Vec<String
         let line_count = text.len();
         let has_assistant_marker = text.iter().any(|line| {
             let trimmed = line.trim_start();
-            (trimmed.starts_with("• ") || trimmed.starts_with("● "))
+            let matches_profile_marker = profile
+                .assistant_markers()
+                .iter()
+                .any(|marker| trimmed.starts_with(marker));
+            let matches_generic_marker =
+                profile == ToolScreenProfile::Generic && trimmed.starts_with("● ");
+            (matches_profile_marker || matches_generic_marker)
                 && !trimmed.to_ascii_lowercase().starts_with("• working")
                 && !trimmed.to_ascii_lowercase().starts_with("● working")
-                && !is_tool_block_start_line(trimmed)
+                && !is_tool_block_start_line_for_tool(trimmed, profile)
         });
         let has_cjk = joined.chars().any(is_cjk_char);
         let has_sentence_punctuation = joined.contains('。')
@@ -804,7 +1497,7 @@ fn looks_like_terminal_command(line: &str) -> bool {
 
 fn trim_display_leader(line: &str) -> &str {
     line.trim_start_matches(|ch: char| {
-        ch.is_whitespace() || matches!(ch, '●' | '•' | '◦' | '⎿' | '│' | '┃')
+        ch.is_whitespace() || matches!(ch, '●' | '•' | '◦' | '✦' | '⎿' | '│' | '┃')
     })
     .trim()
 }
@@ -956,6 +1649,10 @@ fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
 }
 
 fn should_skip_runtime_noise_line(line: &str) -> bool {
+    should_skip_runtime_noise_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn should_skip_runtime_noise_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
     let normalized = line.trim();
     if normalized.is_empty() {
         return false;
@@ -975,7 +1672,14 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
     if lower.contains("implement {feature}") {
         return true;
     }
-    if lower.starts_with("• working") || lower.starts_with("working (") {
+    if matches!(
+        profile,
+        ToolScreenProfile::Codex | ToolScreenProfile::Claude | ToolScreenProfile::Generic
+    ) && (lower.starts_with("• working") || lower.starts_with("working ("))
+    {
+        return true;
+    }
+    if lower.starts_with("• model changed to ") || lower.starts_with("model changed to ") {
         return true;
     }
     // Empty prompt marker (e.g. just "› " with nothing after)
@@ -1010,6 +1714,18 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
         return true;
     }
     if lower.starts_with("✻ worked for") || lower.starts_with("worked for ") {
+        return true;
+    }
+    if lower.contains("for shortcuts") {
+        return true;
+    }
+    if lower.contains("accept edits") || lower.contains("mcp servers") {
+        return true;
+    }
+    if lower.contains("no sandbox") || lower.contains("/model ") {
+        return true;
+    }
+    if lower.contains("skill conflict detected") {
         return true;
     }
     // Help hints and usage tips
@@ -1058,6 +1774,10 @@ fn should_skip_runtime_noise_line(line: &str) -> bool {
 }
 
 fn should_skip_tool_execution_line(line: &str) -> bool {
+    should_skip_tool_execution_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn should_skip_tool_execution_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
     let trimmed = line.trim();
     let display_trimmed = trim_display_leader(trimmed);
     // Claude Code tool markers: Read(file), Edit(file), Bash(cmd), Write(file)
@@ -1093,10 +1813,18 @@ fn should_skip_tool_execution_line(line: &str) -> bool {
     }
     // Codex CLI tool execution display
     let lower = display_trimmed.to_ascii_lowercase();
-    if lower.starts_with("running: ") || lower.starts_with("executing: ") {
+    if matches!(
+        profile,
+        ToolScreenProfile::Codex | ToolScreenProfile::Claude | ToolScreenProfile::Generic
+    ) && (lower.starts_with("running: ") || lower.starts_with("executing: "))
+    {
         return true;
     }
-    if lower.starts_with("• ran ") || lower.starts_with("ran ") {
+    if matches!(
+        profile,
+        ToolScreenProfile::Codex | ToolScreenProfile::Claude | ToolScreenProfile::Generic
+    ) && (lower.starts_with("• ran ") || lower.starts_with("ran "))
+    {
         return true;
     }
     if lower.starts_with("└ ") {
@@ -1118,11 +1846,15 @@ fn should_skip_tool_execution_line(line: &str) -> bool {
 }
 
 fn is_tool_block_start_line(line: &str) -> bool {
+    is_tool_block_start_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn is_tool_block_start_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
     let trimmed = trim_display_leader(line);
     if trimmed.is_empty() {
         return false;
     }
-    should_skip_tool_execution_line(trimmed)
+    should_skip_tool_execution_line_for_tool(trimmed, profile)
 }
 
 fn is_permission_prompt_line(line: &str) -> bool {
@@ -1151,17 +1883,6 @@ fn is_permission_prompt_line(line: &str) -> bool {
         }
     }
     false
-}
-
-fn looks_like_permission_response_input(input: Option<&str>) -> bool {
-    let Some(input) = input.map(str::trim).filter(|value| !value.is_empty()) else {
-        return false;
-    };
-    let lower = input.to_ascii_lowercase();
-    matches!(
-        lower.as_str(),
-        "1" | "2" | "3" | "y" | "n" | "yes" | "no" | "allow" | "deny"
-    )
 }
 
 fn should_skip_thinking_line(line: &str) -> bool {
@@ -1291,6 +2012,10 @@ fn is_tui_padded_fragment(line: &str) -> bool {
 /// - Connection status (e.g., "Connected to API", "Authenticating...")
 /// - Configuration messages (e.g., "Configuration loaded", "Settings applied")
 fn should_skip_startup_banner_line(line: &str) -> bool {
+    should_skip_startup_banner_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn should_skip_startup_banner_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
     let normalized = line.trim();
     if normalized.is_empty() {
         return false;
@@ -1369,6 +2094,20 @@ fn should_skip_startup_banner_line(line: &str) -> bool {
     // Tip messages from CLI tools
     if lower.starts_with("tip:") || lower.starts_with("hint:") {
         return true;
+    }
+    if matches!(
+        profile,
+        ToolScreenProfile::Codex | ToolScreenProfile::Generic
+    ) {
+        if lower.starts_with("inference at ") && lower.contains("plan usage") {
+            return true;
+        }
+        if lower.starts_with("heads up,") && lower.contains("limit left") {
+            return true;
+        }
+        if lower.contains("run /status for a breakdown") {
+            return true;
+        }
     }
 
     // Model/tool name banners (e.g., ">_ OpenAI Codex (v0.110.0)")
@@ -1475,25 +2214,69 @@ fn is_known_spinner_token(line: &str) -> bool {
 /// Only skips when the prompt character is followed by content that looks like
 /// a CLI command or empty prompt — not arbitrary user content.
 fn should_skip_cli_prompt_line(line: &str) -> bool {
+    should_skip_cli_prompt_line_for_tool(line, ToolScreenProfile::Generic)
+}
+
+fn should_skip_cli_prompt_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
     let trimmed = line.trim_start();
-    // Bare prompt characters with no meaningful content
+    if is_shell_prompt_line(trimmed) {
+        return true;
+    }
+    for prefix in profile.prompt_prefixes() {
+        if let Some(after) = trimmed.strip_prefix(prefix) {
+            let after = after.trim();
+            if is_placeholder_prompt_content_for_tool(after, profile) {
+                return true;
+            }
+        }
+    }
     if trimmed == ">" || trimmed == "$" || trimmed == "›" || trimmed == "❯" {
         return true;
     }
-    // Prompt followed by a command-like token (starts with prompt char + space)
-    if let Some(after) = trimmed
-        .strip_prefix("› ")
-        .or_else(|| trimmed.strip_prefix("❯ "))
-        .or_else(|| trimmed.strip_prefix("$ "))
-    {
-        let after = after.trim();
-        // Skip if the content after prompt looks like a typed command
-        // (contains only ASCII, common CLI patterns)
-        if after.is_ascii() || after.is_empty() {
-            return true;
+    for prefix in profile.prompt_prefixes() {
+        if let Some(after) = trimmed.strip_prefix(prefix) {
+            let after = after.trim();
+            if after.is_ascii() || after.is_empty() {
+                return true;
+            }
         }
     }
     false
+}
+
+fn is_placeholder_prompt_content(content: &str) -> bool {
+    is_placeholder_prompt_content_for_tool(content, ToolScreenProfile::Generic)
+}
+
+fn is_placeholder_prompt_content_for_tool(content: &str, profile: ToolScreenProfile) -> bool {
+    let lower = content.trim().to_ascii_lowercase();
+    if lower.starts_with("type your message") || lower.starts_with("type a message") {
+        return true;
+    }
+    if matches!(
+        profile,
+        ToolScreenProfile::Gemini | ToolScreenProfile::Generic
+    ) && lower.contains("@path/to/file")
+    {
+        return true;
+    }
+    if matches!(
+        profile,
+        ToolScreenProfile::Codex | ToolScreenProfile::Generic
+    ) && lower.starts_with("use /")
+        && lower.contains("available skills")
+    {
+        return true;
+    }
+    false
+}
+
+fn is_shell_prompt_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    trimmed.starts_with("PS ") && trimmed.ends_with('>')
 }
 
 fn normalize_prompt_prefixed_line(line: &str) -> &str {

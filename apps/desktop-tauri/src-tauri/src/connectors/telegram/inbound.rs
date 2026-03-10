@@ -42,11 +42,14 @@ pub(super) fn parse_telegram_update(
                 .map(|value| value as i64)
         })
         .ok_or_else(|| "missing update_id".to_string())?;
+    if let Some(callback) = update.get("callback_query") {
+        return parse_telegram_callback_query(update_id, callback, account_id, update);
+    }
     let message = update
         .get("message")
         .or_else(|| update.get("edited_message"))
         .or_else(|| update.get("channel_post"))
-        .ok_or_else(|| "missing message/edited_message/channel_post".to_string())?;
+        .ok_or_else(|| "missing message/edited_message/channel_post/callback_query".to_string())?;
     let chat = message
         .get("chat")
         .ok_or_else(|| "missing message.chat".to_string())?;
@@ -89,4 +92,63 @@ pub(super) fn parse_telegram_update(
         },
         update_id,
     ))
+}
+
+fn parse_telegram_callback_query(
+    update_id: i64,
+    callback: &Value,
+    account_id: &str,
+    update: &Value,
+) -> Result<(ExternalInboundMessage, i64), String> {
+    let message = callback
+        .get("message")
+        .ok_or_else(|| "missing callback_query.message".to_string())?;
+    let chat = message
+        .get("chat")
+        .ok_or_else(|| "missing callback_query.message.chat".to_string())?;
+    let peer_id = json_to_string(chat.get("id")).ok_or_else(|| "missing chat.id".to_string())?;
+    let chat_type = json_to_string(chat.get("type")).unwrap_or_else(|| "private".to_string());
+    let peer_kind = if chat_type.eq_ignore_ascii_case("group")
+        || chat_type.eq_ignore_ascii_case("supergroup")
+        || chat_type.eq_ignore_ascii_case("channel")
+    {
+        ExternalPeerKind::Group
+    } else {
+        ExternalPeerKind::Direct
+    };
+
+    let sender = callback
+        .get("from")
+        .ok_or_else(|| "missing callback_query.from".to_string())?;
+    let sender_id = json_to_string(sender.get("id")).unwrap_or_else(|| peer_id.clone());
+    let sender_name = derive_telegram_sender_name(sender);
+    let callback_id = json_to_string(callback.get("id"))
+        .unwrap_or_else(|| format!("callback-update-{update_id}"));
+    let callback_data = json_to_string(callback.get("data"))
+        .unwrap_or_else(|| "[telegram callback without data]".to_string());
+    let text = decode_callback_data(&callback_data);
+
+    Ok((
+        ExternalInboundMessage {
+            channel: "telegram".to_string(),
+            account_id: account_id.to_string(),
+            peer_kind,
+            peer_id,
+            sender_id,
+            sender_name,
+            message_id: format!("callback-{callback_id}"),
+            text,
+            idempotency_key: Some(format!("telegram-callback-{callback_id}")),
+            workspace_id_hint: None,
+            target_agent_id_hint: None,
+            metadata: update.clone(),
+        },
+        update_id,
+    ))
+}
+
+fn decode_callback_data(data: &str) -> String {
+    data.strip_prefix("gto:")
+        .map(str::to_string)
+        .unwrap_or_else(|| data.to_string())
 }
