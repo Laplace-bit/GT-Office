@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '../integration/desktop-api'
@@ -184,6 +184,38 @@ function StationXtermTerminalView({
   const onRenderedScreenSnapshotRef = useRef(onRenderedScreenSnapshot)
   const screenRevisionRef = useRef(0)
   const lastSnapshotSignatureRef = useRef('')
+  const appearanceSyncFrameRef = useRef<number | null>(null)
+
+  const syncTerminalAppearance = useCallback(() => {
+    const terminal = terminalRef.current
+    if (!terminal) {
+      return
+    }
+    terminal.options.fontFamily = readCssVar('--vb-font-mono')
+    terminal.options.fontSize = Math.max(10, parseInt(readCssVar('--vb-font-size-base') || '14', 10) - 1)
+    terminal.options.theme = getTerminalTheme()
+    terminal.options.cursorStyle = 'bar'
+    terminal.options.cursorWidth = 2
+    terminal.options.cursorBlink = hostRef.current?.matches(':focus-within') ?? false
+    ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
+      'bar'
+    try {
+      fitAddonRef.current?.fit()
+    } catch {
+      // No-op: fit can fail transiently when the element is hidden.
+    }
+    terminal.refresh(0, Math.max(0, terminal.rows - 1))
+  }, [])
+
+  const scheduleTerminalAppearanceSync = useCallback(() => {
+    if (appearanceSyncFrameRef.current !== null) {
+      return
+    }
+    appearanceSyncFrameRef.current = window.requestAnimationFrame(() => {
+      appearanceSyncFrameRef.current = null
+      syncTerminalAppearance()
+    })
+  }, [syncTerminalAppearance])
 
   useEffect(() => {
     onDataRef.current = onData
@@ -211,6 +243,17 @@ function StationXtermTerminalView({
   }, [sessionId, stationId])
 
   useEffect(() => {
+    return () => {
+      const frameId = appearanceSyncFrameRef.current
+      if (frameId === null) {
+        return
+      }
+      appearanceSyncFrameRef.current = null
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [])
+
+  useEffect(() => {
     const host = hostRef.current
     if (!host) {
       return
@@ -221,6 +264,7 @@ function StationXtermTerminalView({
     let resizeDisposable: { dispose: () => void } | null = null
     let removeFocusListeners: (() => void) | null = null
     let resizeObserver: ResizeObserver | null = null
+    let appearanceObserver: MutationObserver | null = null
     let refreshFrameId: number | null = null
     let readyFitFrameId: number | null = null
     let reportFrameId: number | null = null
@@ -256,6 +300,7 @@ function StationXtermTerminalView({
 
         terminalRef.current = terminal
         fitAddonRef.current = fitAddon
+        scheduleTerminalAppearanceSync()
 
         const refreshTerminal = () => {
           terminal.refresh(0, Math.max(0, terminal.rows - 1))
@@ -474,6 +519,7 @@ function StationXtermTerminalView({
               if (!active) {
                 return
               }
+              scheduleTerminalAppearanceSync()
               if (fitAndRefresh()) {
                 onResizeRef.current(stationId, terminal.cols, terminal.rows)
                 return
@@ -484,6 +530,14 @@ function StationXtermTerminalView({
               // No-op: font readiness should not block terminal init.
             })
         }
+
+        appearanceObserver = new MutationObserver(() => {
+          scheduleTerminalAppearanceSync()
+        })
+        appearanceObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['data-theme', 'style'],
+        })
 
         onBindSink(stationId, {
           write: (chunk: string) => {
@@ -528,6 +582,7 @@ function StationXtermTerminalView({
       resizeDisposable?.dispose()
       removeFocusListeners?.()
       resizeObserver?.disconnect()
+      appearanceObserver?.disconnect()
       if (refreshFrameId !== null) {
         window.cancelAnimationFrame(refreshFrameId)
       }
@@ -544,28 +599,17 @@ function StationXtermTerminalView({
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [onBindSink, onRenderedScreenSnapshot, sessionId, stationId])
+  }, [
+    onBindSink,
+    onRenderedScreenSnapshot,
+    scheduleTerminalAppearanceSync,
+    sessionId,
+    stationId,
+  ])
 
   useEffect(() => {
-    const terminal = terminalRef.current
-    if (!terminal) {
-      return
-    }
-    terminal.options.fontFamily = readCssVar('--vb-font-mono')
-    terminal.options.fontSize = Math.max(10, parseInt(readCssVar('--vb-font-size-base') || '14', 10) - 1)
-    terminal.options.theme = getTerminalTheme()
-    terminal.options.cursorStyle = 'bar'
-    terminal.options.cursorWidth = 2
-    terminal.options.cursorBlink = hostRef.current?.matches(':focus-within') ?? false
-    ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
-      'bar'
-    try {
-      fitAddonRef.current?.fit()
-    } catch {
-      // No-op: fit can fail transiently when the element is hidden.
-    }
-    terminal.refresh(0, Math.max(0, terminal.rows - 1))
-  }, [appearanceVersion, stationId])
+    scheduleTerminalAppearanceSync()
+  }, [appearanceVersion, scheduleTerminalAppearanceSync, stationId])
 
   return (
     <div

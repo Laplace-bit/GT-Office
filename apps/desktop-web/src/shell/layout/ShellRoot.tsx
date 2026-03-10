@@ -4083,7 +4083,7 @@ export function ShellRoot() {
           ) : (
             <WorkbenchCanvas
               locale={locale}
-              appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}`}
+              appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
               stations={canvasStations}
               activeStationId={activeStationId}
               terminalByStation={stationTerminals}
