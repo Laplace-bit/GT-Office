@@ -11,7 +11,7 @@
   animation: apple-fade-in 0.3s ease-out;
 }
 
-.settings-modal {
+.station-form-modal {
   width: min(600px, 100%);
   max-height: min(90vh, 800px);
   background: color-mix(in srgb, var(--vb-surface) 80%, transparent);
@@ -221,7 +221,7 @@
 
 /* Dark Mode Overrides */
 [data-theme='graphite-dark'] {
-  .settings-modal {
+  .station-form-modal {
     background: color-mix(in srgb, #1a1a1a 85%, transparent);
     border-color: rgba(255, 255, 255, 0.1);
   }

@@ -3,6 +3,7 @@ import { DisplayPreferences } from './DisplayPreferences'
 import { ChannelManagerPane } from './channel-management/ChannelManagerPane'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AmbientLightingIntensity, MonoFont, ThemeMode, UiFont, UiFontSize } from '../state/ui-preferences'
+import './SettingsModal.scss'
 
 interface SettingsModalProps {
   open: boolean
@@ -104,7 +105,7 @@ export function SettingsModal({
         }
       }}
     >
-      <section className="settings-modal" role="dialog" aria-modal="true">
+      <section className="settings-modal app-settings-modal" role="dialog" aria-modal="true">
         {/* Left Sidebar Navigation */}
         <aside className="settings-sidebar">
           <div className="settings-sidebar-header">

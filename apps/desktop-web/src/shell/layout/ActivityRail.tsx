@@ -2,6 +2,7 @@ import type { NavItem, NavItemId } from './model'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
+import './ActivityRail.scss'
 
 interface ActivityRailProps {
   items: NavItem[]
@@ -26,8 +27,6 @@ function activityIconName(id: NavItemId) {
       return 'channels' as const
     case 'policy':
       return 'policy' as const
-    case 'settings':
-      return 'settings' as const
     default:
       return null
   }
@@ -35,7 +34,7 @@ function activityIconName(id: NavItemId) {
 
 export function ActivityRail({ items, activeId, onSelect, locale }: ActivityRailProps) {
   return (
-    <nav className="activity-rail activity-rail-iconized" aria-label={t(locale, 'activityRail.ariaLabel')}>
+    <nav className="activity-rail" aria-label={t(locale, 'activityRail.ariaLabel')}>
       {items.map((item) => {
         const iconName = activityIconName(item.id)
         return (

@@ -5,6 +5,7 @@ import {
   CodeMirrorEditor,
   type CodeEditorCommandRequest,
 } from './CodeMirrorEditor'
+import './FileEditorPane.scss'
 
 const LARGE_FILE_THRESHOLD_BYTES = 1024 * 1024
 
@@ -103,15 +104,27 @@ export function FileEditorPane({
   const modifiedStateRef = useRef<Record<string, boolean>>({})
   const saveTimeoutRef = useRef<number | null>(null)
   const modifyDebounceRef = useRef<number | null>(null)
-  const [saveState, setSaveState] = useState<SaveState>('idle')
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveFeedback, setSaveFeedback] = useState<{
+    path: string | null
+    state: SaveState
+    error: string | null
+  }>({
+    path: null,
+    state: 'idle',
+    error: null,
+  })
   const tabsContainerRef = useRef<HTMLDivElement | null>(null)
   const onFileModifiedRef = useRef(onFileModified)
-  onFileModifiedRef.current = onFileModified
+
+  useEffect(() => {
+    onFileModifiedRef.current = onFileModified
+  }, [onFileModified])
 
   const activeFile = openedFiles.find((f) => f.path === activeFilePath)
   const isLargeFile = (activeFile?.size ?? 0) > LARGE_FILE_THRESHOLD_BYTES
   const isReadOnly = isLargeFile || !onSaveFile
+  const visibleSaveState = saveFeedback.path === activeFilePath ? saveFeedback.state : 'idle'
+  const visibleSaveError = saveFeedback.path === activeFilePath ? saveFeedback.error : null
 
   // 初始化编辑内容缓存
   useEffect(() => {
@@ -141,12 +154,6 @@ export function FileEditorPane({
       modifiedStateRef.current[activeFile.path] = false
     }
   }, [activeFile])
-
-  // 文件切换时重置保存状态
-  useEffect(() => {
-    setSaveState('idle')
-    setSaveError(null)
-  }, [activeFilePath])
 
   useEffect(() => {
     return () => {
@@ -182,8 +189,11 @@ export function FileEditorPane({
     const contentToSave = editedContentRef.current[activeFilePath]
     if (contentToSave === lastSavedContentRef.current[activeFilePath]) return
 
-    setSaveState('saving')
-    setSaveError(null)
+    setSaveFeedback({
+      path: activeFilePath,
+      state: 'saving',
+      error: null,
+    })
 
     try {
       const success = await onSaveFile(activeFilePath, contentToSave)
@@ -191,19 +201,33 @@ export function FileEditorPane({
         lastSavedContentRef.current[activeFilePath] = contentToSave
         modifiedStateRef.current[activeFilePath] = false
         onFileModifiedRef.current?.(activeFilePath, false)
-        setSaveState('saved')
+        setSaveFeedback({
+          path: activeFilePath,
+          state: 'saved',
+          error: null,
+        })
         if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current)
         saveTimeoutRef.current = window.setTimeout(() => {
-          setSaveState((prev) => (prev === 'saved' ? 'idle' : prev))
+          setSaveFeedback((prev) =>
+            prev.path === activeFilePath && prev.state === 'saved'
+              ? { ...prev, state: 'idle' }
+              : prev,
+          )
           saveTimeoutRef.current = null
         }, 2000)
       } else {
-        setSaveState('error')
-        setSaveError('Save failed')
+        setSaveFeedback({
+          path: activeFilePath,
+          state: 'error',
+          error: 'Save failed',
+        })
       }
     } catch (error) {
-      setSaveState('error')
-      setSaveError(error instanceof Error ? error.message : 'Unknown error')
+      setSaveFeedback({
+        path: activeFilePath,
+        state: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
     }
   }, [activeFilePath, isReadOnly, onSaveFile])
 
@@ -211,9 +235,18 @@ export function FileEditorPane({
   const checkUnsavedState = useCallback(() => {
     if (!activeFilePath) return
     const isUnsaved = editedContentRef.current[activeFilePath] !== lastSavedContentRef.current[activeFilePath]
-    setSaveState((prev) => {
-      if (prev === 'saving' || prev === 'saved' || prev === 'error') return prev
-      return isUnsaved ? 'unsaved' : 'idle'
+    setSaveFeedback((prev) => {
+      if (
+        prev.path === activeFilePath &&
+        (prev.state === 'saving' || prev.state === 'saved' || prev.state === 'error')
+      ) {
+        return prev
+      }
+      return {
+        path: activeFilePath,
+        state: isUnsaved ? 'unsaved' : 'idle',
+        error: null,
+      }
     })
   }, [activeFilePath])
 
@@ -244,7 +277,6 @@ export function FileEditorPane({
   const hasOpenedFiles = openedFiles.length > 0
   return (
     <section className="panel file-editor-pane">
-      {/* Tab 栏 */}
       {hasOpenedFiles && (
         <div className="file-editor-tabs-wrapper">
           <div
@@ -265,24 +297,27 @@ export function FileEditorPane({
         </div>
       )}
 
-      {/* 文件路径和状态 */}
+      {/* 文件状态 */}
       {activeFilePath && (
         <div className="file-editor-info-bar">
-          {isReadOnly ? (
-            <span className="file-editor-status file-editor-status-readonly">
-              {isLargeFile ? t(locale, 'fileContent.readOnlyLargeFile') : t(locale, 'fileContent.readOnly')}
-            </span>
-          ) : saveState === 'saving' ? (
-            <span className="file-editor-status file-editor-status-saving">{t(locale, 'fileContent.saving')}</span>
-          ) : saveState === 'saved' ? (
-            <span className="file-editor-status file-editor-status-saved">{t(locale, 'fileContent.saved')}</span>
-          ) : saveState === 'error' ? (
-            <span className="file-editor-status file-editor-status-error">
-              {t(locale, 'fileContent.saveFailed', { detail: saveError ?? 'Unknown' })}
-            </span>
-          ) : saveState === 'unsaved' ? (
-            <span className="file-editor-status file-editor-status-unsaved">{t(locale, 'fileContent.unsaved')}</span>
-          ) : null}
+          <span className="file-editor-mini-path" title={activeFilePath}>
+            {getFileName(activeFilePath)}
+          </span>
+          <div className="file-editor-status-group">
+            {isReadOnly ? (
+              <span className="file-editor-status file-editor-status-readonly">
+                {isLargeFile ? t(locale, 'fileContent.readOnlyLargeFile') : t(locale, 'fileContent.readOnly')}
+              </span>
+            ) : visibleSaveState === 'saving' ? (
+              <span className="file-editor-status file-editor-status-saving">{t(locale, 'fileContent.saving')}</span>
+            ) : visibleSaveState === 'saved' ? (
+              <span className="file-editor-status file-editor-status-saved">{t(locale, 'fileContent.saved')}</span>
+            ) : visibleSaveState === 'error' ? (
+              <span className="file-editor-status file-editor-status-error">
+                {t(locale, 'fileContent.saveFailed', { detail: visibleSaveError ?? 'Unknown' })}
+              </span>
+            ) : null}
+          </div>
         </div>
       )}
 

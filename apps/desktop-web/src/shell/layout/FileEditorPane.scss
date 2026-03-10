@@ -1,0 +1,156 @@
+@use "sass:color";
+
+.file-editor-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* === Tabs Section === */
+.file-editor-tabs-wrapper {
+  background: color-mix(in srgb, var(--vb-surface-muted) 15%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 15%, transparent);
+  padding: 4px 12px 0; /* 更紧凑的顶部间距 */
+  flex-shrink: 0;
+}
+
+.file-editor-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  
+  &::-webkit-scrollbar {
+    height: 2px;
+  }
+}
+
+.file-editor-tab {
+  height: 28px; /* 进一步压缩高度 */
+  min-width: 90px;
+  max-width: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  background: transparent;
+  border-radius: 6px 6px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  font-size: 11px;
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  white-space: nowrap;
+  position: relative;
+  
+  &:hover {
+    background: color-mix(in srgb, var(--vb-surface-muted) 30%, transparent);
+    color: var(--vb-text);
+  }
+  
+  &.active {
+    background: color-mix(in srgb, var(--vb-surface) 95%, transparent);
+    backdrop-filter: blur(8px);
+    border-color: color-mix(in srgb, var(--vb-border) 25%, transparent);
+    color: var(--vb-accent);
+    font-weight: 600;
+    
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--vb-surface);
+      z-index: 2;
+    }
+  }
+}
+
+.file-editor-tab-modified {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--vb-accent);
+  box-shadow: 0 0 6px var(--vb-accent);
+}
+
+.file-editor-tab-close {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  color: var(--vb-text-muted);
+  opacity: 0;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: color-mix(in srgb, var(--vb-error) 15%, transparent);
+    color: var(--vb-error);
+    opacity: 1;
+  }
+}
+
+.file-editor-tab:hover .file-editor-tab-close,
+.file-editor-tab.active .file-editor-tab-close {
+  opacity: 0.5;
+}
+
+/* === Info Bar (Minimal & Static) === */
+.file-editor-info-bar {
+  height: 26px; /* 极致压缩高度 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--vb-surface-muted) 5%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 10%, transparent);
+  flex-shrink: 0;
+}
+
+.file-editor-mini-path {
+  font-size: 10px;
+  font-family: var(--vb-font-mono);
+  color: var(--vb-text-muted);
+  opacity: 0.6;
+  font-weight: 500;
+}
+
+.file-editor-status {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 9px;
+  
+  &-saving { color: var(--vb-accent); }
+  &-saved { color: #52c41a; }
+  &-unsaved { display: none; }
+  &-error { color: var(--vb-error); }
+  &-readonly { opacity: 0.5; }
+}
+
+/* === Content Area === */
+.file-editor-content {
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+}
+
+.file-editor-hint, .file-editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--vb-text-muted);
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.3;
+}

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { FsEntry, FsSearchMatch } from '../integration/desktop-api'
 import { t, type Locale } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
+import './FileSearchModal.scss'
 
 interface FileSearchModalProps {
   open: boolean
@@ -79,9 +80,11 @@ export function FileSearchModal({
     >
       <section className="settings-modal panel file-search-modal" role="dialog" aria-modal="true">
         <header className="settings-modal-header">
-          <div>
-            <h2>{t(locale, 'fileSearch.title')}</h2>
-            <p>{t(locale, 'fileSearch.subtitle')}</p>
+          <div className="file-search-heading">
+            <div>
+              <h2>{t(locale, 'fileSearch.title')}</h2>
+              <p>{t(locale, 'fileSearch.subtitle')}</p>
+            </div>
           </div>
           <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
             <AppIcon name="close" className="vb-icon" aria-hidden="true" />

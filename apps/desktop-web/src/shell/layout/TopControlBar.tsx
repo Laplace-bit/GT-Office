@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
@@ -148,6 +149,21 @@ export function TopControlBar({
     .join(' ')
 
   const workspaceBadgeDragRegion = nativeWindowTop && windowPlatform !== 'windows' ? '' : undefined
+  const headerDragRegion = nativeWindowTop ? '' : undefined
+
+  const handleTitlebarDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!nativeWindowTop) {
+      return
+    }
+    const target = event.target
+    if (!(target instanceof Element)) {
+      return
+    }
+    if (target.closest("button,input,textarea,select,a,[role='button'],[contenteditable='true']")) {
+      return
+    }
+    onWindowToggleMaximize()
+  }
 
   const renderWindowControls = () => (
     <div className="vb-window-controls" role="toolbar" aria-label={t(locale, 'topControlBar.windowControls')}>
@@ -167,7 +183,11 @@ export function TopControlBar({
   )
 
   return (
-    <header className={topClassNames}>
+    <header
+      className={topClassNames}
+      data-tauri-drag-region={headerDragRegion}
+      onDoubleClick={handleTitlebarDoubleClick}
+    >
       {nativeWindowTop && windowPlatform === 'macos' ? renderWindowControls() : null}
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
@@ -188,7 +208,6 @@ export function TopControlBar({
         <div
           className="vb-workspace-badge"
           data-tauri-drag-region={workspaceBadgeDragRegion}
-          onDoubleClick={nativeWindowTop ? onWindowToggleMaximize : undefined}
           title={workspacePathText}
         >
           <span className="vb-workspace-path">{workspacePathText}</span>
@@ -199,7 +218,6 @@ export function TopControlBar({
           className="titlebar-drag-region"
           data-tauri-drag-region=""
           aria-hidden="true"
-          onDoubleClick={onWindowToggleMaximize}
         />
       ) : null}
       {nativeWindowTop && windowPlatform !== 'macos' ? renderWindowControls() : null}

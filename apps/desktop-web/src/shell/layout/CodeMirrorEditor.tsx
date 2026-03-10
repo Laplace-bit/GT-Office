@@ -38,6 +38,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { t, type Locale } from '../i18n/ui-locale'
+import './CodeMirrorEditor.scss'
 
 export interface CodeMirrorEditorProps {
   locale: Locale
@@ -121,7 +122,7 @@ function buildSearchPhrases(locale: Locale): Record<string, string> {
     Replace: t(locale, '替换', 'Replace'),
     next: t(locale, '下一项', 'next'),
     previous: t(locale, '上一项', 'previous'),
-    all: t(locale, '全部', 'all'),
+    select: t(locale, '全部', 'all'),
     'match case': t(locale, '区分大小写', 'match case'),
     regexp: t(locale, '正则', 'regexp'),
     'by word': t(locale, '整词匹配', 'by word'),
@@ -163,48 +164,10 @@ const minimalSetup: Extension = [
   ]),
 ]
 
-const darkTheme = EditorView.theme({
-  '&': {
-    backgroundColor: 'var(--vb-bg-secondary)',
-    color: 'var(--vb-text-primary)',
-    height: '100%',
-  },
-  '.cm-content': {
-    caretColor: 'var(--vb-accent)',
-    fontFamily: 'var(--vb-font-mono)',
-    fontSize: 'var(--vb-font-size-base, 13px)',
-    lineHeight: '1.5',
-  },
-  '.cm-cursor': {
-    borderLeftColor: 'var(--vb-accent)',
-  },
-  '&.cm-focused .cm-cursor': {
-    borderLeftColor: 'var(--vb-accent)',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'var(--vb-bg-tertiary)',
-  },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'var(--vb-accent-light)',
-  },
-  '.cm-gutters': {
-    backgroundColor: 'var(--vb-bg-primary)',
-    color: 'var(--vb-text-tertiary)',
-    border: 'none',
-    borderRight: '1px solid var(--vb-border-subtle)',
-    position: 'sticky',
-    left: 0,
-    zIndex: 1,
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: 'var(--vb-bg-tertiary)',
-  },
-  '.cm-scroller': {
-    overflow: 'auto',
-  },
-  '.cm-line': {
-    padding: '0 4px',
-  },
+// 使用 SCSS 处理绝大部分样式，这里只保留最小结构配置
+const themeExtension = EditorView.theme({
+  '&': { height: '100%' },
+  '.cm-scroller': { overflow: 'auto' }
 })
 
 export function CodeMirrorEditor({
@@ -243,7 +206,7 @@ export function CodeMirrorEditor({
 
     const extensions: Extension[] = [
       minimalSetup,
-      darkTheme,
+      themeExtension,
       languageCompartment.current.of(langExt ?? []),
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
       phrasesCompartment.current.of(EditorState.phrases.of(buildSearchPhrases(locale))),
@@ -365,6 +328,53 @@ export function CodeMirrorEditor({
         break
     }
   }, [commandRequest])
+
+  // 自动为搜索面板的图标按钮添加 Tooltip (title)
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const applySearchPanelTitles = () => {
+      const searchPanel = container.querySelector('.cm-panel.cm-search')
+      if (searchPanel) {
+        const phrases = buildSearchPhrases(locale)
+        // 映射按钮 name 到 phrase key
+        const nameMap: Record<string, string> = {
+          next: 'next',
+          prev: 'previous',
+          all: 'all',
+          select: 'all', // CodeMirror uses "select" for Select All
+          replace: 'replace',
+          replaceAll: 'replace all',
+          close: 'close',
+        }
+
+        searchPanel.querySelectorAll('button').forEach((btn) => {
+          const name = btn.getAttribute('name')
+          const ariaLabel = btn.getAttribute('aria-label')
+          const targetName = name || ariaLabel
+
+          if (targetName && nameMap[targetName]) {
+            btn.setAttribute('title', phrases[nameMap[targetName]])
+          }
+        })
+
+        searchPanel.querySelectorAll('label').forEach((label) => {
+          const text = label.innerText.trim()
+          if (text) label.setAttribute('title', text)
+        })
+      }
+    }
+
+    applySearchPanelTitles()
+
+    const observer = new MutationObserver(() => {
+      applySearchPanelTitles()
+    })
+
+    observer.observe(container, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [locale])
 
   return (
     <div

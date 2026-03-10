@@ -22,6 +22,7 @@ import {
 import { t, type Locale } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import { FileSearchModal } from './FileSearchModal'
+import './FileTreePane.scss'
 
 interface FileTreePaneProps {
   locale: Locale
@@ -1030,11 +1031,12 @@ export function FileTreePane({
   return (
     <aside className="panel left-pane file-tree-pane">
       <div className="file-tree-header">
-        <h2>{t(locale, 'fileTree.title')}</h2>
         <div className="file-tree-header-actions">
           <button
             type="button"
             className="tree-search-btn"
+            aria-label={t(locale, 'fileTree.openSearch')}
+            title={t(locale, 'fileTree.openSearch')}
             onClick={() => {
               setSearchMode('file')
               setIsSearchModalOpen(true)
@@ -1042,107 +1044,110 @@ export function FileTreePane({
             disabled={!workspaceId}
           >
             <AppIcon name="search" className="vb-icon vb-icon-tree-search" aria-hidden="true" />
-            <span>{t(locale, 'fileTree.openSearch')}</span>
           </button>
           <button
             type="button"
             className="tree-refresh-btn"
+            aria-label={t(locale, 'fileTree.refresh')}
+            title={t(locale, 'fileTree.refresh')}
             onClick={() => {
               void refreshRoot()
             }}
             disabled={!workspaceId}
           >
-            {t(locale, 'fileTree.refresh')}
+            <AppIcon name="refresh" className="vb-icon vb-icon-tree-search" aria-hidden="true" />
           </button>
         </div>
       </div>
       {!workspaceId ? (
-        <p>{t(locale, 'fileTree.noWorkspace')}</p>
+        <p className="tree-empty">{t(locale, 'fileTree.noWorkspace')}</p>
       ) : null}
       {errorMessage ? <p className="tree-error">{errorMessage}</p> : null}
 
-      <div
-        ref={viewportRef}
-        className="file-tree-viewport"
-        data-scrolling={rowVirtualizer.isScrolling ? 'true' : 'false'}
-        onScroll={(event) => {
-          const nextTop = event.currentTarget.scrollTop
-          if (!hasInteractedScroll && nextTop > 0) {
-            setHasInteractedScroll(true)
-          }
-          const now = performance.now()
-          const lastTop = lastScrollTopRef.current
-          const lastTs = lastScrollTsRef.current
-          const delta = nextTop - lastTop
-          if (delta > 0) {
-            scrollDirectionRef.current = 'forward'
-          } else if (delta < 0) {
-            scrollDirectionRef.current = 'backward'
-          }
-          lastScrollTopRef.current = nextTop
-          lastScrollTsRef.current = now
-          if (!lastTs) {
-            return
-          }
-          const elapsedMs = now - lastTs
-          if (elapsedMs < SPEED_TIER_SAMPLE_MS) {
-            return
-          }
-          const pxPerSec = (Math.abs(nextTop - lastTop) * 1000) / Math.max(1, elapsedMs)
-          const nextTier: 'idle' | 'medium' | 'fast' =
-            pxPerSec >= SPEED_FAST_PX_PER_SEC
-              ? 'fast'
-              : pxPerSec >= SPEED_MEDIUM_PX_PER_SEC
-                ? 'medium'
-                : 'idle'
-          if (speedTierRafRef.current !== null) {
-            window.cancelAnimationFrame(speedTierRafRef.current)
-          }
-          speedTierRafRef.current = window.requestAnimationFrame(() => {
-            speedTierRafRef.current = null
-            setScrollSpeedTier((prev) => (prev === nextTier ? prev : nextTier))
-          })
-        }}
-      >
-        {rows.length === 0 ? (
-          <p className="tree-empty">{t(locale, 'fileTree.directoryEmpty')}</p>
-        ) : (
-          <div
-            className="file-tree-virtual-list"
-            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const row = rows[virtualRow.index]
-              if (!row) {
-                return null
-              }
-              const animateFromExpansion =
-                recentExpandedPath !== null &&
-                recentExpandedDepth >= 0 &&
-                row.depth > recentExpandedDepth &&
-                isPathUnder(row.path, recentExpandedPath)
-              const animationDelayMs = animateFromExpansion
-                ? Math.min(60, (row.depth - recentExpandedDepth - 1) * 18)
-                : 0
+      <div className="file-tree-stage">
+        <div
+          ref={viewportRef}
+          className="file-tree-viewport"
+          data-scrolling={rowVirtualizer.isScrolling ? 'true' : 'false'}
+          onScroll={(event) => {
+            const nextTop = event.currentTarget.scrollTop
+            if (!hasInteractedScroll && nextTop > 0) {
+              setHasInteractedScroll(true)
+            }
+            const now = performance.now()
+            const lastTop = lastScrollTopRef.current
+            const lastTs = lastScrollTsRef.current
+            const delta = nextTop - lastTop
+            if (delta > 0) {
+              scrollDirectionRef.current = 'forward'
+            } else if (delta < 0) {
+              scrollDirectionRef.current = 'backward'
+            }
+            lastScrollTopRef.current = nextTop
+            lastScrollTsRef.current = now
+            if (!lastTs) {
+              return
+            }
+            const elapsedMs = now - lastTs
+            if (elapsedMs < SPEED_TIER_SAMPLE_MS) {
+              return
+            }
+            const pxPerSec = (Math.abs(nextTop - lastTop) * 1000) / Math.max(1, elapsedMs)
+            const nextTier: 'idle' | 'medium' | 'fast' =
+              pxPerSec >= SPEED_FAST_PX_PER_SEC
+                ? 'fast'
+                : pxPerSec >= SPEED_MEDIUM_PX_PER_SEC
+                  ? 'medium'
+                  : 'idle'
+            if (speedTierRafRef.current !== null) {
+              window.cancelAnimationFrame(speedTierRafRef.current)
+            }
+            speedTierRafRef.current = window.requestAnimationFrame(() => {
+              speedTierRafRef.current = null
+              setScrollSpeedTier((prev) => (prev === nextTier ? prev : nextTier))
+            })
+          }}
+        >
+          {rows.length === 0 ? (
+            <p className="tree-empty">{t(locale, 'fileTree.directoryEmpty')}</p>
+          ) : (
+            <div
+              className="file-tree-virtual-list"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const row = rows[virtualRow.index]
+                if (!row) {
+                  return null
+                }
+                const animateFromExpansion =
+                  recentExpandedPath !== null &&
+                  recentExpandedDepth >= 0 &&
+                  row.depth > recentExpandedDepth &&
+                  isPathUnder(row.path, recentExpandedPath)
+                const animationDelayMs = animateFromExpansion
+                  ? Math.min(60, (row.depth - recentExpandedDepth - 1) * 18)
+                  : 0
 
-              return (
-                <TreeRowItem
-                  key={row.path}
-                  row={row}
-                  virtualStart={virtualRow.start}
-                  virtualSize={virtualRow.size}
-                  isSelected={row.kind === 'file' && selectedFilePath === row.path}
-                  animateFromExpansion={animateFromExpansion}
-                  animationDelayMs={animationDelayMs}
-                  loadingText={loadingText}
-                  onToggleDirectory={handleDirectoryToggleClick}
-                  onSelectFile={handleFileButtonClick}
-                  onContextMenu={handleRowContextMenu}
-                />
-              )
-            })}
-          </div>
-        )}
+                return (
+                  <TreeRowItem
+                    key={row.path}
+                    row={row}
+                    virtualStart={virtualRow.start}
+                    virtualSize={virtualRow.size}
+                    isSelected={row.kind === 'file' && selectedFilePath === row.path}
+                    animateFromExpansion={animateFromExpansion}
+                    animationDelayMs={animationDelayMs}
+                    loadingText={loadingText}
+                    onToggleDirectory={handleDirectoryToggleClick}
+                    onSelectFile={handleFileButtonClick}
+                    onContextMenu={handleRowContextMenu}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
       {contextMenu ? (
         <div

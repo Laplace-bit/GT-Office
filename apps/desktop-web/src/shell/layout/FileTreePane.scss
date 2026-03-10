@@ -1,0 +1,345 @@
+.file-tree-pane {
+  grid-row: 1 / -1;
+  align-self: stretch;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+.file-tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.file-tree-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tree-search-btn,
+.tree-refresh-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 76%, transparent);
+  background: color-mix(in srgb, var(--vb-chip) 78%, transparent);
+  color: var(--vb-text-muted);
+  padding: 0;
+}
+
+.tree-search-btn:hover,
+.tree-refresh-btn:hover {
+  background: color-mix(in srgb, var(--vb-card-hover-bg) 88%, transparent);
+  color: var(--vb-text);
+}
+
+.tree-search-btn:disabled,
+.tree-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.tree-search-btn .vb-icon,
+.tree-refresh-btn .vb-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.file-tree-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tree-viewport {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  background: transparent;
+  padding: 2px 0;
+}
+
+.file-tree-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-tree-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-tree-viewport::-webkit-scrollbar-button,
+.file-tree-viewport::-webkit-scrollbar-button:single-button,
+.file-tree-viewport::-webkit-scrollbar-button:start,
+.file-tree-viewport::-webkit-scrollbar-button:end,
+.file-tree-viewport::-webkit-scrollbar-button:vertical:start:decrement,
+.file-tree-viewport::-webkit-scrollbar-button:vertical:end:increment,
+.file-tree-viewport::-webkit-scrollbar-button:horizontal:start:decrement,
+.file-tree-viewport::-webkit-scrollbar-button:horizontal:end:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+.file-tree-viewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vb-border-strong) 40%, transparent);
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.file-tree-viewport::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--vb-border-strong) 60%, transparent);
+}
+
+
+.file-tree-virtual-list {
+  position: relative;
+  min-height: 100%;
+  width: 100%;
+  contain: layout paint size;
+}
+
+.file-tree-viewport[data-scrolling='true'] .tree-row {
+  animation: none !important;
+}
+
+.tree-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  border-radius: 12px;
+  will-change: transform;
+  contain: layout paint style;
+  transition: background-color 160ms var(--vb-ease-out), box-shadow 160ms var(--vb-ease-out);
+}
+
+.tree-row:hover {
+  background: color-mix(in srgb, var(--vb-card-hover-bg) 80%, transparent);
+}
+
+.tree-row-selected {
+  background: color-mix(in srgb, var(--vb-accent-light) 24%, var(--vb-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vb-accent) 16%, transparent);
+}
+
+.tree-toggle,
+.tree-file-button {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  transform: none;
+  box-shadow: none;
+  color: inherit;
+}
+
+.tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  color: var(--vb-text);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-file-button {
+  padding: 0;
+  color: var(--vb-text-muted);
+}
+
+.file-tree-pane button.tree-toggle,
+.file-tree-pane button.tree-file-button {
+  transition: color 160ms var(--vb-ease-out);
+}
+
+.file-tree-pane button.tree-toggle:focus-visible,
+.file-tree-pane button.tree-file-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--vb-accent) 34%, transparent);
+  outline-offset: -2px;
+}
+
+.tree-chevron {
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--vb-text-muted) 88%, var(--vb-text));
+}
+
+.vb-icon-tree-chevron,
+.vb-icon-tree-node {
+  width: 13px;
+  height: 13px;
+}
+
+.tree-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 6px;
+  border-radius: 12px;
+  color: inherit;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-loading {
+  margin-left: auto;
+  color: var(--vb-text-muted);
+  font-size: 0.68rem;
+}
+
+.tree-empty,
+.tree-error {
+  margin: 0;
+  padding: 10px 4px;
+  font-size: 0.78rem;
+  color: var(--vb-text-muted);
+}
+
+.tree-error {
+  color: var(--vb-error);
+}
+
+.tree-row-expand-enter {
+  animation: treeRowExpandDown 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+@keyframes treeRowExpandDown {
+  from {
+    opacity: 0.38;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.tree-context-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 176px;
+  padding: 8px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 88%, transparent);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: 0 28px 60px color-mix(in srgb, rgba(15, 23, 42, 0.22) 100%, transparent);
+  animation: contextMenuIn 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes contextMenuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.tree-context-menu button {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--vb-text);
+  text-align: left;
+  padding: 0 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.tree-context-menu button:hover {
+  background: color-mix(in srgb, var(--vb-card-hover-bg) 90%, transparent);
+}
+
+.tree-context-menu button.danger {
+  color: var(--vb-error);
+}
+
+.tree-context-menu button.danger:hover {
+  background: color-mix(in srgb, var(--vb-error-bg) 78%, transparent);
+}
+
+:root[data-theme='graphite-dark'] {
+  .tree-search-btn,
+  .tree-refresh-btn {
+    background: color-mix(in srgb, #1f2937 82%, transparent);
+    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.2) 100%, transparent);
+  }
+
+  .file-tree-viewport {
+    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.16) 100%, transparent);
+    background: transparent;
+  }
+
+  .tree-row:hover {
+    background: color-mix(in srgb, rgba(148, 163, 184, 0.12) 100%, transparent);
+  }
+
+  .tree-row-selected {
+    background: color-mix(in srgb, rgba(59, 130, 246, 0.16) 100%, #0f172a);
+  }
+
+  .tree-context-menu {
+    background: color-mix(in srgb, #0f172a 88%, transparent);
+    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.18) 100%, transparent);
+    box-shadow: 0 28px 60px color-mix(in srgb, rgba(2, 6, 23, 0.52) 100%, transparent);
+  }
+}
+
+.shell-left-pane .file-tree-pane {
+  grid-row: 1 / -1;
+  min-height: 0;
+  height: 100%;
+}
+
+.shell-left-pane::-webkit-scrollbar-button,
+.shell-left-pane::-webkit-scrollbar-button:single-button,
+.shell-left-pane::-webkit-scrollbar-button:start,
+.shell-left-pane::-webkit-scrollbar-button:end,
+.shell-left-pane::-webkit-scrollbar-button:vertical:start:decrement,
+.shell-left-pane::-webkit-scrollbar-button:vertical:end:increment,
+.shell-left-pane::-webkit-scrollbar-button:horizontal:start:decrement,
+.shell-left-pane::-webkit-scrollbar-button:horizontal:end:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
