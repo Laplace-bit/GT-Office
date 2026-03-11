@@ -1,5 +1,6 @@
 import { t, type Locale } from '../i18n/ui-locale'
 import type { GitBranchEntry } from '../integration/desktop-api'
+import './StatusBar.scss'
 
 interface StatusBarProps {
   locale: Locale

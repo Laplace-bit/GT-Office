@@ -11,6 +11,7 @@ import {
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import './TaskCenterPane.scss'
 
 export interface TaskMentionFileCandidate {
   path: string

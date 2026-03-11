@@ -97,6 +97,7 @@ import {
   type AmbientLightingIntensity,
 } from '../state/ui-preferences'
 import { pickDirectory } from '../integration/directory-picker'
+import './ShellRoot.scss'
 
 type FileReadMode = 'full'
 type StationTerminalRuntime = {
@@ -258,6 +259,25 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 
 function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
+}
+
+function loadCanvasLayoutPresetPreference(): WorkbenchLayoutPreset {
+  if (typeof window === 'undefined') {
+    return 'auto'
+  }
+  try {
+    const raw = window.localStorage.getItem(SHELL_LAYOUT_STORAGE_KEY)
+    if (!raw) {
+      return 'auto'
+    }
+    const parsed = JSON.parse(raw) as { canvasLayoutPreset?: WorkbenchLayoutPreset }
+    if (parsed.canvasLayoutPreset) {
+      return parsed.canvasLayoutPreset
+    }
+    return 'auto'
+  } catch {
+    return 'auto'
+  }
 }
 
 function loadLeftPaneWidthPreference(): number {
@@ -639,7 +659,7 @@ export function ShellRoot() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
-  const [canvasLayoutPreset, setCanvasLayoutPreset] = useState<WorkbenchLayoutPreset>('auto')
+  const [canvasLayoutPreset, setCanvasLayoutPreset] = useState<WorkbenchLayoutPreset>(loadCanvasLayoutPresetPreference)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
@@ -3894,7 +3914,7 @@ export function ShellRoot() {
   return (
     <div
       ref={shellContainerRef}
-      className={`h-full max-h-full box-border grid grid-rows-[auto_1fr_auto] gap-[10px] p-[0_12px_12px] overflow-hidden bg-vb-bg transition-colors duration-300 relative ${
+      className={`agent-shell ${
         nativeWindowTopWindows ? 'shell-native-window-top-windows' : ''
       }`}
     >

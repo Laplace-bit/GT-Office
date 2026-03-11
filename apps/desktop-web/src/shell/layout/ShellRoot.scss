@@ -1,0 +1,140 @@
+@use "sass:color";
+
+.agent-shell {
+  height: 100vh;
+  min-height: 100vh;
+  max-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px 14px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(0, 122, 255, 0.04), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(88, 86, 214, 0.03), transparent 50%),
+    var(--vb-bg);
+  transition: background-color 0.3s ease;
+}
+
+:root[data-theme='graphite-dark'] .agent-shell {
+  background:
+    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(10, 132, 255, 0.06), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(175, 82, 222, 0.04), transparent 50%),
+    var(--vb-bg);
+}
+
+.shell-main-layout {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.shell-rail-slot {
+  width: 64px;
+  min-width: 64px;
+  max-width: 64px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.shell-left-pane {
+  width: var(--shell-left-pane-width, 270px);
+  min-width: 198px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  border-radius: 18px;
+  background: var(--vb-glass-light);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid var(--vb-border-subtle);
+  box-shadow: var(--vb-shadow-sm);
+  transition: width 0.1s ease-out, background-color 0.3s ease;
+  z-index: 5;
+}
+
+.shell-main-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  border-radius: 18px;
+  background: var(--vb-glass-light);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid var(--vb-border-subtle);
+  box-shadow: var(--vb-shadow-md);
+  transition: background-color 0.3s ease;
+}
+
+/* Subtle inner glow for main pane */
+.shell-main-pane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-accent) 5%, transparent), transparent 30%);
+  opacity: 0.15;
+  z-index: 1;
+}
+
+.shell-column-resizer {
+  width: 6px;
+  flex: 0 0 6px;
+  margin: 0 -3px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 20;
+  transition: background-color 0.2s ease;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 20%;
+    bottom: 20%;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: transparent;
+    transition: background-color 0.2s ease;
+  }
+
+  &:hover::before,
+  &.active::before {
+    background: var(--vb-accent-muted);
+  }
+
+  &.active::before {
+    background: var(--vb-accent);
+    height: 60%;
+    top: 20%;
+  }
+}
+
+.vb-window-dragging .agent-shell * {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+@media (max-width: 1024px) {
+  .shell-rail-slot {
+    width: 58px;
+    min-width: 58px;
+  }
+  
+  .shell-left-pane {
+    width: clamp(200px, 25vw, 260px);
+  }
+}

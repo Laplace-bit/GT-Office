@@ -3,6 +3,7 @@ import type { AgentStation, StationRole } from '@features/workspace-hub'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import './StationOverviewPane.scss'
 import {
   buildOrganizationSnapshot,
   defaultStationOverviewState,

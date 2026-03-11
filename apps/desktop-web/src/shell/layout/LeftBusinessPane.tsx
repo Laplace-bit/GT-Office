@@ -1,4 +1,5 @@
 import type { PaneModel } from './navigation-model'
+import './LeftBusinessPane.scss'
 
 interface LeftBusinessPaneProps {
   model: PaneModel

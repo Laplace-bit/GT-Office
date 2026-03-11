@@ -30,6 +30,7 @@ export const messages = {
   'workbench.stationCount': { 'zh-CN': '角色数: {count}', 'en-US': 'Roles: {count}' },
   'workbench.layoutPreset': { 'zh-CN': '布局预设', 'en-US': 'Layout preset' },
   'workbench.layoutPreset.auto': { 'zh-CN': '自适应布局', 'en-US': 'Auto layout' },
+  'workbench.layoutPreset.focus': { 'zh-CN': '聚焦布局', 'en-US': 'Focus Layout' },
   'workbench.layoutPreset.1x1': { 'zh-CN': '1x1 聚焦', 'en-US': '1x1 Focus' },
   'workbench.layoutPreset.1x2': { 'zh-CN': '1x2 纵向', 'en-US': '1x2 Vertical' },
   'workbench.layoutPreset.2x1': { 'zh-CN': '2x1 横向', 'en-US': '2x1 Horizontal' },

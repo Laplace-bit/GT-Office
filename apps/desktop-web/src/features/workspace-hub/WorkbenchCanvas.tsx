@@ -16,7 +16,7 @@ interface StationTerminalRuntime {
   unreadCount: number
 }
 
-export type WorkbenchLayoutPreset = 'auto' | '1*1' | '1*2' | '2*1' | '2*2' | '3*2' | '4*2'
+export type WorkbenchLayoutPreset = 'auto' | '1*1' | '1*2' | '2*1' | '2*2' | '3*2' | '4*2' | 'focus'
 
 type FixedLayoutPresetLabelKey =
   | 'workbench.layoutPreset.1x1'
@@ -25,6 +25,7 @@ type FixedLayoutPresetLabelKey =
   | 'workbench.layoutPreset.2x2'
   | 'workbench.layoutPreset.3x2'
   | 'workbench.layoutPreset.4x2'
+  | 'workbench.layoutPreset.focus'
 
 interface WorkbenchLayoutPresetDefinition {
   id: WorkbenchLayoutPreset
@@ -66,6 +67,7 @@ const STATION_VIRTUALIZE_THRESHOLD = 18
 
 const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
   { id: 'auto', columns: null, rows: null, labelKey: 'workbench.layoutPreset.auto' },
+  { id: 'focus', columns: null, rows: null, labelKey: 'workbench.layoutPreset.focus' },
   { id: '1*1', columns: 1, rows: 1, labelKey: 'workbench.layoutPreset.1x1' },
   { id: '1*2', columns: 1, rows: 2, labelKey: 'workbench.layoutPreset.1x2' },
   { id: '2*1', columns: 2, rows: 1, labelKey: 'workbench.layoutPreset.2x1' },
@@ -76,6 +78,7 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
 
 interface WorkbenchGridStyle extends CSSProperties {
   '--station-grid-columns'?: string
+  '--station-grid-rows'?: string
   '--station-row-height'?: string
 }
 
@@ -242,14 +245,40 @@ function WorkbenchCanvasView({
   })
 
   const gridStyle = useMemo<WorkbenchGridStyle | undefined>(() => {
-    if (!hasFixedLayout || fixedColumns === null) {
-      return undefined
+    if (stations.length === 0) return undefined
+
+    const count = stations.length
+    let cols = 1
+    let rows = 1
+
+    if (layoutPreset === 'focus') {
+      return undefined // Focus mode handles its own layout
     }
+
+    if (layoutPreset === 'auto') {
+      cols = Math.ceil(Math.sqrt(count))
+      rows = Math.ceil(count / cols)
+    } else {
+      // For fixed presets like '2*1', '2*2', use the preset's columns as priority
+      const preset = WORKBENCH_LAYOUT_PRESETS.find((p) => p.id === layoutPreset)
+      if (preset && preset.columns) {
+        cols = preset.columns
+        rows = Math.ceil(count / cols)
+        
+        // Special case: if rows are also defined (like 2x2) and stations are fewer, 
+        // we respect the minimum rows defined by preset to keep the "feeling" of the layout
+        if (preset.rows && rows < preset.rows) {
+          rows = preset.rows
+        }
+      }
+    }
+
     return {
-      '--station-grid-columns': String(fixedColumns),
-      '--station-row-height': `${rowEstimateHeight}px`,
+      '--station-grid-columns': String(cols),
+      '--station-grid-rows': String(rows),
+      '--station-row-height': `${100 / rows}%`,
     }
-  }, [fixedColumns, hasFixedLayout, rowEstimateHeight])
+  }, [layoutPreset, stations.length])
 
   const scrollStationCardIntoView = useCallback((stationId: string) => {
     const container = gridRef.current
@@ -425,6 +454,71 @@ function WorkbenchCanvasView({
               onExitFullscreen={handleExitFullscreen}
             />
           </div>
+        ) : layoutPreset === 'focus' ? (
+          <div
+            className="station-grid focus-mode"
+            role="list"
+            aria-label={t(locale, 'workbench.ariaLabel')}
+            data-layout-preset="focus"
+          >
+            <div className="focus-main">
+              {active && (
+                <StationCard
+                  key={active.id}
+                  locale={locale}
+                  appearanceVersion={appearanceVersion}
+                  station={active}
+                  active={true}
+                  runtime={terminalByStation[active.id]}
+                  taskSignal={taskSignalByStationId[active.id]}
+                  channelBotBindings={channelBotBindingsByStationId[active.id]}
+                  isFullscreen={false}
+                  isFullscreenMode={false}
+                  onSelectStation={onSelectStation}
+                  onLaunchStationTerminal={onLaunchStationTerminal}
+                  onLaunchCliAgent={onLaunchCliAgent}
+                  onSendInputData={onSendInputData}
+                  onResizeTerminal={onResizeTerminal}
+                  onBindTerminalSink={onBindTerminalSink}
+                  onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                  onRemoveStation={onRemoveStation}
+                  onEnterFullscreen={handleEnterFullscreen}
+                  onExitFullscreen={handleExitFullscreen}
+                />
+              )}
+            </div>
+            {stations.length > 1 && (
+              <div className="focus-ring">
+                {stations
+                  .filter((s) => s.id !== activeStationId)
+                  .map((station) => (
+                    <StationCard
+                      key={station.id}
+                      locale={locale}
+                      appearanceVersion={appearanceVersion}
+                      station={station}
+                      active={false}
+                      runtime={terminalByStation[station.id]}
+                      taskSignal={taskSignalByStationId[station.id]}
+                      channelBotBindings={channelBotBindingsByStationId[station.id]}
+                      isFullscreen={false}
+                      isFullscreenMode={false}
+                      isMiniature={true}
+                      onSelectStation={onSelectStation}
+                      onLaunchStationTerminal={onLaunchStationTerminal}
+                      onLaunchCliAgent={onLaunchCliAgent}
+                      onSendInputData={onSendInputData}
+                      onResizeTerminal={onResizeTerminal}
+                      onBindTerminalSink={onBindTerminalSink}
+                      onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                      onRemoveStation={onRemoveStation}
+                      onEnterFullscreen={handleEnterFullscreen}
+                      onExitFullscreen={handleExitFullscreen}
+                    />
+                  ))}
+              </div>
+            )}
+          </div>
         ) : shouldVirtualize ? (
           <div
             ref={gridRef}
@@ -486,7 +580,6 @@ function WorkbenchCanvasView({
           </div>
         ) : (
           <div
-            ref={gridRef}
             className="station-grid"
             role="list"
             aria-label={t(locale, 'workbench.ariaLabel')}

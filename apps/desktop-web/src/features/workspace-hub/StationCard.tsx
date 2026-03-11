@@ -170,9 +170,11 @@ interface StationCardProps {
   runtime?: StationTerminalRuntime
   taskSignal?: StationTaskSignal
   channelBotBindings?: StationChannelBotBindingSummary[]
-  isFullscreen: boolean
-  isFullscreenMode: boolean
+  isFullscreen?: boolean
+  isFullscreenMode?: boolean
+  isMiniature?: boolean
   onSelectStation: (stationId: string) => void
+
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
@@ -209,6 +211,7 @@ function StationCardView({
   channelBotBindings,
   isFullscreen,
   isFullscreenMode,
+  isMiniature,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -400,6 +403,7 @@ function StationCardView({
       className={[
         'station-window',
         active ? 'active' : '',
+        isMiniature ? 'is-miniature' : '',
         compactLayout ? 'station-window-compact' : '',
         isFullscreen ? 'fullscreen' : '',
         isFullscreenMode && !isFullscreen ? 'background-hidden' : '',
@@ -432,9 +436,15 @@ function StationCardView({
 
       <header className="station-window-header">
         <div className="station-window-title-wrap">
-          <h3>{station.name}</h3>
+          <div className="station-window-title-row">
+            <h3>{station.name}</h3>
+            <span className="station-window-title-dot" aria-hidden="true" />
+            <p className="station-window-role-label">{roleLabel(locale, station.role)}</p>
+          </div>
           <div className="station-window-title-subline">
-            <p>{roleLabel(locale, station.role)}</p>
+            <p className="station-window-meta-text">{station.agentWorkdirRel}</p>
+            <span className="station-window-title-dot-small" aria-hidden="true" />
+            <p className="station-window-meta-text">{station.tool}</p>
             {visibleChannelBindingSummaries.length > 0 ? (
               <div className="station-header-bot-chips" aria-label={t(locale, 'station.channelBindings.aria')}>
                 {visibleChannelBindingSummaries.map((summary) => (
@@ -526,11 +536,6 @@ function StationCardView({
         </div>
       </header>
 
-      <div className="station-meta-compact">
-        <p>{station.agentWorkdirRel}</p>
-        <p>{station.tool}</p>
-      </div>
-
       <StationXtermTerminal
         stationId={station.id}
         sessionId={runtime?.sessionId ?? null}
@@ -577,6 +582,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.active === next.active &&
     prev.isFullscreen === next.isFullscreen &&
     prev.isFullscreenMode === next.isFullscreenMode &&
+    prev.isMiniature === next.isMiniature &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&
