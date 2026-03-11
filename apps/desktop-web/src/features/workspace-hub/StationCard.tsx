@@ -249,38 +249,41 @@ function StationCardView({
     return terminalShell?.matches(':focus-within') ?? false
   }, [])
 
-  const flushPendingTerminalFocus = useCallback(() => {
-    if (!pendingTerminalFocusRef.current || !activeRef.current) {
-      return
-    }
-    const sink = terminalSinkRef.current
-    if (!sink) {
-      return
-    }
+  const flushPendingTerminalFocus = useCallback(
+    function retryFocus() {
+      if (!pendingTerminalFocusRef.current || !activeRef.current) {
+        return
+      }
+      const sink = terminalSinkRef.current
+      if (!sink) {
+        return
+      }
 
-    sink.focus()
-    if (terminalHasDomFocus()) {
-      pendingTerminalFocusRef.current = false
-      terminalFocusRetryBudgetRef.current = 0
-      cancelScheduledTerminalFocus()
-      return
-    }
+      sink.focus()
+      if (terminalHasDomFocus()) {
+        pendingTerminalFocusRef.current = false
+        terminalFocusRetryBudgetRef.current = 0
+        cancelScheduledTerminalFocus()
+        return
+      }
 
-    if (terminalFocusRetryBudgetRef.current <= 0) {
-      pendingTerminalFocusRef.current = false
-      return
-    }
+      if (terminalFocusRetryBudgetRef.current <= 0) {
+        pendingTerminalFocusRef.current = false
+        return
+      }
 
-    if (terminalFocusFrameRef.current !== null) {
-      return
-    }
+      if (terminalFocusFrameRef.current !== null) {
+        return
+      }
 
-    terminalFocusRetryBudgetRef.current -= 1
-    terminalFocusFrameRef.current = window.requestAnimationFrame(() => {
-      terminalFocusFrameRef.current = null
-      flushPendingTerminalFocus()
-    })
-  }, [cancelScheduledTerminalFocus, terminalHasDomFocus])
+      terminalFocusRetryBudgetRef.current -= 1
+      terminalFocusFrameRef.current = window.requestAnimationFrame(() => {
+        terminalFocusFrameRef.current = null
+        retryFocus()
+      })
+    },
+    [cancelScheduledTerminalFocus, terminalHasDomFocus],
+  )
 
   useEffect(() => {
     activeRef.current = active
@@ -575,6 +578,26 @@ function areStationChannelBindingsEqual(
 }
 
 function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps): boolean {
+  // 核心优化：如果该组件既不是之前的 active，也不是现在的 active，
+  // 且其他核心属性（ID, 状态, 任务）没变，则跳过渲染。
+  const isActiveChanged = prev.active !== next.active
+  const isStationIdChanged = prev.station.id !== next.station.id
+  
+  if (!isActiveChanged && !isStationIdChanged && 
+      prev.appearanceVersion === next.appearanceVersion &&
+      prev.isFullscreen === next.isFullscreen &&
+      prev.isMiniature === next.isMiniature &&
+      (prev.runtime?.sessionId === next.runtime?.sessionId) &&
+      (prev.runtime?.unreadCount === next.runtime?.unreadCount) &&
+      (prev.taskSignal?.nonce === next.taskSignal?.nonce)
+  ) {
+    // 只有在 active 状态发生变化时，才允许重新渲染（为了处理高亮边框）
+    // 或者当它是 active 窗口时，需要响应可能的内部状态更新
+    if (!prev.active && !next.active) {
+      return true // 两者都不是 active，且核心数据没变，跳过
+    }
+  }
+
   return (
     prev.locale === next.locale &&
     prev.appearanceVersion === next.appearanceVersion &&
