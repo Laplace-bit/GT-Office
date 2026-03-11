@@ -21,7 +21,6 @@ interface StationOverviewPaneProps {
   view: StationOverviewState
   onViewChange: (patch: Partial<StationOverviewState>) => void
   onSelectStation: (stationId: string) => void
-  onOpenManageModal: () => void
   onRemoveStation: (stationId: string) => void
 }
 
@@ -29,6 +28,7 @@ interface StationOverviewRowProps {
   locale: Locale
   station: AgentStation
   active: boolean
+  state: string
   onSelectStation: (stationId: string) => void
   onRemoveStation: (stationId: string) => void
 }
@@ -76,11 +76,17 @@ const StationOverviewRow = memo(function StationOverviewRow({
   locale,
   station,
   active,
+  state,
   onSelectStation,
   onRemoveStation,
 }: StationOverviewRowProps) {
   return (
     <li className={active ? 'station-overview-row active' : 'station-overview-row'}>
+      <span
+        className="station-overview-state-indicator"
+        data-state={state}
+        aria-hidden="true"
+      />
       <button
         type="button"
         className="station-overview-select"
@@ -89,17 +95,18 @@ const StationOverviewRow = memo(function StationOverviewRow({
         <strong>{station.name}</strong>
         <span>{station.agentWorkdirRel}</span>
       </button>
-      <div className="station-overview-row-actions">
-        <button
-          type="button"
-          className="station-overview-remove"
-          onClick={() => onRemoveStation(station.id)}
-          aria-label={t(locale, 'workbench.removeStation')}
-          title={t(locale, 'workbench.removeStation')}
-        >
-          <AppIcon name="close" className="vb-icon vb-icon-overview" aria-hidden="true" />
-        </button>
-      </div>
+      <button
+        type="button"
+        className="station-overview-remove"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemoveStation(station.id)
+        }}
+        aria-label={t(locale, 'workbench.removeStation')}
+        title={t(locale, 'workbench.removeStation')}
+      >
+        <AppIcon name="close" className="vb-icon" aria-hidden="true" />
+      </button>
     </li>
   )
 })
@@ -112,7 +119,6 @@ export function StationOverviewPane({
   view,
   onViewChange,
   onSelectStation,
-  onOpenManageModal,
   onRemoveStation,
 }: StationOverviewPaneProps) {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
@@ -128,21 +134,13 @@ export function StationOverviewPane({
   const localeIsZh = locale === 'zh-CN'
 
   return (
-    <aside className="panel station-overview-pane">
+    <aside className="station-overview-pane">
       <header className="station-overview-header">
-        <div>
+        <div className="station-overview-title-row">
           <h2>{t(locale, 'station.overview.title')}</h2>
-          <p>{t(locale, 'station.overview.subtitle')}</p>
+          <span className="station-count-badge">{stations.length}</span>
         </div>
-        <button
-          type="button"
-          className="station-overview-toggle"
-          onClick={onOpenManageModal}
-          aria-label={t(locale, 'workbench.addStation')}
-          title={t(locale, 'workbench.addStation')}
-        >
-          <AppIcon name="plus" className="vb-icon vb-icon-overview-toggle" aria-hidden="true" />
-        </button>
+        <p>{t(locale, 'station.overview.subtitle')}</p>
       </header>
 
       <section className="station-overview-metrics" aria-label={localeIsZh ? '角色状态概览' : 'Role status overview'}>
@@ -234,6 +232,7 @@ export function StationOverviewPane({
             locale={locale}
             station={station}
             active={station.id === activeStationId}
+            state={runtimeStateByStationId[station.id] ?? 'idle'}
             onSelectStation={onSelectStation}
             onRemoveStation={onRemoveStation}
           />

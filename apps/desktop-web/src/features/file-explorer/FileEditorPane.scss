@@ -71,35 +71,78 @@
   }
 }
 
+.file-editor-tab-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .file-editor-tab-modified {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--vb-accent);
   box-shadow: 0 0 6px var(--vb-accent);
+  flex: 0 0 auto;
 }
 
 .file-editor-tab-close {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
-  color: var(--vb-text-muted);
+  margin-left: 8px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: color-mix(in srgb, var(--vb-text-muted) 88%, transparent);
   opacity: 0;
-  transition: all 0.2s ease;
+  flex: 0 0 auto;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
+
+  svg {
+    width: 11px;
+    height: 11px;
+    display: block;
+  }
   
   &:hover {
-    background: color-mix(in srgb, var(--vb-error) 15%, transparent);
+    background: color-mix(in srgb, var(--vb-error) 12%, transparent);
+    border-color: color-mix(in srgb, var(--vb-error) 18%, transparent);
     color: var(--vb-error);
     opacity: 1;
+    transform: scale(1.03);
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    opacity: 1;
+    outline: none;
+    border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 }
 
 .file-editor-tab:hover .file-editor-tab-close,
 .file-editor-tab.active .file-editor-tab-close {
-  opacity: 0.5;
+  opacity: 0.72;
+}
+
+.file-editor-tab.active .file-editor-tab-close {
+  color: color-mix(in srgb, var(--vb-text) 78%, transparent);
 }
 
 /* === Info Bar (Minimal & Static) === */

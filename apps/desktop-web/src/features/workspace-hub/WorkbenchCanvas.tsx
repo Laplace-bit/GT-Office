@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { Grid2x2, LayoutPanelLeft, type LucideIcon } from 'lucide-react'
 import type { AgentStation } from './station-model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
@@ -16,22 +17,17 @@ interface StationTerminalRuntime {
   unreadCount: number
 }
 
-export type WorkbenchLayoutPreset = 'auto' | '1*1' | '1*2' | '2*1' | '2*2' | '3*2' | '4*2' | 'focus'
+export type WorkbenchLayoutMode = 'auto' | 'focus' | 'custom'
 
-type FixedLayoutPresetLabelKey =
-  | 'workbench.layoutPreset.1x1'
-  | 'workbench.layoutPreset.1x2'
-  | 'workbench.layoutPreset.2x1'
-  | 'workbench.layoutPreset.2x2'
-  | 'workbench.layoutPreset.3x2'
-  | 'workbench.layoutPreset.4x2'
-  | 'workbench.layoutPreset.focus'
+export interface WorkbenchCustomLayout {
+  columns: number
+  rows: number
+}
 
 interface WorkbenchLayoutPresetDefinition {
-  id: WorkbenchLayoutPreset
-  columns: number | null
-  rows: number | null
-  labelKey: 'workbench.layoutPreset.auto' | FixedLayoutPresetLabelKey
+  id: WorkbenchLayoutMode
+  labelKey: 'workbench.layoutPreset.auto' | 'workbench.layoutPreset.focus' | 'workbench.layoutPreset.custom'
+  icon?: LucideIcon
 }
 
 interface WorkbenchCanvasProps {
@@ -49,8 +45,10 @@ interface WorkbenchCanvasProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
-  layoutPreset: WorkbenchLayoutPreset
-  onLayoutPresetChange: (preset: WorkbenchLayoutPreset) => void
+  layoutMode: WorkbenchLayoutMode
+  customLayout: WorkbenchCustomLayout
+  onLayoutModeChange: (mode: WorkbenchLayoutMode) => void
+  onCustomLayoutChange: (layout: WorkbenchCustomLayout) => void
   scrollToStationId?: string | null
   onScrollToStationHandled?: (stationId: string) => void
   onOpenStationManage: () => void
@@ -64,17 +62,25 @@ const STATION_ROW_MIN_HEIGHT_PX = 260
 const STATION_ROW_ESTIMATE_HEIGHT_PX = 396
 const STATION_ROW_OVERSCAN = 2
 const STATION_VIRTUALIZE_THRESHOLD = 18
+const CUSTOM_LAYOUT_MIN = 1
+const CUSTOM_LAYOUT_MAX = 8
 
 const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
-  { id: 'auto', columns: null, rows: null, labelKey: 'workbench.layoutPreset.auto' },
-  { id: 'focus', columns: null, rows: null, labelKey: 'workbench.layoutPreset.focus' },
-  { id: '1*1', columns: 1, rows: 1, labelKey: 'workbench.layoutPreset.1x1' },
-  { id: '1*2', columns: 1, rows: 2, labelKey: 'workbench.layoutPreset.1x2' },
-  { id: '2*1', columns: 2, rows: 1, labelKey: 'workbench.layoutPreset.2x1' },
-  { id: '2*2', columns: 2, rows: 2, labelKey: 'workbench.layoutPreset.2x2' },
-  { id: '3*2', columns: 3, rows: 2, labelKey: 'workbench.layoutPreset.3x2' },
-  { id: '4*2', columns: 4, rows: 2, labelKey: 'workbench.layoutPreset.4x2' },
+  { id: 'auto', labelKey: 'workbench.layoutPreset.auto' },
+  { id: 'focus', labelKey: 'workbench.layoutPreset.focus', icon: LayoutPanelLeft },
+  { id: 'custom', labelKey: 'workbench.layoutPreset.custom', icon: Grid2x2 },
 ]
+
+function clampCustomLayoutValue(value: number): number {
+  return Math.max(CUSTOM_LAYOUT_MIN, Math.min(CUSTOM_LAYOUT_MAX, Math.round(value)))
+}
+
+function normalizeCustomLayout(layout: WorkbenchCustomLayout): WorkbenchCustomLayout {
+  return {
+    columns: clampCustomLayoutValue(layout.columns),
+    rows: clampCustomLayoutValue(layout.rows),
+  }
+}
 
 interface WorkbenchGridStyle extends CSSProperties {
   '--station-grid-columns'?: string
@@ -106,8 +112,10 @@ function WorkbenchCanvasView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
-  layoutPreset,
-  onLayoutPresetChange,
+  layoutMode,
+  customLayout,
+  onLayoutModeChange,
+  onCustomLayoutChange,
   scrollToStationId = null,
   onScrollToStationHandled,
   onOpenStationManage,
@@ -118,6 +126,7 @@ function WorkbenchCanvasView({
   const gridRef = useRef<HTMLDivElement | null>(null)
   const [gridWidth, setGridWidth] = useState(0)
   const [gridHeight, setGridHeight] = useState(0)
+  const normalizedCustomLayout = useMemo(() => normalizeCustomLayout(customLayout), [customLayout])
   const fullscreenStationId = useMemo(() => {
     if (!fullscreenStationIdRaw) {
       return null
@@ -126,11 +135,7 @@ function WorkbenchCanvasView({
       ? fullscreenStationIdRaw
       : null
   }, [fullscreenStationIdRaw, stations])
-  const activeLayoutPreset = useMemo(
-    () => WORKBENCH_LAYOUT_PRESETS.find((preset) => preset.id === layoutPreset) ?? WORKBENCH_LAYOUT_PRESETS[0],
-    [layoutPreset],
-  )
-  const fixedLayoutRequested = activeLayoutPreset.columns !== null && activeLayoutPreset.rows !== null
+  const fixedLayoutRequested = layoutMode === 'custom'
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -190,12 +195,12 @@ function WorkbenchCanvasView({
   }, [gridWidth])
 
   const fixedColumns = useMemo(() => {
-    if (!fixedLayoutRequested || activeLayoutPreset.columns === null) {
+    if (!fixedLayoutRequested) {
       return null
     }
-    return Math.max(1, Math.min(activeLayoutPreset.columns, maxColumnsByWidth))
-  }, [activeLayoutPreset.columns, fixedLayoutRequested, maxColumnsByWidth])
-  const fixedRows = fixedLayoutRequested ? activeLayoutPreset.rows : null
+    return Math.max(1, Math.min(normalizedCustomLayout.columns, maxColumnsByWidth))
+  }, [fixedLayoutRequested, maxColumnsByWidth, normalizedCustomLayout.columns])
+  const fixedRows = fixedLayoutRequested ? normalizedCustomLayout.rows : null
   const hasFixedLayout = !fullscreenStationId && fixedColumns !== null && fixedRows !== null
 
   const columns = useMemo(() => {
@@ -251,26 +256,16 @@ function WorkbenchCanvasView({
     let cols = 1
     let rows = 1
 
-    if (layoutPreset === 'focus') {
+    if (layoutMode === 'focus') {
       return undefined // Focus mode handles its own layout
     }
 
-    if (layoutPreset === 'auto') {
+    if (layoutMode === 'auto') {
       cols = Math.ceil(Math.sqrt(count))
       rows = Math.ceil(count / cols)
     } else {
-      // For fixed presets like '2*1', '2*2', use the preset's columns as priority
-      const preset = WORKBENCH_LAYOUT_PRESETS.find((p) => p.id === layoutPreset)
-      if (preset && preset.columns) {
-        cols = preset.columns
-        rows = Math.ceil(count / cols)
-        
-        // Special case: if rows are also defined (like 2x2) and stations are fewer, 
-        // we respect the minimum rows defined by preset to keep the "feeling" of the layout
-        if (preset.rows && rows < preset.rows) {
-          rows = preset.rows
-        }
-      }
+      cols = normalizedCustomLayout.columns
+      rows = normalizedCustomLayout.rows
     }
 
     return {
@@ -278,7 +273,21 @@ function WorkbenchCanvasView({
       '--station-grid-rows': String(rows),
       '--station-row-height': `${100 / rows}%`,
     }
-  }, [layoutPreset, stations.length])
+  }, [layoutMode, normalizedCustomLayout.columns, normalizedCustomLayout.rows, stations.length])
+
+  const updateCustomLayoutDimension = useCallback(
+    (dimension: keyof WorkbenchCustomLayout, nextValue: number) => {
+      const nextLayout = normalizeCustomLayout({
+        ...normalizedCustomLayout,
+        [dimension]: nextValue,
+      })
+      onCustomLayoutChange(nextLayout)
+      if (layoutMode !== 'custom') {
+        onLayoutModeChange('custom')
+      }
+    },
+    [layoutMode, normalizedCustomLayout, onCustomLayoutChange, onLayoutModeChange],
+  )
 
   const scrollStationCardIntoView = useCallback((stationId: string) => {
     const container = gridRef.current
@@ -375,23 +384,13 @@ function WorkbenchCanvasView({
               <button
                 key={preset.id}
                 type="button"
-                className={`canvas-layout-preset-btn ${preset.id === layoutPreset ? 'active' : ''}`}
+                className={`canvas-layout-preset-btn ${preset.id === layoutMode ? 'active' : ''}`}
                 aria-label={t(locale, preset.labelKey)}
                 title={t(locale, preset.labelKey)}
-                onClick={() => onLayoutPresetChange(preset.id)}
+                onClick={() => onLayoutModeChange(preset.id)}
               >
-                {preset.columns && preset.rows ? (
-                  <span
-                    className="canvas-layout-preset-glyph"
-                    style={{
-                      gridTemplateColumns: `repeat(${preset.columns}, minmax(0, 1fr))`,
-                    }}
-                    aria-hidden="true"
-                  >
-                    {Array.from({ length: preset.columns * preset.rows }).map((_, index) => (
-                      <span key={`${preset.id}-${index}`} />
-                    ))}
-                  </span>
+                {preset.icon ? (
+                  <preset.icon className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
                 ) : (
                   <span className="canvas-layout-preset-auto" aria-hidden="true">
                     A
@@ -400,6 +399,32 @@ function WorkbenchCanvasView({
               </button>
             ))}
           </div>
+          {layoutMode === 'custom' ? (
+            <div className="canvas-layout-custom-controls" role="group" aria-label={t(locale, 'workbench.layoutCustom')}>
+              <label className="canvas-layout-custom-field">
+                <span>{t(locale, 'workbench.layoutColumns')}</span>
+                <input
+                  type="number"
+                  min={CUSTOM_LAYOUT_MIN}
+                  max={CUSTOM_LAYOUT_MAX}
+                  value={normalizedCustomLayout.columns}
+                  className="vb-input canvas-layout-custom-input"
+                  onChange={(event) => updateCustomLayoutDimension('columns', Number(event.target.value))}
+                />
+              </label>
+              <label className="canvas-layout-custom-field">
+                <span>{t(locale, 'workbench.layoutRows')}</span>
+                <input
+                  type="number"
+                  min={CUSTOM_LAYOUT_MIN}
+                  max={CUSTOM_LAYOUT_MAX}
+                  value={normalizedCustomLayout.rows}
+                  className="vb-input canvas-layout-custom-input"
+                  onChange={(event) => updateCustomLayoutDimension('rows', Number(event.target.value))}
+                />
+              </label>
+            </div>
+          ) : null}
           <button
             type="button"
             className="canvas-header-icon-button"
@@ -429,7 +454,7 @@ function WorkbenchCanvasView({
             aria-label={t(locale, 'workbench.ariaLabel')}
             data-station-count={1}
             data-layout-mode="auto"
-            data-layout-preset={layoutPreset}
+            data-layout-preset={layoutMode}
           >
             <StationCard
               key={fullscreenStation.id}
@@ -454,7 +479,7 @@ function WorkbenchCanvasView({
               onExitFullscreen={handleExitFullscreen}
             />
           </div>
-        ) : layoutPreset === 'focus' ? (
+        ) : layoutMode === 'focus' ? (
           <div
             className="station-grid focus-mode"
             role="list"
@@ -527,7 +552,7 @@ function WorkbenchCanvasView({
             aria-label={t(locale, 'workbench.ariaLabel')}
             data-station-count={stations.length}
             data-layout-mode={hasFixedLayout ? 'fixed' : 'auto'}
-            data-layout-preset={layoutPreset}
+            data-layout-preset={layoutMode}
             data-scrolling={rowVirtualizer.isScrolling ? 'true' : 'false'}
             style={gridStyle}
           >
@@ -585,7 +610,7 @@ function WorkbenchCanvasView({
             aria-label={t(locale, 'workbench.ariaLabel')}
             data-station-count={stations.length}
             data-layout-mode={hasFixedLayout ? 'fixed' : 'auto'}
-            data-layout-preset={layoutPreset}
+            data-layout-preset={layoutMode}
             style={gridStyle}
           >
             {stations.map((station) => (

@@ -4,6 +4,7 @@ import type {
   GitCommitDetailResponse,
   GitCommitEntry,
 } from '@shell/integration/desktop-api'
+import { AppIcon } from '@shell/ui/icons'
 import { formatGitTimestamp } from './useGitWorkspaceController'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
@@ -489,10 +490,7 @@ export const GitGraphView = memo(function GitGraphView({
         {graphRows.length === 0 ? (
           <div className="git-graph-empty">
             <div className="git-graph-empty__icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
-              </svg>
+              <AppIcon name="git" width={48} height={48} aria-hidden="true" />
             </div>
             <p>{t(locale, 'git.graph.empty')}</p>
           </div>
@@ -618,9 +616,7 @@ export const GitGraphView = memo(function GitGraphView({
           {historyLoading ? (
             <span className="git-graph-btn__spinner" />
           ) : (
-            <svg className="git-graph-btn__icon" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 12l-4-4h8l-4 4z" />
-            </svg>
+            <AppIcon name="arrow-down" className="git-graph-btn__icon" aria-hidden="true" />
           )}
           <span>{t(locale, 'git.history.loadOlder')}</span>
         </button>
@@ -630,9 +626,7 @@ export const GitGraphView = memo(function GitGraphView({
           onClick={onResetToLatest}
           disabled={historyLoading}
         >
-          <svg className="git-graph-btn__icon" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 4l4 4H4l4-4z" />
-          </svg>
+          <AppIcon name="arrow-up" className="git-graph-btn__icon" aria-hidden="true" />
           <span>{t(locale, 'git.history.backToLatest')}</span>
         </button>
       </div>

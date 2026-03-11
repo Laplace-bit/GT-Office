@@ -37,6 +37,18 @@ import { json } from '@codemirror/lang-json'
 import { markdown } from '@codemirror/lang-markdown'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
+import {
+  caseSensitiveIconNode,
+  chevronDownIconNode,
+  chevronUpIconNode,
+  listIconNode,
+  regexIconNode,
+  replaceAllIconNode,
+  replaceIconNode,
+  wholeWordIconNode,
+  xIconNode,
+  type EditorLucideIconNode,
+} from './lucide-icon-nodes'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import './CodeMirrorEditor.scss'
 
@@ -130,6 +142,53 @@ function buildSearchPhrases(locale: Locale): Record<string, string> {
     'replace all': t(locale, '全部替换', 'replace all'),
     close: t(locale, '关闭', 'close'),
   }
+}
+
+const LUCIDE_NS = 'http://www.w3.org/2000/svg'
+
+function buildSearchIconElement(iconNode: EditorLucideIconNode): SVGSVGElement {
+  const svg = document.createElementNS(LUCIDE_NS, 'svg')
+  svg.setAttribute('xmlns', LUCIDE_NS)
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('stroke', 'currentColor')
+  svg.setAttribute('stroke-width', '1.9')
+  svg.setAttribute('stroke-linecap', 'round')
+  svg.setAttribute('stroke-linejoin', 'round')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('focusable', 'false')
+
+  for (const [tagName, attrs] of iconNode) {
+    const child = document.createElementNS(LUCIDE_NS, tagName)
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === 'key') {
+        continue
+      }
+      child.setAttribute(key, String(value))
+    }
+    svg.appendChild(child)
+  }
+
+  return svg
+}
+
+const searchButtonIconNodes: Record<string, EditorLucideIconNode> = {
+  next: chevronDownIconNode,
+  prev: chevronUpIconNode,
+  all: listIconNode,
+  select: listIconNode,
+  replace: replaceIconNode,
+  replaceAll: replaceAllIconNode,
+  'replace-all': replaceAllIconNode,
+  close: xIconNode,
+}
+
+const searchLabelIconNodes: Record<string, EditorLucideIconNode> = {
+  case: caseSensitiveIconNode,
+  re: regexIconNode,
+  word: wholeWordIconNode,
 }
 
 // 精简的编辑器配置，移除不必要的功能
@@ -357,11 +416,48 @@ export function CodeMirrorEditor({
           if (targetName && nameMap[targetName]) {
             btn.setAttribute('title', phrases[nameMap[targetName]])
           }
+
+          const iconNode = targetName ? searchButtonIconNodes[targetName] : null
+          if (!iconNode) {
+            return
+          }
+
+          let iconSlot = btn.querySelector('.cm-search-icon')
+          if (!(iconSlot instanceof HTMLElement)) {
+            iconSlot = document.createElement('span')
+            iconSlot.className = 'cm-search-icon'
+            btn.prepend(iconSlot)
+          }
+          if (iconSlot.childElementCount === 0) {
+            iconSlot.replaceChildren(buildSearchIconElement(iconNode))
+          }
         })
 
         searchPanel.querySelectorAll('label').forEach((label) => {
           const text = label.innerText.trim()
           if (text) label.setAttribute('title', text)
+
+          const optionInput = label.querySelector('input')
+          const optionName = optionInput?.getAttribute('name') ?? ''
+          const iconNode = searchLabelIconNodes[optionName]
+          if (!iconNode) {
+            return
+          }
+
+          let iconSlot = label.querySelector('.cm-search-icon')
+          if (!(iconSlot instanceof HTMLElement)) {
+            iconSlot = document.createElement('span')
+            iconSlot.className = 'cm-search-icon'
+            const input = label.querySelector('input')
+            if (input?.nextSibling) {
+              label.insertBefore(iconSlot, input.nextSibling)
+            } else {
+              label.append(iconSlot)
+            }
+          }
+          if (iconSlot.childElementCount === 0) {
+            iconSlot.replaceChildren(buildSearchIconElement(iconNode))
+          }
         })
       }
     }

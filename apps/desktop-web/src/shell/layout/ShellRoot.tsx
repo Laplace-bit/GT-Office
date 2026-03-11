@@ -47,7 +47,8 @@ import {
   WorkbenchCanvas,
   type AgentStation,
   type CreateStationInput,
-  type WorkbenchLayoutPreset,
+  type WorkbenchCustomLayout,
+  type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
 import {
   StationOverviewPane,
@@ -115,6 +116,9 @@ const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
 const TASK_DISPATCH_HISTORY_LIMIT = 40
 const TASK_DRAFT_PERSIST_DEBOUNCE_MS = 360
 const SHELL_LAYOUT_STORAGE_KEY = 'gtoffice.shell.layout.v2'
+const DEFAULT_CANVAS_CUSTOM_LAYOUT: WorkbenchCustomLayout = { columns: 2, rows: 2 }
+const CANVAS_LAYOUT_MIN = 1
+const CANVAS_LAYOUT_MAX = 8
 const WORKSPACE_MEMORY_STORAGE_KEY = 'gtoffice.shell.lastWorkspace.v1'
 const WORKSPACE_AUTO_OPEN_DEBOUNCE_MS = 420
 const WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS = 560
@@ -262,22 +266,76 @@ function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
 }
 
-function loadCanvasLayoutPresetPreference(): WorkbenchLayoutPreset {
+function clampCanvasLayoutValue(value: number): number {
+  return Math.max(CANVAS_LAYOUT_MIN, Math.min(CANVAS_LAYOUT_MAX, Math.round(value)))
+}
+
+function normalizeCanvasCustomLayout(layout: Partial<WorkbenchCustomLayout> | null | undefined): WorkbenchCustomLayout {
+  return {
+    columns: clampCanvasLayoutValue(layout?.columns ?? DEFAULT_CANVAS_CUSTOM_LAYOUT.columns),
+    rows: clampCanvasLayoutValue(layout?.rows ?? DEFAULT_CANVAS_CUSTOM_LAYOUT.rows),
+  }
+}
+
+function isWorkbenchLayoutMode(value: unknown): value is WorkbenchLayoutMode {
+  return value === 'auto' || value === 'focus' || value === 'custom'
+}
+
+function mapLegacyLayoutPreset(
+  preset: unknown,
+): { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } | null {
+  switch (preset) {
+    case 'auto':
+      return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+    case 'focus':
+      return { mode: 'focus', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+    case '1*1':
+      return { mode: 'custom', customLayout: { columns: 1, rows: 1 } }
+    case '1*2':
+      return { mode: 'custom', customLayout: { columns: 1, rows: 2 } }
+    case '2*1':
+      return { mode: 'custom', customLayout: { columns: 2, rows: 1 } }
+    case '2*2':
+      return { mode: 'custom', customLayout: { columns: 2, rows: 2 } }
+    case '3*2':
+      return { mode: 'custom', customLayout: { columns: 3, rows: 2 } }
+    case '4*2':
+      return { mode: 'custom', customLayout: { columns: 4, rows: 2 } }
+    default:
+      return null
+  }
+}
+
+function loadCanvasLayoutPreference(): { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } {
   if (typeof window === 'undefined') {
-    return 'auto'
+    return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
   }
   try {
     const raw = window.localStorage.getItem(SHELL_LAYOUT_STORAGE_KEY)
     if (!raw) {
-      return 'auto'
+      return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
     }
-    const parsed = JSON.parse(raw) as { canvasLayoutPreset?: WorkbenchLayoutPreset }
-    if (parsed.canvasLayoutPreset) {
-      return parsed.canvasLayoutPreset
+    const parsed = JSON.parse(raw) as {
+      canvasLayoutMode?: WorkbenchLayoutMode
+      canvasCustomLayout?: WorkbenchCustomLayout
+      canvasLayoutPreset?: string
     }
-    return 'auto'
+    if (isWorkbenchLayoutMode(parsed.canvasLayoutMode)) {
+      return {
+        mode: parsed.canvasLayoutMode,
+        customLayout: normalizeCanvasCustomLayout(parsed.canvasCustomLayout),
+      }
+    }
+    const legacy = mapLegacyLayoutPreset(parsed.canvasLayoutPreset)
+    if (legacy) {
+      return {
+        mode: legacy.mode,
+        customLayout: normalizeCanvasCustomLayout(legacy.customLayout),
+      }
+    }
+    return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
   } catch {
-    return 'auto'
+    return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
   }
 }
 
@@ -660,7 +718,9 @@ export function ShellRoot() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
-  const [canvasLayoutPreset, setCanvasLayoutPreset] = useState<WorkbenchLayoutPreset>(loadCanvasLayoutPresetPreference)
+  const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
+  const [canvasLayoutMode, setCanvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
+  const [canvasCustomLayout, setCanvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
@@ -1005,9 +1065,11 @@ export function ShellRoot() {
       SHELL_LAYOUT_STORAGE_KEY,
       JSON.stringify({
         leftPaneWidth,
+        canvasLayoutMode,
+        canvasCustomLayout,
       }),
     )
-  }, [leftPaneWidth])
+  }, [canvasCustomLayout, canvasLayoutMode, leftPaneWidth])
 
   const syncWindowFrameState = useCallback(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -3162,8 +3224,12 @@ export function ShellRoot() {
     setIsStationSearchOpen(true)
   }, [])
 
-  const handleCanvasLayoutPresetChange = useCallback((preset: WorkbenchLayoutPreset) => {
-    setCanvasLayoutPreset(preset)
+  const handleCanvasLayoutModeChange = useCallback((mode: WorkbenchLayoutMode) => {
+    setCanvasLayoutMode(mode)
+  }, [])
+
+  const handleCanvasCustomLayoutChange = useCallback((layout: WorkbenchCustomLayout) => {
+    setCanvasCustomLayout(normalizeCanvasCustomLayout(layout))
   }, [])
 
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
@@ -4067,9 +4133,6 @@ export function ShellRoot() {
                 onSelectStation={(stationId) => {
                   setActiveStationId(stationId)
                 }}
-                onOpenManageModal={() => {
-                  setIsStationManageOpen(true)
-                }}
                 onRemoveStation={(stationId) => {
                   void removeStation(stationId)
                 }}
@@ -4147,8 +4210,10 @@ export function ShellRoot() {
               onResizeTerminal={resizeStationTerminal}
               onBindTerminalSink={bindStationTerminalSink}
               onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
-              layoutPreset={canvasLayoutPreset}
-              onLayoutPresetChange={handleCanvasLayoutPresetChange}
+              layoutMode={canvasLayoutMode}
+              customLayout={canvasCustomLayout}
+              onLayoutModeChange={handleCanvasLayoutModeChange}
+              onCustomLayoutChange={handleCanvasCustomLayoutChange}
               scrollToStationId={pendingScrollStationId}
               onScrollToStationHandled={handleCanvasScrollToStationHandled}
               onOpenStationManage={handleCanvasOpenStationManage}

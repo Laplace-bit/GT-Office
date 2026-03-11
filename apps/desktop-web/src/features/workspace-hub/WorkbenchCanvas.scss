@@ -49,6 +49,33 @@
   gap: 2px;
 }
 
+.canvas-layout-custom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--vb-chip);
+  border-radius: 10px;
+}
+
+.canvas-layout-custom-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vb-text-muted);
+  font-size: 11px;
+
+  span {
+    min-width: 18px;
+  }
+}
+
+.canvas-layout-custom-input {
+  width: 54px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
 .canvas-layout-preset-btn {
   width: 28px;
   height: 28px;
@@ -68,6 +95,11 @@
 .canvas-layout-preset-auto {
   font-weight: 700;
   font-size: 10px;
+}
+
+.canvas-layout-preset-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .canvas-layout-preset-glyph {
@@ -181,6 +213,16 @@
 }
 
 @media (max-width: 1200px) {
+  .canvas-header {
+    padding: 10px 12px;
+  }
+
+  .canvas-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   .station-grid.focus-mode {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 160px;

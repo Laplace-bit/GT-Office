@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import {
@@ -76,9 +77,7 @@ const FileTab = memo(function FileTab({
         onClick={onClose}
         aria-label="Close"
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        <X width={12} height={12} strokeWidth={1.9} aria-hidden="true" />
       </button>
     </div>
   )
@@ -301,7 +300,7 @@ export function FileEditorPane({
       {activeFilePath && (
         <div className="file-editor-info-bar">
           <span className="file-editor-mini-path" title={activeFilePath}>
-            {getFileName(activeFilePath)}
+            {activeFilePath}
           </span>
           <div className="file-editor-status-group">
             {isReadOnly ? (
