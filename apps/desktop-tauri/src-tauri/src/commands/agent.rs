@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use vb_abstractions::{WorkspaceId, WorkspaceService};
-use vb_agent::{AgentRepository, AgentState, CreateAgentInput};
+use vb_agent::{AgentRepository, AgentState, CreateAgentInput, UpdateAgentInput};
 use vb_storage::{SqliteAgentRepository, SqliteStorage};
 
 use crate::app_state::AppState;
@@ -95,6 +95,9 @@ pub struct AgentCreateRequest {
     pub agent_id: Option<String>,
     pub name: String,
     pub role_id: String,
+    pub tool: Option<String>,
+    pub workdir: Option<String>,
+    pub custom_workdir: Option<bool>,
     pub employee_no: Option<String>,
     pub state: Option<String>,
 }
@@ -117,6 +120,11 @@ pub fn agent_create(
         agent_id: request.agent_id,
         name: request.name,
         role_id: request.role_id,
+        tool: request
+            .tool
+            .unwrap_or_else(|| "codex cli".to_string()),
+        workdir: request.workdir.filter(|value| !value.trim().is_empty()),
+        custom_workdir: request.custom_workdir.unwrap_or(false),
         employee_no: request.employee_no,
         state: agent_state,
     };
@@ -124,4 +132,73 @@ pub fn agent_create(
     let agent = repo.create_agent(input).map_err(to_command_error)?;
     let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "agent": agent }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentUpdateRequest {
+    pub workspace_id: String,
+    pub agent_id: String,
+    pub name: String,
+    pub role_id: String,
+    pub tool: Option<String>,
+    pub workdir: Option<String>,
+    pub custom_workdir: Option<bool>,
+    pub employee_no: Option<String>,
+    pub state: Option<String>,
+}
+
+#[tauri::command]
+pub fn agent_update(
+    request: AgentUpdateRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    ensure_workspace_exists(&state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(&app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    repo.seed_defaults(&request.workspace_id)
+        .map_err(to_command_error)?;
+    let agent_state = parse_agent_state(request.state)?;
+
+    let input = UpdateAgentInput {
+        workspace_id: request.workspace_id.clone(),
+        agent_id: request.agent_id,
+        name: request.name,
+        role_id: request.role_id,
+        tool: request
+            .tool
+            .unwrap_or_else(|| "codex cli".to_string()),
+        workdir: request.workdir.filter(|value| !value.trim().is_empty()),
+        custom_workdir: request.custom_workdir.unwrap_or(false),
+        employee_no: request.employee_no,
+        state: agent_state,
+    };
+
+    let agent = repo.update_agent(input).map_err(to_command_error)?;
+    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    Ok(json!({ "agent": agent }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDeleteRequest {
+    pub workspace_id: String,
+    pub agent_id: String,
+}
+
+#[tauri::command]
+pub fn agent_delete(
+    request: AgentDeleteRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    ensure_workspace_exists(&state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(&app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    let deleted = repo
+        .delete_agent(&request.workspace_id, &request.agent_id)
+        .map_err(to_command_error)?;
+    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    Ok(json!({ "deleted": deleted }))
 }

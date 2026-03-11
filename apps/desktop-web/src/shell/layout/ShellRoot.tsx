@@ -42,11 +42,13 @@ import {
 } from '@features/tool-adapter'
 import {
   createDefaultStations,
+  mapAgentProfileToStation,
   StationManageModal,
   StationSearchModal,
   WorkbenchCanvas,
   type AgentStation,
   type CreateStationInput,
+  type UpdateStationInput,
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
@@ -80,6 +82,7 @@ import {
   type ExternalChannelInboundPayload,
   type ExternalChannelReplyPayload,
   type ExternalChannelRoutedPayload,
+  type AgentRole,
   type AgentRuntimeRegisterRequest,
   type ChannelRouteBinding,
   desktopApi,
@@ -670,6 +673,16 @@ function createStationFromNumber(
   }
 }
 
+function createStationEditInput(station: AgentStation): UpdateStationInput {
+  return {
+    id: station.id,
+    name: station.name,
+    role: station.role,
+    tool: station.tool,
+    workdir: station.agentWorkdirRel,
+  }
+}
+
 function isAmbientLightingIntensity(value: unknown): value is AmbientLightingIntensity {
   return value === 'low' || value === 'medium' || value === 'high'
 }
@@ -717,6 +730,10 @@ export function ShellRoot() {
   const [activeNavId, setActiveNavId] = useState<NavItemId>('stations')
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
+  const [editingStation, setEditingStation] = useState<UpdateStationInput | null>(null)
+  const [agentRoles, setAgentRoles] = useState<AgentRole[]>([])
+  const [stationSavePending, setStationSavePending] = useState(false)
+  const [stationDeletePendingId, setStationDeletePendingId] = useState<string | null>(null)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
   const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
   const [canvasLayoutMode, setCanvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
@@ -3057,14 +3074,75 @@ export function ShellRoot() {
     clearTaskMentionSearch()
   }, [activeWorkspaceId, clearTaskMentionSearch])
 
+  const loadStationsFromDatabase = useCallback(
+    async (workspaceId: string) => {
+      const [roleResponse, agentResponse] = await Promise.all([
+        desktopApi.agentRoleList(workspaceId),
+        desktopApi.agentList(workspaceId),
+      ])
+      const activeRoles = roleResponse.roles.filter((role) => role.status !== 'disabled')
+      const roleMap = new Map(activeRoles.map((role) => [role.id, role]))
+      setAgentRoles(activeRoles)
+      setStations(
+        agentResponse.agents
+          .map((agent) => mapAgentProfileToStation(agent, roleMap))
+          .filter((station): station is AgentStation => station !== null),
+      )
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      setAgentRoles([])
+      return
+    }
+    if (!activeWorkspaceId) {
+      setAgentRoles([])
+      setStations([])
+      return
+    }
+    void loadStationsFromDatabase(activeWorkspaceId).catch((error) => {
+      console.error('failed to load agents', error)
+    })
+  }, [activeWorkspaceId, loadStationsFromDatabase])
+
   const addStation = useMemo(
-    () => (input: CreateStationInput) => {
+    () => async (input: CreateStationInput) => {
       if (normalizeStationWorkdirInput(input.workdir) === null) {
         window.alert(
           localeRef.current === 'zh-CN'
             ? '工作目录必须是工作区内的相对路径，不支持绝对路径或 .. 越界。'
             : 'Work directory must be a workspace-relative path without absolute path or "..".',
         )
+        return
+      }
+      if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
+        const matchedRole = agentRoles.find((role) => role.roleKey === input.role)
+        if (!matchedRole) {
+          window.alert(
+            localeRef.current === 'zh-CN'
+              ? '未找到可用角色定义，请先检查数据库角色配置。'
+              : 'No matching role definition was found in the database.',
+          )
+          return
+        }
+        setStationSavePending(true)
+        try {
+          await desktopApi.agentCreate({
+            workspaceId: activeWorkspaceId,
+            name: input.name,
+            roleId: matchedRole.id,
+            tool: input.tool,
+            workdir: input.workdir,
+            customWorkdir: true,
+            state: 'ready',
+          })
+          await loadStationsFromDatabase(activeWorkspaceId)
+          setIsStationManageOpen(false)
+        } finally {
+          setStationSavePending(false)
+        }
         return
       }
       const number = stationCounterRef.current
@@ -3085,7 +3163,67 @@ export function ShellRoot() {
       stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
       setActiveStationId(station.id)
     },
-    [activeWorkspaceId],
+    [activeWorkspaceId, agentRoles, loadStationsFromDatabase],
+  )
+
+  const updateStation = useMemo(
+    () => async (stationId: string, input: CreateStationInput) => {
+      if (normalizeStationWorkdirInput(input.workdir) === null) {
+        window.alert(
+          localeRef.current === 'zh-CN'
+            ? '工作目录必须是工作区内的相对路径，不支持绝对路径或 .. 越界。'
+            : 'Work directory must be a workspace-relative path without absolute path or "..".',
+        )
+        return
+      }
+      if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
+        const matchedRole = agentRoles.find((role) => role.roleKey === input.role)
+        if (!matchedRole) {
+          window.alert(
+            localeRef.current === 'zh-CN'
+              ? '未找到可用角色定义，请先检查数据库角色配置。'
+              : 'No matching role definition was found in the database.',
+          )
+          return
+        }
+        setStationSavePending(true)
+        try {
+          await desktopApi.agentUpdate({
+            workspaceId: activeWorkspaceId,
+            agentId: stationId,
+            name: input.name,
+            roleId: matchedRole.id,
+            tool: input.tool,
+            workdir: input.workdir,
+            customWorkdir: true,
+            state: 'ready',
+          })
+          await loadStationsFromDatabase(activeWorkspaceId)
+          setIsStationManageOpen(false)
+          setEditingStation(null)
+        } finally {
+          setStationSavePending(false)
+        }
+        return
+      }
+      setStations((prev) =>
+        prev.map((s) => {
+          if (s.id !== stationId) return s
+          return {
+            ...s,
+            name: input.name,
+            role: input.role,
+            tool: input.tool,
+            agentWorkdirRel: input.workdir,
+            roleWorkdirRel: buildRoleWorkdirRel(input.role),
+            customWorkdir: true,
+          }
+        }),
+      )
+      setIsStationManageOpen(false)
+      setEditingStation(null)
+    },
+    [activeWorkspaceId, agentRoles, loadStationsFromDatabase],
   )
 
   const removeStation = useMemo(
@@ -3178,12 +3316,32 @@ export function ShellRoot() {
       })
       const workspaceId = activeWorkspaceIdRef.current
       if (workspaceId && desktopApi.isTauriRuntime()) {
+        setStationDeletePendingId(stationId)
+        try {
+          await desktopApi.agentDelete({
+            workspaceId,
+            agentId: stationId,
+          })
+          await loadStationsFromDatabase(workspaceId)
+        } finally {
+          setStationDeletePendingId(null)
+        }
+      }
+      if (workspaceId && desktopApi.isTauriRuntime()) {
         void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
           // Runtime sync effect will retry if this one fails.
         })
       }
+      setIsStationManageOpen(false)
+      setEditingStation(null)
     },
-    [appendStationTerminalOutput, clearStationTaskSignalTimer, locale, setStationTerminalState],
+    [
+      appendStationTerminalOutput,
+      clearStationTaskSignalTimer,
+      loadStationsFromDatabase,
+      locale,
+      setStationTerminalState,
+    ],
   )
 
   const canvasStations = useMemo(() => {
@@ -3217,6 +3375,7 @@ export function ShellRoot() {
   )
 
   const handleCanvasOpenStationManage = useCallback(() => {
+    setEditingStation(null)
     setIsStationManageOpen(true)
   }, [])
 
@@ -4133,8 +4292,9 @@ export function ShellRoot() {
                 onSelectStation={(stationId) => {
                   setActiveStationId(stationId)
                 }}
-                onRemoveStation={(stationId) => {
-                  void removeStation(stationId)
+                onEditStation={(station) => {
+                  setEditingStation(createStationEditInput(station))
+                  setIsStationManageOpen(true)
                 }}
               />
             ) : activeNavId === 'git' ? (
@@ -4284,13 +4444,23 @@ export function ShellRoot() {
       <StationManageModal
         open={isStationManageOpen}
         locale={locale}
+        roles={agentRoles}
+        editingStation={editingStation}
+        saving={stationSavePending}
+        deleting={stationDeletePendingId === editingStation?.id}
         onClose={() => {
           setIsStationManageOpen(false)
+          setEditingStation(null)
         }}
         onPickWorkdir={handlePickStationWorkdir}
         onSubmit={(input) => {
-          addStation(input)
+          if (editingStation) {
+            void updateStation(editingStation.id, input)
+          } else {
+            void addStation(input)
+          }
         }}
+        onDelete={(stationId) => removeStation(stationId)}
       />
 
       <StationSearchModal

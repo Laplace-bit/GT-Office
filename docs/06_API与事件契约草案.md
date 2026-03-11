@@ -160,7 +160,11 @@ MCP Bridge（T-171）：
 |---|---|---|
 | `agent.department_list` | `workspaceId` | `departments[]` |
 | `agent.role_list` | `workspaceId` | `roles[]` |
-| `agent.list/create/update_state/assign_task` | 对应字段 | `agents/agent/updated/taskId` |
+| `agent.list` | `workspaceId` | `agents[]` |
+| `agent.create` | `workspaceId,name,roleId,tool?,workdir?,customWorkdir?,employeeNo?,state?` | `agent` |
+| `agent.update` | `workspaceId,agentId,name,roleId,tool?,workdir?,customWorkdir?,employeeNo?,state?` | `agent` |
+| `agent.delete` | `workspaceId,agentId` | `deleted` |
+| `agent.update_state/assign_task` | 对应字段 | `updated/taskId` |
 | `hook.list/register/toggle/run_history` | 对应字段 | `subscriptions/hookId/updated/runs` |
 | `policy.preview_charter/get_snapshot/evaluate` | 对应字段 | `valid/snapshot/allowed` |
 | `obs.query_graph/query_timeline` | 对应字段 | `nodes+edges/events` |

@@ -113,6 +113,8 @@ pub fn run() {
             agent::agent_role_list,
             agent::agent_list,
             agent::agent_create,
+            agent::agent_update,
+            agent::agent_delete,
             file_explorer::fs_list_dir,
             file_explorer::fs_read_file,
             file_explorer::fs_read_file_full,

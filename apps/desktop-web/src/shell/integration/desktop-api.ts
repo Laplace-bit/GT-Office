@@ -558,6 +558,9 @@ export interface AgentProfile {
   workspaceId: string
   name: string
   roleId: string
+  tool: string
+  workdir?: string | null
+  customWorkdir: boolean
   state: AgentState
   employeeNo?: string | null
   policySnapshotId?: string | null
@@ -582,12 +585,40 @@ export interface AgentCreateRequest {
   agentId?: string | null
   name: string
   roleId: string
+  tool?: string | null
+  workdir?: string | null
+  customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
 }
 
 export interface AgentCreateResponse {
   agent: AgentProfile
+}
+
+export interface AgentUpdateRequest {
+  workspaceId: string
+  agentId: string
+  name: string
+  roleId: string
+  tool?: string | null
+  workdir?: string | null
+  customWorkdir?: boolean
+  employeeNo?: string | null
+  state?: AgentState
+}
+
+export interface AgentUpdateResponse {
+  agent: AgentProfile
+}
+
+export interface AgentDeleteRequest {
+  workspaceId: string
+  agentId: string
+}
+
+export interface AgentDeleteResponse {
+  deleted: boolean
 }
 
 export interface AgentRuntimeRegisterRequest {
@@ -1444,8 +1475,34 @@ export const desktopApi = {
         agentId: request.agentId ?? null,
         name: request.name,
         roleId: request.roleId,
+        tool: request.tool ?? null,
+        workdir: request.workdir ?? null,
+        customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+      },
+    })
+  },
+  agentUpdate(request: AgentUpdateRequest) {
+    return invokeCommand<AgentUpdateResponse>('agent_update', {
+      request: {
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
+        name: request.name,
+        roleId: request.roleId,
+        tool: request.tool ?? null,
+        workdir: request.workdir ?? null,
+        customWorkdir: request.customWorkdir ?? false,
+        employeeNo: request.employeeNo ?? null,
+        state: request.state ?? null,
+      },
+    })
+  },
+  agentDelete(request: AgentDeleteRequest) {
+    return invokeCommand<AgentDeleteResponse>('agent_delete', {
+      request: {
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
       },
     })
   },

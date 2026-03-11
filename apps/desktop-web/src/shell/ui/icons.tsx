@@ -41,6 +41,7 @@ import {
   SquareTerminal,
   Trash2,
   Undo2,
+  UserPen,
   Workflow,
   X,
   Zap,
@@ -91,6 +92,7 @@ export type AppIconName =
   | 'feishu'
   | 'activity'
   | 'pencil'
+  | 'user-pen'
   | 'info'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
@@ -138,6 +140,7 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   feishu: MessageCircle,
   activity: Activity,
   pencil: Pencil,
+  'user-pen': UserPen,
   info: Info,
 }
 

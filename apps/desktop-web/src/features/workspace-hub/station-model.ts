@@ -1,3 +1,4 @@
+import type { AgentProfile, AgentRole } from '@shell/integration/desktop-api'
 import { buildStationWorkdirs, type StationRole } from '@features/workspace'
 
 export type { StationRole } from '@features/workspace'
@@ -7,6 +8,10 @@ export interface CreateStationInput {
   role: StationRole
   tool: string
   workdir: string
+}
+
+export interface UpdateStationInput extends CreateStationInput {
+  id: string
 }
 
 export const stationRoleOrder: StationRole[] = ['manager', 'product', 'build', 'quality_release']
@@ -22,6 +27,35 @@ export interface AgentStation {
   terminalSessionId: string
   state: 'running' | 'idle' | 'blocked'
   workspaceId: string
+}
+
+function isStationRole(value: string): value is StationRole {
+  return value === 'manager' || value === 'product' || value === 'build' || value === 'quality_release'
+}
+
+export function mapAgentProfileToStation(
+  agent: AgentProfile,
+  rolesById: Map<string, AgentRole>,
+): AgentStation | null {
+  const role = rolesById.get(agent.roleId)
+  if (!role || !isStationRole(role.roleKey)) {
+    return null
+  }
+  const fallbackWorkdirs = buildStationWorkdirs(role.roleKey, agent.id)
+  const normalizedWorkdir = agent.workdir?.trim() ?? ''
+  const customWorkdir = agent.customWorkdir && normalizedWorkdir.length > 0
+  return {
+    id: agent.id,
+    name: agent.name,
+    role: role.roleKey,
+    roleWorkdirRel: fallbackWorkdirs.roleWorkdirRel,
+    agentWorkdirRel: customWorkdir ? normalizedWorkdir : fallbackWorkdirs.agentWorkdirRel,
+    customWorkdir,
+    tool: agent.tool?.trim() ? agent.tool.trim() : 'codex cli',
+    terminalSessionId: '',
+    state: agent.state === 'blocked' ? 'blocked' : 'idle',
+    workspaceId: agent.workspaceId,
+  }
 }
 
 type DefaultStationSeed = Omit<AgentStation, 'roleWorkdirRel' | 'agentWorkdirRel' | 'customWorkdir'>

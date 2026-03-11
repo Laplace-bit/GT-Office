@@ -19,6 +19,23 @@ pub struct CreateAgentInput {
     pub agent_id: Option<String>,
     pub name: String,
     pub role_id: String,
+    pub tool: String,
+    pub workdir: Option<String>,
+    pub custom_workdir: bool,
+    pub employee_no: Option<String>,
+    pub state: AgentState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAgentInput {
+    pub workspace_id: String,
+    pub agent_id: String,
+    pub name: String,
+    pub role_id: String,
+    pub tool: String,
+    pub workdir: Option<String>,
+    pub custom_workdir: bool,
     pub employee_no: Option<String>,
     pub state: AgentState,
 }
@@ -30,6 +47,8 @@ pub trait AgentRepository: Send + Sync {
     fn list_roles(&self, workspace_id: &str) -> AgentResult<Vec<AgentRole>>;
     fn list_agents(&self, workspace_id: &str) -> AgentResult<Vec<AgentProfile>>;
     fn create_agent(&self, input: CreateAgentInput) -> AgentResult<AgentProfile>;
+    fn update_agent(&self, input: UpdateAgentInput) -> AgentResult<AgentProfile>;
+    fn delete_agent(&self, workspace_id: &str, agent_id: &str) -> AgentResult<bool>;
     fn upsert_role(&self, workspace_id: &str, role: AgentRole) -> AgentResult<AgentRole>;
     fn set_role_status(
         &self,

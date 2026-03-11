@@ -179,6 +179,18 @@
       transform: translateY(-1px);
     }
   }
+
+  &.danger {
+    background: color-mix(in srgb, var(--vb-error-bg) 80%, transparent);
+    color: var(--vb-error);
+    border: 1px solid color-mix(in srgb, var(--vb-error) 28%, transparent);
+
+    &:hover {
+      background: var(--vb-error);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+  }
   
   &:not(.subtle) {
     background: var(--vb-accent);
@@ -200,6 +212,13 @@
   .vb-icon {
     width: 14px;
     height: 14px;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 }
 

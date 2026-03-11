@@ -2,7 +2,8 @@ use crate::sqlite::SqliteStorage;
 use rusqlite::{params, OptionalExtension};
 use vb_agent::{
     AgentError, AgentProfile, AgentRepository, AgentResult, AgentRole, AgentState,
-    CreateAgentInput, OrganizationDepartment, RoleStatus, DEFAULT_DEPARTMENTS, DEFAULT_ROLES,
+    CreateAgentInput, OrganizationDepartment, RoleStatus, UpdateAgentInput, DEFAULT_DEPARTMENTS,
+    DEFAULT_ROLES,
 };
 
 #[derive(Debug, Clone)]
@@ -70,6 +71,9 @@ CREATE TABLE IF NOT EXISTS agents (
   workspace_id TEXT NOT NULL,
   name TEXT NOT NULL,
   role_id TEXT NOT NULL,
+  tool TEXT NOT NULL DEFAULT 'codex cli',
+  workdir TEXT,
+  custom_workdir INTEGER NOT NULL DEFAULT 0,
   state TEXT NOT NULL,
   employee_no TEXT,
   policy_snapshot_id TEXT,
@@ -96,6 +100,44 @@ impl AgentRepository for SqliteAgentRepository {
             .map_err(|error| AgentError::Storage {
                 message: error.to_string(),
             })?;
+        let existing_columns = {
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(agents)")
+                .map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?;
+            let mut columns = Vec::new();
+            for row in rows {
+                columns.push(row.map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?);
+            }
+            columns
+        };
+        for statement in [
+            (
+                "tool",
+                "ALTER TABLE agents ADD COLUMN tool TEXT NOT NULL DEFAULT 'codex cli'",
+            ),
+            ("workdir", "ALTER TABLE agents ADD COLUMN workdir TEXT"),
+            (
+                "custom_workdir",
+                "ALTER TABLE agents ADD COLUMN custom_workdir INTEGER NOT NULL DEFAULT 0",
+            ),
+        ] {
+            if existing_columns.iter().any(|column| column == statement.0) {
+                continue;
+            }
+            conn.execute(statement.1, [])
+                .map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?;
+        }
         Ok(())
     }
 
@@ -237,24 +279,27 @@ impl AgentRepository for SqliteAgentRepository {
         let conn = self.connection()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, workspace_id, name, role_id, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms FROM agents WHERE workspace_id = ?1 ORDER BY created_at_ms",
+                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms FROM agents WHERE workspace_id = ?1 ORDER BY created_at_ms",
             )
             .map_err(|error| AgentError::Storage {
                 message: error.to_string(),
             })?;
         let rows = stmt
             .query_map(params![workspace_id], |row| {
-                let state: String = row.get(4)?;
+                let state: String = row.get(7)?;
                 Ok(AgentProfile {
                     id: row.get(0)?,
                     workspace_id: row.get(1)?,
                     name: row.get(2)?,
                     role_id: row.get(3)?,
+                    tool: row.get(4)?,
+                    workdir: row.get(5)?,
+                    custom_workdir: row.get::<_, i32>(6)? != 0,
                     state: AgentState::from_str(state.as_str()),
-                    employee_no: row.get(5)?,
-                    policy_snapshot_id: row.get(6)?,
-                    created_at_ms: row.get(7)?,
-                    updated_at_ms: row.get(8)?,
+                    employee_no: row.get(8)?,
+                    policy_snapshot_id: row.get(9)?,
+                    created_at_ms: row.get(10)?,
+                    updated_at_ms: row.get(11)?,
                 })
             })
             .map_err(|error| AgentError::Storage {
@@ -279,6 +324,11 @@ impl AgentRepository for SqliteAgentRepository {
         if input.role_id.trim().is_empty() {
             return Err(AgentError::InvalidArgument {
                 message: "role_id is required".to_string(),
+            });
+        }
+        if input.tool.trim().is_empty() {
+            return Err(AgentError::InvalidArgument {
+                message: "tool is required".to_string(),
             });
         }
 
@@ -306,12 +356,15 @@ impl AgentRepository for SqliteAgentRepository {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         conn.execute(
-            "INSERT INTO agents (id, workspace_id, name, role_id, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8)",
+            "INSERT INTO agents (id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11)",
             params![
                 agent_id,
                 input.workspace_id,
                 input.name,
                 input.role_id,
+                input.tool,
+                input.workdir,
+                if input.custom_workdir { 1 } else { 0 },
                 input.state.as_str(),
                 input.employee_no,
                 now_ms,
@@ -327,12 +380,117 @@ impl AgentRepository for SqliteAgentRepository {
             workspace_id: input.workspace_id,
             name: input.name,
             role_id: input.role_id,
+            tool: input.tool,
+            workdir: input.workdir,
+            custom_workdir: input.custom_workdir,
             state: input.state,
             employee_no: input.employee_no,
             policy_snapshot_id: None,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
         })
+    }
+
+    fn update_agent(&self, input: UpdateAgentInput) -> AgentResult<AgentProfile> {
+        if input.agent_id.trim().is_empty() {
+            return Err(AgentError::InvalidArgument {
+                message: "agent_id is required".to_string(),
+            });
+        }
+        if input.name.trim().is_empty() {
+            return Err(AgentError::InvalidArgument {
+                message: "agent name is required".to_string(),
+            });
+        }
+        if input.role_id.trim().is_empty() {
+            return Err(AgentError::InvalidArgument {
+                message: "role_id is required".to_string(),
+            });
+        }
+        if input.tool.trim().is_empty() {
+            return Err(AgentError::InvalidArgument {
+                message: "tool is required".to_string(),
+            });
+        }
+
+        let conn = self.connection()?;
+        let existing_agent: Option<(i64, Option<String>)> = conn
+            .query_row(
+                "SELECT created_at_ms, policy_snapshot_id FROM agents WHERE workspace_id = ?1 AND id = ?2",
+                params![input.workspace_id, input.agent_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        let Some((created_at_ms, policy_snapshot_id)) = existing_agent else {
+            return Err(AgentError::InvalidArgument {
+                message: "agent_id not found".to_string(),
+            });
+        };
+        let role_exists: Option<String> = conn
+            .query_row(
+                "SELECT id FROM agent_roles WHERE workspace_id = ?1 AND id = ?2",
+                params![input.workspace_id, input.role_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        if role_exists.is_none() {
+            return Err(AgentError::InvalidArgument {
+                message: "role_id not found".to_string(),
+            });
+        }
+
+        let now_ms = Self::now_ms();
+        conn.execute(
+            "UPDATE agents SET name = ?1, role_id = ?2, tool = ?3, workdir = ?4, custom_workdir = ?5, state = ?6, employee_no = ?7, updated_at_ms = ?8 WHERE workspace_id = ?9 AND id = ?10",
+            params![
+                input.name,
+                input.role_id,
+                input.tool,
+                input.workdir,
+                if input.custom_workdir { 1 } else { 0 },
+                input.state.as_str(),
+                input.employee_no,
+                now_ms,
+                input.workspace_id,
+                input.agent_id,
+            ],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        Ok(AgentProfile {
+            id: input.agent_id,
+            workspace_id: input.workspace_id,
+            name: input.name,
+            role_id: input.role_id,
+            tool: input.tool,
+            workdir: input.workdir,
+            custom_workdir: input.custom_workdir,
+            state: input.state,
+            employee_no: input.employee_no,
+            policy_snapshot_id,
+            created_at_ms,
+            updated_at_ms: now_ms,
+        })
+    }
+
+    fn delete_agent(&self, workspace_id: &str, agent_id: &str) -> AgentResult<bool> {
+        let conn = self.connection()?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM agents WHERE workspace_id = ?1 AND id = ?2",
+                params![workspace_id, agent_id],
+            )
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        Ok(deleted > 0)
     }
 
     fn upsert_role(&self, workspace_id: &str, role: AgentRole) -> AgentResult<AgentRole> {

@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 20px 16px;
+  padding: 16px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -14,112 +14,59 @@
   &::-webkit-scrollbar { display: none; }
 }
 
-/* 顶部概览 Header */
-.station-overview-header {
-  margin-bottom: 24px;
-  padding: 0 4px;
+/* 聚合统计卡片 */
+.station-overview-aggregated-metrics {
+  margin-bottom: 20px;
+}
 
-  .station-overview-title-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
+.metrics-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--vb-glass-lighter);
+  backdrop-filter: blur(12px);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 0 0 1px var(--vb-border-subtle), var(--vb-shadow-sm);
+  transition: all 0.3s ease;
 
-    h2 {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: var(--vb-text);
-      margin: 0;
-    }
+  &:hover {
+    box-shadow: 0 0 0 1px var(--vb-border-strong), var(--vb-shadow-md);
+  }
+}
 
-    .station-count-badge {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--vb-accent);
-      background: var(--vb-accent-light);
-      padding: 2px 8px;
-      border-radius: 999px;
-      opacity: 0.9;
-    }
+.metrics-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+
+  strong {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--vb-text);
+    font-family: var(--vb-font-mono);
+
+    &.status-running { color: #28c840; }
+    &.status-blocked { color: #febc2e; }
   }
 
-  p {
-    font-size: 12px;
+  span {
+    font-size: 9px;
+    font-weight: 600;
     color: var(--vb-text-muted);
-    margin: 6px 0 0;
-    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
   }
 }
 
-/* 核心指标区域 */
-.station-overview-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin-bottom: 28px;
-
-  article {
-    background: var(--vb-glass-lighter);
-    backdrop-filter: blur(10px);
-    border-radius: 14px;
-    padding: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
-    box-shadow: 0 0 0 1px var(--vb-border-subtle);
-
-    &:hover {
-      background: var(--vb-glass-lighter-hover);
-      transform: translateY(-2px);
-      box-shadow: 0 0 0 1px var(--vb-border-strong), var(--vb-shadow-sm);
-    }
-
-    strong {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--vb-text);
-      font-family: var(--vb-font-mono);
-    }
-
-    span {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--vb-text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-  }
-}
-
-/* 部门分组样式 */
-.station-department-section {
-  margin-bottom: 24px;
-
-  .department-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-    padding: 0 4px;
-
-    span {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--vb-text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      white-space: nowrap;
-    }
-
-    &::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: linear-gradient(90deg, var(--vb-border-subtle), transparent);
-    }
-  }
+.metrics-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--vb-border-subtle);
+  margin: 0 8px;
 }
 
 /* 筛选器区域 */
@@ -213,6 +160,7 @@
   }
 }
 
+/* 角色列表 */
 .station-overview-list {
   list-style: none;
   padding: 0;
@@ -222,7 +170,7 @@
   gap: 10px;
 }
 
-/* 角色卡片行 */
+/* 角色卡片行 - 匹配 StationCard 风格 */
 .station-overview-row {
   position: relative;
   background: var(--vb-glass-lighter);
@@ -232,33 +180,70 @@
   align-items: center;
   gap: 14px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 0 1px var(--vb-border-subtle);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 取消物理 border，改用投影模拟，确保等宽 */
+  border: none;
+  box-shadow: 0 0 0 1px var(--vb-border-subtle), var(--vb-shadow-sm);
   overflow: hidden;
+  margin: 2px; /* 关键：防止 box-shadow 被父元素遮挡 */
+
+  /* 模仿 StationCard 的 ::after 边挡，解决锯齿和深色背景遮挡 */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    border: 1px solid transparent;
+    transition: border-color 0.25s ease;
+    z-index: 10;
+  }
 
   &:hover {
     background: var(--vb-glass-lighter-hover);
-    transform: translateX(4px);
-    box-shadow: 0 0 0 1px var(--vb-border-strong), var(--vb-shadow-sm);
-    
-    .station-overview-remove { opacity: 1; transform: translateX(0); }
+    box-shadow: 0 0 0 1px var(--vb-border-strong), var(--vb-shadow-md);
   }
 
   &.active {
+    z-index: 10;
     background: var(--vb-accent-light);
-    box-shadow: 0 0 0 1.5px var(--vb-accent);
-    
-    .station-overview-select strong { color: var(--vb-accent); }
-    &::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 4px;
-      background: var(--vb-accent);
+    /* 与 StationCard 一致的激活投影效果 */
+    box-shadow: 
+      0 0 0 1.5px var(--vb-accent), 
+      0 8px 32px color-mix(in srgb, var(--vb-accent) 20%, transparent);
+    transform: translateZ(0);
+
+    &::after {
+      border-color: rgba(255, 255, 255, 0.1);
     }
+
+    .station-overview-select strong { color: var(--vb-accent); }
   }
+}
+
+.station-overview-edit {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--vb-glass-lighter);
+  border: 1px solid var(--vb-border);
+  color: var(--vb-text-muted);
+  opacity: 1;
+  transform: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--vb-glass-lighter-hover);
+    color: var(--vb-text);
+    border-color: var(--vb-border-strong);
+  }
+
+  .vb-icon { width: 14px; height: 14px; }
 }
 
 .station-overview-select {
@@ -282,10 +267,11 @@
     font-size: 11px;
     color: var(--vb-text-muted);
     font-weight: 500;
+    font-family: var(--vb-font-mono);
   }
 }
 
-/* 状态指示灯 - 未来感呼吸灯设计 */
+/* 状态指示灯 */
 .station-overview-state-indicator {
   position: relative;
   width: 8px;
@@ -342,10 +328,12 @@
   justify-content: center;
   border-radius: 8px;
   background: var(--vb-error-bg);
+  border: 0;
   color: var(--vb-error);
   opacity: 0;
   transform: translateX(10px);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
 
   &:hover {
     background: var(--vb-error);

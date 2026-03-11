@@ -21,7 +21,7 @@ interface StationOverviewPaneProps {
   view: StationOverviewState
   onViewChange: (patch: Partial<StationOverviewState>) => void
   onSelectStation: (stationId: string) => void
-  onRemoveStation: (stationId: string) => void
+  onEditStation: (station: AgentStation) => void
 }
 
 interface StationOverviewRowProps {
@@ -30,7 +30,7 @@ interface StationOverviewRowProps {
   active: boolean
   state: string
   onSelectStation: (stationId: string) => void
-  onRemoveStation: (stationId: string) => void
+  onEditStation: (station: AgentStation) => void
 }
 
 const roleOptions: StationRole[] = ['manager', 'product', 'build', 'quality_release']
@@ -78,34 +78,33 @@ const StationOverviewRow = memo(function StationOverviewRow({
   active,
   state,
   onSelectStation,
-  onRemoveStation,
+  onEditStation,
 }: StationOverviewRowProps) {
   return (
-    <li className={active ? 'station-overview-row active' : 'station-overview-row'}>
+    <li
+      className={active ? 'station-overview-row active' : 'station-overview-row'}
+      onClick={() => onSelectStation(station.id)}
+    >
       <span
         className="station-overview-state-indicator"
         data-state={state}
         aria-hidden="true"
       />
-      <button
-        type="button"
-        className="station-overview-select"
-        onClick={() => onSelectStation(station.id)}
-      >
+      <div className="station-overview-select">
         <strong>{station.name}</strong>
         <span>{station.agentWorkdirRel}</span>
-      </button>
+      </div>
       <button
         type="button"
-        className="station-overview-remove"
+        className="station-overview-edit"
         onClick={(e) => {
           e.stopPropagation()
-          onRemoveStation(station.id)
+          onEditStation(station)
         }}
-        aria-label={t(locale, 'workbench.removeStation')}
-        title={t(locale, 'workbench.removeStation')}
+        aria-label={locale === 'zh-CN' ? '编辑角色' : 'Edit Role'}
+        title={locale === 'zh-CN' ? '编辑角色' : 'Edit Role'}
       >
-        <AppIcon name="close" className="vb-icon" aria-hidden="true" />
+        <AppIcon name="user-pen" className="vb-icon" aria-hidden="true" />
       </button>
     </li>
   )
@@ -119,7 +118,7 @@ export function StationOverviewPane({
   view,
   onViewChange,
   onSelectStation,
-  onRemoveStation,
+  onEditStation,
 }: StationOverviewPaneProps) {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const snapshot = useMemo(
@@ -135,31 +134,28 @@ export function StationOverviewPane({
 
   return (
     <aside className="station-overview-pane">
-      <header className="station-overview-header">
-        <div className="station-overview-title-row">
-          <h2>{t(locale, 'station.overview.title')}</h2>
-          <span className="station-count-badge">{stations.length}</span>
+      <section className="station-overview-aggregated-metrics" aria-label={localeIsZh ? '角色状态概览' : 'Role status overview'}>
+        <div className="metrics-summary-card">
+          <div className="metrics-item">
+            <strong>{snapshot.total}</strong>
+            <span>{t(locale, 'station.metrics.total')}</span>
+          </div>
+          <div className="metrics-divider" />
+          <div className="metrics-item">
+            <strong className="status-running">{snapshot.running}</strong>
+            <span>{t(locale, 'station.metrics.running')}</span>
+          </div>
+          <div className="metrics-divider" />
+          <div className="metrics-item">
+            <strong className="status-blocked">{snapshot.blocked}</strong>
+            <span>{t(locale, 'station.metrics.blocked')}</span>
+          </div>
+          <div className="metrics-divider" />
+          <div className="metrics-item">
+            <strong>{snapshot.idle}</strong>
+            <span>{t(locale, 'station.metrics.idle')}</span>
+          </div>
         </div>
-        <p>{t(locale, 'station.overview.subtitle')}</p>
-      </header>
-
-      <section className="station-overview-metrics" aria-label={localeIsZh ? '角色状态概览' : 'Role status overview'}>
-        <article>
-          <strong>{snapshot.total}</strong>
-          <span>{t(locale, 'station.metrics.total')}</span>
-        </article>
-        <article>
-          <strong>{snapshot.running}</strong>
-          <span>{t(locale, 'station.metrics.running')}</span>
-        </article>
-        <article>
-          <strong>{snapshot.blocked}</strong>
-          <span>{t(locale, 'station.metrics.blocked')}</span>
-        </article>
-        <article>
-          <strong>{snapshot.idle}</strong>
-          <span>{t(locale, 'station.metrics.idle')}</span>
-        </article>
       </section>
 
       <section className="station-overview-section">
@@ -234,10 +230,11 @@ export function StationOverviewPane({
             active={station.id === activeStationId}
             state={runtimeStateByStationId[station.id] ?? 'idle'}
             onSelectStation={onSelectStation}
-            onRemoveStation={onRemoveStation}
+            onEditStation={onEditStation}
           />
         ))}
       </ul>
+
     </aside>
   )
 }
