@@ -1,4 +1,4 @@
-import type { PaneModel } from './model'
+import type { PaneModel } from './navigation-model'
 
 interface LeftBusinessPaneProps {
   model: PaneModel

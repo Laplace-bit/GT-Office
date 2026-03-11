@@ -231,5 +231,5 @@ fn should_ignore_relative_path(path: &str, settings: &FilesystemWatcherSettings)
 }
 
 #[cfg(test)]
-#[path = "filesystem_watcher_tests.rs"]
+#[path = "tests/filesystem_watcher_tests.rs"]
 mod tests;

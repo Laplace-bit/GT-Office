@@ -2464,5 +2464,5 @@ fn suppress_injected_input_echo(text: &str, injected_input: Option<&str>) -> Str
 }
 
 #[cfg(test)]
-#[path = "app_state_tests.rs"]
+#[path = "tests/app_state_tests.rs"]
 mod tests;

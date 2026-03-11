@@ -6,43 +6,21 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
-import { ActivityRail } from './ActivityRail'
-import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
-import { FileEditorPane, type OpenedFile } from './FileEditorPane'
-import { FileTreePane } from './FileTreePane'
-import { GitHistoryPane, GitOperationsPane } from './GitPane'
-import { isNotGitRepositoryError, useGitWorkspaceController } from '@features/git'
-import { LeftBusinessPane } from './LeftBusinessPane'
-import { SettingsModal } from './SettingsModal'
-import { StationManageModal } from './StationManageModal'
-import { StationOverviewPane } from './StationOverviewPane'
-import { StationSearchModal } from './StationSearchModal'
-import { StatusBar } from './StatusBar'
-import { TaskCenterPane } from './TaskCenterPane'
-import { TopControlBar } from './TopControlBar'
-import type { StationTerminalSink } from './StationXtermTerminal'
-import { WorkbenchCanvas, type WorkbenchLayoutPreset } from './WorkbenchCanvas'
+import { FileEditorPane, FileTreePane, type OpenedFile } from '@features/file-explorer'
 import {
-  createDefaultStations,
-  getNavItems,
-  getPaneModels,
-  type AgentStation,
-  type CreateStationInput,
-  type NavItemId,
-} from './model'
-import { defaultStationOverviewState, filterStationsForOverview } from '@features/workspace'
+  GitHistoryPane,
+  GitOperationsPane,
+  isNotGitRepositoryError,
+  useGitWorkspaceController,
+} from '@features/git'
 import {
-  buildAgentWorkspaceMarkerPath,
-  buildRoleWorkdirRel,
-  buildStationWorkdirs,
-  buildWorkspaceSessionFilePath,
-  buildWorkspaceSessionSnapshot,
-  parseWorkspaceSessionSnapshot,
-  resolveAgentWorkdirAbs,
-  serializeWorkspaceSessionSnapshot,
-  type WorkspaceSessionTerminalSnapshot,
-} from '@features/workspace'
+  areShortcutBindingsEqual,
+  defaultShortcutBindings,
+  matchesShortcutEvent,
+  resolveShortcutBindingsFromSettings,
+} from '@features/keybindings'
 import {
+  TaskCenterPane,
   buildTaskDispatchCommand,
   areTaskTargetsEqual,
   buildTaskCenterDraftFilePath,
@@ -55,6 +33,45 @@ import {
   type TaskDispatchRecord,
   type TaskDraftState,
 } from '@features/task-center'
+import { SettingsModal } from '@features/settings'
+import type { StationTerminalSink } from '@features/terminal'
+import {
+  buildStationChannelBotBindingMap,
+  resolveConnectorAccounts,
+} from '@features/tool-adapter'
+import {
+  createDefaultStations,
+  StationManageModal,
+  StationSearchModal,
+  WorkbenchCanvas,
+  type AgentStation,
+  type CreateStationInput,
+  type WorkbenchLayoutPreset,
+} from '@features/workspace-hub'
+import {
+  StationOverviewPane,
+  defaultStationOverviewState,
+  filterStationsForOverview,
+  buildAgentWorkspaceMarkerPath,
+  buildRoleWorkdirRel,
+  buildStationWorkdirs,
+  buildWorkspaceSessionFilePath,
+  buildWorkspaceSessionSnapshot,
+  parseWorkspaceSessionSnapshot,
+  resolveAgentWorkdirAbs,
+  serializeWorkspaceSessionSnapshot,
+  type WorkspaceSessionTerminalSnapshot,
+} from '@features/workspace'
+import { ActivityRail } from './ActivityRail'
+import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
+import { LeftBusinessPane } from './LeftBusinessPane'
+import { StatusBar } from './StatusBar'
+import { TopControlBar } from './TopControlBar'
+import {
+  getNavItems,
+  getPaneModels,
+  type NavItemId,
+} from './navigation-model'
 import {
   type ChannelMessagePayload,
   type ExternalChannelDispatchProgressPayload,
@@ -79,15 +96,7 @@ import {
   saveUiPreferences,
   type AmbientLightingIntensity,
 } from '../state/ui-preferences'
-import {
-  areShortcutBindingsEqual,
-  defaultShortcutBindings,
-  matchesShortcutEvent,
-  resolveShortcutBindingsFromSettings,
-} from '../state/shortcut-bindings'
 import { pickDirectory } from '../integration/directory-picker'
-import { resolveConnectorAccounts } from './channel-connector-runtime'
-import { buildStationChannelBotBindingMap } from './channel-bot-binding-model'
 
 type FileReadMode = 'full'
 type StationTerminalRuntime = {

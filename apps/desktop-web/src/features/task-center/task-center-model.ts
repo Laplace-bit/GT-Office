@@ -1,4 +1,4 @@
-import type { AgentStation } from '@shell/layout/model'
+import type { AgentStation } from '@features/workspace-hub'
 
 export interface TaskDraftState {
   markdown: string

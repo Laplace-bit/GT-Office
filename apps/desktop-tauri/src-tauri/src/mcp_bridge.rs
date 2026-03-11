@@ -24,7 +24,7 @@ use vb_task::{
 };
 
 use crate::app_state::AppState;
-use crate::commands::tasks::write_terminal_with_submit;
+use crate::commands::task_center::write_terminal_with_submit;
 
 const BRIDGE_HOST: &str = "127.0.0.1";
 const BRIDGE_RUNTIME_RELATIVE_PATH: &str = ".gtoffice/mcp/runtime.json";

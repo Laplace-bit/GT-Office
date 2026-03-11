@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
-import type { AgentStation } from '@shell/layout/model'
+import type { AgentStation } from '@features/workspace-hub'
 import {
   buildTaskCenterStorageKey,
   buildTaskCenterWorkspaceSnapshot,

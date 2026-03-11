@@ -17,6 +17,19 @@ files_to_split = [
     "apps/desktop-tauri/src-tauri/src/commands/workspace.rs"
 ]
 
+def resolve_test_path(filepath):
+    directory, filename = os.path.split(filepath)
+    basename = filename.replace('.rs', '_tests.rs')
+
+    if directory == "apps/desktop-tauri/src-tauri/src":
+        return os.path.join(directory, "tests", basename)
+    if directory == "apps/desktop-tauri/src-tauri/src/commands":
+        return os.path.join(directory, "tests", basename)
+    if directory == "crates/vb-task/src":
+        return os.path.join("crates/vb-task", "tests", basename)
+
+    return os.path.join(directory, basename)
+
 for filepath in files_to_split:
     if not os.path.exists(filepath):
         continue
@@ -43,13 +56,15 @@ for filepath in files_to_split:
         end_brace += 1
         
     test_content = test_block[start_brace+1:end_brace-1].strip() + '\n'
-    test_file = filepath.replace('.rs', '_tests.rs')
-    test_basename = os.path.basename(test_file)
+    test_file = resolve_test_path(filepath)
+    test_module_path = os.path.relpath(test_file, os.path.dirname(filepath)).replace(os.sep, "/")
+
+    os.makedirs(os.path.dirname(test_file), exist_ok=True)
     
     with open(test_file, 'w', encoding='utf-8') as f:
         f.write(test_content)
         
-    main_code = code[:idx] + '#[cfg(test)]\n#[path = "' + test_basename + '"]\nmod tests;\n' + code[idx + end_brace:]
+    main_code = code[:idx] + '#[cfg(test)]\n#[path = "' + test_module_path + '"]\nmod tests;\n' + code[idx + end_brace:]
     
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(main_code)

@@ -18,7 +18,7 @@ use uuid::Uuid;
 use vb_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
 
 use crate::{
-    app_state::AppState, commands::channel_adapter::process_external_inbound_message,
+    app_state::AppState, commands::tool_adapter::process_external_inbound_message,
     connectors::telegram,
 };
 
@@ -1039,5 +1039,5 @@ fn user_home_dir() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-#[path = "channel_adapter_runtime_tests.rs"]
+#[path = "tests/channel_adapter_runtime_tests.rs"]
 mod tests;

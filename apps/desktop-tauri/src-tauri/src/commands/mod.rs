@@ -1,13 +1,11 @@
 pub mod agent;
-pub mod ai_config;
-pub mod channel_adapter;
-pub mod filesystem;
+pub mod file_explorer;
 pub mod git;
-pub mod keymap;
+pub mod keybindings;
 pub mod security;
 pub mod settings;
 pub mod system;
-pub mod tasks;
+pub mod task_center;
 pub mod terminal;
-pub mod tools;
+pub mod tool_adapter;
 pub mod workspace;

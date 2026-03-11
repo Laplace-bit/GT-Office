@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
-import type { AgentStation } from '@shell/layout/model'
+import type { AgentStation } from '@features/workspace-hub'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   buildDispatchRecord,

@@ -1,4 +1,4 @@
-import type { AgentStation, StationRole } from '@shell/layout/model'
+import type { AgentStation, StationRole } from '@features/workspace-hub'
 
 export type OrganizationDepartment =
   | 'leadership'

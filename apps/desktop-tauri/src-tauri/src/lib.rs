@@ -15,8 +15,8 @@ use tracing::warn;
 use vb_terminal::TerminalRuntimeEvent;
 
 use commands::{
-    agent, ai_config, channel_adapter, filesystem, git, keymap, security, settings, system, tasks,
-    terminal, tools, workspace,
+    agent, file_explorer, git, keybindings, security, settings, system, task_center, terminal,
+    tool_adapter, workspace,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,14 +27,14 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
             if let Err(error) =
-                channel_adapter::restore_persisted_channel_state(&app_handle, state.inner())
+                tool_adapter::restore_persisted_channel_state(&app_handle, state.inner())
             {
                 warn!(error = %error, "restore persisted channel state failed");
             }
             mcp_bridge::spawn(app_handle.clone(), state.inner().clone());
             channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
             connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
-            channel_adapter::spawn_external_reply_flush_worker(
+            tool_adapter::spawn_external_reply_flush_worker(
                 app_handle.clone(),
                 state.inner().clone(),
             );
@@ -50,7 +50,7 @@ pub fn run() {
                 while let Ok(event) = receiver.recv() {
                     match event {
                         TerminalRuntimeEvent::Output(output) => {
-                            channel_adapter::ingest_external_reply_terminal_output(
+                            tool_adapter::ingest_external_reply_terminal_output(
                                 &relay_state,
                                 &output.session_id,
                                 &output.chunk,
@@ -67,7 +67,7 @@ pub fn run() {
                             );
                         }
                         TerminalRuntimeEvent::StateChanged(terminal_state) => {
-                            channel_adapter::ingest_external_reply_terminal_state(
+                            tool_adapter::ingest_external_reply_terminal_state(
                                 &relay_state,
                                 &terminal_state.session_id,
                                 terminal_state.to.as_str(),
@@ -113,16 +113,16 @@ pub fn run() {
             agent::agent_role_list,
             agent::agent_list,
             agent::agent_create,
-            filesystem::fs_list_dir,
-            filesystem::fs_read_file,
-            filesystem::fs_read_file_full,
-            filesystem::fs_write_file,
-            filesystem::fs_delete,
-            filesystem::fs_move,
-            filesystem::fs_search_stream_start,
-            filesystem::fs_search_stream_cancel,
-            filesystem::fs_search_text,
-            filesystem::fs_search_files,
+            file_explorer::fs_list_dir,
+            file_explorer::fs_read_file,
+            file_explorer::fs_read_file_full,
+            file_explorer::fs_write_file,
+            file_explorer::fs_delete,
+            file_explorer::fs_move,
+            file_explorer::fs_search_stream_start,
+            file_explorer::fs_search_stream_cancel,
+            file_explorer::fs_search_text,
+            file_explorer::fs_search_files,
             terminal::terminal_create,
             terminal::terminal_write,
             terminal::terminal_resize,
@@ -151,36 +151,36 @@ pub fn run() {
             git::git_stash_push,
             git::git_stash_pop,
             git::git_stash_list,
-            tools::tool_list_profiles,
-            tools::tool_launch,
-            tools::tool_validate_profile,
-            tasks::task_list,
-            tasks::task_dispatch_batch,
-            tasks::channel_publish,
-            channel_adapter::channel_adapter_status,
-            channel_adapter::channel_connector_account_upsert,
-            channel_adapter::channel_connector_account_list,
-            channel_adapter::channel_connector_health,
-            channel_adapter::channel_connector_webhook_sync,
-            channel_adapter::channel_binding_upsert,
-            channel_adapter::channel_binding_list,
-            channel_adapter::channel_binding_delete,
-            channel_adapter::channel_access_policy_set,
-            channel_adapter::channel_access_approve,
-            channel_adapter::channel_access_list,
-            channel_adapter::channel_external_inbound,
-            tasks::agent_runtime_register,
-            tasks::agent_runtime_unregister,
-            tasks::changefeed_query,
+            tool_adapter::tool_profiles::tool_list_profiles,
+            tool_adapter::tool_profiles::tool_launch,
+            tool_adapter::tool_profiles::tool_validate_profile,
+            task_center::task_list,
+            task_center::task_dispatch_batch,
+            task_center::channel_publish,
+            tool_adapter::channel_adapter_status,
+            tool_adapter::channel_connector_account_upsert,
+            tool_adapter::channel_connector_account_list,
+            tool_adapter::channel_connector_health,
+            tool_adapter::channel_connector_webhook_sync,
+            tool_adapter::channel_binding_upsert,
+            tool_adapter::channel_binding_list,
+            tool_adapter::channel_binding_delete,
+            tool_adapter::channel_access_policy_set,
+            tool_adapter::channel_access_approve,
+            tool_adapter::channel_access_list,
+            tool_adapter::channel_external_inbound,
+            task_center::agent_runtime_register,
+            task_center::agent_runtime_unregister,
+            task_center::changefeed_query,
             settings::settings_get_effective,
             settings::settings_update,
             settings::settings_reset,
-            keymap::keymap_list,
-            keymap::keymap_update_binding,
-            keymap::keymap_reset,
-            ai_config::ai_config_read_snapshot,
-            ai_config::ai_config_preview_patch,
-            ai_config::ai_config_apply_patch,
+            keybindings::keymap_list,
+            keybindings::keymap_update_binding,
+            keybindings::keymap_reset,
+            settings::ai_config::ai_config_read_snapshot,
+            settings::ai_config::ai_config_preview_patch,
+            settings::ai_config::ai_config_apply_patch,
             security::security_health,
             system::system_gto_doctor,
             system::system_pick_directory,

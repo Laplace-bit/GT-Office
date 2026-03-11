@@ -1,4 +1,4 @@
-import type { NavItem, NavItemId } from './model'
+import type { NavItem, NavItemId } from './navigation-model'
 import type { Locale } from '../i18n/ui-locale'
 import { t } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'

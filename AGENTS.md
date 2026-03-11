@@ -35,6 +35,25 @@
 2. UI 直接依赖系统能力实现。
 3. 跨模块随意引用破坏边界。
 
+后端模块化（MUST）：
+1. `apps/desktop-tauri/src-tauri/src/commands/` 必须按前端 `apps/desktop-web/src/features/*` 对齐建目录。
+2. 新增 Tauri command 禁止直接放在 `commands/` 根目录；必须归入对应 feature 目录。
+3. `commands/` 仅负责命令入口绑定；feature 业务编排、runtime、helper 不得持续堆在 `mod.rs`。
+4. 无法映射前端 feature 的后端能力，仅允许放在独立基础设施模块，如 `security`、`system`、`agent`。
+5. `app_state.rs` 仅负责全局状态装配；单一 feature 的状态与流程必须下沉到对应 feature 模块。
+6. `crates/` 优先承载领域能力；已形成稳定闭环的 feature，必须评估是否建立对应后端子模块或 crate，禁止继续向横向公共模块无界追加代码。
+7. 测试文件不得散落在源码根目录；测试必须放入对应 feature 的 `tests/` 目录或 crate `tests/` 目录。
+8. 新增文件前必须先确认：它属于哪个 feature、属于入口/领域/基础设施哪一层、为什么不能复用现有目录。
+
+前端模块化（MUST）：
+1. `apps/desktop-web/src/features/` 必须作为前端业务模块唯一落点；新增业务 UI、hooks、model、controller 禁止直接放在 `src/` 根目录或 `shell/`。
+2. `shell/` 仅负责应用壳层编排、窗口框架、导航装配与平台集成；禁止继续承载具体 feature 实现。
+3. `components/` 仅放跨 feature 复用的纯展示/基础组件；一旦组件绑定单一业务语义，必须迁回对应 `features/*`。
+4. `features/<name>/` 内必须优先内聚该 feature 的 `components/hooks/model/style`，禁止把同一 feature 的实现拆散到多个无关目录。
+5. `styles/` 仅放 design tokens、foundations、utilities 与跨 feature 样式入口；feature 专属样式必须跟随 feature 组件落位。
+6. `stores/` 仅允许放跨 feature 的全局状态；单一 feature 状态禁止默认提升为全局 store。
+7. 新增前端文件前必须先确认：它属于哪个 feature、是否为通用复用、为什么不能并入现有 feature 目录。
+
 ## 4. 开发流程（MUST）
 
 1. 开发前确认 `docs/01` 与 `docs/02` 覆盖需求与架构。
@@ -59,6 +78,7 @@ Rust：
 1. 通过 `rustfmt` 与 `clippy`。
 2. 统一领域错误类型，避免 `unwrap()` 滥用。
 3. 关键链路必须有 `tracing`。
+4. 单文件持续膨胀时，优先拆分 feature 子模块，禁止默认继续向超大文件追加实现。
 
 Frontend：
 1. 组件按 feature 分层，避免全局状态泛滥。
@@ -66,6 +86,7 @@ Frontend：
 3. 主题、快捷键、可访问性默认可用。
 4. 多语言配置独立文件，禁止与业务代码耦合。
 5. 样式统一使用 SCSS，按组件拆分样式文件，禁止新增裸 CSS。
+6. 单文件或单目录持续膨胀时，优先拆分 feature 子模块，禁止默认继续向 `shell/`、全局 `components/`、全局 `stores/` 追加业务实现。
 
 ## 7. 架构与安全规范
 
@@ -130,6 +151,7 @@ Frontend：
 3. 关键路径有测试或可复现实验步骤。
 4. 文档已更新（至少 `docs/03`，必要时 `docs/01/02/04`）。
 5. 无阻塞性已知缺陷未记录。
+6. 未新增根目录散点文件，且前后端入口层目录仍与前端 feature 边界对齐。
 
 ## 12. 文档优先级
 

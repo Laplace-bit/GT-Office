@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
-use crate::{app_state::AppState, commands::channel_adapter::process_external_inbound_message};
+use crate::{app_state::AppState, commands::tool_adapter::process_external_inbound_message};
 
 use super::credential_store::{load_secret, store_secret};
 use api::{

@@ -1,3 +1,6 @@
+export * from './DiffViewer'
+export * from './GitGraphView'
+export * from './GitPane'
 export * from './git-error'
 export * from './git-graph-layout'
 export * from './useGitWorkspaceController'
