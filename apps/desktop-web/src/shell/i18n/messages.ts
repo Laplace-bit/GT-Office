@@ -334,6 +334,10 @@ export const messages = {
   'taskCenter.history': { 'zh-CN': '派发历史', 'en-US': 'Dispatch History' },
   'taskCenter.historyEmpty': { 'zh-CN': '暂无派发记录', 'en-US': 'No dispatch history' },
   'taskCenter.external.title': { 'zh-CN': '外部通道', 'en-US': 'External Channels' },
+  'taskCenter.external.configuredEmpty': {
+    'zh-CN': '未配置外部通道',
+    'en-US': 'No external channels configured',
+  },
   'taskCenter.external.subtitle': {
     'zh-CN': 'Webhook 运行状态、地址和最近事件',
     'en-US': 'Webhook runtime status, endpoints, and recent events',

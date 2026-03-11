@@ -4,13 +4,11 @@ import type { AgentStation } from '@features/workspace-hub'
 import {
   toggleTaskTarget,
   type TaskCenterNotice,
-  type TaskDispatchRecord,
   type TaskDraftState,
   type TaskMarkdownSnippet,
 } from './task-center-model'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
-import { AppIcon } from '@shell/ui/icons'
 import './TaskCenterPane.scss'
 
 export interface TaskMentionFileCandidate {
@@ -22,91 +20,23 @@ interface TaskCenterPaneProps {
   locale: Locale
   stations: AgentStation[]
   draft: TaskDraftState
-  dispatchHistory: TaskDispatchRecord[]
   sending: boolean
-  retryingTaskId: string | null
   draftSavedAtMs: number | null
   notice: TaskCenterNotice | null
   mentionCandidates: TaskMentionFileCandidate[]
   mentionLoading: boolean
   mentionError: string | null
-  externalStatus: {
-    loading: boolean
-    running: boolean
-    doctorOk: boolean | null
-    runtimeBaseUrl: string | null
-    feishuWebhook: string | null
-    telegramWebhook: string | null
-    summary: {
-      routeBindings: number
-      allowlistEntries: number
-      pairingPending: number
-      idempotencyEntries: number
-    } | null
-    lastSyncAtMs: number | null
-    error: string | null
-    bindings?: Array<{ channel: string }>
-    configuredChannels?: string[]
-  }
-  externalEvents: Array<{
-    id: string
-    tsMs: number
-    kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error'
-    primary: string
-    secondary?: string
-  }>
   onDraftChange: (patch: Partial<TaskDraftState>) => void
   onInsertSnippet: (snippet: TaskMarkdownSnippet) => void
   onSendTask: () => void
-  onRetryDispatchTask: (taskId: string) => void
   onSearchMentionFiles: (query: string) => void
   onClearMentionSearch: () => void
-  onRefreshExternalStatus: () => void
 }
 
 interface MentionRange {
   start: number
   end: number
   query: string
-}
-
-function statusLabel(locale: Locale, status: TaskDispatchRecord['status']): string {
-  if (status === 'sending') {
-    return t(locale, 'taskCenter.status.sending')
-  }
-  if (status === 'sent') {
-    return t(locale, 'taskCenter.status.sent')
-  }
-  return t(locale, 'taskCenter.status.failed')
-}
-
-function externalEventKindLabel(
-  locale: Locale,
-  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error',
-): string {
-  if (kind === 'inbound') {
-    return t(locale, 'taskCenter.external.events.kind.inbound')
-  }
-  if (kind === 'routed') {
-    return t(locale, 'taskCenter.external.events.kind.routed')
-  }
-  if (kind === 'dispatch') {
-    return t(locale, 'taskCenter.external.events.kind.dispatch')
-  }
-  if (kind === 'reply') {
-    return t(locale, 'taskCenter.external.events.kind.reply')
-  }
-  return t(locale, 'taskCenter.external.events.kind.error')
-}
-
-function externalChannelLabel(locale: Locale, channel: string): string {
-  if (channel === 'telegram') {
-    return 'Telegram'
-  }
-  if (channel === 'feishu') {
-    return t(locale, '飞书', 'Feishu')
-  }
-  return channel
 }
 
 function formatTimestamp(value: number): string {
@@ -144,23 +74,17 @@ function TaskCenterPaneView({
   locale,
   stations,
   draft,
-  dispatchHistory,
   sending,
-  retryingTaskId,
   draftSavedAtMs,
   notice,
   mentionCandidates,
   mentionLoading,
   mentionError,
-  externalStatus,
-  externalEvents,
   onDraftChange,
   onInsertSnippet,
   onSendTask,
-  onRetryDispatchTask,
   onSearchMentionFiles,
   onClearMentionSearch,
-  onRefreshExternalStatus,
 }: TaskCenterPaneProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -169,7 +93,6 @@ function TaskCenterPaneView({
   const [activeMentionIndex, setActiveMentionIndex] = useState(0)
   const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [targetFilter, setTargetFilter] = useState('')
-  const [isHistoryExpanded, setIsHistoryExpanded] = useState(true)
   const [targetPopoverStyle, setTargetPopoverStyle] = useState<{
     top: number
     left: number
@@ -537,162 +460,6 @@ function TaskCenterPaneView({
         {notice ? (
           <p className={`task-center-notice ${notice.kind}`}>{notice.message}</p>
         ) : null}
-      </section>
-
-      <section className="task-center-external">
-        <header className="task-center-external-header">
-          <div>
-            <h3>{t(locale, 'taskCenter.external.title')}</h3>
-            <p>{t(locale, 'taskCenter.external.subtitle')}</p>
-          </div>
-          <div className="task-center-external-controls">
-            <span
-              className={`task-center-external-runtime-pill ${
-                externalStatus.running ? 'running' : 'stopped'
-              }`}
-            >
-              {externalStatus.running
-                ? t(locale, 'taskCenter.external.runtime.running')
-                : t(locale, 'taskCenter.external.runtime.stopped')}
-            </span>
-            <button
-              type="button"
-              onClick={onRefreshExternalStatus}
-              disabled={externalStatus.loading}
-            >
-              {externalStatus.loading
-                ? t(locale, 'taskCenter.external.refreshing')
-                : t(locale, 'taskCenter.external.refresh')}
-            </button>
-          </div>
-        </header>
-        {externalStatus.configuredChannels && externalStatus.configuredChannels.length > 0 ? (
-          <div className="task-center-external-summary" style={{ justifyContent: 'flex-start', gap: '8px' }}>
-            {externalStatus.configuredChannels.map((channel) => (
-              <span key={channel}>
-                {externalChannelLabel(locale, channel)}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <div className="task-center-external-summary">
-            <span>{t(locale, '未配置外部通道', 'No external channels configured')}</span>
-          </div>
-        )}
-        <div className="task-center-external-meta">
-          {externalStatus.lastSyncAtMs ? (
-            <span>
-              {t(locale, 'taskCenter.external.lastSyncAt', {
-                time: formatTimestamp(externalStatus.lastSyncAtMs),
-              })}
-            </span>
-          ) : null}
-          {externalStatus.doctorOk === false ? (
-            <span className="task-center-external-doctor-warn">
-              {t(locale, 'taskCenter.external.doctorWarn')}
-            </span>
-          ) : null}
-          {externalStatus.error ? (
-            <span className="task-center-external-error">{externalStatus.error}</span>
-          ) : null}
-        </div>
-        <div className="task-center-external-events">
-          <h4>{t(locale, 'taskCenter.external.events.title')}</h4>
-          {externalEvents.length === 0 ? (
-            <p className="task-center-empty">{t(locale, 'taskCenter.external.events.empty')}</p>
-          ) : (
-            <ul>
-              {externalEvents.map((event) => (
-                <li key={event.id}>
-                  <div className="task-center-external-event-row">
-                    <span className={`task-center-external-event-kind ${event.kind}`}>
-                      {externalEventKindLabel(locale, event.kind)}
-                    </span>
-                    <span>{formatTimestamp(event.tsMs)}</span>
-                  </div>
-                  <p>{event.primary}</p>
-                  {event.secondary ? <p>{event.secondary}</p> : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <section className="task-center-history">
-        <header 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'space-between', 
-            cursor: 'pointer', 
-            userSelect: 'none' 
-          }}
-          onClick={() => setIsHistoryExpanded((prev) => !prev)}
-        >
-          <h3 style={{ margin: 0 }}>{t(locale, 'taskCenter.history')}</h3>
-          <AppIcon 
-            name="chevron-down" 
-            style={{ 
-              width: 16, 
-              height: 16, 
-              flex: '0 0 auto', 
-              color: 'var(--vb-text-muted)',
-              transition: 'transform 250ms cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: isHistoryExpanded ? 'rotate(-180deg)' : 'rotate(0deg)'
-            }} 
-          />
-        </header>
-        <div 
-          style={{ 
-            display: 'grid', 
-            gridTemplateRows: isHistoryExpanded ? '1fr' : '0fr', 
-            transition: 'grid-template-rows 250ms cubic-bezier(0.4, 0, 0.2, 1)',
-            overflow: 'hidden'
-          }}
-        >
-          <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            {dispatchHistory.length === 0 ? (
-              <p className="task-center-empty">{t(locale, 'taskCenter.historyEmpty')}</p>
-            ) : (
-              <ul>
-                {dispatchHistory.map((record) => (
-              <li key={`${record.batchId}:${record.taskId}`}>
-                <div className="task-center-history-title-row">
-                  <strong>{record.title}</strong>
-                  <span className={`task-center-status ${record.status}`}>
-                    {statusLabel(locale, record.status)}
-                  </span>
-                </div>
-                <p>
-                  {record.taskId} · {record.targetStationName} ·{' '}
-                  {formatTimestamp(record.createdAtMs)}
-                </p>
-                <p>
-                  <code>{record.taskFilePath}</code>
-                </p>
-                {record.status === 'failed' ? (
-                  <div className="task-center-history-actions">
-                    <button
-                      type="button"
-                      onClick={() => onRetryDispatchTask(record.taskId)}
-                      disabled={Boolean(retryingTaskId)}
-                    >
-                      {retryingTaskId === record.taskId
-                        ? t(locale, 'taskCenter.retrying')
-                        : t(locale, 'taskCenter.retryFailed')}
-                    </button>
-                  </div>
-                ) : null}
-                {record.detail ? (
-                  <p className="task-center-history-detail">{record.detail}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-            )}
-          </div>
-        </div>
       </section>
     </aside>
   )

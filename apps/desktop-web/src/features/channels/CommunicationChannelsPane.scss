@@ -1,0 +1,309 @@
+.communication-channels-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--vb-border-strong) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--vb-border-strong);
+    border-radius: 999px;
+  }
+}
+
+.communication-channels-header {
+  h2 {
+    margin: 0;
+    color: var(--vb-text);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: var(--vb-text-muted);
+    font-size: 12px;
+  }
+}
+
+.communication-channels-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--vb-glass-lighter);
+  border: 1px solid var(--vb-border-subtle);
+  border-radius: 16px;
+}
+
+.communication-channels-card-header,
+.communication-channels-history-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  h3 {
+    margin: 0;
+    color: var(--vb-text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: var(--vb-text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.communication-channels-card-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  button {
+    border: 1px solid var(--vb-border);
+    background: var(--vb-input-bg);
+    color: var(--vb-text);
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 12px;
+    transition: border-color 0.2s ease, background 0.2s ease;
+
+    &:hover:enabled {
+      border-color: var(--vb-border-strong);
+      background: var(--vb-glass-lighter-hover);
+    }
+  }
+}
+
+.communication-channels-runtime-pill,
+.communication-channels-status,
+.communication-channels-summary-pills span,
+.communication-channels-stats span {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.communication-channels-runtime-pill {
+  padding: 5px 9px;
+
+  &.running {
+    background: var(--vb-success-bg);
+    color: var(--vb-success);
+  }
+
+  &.stopped {
+    background: var(--vb-error-bg);
+    color: var(--vb-error);
+  }
+}
+
+.communication-channels-summary-pills,
+.communication-channels-stats,
+.communication-channels-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.communication-channels-summary-pills span,
+.communication-channels-stats span {
+  padding: 5px 10px;
+  background: var(--vb-input-bg);
+  color: var(--vb-text-muted);
+  border: 1px solid var(--vb-border);
+}
+
+.communication-channels-summary-empty,
+.communication-channels-empty {
+  color: var(--vb-text-muted);
+  font-size: 12px;
+}
+
+.communication-channels-meta {
+  font-size: 12px;
+  color: var(--vb-text-muted);
+}
+
+.communication-channels-meta-warn {
+  color: var(--vb-warning, #d97706);
+}
+
+.communication-channels-meta-error {
+  color: var(--vb-error);
+}
+
+.communication-channels-event-list,
+.communication-channels-history-inner {
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  li {
+    padding: 12px;
+    background: color-mix(in srgb, var(--vb-panel-bg) 72%, transparent);
+    border: 1px solid var(--vb-border-subtle);
+    border-radius: 12px;
+  }
+
+  p {
+    margin: 0;
+    color: var(--vb-text);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  p + p {
+    margin-top: 4px;
+  }
+}
+
+.communication-channels-event-list h4 {
+  margin: 0 0 2px;
+  color: var(--vb-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.communication-channels-event-row,
+.communication-channels-history-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.communication-channels-event-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+
+  &.inbound,
+  &.dispatch {
+    background: var(--vb-accent-light);
+    color: var(--vb-accent);
+  }
+
+  &.routed {
+    background: color-mix(in srgb, var(--vb-info, #0ea5e9) 12%, transparent);
+    color: var(--vb-info, #0ea5e9);
+  }
+
+  &.reply {
+    background: var(--vb-success-bg);
+    color: var(--vb-success);
+  }
+
+  &.error {
+    background: var(--vb-error-bg);
+    color: var(--vb-error);
+  }
+}
+
+.communication-channels-history {
+  gap: 10px;
+}
+
+.communication-channels-history-header {
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.communication-channels-chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--vb-text-muted);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &.expanded {
+    transform: rotate(-180deg);
+  }
+}
+
+.communication-channels-history-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &.expanded {
+    grid-template-rows: 1fr;
+  }
+}
+
+.communication-channels-history-inner {
+  min-height: 0;
+}
+
+.communication-channels-history-title-row strong {
+  color: var(--vb-text);
+  font-size: 13px;
+}
+
+.communication-channels-status {
+  padding: 3px 8px;
+
+  &.sending {
+    background: var(--vb-accent-light);
+    color: var(--vb-accent);
+  }
+
+  &.sent {
+    background: var(--vb-success-bg);
+    color: var(--vb-success);
+  }
+
+  &.failed {
+    background: var(--vb-error-bg);
+    color: var(--vb-error);
+  }
+}
+
+.communication-channels-history-actions button {
+  margin-top: 8px;
+  border: 1px solid var(--vb-border);
+  background: transparent;
+  color: var(--vb-text);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.communication-channels-history-detail {
+  margin-top: 8px !important;
+  color: var(--vb-text-muted) !important;
+}

@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from 'react'
 import { FileEditorPane, FileTreePane, type OpenedFile } from '@features/file-explorer'
+import { CommunicationChannelsPane } from '@features/channels'
 import {
   GitHistoryPane,
   GitOperationsPane,
@@ -4038,29 +4039,19 @@ export function ShellRoot() {
                   locale={locale}
                   stations={stations}
                   draft={taskDraft}
-                  dispatchHistory={taskDispatchHistory}
                   sending={taskSending}
-                  retryingTaskId={taskRetryingTaskId}
                   draftSavedAtMs={taskDraftSavedAtMs}
                   notice={taskNotice}
                   mentionCandidates={taskMentionCandidates}
                   mentionLoading={taskMentionLoading}
                   mentionError={taskMentionError}
-                  externalStatus={externalChannelStatus}
-                  externalEvents={externalChannelEvents}
                   onDraftChange={updateTaskDraft}
                   onInsertSnippet={insertTaskSnippet}
                   onSendTask={() => {
                     void dispatchTaskToAgent()
                   }}
-                  onRetryDispatchTask={(taskId) => {
-                    void retryTaskDispatch(taskId)
-                  }}
                   onSearchMentionFiles={searchTaskMentionFiles}
                   onClearMentionSearch={clearTaskMentionSearch}
-                  onRefreshExternalStatus={() => {
-                    void refreshExternalChannelStatus()
-                  }}
                 />
               </div>
             ) : activeNavId === 'stations' ? (
@@ -4085,6 +4076,20 @@ export function ShellRoot() {
               />
             ) : activeNavId === 'git' ? (
               <GitOperationsPane controller={gitController} />
+            ) : activeNavId === 'channels' ? (
+              <CommunicationChannelsPane
+                locale={locale}
+                dispatchHistory={taskDispatchHistory}
+                retryingTaskId={taskRetryingTaskId}
+                externalStatus={externalChannelStatus}
+                externalEvents={externalChannelEvents}
+                onRetryDispatchTask={(taskId) => {
+                  void retryTaskDispatch(taskId)
+                }}
+                onRefreshExternalStatus={() => {
+                  void refreshExternalChannelStatus()
+                }}
+              />
             ) : (
               <LeftBusinessPane model={activePaneModel} />
             )}
