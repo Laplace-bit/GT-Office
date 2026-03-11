@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::BTreeMap,
     env, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -11,24 +12,40 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tracing::{debug, info, warn};
-use vb_abstractions::AbstractionError;
+use vb_abstractions::{
+    AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
+    WorkspaceService,
+};
+use vb_agent::AgentRepository;
+use vb_storage::{SqliteAgentRepository, SqliteStorage};
 use vb_task::{
-    ChannelAckEvent, ChannelMessageEvent, ChannelPublishRequest, TaskDispatchBatchRequest,
-    TaskDispatchProgressEvent,
+    AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
+    ChannelPublishRequest, TaskDispatchBatchRequest, TaskDispatchProgressEvent,
 };
 
 use crate::app_state::AppState;
+use crate::commands::tasks::write_terminal_with_submit;
 
 const BRIDGE_HOST: &str = "127.0.0.1";
 const BRIDGE_RUNTIME_RELATIVE_PATH: &str = ".gtoffice/mcp/runtime.json";
+const BRIDGE_DIRECTORY_RELATIVE_PATH: &str = ".gtoffice/mcp/directory.json";
 const BRIDGE_VERSION: &str = "0.1.0";
 const MCP_SERVER_ID: &str = "gto-agent-bridge";
 const MCP_SIDECAR_NAME: &str = "gto-agent-mcp-sidecar";
+const MCP_NPX_COMMAND_DEFAULT: &str = "npx";
+const MCP_NPX_PACKAGE_DEFAULT: &str = "@gtoffice/agent-mcp-bridge";
 
 #[derive(Debug, Clone)]
 struct McpCommandSpec {
     command: String,
     args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpInstallMode {
+    Auto,
+    Local,
+    Npx,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +83,29 @@ struct BridgeError {
     code: &'static str,
     message: String,
     details: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DevBootstrapAgentsRequest {
+    workspace_path: String,
+    targets: Vec<String>,
+    #[serde(default)]
+    shell: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    cwd_mode: Option<String>,
+    #[serde(default)]
+    tool_kind: AgentToolKind,
+    #[serde(default)]
+    submit_sequence: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DirectoryGetRequest {
+    workspace_id: String,
 }
 
 impl BridgeError {
@@ -225,7 +265,10 @@ async fn handle_request(
             "bridgeVersion": BRIDGE_VERSION,
             "transport": "tcp-ndjson",
             "pid": std::process::id(),
+            "directorySnapshotCount": count_directory_snapshots(state),
         })),
+        "directory.get" => directory_get(app, state, request.params.clone()),
+        "dev.bootstrap_agents" => dev_bootstrap_agents(app, state, request.params.clone()),
         "task.dispatch_batch" => dispatch_batch(app, state, request.params.clone()),
         "channel.publish" => publish_channel(app, state, request.params.clone()),
         method => Err(BridgeError::new(
@@ -233,6 +276,144 @@ async fn handle_request(
             format!("unsupported method: {method}"),
         )),
     }
+}
+
+fn count_directory_snapshots(state: &AppState) -> usize {
+    let workspaces = state.workspace_service.list().unwrap_or_default();
+    workspaces
+        .iter()
+        .filter(|workspace| {
+            state
+                .mcp_directory_snapshot(workspace.workspace_id.as_str())
+                .ok()
+                .flatten()
+                .is_some()
+        })
+        .count()
+}
+
+fn directory_get(app: &AppHandle, state: &AppState, params: Value) -> Result<Value, BridgeError> {
+    let request: DirectoryGetRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("directory.get params invalid: {error}"),
+        )
+    })?;
+
+    let workspace_id = request.workspace_id.trim();
+    if workspace_id.is_empty() {
+        return Err(BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            "workspaceId is required",
+        ));
+    }
+
+    if let Ok(Some(snapshot)) = state.mcp_directory_snapshot(workspace_id) {
+        return Ok(snapshot);
+    }
+
+    refresh_directory_snapshot(app, state, workspace_id)
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error))
+}
+
+pub fn refresh_directory_snapshot(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<Value, String> {
+    let snapshot = build_directory_snapshot(app, state, workspace_id)?;
+    state.set_mcp_directory_snapshot(workspace_id, snapshot.clone())?;
+    write_directory_snapshot_file(workspace_id, &snapshot)?;
+    Ok(snapshot)
+}
+
+fn build_directory_snapshot(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+) -> Result<Value, String> {
+    let workspace_id = workspace_id.trim();
+    if workspace_id.is_empty() {
+        return Err("workspaceId is required".to_string());
+    }
+
+    let _ = state
+        .workspace_service
+        .get_context(&WorkspaceId::new(workspace_id))
+        .map_err(|error| error.to_string())?;
+
+    let repo = resolve_agent_repository(app)?;
+    repo.ensure_schema().map_err(|error| error.to_string())?;
+    repo.seed_defaults(workspace_id)
+        .map_err(|error| error.to_string())?;
+
+    let departments = repo
+        .list_departments(workspace_id)
+        .map_err(|error| error.to_string())?;
+    let roles = repo.list_roles(workspace_id).map_err(|error| error.to_string())?;
+    let agents = repo.list_agents(workspace_id).map_err(|error| error.to_string())?;
+    let runtimes = state.task_service.list_runtimes(Some(workspace_id));
+
+    let updated_at_ms = chrono_like_now_ms();
+    let mut agent_entries = agents
+        .into_iter()
+        .map(|agent| {
+            let runtime = runtimes.iter().find(|runtime| runtime.agent_id == agent.id);
+            let role = roles.iter().find(|role| role.id == agent.role_id);
+            json!({
+                "agentId": agent.id,
+                "name": agent.name,
+                "roleId": agent.role_id,
+                "roleKey": runtime
+                    .and_then(|item| item.role_key.clone())
+                    .or_else(|| role.map(|role| role.role_key.clone())),
+                "departmentId": role.map(|role| role.department_id.clone()),
+                "state": agent.state,
+                "online": runtime.is_some_and(|item| item.online),
+                "sessionId": runtime.map(|item| item.session_id.clone()),
+                "toolKind": runtime.map(|item| item.tool_kind),
+                "resolvedCwd": runtime.and_then(|item| item.resolved_cwd.clone()),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for runtime in &runtimes {
+        if agent_entries.iter().any(|agent| {
+            agent
+                .get("agentId")
+                .and_then(Value::as_str)
+                .is_some_and(|agent_id| agent_id == runtime.agent_id)
+        }) {
+            continue;
+        }
+
+        let role = runtime
+            .role_key
+            .as_ref()
+            .and_then(|role_key| roles.iter().find(|role| role.role_key == *role_key));
+        agent_entries.push(json!({
+            "agentId": runtime.agent_id,
+            "name": runtime.agent_id,
+            "roleId": role.map(|item| item.id.clone()),
+            "roleKey": runtime.role_key,
+            "departmentId": role.map(|item| item.department_id.clone()),
+            "state": "ready",
+            "online": runtime.online,
+            "sessionId": runtime.session_id,
+            "toolKind": runtime.tool_kind,
+            "resolvedCwd": runtime.resolved_cwd,
+        }));
+    }
+
+    Ok(json!({
+        "workspaceId": workspace_id,
+        "directoryVersion": updated_at_ms.to_string(),
+        "updatedAtMs": updated_at_ms,
+        "departments": departments,
+        "roles": roles,
+        "agents": agent_entries,
+        "runtimes": runtimes,
+    }))
 }
 
 fn dispatch_batch(app: &AppHandle, state: &AppState, params: Value) -> Result<Value, BridgeError> {
@@ -270,23 +451,7 @@ fn dispatch_batch(app: &AppHandle, state: &AppState, params: Value) -> Result<Va
         &request,
         &workspace_root,
         |session_id, command, submit_sequence| {
-            let accepted = state
-                .terminal_provider
-                .write_session(session_id, command)
-                .map_err(to_terminal_error)?;
-            if !accepted {
-                Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
-            } else {
-                let accepted_submit = state
-                    .terminal_provider
-                    .write_session(session_id, submit_sequence)
-                    .map_err(to_terminal_error)?;
-                if accepted_submit {
-                    Ok(())
-                } else {
-                    Err("CHANNEL_DELIVERY_FAILED: terminal submit rejected".to_string())
-                }
-            }
+            write_terminal_with_submit(state, session_id, command, submit_sequence)
         },
     );
 
@@ -318,6 +483,107 @@ fn publish_channel(app: &AppHandle, state: &AppState, params: Value) -> Result<V
         .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))
 }
 
+fn dev_bootstrap_agents(
+    _app: &AppHandle,
+    state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: DevBootstrapAgentsRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("dev.bootstrap_agents params invalid: {error}"),
+        )
+    })?;
+
+    let workspace_path = request.workspace_path.trim();
+    if workspace_path.is_empty() {
+        return Err(BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            "workspacePath is required",
+        ));
+    }
+
+    let targets = normalize_target_ids(&request.targets);
+    if targets.is_empty() {
+        return Err(BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            "targets must contain at least one agent id",
+        ));
+    }
+
+    let workspace = state
+        .workspace_service
+        .open(Path::new(workspace_path))
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_WORKSPACE_INVALID", error.to_string()))?;
+
+    let cwd_mode = parse_bootstrap_cwd_mode(request.cwd_mode.as_deref())?;
+    let shell_name = request
+        .shell
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "auto".to_string());
+    let tool_kind = if request.tool_kind == AgentToolKind::Unknown {
+        AgentToolKind::Shell
+    } else {
+        request.tool_kind
+    };
+    let submit_sequence = request.submit_sequence.unwrap_or_else(|| "\r".to_string());
+
+    let mut bootstrapped_agents = Vec::with_capacity(targets.len());
+    for agent_id in targets {
+        let terminal_env = build_agent_terminal_env(
+            workspace.workspace_id.as_str(),
+            &agent_id,
+            None,
+            &agent_id,
+        );
+        let session = state
+            .terminal_provider
+            .create_session(TerminalCreateRequest {
+                workspace_id: WorkspaceId::new(workspace.workspace_id.to_string()),
+                shell: Some(shell_name.clone()),
+                cwd: request.cwd.clone(),
+                cwd_mode: cwd_mode.clone(),
+                env: terminal_env,
+            })
+            .map_err(|error| {
+                BridgeError::new(
+                    "MCP_BRIDGE_TERMINAL_INVALID",
+                    format!("bootstrap terminal create failed for '{agent_id}': {}", to_terminal_error(error)),
+                )
+            })?;
+
+        state.task_service.register_runtime(AgentRuntimeRegistration {
+            workspace_id: workspace.workspace_id.to_string(),
+            agent_id: agent_id.clone(),
+            station_id: agent_id.clone(),
+            role_key: None,
+            session_id: session.session_id.clone(),
+            tool_kind,
+            resolved_cwd: Some(session.resolved_cwd.clone()),
+            submit_sequence: Some(submit_sequence.clone()),
+            online: true,
+        });
+
+        bootstrapped_agents.push(json!({
+            "agentId": agent_id,
+            "stationId": agent_id,
+            "sessionId": session.session_id,
+            "toolKind": tool_kind,
+            "resolvedCwd": session.resolved_cwd,
+            "submitSequence": submit_sequence.clone(),
+        }));
+    }
+
+    Ok(json!({
+        "workspaceId": workspace.workspace_id,
+        "name": workspace.name,
+        "root": workspace.root,
+        "shell": shell_name,
+        "cwdMode": bootstrap_cwd_mode_label(&cwd_mode),
+        "agents": bootstrapped_agents,
+    }))
+}
+
 fn to_terminal_error(error: AbstractionError) -> String {
     match error {
         AbstractionError::WorkspaceNotFound { workspace_id } => {
@@ -328,6 +594,55 @@ fn to_terminal_error(error: AbstractionError) -> String {
         AbstractionError::Conflict { message } => format!("TERMINAL_CONFLICT: {message}"),
         AbstractionError::Internal { message } => message,
     }
+}
+
+fn normalize_target_ids(values: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let candidate = value.trim();
+        if candidate.is_empty() {
+            continue;
+        }
+        if normalized.iter().any(|existing| existing == candidate) {
+            continue;
+        }
+        normalized.push(candidate.to_string());
+    }
+    normalized
+}
+
+fn parse_bootstrap_cwd_mode(raw: Option<&str>) -> Result<TerminalCwdMode, BridgeError> {
+    match raw.unwrap_or("workspace_root") {
+        "workspace_root" => Ok(TerminalCwdMode::WorkspaceRoot),
+        "custom" => Ok(TerminalCwdMode::Custom),
+        invalid => Err(BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("unsupported cwdMode: {invalid}"),
+        )),
+    }
+}
+
+fn bootstrap_cwd_mode_label(mode: &TerminalCwdMode) -> &'static str {
+    match mode {
+        TerminalCwdMode::WorkspaceRoot => "workspace_root",
+        TerminalCwdMode::Custom => "custom",
+    }
+}
+
+fn build_agent_terminal_env(
+    workspace_id: &str,
+    agent_id: &str,
+    role_key: Option<&str>,
+    station_id: &str,
+) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    env.insert("GTO_WORKSPACE_ID".to_string(), workspace_id.to_string());
+    env.insert("GTO_AGENT_ID".to_string(), agent_id.to_string());
+    env.insert("GTO_STATION_ID".to_string(), station_id.to_string());
+    if let Some(role_key) = role_key.map(str::trim).filter(|value| !value.is_empty()) {
+        env.insert("GTO_ROLE_KEY".to_string(), role_key.to_string());
+    }
+    env
 }
 
 fn emit_channel_events(
@@ -349,6 +664,17 @@ fn emit_dispatch_progress_events(app: &AppHandle, events: &[TaskDispatchProgress
     }
 }
 
+fn resolve_agent_repository(app: &AppHandle) -> Result<SqliteAgentRepository, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("AGENT_STORAGE_PATH_FAILED: {error}"))?;
+    fs::create_dir_all(&base_dir).map_err(|error| format!("AGENT_STORAGE_PATH_FAILED: {error}"))?;
+    let db_path = base_dir.join("gtoffice.db");
+    let storage = SqliteStorage::new(db_path).map_err(|error| error.to_string())?;
+    Ok(SqliteAgentRepository::new(storage))
+}
+
 fn runtime_file_path() -> PathBuf {
     if let Some(home) = user_home_dir() {
         return home.join(BRIDGE_RUNTIME_RELATIVE_PATH);
@@ -356,11 +682,50 @@ fn runtime_file_path() -> PathBuf {
     env::temp_dir().join("gtoffice/mcp/runtime.json")
 }
 
+pub fn directory_snapshot_file_path() -> PathBuf {
+    if let Some(home) = user_home_dir() {
+        return home.join(BRIDGE_DIRECTORY_RELATIVE_PATH);
+    }
+    env::temp_dir().join("gtoffice/mcp/directory.json")
+}
+
 fn user_home_dir() -> Option<PathBuf> {
     if let Some(value) = env::var_os("HOME") {
         return Some(PathBuf::from(value));
     }
     env::var_os("USERPROFILE").map(PathBuf::from)
+}
+
+fn write_directory_snapshot_file(workspace_id: &str, snapshot: &Value) -> Result<(), String> {
+    let directory_path = directory_snapshot_file_path();
+    let parent = directory_path.parent().ok_or_else(|| {
+        "MCP_BRIDGE_UNAVAILABLE: directory path does not have parent directory".to_string()
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: create dir failed: {error}"))?;
+
+    let mut workspaces = fs::read_to_string(&directory_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .and_then(|value| value.get("workspaces").cloned())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    workspaces.insert(workspace_id.to_string(), snapshot.clone());
+
+    let payload = json!({
+        "version": BRIDGE_VERSION,
+        "updatedAtMs": chrono_like_now_ms(),
+        "workspaces": workspaces,
+    });
+
+    fs::write(
+        &directory_path,
+        serde_json::to_vec_pretty(&payload).map_err(|error| {
+            format!("MCP_BRIDGE_UNAVAILABLE: serialize directory failed: {error}")
+        })?,
+    )
+    .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: write directory failed: {error}"))?;
+    Ok(())
 }
 
 fn write_runtime_file(
@@ -423,7 +788,7 @@ fn try_auto_install(command: Option<&McpCommandSpec>) {
         return;
     }
 
-    let Some(command) = command else {
+    let Some(command) = resolve_install_command(command) else {
         warn!("skip MCP auto install because no command candidate is available");
         return;
     };
@@ -442,7 +807,7 @@ fn try_auto_install(command: Option<&McpCommandSpec>) {
         return;
     }
 
-    match install_cli_configs(command) {
+    match install_cli_configs(&command) {
         Ok(reports) => {
             for report in reports {
                 if report.ok {
@@ -461,6 +826,60 @@ fn try_auto_install(command: Option<&McpCommandSpec>) {
         }
         Err(error) => warn!(error = %error, "failed to install MCP configs"),
     }
+}
+
+fn resolve_install_command(local_command: Option<&McpCommandSpec>) -> Option<McpCommandSpec> {
+    match resolve_install_mode() {
+        McpInstallMode::Local => local_command.cloned().or_else(resolve_npx_install_command),
+        McpInstallMode::Npx => resolve_npx_install_command().or_else(|| local_command.cloned()),
+        McpInstallMode::Auto => {
+            if cfg!(debug_assertions) {
+                local_command.cloned().or_else(resolve_npx_install_command)
+            } else {
+                resolve_npx_install_command().or_else(|| local_command.cloned())
+            }
+        }
+    }
+}
+
+fn resolve_install_mode() -> McpInstallMode {
+    match env::var("GTO_MCP_INSTALL_MODE")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("local") => McpInstallMode::Local,
+        Some("npx") => McpInstallMode::Npx,
+        _ => McpInstallMode::Auto,
+    }
+}
+
+fn resolve_npx_install_command() -> Option<McpCommandSpec> {
+    let command = env::var("GTO_MCP_NPX_COMMAND")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| MCP_NPX_COMMAND_DEFAULT.to_string());
+    let package_name = env::var("GTO_MCP_NPX_PACKAGE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| MCP_NPX_PACKAGE_DEFAULT.to_string());
+    if package_name.trim().is_empty() {
+        return None;
+    }
+
+    let version = env::var("GTO_MCP_NPX_VERSION")
+        .ok()
+        .unwrap_or_else(|| BRIDGE_VERSION.to_string());
+    let package_spec = if version.trim().is_empty() || version.eq_ignore_ascii_case("latest") {
+        package_name
+    } else {
+        format!("{package_name}@{version}")
+    };
+
+    Some(McpCommandSpec {
+        command,
+        args: vec!["-y".to_string(), package_spec, "serve".to_string()],
+    })
 }
 
 fn resolve_mcp_command(app: &AppHandle) -> Option<McpCommandSpec> {
@@ -621,6 +1040,9 @@ fn install_json_client_config(path: &Path, command: &McpCommandSpec) -> Result<(
         json!({
             "command": command.command,
             "args": command.args,
+            "env": {
+                "GTO_MCP_RUNTIME_FILE": runtime_file_path(),
+            },
         }),
     );
 
@@ -651,8 +1073,9 @@ fn install_codex_toml_config(path: &Path, command: &McpCommandSpec) -> Result<()
         .map(|value| toml_quote(value))
         .collect::<Vec<_>>()
         .join(", ");
+    let runtime_path_literal = toml_quote(runtime_file_path().to_string_lossy().as_ref());
     let block = format!(
-        "{begin}\n[mcp_servers.{MCP_SERVER_ID}]\ncommand = {}\nargs = [{args_literal}]\n{end}\n",
+        "{begin}\n[mcp_servers.{MCP_SERVER_ID}]\ncommand = {}\nargs = [{args_literal}]\nenv = {{ GTO_MCP_RUNTIME_FILE = {runtime_path_literal} }}\nstartup_timeout_sec = 20\n{end}\n",
         toml_quote(&command.command),
     );
 

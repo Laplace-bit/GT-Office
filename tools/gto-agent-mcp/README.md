@@ -12,12 +12,26 @@
 # 启动 MCP server（stdio）
 node tools/gto-agent-mcp/bin/gto-agent-mcp.mjs serve
 
-# 安装到 CLI Agent 用户配置
+# 安装到 CLI Agent 用户配置（开发态，写入本地 command）
 node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs
+
+# 安装为发布态入口（推荐用于发布包 / 一键安装）
+node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs --mode npx
 
 # 指定目标工作区（用于 Claude 新版 project-scope MCP 配置）
 node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs --workspace /mnt/c/project/vbCode
 ```
+
+安装模式说明：
+
+- `--mode local`：写入本地 sidecar / node 脚本命令，适合仓库开发调试
+- `--mode npx`：写入 `npx -y @gtoffice/agent-mcp-bridge@<version> serve`，适合发布分发
+- `--mode auto`：优先尝试 `npx`，无法解析发布包信息时回退本地命令
+
+GT Office 桌面端的一键安装也遵循同一策略：
+
+- debug/dev 构建默认写入本地命令，避免影响仓库联调
+- release 构建默认写入 `npx` 入口，避免把本机 `target/.../debug/...` 路径扩散到用户配置
 
 ## 运行时依赖
 
@@ -31,6 +45,11 @@ MCP server 通过本地桥接文件连接 GT Office：
 - `host`
 - `port`
 - `token`
+
+WSL 兼容说明：
+
+- 当 CLI Agent 运行在 WSL、而 GT Office 桌面端运行在 Windows 时，sidecar 会优先探测 `/mnt/c/Users/<user>/.gtoffice/mcp/runtime.json`
+- 安装器会把 `GTO_MCP_RUNTIME_FILE` 写入 MCP 配置，避免读取到陈旧的 Linux 家目录 runtime
 
 ## 暴露工具
 

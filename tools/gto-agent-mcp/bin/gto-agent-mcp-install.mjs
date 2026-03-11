@@ -7,6 +7,7 @@ function parseArgs(argv) {
     quiet: false,
     homeDir: undefined,
     workspaceRoot: undefined,
+    installMode: undefined,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -33,6 +34,15 @@ function parseArgs(argv) {
       index += 1
       continue
     }
+    if (value === '--mode') {
+      const next = argv[index + 1]
+      if (!next) {
+        throw new Error('--mode requires a value')
+      }
+      options.installMode = next
+      index += 1
+      continue
+    }
     throw new Error(`unknown option: ${value}`)
   }
 
@@ -47,7 +57,11 @@ try {
   process.exit(1)
 }
 
-const result = await installAll({ homeDir: options.homeDir, workspaceRoot: options.workspaceRoot })
+const result = await installAll({
+  homeDir: options.homeDir,
+  workspaceRoot: options.workspaceRoot,
+  installMode: options.installMode,
+})
 if (!options.quiet) {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }

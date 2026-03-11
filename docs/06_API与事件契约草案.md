@@ -112,10 +112,33 @@ Station 约束（T-072）：
 | `agent.runtime_unregister` | `workspaceId,agentId` | `unregistered` |
 
 MCP Bridge（T-171）：
-1. 方法：`health`、`task.dispatch_batch`、`channel.publish`。
+1. 方法：`health`、`directory.get`、`task.dispatch_batch`、`channel.publish`。
 2. 仅监听 `127.0.0.1`，token 必填。
 3. 默认超时 `8s`，网络级失败最多重试 2 次。
 4. 安装目标：Claude/Codex/Gemini/Qwen；server id 统一 `gto-agent-bridge`，安装必须幂等。
+5. `directory.get` 返回 `workspaceId,directoryVersion,updatedAtMs,departments[],roles[],agents[],runtimes[]`，其中 `agents[]` 必须合并 repo agent 与 runtime-only agent。
+6. public MCP tool 采用“两步式”：
+   - 先 `gto_get_agent_directory(workspace_id?)`
+   - 再 `gto_dispatch_task / gto_report_status / gto_handover`
+7. `gto_get_agent_directory.workspace_id` 可省略；解析优先级：显式参数 > `GTO_WORKSPACE_ID` 环境变量 > `directory.json` 中最近更新的 workspace snapshot。
+8. `gto_dispatch_task.targets`、`gto_report_status.target_agent_ids`、`gto_handover.target_agent_ids` 语义固定为 `agent_id[]`。
+9. `gto_report_status`、`gto_handover` 中 `sender_agent_id` 可省略；解析优先级：显式参数 > `GTO_AGENT_ID` 环境变量 > 报错。
+10. `gto_health` 在 bridge 不可达时仍应返回 `runtime/bridge/directory/self` 诊断摘要，不直接中断 agent 自检。
+11. public tool description 与返回值必须显式引导 agent：
+   - 先 `gto_get_agent_directory`
+   - 复用 `response.workspaceId`
+   - 只向 `agents[].agentId` 发送
+   - 发送前先看 `gto_health.bridgeAvailable`
+12. `gto_dispatch_task` 负责把文本写入目标 agent terminal，并使用 runtime 的 `submitSequence` 自动提交；为兼容交互式 CLI，提交链路需允许在主 `submitSequence` 后追加一次硬回车兜底。
+13. `gto_report_status`、`gto_handover` 是协作消息记录，不负责向目标 terminal 注入或执行命令；agent 需要“让对方执行一段文本”时必须使用 `gto_dispatch_task`。
+14. 若 `workspace_id` 形如 `agent-01` 而非 `ws:...`，必须返回明确提示，不允许让 agent 把 `agent_id` 当成 `workspace_id`。
+15. 若 bridge 不可达但目录快照可读，发送类 tool 必须返回专门错误 `MCP_BRIDGE_SEND_UNAVAILABLE`，明确说明“目录可读但发送不可用”。
+16. agent/station terminal 创建时必须注入：
+   - `GTO_WORKSPACE_ID`
+   - `GTO_AGENT_ID`
+   - `GTO_ROLE_KEY`
+   - `GTO_STATION_ID`
+17. 若 GT Office 桌面端运行于 Windows、agent/MCP 运行于 WSL，public MCP tool 仍必须可用；runtime 与 directory 的候选选择必须优先命中“包含目标 workspace snapshot 的同一状态根”，避免目录来自一侧、发送却连到另一侧死端口。
 
 ### 3.6 Settings / Keymap / AI Config
 

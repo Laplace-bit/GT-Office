@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { callBridge } from '../src/bridge-client.mjs'
 
 function detectHostTriple() {
   const platform = process.platform
@@ -45,14 +46,18 @@ function defaultServerCommand() {
 function parseArgs(argv) {
   const options = {
     workspaceId: process.env.GTO_E2E_WORKSPACE_ID || '',
+    workspacePath: process.env.GTO_E2E_WORKSPACE_PATH || '',
+    managerAgentId: process.env.GTO_E2E_MANAGER_AGENT_ID || 'probe-manager',
     targets: (process.env.GTO_E2E_TARGETS || '')
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
+    bootstrap: false,
     dispatch: false,
     handover: false,
     strict: false,
     timeoutMs: 10000,
+    bootstrapTimeoutMs: Number.parseInt(process.env.GTO_E2E_BOOTSTRAP_TIMEOUT_MS || '30000', 10),
     server: defaultServerCommand(),
   }
 
@@ -60,6 +65,10 @@ function parseArgs(argv) {
     const value = argv[i]
     if (value === '--dispatch') {
       options.dispatch = true
+      continue
+    }
+    if (value === '--bootstrap') {
+      options.bootstrap = true
       continue
     }
     if (value === '--handover') {
@@ -72,6 +81,14 @@ function parseArgs(argv) {
     }
     if (value === '--workspace-id' && argv[i + 1]) {
       options.workspaceId = argv[++i]
+      continue
+    }
+    if (value === '--workspace-path' && argv[i + 1]) {
+      options.workspacePath = argv[++i]
+      continue
+    }
+    if (value === '--manager-agent-id' && argv[i + 1]) {
+      options.managerAgentId = argv[++i]
       continue
     }
     if (value === '--targets' && argv[i + 1]) {
@@ -94,14 +111,22 @@ function parseArgs(argv) {
       options.timeoutMs = Number.parseInt(argv[++i], 10)
       continue
     }
+    if (value === '--bootstrap-timeout-ms' && argv[i + 1]) {
+      options.bootstrapTimeoutMs = Number.parseInt(argv[++i], 10)
+      continue
+    }
     throw new Error(`unknown option: ${value}`)
   }
 
   return options
 }
 
+function uniqueNonEmpty(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
 class StdioRpcClient {
-  constructor(command, args, timeoutMs) {
+  constructor(command, args, timeoutMs, extraEnv = {}) {
     this.timeoutMs = timeoutMs
     this.nextId = 1
     this.pending = new Map()
@@ -109,7 +134,10 @@ class StdioRpcClient {
 
     this.child = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: process.env,
+      env: {
+        ...process.env,
+        ...extraEnv,
+      },
     })
 
     this.child.stderr.on('data', (chunk) => {
@@ -236,8 +264,38 @@ async function main() {
     throw new Error(`bridge runtime file not found: ${runtimePath}`)
   }
 
+  options.targets = uniqueNonEmpty(options.targets)
+  if (options.bootstrap) {
+    if (!options.workspacePath) {
+      throw new Error('bootstrap requires --workspace-path or GTO_E2E_WORKSPACE_PATH')
+    }
+    if (options.targets.length === 0) {
+      throw new Error('bootstrap requires at least one --targets agent id')
+    }
+
+    const bootstrapTargets = uniqueNonEmpty([options.managerAgentId, ...options.targets])
+    const bootstrapResult = await callBridge('dev.bootstrap_agents', {
+      workspacePath: options.workspacePath,
+      targets: bootstrapTargets,
+      toolKind: 'shell',
+    }, { timeoutMs: options.bootstrapTimeoutMs })
+
+    if (!options.workspaceId) {
+      options.workspaceId = String(bootstrapResult.workspaceId || '').trim()
+    }
+    process.stdout.write(`[probe] bootstrap ok: ${JSON.stringify(bootstrapResult)}\n`)
+  }
+
   process.stdout.write(`[probe] server command: ${options.server.command} ${options.server.args.join(' ')}\n`)
-  const client = new StdioRpcClient(options.server.command, options.server.args, options.timeoutMs)
+  const clientEnv = options.workspaceId
+    ? {
+        GTO_WORKSPACE_ID: options.workspaceId,
+        GTO_AGENT_ID: options.targets[0] || options.managerAgentId,
+        GTO_ROLE_KEY: options.targets[0] ? 'worker' : 'manager',
+        GTO_STATION_ID: options.targets[0] || options.managerAgentId,
+      }
+    : {}
+  const client = new StdioRpcClient(options.server.command, options.server.args, options.timeoutMs, clientEnv)
 
   try {
     await client.call('initialize', {
@@ -250,12 +308,26 @@ async function main() {
     const listResp = await client.call('tools/list', {})
     const tools = listResp?.result?.tools || []
     const names = new Set(tools.map((tool) => tool.name))
-    for (const required of ['gto_dispatch_task', 'gto_report_status', 'gto_handover', 'gto_health']) {
+    for (const required of ['gto_get_agent_directory', 'gto_dispatch_task', 'gto_report_status', 'gto_handover', 'gto_health']) {
       if (!names.has(required)) {
         throw new Error(`required tool missing: ${required}`)
       }
     }
     process.stdout.write(`[probe] tools/list ok: ${Array.from(names).join(', ')}\n`)
+
+    if (options.workspaceId) {
+      const directoryResp = await client.call('tools/call', {
+        name: 'gto_get_agent_directory',
+        arguments: {
+          workspace_id: options.workspaceId,
+        },
+      })
+      const directoryResult = parseToolText(directoryResp?.result)
+      if (directoryResp?.result?.isError) {
+        throw new Error(`gto_get_agent_directory returned error: ${JSON.stringify(directoryResult)}`)
+      }
+      process.stdout.write(`[probe] gto_get_agent_directory ok: ${JSON.stringify(directoryResult)}\n`)
+    }
 
     const healthResp = await client.call('tools/call', {
       name: 'gto_health',
@@ -278,6 +350,7 @@ async function main() {
             targets: options.targets,
             title: 'MCP E2E Probe Task',
             markdown: '- probe dispatch from gto-agent-mcp-probe',
+            sender_agent_id: options.managerAgentId,
           },
         })
         const dispatchResult = parseToolText(dispatchResp?.result)
@@ -296,8 +369,7 @@ async function main() {
           name: 'gto_handover',
           arguments: {
             workspace_id: options.workspaceId,
-            sender_agent_id: options.targets[0],
-            target_agent_ids: options.targets,
+            target_agent_ids: [options.managerAgentId],
             summary: 'probe handover',
             blockers: [],
             next_steps: ['review probe output'],

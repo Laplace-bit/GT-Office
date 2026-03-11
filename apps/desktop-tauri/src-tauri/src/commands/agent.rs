@@ -110,17 +110,18 @@ pub fn agent_create(
     repo.ensure_schema().map_err(to_command_error)?;
     repo.seed_defaults(&request.workspace_id)
         .map_err(to_command_error)?;
-    let state = parse_agent_state(request.state)?;
+    let agent_state = parse_agent_state(request.state)?;
 
     let input = CreateAgentInput {
-        workspace_id: request.workspace_id,
+        workspace_id: request.workspace_id.clone(),
         agent_id: request.agent_id,
         name: request.name,
         role_id: request.role_id,
         employee_no: request.employee_no,
-        state,
+        state: agent_state,
     };
 
     let agent = repo.create_agent(input).map_err(to_command_error)?;
+    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "agent": agent }))
 }

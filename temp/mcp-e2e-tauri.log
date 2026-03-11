@@ -1,0 +1,359 @@
+
+> @gtoffice/desktop-tauri@0.1.0 dev
+> node ../../scripts/run-tauri-with-env.cjs dev
+
+   Compiling gto-agent-mcp-sidecar v0.1.0 (/mnt/c/personal/vbCode/tools/gto-agent-mcp-sidecar)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.11s
+[GT Office] Using frontend dev server http://localhost:5174
+     Running BeforeDevCommand (`cd ../desktop-web && npm run dev -- --port 5174 --strictPort`)
+
+> desktop-web@0.0.0 dev
+> npm run ensure:native && vite --port 5174 --strictPort
+
+
+> desktop-web@0.0.0 ensure:native
+> node ../../scripts/ensure-web-native-bindings.cjs
+
+        Warn Waiting for your frontend dev server to start on http://localhost:5174/...
+        Warn Waiting for your frontend dev server to start on http://localhost:5174/...
+11:39:49 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+        Warn Waiting for your frontend dev server to start on http://localhost:5174/...
+        Warn Waiting for your frontend dev server to start on http://localhost:5174/...
+
+  VITE v7.3.1  ready in 20294 ms
+
+  ➜  Local:   http://localhost:5174/
+  ➜  Network: use --host to expose
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching /mnt/c/personal/vbCode/apps/desktop-tauri/src-tauri for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-abstractions for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-agent for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-ai-config for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-changefeed for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-core for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-daemon for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-filesystem for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-git for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-workspace for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-keymap for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-security for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-settings for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-storage for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-task for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-telemetry for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-terminal for changes...
+        Info Watching /mnt/c/personal/vbCode/crates/vb-tools for changes...
+[1m[92m   Compiling[0m gtoffice-desktop-tauri v0.1.0 (/mnt/c/personal/vbCode/apps/desktop-tauri/src-tauri)
+[1m[96m    Building[0m [=======================> ] 606/609: gtoffice-desktop-tauri(buil…[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: enum `ExternalInteractionDispatchPhase` is never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:40:10
+   [1m[94m|[0m
+[1m[94m40[0m [1m[94m|[0m pub enum ExternalInteractionDispatchPhase {
+   [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: method `signature` is never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:77:19
+   [1m[94m|[0m
+[1m[94m76[0m [1m[94m|[0m impl ExternalInteractionPrompt {
+   [1m[94m|[0m [1m[94m------------------------------[0m [1m[94mmethod in this implementation[0m
+[1m[94m77[0m [1m[94m|[0m     pub(crate) fn signature(&self) -> String {
+   [1m[94m|[0m                   [1m[33m^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: struct `ExternalInteractionDispatchCandidate` is never constructed[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:112:12
+    [1m[94m|[0m
+[1m[94m112[0m [1m[94m|[0m pub struct ExternalInteractionDispatchCandidate {
+    [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: fields `interaction_message_id` and `last_interaction_signature` are never read[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:158:5
+    [1m[94m|[0m
+[1m[94m144[0m [1m[94m|[0m struct ExternalReplyRelaySession {
+    [1m[94m|[0m        [1m[94m-------------------------[0m [1m[94mfields in this struct[0m
+[1m[94m...[0m
+[1m[94m158[0m [1m[94m|[0m     interaction_message_id: Option<String>,
+    [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m159[0m [1m[94m|[0m     last_interaction_signature: Option<String>,
+    [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: methods `clear_mcp_directory_snapshot`, `set_external_interaction_message_id`, `clear_external_interaction_message`, and `take_external_interaction_dispatch_candidates` are never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:300:12
+    [1m[94m|[0m
+[1m[94m200[0m [1m[94m|[0m impl AppState {
+    [1m[94m|[0m [1m[94m-------------[0m [1m[94mmethods in this implementation[0m
+[1m[94m...[0m
+[1m[94m300[0m [1m[94m|[0m     pub fn clear_mcp_directory_snapshot(&self, workspace_id: &str) -> Result<(), String> {
+    [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m578[0m [1m[94m|[0m     pub fn set_external_interaction_message_id(
+    [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m598[0m [1m[94m|[0m     pub fn clear_external_interaction_message(&self, session_id: &str) -> Result<(), String> {
+    [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m609[0m [1m[94m|[0m     pub fn take_external_interaction_dispatch_candidates(
+    [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `extract_rendered_interaction_prompt` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:782:4
+    [1m[94m|[0m
+[1m[94m782[0m [1m[94m|[0m fn extract_rendered_interaction_prompt(
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `extract_rendered_reply_text` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:1040:4
+     [1m[94m|[0m
+[1m[94m1040[0m [1m[94m|[0m fn extract_rendered_reply_text(
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `snapshot_has_ready_prompt` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:1219:4
+     [1m[94m|[0m
+[1m[94m1219[0m [1m[94m|[0m fn snapshot_has_ready_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `is_prompt_anchor_line` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:1349:4
+     [1m[94m|[0m
+[1m[94m1349[0m [1m[94m|[0m fn is_prompt_anchor_line(line: &str) -> bool {
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `is_ready_prompt_line` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:1369:4
+     [1m[94m|[0m
+[1m[94m1369[0m [1m[94m|[0m fn is_ready_prompt_line(line: &str) -> bool {
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `is_placeholder_prompt_content` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:2277:4
+     [1m[94m|[0m
+[1m[94m2277[0m [1m[94m|[0m fn is_placeholder_prompt_content(content: &str) -> bool {
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `extract_last_assistant_block` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/app_state.rs:2336:4
+     [1m[94m|[0m
+[1m[94m2336[0m [1m[94m|[0m fn extract_last_assistant_block(text: &str) -> Option<String> {
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: struct `ChannelSinkCapabilities` is never constructed[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:12:12
+   [1m[94m|[0m
+[1m[94m12[0m [1m[94m|[0m pub struct ChannelSinkCapabilities {
+   [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: struct `ChannelReplyDeliveryResult` is never constructed[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:19:12
+   [1m[94m|[0m
+[1m[94m19[0m [1m[94m|[0m pub struct ChannelReplyDeliveryResult {
+   [1m[94m|[0m            [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: enum `ChannelSinkKind` is never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:26:10
+   [1m[94m|[0m
+[1m[94m26[0m [1m[94m|[0m pub enum ChannelSinkKind {
+   [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: associated items `from_channel`, `id`, and `capabilities` are never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:32:12
+   [1m[94m|[0m
+[1m[94m31[0m [1m[94m|[0m impl ChannelSinkKind {
+   [1m[94m|[0m [1m[94m--------------------[0m [1m[94massociated items in this implementation[0m
+[1m[94m32[0m [1m[94m|[0m     pub fn from_channel(channel: &str) -> Self {
+   [1m[94m|[0m            [1m[33m^^^^^^^^^^^^[0m
+[1m[94m...[0m
+[1m[94m40[0m [1m[94m|[0m     pub fn id(self) -> &'static str {
+   [1m[94m|[0m            [1m[33m^^[0m
+[1m[94m...[0m
+[1m[94m47[0m [1m[94m|[0m     pub fn capabilities(self) -> ChannelSinkCapabilities {
+   [1m[94m|[0m            [1m[33m^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `deliver_interaction_prompt` is never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:63:14
+   [1m[94m|[0m
+[1m[94m63[0m [1m[94m|[0m pub async fn deliver_interaction_prompt(
+   [1m[94m|[0m              [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `deliver_reply_text` is never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:76:14
+   [1m[94m|[0m
+[1m[94m76[0m [1m[94m|[0m pub async fn deliver_reply_text(
+   [1m[94m|[0m              [1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `deliver_telegram_interaction_prompt` is never used[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:99:10
+   [1m[94m|[0m
+[1m[94m99[0m [1m[94m|[0m async fn deliver_telegram_interaction_prompt(
+   [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `deliver_telegram_reply_text` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/channel_sinks.rs:173:10
+    [1m[94m|[0m
+[1m[94m173[0m [1m[94m|[0m async fn deliver_telegram_reply_text(
+    [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `user_home_dir` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:178:4
+    [1m[94m|[0m
+[1m[94m178[0m [1m[94m|[0m fn user_home_dir() -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `truncate_text_for_channel` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:365:4
+    [1m[94m|[0m
+[1m[94m365[0m [1m[94m|[0m fn truncate_text_for_channel(text: &str, max_chars: usize) -> String {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `structured_cli_spec` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:421:4
+    [1m[94m|[0m
+[1m[94m421[0m [1m[94m|[0m fn structured_cli_spec(tool_kind: AgentToolKind) -> Option<(&'static str, &'static str)> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `resolve_structured_cli_command` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:430:4
+    [1m[94m|[0m
+[1m[94m430[0m [1m[94m|[0m fn resolve_structured_cli_command(tool_kind: AgentToolKind) -> Result<PathBuf, String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `resolve_cli_candidate` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:479:4
+    [1m[94m|[0m
+[1m[94m479[0m [1m[94m|[0m fn resolve_cli_candidate(candidate: &str, command_name: &str) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `resolve_command_in_path` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:517:4
+    [1m[94m|[0m
+[1m[94m517[0m [1m[94m|[0m fn resolve_command_in_path(command_name: &str) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `resolve_command_in_common_roots` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:527:4
+    [1m[94m|[0m
+[1m[94m527[0m [1m[94m|[0m fn resolve_command_in_common_roots(command_name: &str) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `common_cli_search_roots` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:536:4
+    [1m[94m|[0m
+[1m[94m536[0m [1m[94m|[0m fn common_cli_search_roots() -> Vec<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `nvm_bin_dirs` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:584:4
+    [1m[94m|[0m
+[1m[94m584[0m [1m[94m|[0m fn nvm_bin_dirs(home: &Path) -> Vec<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `find_command_in_dir` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:599:4
+    [1m[94m|[0m
+[1m[94m599[0m [1m[94m|[0m fn find_command_in_dir(dir: &Path, command_name: &str) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `command_name_variants` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:609:4
+    [1m[94m|[0m
+[1m[94m609[0m [1m[94m|[0m fn command_name_variants(command_name: &str) -> Vec<String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `normalize_executable_path` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:621:4
+    [1m[94m|[0m
+[1m[94m621[0m [1m[94m|[0m fn normalize_executable_path(path: PathBuf) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `resolve_command_via_login_shell` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:638:4
+    [1m[94m|[0m
+[1m[94m638[0m [1m[94m|[0m fn resolve_command_via_login_shell(command_name: &str) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `runtime_supports_structured_relay` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:662:4
+    [1m[94m|[0m
+[1m[94m662[0m [1m[94m|[0m fn runtime_supports_structured_relay(runtime: &AgentRuntimeRegistration) -> bool {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `emit_external_outbound_result` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:673:4
+    [1m[94m|[0m
+[1m[94m673[0m [1m[94m|[0m fn emit_external_outbound_result(
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `emit_structured_reply_skipped` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:699:4
+    [1m[94m|[0m
+[1m[94m699[0m [1m[94m|[0m fn emit_structured_reply_skipped(
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `deliver_external_reply_text` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:717:10
+    [1m[94m|[0m
+[1m[94m717[0m [1m[94m|[0m async fn deliver_external_reply_text(
+    [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `spawn_structured_reply_jobs` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:844:4
+    [1m[94m|[0m
+[1m[94m844[0m [1m[94m|[0m fn spawn_structured_reply_jobs(
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `run_structured_reply_job` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:922:10
+    [1m[94m|[0m
+[1m[94m922[0m [1m[94m|[0m async fn run_structured_reply_job(
+    [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `run_claude_structured_relay` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:938:10
+    [1m[94m|[0m
+[1m[94m938[0m [1m[94m|[0m async fn run_claude_structured_relay(
+    [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `stream_claude_once` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:956:10
+    [1m[94m|[0m
+[1m[94m956[0m [1m[94m|[0m async fn stream_claude_once(
+    [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `run_codex_structured_relay` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:1085:10
+     [1m[94m|[0m
+[1m[94m1085[0m [1m[94m|[0m async fn run_codex_structured_relay(
+     [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `codex_event_text` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:1103:4
+     [1m[94m|[0m
+[1m[94m1103[0m [1m[94m|[0m fn codex_event_text(event: &Value) -> Option<(String, bool)> {
+     [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `stream_codex_once` is never used[0m
+    [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/commands/channel_adapter.rs:1137:10
+     [1m[94m|[0m
+[1m[94m1137[0m [1m[94m|[0m async fn stream_codex_once(
+     [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `delete_message` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/connectors/telegram/mod.rs:787:14
+    [1m[94m|[0m
+[1m[94m787[0m [1m[94m|[0m pub async fn delete_message(
+    [1m[94m|[0m              [1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: struct `TelegramDeleteResult` is never constructed[0m
+  [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/connectors/telegram/api.rs:49:19
+   [1m[94m|[0m
+[1m[94m49[0m [1m[94m|[0m pub(super) struct TelegramDeleteResult {
+   [1m[94m|[0m                   [1m[33m^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m[1m: function `telegram_delete_message` is never used[0m
+   [1m[94m--> [0mapps/desktop-tauri/src-tauri/src/connectors/telegram/api.rs:477:15
+    [1m[94m|[0m
+[1m[94m477[0m [1m[94m|[0m pub(super) fn telegram_delete_message(
+    [1m[94m|[0m               [1m[33m^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[96m    Building[0m [=======================> ] 607/609: gtoffice-desktop-tauri      [K[1m[33mwarning[0m: `gtoffice-desktop-tauri` (lib) generated 47 warnings
+[1m[96m    Building[0m [=======================> ] 608/609: gtoffice-desktop-tauri(bin)        Error

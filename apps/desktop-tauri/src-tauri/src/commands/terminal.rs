@@ -134,6 +134,7 @@ pub fn terminal_create(
     shell: Option<String>,
     cwd: Option<String>,
     cwd_mode: Option<String>,
+    env: Option<BTreeMap<String, String>>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let cwd_mode = parse_cwd_mode(cwd_mode)?;
@@ -143,7 +144,7 @@ pub fn terminal_create(
         shell: Some(shell_name.clone()),
         cwd,
         cwd_mode: cwd_mode.clone(),
-        env: BTreeMap::new(),
+        env: env.unwrap_or_default(),
     };
     let session = state
         .terminal_provider

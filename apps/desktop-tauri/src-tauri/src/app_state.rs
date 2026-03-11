@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -170,6 +171,7 @@ pub struct AppState {
     window_workspace_bindings: Arc<Mutex<HashMap<String, String>>>,
     workspace_watchers: WorkspaceWatcherRegistry,
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
+    mcp_directory_snapshots: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl Default for AppState {
@@ -190,6 +192,7 @@ impl Default for AppState {
             window_workspace_bindings: Arc::new(Mutex::new(HashMap::new())),
             workspace_watchers: WorkspaceWatcherRegistry::default(),
             external_reply_sessions: Arc::new(Mutex::new(HashMap::new())),
+            mcp_directory_snapshots: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -273,6 +276,33 @@ impl AppState {
             .get_context(&workspace_id)
             .map_err(|error| error.to_string())?;
         Ok(PathBuf::from(context.root))
+    }
+
+    pub fn set_mcp_directory_snapshot(
+        &self,
+        workspace_id: &str,
+        snapshot: Value,
+    ) -> Result<(), String> {
+        let mut snapshots = self.mcp_directory_snapshots.lock().map_err(|_| {
+            "MCP_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned".to_string()
+        })?;
+        snapshots.insert(workspace_id.to_string(), snapshot);
+        Ok(())
+    }
+
+    pub fn mcp_directory_snapshot(&self, workspace_id: &str) -> Result<Option<Value>, String> {
+        let snapshots = self.mcp_directory_snapshots.lock().map_err(|_| {
+            "MCP_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned".to_string()
+        })?;
+        Ok(snapshots.get(workspace_id).cloned())
+    }
+
+    pub fn clear_mcp_directory_snapshot(&self, workspace_id: &str) -> Result<(), String> {
+        let mut snapshots = self.mcp_directory_snapshots.lock().map_err(|_| {
+            "MCP_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned".to_string()
+        })?;
+        snapshots.remove(workspace_id);
+        Ok(())
     }
 
     pub fn load_effective_settings(

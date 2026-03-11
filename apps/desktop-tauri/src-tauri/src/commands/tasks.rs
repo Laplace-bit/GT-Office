@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::{thread, time::Duration};
 use tauri::{AppHandle, Emitter, State};
 use vb_abstractions::AbstractionError;
 use vb_task::{
@@ -47,6 +48,43 @@ fn emit_dispatch_progress_events(app: &AppHandle, events: &[TaskDispatchProgress
     }
 }
 
+pub(crate) fn write_terminal_with_submit(
+    state: &AppState,
+    session_id: &str,
+    command: &str,
+    submit_sequence: &str,
+) -> Result<(), String> {
+    let accepted_command = state
+        .terminal_provider
+        .write_session(session_id, command)
+        .map_err(to_terminal_error)?;
+    if !accepted_command {
+        return Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string());
+    }
+
+    thread::sleep(Duration::from_millis(50));
+
+    let accepted_submit = state
+        .terminal_provider
+        .write_session(session_id, submit_sequence)
+        .map_err(to_terminal_error)?;
+    if !accepted_submit {
+        return Err("CHANNEL_DELIVERY_FAILED: terminal submit rejected".to_string());
+    }
+
+    thread::sleep(Duration::from_millis(50));
+
+    let accepted_hard_submit = state
+        .terminal_provider
+        .write_session(session_id, "\r")
+        .map_err(to_terminal_error)?;
+    if accepted_hard_submit {
+        Ok(())
+    } else {
+        Err("CHANNEL_DELIVERY_FAILED: terminal hard submit rejected".to_string())
+    }
+}
+
 #[tauri::command]
 pub fn task_list(scope: Option<String>) -> Result<Value, String> {
     Ok(json!({ "scope": scope.unwrap_or_else(|| "global".to_string()), "tasks": [] }))
@@ -73,23 +111,7 @@ pub fn task_dispatch_batch(
         &request,
         &workspace_root,
         |session_id, command, submit_sequence| {
-            let accepted_command = state
-                .terminal_provider
-                .write_session(session_id, command)
-                .map_err(to_terminal_error)?;
-            if !accepted_command {
-                Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string())
-            } else {
-                let accepted_submit = state
-                    .terminal_provider
-                    .write_session(session_id, submit_sequence)
-                    .map_err(to_terminal_error)?;
-                if accepted_submit {
-                    Ok(())
-                } else {
-                    Err("CHANNEL_DELIVERY_FAILED: terminal submit rejected".to_string())
-                }
-            }
+            write_terminal_with_submit(state.inner(), session_id, command, submit_sequence)
         },
     );
 
@@ -118,6 +140,7 @@ pub fn channel_publish(
 pub fn agent_runtime_register(
     request: AgentRuntimeRegistration,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Value, String> {
     if request.workspace_id.trim().is_empty() {
         return Err("AGENT_RUNTIME_INVALID: workspaceId is required".to_string());
@@ -130,6 +153,7 @@ pub fn agent_runtime_register(
     }
 
     let registered = state.task_service.register_runtime(request.clone());
+    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({
         "workspaceId": request.workspace_id,
         "agentId": request.agent_id,
@@ -147,6 +171,7 @@ pub fn agent_runtime_register(
 pub fn agent_runtime_unregister(
     request: AgentRuntimeUnregisterRequest,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Value, String> {
     if request.workspace_id.trim().is_empty() {
         return Err("AGENT_RUNTIME_INVALID: workspaceId is required".to_string());
@@ -157,6 +182,7 @@ pub fn agent_runtime_unregister(
     let unregistered = state
         .task_service
         .unregister_runtime(&request.workspace_id, &request.agent_id);
+    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({
         "workspaceId": request.workspace_id,
         "agentId": request.agent_id,

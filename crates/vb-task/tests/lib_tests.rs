@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use vb_task::{
-    AgentRuntimeRegistration, ChannelDescriptor, ChannelKind, ChannelMessageType,
+    AgentRuntimeRegistration, AgentToolKind, ChannelDescriptor, ChannelKind, ChannelMessageType,
     ChannelPublishRequest, ChannelRouteBinding, DispatchSender, DispatchSenderType,
     ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
     ExternalInboundStatus, ExternalPeerKind, TaskDispatchBatchRequest, TaskDispatchStatus,
@@ -59,6 +59,8 @@ fn publish_online_target_produces_sequential_messages() {
         station_id: "agent-1".to_string(),
         role_key: None,
         session_id: "ts-1".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
         submit_sequence: None,
         online: true,
     });
@@ -95,6 +97,48 @@ fn publish_online_target_produces_sequential_messages() {
 }
 
 #[test]
+fn publish_handover_to_online_target_is_accepted() {
+    let service = TaskService::default();
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "agent-1".to_string(),
+        station_id: "agent-1".to_string(),
+        role_key: None,
+        session_id: "ts-1".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        online: true,
+    });
+
+    let outcome = service.publish(&ChannelPublishRequest {
+        workspace_id: "ws-1".to_string(),
+        channel: ChannelDescriptor {
+            kind: ChannelKind::Direct,
+            id: "agent-1".to_string(),
+        },
+        sender_agent_id: Some("agent-0".to_string()),
+        target_agent_ids: vec![],
+        message_type: ChannelMessageType::Handover,
+        payload: json!({
+            "summary": "handover summary",
+            "blockers": [],
+            "nextSteps": ["review output"],
+        }),
+        idempotency_key: None,
+    });
+
+    assert_eq!(outcome.response.accepted_targets, vec!["agent-1".to_string()]);
+    assert!(outcome.response.failed_targets.is_empty());
+    assert_eq!(outcome.message_events.len(), 1);
+    assert_eq!(outcome.ack_events.len(), 1);
+    assert!(matches!(
+        outcome.message_events[0].message_type,
+        ChannelMessageType::Handover
+    ));
+}
+
+#[test]
 fn dispatch_batch_writes_files_and_emits_events() {
     let service = TaskService::default();
     service.register_runtime(AgentRuntimeRegistration {
@@ -103,6 +147,8 @@ fn dispatch_batch_writes_files_and_emits_events() {
         station_id: "agent-1".to_string(),
         role_key: None,
         session_id: "ts-1".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
         submit_sequence: None,
         online: true,
     });
@@ -152,6 +198,8 @@ fn dispatch_batch_terminal_command_appends_real_crlf_enter() {
         station_id: "agent-1".to_string(),
         role_key: None,
         session_id: "ts-1".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
         submit_sequence: None,
         online: true,
     });
@@ -208,6 +256,8 @@ fn dispatch_batch_honors_target_submit_sequence_override() {
         station_id: "agent-1".to_string(),
         role_key: None,
         session_id: "ts-1".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
         submit_sequence: None,
         online: true,
     });
@@ -251,6 +301,8 @@ fn dispatch_batch_runtime_lf_submit_is_canonicalized_to_cr() {
         station_id: "agent-1".to_string(),
         role_key: None,
         session_id: "ts-1".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
         submit_sequence: Some("\n".to_string()),
         online: true,
     });

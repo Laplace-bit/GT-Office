@@ -5,6 +5,158 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const SERVER_ID = 'gto-agent-bridge'
+const INSTALL_MODE_LOCAL = 'local'
+const INSTALL_MODE_NPX = 'npx'
+const INSTALL_MODE_AUTO = 'auto'
+const DEFAULT_NPX_COMMAND = 'npx'
+const DEFAULT_NPX_PACKAGE = '@gtoffice/agent-mcp-bridge'
+const DEFAULT_NPX_VERSION = '0.1.0'
+
+const currentFile = fileURLToPath(import.meta.url)
+const packageRoot = path.resolve(path.dirname(currentFile), '..')
+const packageJsonPath = path.join(packageRoot, 'package.json')
+
+function runtimePathCandidates(homeDir = os.homedir()) {
+  const overridePath = process.env.GTO_MCP_RUNTIME_FILE
+  if (overridePath && overridePath.trim()) {
+    return [path.resolve(overridePath.trim())]
+  }
+
+  const candidates = []
+  const pushCandidate = (value) => {
+    if (!value) {
+      return
+    }
+    const resolved = path.resolve(value)
+    if (!candidates.includes(resolved)) {
+      candidates.push(resolved)
+    }
+  }
+
+  pushCandidate(path.join(homeDir, '.gtoffice', 'mcp', 'runtime.json'))
+
+  if (process.env.WSL_DISTRO_NAME) {
+    pushCandidate(path.join('/mnt/c/Users', os.userInfo().username, '.gtoffice', 'mcp', 'runtime.json'))
+  }
+
+  if (process.env.USERPROFILE && process.env.USERPROFILE.trim()) {
+    pushCandidate(path.join(process.env.USERPROFILE.trim(), '.gtoffice', 'mcp', 'runtime.json'))
+  }
+
+  candidates.sort((left, right) => safeMtimeMs(right) - safeMtimeMs(left))
+  return candidates
+}
+
+function safeMtimeMs(filePath) {
+  try {
+    return fsSync.statSync(filePath).mtimeMs || 0
+  } catch {
+    return 0
+  }
+}
+
+function preferredRuntimePath(homeDir = os.homedir()) {
+  return runtimePathCandidates(homeDir)[0] || path.join(homeDir, '.gtoffice', 'mcp', 'runtime.json')
+}
+
+function loadPackageMetadata() {
+  try {
+    const raw = fsSync.readFileSync(packageJsonPath, 'utf8')
+    const pkg = JSON.parse(raw)
+    return {
+      name: typeof pkg.name === 'string' && pkg.name.trim() ? pkg.name.trim() : DEFAULT_NPX_PACKAGE,
+      version:
+        typeof pkg.version === 'string' && pkg.version.trim() ? pkg.version.trim() : DEFAULT_NPX_VERSION,
+    }
+  } catch {
+    return {
+      name: DEFAULT_NPX_PACKAGE,
+      version: DEFAULT_NPX_VERSION,
+    }
+  }
+}
+
+function normalizeInstallMode(value, fallback = INSTALL_MODE_LOCAL) {
+  const normalized = String(value || fallback).trim().toLowerCase()
+  if ([INSTALL_MODE_LOCAL, INSTALL_MODE_NPX, INSTALL_MODE_AUTO].includes(normalized)) {
+    return normalized
+  }
+  throw new Error(`unsupported install mode: ${value}`)
+}
+
+function resolveNpxPackageSpec() {
+  const pkg = loadPackageMetadata()
+  const packageName = (process.env.GTO_MCP_NPX_PACKAGE || pkg.name || DEFAULT_NPX_PACKAGE).trim()
+  const version = (process.env.GTO_MCP_NPX_VERSION || pkg.version || DEFAULT_NPX_VERSION).trim()
+  if (!packageName) {
+    throw new Error('GTO_MCP_NPX_PACKAGE is required when install mode is npx')
+  }
+  if (!version || version === 'latest') {
+    return packageName
+  }
+  return `${packageName}@${version}`
+}
+
+function resolveLocalServerEntry() {
+  const commandOverride = process.env.GTO_MCP_COMMAND
+  if (commandOverride && commandOverride.trim()) {
+    return {
+      command: commandOverride.trim(),
+      args: ['serve'],
+    }
+  }
+
+  const runtimePath =
+    process.env.GTO_MCP_RUNTIME_FILE || path.join(os.homedir(), '.gtoffice', 'mcp', 'runtime.json')
+  try {
+    const runtimeRaw = fsSync.readFileSync(runtimePath, 'utf8')
+    const runtime = JSON.parse(runtimeRaw)
+    const runtimeCommand = runtime?.mcpCommand?.command
+    const runtimeArgs = runtime?.mcpCommand?.args
+    if (
+      typeof runtimeCommand === 'string' &&
+      runtimeCommand.trim() &&
+      Array.isArray(runtimeArgs) &&
+      runtimeArgs.every((item) => typeof item === 'string')
+    ) {
+      return {
+        command: runtimeCommand.trim(),
+        args: runtimeArgs,
+      }
+    }
+  } catch {
+    // ignore runtime read failures and fall back to node script mode
+  }
+
+  const serverScriptPath = path.resolve(packageRoot, 'bin/gto-agent-mcp.mjs')
+  return {
+    command: process.execPath,
+    args: [serverScriptPath, 'serve'],
+  }
+}
+
+function resolveNpxServerEntry() {
+  return {
+    command: process.env.GTO_MCP_NPX_COMMAND || DEFAULT_NPX_COMMAND,
+    args: ['-y', resolveNpxPackageSpec(), 'serve'],
+  }
+}
+
+function resolveServerEntry(options = {}) {
+  const mode = normalizeInstallMode(options.installMode || process.env.GTO_MCP_INSTALL_MODE || INSTALL_MODE_LOCAL)
+  if (mode === INSTALL_MODE_LOCAL) {
+    return resolveLocalServerEntry()
+  }
+  if (mode === INSTALL_MODE_NPX) {
+    return resolveNpxServerEntry()
+  }
+
+  try {
+    return resolveNpxServerEntry()
+  } catch {
+    return resolveLocalServerEntry()
+  }
+}
 
 function tomlQuote(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
@@ -37,6 +189,7 @@ async function ensureJsonMcpServer(filePath, entry) {
   root.mcpServers[SERVER_ID] = {
     command: entry.command,
     args: entry.args,
+    env: entry.env,
   }
 
   await writeJson(filePath, root)
@@ -47,7 +200,7 @@ function toClaudeMcpEntry(entry) {
     type: 'stdio',
     command: entry.command,
     args: entry.args,
-    env: {},
+    env: entry.env,
   }
 }
 
@@ -97,11 +250,15 @@ async function ensureCodexToml(filePath, entry) {
   const begin = '# BEGIN gto-agent-bridge'
   const end = '# END gto-agent-bridge'
   const argsLiteral = entry.args.map((value) => tomlQuote(value)).join(', ')
+  const envLiteral = Object.entries(entry.env || {})
+    .map(([key, value]) => `${key} = ${tomlQuote(value)}`)
+    .join(', ')
   const block = [
     begin,
     `[mcp_servers.${SERVER_ID}]`,
     `command = ${tomlQuote(entry.command)}`,
     `args = [${argsLiteral}]`,
+    `env = { ${envLiteral} }`,
     'startup_timeout_sec = 20',
     end,
     '',
@@ -125,48 +282,6 @@ async function ensureCodexToml(filePath, entry) {
   await fs.writeFile(filePath, next, 'utf8')
 }
 
-function defaultServerEntry() {
-  const commandOverride = process.env.GTO_MCP_COMMAND
-  if (commandOverride && commandOverride.trim()) {
-    return {
-      command: commandOverride.trim(),
-      args: ['serve'],
-    }
-  }
-
-  const runtimePath =
-    process.env.GTO_MCP_RUNTIME_FILE || path.join(os.homedir(), '.gtoffice', 'mcp', 'runtime.json')
-  try {
-    const runtimeRaw = fsSync.readFileSync(runtimePath, 'utf8')
-    const runtime = JSON.parse(runtimeRaw)
-    const runtimeCommand = runtime?.mcpCommand?.command
-    const runtimeArgs = runtime?.mcpCommand?.args
-    if (
-      typeof runtimeCommand === 'string' &&
-      runtimeCommand.trim() &&
-      Array.isArray(runtimeArgs) &&
-      runtimeArgs.every((item) => typeof item === 'string')
-    ) {
-      return {
-        command: runtimeCommand.trim(),
-        args: runtimeArgs,
-      }
-    }
-  } catch {
-    // ignore runtime read failures and fall back to node script mode
-  }
-
-  const currentFile = fileURLToPath(import.meta.url)
-  const serverScriptPath = path.resolve(
-    path.dirname(currentFile),
-    '../bin/gto-agent-mcp.mjs',
-  )
-  return {
-    command: process.execPath,
-    args: [serverScriptPath, 'serve'],
-  }
-}
-
 export function getDefaultInstallTargets(homeDir = os.homedir()) {
   return {
     claudeLegacy: path.join(homeDir, '.claude', 'settings.json'),
@@ -180,8 +295,12 @@ export function getDefaultInstallTargets(homeDir = os.homedir()) {
 export async function installAll(options = {}) {
   const homeDir = options.homeDir ? path.resolve(options.homeDir) : os.homedir()
   const workspaceRoot = options.workspaceRoot ? path.resolve(options.workspaceRoot) : process.cwd()
+  const runtimePath = preferredRuntimePath(homeDir)
   const entry = {
-    ...defaultServerEntry(),
+    ...resolveServerEntry(options),
+    env: {
+      GTO_MCP_RUNTIME_FILE: runtimePath,
+    },
     ...(options.serverEntry || {}),
   }
   const targets = getDefaultInstallTargets(homeDir)

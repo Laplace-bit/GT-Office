@@ -701,9 +701,9 @@ where
 
     fn send_mux_command(&self, command: MuxCommand) -> AbstractionResult<()> {
         self.mux_sender
-            .blocking_send(command)
-            .map_err(|_| AbstractionError::Internal {
-                message: "TERMINAL_INTERNAL: terminal mux loop is unavailable".to_string(),
+            .try_send(command)
+            .map_err(|error| AbstractionError::Internal {
+                message: format!("TERMINAL_INTERNAL: terminal mux loop is unavailable: {error}"),
             })
     }
 

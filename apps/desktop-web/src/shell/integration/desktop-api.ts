@@ -1199,6 +1199,7 @@ export const desktopApi = {
       shell?: string | null
       cwd?: string | null
       cwdMode?: 'workspace_root' | 'custom'
+      env?: Record<string, string>
     },
   ) {
     return invokeCommand<TerminalCreateResponse>('terminal_create', {
@@ -1206,6 +1207,7 @@ export const desktopApi = {
       shell: options?.shell ?? null,
       cwd: options?.cwd ?? null,
       cwdMode: options?.cwdMode ?? 'workspace_root',
+      env: options?.env ?? null,
     })
   },
   terminalWrite(sessionId: string, input: string) {

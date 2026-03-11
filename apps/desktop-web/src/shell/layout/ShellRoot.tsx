@@ -2464,9 +2464,16 @@ export function ShellRoot() {
           '',
         )
         const agentWorkspaceCwd = resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
+        const terminalEnv = {
+          GTO_WORKSPACE_ID: activeWorkspaceId,
+          GTO_AGENT_ID: station.id,
+          GTO_ROLE_KEY: station.role,
+          GTO_STATION_ID: station.id,
+        }
         const session = await desktopApi.terminalCreate(activeWorkspaceId, {
           cwd: agentWorkspaceCwd,
           cwdMode: 'custom',
+          env: terminalEnv,
         })
         sessionStationRef.current[session.sessionId] = stationId
         terminalSessionSeqRef.current[session.sessionId] = 0
@@ -3374,10 +3381,20 @@ export function ShellRoot() {
           const restoreCwd = restoreCwdMode === 'custom' ? terminal.resolvedCwd : null
 
           try {
+            const station = stationsRef.current.find((item) => item.id === terminal.stationId)
+            const terminalEnv = station
+              ? {
+                  GTO_WORKSPACE_ID: workspaceId,
+                  GTO_AGENT_ID: station.id,
+                  GTO_ROLE_KEY: station.role,
+                  GTO_STATION_ID: station.id,
+                }
+              : undefined
             const session = await desktopApi.terminalCreate(workspaceId, {
               shell: terminal.shell,
               cwdMode: restoreCwdMode,
               cwd: restoreCwd,
+              env: terminalEnv,
             })
             sessionStationRef.current[session.sessionId] = terminal.stationId
             terminalSessionSeqRef.current[session.sessionId] = 0
