@@ -106,17 +106,16 @@ fn run_curl_json(args: &[&str]) -> Result<Value, String> {
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
     if !output.status.success() {
         let stderr_text = String::from_utf8_lossy(&output.stderr).to_string();
-        let should_retry = looks_like_retryable_transport_error(&stderr_text)
-            || {
-                #[cfg(target_os = "windows")]
-                {
-                    looks_like_windows_schannel_error(&stderr_text)
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    false
-                }
-            };
+        let should_retry = looks_like_retryable_transport_error(&stderr_text) || {
+            #[cfg(target_os = "windows")]
+            {
+                looks_like_windows_schannel_error(&stderr_text)
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                false
+            }
+        };
         if should_retry {
             let mut retry_args = vec![
                 "--connect-timeout",

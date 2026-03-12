@@ -6,6 +6,7 @@ import { AppIcon } from '@shell/ui/icons'
 
 interface ChannelOverviewProps {
   locale: Locale
+  variant?: 'embedded' | 'studio'
   runtimeRunning: boolean
   onAddChannel: () => void
   channelBotGroups: ReturnType<typeof buildChannelBotBindingGroups>
@@ -20,6 +21,7 @@ interface ChannelOverviewProps {
 
 export function ChannelOverview({
   locale,
+  variant = 'embedded',
   runtimeRunning,
   onAddChannel,
   channelBotGroups,
@@ -33,10 +35,18 @@ export function ChannelOverview({
 }: ChannelOverviewProps) {
   return (
     <>
-      <div className="channel-overview-top">
+      <div className={`channel-overview-top ${variant === 'studio' ? 'studio' : ''}`}>
         <div className="channel-overview-status">
-          <h4>{t(locale, '通道连接管理', 'Channel Connection Management')}</h4>
-          <p>{t(locale, '管理您的 Telegram 和 Feishu 机器人。', 'Manage your Telegram and Feishu bots.')}</p>
+          <h4>
+            {variant === 'studio'
+              ? t(locale, '机器人接入与健康状态', 'Bot onboarding and health status')
+              : t(locale, '通道连接管理', 'Channel Connection Management')}
+          </h4>
+          <p>
+            {variant === 'studio'
+              ? t(locale, '在这里维护 Telegram / 飞书账号、绑定路由，并集中查看健康检查结果。', 'Manage Telegram / Feishu accounts, bind routes, and review connector health from one place.')
+              : t(locale, '管理您的 Telegram 和 Feishu 机器人。', 'Manage your Telegram and Feishu bots.')}
+          </p>
         </div>
         <div className="settings-channel-header-actions">
           <span className={`channel-runtime-pill ${runtimeRunning ? 'running' : 'stopped'}`}>
@@ -59,8 +69,12 @@ export function ChannelOverview({
           <p>
             {t(
               locale,
-              '当前没有已添加的 Channel。点击右上角“添加 Channel”开始配置。',
-              'No channels added yet. Click "Add Channel" to start setup.',
+              variant === 'studio'
+                ? '当前还没有已接入的 Channel。点击右上角“添加 Channel”开始配置，推荐先完成飞书。'
+                : '当前没有已添加的 Channel。点击右上角“添加 Channel”开始配置。',
+              variant === 'studio'
+                ? 'No channels are connected yet. Click "Add Channel" to start setup. Feishu is recommended first.'
+                : 'No channels added yet. Click "Add Channel" to start setup.',
             )}
           </p>
         </div>

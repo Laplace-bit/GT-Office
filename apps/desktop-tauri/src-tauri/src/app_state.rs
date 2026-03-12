@@ -51,6 +51,10 @@ pub struct ExternalReplyDispatchCandidate {
     pub phase: ExternalReplyDispatchPhase,
 }
 
+fn channel_supports_preview(channel: &str) -> bool {
+    channel.trim().eq_ignore_ascii_case("telegram")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExternalInteractionPromptKind {
     Permission,
@@ -665,7 +669,10 @@ impl AppState {
             let normalized_text = external_reply_session_text(session);
             let has_text = !normalized_text.is_empty();
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
+            let promptless_rendered_idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms)
+                >= idle_threshold_ms.saturating_mul(3);
             let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
+            let rendered_has_text = !session.last_rendered_reply_text.trim().is_empty();
             let rendered_ready_for_finalize =
                 session
                     .last_rendered_snapshot
@@ -676,18 +683,27 @@ impl AppState {
                             ToolScreenProfile::from_tool_kind(session.tool_kind),
                         )
                     });
+            let promptless_rendered_finalize = has_text
+                && rendered_has_text
+                && session.last_rendered_snapshot.is_some()
+                && !rendered_ready_for_finalize
+                && promptless_rendered_idle_elapsed
+                && session.active_interaction_prompt.is_none()
+                && !session.permission_prompt_active;
             let should_finalize_with_text = has_text
                 && (session.ended
                     || expired
                     || (idle_elapsed
                         && (session.last_rendered_snapshot.is_none()
-                            || rendered_ready_for_finalize)));
+                            || !rendered_has_text
+                            || rendered_ready_for_finalize))
+                    || promptless_rendered_finalize);
             let should_drop_without_text = !has_text
                 && (session.ended
                     || expired
                     || (idle_elapsed
                         && session.last_rendered_snapshot.is_some()
-                        && rendered_ready_for_finalize));
+                        && (!rendered_has_text || rendered_ready_for_finalize)));
 
             if should_drop_without_text {
                 debug!(
@@ -705,8 +721,8 @@ impl AppState {
             }
             if should_finalize_with_text {
                 let finalize_retry_ms = preview_throttle_ms.max(1);
-                let finalize_due = now_ms.saturating_sub(session.last_finalize_attempt_at_ms)
-                    >= finalize_retry_ms;
+                let finalize_due =
+                    now_ms.saturating_sub(session.last_finalize_attempt_at_ms) >= finalize_retry_ms;
                 if !finalize_due {
                     continue;
                 }
@@ -715,6 +731,7 @@ impl AppState {
                     session_id = %session_id,
                     profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
                     final_chars = normalized_text.chars().count(),
+                    promptless_rendered_finalize,
                     "queued external reply finalize candidate"
                 );
                 candidates.push(ExternalReplyDispatchCandidate {
@@ -729,8 +746,9 @@ impl AppState {
             if !has_text {
                 continue;
             }
-            let preview_enabled = normalized_text.chars().count() >= preview_min_chars
-                || session.preview_message_id.is_some();
+            let preview_enabled = channel_supports_preview(&session.target.channel)
+                && (normalized_text.chars().count() >= preview_min_chars
+                    || session.preview_message_id.is_some());
             if !preview_enabled {
                 continue;
             }
@@ -771,7 +789,8 @@ impl AppState {
 }
 
 fn external_reply_session_text(session: &ExternalReplyRelaySession) -> String {
-    if session.last_rendered_snapshot.is_some() {
+    let rendered_text = session.last_rendered_reply_text.trim();
+    if !rendered_text.is_empty() {
         return session.last_rendered_reply_text.clone();
     }
     let screen_text = session.vt_parser.screen().contents();

@@ -192,6 +192,20 @@ MCP Bridge（T-171）：
 4. 入站派发后必须写入已绑定 live terminal session；禁止另起 headless 会话替代。
 5. 正文提取主事实源为 `RenderedScreenSnapshot`；低置信时静默，不回退整屏文本。
 6. Telegram 交互按钮（inline keyboard）与正文分离，按钮回调需复用同一 reply session。
+7. `channel_connector_account_upsert` 对 Feishu 需支持：
+   - `connectionMode=websocket|webhook`
+   - `domain=feishu|lark`
+   - `appId/appSecret/appSecretRef`
+   - `verificationToken/verificationTokenRef`
+   - `webhookPath/webhookHost/webhookPort`
+8. `channel_connector_health` 对 Feishu 需补充：
+   - `botName`
+   - `botOpenId`
+   - `domain`
+   - `runtimeConnected`
+   - `connectionMode`
+   - `configuredWebhookUrl/runtimeWebhookUrl/webhookMatched`
+9. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
 
 ## 4. Event 契约（V1）
 
@@ -229,10 +243,10 @@ MCP Bridge（T-171）：
 |---|---|
 | `external/channel_inbound` | `traceId,channel,accountId,peer*,sender*,messageId,text?` |
 | `external/channel_routed` | `traceId,workspaceId,targetAgentId,resolvedTargets[]` |
-| `external/channel_dispatch_progress` | `traceId,targetAgentId,taskId,status,detail?` |
+| `external/channel_dispatch_progress` | `traceId,targetAgentId,taskId,status,detail?,title?,contentPreview?` |
 | `external/channel_reply` | `workspaceId,messageId,targetAgentId,status,reason?` |
 | `external/channel_error` | `traceId,code,detail` |
-| `external/channel_outbound_result` | `workspaceId,messageId,targetAgentId,status,detail?,relayMode,confidence` |
+| `external/channel_outbound_result` | `workspaceId,messageId,targetAgentId,status,detail?,relayMode,confidence,textPreview?` |
 | `external/channel_connector_health_changed` | `channel,accountId,ok,status,detail,checkedAtMs` |
 
 ## 5. 错误码规范

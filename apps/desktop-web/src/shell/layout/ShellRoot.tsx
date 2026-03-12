@@ -38,6 +38,7 @@ import { SettingsModal } from '@features/settings'
 import type { StationTerminalSink, StationTerminalSinkBindingHandler } from '@features/terminal'
 import {
   buildStationChannelBotBindingMap,
+  ChannelStudio,
   resolveConnectorAccounts,
 } from '@features/tool-adapter'
 import {
@@ -80,6 +81,7 @@ import {
   type ChannelMessagePayload,
   type ExternalChannelDispatchProgressPayload,
   type ExternalChannelInboundPayload,
+  type ExternalChannelOutboundResultPayload,
   type ExternalChannelReplyPayload,
   type ExternalChannelRoutedPayload,
   type AgentRole,
@@ -172,6 +174,20 @@ function isDigitsOnly(value: string): boolean {
   return value.length > 0 && /^\d+$/.test(value)
 }
 
+function summarizeExternalChannelText(
+  value: string | null | undefined,
+  maxChars = 160,
+): string | null {
+  const normalized = (value ?? '').replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return null
+  }
+  if (normalized.length <= maxChars) {
+    return normalized
+  }
+  return `${normalized.slice(0, maxChars)}...`
+}
+
 function isCsiUEnterSequence(raw: string): boolean {
   if (!raw.startsWith('\x1b[13;') || !raw.endsWith('u')) {
     return false
@@ -212,9 +228,11 @@ function normalizeSubmitSequence(raw: string): string | null {
 type ExternalChannelEventItem = {
   id: string
   tsMs: number
-  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error'
+  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'outbound' | 'error'
   primary: string
   secondary?: string
+  detail?: string
+  mergeKey?: string
 }
 
 type TelegramInboundDebugToast = {
@@ -729,6 +747,7 @@ export function ShellRoot() {
   const [leftPaneVisible, setLeftPaneVisible] = useState(true)
   const [activeNavId, setActiveNavId] = useState<NavItemId>('stations')
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isChannelStudioOpen, setIsChannelStudioOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [editingStation, setEditingStation] = useState<UpdateStationInput | null>(null)
   const [agentRoles, setAgentRoles] = useState<AgentRole[]>([])
@@ -1449,8 +1468,29 @@ export function ShellRoot() {
         kind: input.kind,
         primary: input.primary,
         secondary: input.secondary,
+        detail: input.detail,
+        mergeKey: input.mergeKey,
       }
-      setExternalChannelEvents((prev) => [nextEvent, ...prev].slice(0, EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT))
+      setExternalChannelEvents((prev) => {
+        if (!nextEvent.mergeKey) {
+          return [nextEvent, ...prev].slice(0, EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT)
+        }
+        const existingIndex = prev.findIndex(
+          (event) => event.mergeKey === nextEvent.mergeKey && event.kind === nextEvent.kind,
+        )
+        if (existingIndex === -1) {
+          return [nextEvent, ...prev].slice(0, EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT)
+        }
+        const updated = [...prev]
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          tsMs: nextEvent.tsMs,
+          primary: nextEvent.primary,
+          secondary: nextEvent.secondary,
+          detail: nextEvent.detail,
+        }
+        return updated
+      })
     },
     [],
   )
@@ -2166,43 +2206,40 @@ export function ShellRoot() {
           // Progress events are consumed by the dispatch command response in current UI.
         },
         onExternalInbound: (payload: ExternalChannelInboundPayload) => {
+          const textPreview = summarizeExternalChannelText(payload.text)
           appendExternalChannelEvent({
             kind: 'inbound',
-            primary: `${payload.channel} · ${payload.senderId}`,
-            secondary: `peer=${payload.peerId} · msg=${payload.messageId}`,
+            primary: textPreview ?? `${payload.channel} · ${payload.senderId}`,
+            secondary: `${payload.channel} · ${payload.senderId}`,
+            detail: `peer=${payload.peerId} · msg=${payload.messageId}`,
           })
           emitTelegramInboundDebugToast(payload)
         },
-        onExternalRouted: (payload: ExternalChannelRoutedPayload) => {
+        onExternalRouted: (_payload: ExternalChannelRoutedPayload) => {},
+        onExternalDispatchProgress: (_payload: ExternalChannelDispatchProgressPayload) => {},
+        onExternalReply: (_payload: ExternalChannelReplyPayload) => {
+          // `external/channel_reply` is an internal channel ack mirrored from task dispatch,
+          // not a real external provider send result. Do not show it in recent external events.
+        },
+        onExternalOutboundResult: (payload: ExternalChannelOutboundResultPayload) => {
+          if (payload.relayMode === 'dispatch-ack') {
+            return
+          }
+          const textPreview = summarizeExternalChannelText(payload.textPreview)
+          const failureMergeKey =
+            payload.status === 'failed'
+              ? `outbound-failed:${payload.traceId ?? payload.messageId}:${payload.targetAgentId}:${payload.textPreview ?? ''}`
+              : undefined
           appendExternalChannelEvent({
-            kind: 'routed',
-            primary: `${payload.workspaceId} -> ${payload.targetAgentId}`,
-            secondary: `matchedBy=${payload.matchedBy} · trace=${payload.traceId}`,
+            kind: 'outbound',
+            primary: textPreview ?? `${payload.targetAgentId} · ${payload.status}`,
+            secondary: `${payload.targetAgentId} · ${payload.status}`,
+            detail: payload.status === 'failed' ? payload.detail ?? undefined : undefined,
+            mergeKey: failureMergeKey,
+            tsMs: payload.tsMs,
           })
         },
-        onExternalDispatchProgress: (payload: ExternalChannelDispatchProgressPayload) => {
-          appendExternalChannelEvent({
-            kind: 'dispatch',
-            primary: `${payload.targetAgentId} · ${payload.status}`,
-            secondary: `task=${payload.taskId}`,
-          })
-        },
-        onExternalReply: (payload: ExternalChannelReplyPayload) => {
-          appendExternalChannelEvent({
-            kind: 'reply',
-            primary: `${payload.targetAgentId} · ${payload.status}`,
-            secondary: payload.reason ?? undefined,
-          })
-        },
-        onExternalError: (payload) => {
-          const code = readString(payload.code) ?? 'CHANNEL_ERROR'
-          const detail = readString(payload.detail) ?? 'unknown'
-          appendExternalChannelEvent({
-            kind: 'error',
-            primary: code,
-            secondary: detail,
-          })
-        },
+        onExternalError: (_payload) => {},
       })
       .then((unlisten) => {
         if (disposed) {
@@ -4203,7 +4240,12 @@ export function ShellRoot() {
           onPickWorkspaceDirectory={() => {
             void handlePickWorkspaceDirectory()
           }}
+          onOpenChannels={() => {
+            setIsSettingsOpen(false)
+            setIsChannelStudioOpen(true)
+          }}
           onOpenSettings={() => {
+            setIsChannelStudioOpen(false)
             setIsSettingsOpen(true)
           }}
           onWindowMinimize={handleWindowMinimize}
@@ -4444,7 +4486,6 @@ export function ShellRoot() {
       <SettingsModal
         open={isSettingsOpen}
         locale={locale}
-        workspaceId={activeWorkspaceId}
         themeMode={uiPreferences.themeMode}
         uiFont={uiPreferences.uiFont}
         monoFont={uiPreferences.monoFont}
@@ -4503,6 +4544,14 @@ export function ShellRoot() {
           }
         }}
         onDelete={(stationId) => removeStation(stationId)}
+      />
+      <ChannelStudio
+        open={isChannelStudioOpen}
+        locale={locale}
+        workspaceId={activeWorkspaceId}
+        onClose={() => {
+          setIsChannelStudioOpen(false)
+        }}
       />
 
       <StationSearchModal

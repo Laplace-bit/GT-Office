@@ -2,8 +2,8 @@ use serde_json::Value;
 use std::{
     collections::hash_map::DefaultHasher,
     collections::HashMap,
-    hash::{Hash, Hasher},
     fs,
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };

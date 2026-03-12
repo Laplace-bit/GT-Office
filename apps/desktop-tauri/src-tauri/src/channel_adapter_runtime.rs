@@ -18,8 +18,9 @@ use uuid::Uuid;
 use vb_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
 
 use crate::{
-    app_state::AppState, commands::tool_adapter::process_external_inbound_message,
-    connectors::telegram,
+    app_state::AppState,
+    commands::tool_adapter::process_external_inbound_message,
+    connectors::{feishu, telegram},
 };
 
 const CHANNEL_RUNTIME_VERSION: &str = "0.1.0";
@@ -430,21 +431,8 @@ fn handle_feishu_request(
         }
     };
 
-    if payload
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|value| value == "url_verification")
-    {
-        let challenge = payload
-            .get("challenge")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        return (200, json!({ "challenge": challenge }));
-    }
-
-    let inbound = match parse_feishu_payload(&payload) {
-        Ok(message) => message,
+    let parsed = match feishu::parse_webhook_payload(&payload) {
+        Ok(parsed) => parsed,
         Err(error) => {
             with_runtime_metrics_mut(|metrics| {
                 metrics.invalid_requests = metrics.invalid_requests.saturating_add(1);
@@ -462,6 +450,19 @@ fn handle_feishu_request(
                 }),
             );
         }
+    };
+    if let Some(challenge) = parsed.challenge {
+        return (200, json!({ "challenge": challenge }));
+    }
+    let Some(inbound) = parsed.message else {
+        return (
+            202,
+            json!({
+                "ok": true,
+                "accepted": false,
+                "detail": "CHANNEL_FEISHU_EVENT_IGNORED",
+            }),
+        );
     };
     dispatch_inbound(ctx, inbound)
 }
@@ -545,9 +546,13 @@ fn dispatch_inbound(ctx: &RuntimeContext, inbound: ExternalInboundMessage) -> (u
     if let Some(callback_query_id) = callback_query_id {
         let app = ctx.app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ =
-                telegram::answer_callback_query(&app, Some(&callback_account_id), &callback_query_id, None)
-                    .await;
+            let _ = telegram::answer_callback_query(
+                &app,
+                Some(&callback_account_id),
+                &callback_query_id,
+                None,
+            )
+            .await;
         });
     }
     match result {
@@ -739,72 +744,6 @@ fn is_json_content_type(value: Option<&str>) -> bool {
     media_type == "application/json" || media_type.ends_with("+json")
 }
 
-fn parse_feishu_payload(payload: &Value) -> Result<ExternalInboundMessage, String> {
-    let event = payload
-        .get("event")
-        .ok_or_else(|| "missing event".to_string())?;
-    let message = event
-        .get("message")
-        .ok_or_else(|| "missing event.message".to_string())?;
-    let sender = event
-        .get("sender")
-        .ok_or_else(|| "missing event.sender".to_string())?;
-    let sender_id_node = sender
-        .get("sender_id")
-        .ok_or_else(|| "missing event.sender.sender_id".to_string())?;
-
-    let sender_id = first_non_empty([
-        json_to_string(sender_id_node.get("open_id")).as_deref(),
-        json_to_string(sender_id_node.get("user_id")).as_deref(),
-        json_to_string(sender_id_node.get("union_id")).as_deref(),
-    ])
-    .ok_or_else(|| "missing sender open_id/user_id/union_id".to_string())?;
-
-    let peer_id = json_to_string(message.get("chat_id")).unwrap_or_else(|| sender_id.clone());
-    let chat_type = json_to_string(message.get("chat_type")).unwrap_or_else(|| "p2p".to_string());
-    let peer_kind = if chat_type.eq_ignore_ascii_case("group") {
-        ExternalPeerKind::Group
-    } else {
-        ExternalPeerKind::Direct
-    };
-    let message_id = json_to_string(message.get("message_id"))
-        .ok_or_else(|| "missing event.message.message_id".to_string())?;
-    let text = parse_feishu_text(message.get("content"))
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "[feishu non-text message]".to_string());
-
-    let account_id = first_non_empty([
-        json_to_string(
-            payload
-                .get("header")
-                .and_then(|header| header.get("app_id")),
-        )
-        .as_deref(),
-        json_to_string(
-            payload
-                .get("header")
-                .and_then(|header| header.get("tenant_key")),
-        )
-        .as_deref(),
-    ])
-    .unwrap_or_else(|| "default".to_string());
-
-    Ok(ExternalInboundMessage {
-        channel: "feishu".to_string(),
-        account_id,
-        peer_kind,
-        peer_id,
-        sender_id,
-        sender_name: json_to_string(sender.get("name")),
-        message_id,
-        text,
-        idempotency_key: None,
-        workspace_id_hint: None,
-        target_agent_id_hint: None,
-        metadata: payload.clone(),
-    })
-}
-
 fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, String> {
     if let Some(callback) = payload.get("callback_query") {
         let message = callback
@@ -814,7 +753,8 @@ fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, Str
             .get("chat")
             .ok_or_else(|| "missing callback_query.message.chat".to_string())?;
 
-        let peer_id = json_to_string(chat.get("id")).ok_or_else(|| "missing chat.id".to_string())?;
+        let peer_id =
+            json_to_string(chat.get("id")).ok_or_else(|| "missing chat.id".to_string())?;
         let chat_type = json_to_string(chat.get("type")).unwrap_or_else(|| "private".to_string());
         let peer_kind = if chat_type.eq_ignore_ascii_case("group")
             || chat_type.eq_ignore_ascii_case("supergroup")
@@ -910,21 +850,6 @@ fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, Str
         target_agent_id_hint: None,
         metadata: payload.clone(),
     })
-}
-
-fn parse_feishu_text(content: Option<&Value>) -> Option<String> {
-    let raw = content.and_then(Value::as_str)?.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    if raw.starts_with('{') {
-        if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
-            if let Some(text) = parsed.get("text").and_then(Value::as_str) {
-                return Some(text.to_string());
-            }
-        }
-    }
-    Some(raw.to_string())
 }
 
 fn derive_telegram_sender_name(from: &Value) -> Option<String> {

@@ -450,13 +450,19 @@ fn external_reply_finalize_candidate_retries_until_marked_delivered() {
         .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 500, 10_000, 200, 10)
         .expect("take first finalize");
     assert_eq!(first_finalize.len(), 1);
-    assert_eq!(first_finalize[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(
+        first_finalize[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
 
     let retried_finalize = state
         .take_external_reply_dispatch_candidates(now_ms_for_test(2_500), 500, 10_000, 200, 10)
         .expect("take retried finalize");
     assert_eq!(retried_finalize.len(), 1);
-    assert_eq!(retried_finalize[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(
+        retried_finalize[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
     assert_eq!(retried_finalize[0].text, "retryable final reply");
 
     state
@@ -506,7 +512,10 @@ fn external_reply_preview_failure_resets_throttle_for_retry() {
         .take_external_reply_dispatch_candidates(now_ms_for_test(2_500), 5_000, 20_000, 200, 10)
         .expect("take retried preview");
     assert_eq!(retried_preview.len(), 1);
-    assert_eq!(retried_preview[0].phase, ExternalReplyDispatchPhase::Preview);
+    assert_eq!(
+        retried_preview[0].phase,
+        ExternalReplyDispatchPhase::Preview
+    );
     assert_eq!(retried_preview[0].text, first_preview[0].text);
 }
 
@@ -560,6 +569,51 @@ fn external_reply_dispatch_emits_preview_then_finalize() {
         final_candidates[0].preview_message_id.as_deref(),
         Some("msg_telegram_preview")
     );
+}
+
+#[test]
+fn external_reply_dispatch_skips_preview_for_feishu_until_finalize() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_feishu_finalize".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "oc_123".to_string(),
+        inbound_message_id: "om_123".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-feishu".to_string(),
+        injected_input: None,
+    };
+    state
+        .bind_external_reply_session("s_feishu_finalize", target, now_ms_for_test(1_000))
+        .expect("bind session");
+    state
+        .append_external_reply_chunk(
+            "s_feishu_finalize",
+            b"this feishu reply should not stream as preview",
+            now_ms_for_test(1_100),
+        )
+        .expect("append chunk");
+
+    let preview = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 5_000, 20_000, 200, 10)
+        .expect("take preview candidates");
+    assert!(preview.is_empty());
+
+    state
+        .mark_external_reply_session_ended("s_feishu_finalize", now_ms_for_test(2_500))
+        .expect("mark ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_700), 5_000, 20_000, 200, 10)
+        .expect("take final candidates");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
+    assert!(final_candidates[0].preview_message_id.is_none());
+    assert_eq!(final_candidates[0].target.channel, "feishu");
 }
 
 #[test]
@@ -1379,6 +1433,80 @@ fn rendered_screen_reply_snapshot_drops_spinner_and_progress_noise() {
         .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 5_000, 200, 10)
         .expect("take final");
     assert!(final_candidates.is_empty());
+}
+
+#[test]
+fn rendered_screen_empty_reply_falls_back_to_vt_text() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_vt_fallback".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-vt".to_string(),
+        inbound_message_id: "msg-vt".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-vt".to_string(),
+        injected_input: Some("现在几点".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_vt_fallback", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .append_external_reply_chunk(
+            "s_rendered_vt_fallback",
+            "现在是 2026-03-12 18:55。".as_bytes(),
+            now_ms_for_test(1_100),
+        )
+        .expect("append");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_vt_fallback",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_vt_fallback".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_200),
+                viewport_top: 0,
+                viewport_height: 3,
+                base_y: 0,
+                cursor_row: Some(2),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› 现在几点".to_string(),
+                        trimmed_text: "› 现在几点".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "gpt-5.3-codex · high · /repo · 100%".to_string(),
+                        trimmed_text: "gpt-5.3-codex · high · /repo · 100%".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "› ".to_string(),
+                        trimmed_text: "›".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered screen");
+    state
+        .mark_external_reply_session_ended("s_rendered_vt_fallback", now_ms_for_test(1_400))
+        .expect("ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 5_000, 200, 10)
+        .expect("take final");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
+    assert_eq!(final_candidates[0].text, "现在是 2026-03-12 18:55。");
 }
 
 #[test]
@@ -2883,4 +3011,162 @@ fn codex_bound_reply_session_emits_candidate_after_rendered_snapshot() {
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].phase, ExternalReplyDispatchPhase::Preview);
     assert_eq!(candidates[0].text, "• 你好。有什么需要我处理的？");
+}
+
+#[test]
+fn rendered_reply_finalizes_after_promptless_idle_fallback() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_codex_idle_1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-codex-idle-1".to_string(),
+        inbound_message_id: "msg-codex-idle-1".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-codex-idle-1".to_string(),
+        injected_input: Some("帮我总结一下".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_codex_idle_1", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .set_external_reply_session_tool_kind("s_codex_idle_1", AgentToolKind::Codex)
+        .expect("set tool kind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_codex_idle_1",
+            RenderedScreenSnapshot {
+                session_id: "s_codex_idle_1".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 12,
+                base_y: 0,
+                cursor_row: Some(3),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› 帮我总结一下".to_string(),
+                        trimmed_text: "› 帮我总结一下".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "• 这是一个稳定输出但尚未识别 ready prompt 的回复示例。".to_string(),
+                        trimmed_text: "• 这是一个稳定输出但尚未识别 ready prompt 的回复示例。"
+                            .to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "  界面已经没有继续滚动，但终端底部没有标准占位提示。".to_string(),
+                        trimmed_text: "界面已经没有继续滚动，但终端底部没有标准占位提示。"
+                            .to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered screen");
+
+    let early_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(3_000), 2_000, 20_000, 200, 10)
+        .expect("take early");
+    assert!(early_candidates.is_empty());
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(7_200), 2_000, 20_000, 200, 10)
+        .expect("take fallback finalize");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
+    assert_eq!(
+        final_candidates[0].text,
+        "• 这是一个稳定输出但尚未识别 ready prompt 的回复示例。\n  界面已经没有继续滚动，但终端底部没有标准占位提示。"
+    );
+}
+
+#[test]
+fn bound_reply_session_finalizes_with_pty_fallback_when_rendered_extract_is_empty() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_reply_fallback_1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-fallback-1".to_string(),
+        inbound_message_id: "msg-fallback-1".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-fallback-1".to_string(),
+        injected_input: Some("帮我总结一下".to_string()),
+    };
+
+    state
+        .bind_external_reply_session("s_reply_fallback_1", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .set_external_reply_session_tool_kind("s_reply_fallback_1", AgentToolKind::Codex)
+        .expect("set tool kind");
+    state
+        .append_external_reply_chunk(
+            "s_reply_fallback_1",
+            "\n• 已经完成总结。\n".as_bytes(),
+            now_ms_for_test(1_100),
+        )
+        .expect("append pty chunk");
+    state
+        .report_external_reply_rendered_screen(
+            "s_reply_fallback_1",
+            RenderedScreenSnapshot {
+                session_id: "s_reply_fallback_1".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_200),
+                viewport_top: 0,
+                viewport_height: 8,
+                base_y: 0,
+                cursor_row: Some(4),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› 帮我总结一下".to_string(),
+                        trimmed_text: "› 帮我总结一下".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "› Use /skills to list available skills".to_string(),
+                        trimmed_text: "› Use /skills to list available skills".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "gpt-5.4 · gpt-5.4 low · /mnt/c/project/.gtoffice/org/build/agent-01 · 100% left"
+                            .to_string(),
+                        trimmed_text:
+                            "gpt-5.4 · gpt-5.4 low · /mnt/c/project/.gtoffice/org/build/agent-01 · 100% left"
+                                .to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered snapshot");
+
+    let candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(1_800), 500, 20_000, 200, 10)
+        .expect("take candidates");
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(candidates[0].text, "• 已经完成总结。");
 }

@@ -742,11 +742,20 @@ export interface ChannelConnectorAccount {
   accountId: string
   enabled: boolean
   mode: string
+  connectionMode?: string | null
+  domain?: string | null
   webhookPath?: string | null
-  botTokenRef: string
+  webhookHost?: string | null
+  webhookPort?: number | null
+  botTokenRef?: string | null
   webhookSecretRef?: string | null
-  hasBotToken: boolean
-  hasWebhookSecret: boolean
+  appId?: string | null
+  appSecretRef?: string | null
+  verificationTokenRef?: string | null
+  hasBotToken?: boolean
+  hasWebhookSecret?: boolean
+  hasAppSecret?: boolean
+  hasVerificationToken?: boolean
   updatedAtMs: number
 }
 
@@ -754,12 +763,21 @@ export interface ChannelConnectorAccountUpsertRequest {
   channel: string
   accountId?: string | null
   enabled?: boolean | null
-  mode?: 'webhook' | 'polling' | null
+  mode?: 'webhook' | 'polling' | 'websocket' | string | null
+  connectionMode?: 'webhook' | 'websocket' | string | null
   botToken?: string | null
   botTokenRef?: string | null
   webhookSecret?: string | null
   webhookSecretRef?: string | null
   webhookPath?: string | null
+  domain?: 'feishu' | 'lark' | string | null
+  appId?: string | null
+  appSecret?: string | null
+  appSecretRef?: string | null
+  verificationToken?: string | null
+  verificationTokenRef?: string | null
+  webhookHost?: string | null
+  webhookPort?: number | null
 }
 
 export interface ChannelConnectorAccountListResponse {
@@ -776,7 +794,12 @@ export interface ChannelConnectorHealthResponse {
     status: string
     detail: string
     mode: string
+    connectionMode?: string | null
+    domain?: string | null
     botUsername?: string | null
+    botName?: string | null
+    botOpenId?: string | null
+    runtimeConnected?: boolean | null
     configuredWebhookUrl?: string | null
     runtimeWebhookUrl?: string | null
     webhookMatched?: boolean | null
@@ -903,6 +926,8 @@ export interface ExternalChannelDispatchProgressPayload {
   taskId: string
   status: 'sending' | 'sent' | 'failed'
   detail?: string | null
+  title?: string | null
+  contentPreview?: string | null
 }
 
 export interface ExternalChannelReplyPayload {
@@ -921,6 +946,9 @@ export interface ExternalChannelOutboundResultPayload {
   status: 'delivered' | 'failed'
   detail?: string | null
   tsMs: number
+  relayMode?: string | null
+  confidence?: string | null
+  textPreview?: string | null
 }
 
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
@@ -1338,11 +1366,20 @@ export const desktopApi = {
         accountId: request.accountId ?? null,
         enabled: request.enabled ?? null,
         mode: request.mode ?? null,
+        connectionMode: request.connectionMode ?? null,
         botToken: request.botToken ?? null,
         botTokenRef: request.botTokenRef ?? null,
         webhookSecret: request.webhookSecret ?? null,
         webhookSecretRef: request.webhookSecretRef ?? null,
         webhookPath: request.webhookPath ?? null,
+        domain: request.domain ?? null,
+        appId: request.appId ?? null,
+        appSecret: request.appSecret ?? null,
+        appSecretRef: request.appSecretRef ?? null,
+        verificationToken: request.verificationToken ?? null,
+        verificationTokenRef: request.verificationTokenRef ?? null,
+        webhookHost: request.webhookHost ?? null,
+        webhookPort: request.webhookPort ?? null,
       },
     })
   },

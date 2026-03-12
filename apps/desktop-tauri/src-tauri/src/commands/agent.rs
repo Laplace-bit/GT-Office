@@ -120,9 +120,7 @@ pub fn agent_create(
         agent_id: request.agent_id,
         name: request.name,
         role_id: request.role_id,
-        tool: request
-            .tool
-            .unwrap_or_else(|| "codex cli".to_string()),
+        tool: request.tool.unwrap_or_else(|| "codex cli".to_string()),
         workdir: request.workdir.filter(|value| !value.trim().is_empty()),
         custom_workdir: request.custom_workdir.unwrap_or(false),
         employee_no: request.employee_no,
@@ -130,7 +128,8 @@ pub fn agent_create(
     };
 
     let agent = repo.create_agent(input).map_err(to_command_error)?;
-    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    let _ =
+        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "agent": agent }))
 }
 
@@ -166,9 +165,7 @@ pub fn agent_update(
         agent_id: request.agent_id,
         name: request.name,
         role_id: request.role_id,
-        tool: request
-            .tool
-            .unwrap_or_else(|| "codex cli".to_string()),
+        tool: request.tool.unwrap_or_else(|| "codex cli".to_string()),
         workdir: request.workdir.filter(|value| !value.trim().is_empty()),
         custom_workdir: request.custom_workdir.unwrap_or(false),
         employee_no: request.employee_no,
@@ -176,7 +173,8 @@ pub fn agent_update(
     };
 
     let agent = repo.update_agent(input).map_err(to_command_error)?;
-    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    let _ =
+        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "agent": agent }))
 }
 
@@ -199,6 +197,7 @@ pub fn agent_delete(
     let deleted = repo
         .delete_agent(&request.workspace_id, &request.agent_id)
         .map_err(to_command_error)?;
-    let _ = crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    let _ =
+        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "deleted": deleted }))
 }

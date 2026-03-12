@@ -1,7 +1,8 @@
 use super::{
-    codex_event_text, find_command_in_dir, normalize_executable_path, nvm_bin_dirs,
-    resolve_cli_candidate, runtime_supports_structured_relay, split_text_for_channel,
-    AgentRuntimeRegistration, AgentToolKind,
+    channel_supports_external_reply, codex_event_text, find_command_in_dir,
+    normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
+    runtime_supports_structured_relay, split_text_for_channel, AgentRuntimeRegistration,
+    AgentToolKind,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -171,4 +172,11 @@ fn split_text_for_channel_falls_back_to_hard_split_when_no_newline() {
     let chunks = split_text_for_channel(text, 4);
     assert_eq!(chunks, vec!["abcd", "efgh", "ij"]);
     assert_eq!(chunks.concat(), text);
+}
+
+#[test]
+fn channel_supports_external_reply_includes_feishu_and_telegram() {
+    assert!(channel_supports_external_reply("telegram"));
+    assert!(channel_supports_external_reply("feishu"));
+    assert!(!channel_supports_external_reply("slack"));
 }

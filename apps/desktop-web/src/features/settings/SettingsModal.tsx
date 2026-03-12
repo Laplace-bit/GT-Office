@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
-import { ChannelManagerPane } from '@features/tool-adapter'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { AmbientLightingIntensity, MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
@@ -9,7 +8,6 @@ import './SettingsModal.scss'
 interface SettingsModalProps {
   open: boolean
   locale: Locale
-  workspaceId: string | null
   themeMode: ThemeMode
   uiFont: UiFont
   monoFont: MonoFont
@@ -26,12 +24,11 @@ interface SettingsModalProps {
   onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
 }
 
-type SettingsTab = 'general' | 'channels' | 'about'
+type SettingsTab = 'general' | 'about'
 
 export function SettingsModal({
   open,
   locale,
-  workspaceId,
   themeMode,
   uiFont,
   monoFont,
@@ -77,13 +74,6 @@ export function SettingsModal({
             />
           </div>
         )
-      case 'channels':
-        return (
-           <ChannelManagerPane 
-             locale={locale} 
-             workspaceId={workspaceId} 
-           />
-        )
       case 'about':
         return (
           <div className="settings-pane-section">
@@ -121,13 +111,6 @@ export function SettingsModal({
               {t(locale, 'settingsModal.nav.general')}
             </button>
             <button 
-              className={`settings-nav-item ${activeTab === 'channels' ? 'active' : ''}`}
-              onClick={() => setActiveTab('channels')}
-            >
-              <AppIcon name="channels" aria-hidden="true" />
-              {t(locale, 'settingsModal.nav.channels')}
-            </button>
-            <button 
               className={`settings-nav-item ${activeTab === 'about' ? 'active' : ''}`}
               onClick={() => setActiveTab('about')}
             >
@@ -142,7 +125,6 @@ export function SettingsModal({
           <header className="settings-content-header">
             <h3>
               {activeTab === 'general' && t(locale, 'settingsModal.nav.general')}
-              {activeTab === 'channels' && t(locale, 'settingsModal.nav.channels')}
               {activeTab === 'about' && t(locale, 'settingsModal.nav.about')}
             </h3>
             <button 

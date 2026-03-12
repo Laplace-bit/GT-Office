@@ -1,4 +1,4 @@
-use super::{parse_feishu_payload, parse_telegram_payload};
+use super::parse_telegram_payload;
 use vb_task::ExternalPeerKind;
 
 #[test]
@@ -44,30 +44,4 @@ fn parse_telegram_callback_query() {
         inbound.idempotency_key.as_deref(),
         Some("telegram-callback-cbq_123")
     );
-}
-
-#[test]
-fn parse_feishu_receive_message() {
-    let payload = serde_json::json!({
-        "schema": "2.0",
-        "header": { "event_type": "im.message.receive_v1", "app_id": "cli_xxx" },
-        "event": {
-            "sender": {
-                "sender_id": { "open_id": "ou_abc" }
-            },
-            "message": {
-                "message_id": "om_123",
-                "chat_id": "oc_777",
-                "chat_type": "group",
-                "content": "{\"text\":\"hello from feishu\"}"
-            }
-        }
-    });
-    let inbound = parse_feishu_payload(&payload).expect("feishu payload parsed");
-    assert_eq!(inbound.channel, "feishu");
-    assert_eq!(inbound.account_id, "cli_xxx");
-    assert_eq!(inbound.peer_kind, ExternalPeerKind::Group);
-    assert_eq!(inbound.peer_id, "oc_777");
-    assert_eq!(inbound.sender_id, "ou_abc");
-    assert_eq!(inbound.text, "hello from feishu");
 }

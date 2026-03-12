@@ -8,9 +8,10 @@ import './CommunicationChannelsPane.scss'
 type ExternalChannelEventItem = {
   id: string
   tsMs: number
-  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'error'
+  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'outbound' | 'error'
   primary: string
   secondary?: string
+  detail?: string
 }
 
 interface CommunicationChannelsPaneProps {
@@ -65,6 +66,9 @@ function externalEventKindLabel(
   }
   if (kind === 'reply') {
     return t(locale, 'taskCenter.external.events.kind.reply')
+  }
+  if (kind === 'outbound') {
+    return t(locale, 'taskCenter.external.events.kind.outbound')
   }
   return t(locale, 'taskCenter.external.events.kind.error')
 }
@@ -206,6 +210,7 @@ function CommunicationChannelsPaneView({
                   </div>
                   <p>{event.primary}</p>
                   {event.secondary ? <p>{event.secondary}</p> : null}
+                  {event.detail ? <p>{event.detail}</p> : null}
                 </li>
               ))}
             </ul>

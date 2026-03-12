@@ -1,6 +1,6 @@
 mod app_state;
-mod channel_sinks;
 mod channel_adapter_runtime;
+mod channel_sinks;
 mod commands;
 mod connectors;
 mod daemon_bridge;
@@ -33,6 +33,7 @@ pub fn run() {
             }
             mcp_bridge::spawn(app_handle.clone(), state.inner().clone());
             channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
+            connectors::feishu::websocket::spawn_supervisor(app_handle.clone(), state.inner().clone());
             connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
             tool_adapter::spawn_external_reply_flush_worker(
                 app_handle.clone(),

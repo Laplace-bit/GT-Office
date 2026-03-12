@@ -3,6 +3,7 @@ mod inbound;
 mod offset_store;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -125,6 +126,8 @@ struct ConnectorStoreFile {
     version: String,
     #[serde(default)]
     telegram_accounts: HashMap<String, TelegramAccountRecord>,
+    #[serde(default)]
+    feishu_accounts: HashMap<String, Value>,
 }
 
 impl Default for ConnectorStoreFile {
@@ -132,6 +135,7 @@ impl Default for ConnectorStoreFile {
         Self {
             version: CONNECTOR_STORE_VERSION.to_string(),
             telegram_accounts: HashMap::new(),
+            feishu_accounts: HashMap::new(),
         }
     }
 }
@@ -216,7 +220,11 @@ fn persist_poll_offset(app: &AppHandle, account_id: &str, token: &str, value: i6
 }
 
 fn extract_callback_query_id(metadata: &serde_json::Value) -> Option<String> {
-    api::json_to_string(metadata.get("callback_query").and_then(|value| value.get("id")))
+    api::json_to_string(
+        metadata
+            .get("callback_query")
+            .and_then(|value| value.get("id")),
+    )
 }
 
 fn is_poll_primed(account_id: &str) -> bool {
@@ -638,7 +646,9 @@ pub async fn send_text_reply(
         .await
 }
 
-fn keyboard_to_reply_markup(keyboard: Option<&TelegramInlineKeyboard>) -> Option<serde_json::Value> {
+fn keyboard_to_reply_markup(
+    keyboard: Option<&TelegramInlineKeyboard>,
+) -> Option<serde_json::Value> {
     let keyboard = keyboard?;
     let rows = keyboard
         .iter()
@@ -815,12 +825,15 @@ pub async fn delete_message(
     let token = load_bot_token(&record)?;
     let peer_owned = peer_id.to_string();
     let message_id_owned = message_id.to_string();
-    let delete_result =
-        tokio::task::spawn_blocking(move || telegram_delete_message(&token, &peer_owned, &message_id_owned))
-            .await
-            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    let delete_result = tokio::task::spawn_blocking(move || {
+        telegram_delete_message(&token, &peer_owned, &message_id_owned)
+    })
+    .await
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
     if !delete_result.ok {
-        return Err("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: telegram deleteMessage failed".to_string());
+        return Err(
+            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: telegram deleteMessage failed".to_string(),
+        );
     }
     Ok(())
 }

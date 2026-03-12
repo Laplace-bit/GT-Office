@@ -271,6 +271,14 @@
   background: color-mix(in srgb, var(--vb-surface-muted) 58%, transparent);
 }
 
+.channel-overview-top.studio {
+  border-radius: 1.1rem;
+  border-color: color-mix(in srgb, var(--vb-border) 80%, transparent);
+  background:
+    radial-gradient(circle at top right, rgba(20, 184, 166, 0.1), transparent 28%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-muted) 62%, transparent), var(--vb-surface));
+}
+
 .settings-channel-header-actions {
   display: inline-flex;
   align-items: center;
@@ -632,6 +640,361 @@
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
+.channel-wizard-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.channel-wizard-channel-option {
+  display: grid;
+  gap: 0.75rem;
+  text-align: left;
+  padding: 1.25rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 82%, transparent);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--vb-accent) 14%, transparent), transparent 45%),
+    color-mix(in srgb, var(--vb-surface-muted) 56%, transparent);
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.channel-wizard-channel-option:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--vb-accent) 42%, var(--vb-border));
+  box-shadow: 0 18px 32px rgba(15, 23, 42, 0.08);
+}
+
+.channel-wizard-channel-option.feishu {
+  background:
+    radial-gradient(circle at top right, rgba(0, 214, 185, 0.16), transparent 44%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(230, 249, 246, 0.92));
+}
+
+.channel-wizard-channel-eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
+  color: var(--vb-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.channel-wizard-channel-option strong {
+  font-size: 1rem;
+  color: var(--vb-text);
+}
+
+.channel-wizard-channel-option p {
+  margin: 0;
+  color: var(--vb-text-muted);
+  line-height: 1.55;
+}
+
+.channel-wizard-inline-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.channel-wizard-inline-code {
+  flex: 1;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--vb-input-border);
+  background: color-mix(in srgb, var(--vb-surface-muted) 72%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  overflow-x: auto;
+}
+
+.channel-wizard-two-column,
+.feishu-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.feishu-wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 0.95fr);
+  gap: 1.25rem;
+}
+
+.feishu-wizard-main {
+  display: grid;
+  gap: 1.125rem;
+}
+
+.feishu-onboarding-shell {
+  min-height: 100%;
+  padding: 1rem 0 1.5rem;
+}
+
+.feishu-onboarding-modal {
+  max-width: 1120px;
+  margin: 0 auto;
+  border-radius: 1.25rem;
+  box-shadow: 0 28px 68px rgba(15, 23, 42, 0.12);
+}
+
+.feishu-modal-header {
+  padding: 1.25rem 1.5rem;
+}
+
+.feishu-hero-card,
+.feishu-websocket-banner,
+.feishu-platform-url-card {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 82%, transparent);
+  background:
+    radial-gradient(circle at top right, rgba(0, 214, 185, 0.12), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-muted) 44%, transparent), var(--vb-surface));
+}
+
+.feishu-hero-card {
+  padding: 1.1rem 1.15rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.feishu-hero-card h5,
+.feishu-websocket-banner strong {
+  margin: 0;
+  font-size: 1.02rem;
+  color: var(--vb-text);
+}
+
+.feishu-hero-card p,
+.feishu-websocket-banner p,
+.feishu-guide-note {
+  margin: 0;
+  color: var(--vb-text-muted);
+  line-height: 1.58;
+}
+
+.feishu-step-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.feishu-websocket-banner {
+  padding: 0.95rem 1rem;
+}
+
+.feishu-platform-url-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+}
+
+.feishu-platform-url-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.feishu-platform-url-card strong {
+  color: var(--vb-text);
+}
+
+.feishu-platform-url-card code {
+  display: block;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--vb-surface) 92%, white 8%);
+  border: 1px solid color-mix(in srgb, var(--vb-border) 74%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.feishu-confirm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+  border-radius: 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 80%, transparent);
+  background: color-mix(in srgb, var(--vb-surface-muted) 58%, transparent);
+  color: var(--vb-text);
+  line-height: 1.55;
+}
+
+.feishu-confirm-check input {
+  margin-top: 0.15rem;
+}
+
+.feishu-guide-card,
+.feishu-inline-panel,
+.feishu-health-card {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 84%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-muted) 48%, transparent), var(--vb-surface));
+  padding: 1rem 1.125rem;
+}
+
+.feishu-guide-card {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: grid;
+  gap: 1rem;
+}
+
+.feishu-guide-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #00a892;
+}
+
+.feishu-guide-card h5,
+.feishu-health-header h5 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--vb-text);
+}
+
+.feishu-guide-card p,
+.feishu-health-header p,
+.feishu-inline-panel p {
+  margin: 0;
+  color: var(--vb-text-muted);
+  line-height: 1.55;
+}
+
+.feishu-health-help-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+  color: var(--vb-text);
+}
+
+.feishu-health-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.feishu-health-grid dt {
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--vb-text-muted);
+}
+
+.feishu-health-grid dd {
+  margin: 0;
+  color: var(--vb-text);
+  font-weight: 600;
+}
+
+.feishu-guide-checklist,
+.feishu-inline-list,
+.feishu-review-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.5rem;
+  color: var(--vb-text);
+}
+
+.feishu-review-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.feishu-review-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 80%, transparent);
+}
+
+.feishu-review-list li:last-child {
+  border-bottom: none;
+}
+
+.feishu-webhook-callout {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 0.875rem;
+  background: rgba(0, 214, 185, 0.08);
+  border: 1px solid rgba(0, 191, 165, 0.16);
+}
+
+.feishu-webhook-callout code {
+  display: block;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.75);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.feishu-step-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 1rem;
+}
+
+.feishu-health-header {
+  display: grid;
+  gap: 0.625rem;
+  margin-bottom: 1rem;
+}
+
+.feishu-health-pill {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.feishu-health-pill.ok {
+  color: #0f8a74;
+  background: rgba(15, 138, 116, 0.12);
+}
+
+.feishu-health-pill.error {
+  color: var(--vb-error);
+  background: color-mix(in srgb, var(--vb-error) 14%, transparent);
+}
+
+.feishu-health-webhook {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.feishu-health-webhook h6 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--vb-text);
+}
+
+.feishu-health-webhook code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
 /* Responsiveness */
 @media (max-width: 768px) {
   .settings-modal {
@@ -667,5 +1030,38 @@
 
   .channel-bot-route-actions {
     align-self: flex-end;
+  }
+
+  .channel-wizard-channel-grid,
+  .channel-wizard-two-column,
+  .feishu-form-grid,
+  .feishu-health-grid,
+  .feishu-wizard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-wizard-inline-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .feishu-guide-card {
+    position: static;
+  }
+
+  .feishu-onboarding-shell {
+    padding: 0;
+  }
+
+  .feishu-modal-header,
+  .channel-wizard-body,
+  .channel-wizard-footer {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .feishu-platform-url-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

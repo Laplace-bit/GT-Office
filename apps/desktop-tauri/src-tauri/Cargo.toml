@@ -29,6 +29,7 @@ vt100 = "0.15"
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
+feishu-sdk = { version = "0.1.2", features = ["websocket"] }
 
 vb-abstractions = { path = "../../../crates/vb-abstractions" }
 vb-agent = { path = "../../../crates/vb-agent" }

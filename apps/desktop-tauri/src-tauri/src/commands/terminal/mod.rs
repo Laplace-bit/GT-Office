@@ -273,7 +273,8 @@ pub fn terminal_report_rendered_screen(
     snapshot: RenderedScreenSnapshot,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let accepted = state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
+    let accepted =
+        state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
     Ok(build_terminal_report_rendered_screen_response(
         &snapshot.session_id,
         snapshot.screen_revision,

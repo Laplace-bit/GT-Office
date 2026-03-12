@@ -383,6 +383,7 @@ export const messages = {
   'taskCenter.external.events.kind.routed': { 'zh-CN': '路由', 'en-US': 'Routed' },
   'taskCenter.external.events.kind.dispatch': { 'zh-CN': '派发', 'en-US': 'Dispatch' },
   'taskCenter.external.events.kind.reply': { 'zh-CN': '回执', 'en-US': 'Reply' },
+  'taskCenter.external.events.kind.outbound': { 'zh-CN': '出站', 'en-US': 'Outbound' },
   'taskCenter.external.events.kind.error': { 'zh-CN': '错误', 'en-US': 'Error' },
   'channel.telegram.debugToast.title': {
     'zh-CN': 'Telegram 入站调试',
@@ -512,6 +513,7 @@ export const messages = {
   'topControlBar.openWorkspace': { 'zh-CN': '打开工作区', 'en-US': 'Open Workspace' },
   'topControlBar.refreshGit': { 'zh-CN': '刷新 Git', 'en-US': 'Refresh Git' },
   'topControlBar.openSettings': { 'zh-CN': '打开设置', 'en-US': 'Open Settings' },
+  'topControlBar.openChannels': { 'zh-CN': '打开通道工作台', 'en-US': 'Open Channel Studio' },
   'topControlBar.commandPalette': { 'zh-CN': '全局命令台', 'en-US': 'Command Palette' },
   'topControlBar.batchLaunchAgents': { 'zh-CN': '批量启动 Agent', 'en-US': 'Batch Launch Agents' },
   'topControlBar.schedulerStatus': { 'zh-CN': '调度状态', 'en-US': 'Scheduler Status' },

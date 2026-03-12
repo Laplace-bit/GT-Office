@@ -11,6 +11,7 @@ type ConnectorChannel = 'feishu' | 'telegram'
 interface ChannelManagerPaneProps {
   locale: Locale
   workspaceId: string | null
+  variant?: 'embedded' | 'studio'
 }
 
 function describeError(value: unknown): string {
@@ -43,7 +44,7 @@ function formatCheckedAt(locale: Locale, timestampMs: number): string {
   }).format(new Date(timestampMs))
 }
 
-export function ChannelManagerPane({ locale, workspaceId }: ChannelManagerPaneProps) {
+export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded' }: ChannelManagerPaneProps) {
   const [loading, setLoading] = useState(false)
   const [healthCheckingKey, setHealthCheckingKey] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -147,7 +148,7 @@ export function ChannelManagerPane({ locale, workspaceId }: ChannelManagerPanePr
     try {
       const response = await desktopApi.channelConnectorHealth(binding.channel, binding.accountId ?? null)
       const health = response.health
-      const healthBotName = (health.botUsername ?? '').trim()
+      const healthBotName = (health.botName ?? health.botUsername ?? '').trim()
       const previousBotName = (binding.botName ?? '').trim()
       if (healthBotName && healthBotName !== previousBotName) {
         await desktopApi.channelBindingUpsert({
@@ -237,6 +238,7 @@ export function ChannelManagerPane({ locale, workspaceId }: ChannelManagerPanePr
     <div className="channel-manager-pane">
       <ChannelOverview 
         locale={locale}
+        variant={variant}
         runtimeRunning={runtimeRunning}
         onAddChannel={handleAddChannelClick}
         channelBotGroups={channelBotGroups}

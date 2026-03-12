@@ -128,7 +128,10 @@ fn publish_handover_to_online_target_is_accepted() {
         idempotency_key: None,
     });
 
-    assert_eq!(outcome.response.accepted_targets, vec!["agent-1".to_string()]);
+    assert_eq!(
+        outcome.response.accepted_targets,
+        vec!["agent-1".to_string()]
+    );
     assert!(outcome.response.failed_targets.is_empty());
     assert_eq!(outcome.message_events.len(), 1);
     assert_eq!(outcome.ack_events.len(), 1);

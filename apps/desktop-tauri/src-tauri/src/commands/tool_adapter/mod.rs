@@ -27,7 +27,7 @@ use vb_task::{
 
 use crate::{
     app_state::{AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget},
-    connectors::telegram,
+    connectors::{feishu, telegram},
 };
 
 const EXTERNAL_REPLY_FLUSH_LOOP_MS: u64 = 700;
@@ -87,6 +87,8 @@ pub struct ChannelConnectorAccountUpsertRequest {
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
+    pub connection_mode: Option<String>,
+    #[serde(default)]
     pub bot_token: Option<String>,
     #[serde(default)]
     pub bot_token_ref: Option<String>,
@@ -96,6 +98,22 @@ pub struct ChannelConnectorAccountUpsertRequest {
     pub webhook_secret_ref: Option<String>,
     #[serde(default)]
     pub webhook_path: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub app_id: Option<String>,
+    #[serde(default)]
+    pub app_secret: Option<String>,
+    #[serde(default)]
+    pub app_secret_ref: Option<String>,
+    #[serde(default)]
+    pub verification_token: Option<String>,
+    #[serde(default)]
+    pub verification_token_ref: Option<String>,
+    #[serde(default)]
+    pub webhook_host: Option<String>,
+    #[serde(default)]
+    pub webhook_port: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,20 +216,33 @@ async fn resolve_binding_bot_name(
     binding: &ChannelRouteBinding,
 ) -> Option<String> {
     let channel = binding.channel.trim().to_ascii_lowercase();
-    if channel.as_str() != "telegram" {
-        return None;
+    if channel.as_str() == "telegram" {
+        let runtime_webhook = crate::channel_adapter_runtime::runtime_snapshot()
+            .map(|runtime| runtime.telegram_webhook);
+        let snapshot = telegram::health_check(app, binding.account_id.as_deref(), runtime_webhook)
+            .await
+            .ok()?;
+        return snapshot
+            .bot_username
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
     }
-    let runtime_webhook =
-        crate::channel_adapter_runtime::runtime_snapshot().map(|runtime| runtime.telegram_webhook);
-    let snapshot = telegram::health_check(app, binding.account_id.as_deref(), runtime_webhook)
-        .await
-        .ok()?;
-    snapshot
-        .bot_username
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+    if channel.as_str() == "feishu" {
+        let runtime_webhook = crate::channel_adapter_runtime::runtime_snapshot()
+            .map(|runtime| runtime.feishu_webhook);
+        let snapshot = feishu::health_check(app, binding.account_id.as_deref(), runtime_webhook)
+            .await
+            .ok()?;
+        return snapshot
+            .bot_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+    }
+    None
 }
 
 fn channel_state_file_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -730,7 +761,23 @@ async fn deliver_external_reply_text(
         return Ok(());
     }
 
-    let delivery_result = match target.channel.as_str() {
+    if target.channel.as_str() == "feishu" && phase == ExternalReplyDispatchPhase::Preview {
+        emit_external_outbound_result(
+            app,
+            target,
+            preview_message_id
+                .as_deref()
+                .unwrap_or(&target.inbound_message_id),
+            "skipped",
+            "feishu preview updates are disabled; waiting for final text",
+            now_ms(),
+            relay_mode,
+            confidence,
+        );
+        return Ok(());
+    }
+
+    let delivery_result: Result<(String, u64), String> = match target.channel.as_str() {
         "telegram" => match phase {
             ExternalReplyDispatchPhase::Preview => {
                 if let Some(message_id) = preview_message_id.as_deref() {
@@ -742,6 +789,7 @@ async fn deliver_external_reply_text(
                         &text,
                     )
                     .await
+                    .map(|snapshot| (snapshot.message_id, snapshot.delivered_at_ms))
                 } else {
                     if let Err(error) =
                         telegram::send_typing_action(app, Some(&target.account_id), &target.peer_id)
@@ -761,6 +809,7 @@ async fn deliver_external_reply_text(
                         Some(&target.inbound_message_id),
                     )
                     .await
+                    .map(|snapshot| (snapshot.message_id, snapshot.delivered_at_ms))
                 }
             }
             ExternalReplyDispatchPhase::Finalize => {
@@ -774,17 +823,16 @@ async fn deliver_external_reply_text(
                     )
                     .await
                     {
-                        Ok(snapshot) => Ok(snapshot),
-                        Err(_) => {
-                            telegram::send_text_reply(
-                                app,
-                                Some(&target.account_id),
-                                &target.peer_id,
-                                &text,
-                                Some(&target.inbound_message_id),
-                            )
-                            .await
-                        }
+                        Ok(snapshot) => Ok((snapshot.message_id, snapshot.delivered_at_ms)),
+                        Err(_) => telegram::send_text_reply(
+                            app,
+                            Some(&target.account_id),
+                            &target.peer_id,
+                            &text,
+                            Some(&target.inbound_message_id),
+                        )
+                        .await
+                        .map(|snapshot| (snapshot.message_id, snapshot.delivered_at_ms)),
                     }
                 } else {
                     telegram::send_text_reply(
@@ -795,9 +843,19 @@ async fn deliver_external_reply_text(
                         Some(&target.inbound_message_id),
                     )
                     .await
+                    .map(|snapshot| (snapshot.message_id, snapshot.delivered_at_ms))
                 }
             }
         },
+        "feishu" => feishu::send_text_reply(
+            app,
+            Some(&target.account_id),
+            &target.peer_id,
+            &text,
+            Some(&target.inbound_message_id),
+        )
+        .await
+        .map(|snapshot| (snapshot.message_id, snapshot.delivered_at_ms)),
         _ => Err(format!(
             "CHANNEL_REPLY_SEND_UNSUPPORTED: channel {} outbound is unsupported",
             target.channel
@@ -805,21 +863,21 @@ async fn deliver_external_reply_text(
     };
 
     match delivery_result {
-        Ok(send_result) => {
+        Ok((message_id, delivered_at_ms)) => {
             if phase == ExternalReplyDispatchPhase::Preview {
-                *preview_message_id = Some(send_result.message_id.clone());
+                *preview_message_id = Some(message_id.clone());
             }
             emit_external_outbound_result(
                 app,
                 target,
-                &send_result.message_id,
+                &message_id,
                 "delivered",
                 if phase == ExternalReplyDispatchPhase::Preview {
                     "stream preview updated"
                 } else {
                     "reply finalized"
                 },
-                send_result.delivered_at_ms,
+                delivered_at_ms,
                 relay_mode,
                 confidence,
             );
@@ -1323,7 +1381,7 @@ fn bind_external_reply_sessions(
     results: &[vb_task::TaskDispatchTargetResult],
 ) {
     let channel = message.channel.trim().to_ascii_lowercase();
-    if channel != "telegram" {
+    if !channel_supports_external_reply(&channel) {
         return;
     }
 
@@ -1365,7 +1423,9 @@ fn bind_external_reply_sessions(
             emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
             continue;
         }
-        if let Err(error) = state.set_external_reply_session_tool_kind(session_id, runtime.tool_kind) {
+        if let Err(error) =
+            state.set_external_reply_session_tool_kind(session_id, runtime.tool_kind)
+        {
             emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
             continue;
         }
@@ -1425,13 +1485,17 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
         EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS,
     )?;
     if !candidates.is_empty() {
-        debug!(count = candidates.len(), "flushing external reply candidates");
+        debug!(
+            count = candidates.len(),
+            "flushing external reply candidates"
+        );
     }
     for candidate in candidates {
         let chunks = split_text_for_channel(&candidate.text, EXTERNAL_REPLY_MAX_TEXT_CHARS);
         if chunks.is_empty() {
             continue;
         }
+        let text_preview = summarize_external_text(&candidate.text, 160);
         debug!(
             trace_id = %candidate.target.trace_id,
             session_id = %candidate.session_id,
@@ -1557,14 +1621,11 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                 )
                                 .await
                                 .map_err(|error| {
-                                    format!(
-                                        "CHANNEL_REPLY_CONTINUATION_SEND_FAILED: {}",
-                                        error
-                                    )
+                                    format!("CHANNEL_REPLY_CONTINUATION_SEND_FAILED: {}", error)
                                 })?;
                             }
-                            if let Err(error) = state
-                                .mark_external_reply_finalize_delivered(&candidate.session_id)
+                            if let Err(error) =
+                                state.mark_external_reply_finalize_delivered(&candidate.session_id)
                             {
                                 warn!(
                                     trace_id = %candidate.target.trace_id,
@@ -1598,6 +1659,7 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                 "tsMs": send_result.delivered_at_ms,
                                 "relayMode": "pty-fallback",
                                 "confidence": "low",
+                                "textPreview": text_preview.clone(),
                             }),
                         );
                     }
@@ -1620,6 +1682,89 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                                 "tsMs": now_ms(),
                                 "relayMode": "pty-fallback",
                                 "confidence": "low",
+                                "textPreview": text_preview.clone(),
+                            }),
+                        );
+                        emit_external_error(
+                            app,
+                            &candidate.target.trace_id,
+                            "CHANNEL_REPLY_SEND_FAILED",
+                            &error,
+                        );
+                    }
+                }
+            }
+            "feishu" => {
+                if candidate.phase == ExternalReplyDispatchPhase::Preview {
+                    continue;
+                }
+                match feishu::send_text_reply(
+                    app,
+                    Some(&candidate.target.account_id),
+                    &candidate.target.peer_id,
+                    &text,
+                    Some(&candidate.target.inbound_message_id),
+                )
+                .await
+                {
+                    Ok(send_result) => {
+                        for extra_chunk in chunks.iter().skip(1) {
+                            feishu::send_text_reply(
+                                app,
+                                Some(&candidate.target.account_id),
+                                &candidate.target.peer_id,
+                                extra_chunk,
+                                Some(&candidate.target.inbound_message_id),
+                            )
+                            .await
+                            .map_err(|error| {
+                                format!("CHANNEL_REPLY_CONTINUATION_SEND_FAILED: {}", error)
+                            })?;
+                        }
+                        if let Err(error) =
+                            state.mark_external_reply_finalize_delivered(&candidate.session_id)
+                        {
+                            warn!(
+                                trace_id = %candidate.target.trace_id,
+                                session_id = %candidate.session_id,
+                                error = %error,
+                                "failed to clear finalized external reply session"
+                            );
+                        }
+                        let _ = app.emit(
+                            "external/channel_outbound_result",
+                            json!({
+                                "traceId": candidate.target.trace_id,
+                                "workspaceId": candidate.target.workspace_id,
+                                "messageId": send_result.message_id,
+                                "targetAgentId": candidate.target.target_agent_id,
+                                "status": "delivered",
+                                "detail": if chunks.len() > 1 {
+                                    "reply finalized with continuation chunks"
+                                } else {
+                                    "reply finalized"
+                                },
+                                "tsMs": send_result.delivered_at_ms,
+                                "relayMode": "pty-fallback",
+                                "confidence": "low",
+                                "textPreview": text_preview.clone(),
+                            }),
+                        );
+                    }
+                    Err(error) => {
+                        let _ = app.emit(
+                            "external/channel_outbound_result",
+                            json!({
+                                "traceId": candidate.target.trace_id,
+                                "workspaceId": candidate.target.workspace_id,
+                                "messageId": candidate.target.inbound_message_id,
+                                "targetAgentId": candidate.target.target_agent_id,
+                                "status": "failed",
+                                "detail": error,
+                                "tsMs": now_ms(),
+                                "relayMode": "pty-fallback",
+                                "confidence": "low",
+                                "textPreview": text_preview.clone(),
                             }),
                         );
                         emit_external_error(
@@ -1648,6 +1793,7 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                         "tsMs": now_ms(),
                         "relayMode": "unsupported",
                         "confidence": "high",
+                        "textPreview": text_preview.clone(),
                     }),
                 );
             }
@@ -1689,18 +1835,67 @@ fn build_external_title(text: &str) -> String {
     trimmed.chars().take(72).collect()
 }
 
-fn emit_dispatch_progress_events(app: &AppHandle, events: &[TaskDispatchProgressEvent]) {
+fn summarize_external_text(text: &str, max_chars: usize) -> Option<String> {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() <= max_chars {
+        return Some(trimmed.to_string());
+    }
+    Some(format!(
+        "{}...",
+        trimmed.chars().take(max_chars).collect::<String>()
+    ))
+}
+
+fn build_external_content_preview(text: &str) -> Option<String> {
+    let normalized = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized.chars().count() <= 96 {
+        return Some(normalized);
+    }
+    Some(format!(
+        "{}...",
+        normalized.chars().take(96).collect::<String>()
+    ))
+}
+
+fn channel_supports_external_reply(channel: &str) -> bool {
+    matches!(
+        channel.trim().to_ascii_lowercase().as_str(),
+        "telegram" | "feishu"
+    )
+}
+
+fn emit_dispatch_progress_events(
+    app: &AppHandle,
+    events: &[TaskDispatchProgressEvent],
+    trace_id: Option<&str>,
+    title: Option<&str>,
+    content_preview: Option<&str>,
+) {
     for event in events {
         let _ = app.emit("task/dispatch_progress", event);
         let _ = app.emit(
             "external/channel_dispatch_progress",
             json!({
-                "traceId": event.batch_id,
+                "traceId": trace_id.unwrap_or(&event.batch_id),
                 "workspaceId": event.workspace_id,
                 "targetAgentId": event.target_agent_id,
                 "taskId": event.task_id,
                 "status": event.status,
                 "detail": event.detail,
+                "title": title,
+                "contentPreview": content_preview,
             }),
         );
     }
@@ -2163,7 +2358,15 @@ Approve this identity in Channel settings or switch policy to open."
             }
         },
     );
-    emit_dispatch_progress_events(app, &outcome.progress_events);
+    let dispatch_title = dispatch_request.title.clone();
+    let dispatch_preview = build_external_content_preview(&dispatch_request.markdown);
+    emit_dispatch_progress_events(
+        app,
+        &outcome.progress_events,
+        Some(&trace_id),
+        Some(dispatch_title.as_str()),
+        dispatch_preview.as_deref(),
+    );
     emit_channel_events(app, &outcome.ack_events, Some(&trace_id));
     bind_external_reply_sessions(
         state,
@@ -2245,6 +2448,7 @@ Approve this identity in Channel settings or switch policy to open."
 pub fn channel_connector_account_upsert(
     request: ChannelConnectorAccountUpsertRequest,
     app: AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let channel = request.channel.trim().to_ascii_lowercase();
     match channel.as_str() {
@@ -2262,6 +2466,31 @@ pub fn channel_connector_account_upsert(
                     webhook_path: request.webhook_path,
                 },
             )?;
+            Ok(json!({
+                "updated": true,
+                "channel": channel,
+                "account": account,
+            }))
+        }
+        "feishu" => {
+            let account = feishu::upsert_account(
+                &app,
+                feishu::types::FeishuAccountUpsertInput {
+                    account_id: request.account_id,
+                    enabled: request.enabled,
+                    connection_mode: request.connection_mode.or(request.mode),
+                    domain: request.domain,
+                    app_id: request.app_id,
+                    app_secret: request.app_secret,
+                    app_secret_ref: request.app_secret_ref,
+                    verification_token: request.verification_token,
+                    verification_token_ref: request.verification_token_ref,
+                    webhook_path: request.webhook_path,
+                    webhook_host: request.webhook_host,
+                    webhook_port: request.webhook_port,
+                },
+            )?;
+            feishu::websocket::reconcile(&app, state.inner());
             Ok(json!({
                 "updated": true,
                 "channel": channel,
@@ -2289,6 +2518,13 @@ pub fn channel_connector_account_list(
                 "accounts": accounts,
             }))
         }
+        "feishu" => {
+            let accounts = feishu::list_accounts(&app)?;
+            Ok(json!({
+                "channel": channel,
+                "accounts": accounts,
+            }))
+        }
         _ => Err(format!(
             "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
             request.channel
@@ -2309,6 +2545,17 @@ pub async fn channel_connector_health(
             let snapshot =
                 telegram::health_check(&app, request.account_id.as_deref(), runtime_webhook)
                     .await?;
+            let _ = app.emit("external/channel_connector_health_changed", &snapshot);
+            Ok(json!({
+                "channel": channel,
+                "health": snapshot,
+            }))
+        }
+        "feishu" => {
+            let runtime_webhook = crate::channel_adapter_runtime::runtime_snapshot()
+                .map(|runtime| runtime.feishu_webhook);
+            let snapshot =
+                feishu::health_check(&app, request.account_id.as_deref(), runtime_webhook).await?;
             let _ = app.emit("external/channel_connector_health_changed", &snapshot);
             Ok(json!({
                 "channel": channel,
@@ -2348,6 +2595,27 @@ pub async fn channel_connector_webhook_sync(
                 "result": snapshot,
             }))
         }
+        "feishu" => {
+            let runtime = crate::channel_adapter_runtime::runtime_snapshot().ok_or_else(|| {
+                "CHANNEL_RUNTIME_NOT_READY: runtime webhook unavailable".to_string()
+            })?;
+            let webhook_url = request
+                .webhook_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(runtime.feishu_webhook.as_str());
+            let snapshot = feishu::sync_runtime_webhook(
+                &app,
+                request.account_id.as_deref(),
+                Some(webhook_url),
+            )
+            .await?;
+            Ok(json!({
+                "channel": channel,
+                "result": snapshot,
+            }))
+        }
         _ => Err(format!(
             "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
             request.channel
@@ -2361,14 +2629,15 @@ pub fn channel_adapter_status(state: State<'_, AppState>, app: AppHandle) -> Res
     let running = runtime.is_some();
     let snapshot = state.task_service.doctor_external_snapshot();
     let telegram_accounts = telegram::list_accounts(&app).unwrap_or_default();
+    let feishu_accounts = feishu::list_accounts(&app).unwrap_or_default();
     Ok(json!({
         "running": running,
         "adapters": [
             {
                 "id": "feishu",
-                "mode": "webhook",
+                "mode": "websocket",
                 "enabled": running,
-                "accounts": []
+                "accounts": feishu_accounts
             },
             {
                 "id": "telegram",
@@ -2539,5 +2808,5 @@ pub fn channel_external_inbound(
 }
 
 #[cfg(test)]
-#[path = "../tests/channel_adapter_tests.rs"]
+#[path = "../../tests/channel_adapter_tests.rs"]
 mod tests;

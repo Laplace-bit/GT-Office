@@ -1,0 +1,179 @@
+.channel-studio-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background:
+    radial-gradient(circle at top left, rgba(20, 184, 166, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.4));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  padding: 18px;
+}
+
+.channel-studio-shell {
+  width: min(1480px, 100%);
+  height: calc(100vh - 36px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1.25rem;
+  border-radius: 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 82%, transparent);
+  background:
+    radial-gradient(circle at top right, rgba(20, 184, 166, 0.1), transparent 24%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-muted) 35%, transparent), var(--vb-surface));
+  box-shadow: 0 36px 96px rgba(15, 23, 42, 0.22);
+}
+
+.channel-studio-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.channel-studio-title-block {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.channel-studio-eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.12);
+  color: #0d9488;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.channel-studio-title-block h2 {
+  margin: 0;
+  font-size: clamp(1.45rem, 2vw, 2rem);
+  color: var(--vb-text);
+  letter-spacing: -0.03em;
+}
+
+.channel-studio-title-block p {
+  max-width: 62rem;
+  margin: 0;
+  color: var(--vb-text-muted);
+  line-height: 1.6;
+}
+
+.channel-studio-close {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 84%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 88%, transparent);
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.channel-studio-close:hover {
+  background: color-mix(in srgb, var(--vb-card-hover-bg) 90%, transparent);
+  color: var(--vb-text);
+  transform: translateY(-1px);
+}
+
+.channel-studio-hero-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.95fr;
+  gap: 1rem;
+}
+
+.channel-studio-hero-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem 1.05rem;
+  border-radius: 1.15rem;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 78%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-muted) 46%, transparent), var(--vb-surface));
+}
+
+.channel-studio-hero-card.primary {
+  background:
+    radial-gradient(circle at top right, rgba(20, 184, 166, 0.14), transparent 44%),
+    linear-gradient(180deg, rgba(240, 253, 250, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.channel-studio-hero-card.accent {
+  background:
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.14), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-muted) 55%, transparent), var(--vb-surface));
+}
+
+.channel-studio-card-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.channel-studio-hero-card strong {
+  font-size: 1rem;
+  color: var(--vb-text);
+}
+
+.channel-studio-hero-card p,
+.channel-studio-hero-card ul {
+  margin: 0;
+  color: var(--vb-text-muted);
+  line-height: 1.55;
+}
+
+.channel-studio-hero-card ul {
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.channel-studio-body {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.channel-studio-body .channel-manager-pane {
+  min-height: 100%;
+}
+
+@media (max-width: 1080px) {
+  .channel-studio-hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .channel-studio-backdrop {
+    padding: 0;
+  }
+
+  .channel-studio-shell {
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    padding: 1rem;
+  }
+
+  .channel-studio-header {
+    flex-direction: column;
+  }
+
+  .channel-studio-close {
+    align-self: flex-end;
+  }
+}

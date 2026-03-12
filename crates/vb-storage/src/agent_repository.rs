@@ -101,11 +101,11 @@ impl AgentRepository for SqliteAgentRepository {
                 message: error.to_string(),
             })?;
         let existing_columns = {
-            let mut stmt = conn
-                .prepare("PRAGMA table_info(agents)")
-                .map_err(|error| AgentError::Storage {
-                    message: error.to_string(),
-                })?;
+            let mut stmt =
+                conn.prepare("PRAGMA table_info(agents)")
+                    .map_err(|error| AgentError::Storage {
+                        message: error.to_string(),
+                    })?;
             let rows = stmt
                 .query_map([], |row| row.get::<_, String>(1))
                 .map_err(|error| AgentError::Storage {

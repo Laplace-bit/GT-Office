@@ -86,8 +86,15 @@ pub async fn deliver_reply_text(
 
     match ChannelSinkKind::from_channel(&target.channel) {
         ChannelSinkKind::Telegram => {
-            deliver_telegram_reply_text(app, target, phase, primary_text, text_chunks, preview_message_id)
-                .await
+            deliver_telegram_reply_text(
+                app,
+                target,
+                phase,
+                primary_text,
+                text_chunks,
+                preview_message_id,
+            )
+            .await
         }
         ChannelSinkKind::Unsupported => Err(format!(
             "CHANNEL_REPLY_SEND_UNSUPPORTED: channel {} outbound is unsupported",

@@ -350,8 +350,12 @@ fn build_directory_snapshot(
     let departments = repo
         .list_departments(workspace_id)
         .map_err(|error| error.to_string())?;
-    let roles = repo.list_roles(workspace_id).map_err(|error| error.to_string())?;
-    let agents = repo.list_agents(workspace_id).map_err(|error| error.to_string())?;
+    let roles = repo
+        .list_roles(workspace_id)
+        .map_err(|error| error.to_string())?;
+    let agents = repo
+        .list_agents(workspace_id)
+        .map_err(|error| error.to_string())?;
     let runtimes = state.task_service.list_runtimes(Some(workspace_id));
 
     let updated_at_ms = chrono_like_now_ms();
@@ -530,12 +534,8 @@ fn dev_bootstrap_agents(
 
     let mut bootstrapped_agents = Vec::with_capacity(targets.len());
     for agent_id in targets {
-        let terminal_env = build_agent_terminal_env(
-            workspace.workspace_id.as_str(),
-            &agent_id,
-            None,
-            &agent_id,
-        );
+        let terminal_env =
+            build_agent_terminal_env(workspace.workspace_id.as_str(), &agent_id, None, &agent_id);
         let session = state
             .terminal_provider
             .create_session(TerminalCreateRequest {
@@ -548,21 +548,26 @@ fn dev_bootstrap_agents(
             .map_err(|error| {
                 BridgeError::new(
                     "MCP_BRIDGE_TERMINAL_INVALID",
-                    format!("bootstrap terminal create failed for '{agent_id}': {}", to_terminal_error(error)),
+                    format!(
+                        "bootstrap terminal create failed for '{agent_id}': {}",
+                        to_terminal_error(error)
+                    ),
                 )
             })?;
 
-        state.task_service.register_runtime(AgentRuntimeRegistration {
-            workspace_id: workspace.workspace_id.to_string(),
-            agent_id: agent_id.clone(),
-            station_id: agent_id.clone(),
-            role_key: None,
-            session_id: session.session_id.clone(),
-            tool_kind,
-            resolved_cwd: Some(session.resolved_cwd.clone()),
-            submit_sequence: Some(submit_sequence.clone()),
-            online: true,
-        });
+        state
+            .task_service
+            .register_runtime(AgentRuntimeRegistration {
+                workspace_id: workspace.workspace_id.to_string(),
+                agent_id: agent_id.clone(),
+                station_id: agent_id.clone(),
+                role_key: None,
+                session_id: session.session_id.clone(),
+                tool_kind,
+                resolved_cwd: Some(session.resolved_cwd.clone()),
+                submit_sequence: Some(submit_sequence.clone()),
+                online: true,
+            });
 
         bootstrapped_agents.push(json!({
             "agentId": agent_id,
