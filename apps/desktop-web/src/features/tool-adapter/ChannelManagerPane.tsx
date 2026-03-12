@@ -11,7 +11,8 @@ type ConnectorChannel = 'feishu' | 'telegram'
 interface ChannelManagerPaneProps {
   locale: Locale
   workspaceId: string | null
-  variant?: 'embedded' | 'studio'
+  variant?: 'embedded' | 'studio' | 'settings'
+  onEnterStudio?: () => void
 }
 
 function describeError(value: unknown): string {
@@ -44,7 +45,7 @@ function formatCheckedAt(locale: Locale, timestampMs: number): string {
   }).format(new Date(timestampMs))
 }
 
-export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded' }: ChannelManagerPaneProps) {
+export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', onEnterStudio }: ChannelManagerPaneProps) {
   const [loading, setLoading] = useState(false)
   const [healthCheckingKey, setHealthCheckingKey] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -115,11 +116,19 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded' }
   }, [loadBindingsAndRoles])
 
   const handleAddChannelClick = () => {
+    if (variant === 'settings') {
+      onEnterStudio?.()
+      return
+    }
     setEditingBinding(null)
     setWizardOpen(true)
   }
 
   const handleEditBinding = (binding: ChannelRouteBinding) => {
+    if (variant === 'settings') {
+      onEnterStudio?.()
+      return
+    }
     setEditingBinding(binding)
     setWizardOpen(true)
   }

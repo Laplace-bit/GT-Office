@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
 import type { AmbientLightingIntensity, MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
 import './SettingsModal.scss'
 
 interface SettingsModalProps {
   open: boolean
   locale: Locale
+  workspaceId: string | null
   themeMode: ThemeMode
   uiFont: UiFont
   monoFont: MonoFont
@@ -24,11 +26,12 @@ interface SettingsModalProps {
   onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
 }
 
-type SettingsTab = 'general' | 'about'
+type SettingsTab = 'general' | 'channels' | 'about'
 
 export function SettingsModal({
   open,
   locale,
+  workspaceId,
   themeMode,
   uiFont,
   monoFont,
@@ -74,6 +77,27 @@ export function SettingsModal({
             />
           </div>
         )
+      case 'channels':
+        return (
+          <div className="settings-pane-section">
+            <div className="settings-channels-list-wrapper">
+              {workspaceId ? (
+                <ChannelManagerPane 
+                  locale={locale} 
+                  workspaceId={workspaceId} 
+                  variant="settings"
+                  onEnterStudio={() => {
+                    (window as any).__GTO_OPEN_CHANNEL_STUDIO__?.()
+                  }}
+                />
+              ) : (
+                <p style={{ color: 'var(--vb-text-muted)', padding: '20px 0' }}>
+                  {t(locale, '请先打开一个工作区以管理通道。', 'Please open a workspace to manage channels.')}
+                </p>
+              )}
+            </div>
+          </div>
+        )
       case 'about':
         return (
           <div className="settings-pane-section">
@@ -111,6 +135,13 @@ export function SettingsModal({
               {t(locale, 'settingsModal.nav.general')}
             </button>
             <button 
+              className={`settings-nav-item ${activeTab === 'channels' ? 'active' : ''}`}
+              onClick={() => setActiveTab('channels')}
+            >
+              <AppIcon name="channels" aria-hidden="true" />
+              {t(locale, 'settingsModal.nav.channels')}
+            </button>
+            <button 
               className={`settings-nav-item ${activeTab === 'about' ? 'active' : ''}`}
               onClick={() => setActiveTab('about')}
             >
@@ -125,6 +156,7 @@ export function SettingsModal({
           <header className="settings-content-header">
             <h3>
               {activeTab === 'general' && t(locale, 'settingsModal.nav.general')}
+              {activeTab === 'channels' && t(locale, 'settingsModal.nav.channels')}
               {activeTab === 'about' && t(locale, 'settingsModal.nav.about')}
             </h3>
             <button 

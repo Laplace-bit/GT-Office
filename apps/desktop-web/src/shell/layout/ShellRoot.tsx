@@ -898,6 +898,16 @@ export function ShellRoot() {
   const terminalSessionSnapshotRef = useRef<WorkspaceSessionTerminalSnapshot[]>([])
   const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
 
+  useEffect(() => {
+    (window as any).__GTO_OPEN_CHANNEL_STUDIO__ = () => {
+      setIsSettingsOpen(false)
+      setIsChannelStudioOpen(true)
+    }
+    return () => {
+      delete (window as any).__GTO_OPEN_CHANNEL_STUDIO__
+    }
+  }, [])
+
   const locale = uiPreferences.locale
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
@@ -4240,10 +4250,6 @@ export function ShellRoot() {
           onPickWorkspaceDirectory={() => {
             void handlePickWorkspaceDirectory()
           }}
-          onOpenChannels={() => {
-            setIsSettingsOpen(false)
-            setIsChannelStudioOpen(true)
-          }}
           onOpenSettings={() => {
             setIsChannelStudioOpen(false)
             setIsSettingsOpen(true)
@@ -4486,6 +4492,7 @@ export function ShellRoot() {
       <SettingsModal
         open={isSettingsOpen}
         locale={locale}
+        workspaceId={activeWorkspaceId}
         themeMode={uiPreferences.themeMode}
         uiFont={uiPreferences.uiFont}
         monoFont={uiPreferences.monoFont}

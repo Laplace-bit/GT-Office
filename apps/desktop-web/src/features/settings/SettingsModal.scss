@@ -165,6 +165,44 @@
   }
 }
 
+.settings-btn-sm {
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  gap: 6px;
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.settings-channels-list-wrapper {
+  .channel-manager-pane {
+    gap: 1.5rem;
+  }
+
+  .channel-overview-top {
+    padding: 1.25rem;
+    background: color-mix(in srgb, var(--vb-surface-muted) 40%, transparent);
+    border-radius: 12px;
+  }
+
+  .channel-bot-card {
+    border-color: color-mix(in srgb, var(--vb-border) 60%, transparent);
+    background: transparent;
+    box-shadow: none;
+
+    &:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+      border-color: var(--vb-border);
+    }
+  }
+
+  .channel-bot-header {
+    background: color-mix(in srgb, var(--vb-surface-muted) 20%, transparent);
+  }
+}
+
 @keyframes apple-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }

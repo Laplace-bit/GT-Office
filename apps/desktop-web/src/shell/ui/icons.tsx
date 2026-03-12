@@ -16,6 +16,7 @@ import {
   FileText,
   FolderOpen,
   FolderTree,
+  ExternalLink,
   GitBranch,
   GitCommitHorizontal,
   GitMerge,
@@ -94,6 +95,7 @@ export type AppIconName =
   | 'pencil'
   | 'user-pen'
   | 'info'
+  | 'external'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
@@ -142,6 +144,7 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   pencil: Pencil,
   'user-pen': UserPen,
   info: Info,
+  external: ExternalLink,
 }
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {
@@ -149,6 +152,6 @@ interface AppIconProps extends SVGProps<SVGSVGElement> {
 }
 
 export function AppIcon({ name, className, strokeWidth, ...props }: AppIconProps) {
-  const Icon = iconMap[name]
+  const Icon = iconMap[name] ?? Info
   return <Icon className={className} strokeWidth={strokeWidth ?? 1.75} {...props} />
 }

@@ -13,7 +13,6 @@ interface TopControlBarProps {
   nativeWindowTopLinux: boolean
   windowMaximized: boolean
   onPickWorkspaceDirectory: () => void
-  onOpenChannels: () => void
   onOpenSettings: () => void
   onWindowMinimize: () => void
   onWindowToggleMaximize: () => void
@@ -81,7 +80,6 @@ export function TopControlBar({
   nativeWindowTopLinux,
   windowMaximized,
   onPickWorkspaceDirectory,
-  onOpenChannels,
   onOpenSettings,
   onWindowMinimize,
   onWindowToggleMaximize,
@@ -110,12 +108,6 @@ export function TopControlBar({
       label: t(locale, 'topControlBar.batchLaunchAgents'),
       icon: 'bolt' as AppIconName,
       disabled: true,
-    },
-    {
-      key: 'open-channels',
-      label: t(locale, 'topControlBar.openChannels'),
-      action: onOpenChannels,
-      icon: 'channels' as AppIconName,
     },
     {
       key: 'open-settings',

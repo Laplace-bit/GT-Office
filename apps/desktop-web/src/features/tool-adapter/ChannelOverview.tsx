@@ -6,7 +6,7 @@ import { AppIcon } from '@shell/ui/icons'
 
 interface ChannelOverviewProps {
   locale: Locale
-  variant?: 'embedded' | 'studio'
+  variant?: 'embedded' | 'studio' | 'settings'
   runtimeRunning: boolean
   onAddChannel: () => void
   channelBotGroups: ReturnType<typeof buildChannelBotBindingGroups>
@@ -33,18 +33,25 @@ export function ChannelOverview({
   healthCheckingKey,
   loading
 }: ChannelOverviewProps) {
+  const isSettings = variant === 'settings'
+  const isStudio = variant === 'studio'
+
   return (
     <>
-      <div className={`channel-overview-top ${variant === 'studio' ? 'studio' : ''}`}>
+      <div className={`channel-overview-top ${isStudio ? 'studio' : ''} ${isSettings ? 'settings' : ''}`}>
         <div className="channel-overview-status">
           <h4>
-            {variant === 'studio'
+            {isStudio
               ? t(locale, '机器人接入与健康状态', 'Bot onboarding and health status')
+              : isSettings
+              ? t(locale, '通道概览', 'Channel Overview')
               : t(locale, '通道连接管理', 'Channel Connection Management')}
           </h4>
           <p>
-            {variant === 'studio'
+            {isStudio
               ? t(locale, '在这里维护 Telegram / 飞书账号、绑定路由，并集中查看健康检查结果。', 'Manage Telegram / Feishu accounts, bind routes, and review connector health from one place.')
+              : isSettings
+              ? t(locale, '查看当前绑定的机器人与路由状态。', 'View the status of currently bound bots and routes.')
               : t(locale, '管理您的 Telegram 和 Feishu 机器人。', 'Manage your Telegram and Feishu bots.')}
           </p>
         </div>
@@ -54,7 +61,7 @@ export function ChannelOverview({
           </span>
           <button 
             type="button" 
-            className="settings-btn settings-btn-primary" 
+            className={`settings-btn ${isSettings ? 'settings-btn-secondary' : 'settings-btn-primary'}`} 
             onClick={onAddChannel} 
             disabled={loading}
           >

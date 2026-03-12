@@ -24,7 +24,12 @@ export function ChannelStudio({ open, locale, workspaceId, onClose }: ChannelStu
         }
       }}
     >
-      <section className="channel-studio-shell" role="dialog" aria-modal="true">
+      <section
+        className="channel-studio-shell"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="channel-studio-header">
           <div className="channel-studio-title-block">
             <div className="channel-studio-eyebrow">
