@@ -13,6 +13,7 @@ interface ChannelManagerPaneProps {
   workspaceId: string | null
   variant?: 'embedded' | 'studio' | 'settings'
   onEnterStudio?: () => void
+  onClose?: () => void
 }
 
 function describeError(value: unknown): string {
@@ -45,7 +46,7 @@ function formatCheckedAt(locale: Locale, timestampMs: number): string {
   }).format(new Date(timestampMs))
 }
 
-export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', onEnterStudio }: ChannelManagerPaneProps) {
+export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', onEnterStudio, onClose }: ChannelManagerPaneProps) {
   const [loading, setLoading] = useState(false)
   const [healthCheckingKey, setHealthCheckingKey] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
@@ -60,7 +61,7 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
   const [bindings, setBindings] = useState<ChannelRouteBinding[]>([])
   const [connectorAccounts, setConnectorAccounts] = useState<ChannelConnectorAccount[]>([])
 
-  const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(variant === 'studio')
   const [editingBinding, setEditingBinding] = useState<ChannelRouteBinding | null>(null)
 
   const loadRuntimeStatus = useCallback(async () => {
@@ -197,6 +198,10 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
   }
 
   const handleWizardClose = () => {
+    if (variant === 'studio') {
+      onClose?.()
+      return
+    }
     setWizardOpen(false)
     setEditingBinding(null)
   }
