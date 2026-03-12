@@ -569,6 +569,31 @@ impl TaskService {
         &self,
         inbound: &ExternalInboundMessage,
     ) -> Option<ExternalRouteResolution> {
+        self.resolve_external_route_matching(inbound, |_| true)
+    }
+
+    pub fn resolve_external_route_in_workspace(
+        &self,
+        workspace_id: &str,
+        inbound: &ExternalInboundMessage,
+    ) -> Option<ExternalRouteResolution> {
+        let workspace_id = workspace_id.trim();
+        if workspace_id.is_empty() {
+            return None;
+        }
+        self.resolve_external_route_matching(inbound, |binding| {
+            binding.workspace_id == workspace_id
+        })
+    }
+
+    fn resolve_external_route_matching<F>(
+        &self,
+        inbound: &ExternalInboundMessage,
+        workspace_filter: F,
+    ) -> Option<ExternalRouteResolution>
+    where
+        F: Fn(&ChannelRouteBinding) -> bool,
+    {
         let channel = normalize_token(&inbound.channel);
         let account_id = normalize_account_id(&inbound.account_id);
         let peer_id = inbound.peer_id.trim();
@@ -579,6 +604,9 @@ impl TaskService {
         let guard = self.state.read().ok()?;
         let mut candidates: Vec<(i32, &ChannelRouteBinding, String)> = Vec::new();
         for binding in &guard.route_bindings {
+            if !workspace_filter(binding) {
+                continue;
+            }
             if normalize_token(&binding.channel) != channel {
                 continue;
             }

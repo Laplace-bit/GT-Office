@@ -1,12 +1,17 @@
 use super::{
-    channel_supports_external_reply, codex_event_text, find_command_in_dir,
-    normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
+    align_route_with_resolved_workspace, channel_supports_external_reply, codex_event_text,
+    find_command_in_dir, normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
     runtime_supports_structured_relay, split_text_for_channel, AgentRuntimeRegistration,
     AgentToolKind,
 };
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
+use vb_task::{
+    ChannelRouteBinding, ExternalInboundMessage, ExternalPeerKind, ExternalRouteResolution,
+};
+
+use crate::app_state::AppState;
 
 fn sample_runtime(
     tool_kind: AgentToolKind,
@@ -179,4 +184,108 @@ fn channel_supports_external_reply_includes_feishu_and_telegram() {
     assert!(channel_supports_external_reply("telegram"));
     assert!(channel_supports_external_reply("feishu"));
     assert!(!channel_supports_external_reply("slack"));
+}
+
+#[test]
+fn align_route_with_resolved_workspace_rebinds_to_matching_binding_in_fallback_workspace() {
+    let state = AppState::default();
+    state
+        .task_service
+        .upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-stale".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: "role:build".to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+        });
+    state
+        .task_service
+        .upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-current".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: "role:manager".to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+        });
+
+    let route = align_route_with_resolved_workspace(
+        &state,
+        &ExternalInboundMessage {
+            channel: "telegram".to_string(),
+            account_id: "default".to_string(),
+            peer_kind: ExternalPeerKind::Direct,
+            peer_id: "user-1".to_string(),
+            sender_id: "user-1".to_string(),
+            sender_name: None,
+            message_id: "msg-1".to_string(),
+            text: "hello".to_string(),
+            idempotency_key: None,
+            workspace_id_hint: None,
+            target_agent_id_hint: None,
+            metadata: serde_json::json!({}),
+        },
+        &ExternalRouteResolution {
+            workspace_id: "ws-stale".to_string(),
+            target_agent_id: "role:build".to_string(),
+            matched_by: "binding.account".to_string(),
+        },
+        "ws-current",
+    )
+    .expect("fallback workspace route");
+
+    assert_eq!(route.workspace_id, "ws-current");
+    assert_eq!(route.target_agent_id, "role:manager");
+}
+
+#[test]
+fn align_route_with_resolved_workspace_rejects_cross_workspace_target_without_local_binding() {
+    let state = AppState::default();
+    state
+        .task_service
+        .upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-stale".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: "role:build".to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+        });
+
+    let error = align_route_with_resolved_workspace(
+        &state,
+        &ExternalInboundMessage {
+            channel: "telegram".to_string(),
+            account_id: "default".to_string(),
+            peer_kind: ExternalPeerKind::Direct,
+            peer_id: "user-1".to_string(),
+            sender_id: "user-1".to_string(),
+            sender_name: None,
+            message_id: "msg-1".to_string(),
+            text: "hello".to_string(),
+            idempotency_key: None,
+            workspace_id_hint: None,
+            target_agent_id_hint: None,
+            metadata: serde_json::json!({}),
+        },
+        &ExternalRouteResolution {
+            workspace_id: "ws-stale".to_string(),
+            target_agent_id: "role:build".to_string(),
+            matched_by: "binding.account".to_string(),
+        },
+        "ws-current",
+    )
+    .expect_err("mismatched route should fail");
+
+    assert!(error.contains("CHANNEL_ROUTE_WORKSPACE_MISMATCH"));
 }

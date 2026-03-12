@@ -58,7 +58,6 @@ export function SettingsModal({
       case 'general':
         return (
           <div className="settings-pane-section">
-            <h4>{t(locale, 'displayPreferences.title')}</h4>
             <DisplayPreferences
               locale={locale}
               themeMode={themeMode}

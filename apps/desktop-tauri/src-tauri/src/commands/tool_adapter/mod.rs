@@ -1960,6 +1960,31 @@ fn route_from_hints(message: &ExternalInboundMessage) -> Option<ExternalRouteRes
     })
 }
 
+fn align_route_with_resolved_workspace(
+    state: &AppState,
+    message: &ExternalInboundMessage,
+    route: &ExternalRouteResolution,
+    resolved_workspace_id: &str,
+) -> Result<ExternalRouteResolution, String> {
+    let resolved_workspace_id = resolved_workspace_id.trim();
+    if resolved_workspace_id.is_empty() {
+        return Err("CHANNEL_ROUTE_WORKSPACE_INVALID: resolved workspace is empty".to_string());
+    }
+    if route.workspace_id == resolved_workspace_id {
+        return Ok(route.clone());
+    }
+
+    state
+        .task_service
+        .resolve_external_route_in_workspace(resolved_workspace_id, message)
+        .ok_or_else(|| {
+            format!(
+                "CHANNEL_ROUTE_WORKSPACE_MISMATCH: route matched workspace {} but resolved workspace became {}; no equivalent binding exists in the resolved workspace",
+                route.workspace_id, resolved_workspace_id
+            )
+        })
+}
+
 fn resolve_agent_repository(app: &AppHandle) -> Result<SqliteAgentRepository, String> {
     let base_dir = app
         .path()
@@ -2273,6 +2298,37 @@ Approve this identity in Channel settings or switch policy to open."
                     return Ok(response);
                 }
             }
+        }
+    };
+
+    let route = match align_route_with_resolved_workspace(
+        state,
+        &message,
+        &route,
+        &resolved_workspace_id,
+    ) {
+        Ok(route) => route,
+        Err(error) => {
+            let response = ExternalInboundResponse {
+                trace_id: trace_id.clone(),
+                status: ExternalInboundStatus::Failed,
+                idempotent_hit: false,
+                workspace_id: Some(resolved_workspace_id.clone()),
+                target_agent_id: None,
+                task_id: None,
+                pairing_code: None,
+                detail: Some(error.clone()),
+            };
+            emit_external_error(
+                app,
+                &response.trace_id,
+                "CHANNEL_ROUTE_WORKSPACE_MISMATCH",
+                &error,
+            );
+            state
+                .task_service
+                .store_external_idempotency(idempotency_key, response.clone());
+            return Ok(response);
         }
     };
 
