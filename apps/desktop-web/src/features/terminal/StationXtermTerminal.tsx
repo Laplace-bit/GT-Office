@@ -6,9 +6,23 @@ import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 export interface StationTerminalSink {
   write: (chunk: string) => void
   reset: (content?: string) => void
+  restore: (content: string, cols: number, rows: number) => void
   focus: () => void
   submit: () => boolean
 }
+
+export interface StationTerminalSinkBindingMeta {
+  sourceSink?: StationTerminalSink | null
+  restoreState?: string | null
+  restoreCols?: number
+  restoreRows?: number
+}
+
+export type StationTerminalSinkBindingHandler = (
+  stationId: string,
+  sink: StationTerminalSink | null,
+  meta?: StationTerminalSinkBindingMeta,
+) => void
 
 interface StationXtermTerminalProps {
   stationId: string
@@ -17,7 +31,7 @@ interface StationXtermTerminalProps {
   onActivateStation: () => void
   onData: (stationId: string, data: string) => void
   onResize: (stationId: string, cols: number, rows: number) => void
-  onBindSink: (stationId: string, sink: StationTerminalSink | null) => void
+  onBindSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
 }
 
@@ -26,6 +40,7 @@ const DOM_DELTA_PAGE = 2
 const TERMINAL_MIN_VISIBLE_SIZE_PX = 4
 const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
+const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
 
 function isShellPromptText(text: string): boolean {
   const trimmed = text.trim()
@@ -179,6 +194,7 @@ function StationXtermTerminalView({
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
+  const boundSinkRef = useRef<StationTerminalSink | null>(null)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
   const onRenderedScreenSnapshotRef = useRef(onRenderedScreenSnapshot)
@@ -269,9 +285,17 @@ function StationXtermTerminalView({
     let readyFitFrameId: number | null = null
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
+    let serializeFrameId: number | null = null
     let lastReportAtMs = 0
-    void Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]).then(
-      ([xtermModule, fitModule]) => {
+    let serializedRestoreState: string | null = null
+    let serializedRestoreCols = 0
+    let serializedRestoreRows = 0
+    void Promise.all([
+      import('@xterm/xterm'),
+      import('@xterm/addon-fit'),
+      import('@xterm/addon-serialize'),
+    ]).then(
+      ([xtermModule, fitModule, serializeModule]) => {
         if (!active) {
           return
         }
@@ -295,7 +319,9 @@ function StationXtermTerminalView({
         ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
           'bar'
         const fitAddon = new fitModule.FitAddon()
+        const serializeAddon = new serializeModule.SerializeAddon()
         terminal.loadAddon(fitAddon)
+        terminal.loadAddon(serializeAddon)
         terminal.open(host)
 
         terminalRef.current = terminal
@@ -312,6 +338,28 @@ function StationXtermTerminalView({
           refreshFrameId = window.requestAnimationFrame(() => {
             refreshFrameId = null
             refreshTerminal()
+          })
+        }
+        const captureSerializedRestoreState = () => {
+          try {
+            serializedRestoreState = serializeAddon.serialize({
+              scrollback: TERMINAL_SERIALIZE_SCROLLBACK_LINES,
+              excludeModes: false,
+              excludeAltBuffer: false,
+            })
+            serializedRestoreCols = terminal.cols
+            serializedRestoreRows = terminal.rows
+          } catch {
+            // No-op: serialization should not break terminal lifecycle.
+          }
+        }
+        const scheduleSerializedRestoreStateCapture = () => {
+          if (serializeFrameId !== null) {
+            return
+          }
+          serializeFrameId = window.requestAnimationFrame(() => {
+            serializeFrameId = null
+            captureSerializedRestoreState()
           })
         }
         const captureRenderedScreenSnapshot = (): RenderedScreenSnapshot | null => {
@@ -539,7 +587,7 @@ function StationXtermTerminalView({
           attributeFilter: ['data-theme', 'style'],
         })
 
-        onBindSink(stationId, {
+        const sink: StationTerminalSink = {
           write: (chunk: string) => {
             if (!chunk) {
               return
@@ -549,6 +597,7 @@ function StationXtermTerminalView({
             }
             terminal.write(chunk, () => {
               scheduleRefresh()
+              scheduleSerializedRestoreStateCapture()
               scheduleRenderedScreenSnapshot()
             })
           },
@@ -560,16 +609,34 @@ function StationXtermTerminalView({
               }
               terminal.write(content, () => {
                 scheduleRefresh()
+                scheduleSerializedRestoreStateCapture()
               })
             }
             scheduleRefresh()
+          },
+          restore: (content: string, cols: number, rows: number) => {
+            if (cols > 0 && rows > 0 && (terminal.cols !== cols || terminal.rows !== rows)) {
+              terminal.resize(cols, rows)
+            }
+            terminal.reset()
+            terminal.write(content, () => {
+              scheduleRefresh()
+              scheduleSerializedRestoreStateCapture()
+              if (fitAndRefresh()) {
+                onResizeRef.current(stationId, terminal.cols, terminal.rows)
+                return
+              }
+              scheduleFitRetry()
+            })
           },
           focus: () => {
             terminal.focus()
             scheduleRefresh()
           },
           submit: () => submitFromXterm(),
-        })
+        }
+        boundSinkRef.current = sink
+        onBindSink(stationId, sink)
       },
     ).catch(() => {
       // No-op: xterm chunk failed to load.
@@ -577,7 +644,14 @@ function StationXtermTerminalView({
 
     return () => {
       active = false
-      onBindSink(stationId, null)
+      const boundSink = boundSinkRef.current
+      boundSinkRef.current = null
+      onBindSink(stationId, null, {
+        sourceSink: boundSink,
+        restoreState: serializedRestoreState,
+        restoreCols: serializedRestoreCols,
+        restoreRows: serializedRestoreRows,
+      })
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
       removeFocusListeners?.()
@@ -594,6 +668,9 @@ function StationXtermTerminalView({
       }
       if (reportTimeoutId !== null) {
         window.clearTimeout(reportTimeoutId)
+      }
+      if (serializeFrameId !== null) {
+        window.cancelAnimationFrame(serializeFrameId)
       }
       terminalRef.current?.dispose()
       terminalRef.current = null

@@ -7,8 +7,8 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 0 14px 14px;
+  gap: 6px;
+  padding: 0;
   overflow: hidden;
   background:
     radial-gradient(ellipse 80% 50% at 0% 0%, rgba(0, 122, 255, 0.04), transparent 50%),
@@ -30,7 +30,74 @@
   overflow: hidden;
   display: flex;
   align-items: stretch;
+  gap: 6px;
+}
+
+.shell-top-slot {
+  position: relative;
+  z-index: 40;
+  flex: 0 0 auto;
+}
+
+.telegram-debug-toast {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(420px, calc(100vw - 24px));
+  padding: 14px 16px 12px;
+  border-radius: 18px;
+  border: 1px solid var(--vb-border-strong);
+  background: color-mix(in srgb, var(--vb-surface-elevated) 86%, transparent);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+
+  p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--vb-text-muted);
+  }
+}
+
+.telegram-debug-toast-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  margin-bottom: 10px;
+
+  strong {
+    font-size: 13px;
+    color: var(--vb-text);
+    letter-spacing: 0.01em;
+  }
+
+  button {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid var(--vb-border-subtle);
+    background: var(--vb-chip);
+    color: var(--vb-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+
+    &:hover {
+      color: var(--vb-text);
+      background: var(--vb-card-hover-bg);
+    }
+  }
+}
+
+.telegram-debug-toast-time {
+  margin-top: 10px !important;
+  font-family: var(--vb-font-mono);
+  letter-spacing: 0.02em;
+  color: var(--vb-text-subtle);
 }
 
 .shell-rail-slot {
@@ -129,6 +196,12 @@
 }
 
 @media (max-width: 1024px) {
+  .telegram-debug-toast {
+    right: 0;
+    left: 0;
+    width: auto;
+  }
+
   .shell-rail-slot {
     width: 58px;
     min-width: 58px;

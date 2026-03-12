@@ -6,7 +6,11 @@ import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
-import { StationXtermTerminal, type StationTerminalSink } from '@features/terminal'
+import {
+  StationXtermTerminal,
+  type StationTerminalSink,
+  type StationTerminalSinkBindingHandler,
+} from '@features/terminal'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import './StationCard.scss'
@@ -173,13 +177,14 @@ interface StationCardProps {
   isFullscreen?: boolean
   isFullscreenMode?: boolean
   isMiniature?: boolean
+  isFocusHidden?: boolean
   onSelectStation: (stationId: string) => void
 
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
-  onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
+  onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
@@ -212,6 +217,7 @@ function StationCardView({
   isFullscreen,
   isFullscreenMode,
   isMiniature,
+  isFocusHidden,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -329,6 +335,7 @@ function StationCardView({
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
   const unreadLabel =
     runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
+  const hasTerminalSession = Boolean(runtime?.sessionId)
   const channelBindingSummaries = channelBotBindings ?? []
   const visibleChannelBindingSummaries = channelBindingSummaries.slice(0, 2)
   const hiddenChannelBindingCount = Math.max(
@@ -360,10 +367,10 @@ function StationCardView({
     onSelectStation(station.id)
   }, [onSelectStation, station.id])
 
-  const handleBindSink = useCallback(
-    (stationId: string, sink: StationTerminalSink | null) => {
+  const handleBindSink = useCallback<StationTerminalSinkBindingHandler>(
+    (stationId, sink, meta) => {
       terminalSinkRef.current = sink
-      onBindTerminalSink(stationId, sink)
+      onBindTerminalSink(stationId, sink, meta)
       if (sink) {
         flushPendingTerminalFocus()
       }
@@ -407,6 +414,7 @@ function StationCardView({
         'station-window',
         active ? 'active' : '',
         isMiniature ? 'is-miniature' : '',
+        isFocusHidden ? 'focus-hidden' : '',
         compactLayout ? 'station-window-compact' : '',
         isFullscreen ? 'fullscreen' : '',
         isFullscreenMode && !isFullscreen ? 'background-hidden' : '',
@@ -539,16 +547,56 @@ function StationCardView({
         </div>
       </header>
 
-      <StationXtermTerminal
-        stationId={station.id}
-        sessionId={runtime?.sessionId ?? null}
-        appearanceVersion={appearanceVersion}
-        onActivateStation={activateStationFromTerminal}
-        onData={onSendInputData}
-        onResize={onResizeTerminal}
-        onBindSink={handleBindSink}
-        onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-      />
+      {hasTerminalSession ? (
+        <StationXtermTerminal
+          stationId={station.id}
+          sessionId={runtime?.sessionId ?? null}
+          appearanceVersion={appearanceVersion}
+          onActivateStation={activateStationFromTerminal}
+          onData={onSendInputData}
+          onResize={onResizeTerminal}
+          onBindSink={handleBindSink}
+          onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+        />
+      ) : (
+        <div className="station-terminal-idle-state">
+          <div className="station-terminal-idle-copy">
+            <strong>{t(locale, '终端尚未启动', 'Terminal idle')}</strong>
+            <p>
+              {t(
+                locale,
+                '先启动终端会话，再进入 CLI 或执行任务派发。',
+                'Launch the terminal session before opening a CLI agent or dispatching tasks.',
+              )}
+            </p>
+          </div>
+          <div className="station-terminal-idle-actions">
+            <button
+              type="button"
+              className="station-terminal-idle-button primary"
+              onClick={(event) => {
+                event.stopPropagation()
+                activateStationAndOpenTerminal()
+              }}
+            >
+              <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              <span>{t(locale, 'workbench.launchTerminal')}</span>
+            </button>
+            <button
+              type="button"
+              className="station-terminal-idle-button"
+              onClick={(event) => {
+                event.stopPropagation()
+                activateStationAndFocusTerminal()
+                onLaunchCliAgent(station.id)
+              }}
+            >
+              <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              <span>{t(locale, 'workbench.launchCliAgent')}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
     </article>
   )
@@ -587,6 +635,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
       prev.appearanceVersion === next.appearanceVersion &&
       prev.isFullscreen === next.isFullscreen &&
       prev.isMiniature === next.isMiniature &&
+      prev.isFocusHidden === next.isFocusHidden &&
       (prev.runtime?.sessionId === next.runtime?.sessionId) &&
       (prev.runtime?.unreadCount === next.runtime?.unreadCount) &&
       (prev.taskSignal?.nonce === next.taskSignal?.nonce)
@@ -606,6 +655,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFullscreen === next.isFullscreen &&
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&
+    prev.isFocusHidden === next.isFocusHidden &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&

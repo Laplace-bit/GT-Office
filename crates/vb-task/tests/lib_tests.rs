@@ -424,3 +424,25 @@ fn external_idempotency_cache_roundtrip() {
     assert_eq!(loaded.trace_id, response.trace_id);
     assert_eq!(loaded.task_id, response.task_id);
 }
+
+#[test]
+fn external_idempotency_cache_can_be_cleared_after_route_changes() {
+    let service = TaskService::default();
+    let key = "telegram:default:user-1:msg-2".to_string();
+    let response = ExternalInboundResponse {
+        trace_id: "trace-2".to_string(),
+        status: ExternalInboundStatus::Dispatched,
+        idempotent_hit: false,
+        workspace_id: Some("ws-1".to_string()),
+        target_agent_id: Some("agent-before".to_string()),
+        task_id: Some("task-2".to_string()),
+        pairing_code: None,
+        detail: None,
+    };
+    service.store_external_idempotency(key.clone(), response);
+    assert!(service.check_external_idempotency(&key).is_some());
+
+    service.clear_external_idempotency_cache();
+
+    assert!(service.check_external_idempotency(&key).is_none());
+}

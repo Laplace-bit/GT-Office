@@ -35,7 +35,7 @@ import {
   type TaskDraftState,
 } from '@features/task-center'
 import { SettingsModal } from '@features/settings'
-import type { StationTerminalSink } from '@features/terminal'
+import type { StationTerminalSink, StationTerminalSinkBindingHandler } from '@features/terminal'
 import {
   buildStationChannelBotBindingMap,
   resolveConnectorAccounts,
@@ -820,6 +820,7 @@ export function ShellRoot() {
   const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
   const stationTerminalSinkRef = useRef<Record<string, StationTerminalSink>>({})
   const stationTerminalOutputCacheRef = useRef<Record<string, string>>({})
+  const stationTerminalRestoreStateRef = useRef<Record<string, { content: string; cols: number; rows: number }>>({})
   const stationTerminalInputQueueRef = useRef<Record<string, string>>({})
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
   const stationTerminalInputFlushTimerRef = useRef<Record<string, number | null>>({})
@@ -1608,21 +1609,51 @@ export function ShellRoot() {
     }
   }, [activeNavId, refreshExternalChannelStatus])
 
-  const bindStationTerminalSink = useMemo(
-    () => (stationId: string, sink: StationTerminalSink | null) => {
+  const bindStationTerminalSink = useMemo<StationTerminalSinkBindingHandler>(
+    () => (stationId, sink, meta) => {
       if (!sink) {
+        if (meta?.sourceSink && stationTerminalSinkRef.current[stationId] !== meta.sourceSink) {
+          return
+        }
+        if (meta?.restoreState) {
+          stationTerminalRestoreStateRef.current[stationId] = {
+            content: meta.restoreState,
+            cols: meta.restoreCols ?? 0,
+            rows: meta.restoreRows ?? 0,
+          }
+        }
         delete stationTerminalSinkRef.current[stationId]
         return
       }
       stationTerminalSinkRef.current[stationId] = sink
       const station = stationsRef.current.find((item) => item.id === stationId)
-      const snapshot =
-        stationTerminalOutputCacheRef.current[stationId] ??
-        getStationIdleBanner(station)
-      sink.reset(snapshot)
+      const cachedContent = stationTerminalOutputCacheRef.current[stationId] ?? getStationIdleBanner(station)
+      const restoreState = stationTerminalRestoreStateRef.current[stationId]
+      if (restoreState) {
+        sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
+        return
+      }
+      sink.reset(cachedContent)
     },
     [],
   )
+
+  const ensureTerminalSessionVisible = useCallback((sessionId: string) => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    if (terminalSessionVisibilityRef.current[sessionId]) {
+      return
+    }
+    void desktopApi
+      .terminalSetVisibility(sessionId, true)
+      .then(() => {
+        terminalSessionVisibilityRef.current[sessionId] = true
+      })
+      .catch(() => {
+        // Ignore transient sync failure; next render cycle will retry.
+      })
+  }, [])
 
   const decodeBase64Chunk = useMemo(
     () => (base64Chunk: string): string => {
@@ -2195,6 +2226,7 @@ export function ShellRoot() {
     terminalSessionSeqRef.current = {}
     terminalOutputQueueRef.current = {}
     terminalSessionVisibilityRef.current = {}
+    stationTerminalRestoreStateRef.current = {}
     stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
       acc[station.id] = getStationIdleBanner(station)
       return acc
@@ -2255,6 +2287,11 @@ export function ShellRoot() {
     Object.keys(stationTerminalOutputCacheRef.current).forEach((stationId) => {
       if (!stationIdSet.has(stationId)) {
         delete stationTerminalOutputCacheRef.current[stationId]
+      }
+    })
+    Object.keys(stationTerminalRestoreStateRef.current).forEach((stationId) => {
+      if (!stationIdSet.has(stationId)) {
+        delete stationTerminalRestoreStateRef.current[stationId]
       }
     })
     Object.keys(stationTaskSignalTimerRef.current).forEach((stationId) => {
@@ -2331,13 +2368,13 @@ export function ShellRoot() {
     })
 
     Object.entries(desiredVisibility).forEach(([sessionId, visible]) => {
-      if (terminalSessionVisibilityRef.current[sessionId] === visible) {
+      if (!visible) {
         return
       }
-      terminalSessionVisibilityRef.current[sessionId] = visible
-      void desktopApi.terminalSetVisibility(sessionId, visible).catch(() => {
-        // Ignore transient sync failure; next render cycle will retry.
-      })
+      if (terminalSessionVisibilityRef.current[sessionId]) {
+        return
+      }
+      ensureTerminalSessionVisible(sessionId)
     })
 
     Object.keys(terminalSessionVisibilityRef.current).forEach((sessionId) => {
@@ -2345,7 +2382,7 @@ export function ShellRoot() {
         delete terminalSessionVisibilityRef.current[sessionId]
       }
     })
-  }, [stationTerminals])
+  }, [ensureTerminalSessionVisible, stationTerminals])
 
   useEffect(() => {
     if (activeNavId !== 'stations') {
@@ -2587,6 +2624,8 @@ export function ShellRoot() {
         sessionStationRef.current[session.sessionId] = stationId
         terminalSessionSeqRef.current[session.sessionId] = 0
         terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
+        delete stationTerminalRestoreStateRef.current[stationId]
+        ensureTerminalSessionVisible(session.sessionId)
         const currentRuntime = stationTerminalsRef.current[stationId] ?? {
           sessionId: null,
           stateRaw: 'idle',
@@ -2639,6 +2678,7 @@ export function ShellRoot() {
     [
       activeWorkspaceId,
       appendStationTerminalOutput,
+      ensureTerminalSessionVisible,
       locale,
       resetStationTerminalOutput,
       resolveWorkspaceRoot,
@@ -3296,6 +3336,7 @@ export function ShellRoot() {
       delete stationTerminalInputFlushTimerRef.current[stationId]
       delete stationTerminalInputQueueRef.current[stationId]
       delete stationTerminalInputSendingRef.current[stationId]
+      delete stationTerminalRestoreStateRef.current[stationId]
 
       setStations((prev) => prev.filter((station) => station.id !== stationId))
       setStationTerminals((prev) => {
@@ -3654,6 +3695,8 @@ export function ShellRoot() {
             sessionStationRef.current[session.sessionId] = terminal.stationId
             terminalSessionSeqRef.current[session.sessionId] = 0
             terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
+            delete stationTerminalRestoreStateRef.current[terminal.stationId]
+            ensureTerminalSessionVisible(session.sessionId)
             setStationTerminalState(terminal.stationId, {
               sessionId: session.sessionId,
               stateRaw: 'running',
@@ -3692,7 +3735,7 @@ export function ShellRoot() {
         workspaceSessionHydratingRef.current = false
       }
     }
-  }, [activeWorkspaceId])
+  }, [activeWorkspaceId, ensureTerminalSessionVisible])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -4148,60 +4191,7 @@ export function ShellRoot() {
         enabled={uiPreferences.ambientLightingEnabled && !nativeWindowTopWindows}
         intensity={uiPreferences.ambientLightingIntensity}
       />
-      {telegramDebugToast ? (
-        <section className="telegram-debug-toast" role="status" aria-live="polite">
-          <header className="telegram-debug-toast-header">
-            <strong>{t(locale, 'channel.telegram.debugToast.title')}</strong>
-            <button
-              type="button"
-              onClick={() => {
-                const timerId = telegramDebugToastTimerRef.current
-                if (typeof timerId === 'number') {
-                  window.clearTimeout(timerId)
-                }
-                telegramDebugToastTimerRef.current = null
-                setTelegramDebugToast(null)
-              }}
-              aria-label={t(locale, 'channel.telegram.debugToast.dismiss')}
-            >
-              ×
-            </button>
-          </header>
-          <p>
-            {t(locale, 'channel.telegram.debugToast.sender', {
-              sender: telegramDebugToast.senderName || telegramDebugToast.senderId,
-            })}
-          </p>
-          <p>
-            {t(locale, 'channel.telegram.debugToast.peer', {
-              peer: telegramDebugToast.peerId,
-            })}
-          </p>
-          <p>
-            {t(locale, 'channel.telegram.debugToast.message', {
-              message: telegramDebugToast.messageId,
-            })}
-          </p>
-          <p>
-            {t(locale, 'channel.telegram.debugToast.content', {
-              content: telegramDebugToast.text || t(locale, 'channel.telegram.debugToast.empty'),
-            })}
-          </p>
-          <p>
-            {t(locale, 'channel.telegram.debugToast.account', {
-              account: telegramDebugToast.accountId,
-            })}
-          </p>
-          <p className="telegram-debug-toast-time">
-            {new Date(telegramDebugToast.receivedAtMs).toLocaleTimeString(
-              locale === 'zh-CN' ? 'zh-CN' : 'en-US',
-              { hour12: false },
-            )}
-          </p>
-        </section>
-      ) : null}
-
-      <div ref={shellTopRef} className="relative z-40">
+      <div ref={shellTopRef} className="shell-top-slot">
         <TopControlBar
           locale={locale}
           workspacePath={workspacePathInput}
@@ -4220,6 +4210,58 @@ export function ShellRoot() {
           onWindowToggleMaximize={handleWindowToggleMaximize}
           onWindowClose={handleWindowClose}
         />
+        {telegramDebugToast ? (
+          <section className="telegram-debug-toast" role="status" aria-live="polite">
+            <header className="telegram-debug-toast-header">
+              <strong>{t(locale, 'channel.telegram.debugToast.title')}</strong>
+              <button
+                type="button"
+                onClick={() => {
+                  const timerId = telegramDebugToastTimerRef.current
+                  if (typeof timerId === 'number') {
+                    window.clearTimeout(timerId)
+                  }
+                  telegramDebugToastTimerRef.current = null
+                  setTelegramDebugToast(null)
+                }}
+                aria-label={t(locale, 'channel.telegram.debugToast.dismiss')}
+              >
+                ×
+              </button>
+            </header>
+            <p>
+              {t(locale, 'channel.telegram.debugToast.sender', {
+                sender: telegramDebugToast.senderName || telegramDebugToast.senderId,
+              })}
+            </p>
+            <p>
+              {t(locale, 'channel.telegram.debugToast.peer', {
+                peer: telegramDebugToast.peerId,
+              })}
+            </p>
+            <p>
+              {t(locale, 'channel.telegram.debugToast.message', {
+                message: telegramDebugToast.messageId,
+              })}
+            </p>
+            <p>
+              {t(locale, 'channel.telegram.debugToast.content', {
+                content: telegramDebugToast.text || t(locale, 'channel.telegram.debugToast.empty'),
+              })}
+            </p>
+            <p>
+              {t(locale, 'channel.telegram.debugToast.account', {
+                account: telegramDebugToast.accountId,
+              })}
+            </p>
+            <p className="telegram-debug-toast-time">
+              {new Date(telegramDebugToast.receivedAtMs).toLocaleTimeString(
+                locale === 'zh-CN' ? 'zh-CN' : 'en-US',
+                { hour12: false },
+              )}
+            </p>
+          </section>
+        ) : null}
       </div>
 
       <main ref={shellMainRef} className="shell-main-layout relative z-10" style={shellMainStyle}>

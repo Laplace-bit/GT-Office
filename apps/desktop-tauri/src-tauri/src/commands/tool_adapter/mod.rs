@@ -2409,6 +2409,7 @@ pub async fn channel_binding_upsert(
         }
     }
     let created = state.task_service.upsert_route_binding(binding.clone());
+    state.task_service.clear_external_idempotency_cache();
     persist_route_bindings(&app, state.inner())?;
     Ok(json!({
         "updated": true,
@@ -2446,6 +2447,7 @@ pub fn channel_binding_delete(
         return Err("CHANNEL_BINDING_INVALID: targetAgentId is required".to_string());
     }
     let deleted = state.task_service.delete_route_binding(binding.clone());
+    state.task_service.clear_external_idempotency_cache();
     persist_route_bindings(&app, state.inner())?;
     Ok(json!({
         "deleted": deleted,
@@ -2468,6 +2470,7 @@ pub fn channel_access_policy_set(
         &account_id,
         request.mode.clone(),
     );
+    state.task_service.clear_external_idempotency_cache();
     persist_access_policy(&app, &request.channel, &account_id, request.mode)?;
     Ok(json!({
         "updated": true,
@@ -2495,6 +2498,7 @@ pub fn channel_access_approve(
         &account_id,
         &request.identity,
     );
+    state.task_service.clear_external_idempotency_cache();
     if approved {
         persist_allow_entry(&app, &request.channel, &account_id, &request.identity)?;
     }

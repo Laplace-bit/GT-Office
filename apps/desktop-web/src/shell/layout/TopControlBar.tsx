@@ -138,6 +138,14 @@ export function TopControlBar({
       icon: 'close' as AppIconName,
     },
   ]
+  const orderedWindowActionButtons =
+    windowPlatform === 'macos'
+      ? [
+          windowActionButtons[2],
+          windowActionButtons[0],
+          windowActionButtons[1],
+        ]
+      : windowActionButtons
 
   const topClassNames = [
     'vb-top-control-bar',
@@ -168,7 +176,7 @@ export function TopControlBar({
 
   const renderWindowControls = () => (
     <div className="vb-window-controls" role="toolbar" aria-label={t(locale, 'topControlBar.windowControls')}>
-      {windowActionButtons.map((btn) => (
+      {orderedWindowActionButtons.map((btn) => (
         <button
           key={btn.key}
           type="button"

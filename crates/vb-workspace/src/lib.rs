@@ -1,11 +1,12 @@
 use serde_json::Value;
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::HashMap,
+    hash::{Hash, Hasher},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
-use uuid::Uuid;
 use vb_abstractions::{
     AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
     WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
@@ -39,6 +40,13 @@ pub struct InMemoryWorkspaceService {
 impl InMemoryWorkspaceService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn workspace_id_from_root(root: &Path) -> WorkspaceId {
+        let root_key = root.to_string_lossy();
+        let mut hasher = DefaultHasher::new();
+        root_key.hash(&mut hasher);
+        WorkspaceId::new(format!("ws:{:016x}", hasher.finish()))
     }
 
     fn session_snapshot_path(workspace_root: &Path) -> PathBuf {
@@ -167,7 +175,7 @@ impl WorkspaceService for InMemoryWorkspaceService {
             ));
         }
 
-        let workspace_id = WorkspaceId::new(format!("ws:{}", Uuid::new_v4()));
+        let workspace_id = Self::workspace_id_from_root(&canonical_root);
         let record = WorkspaceRecord {
             workspace_id: workspace_id.clone(),
             name: Self::workspace_name_from_root(&canonical_root),

@@ -1,6 +1,8 @@
 @use "sass:color";
 
 .vb-top-control-bar {
+  width: 100%;
+  min-width: 0;
   min-height: 52px;
   display: flex;
   align-items: center;
@@ -135,51 +137,122 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  align-self: stretch;
 }
 
 .vb-window-action-button {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 100%;
+  min-height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 0 0 12px 12px;
   background: transparent;
   border: 0;
   color: var(--vb-text-muted);
   transition: all 0.2s ease;
 
   &:hover {
-    background: var(--vb-card-hover-bg);
+    background: color-mix(in srgb, var(--vb-text) 10%, transparent);
     color: var(--vb-text);
   }
 
   &.window-close:hover {
-    background: var(--vb-error-bg);
-    color: var(--vb-error);
+    background: color-mix(in srgb, var(--vb-error) 90%, transparent);
+    color: #fff;
   }
 
   .vb-icon {
     width: 14px;
     height: 14px;
   }
+
+  &:active {
+    transform: none;
+  }
+}
+
+.titlebar-drag-region {
+  flex: 1 1 auto;
+  min-width: 24px;
+  align-self: stretch;
 }
 
 /* Platform-specific refinements */
+.window-platform-windows,
+.window-platform-linux {
+  .vb-window-controls {
+    gap: 0;
+    margin-right: -16px;
+  }
+}
+
 .window-platform-macos {
+  .vb-window-controls {
+    gap: 8px;
+    margin-left: 0;
+    margin-right: 10px;
+    padding-left: 2px;
+  }
+
   .vb-window-action-button {
     width: 12px;
     height: 12px;
     border-radius: 999px;
-    margin: 0 4px;
-    background: #ccc;
-    color: transparent;
+    min-height: 12px;
+    margin: 0;
+    border: 1px solid rgba(17, 24, 39, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+    color: rgba(49, 49, 49, 0.72);
 
-    &.window-close { background: #ff5f57; }
-    &.window-minimize { background: #febc2e; }
-    &.window-maximize { background: #28c840; }
-    
-    .vb-icon { display: none; }
+    &.window-close,
+    &.window-close:hover {
+      background: #ff5f57;
+    }
+
+    &.window-minimize,
+    &.window-minimize:hover {
+      background: #febc2e;
+    }
+
+    &.window-maximize,
+    &.window-maximize:hover {
+      background: #28c840;
+    }
+
+    &:hover {
+      transform: none;
+      filter: saturate(1.04) brightness(0.98);
+    }
+
+    &.window-close:hover {
+      color: rgba(94, 20, 16, 0.82);
+    }
+
+    &.window-minimize:hover {
+      color: rgba(103, 67, 0, 0.82);
+    }
+
+    &.window-maximize:hover {
+      color: rgba(18, 84, 33, 0.82);
+    }
+
+    .vb-icon {
+      width: 7px;
+      height: 7px;
+      opacity: 0;
+      transform: scale(0.82);
+      transition: opacity 0.14s ease, transform 0.14s ease;
+      stroke-width: 2.1;
+    }
+  }
+
+  .vb-window-controls:hover .vb-window-action-button .vb-icon,
+  .vb-window-action-button:focus-visible .vb-icon {
+    opacity: 0.88;
+    transform: scale(1);
   }
 }

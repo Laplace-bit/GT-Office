@@ -5,7 +5,7 @@ import type { AgentStation } from './station-model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
-import type { StationTerminalSink } from '@features/terminal'
+import type { StationTerminalSinkBindingHandler } from '@features/terminal'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import { StationCard } from './StationCard'
 import { AppIcon } from '@shell/ui/icons'
@@ -43,7 +43,7 @@ interface WorkbenchCanvasProps {
   onLaunchCliAgent: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
-  onBindTerminalSink: (stationId: string, sink: StationTerminalSink | null) => void
+  onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   layoutMode: WorkbenchLayoutMode
   customLayout: WorkbenchCustomLayout
@@ -86,6 +86,36 @@ interface WorkbenchGridStyle extends CSSProperties {
   '--station-grid-columns'?: string
   '--station-grid-rows'?: string
   '--station-row-height'?: string
+}
+
+interface FocusRailItemProps {
+  locale: Locale
+  station: AgentStation
+  unreadCount: number
+  onSelectStation: (stationId: string) => void
+}
+
+function FocusRailItem({ locale, station, unreadCount, onSelectStation }: FocusRailItemProps) {
+  const unreadLabel = unreadCount > 99 ? '99+' : unreadCount > 0 ? String(unreadCount) : null
+
+  return (
+    <button
+      type="button"
+      className="focus-rail-item"
+      onClick={() => onSelectStation(station.id)}
+      aria-label={t(locale, 'workbench.activeWindow')}
+      title={station.name}
+    >
+      <div className="focus-rail-item-header">
+        <div className="focus-rail-item-title">
+          <strong>{station.name}</strong>
+          <span>{station.tool}</span>
+        </div>
+        {unreadLabel ? <span className="focus-rail-item-unread">{unreadLabel}</span> : null}
+      </div>
+      <p className="focus-rail-item-path">{station.agentWorkdirRel}</p>
+    </button>
+  )
 }
 
 function chunkStations(stations: AgentStation[], columns: number): AgentStation[][] {
@@ -487,48 +517,22 @@ function WorkbenchCanvasView({
             data-layout-preset="focus"
           >
             <div className="focus-main">
-              {active && (
-                <StationCard
-                  key={active.id}
-                  locale={locale}
-                  appearanceVersion={appearanceVersion}
-                  station={active}
-                  active={true}
-                  runtime={terminalByStation[active.id]}
-                  taskSignal={taskSignalByStationId[active.id]}
-                  channelBotBindings={channelBotBindingsByStationId[active.id]}
-                  isFullscreen={false}
-                  isFullscreenMode={false}
-                  onSelectStation={onSelectStation}
-                  onLaunchStationTerminal={onLaunchStationTerminal}
-                  onLaunchCliAgent={onLaunchCliAgent}
-                  onSendInputData={onSendInputData}
-                  onResizeTerminal={onResizeTerminal}
-                  onBindTerminalSink={onBindTerminalSink}
-                  onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-                  onRemoveStation={onRemoveStation}
-                  onEnterFullscreen={handleEnterFullscreen}
-                  onExitFullscreen={handleExitFullscreen}
-                />
-              )}
-            </div>
-            {stations.length > 1 && (
-              <div className="focus-ring">
-                {stations
-                  .filter((s) => s.id !== activeStationId)
-                  .map((station) => (
+              <div className="focus-main-stage">
+                {stations.map((station) => {
+                  const isActive = station.id === activeStationId
+                  return (
                     <StationCard
                       key={station.id}
                       locale={locale}
                       appearanceVersion={appearanceVersion}
                       station={station}
-                      active={false}
+                      active={isActive}
                       runtime={terminalByStation[station.id]}
                       taskSignal={taskSignalByStationId[station.id]}
                       channelBotBindings={channelBotBindingsByStationId[station.id]}
                       isFullscreen={false}
                       isFullscreenMode={false}
-                      isMiniature={true}
+                      isFocusHidden={!isActive}
                       onSelectStation={onSelectStation}
                       onLaunchStationTerminal={onLaunchStationTerminal}
                       onLaunchCliAgent={onLaunchCliAgent}
@@ -539,6 +543,22 @@ function WorkbenchCanvasView({
                       onRemoveStation={onRemoveStation}
                       onEnterFullscreen={handleEnterFullscreen}
                       onExitFullscreen={handleExitFullscreen}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+            {stations.length > 1 && (
+              <div className="focus-ring">
+                {stations
+                  .filter((s) => s.id !== activeStationId)
+                  .map((station) => (
+                    <FocusRailItem
+                      key={station.id}
+                      locale={locale}
+                      station={station}
+                      unreadCount={terminalByStation[station.id]?.unreadCount ?? 0}
+                      onSelectStation={onSelectStation}
                     />
                   ))}
               </div>

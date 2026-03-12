@@ -49,6 +49,18 @@ fn open_same_directory_is_deduplicated() {
 }
 
 #[test]
+fn open_same_directory_across_service_instances_keeps_stable_workspace_id() {
+    let tmp = TempWorkspaceDir::create();
+    let first_service = InMemoryWorkspaceService::new();
+    let second_service = InMemoryWorkspaceService::new();
+
+    let first = first_service.open(&tmp.path).expect("first open");
+    let second = second_service.open(&tmp.path).expect("second open");
+
+    assert_eq!(first.workspace_id, second.workspace_id);
+}
+
+#[test]
 fn get_context_returns_workspace_root_default_cwd() {
     let tmp = TempWorkspaceDir::create();
     let service = InMemoryWorkspaceService::new();

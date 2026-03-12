@@ -669,6 +669,12 @@ impl TaskService {
         }
     }
 
+    pub fn clear_external_idempotency_cache(&self) {
+        if let Ok(mut guard) = self.state.write() {
+            guard.idempotency_cache.clear();
+        }
+    }
+
     pub fn doctor_external_snapshot(&self) -> Value {
         let guard = match self.state.read() {
             Ok(guard) => guard,
