@@ -153,6 +153,8 @@ MCP Bridge（T-171）：
 | `ai_config.read_snapshot` | `workspaceId,allow` | `snapshot,masking` |
 | `ai_config.preview_patch` | `workspaceId,scope,patch` | `allowed,diff,warnings` |
 | `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId` |
+| `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady` |
+| `install_agent` | `agent` | `ok`（成功后前端需重新查询 `agent_install_status`） |
 
 ### 3.7 Agent / Hook / Policy / Observability
 

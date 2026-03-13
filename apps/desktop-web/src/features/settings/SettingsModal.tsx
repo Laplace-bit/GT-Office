@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
+import { AgenticOneSection } from './AgenticOneSection'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
@@ -26,7 +27,7 @@ interface SettingsModalProps {
   onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
 }
 
-type SettingsTab = 'general' | 'channels' | 'about'
+type SettingsTab = 'general' | 'channels' | 'ai' | 'about'
 
 export function SettingsModal({
   open,
@@ -97,6 +98,12 @@ export function SettingsModal({
             </div>
           </div>
         )
+      case 'ai':
+        return (
+          <div className="settings-pane-section">
+            <AgenticOneSection locale={locale} />
+          </div>
+        )
       case 'about':
         return (
           <div className="settings-pane-section">
@@ -141,6 +148,13 @@ export function SettingsModal({
               {t(locale, 'settingsModal.nav.channels')}
             </button>
             <button 
+              className={`settings-nav-item ${activeTab === 'ai' ? 'active' : ''}`}
+              onClick={() => setActiveTab('ai')}
+            >
+              <AppIcon name="sparkles" aria-hidden="true" />
+              {t(locale, 'Agent 供应商', 'Agent Providers')}
+            </button>
+            <button 
               className={`settings-nav-item ${activeTab === 'about' ? 'active' : ''}`}
               onClick={() => setActiveTab('about')}
             >
@@ -156,6 +170,7 @@ export function SettingsModal({
             <h3>
               {activeTab === 'general' && t(locale, 'settingsModal.nav.general')}
               {activeTab === 'channels' && t(locale, 'settingsModal.nav.channels')}
+              {activeTab === 'ai' && t(locale, 'Agent 供应商', 'Agent Providers')}
               {activeTab === 'about' && t(locale, 'settingsModal.nav.about')}
             </h3>
             <button 
@@ -175,3 +190,4 @@ export function SettingsModal({
     </div>
   )
 }
+

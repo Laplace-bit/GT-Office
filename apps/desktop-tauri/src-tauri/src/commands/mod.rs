@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agentic_one;
 pub mod file_explorer;
 pub mod git;
 pub mod keybindings;

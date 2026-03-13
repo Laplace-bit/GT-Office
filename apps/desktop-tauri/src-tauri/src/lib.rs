@@ -15,8 +15,8 @@ use tracing::warn;
 use vb_terminal::TerminalRuntimeEvent;
 
 use commands::{
-    agent, file_explorer, git, keybindings, security, settings, system, task_center, terminal,
-    tool_adapter, workspace,
+    agent, agentic_one, file_explorer, git, keybindings, security, settings, system, task_center,
+    terminal, tool_adapter, workspace,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -116,6 +116,8 @@ pub fn run() {
             agent::agent_create,
             agent::agent_update,
             agent::agent_delete,
+            agentic_one::agent_install_status,
+            agentic_one::install_agent,
             file_explorer::fs_list_dir,
             file_explorer::fs_read_file,
             file_explorer::fs_read_file_full,
