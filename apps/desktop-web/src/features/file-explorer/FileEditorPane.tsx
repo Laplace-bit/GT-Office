@@ -15,6 +15,7 @@ export interface OpenedFile {
   content: string
   size: number
   isModified: boolean
+  hydrated: boolean
 }
 
 interface FileEditorPaneProps {

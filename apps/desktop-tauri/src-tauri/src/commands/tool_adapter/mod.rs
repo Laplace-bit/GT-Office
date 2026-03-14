@@ -28,6 +28,7 @@ use vb_task::{
 use crate::{
     app_state::{AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget},
     connectors::{feishu, telegram},
+    process_utils::configure_tokio_command,
 };
 
 const EXTERNAL_REPLY_FLUSH_LOOP_MS: u64 = 700;
@@ -1028,6 +1029,7 @@ async fn stream_claude_once(
     let command_path = resolve_structured_cli_command(AgentToolKind::Claude)
         .map_err(|error| format!("CHANNEL_REPLY_CLAUDE_COMMAND_NOT_FOUND: {error}"))?;
     let mut command = Command::new(&command_path);
+    configure_tokio_command(&mut command);
     command
         .current_dir(cwd)
         .arg("-p")
@@ -1214,6 +1216,7 @@ async fn stream_codex_once(
     let command_path = resolve_structured_cli_command(AgentToolKind::Codex)
         .map_err(|error| format!("CHANNEL_REPLY_CODEX_COMMAND_NOT_FOUND: {error}"))?;
     let mut command = Command::new(&command_path);
+    configure_tokio_command(&mut command);
     command.current_dir(cwd);
     if resume_last {
         command

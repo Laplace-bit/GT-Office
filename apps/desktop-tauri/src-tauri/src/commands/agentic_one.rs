@@ -3,6 +3,8 @@ use std::process::{Command, Stdio};
 use tauri::Emitter;
 use vb_tools::agent_installer::{AgentInstallStatus, AgentInstaller, AgentType};
 
+use crate::process_utils::configure_std_command;
+
 #[tauri::command]
 pub fn agent_install_status(agent: AgentType) -> Result<AgentInstallStatus, String> {
     Ok(AgentInstaller::install_status(agent))
@@ -38,7 +40,9 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
     let (cmd_name, args) = AgentInstaller::get_install_command(agent);
 
     // 2. 使用管道启动进程
-    let mut child = Command::new(cmd_name)
+    let mut command = Command::new(cmd_name);
+    configure_std_command(&mut command);
+    let mut child = command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

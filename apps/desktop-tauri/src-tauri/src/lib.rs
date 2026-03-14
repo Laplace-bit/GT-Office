@@ -7,6 +7,7 @@ mod daemon_bridge;
 mod external_tool_profiles;
 mod filesystem_watcher;
 mod mcp_bridge;
+mod process_utils;
 
 use base64::Engine;
 use serde_json::json;

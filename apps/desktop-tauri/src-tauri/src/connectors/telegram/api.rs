@@ -3,6 +3,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::process::Command;
 
+use crate::process_utils::configure_std_command;
+
 #[derive(Debug, Deserialize)]
 struct TelegramApiEnvelope<T> {
     ok: bool,
@@ -100,7 +102,9 @@ fn looks_like_retryable_transport_error(stderr: &str) -> bool {
 }
 
 fn run_curl_json(args: &[&str]) -> Result<Value, String> {
-    let output = Command::new("curl")
+    let mut command = Command::new("curl");
+    configure_std_command(&mut command);
+    let output = command
         .args(args)
         .output()
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
@@ -133,7 +137,9 @@ fn run_curl_json(args: &[&str]) -> Result<Value, String> {
                 retry_args.push("--ssl-no-revoke");
             }
             retry_args.extend_from_slice(args);
-            let retry_output = Command::new("curl")
+            let mut retry_command = Command::new("curl");
+            configure_std_command(&mut retry_command);
+            let retry_output = retry_command
                 .args(retry_args)
                 .output()
                 .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;

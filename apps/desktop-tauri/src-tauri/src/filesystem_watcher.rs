@@ -4,12 +4,21 @@ use notify::{
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    sync::mpsc::{self, RecvTimeoutError, Sender},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
 use vb_settings::FilesystemWatcherSettings;
+
+const WATCH_EVENT_DEBOUNCE_MS: u64 = 64;
+const WATCH_EVENT_KIND_ORDER: [&str; 5] = ["removed", "renamed", "created", "modified", "other"];
+
+enum WatchBatchMessage {
+    Event(Event),
+    Error(String),
+}
 
 struct WorkspaceWatcher {
     #[allow(dead_code)]
@@ -18,6 +27,8 @@ struct WorkspaceWatcher {
     watcher: RecommendedWatcher,
     #[allow(dead_code)]
     settings: FilesystemWatcherSettings,
+    #[allow(dead_code)]
+    event_tx: Sender<WatchBatchMessage>,
 }
 
 #[derive(Clone, Default)]
@@ -32,6 +43,12 @@ struct FilesystemChangedPayload {
     kind: String,
     paths: Vec<String>,
     ts_ms: u64,
+}
+
+#[derive(Default)]
+struct PendingWatchEvents {
+    paths_by_kind: HashMap<&'static str, HashSet<String>>,
+    errors: Vec<String>,
 }
 
 impl WorkspaceWatcherRegistry {
@@ -55,28 +72,22 @@ impl WorkspaceWatcherRegistry {
         }
 
         let workspace_id_value = workspace_id.to_string();
-        let workspace_id_for_callback = workspace_id.to_string();
-        let root_for_callback = canonical_root.clone();
-        let settings_for_callback = settings.clone();
-        let app_handle = app.clone();
+        let event_tx = spawn_watch_batcher(
+            app.clone(),
+            workspace_id.to_string(),
+            canonical_root.clone(),
+            settings.clone(),
+        );
+        let event_tx_for_callback = event_tx.clone();
 
         let mut watcher =
             notify::recommended_watcher(move |result: Result<Event, notify::Error>| match result {
-                Ok(event) => emit_filesystem_changed(
-                    &app_handle,
-                    workspace_id_for_callback.as_str(),
-                    root_for_callback.as_path(),
-                    &settings_for_callback,
-                    event,
-                ),
+                Ok(event) => {
+                    let _ = event_tx_for_callback.send(WatchBatchMessage::Event(event));
+                }
                 Err(error) => {
-                    let _ = app_handle.emit(
-                        "filesystem/watch_error",
-                        serde_json::json!({
-                            "workspaceId": workspace_id_for_callback.as_str(),
-                            "detail": error.to_string(),
-                        }),
-                    );
+                    let _ = event_tx_for_callback
+                        .send(WatchBatchMessage::Error(error.to_string()));
                 }
             })
             .map_err(|error| {
@@ -105,6 +116,7 @@ impl WorkspaceWatcherRegistry {
                 root: canonical_root,
                 watcher,
                 settings,
+                event_tx,
             },
         );
         Ok(())
@@ -120,28 +132,117 @@ impl WorkspaceWatcherRegistry {
     }
 }
 
-fn emit_filesystem_changed(
-    app: &AppHandle,
-    workspace_id: &str,
+fn spawn_watch_batcher(
+    app: AppHandle,
+    workspace_id: String,
+    root: PathBuf,
+    settings: FilesystemWatcherSettings,
+) -> Sender<WatchBatchMessage> {
+    let (tx, rx) = mpsc::channel::<WatchBatchMessage>();
+    std::thread::spawn(move || {
+        let mut pending = PendingWatchEvents::default();
+        loop {
+            match rx.recv() {
+                Ok(message) => {
+                    accumulate_watch_batch_message(
+                        root.as_path(),
+                        &settings,
+                        message,
+                        &mut pending,
+                    );
+                }
+                Err(_) => {
+                    flush_pending_watch_events(&app, workspace_id.as_str(), &mut pending);
+                    return;
+                }
+            }
+
+            loop {
+                match rx.recv_timeout(Duration::from_millis(WATCH_EVENT_DEBOUNCE_MS)) {
+                    Ok(message) => accumulate_watch_batch_message(
+                        root.as_path(),
+                        &settings,
+                        message,
+                        &mut pending,
+                    ),
+                    Err(RecvTimeoutError::Timeout) => {
+                        flush_pending_watch_events(&app, workspace_id.as_str(), &mut pending);
+                        break;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        flush_pending_watch_events(&app, workspace_id.as_str(), &mut pending);
+                        return;
+                    }
+                }
+            }
+        }
+    });
+    tx
+}
+
+fn accumulate_watch_batch_message(
     root: &Path,
     settings: &FilesystemWatcherSettings,
-    event: Event,
+    message: WatchBatchMessage,
+    pending: &mut PendingWatchEvents,
 ) {
-    let Some(kind) = map_event_kind(&event.kind) else {
-        return;
-    };
-    let paths = normalize_event_paths(root, &event.paths, settings);
-    if paths.is_empty() {
+    match message {
+        WatchBatchMessage::Event(event) => {
+            let Some(kind) = map_event_kind(&event.kind) else {
+                return;
+            };
+            let paths = normalize_event_paths(root, &event.paths, settings);
+            if paths.is_empty() {
+                return;
+            }
+            pending
+                .paths_by_kind
+                .entry(kind)
+                .or_default()
+                .extend(paths);
+        }
+        WatchBatchMessage::Error(error) => {
+            pending.errors.push(error);
+        }
+    }
+}
+
+fn flush_pending_watch_events(
+    app: &AppHandle,
+    workspace_id: &str,
+    pending: &mut PendingWatchEvents,
+) {
+    if pending.paths_by_kind.is_empty() && pending.errors.is_empty() {
         return;
     }
 
-    let payload = FilesystemChangedPayload {
-        workspace_id: workspace_id.to_string(),
-        kind: kind.to_string(),
-        paths,
-        ts_ms: now_ts_ms(),
-    };
-    let _ = app.emit("filesystem/changed", payload);
+    for error in pending.errors.drain(..) {
+        let _ = app.emit(
+            "filesystem/watch_error",
+            serde_json::json!({
+                "workspaceId": workspace_id,
+                "detail": error,
+            }),
+        );
+    }
+
+    for kind in WATCH_EVENT_KIND_ORDER {
+        let Some(paths) = pending.paths_by_kind.remove(kind) else {
+            continue;
+        };
+        if paths.is_empty() {
+            continue;
+        }
+        let mut normalized_paths = paths.into_iter().collect::<Vec<_>>();
+        normalized_paths.sort();
+        let payload = FilesystemChangedPayload {
+            workspace_id: workspace_id.to_string(),
+            kind: kind.to_string(),
+            paths: normalized_paths,
+            ts_ms: now_ts_ms(),
+        };
+        let _ = app.emit("filesystem/changed", payload);
+    }
 }
 
 fn map_event_kind(kind: &EventKind) -> Option<&'static str> {

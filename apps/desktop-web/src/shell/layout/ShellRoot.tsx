@@ -873,6 +873,9 @@ export function ShellRoot() {
   const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode) => Promise<void>>(
     async () => {},
   )
+  const openedFilesRef = useRef<OpenedFile[]>([])
+  const activeFilePathRef = useRef<string | null>(null)
+  const fileReadModeRef = useRef<FileReadMode>('full')
   const fileReadSeqRef = useRef(0)
   const activeWorkspaceIdRef = useRef<string | null>(null)
   const gitRefreshTimerRef = useRef<number | null>(null)
@@ -939,6 +942,15 @@ export function ShellRoot() {
   useEffect(() => {
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId])
+  useEffect(() => {
+    openedFilesRef.current = openedFiles
+  }, [openedFiles])
+  useEffect(() => {
+    activeFilePathRef.current = activeFilePath
+  }, [activeFilePath])
+  useEffect(() => {
+    fileReadModeRef.current = fileReadMode
+  }, [fileReadMode])
 
   useEffect(() => {
     return () => {
@@ -1614,8 +1626,11 @@ export function ShellRoot() {
     if (!desktopApi.isTauriRuntime()) {
       return
     }
+    if (activeNavId !== 'channels' && !isChannelStudioOpen) {
+      return
+    }
     void refreshExternalChannelStatus()
-  }, [refreshExternalChannelStatus])
+  }, [activeNavId, isChannelStudioOpen, refreshExternalChannelStatus])
 
   useEffect(() => {
     return () => {
@@ -1923,6 +1938,9 @@ export function ShellRoot() {
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+      return
+    }
+    if (activeWorkspaceRootRef.current) {
       return
     }
     let cancelled = false
@@ -3489,28 +3507,25 @@ export function ShellRoot() {
     },
     [removeStation],
   )
-
-
   const loadFileContent = useMemo(
     () => async (filePath: string, mode: FileReadMode = 'full') => {
       if (!activeWorkspaceId) {
-      setFileReadError(t(locale, 'fileContent.bindWorkspace'))
-      return
-    }
+        setFileReadError(t(locale, 'fileContent.bindWorkspace'))
+        return
+      }
 
-    // 检查文件是否已打开
-    const existingFile = openedFiles.find((f) => f.path === filePath)
-    if (existingFile) {
+      const existingFile = openedFilesRef.current.find((file) => file.path === filePath)
+      if (existingFile?.hydrated) {
+        setActiveFilePath(filePath)
+        setFileCanRenderText(true)
+        setFilePreviewNotice(null)
+        setFileReadError(null)
+        return
+      }
+
       setActiveFilePath(filePath)
-      setFileCanRenderText(true)
-      setFilePreviewNotice(null)
+      setFileReadLoading(true)
       setFileReadError(null)
-      return
-    }
-
-    setActiveFilePath(filePath)
-    setFileReadLoading(true)
-    setFileReadError(null)
       setFilePreviewNotice(null)
       const currentSeq = fileReadSeqRef.current + 1
       fileReadSeqRef.current = currentSeq
@@ -3536,17 +3551,30 @@ export function ShellRoot() {
         }
 
         setFileCanRenderText(true)
-        // 添加到已打开文件列表
         setOpenedFiles((prev) => {
-          const exists = prev.some((f) => f.path === filePath)
+          const exists = prev.some((file) => file.path === filePath)
           if (exists) {
-            return prev.map((f) =>
-              f.path === filePath
-                ? { ...f, content: response.content, size: response.sizeBytes }
-                : f
+            return prev.map((file) =>
+              file.path === filePath
+                ? {
+                    ...file,
+                    content: response.content,
+                    size: response.sizeBytes,
+                    hydrated: true,
+                  }
+                : file,
             )
           }
-          return [...prev, { path: filePath, content: response.content, size: response.sizeBytes, isModified: false }]
+          return [
+            ...prev,
+            {
+              path: filePath,
+              content: response.content,
+              size: response.sizeBytes,
+              isModified: false,
+              hydrated: true,
+            },
+          ]
         })
         if (response.truncated) {
           setFilePreviewNotice(
@@ -3555,13 +3583,15 @@ export function ShellRoot() {
               size: response.sizeBytes,
             }),
           )
+        } else {
+          setFilePreviewNotice(null)
         }
       } catch (error) {
         if (fileReadSeqRef.current !== currentSeq) {
           return
         }
         setFilePreviewNotice(null)
-            setFileCanRenderText(false)
+        setFileCanRenderText(false)
         setFileReadError(
           t(locale, 'file.readError', {
             detail: describeError(error),
@@ -3573,7 +3603,7 @@ export function ShellRoot() {
         }
       }
     },
-    [activeWorkspaceId, locale, openedFiles],
+    [activeWorkspaceId, locale],
   )
 
   useEffect(() => {
@@ -3685,25 +3715,19 @@ export function ShellRoot() {
 
         const tabsToRestore = restored.tabs.slice(0, WORKSPACE_SESSION_MAX_RESTORE_TABS)
         const activeTabPath = tabsToRestore.find((tab) => tab.active)?.path ?? tabsToRestore[0]?.path ?? null
+        setOpenedFiles(
+          tabsToRestore.map((tab) => ({
+            path: tab.path,
+            content: '',
+            size: 0,
+            isModified: false,
+            hydrated: false,
+          })),
+        )
+        setActiveFilePath(activeTabPath)
         if (activeTabPath) {
           await loadFileContentRef.current(activeTabPath, 'full')
         }
-
-        tabsToRestore
-          .map((tab) => tab.path)
-          .filter((path) => path !== activeTabPath)
-          .forEach((path, index) => {
-            const timerId = window.setTimeout(() => {
-              if (
-                workspaceSessionRestoreSeqRef.current !== restoreSeq ||
-                activeWorkspaceIdRef.current !== workspaceId
-              ) {
-                return
-              }
-              void loadFileContentRef.current(path, 'full')
-            }, 30 * (index + 1))
-            workspaceSessionRestoreTabTimersRef.current.push(timerId)
-          })
 
         const restorableTerminals = restored.terminals
           .filter((terminal) => stationsRef.current.some((station) => station.id === terminal.stationId))
@@ -3841,7 +3865,7 @@ export function ShellRoot() {
         // 更新已打开文件的内容
         setOpenedFiles((prev) =>
           prev.map((f) =>
-            f.path === filePath ? { ...f, content, isModified: false } : f
+            f.path === filePath ? { ...f, content, isModified: false, hydrated: true } : f
           )
         )
         return true
@@ -3898,9 +3922,18 @@ export function ShellRoot() {
   )
 
   // 选择文件 tab
-  const selectFile = useCallback((filePath: string) => {
-    setActiveFilePath(filePath)
-  }, [])
+  const selectFile = useCallback(
+    (filePath: string) => {
+      const existing = openedFilesRef.current.find((file) => file.path === filePath)
+      if (existing && !existing.hydrated) {
+        void loadFileContent(filePath, 'full')
+        return
+      }
+      setActiveFilePath(filePath)
+      setFileReadError(null)
+    },
+    [loadFileContent],
+  )
 
   // 文件修改状态变化
   const handleFileModified = useCallback((filePath: string, isModified: boolean) => {
@@ -3982,7 +4015,7 @@ export function ShellRoot() {
   )
 
   useEffect(() => {
-    if (!activeWorkspaceId || openedFiles.length === 0 || !desktopApi.isTauriRuntime()) {
+    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
       return
     }
 
@@ -3993,12 +4026,17 @@ export function ShellRoot() {
         return
       }
       const changedPaths = payload.paths.map((path) => path.replace(/^\.\/+/, ''))
+      const currentOpenedFiles = openedFilesRef.current
+      if (currentOpenedFiles.length === 0) {
+        return
+      }
 
       if (payload.kind === 'removed') {
         // 关闭被删除的文件
         const removedPaths = new Set(changedPaths)
         setOpenedFiles((prev) => {
           const newFiles = prev.filter((f) => !removedPaths.has(f.path))
+          const activeFilePath = activeFilePathRef.current
           if (activeFilePath && removedPaths.has(activeFilePath)) {
             const nextFile = newFiles[0]
             setActiveFilePath(nextFile?.path ?? null)
@@ -4014,9 +4052,9 @@ export function ShellRoot() {
         payload.kind === 'other'
       ) {
         // 重新加载已修改的已打开文件
-        for (const file of openedFiles) {
-          if (changedPaths.includes(file.path) && !file.isModified) {
-            void loadFileContent(file.path, fileReadMode)
+        for (const file of currentOpenedFiles) {
+          if (changedPaths.includes(file.path) && file.hydrated && !file.isModified) {
+            void loadFileContent(file.path, fileReadModeRef.current)
           }
         }
       }
@@ -4036,7 +4074,7 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [activeFilePath, activeWorkspaceId, fileReadMode, loadFileContent, openedFiles])
+  }, [activeWorkspaceId, loadFileContent])
 
   const handleSelectNav = useCallback(
     (id: NavItemId) => {

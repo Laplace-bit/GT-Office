@@ -283,7 +283,9 @@ export function FileTreePane({
   const [searchError, setSearchError] = useState<string | null>(null)
   const [searchDroppedChunks, setSearchDroppedChunks] = useState(0)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const workspaceIdRef = useRef<string | null>(workspaceId)
   const loadedDirectoriesRef = useRef<Record<string, boolean>>({})
+  const inFlightDirectoryLoadsRef = useRef<Record<string, Promise<void>>>({})
   const pendingRefreshDirectoriesRef = useRef<Set<string>>(new Set())
   const refreshTimerRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
@@ -314,28 +316,48 @@ export function FileTreePane({
         return
       }
       const directoryPath = normalizeDirectoryPath(rawDirectoryPath)
-
-      setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: true }))
-      try {
-        const response = await desktopApi.fsListDir(workspaceId, directoryPath, 1)
-        const filtered = response.entries.filter(
-          (entry) => parentDirectory(entry.path) === directoryPath,
-        )
-        setEntriesByDirectory((prev) => ({
-          ...prev,
-          [directoryPath]: sortEntries(filtered),
-        }))
-        setLoadedDirectories((prev) => ({ ...prev, [directoryPath]: true }))
-        setErrorMessage(null)
-      } catch (error) {
-        setErrorMessage(
-          t(locale, 'fileTree.directoryLoadFailed', {
-            detail: error instanceof Error ? error.message : 'unknown',
-          }),
-        )
-      } finally {
-        setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: false }))
+      const existingTask = inFlightDirectoryLoadsRef.current[directoryPath]
+      if (existingTask) {
+        await existingTask
+        return
       }
+      const requestWorkspaceId = workspaceId
+
+      const task = (async () => {
+        setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: true }))
+        try {
+          const response = await desktopApi.fsListDir(requestWorkspaceId, directoryPath, 1)
+          if (workspaceIdRef.current !== requestWorkspaceId) {
+            return
+          }
+          const filtered = response.entries.filter(
+            (entry) => parentDirectory(entry.path) === directoryPath,
+          )
+          setEntriesByDirectory((prev) => ({
+            ...prev,
+            [directoryPath]: sortEntries(filtered),
+          }))
+          setLoadedDirectories((prev) => ({ ...prev, [directoryPath]: true }))
+          setErrorMessage(null)
+        } catch (error) {
+          if (workspaceIdRef.current !== requestWorkspaceId) {
+            return
+          }
+          setErrorMessage(
+            t(locale, 'fileTree.directoryLoadFailed', {
+              detail: error instanceof Error ? error.message : 'unknown',
+            }),
+          )
+        } finally {
+          delete inFlightDirectoryLoadsRef.current[directoryPath]
+          if (workspaceIdRef.current === requestWorkspaceId) {
+            setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: false }))
+          }
+        }
+      })()
+
+      inFlightDirectoryLoadsRef.current[directoryPath] = task
+      await task
     },
     [locale, workspaceId],
   )
@@ -357,6 +379,8 @@ export function FileTreePane({
   }, [loadDirectory, workspaceId])
 
   useEffect(() => {
+    workspaceIdRef.current = workspaceId
+    inFlightDirectoryLoadsRef.current = {}
     if (!workspaceId) {
       setEntriesByDirectory({})
       setExpandedDirectories(INITIAL_EXPANDED)
@@ -726,13 +750,26 @@ export function FileTreePane({
     pendingRefreshDirectoriesRef.current.clear()
     refreshTimerRef.current = null
 
-    for (const directory of directories) {
-      if (directory !== ROOT_DIR && !loadedDirectoriesRef.current[directory]) {
-        continue
-      }
-      setExpandedDirectories((prev) => ({ ...prev, [directory]: true }))
-      await loadDirectory(directory)
+    const directoriesToReload = directories.filter(
+      (directory) => directory === ROOT_DIR || loadedDirectoriesRef.current[directory],
+    )
+    if (directoriesToReload.length === 0) {
+      return
     }
+
+    setExpandedDirectories((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const directory of directoriesToReload) {
+        if (!next[directory]) {
+          next[directory] = true
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+
+    await Promise.allSettled(directoriesToReload.map((directory) => loadDirectory(directory)))
   }, [loadDirectory, workspaceId])
 
   const scheduleDirectoryReload = useCallback(

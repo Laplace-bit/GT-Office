@@ -4,6 +4,23 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn configure_background_command(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = command;
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum AgentType {
     ClaudeCode,
@@ -103,11 +120,15 @@ impl AgentInstaller {
 
     pub fn check_node_env() -> bool {
         Self::find_executable("node").is_some()
-            || Command::new("node")
-                .arg("-v")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
+            || {
+                let mut command = Command::new("node");
+                configure_background_command(&mut command);
+                command
+                    .arg("-v")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
+            }
     }
 
     fn find_executable(command: &str) -> Option<String> {

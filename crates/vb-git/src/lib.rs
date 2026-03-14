@@ -351,8 +351,10 @@ where
         options
             .include_ignored(false)
             .include_untracked(true)
-            .renames_head_to_index(true)
-            .renames_index_to_workdir(true)
+            // Rename detection is expensive on large repositories and not required for
+            // high-frequency status refresh. Diff/commit detail paths still resolve renames.
+            .renames_head_to_index(false)
+            .renames_index_to_workdir(false)
             .recurse_untracked_dirs(false);
 
         let statuses =

@@ -24,6 +24,16 @@ const MAX_LIST_ENTRIES: usize = 4000;
 const MAX_SEARCH_MATCHES: usize = 500;
 const MAX_FILE_SEARCH_MATCHES: usize = 120;
 
+async fn run_fs_blocking<T, F>(label: &str, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("{label}: blocking worker join failed: {error}"))?
+}
+
 #[derive(Debug, Clone)]
 struct SearchMatch {
     path: String,
@@ -659,46 +669,51 @@ fn search_file_matches(
 }
 
 #[tauri::command]
-pub fn fs_list_dir(
+pub async fn fs_list_dir(
     workspace_id: String,
     path: String,
     depth: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let root = resolve_workspace_root(&state, &workspace_id)?;
-    let target = resolve_target_path(&root, &path, true, Some(true))?;
     let max_depth = depth.unwrap_or(1).clamp(1, 8);
-    let mut entries = Vec::new();
-    let mut remaining = MAX_LIST_ENTRIES;
-    collect_list_entries(&root, &target, max_depth, &mut entries, &mut remaining)?;
+    let workspace_id_for_response = workspace_id.clone();
+    let path_for_response = path.clone();
+    let entries = run_fs_blocking("FS_LIST_FAILED", move || {
+        let target = resolve_target_path(&root, &path, true, Some(true))?;
+        let mut entries = Vec::new();
+        let mut remaining = MAX_LIST_ENTRIES;
+        collect_list_entries(&root, &target, max_depth, &mut entries, &mut remaining)?;
+        Ok(entries)
+    })
+    .await?;
 
     Ok(build_fs_list_dir_response(
-        workspace_id.as_str(),
-        path.as_str(),
+        workspace_id_for_response.as_str(),
+        path_for_response.as_str(),
         max_depth,
         &entries,
     ))
 }
 
 #[tauri::command]
-pub fn fs_read_file(
+pub async fn fs_read_file(
     workspace_id: String,
     path: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let runtime = state.load_runtime_settings(Some(workspace_id.as_str()))?;
     let root = resolve_workspace_root(&state, &workspace_id)?;
-    let target = resolve_target_path(&root, &path, true, Some(false))?;
-    read_file_with_limit(
-        workspace_id.as_str(),
-        path.as_str(),
-        &target,
-        runtime.filesystem.preview.max_bytes,
-    )
+    let max_bytes = runtime.filesystem.preview.max_bytes;
+    run_fs_blocking("FS_READ_FAILED", move || {
+        let target = resolve_target_path(&root, &path, true, Some(false))?;
+        read_file_with_limit(workspace_id.as_str(), path.as_str(), &target, max_bytes)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn fs_read_file_full(
+pub async fn fs_read_file_full(
     workspace_id: String,
     path: String,
     limit_bytes: Option<u64>,
@@ -706,7 +721,6 @@ pub fn fs_read_file_full(
 ) -> Result<Value, String> {
     let runtime = state.load_runtime_settings(Some(workspace_id.as_str()))?;
     let root = resolve_workspace_root(&state, &workspace_id)?;
-    let target = resolve_target_path(&root, &path, true, Some(false))?;
     let preview_max_bytes = runtime.filesystem.preview.max_bytes;
     let full_read_default_max_bytes = runtime.filesystem.preview.full_read_default_max_bytes;
     let full_read_hard_max_bytes = runtime.filesystem.preview.full_read_hard_max_bytes;
@@ -714,40 +728,48 @@ pub fn fs_read_file_full(
         .unwrap_or(full_read_default_max_bytes as u64)
         .clamp(preview_max_bytes as u64, full_read_hard_max_bytes as u64)
         as usize;
-    read_file_with_limit(
-        workspace_id.as_str(),
-        path.as_str(),
-        &target,
-        resolved_limit,
-    )
+    run_fs_blocking("FS_READ_FAILED", move || {
+        let target = resolve_target_path(&root, &path, true, Some(false))?;
+        read_file_with_limit(
+            workspace_id.as_str(),
+            path.as_str(),
+            &target,
+            resolved_limit,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn fs_write_file(
+pub async fn fs_write_file(
     workspace_id: String,
     path: String,
     content: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let root = resolve_workspace_root(&state, &workspace_id)?;
-    let target = resolve_target_path(&root, &path, false, None)?;
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!("FS_WRITE_FAILED: unable to create parent directory: {error}")
-        })?;
-    }
-    fs::write(&target, content.as_bytes())
-        .map_err(|error| format!("FS_WRITE_FAILED: unable to write file: {error}"))?;
+    let bytes = content.len();
+    run_fs_blocking("FS_WRITE_FAILED", move || {
+        let target = resolve_target_path(&root, &path, false, None)?;
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!("FS_WRITE_FAILED: unable to create parent directory: {error}")
+            })?;
+        }
+        fs::write(&target, content.as_bytes())
+            .map_err(|error| format!("FS_WRITE_FAILED: unable to write file: {error}"))?;
 
-    Ok(build_fs_write_file_response(
-        workspace_id.as_str(),
-        path.as_str(),
-        content.len(),
-    ))
+        Ok(build_fs_write_file_response(
+            workspace_id.as_str(),
+            path.as_str(),
+            bytes,
+        ))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn fs_delete(
+pub async fn fs_delete(
     workspace_id: String,
     path: String,
     state: State<'_, AppState>,
@@ -758,30 +780,35 @@ pub fn fs_delete(
     }
 
     let root = resolve_workspace_root(&state, &workspace_id)?;
-    let target = resolve_target_path(&root, trimmed, true, None)?;
-    let metadata = target
-        .metadata()
-        .map_err(|error| format!("FS_DELETE_FAILED: metadata read failed: {error}"))?;
-    let kind = if metadata.is_dir() { "dir" } else { "file" };
+    let trimmed = trimmed.to_string();
+    run_fs_blocking("FS_DELETE_FAILED", move || {
+        let target = resolve_target_path(&root, trimmed.as_str(), true, None)?;
+        let metadata = target
+            .metadata()
+            .map_err(|error| format!("FS_DELETE_FAILED: metadata read failed: {error}"))?;
+        let kind = if metadata.is_dir() { "dir" } else { "file" };
 
-    if metadata.is_dir() {
-        fs::remove_dir_all(&target)
-            .map_err(|error| format!("FS_DELETE_FAILED: unable to delete directory: {error}"))?;
-    } else {
-        fs::remove_file(&target)
-            .map_err(|error| format!("FS_DELETE_FAILED: unable to delete file: {error}"))?;
-    }
+        if metadata.is_dir() {
+            fs::remove_dir_all(&target).map_err(|error| {
+                format!("FS_DELETE_FAILED: unable to delete directory: {error}")
+            })?;
+        } else {
+            fs::remove_file(&target)
+                .map_err(|error| format!("FS_DELETE_FAILED: unable to delete file: {error}"))?;
+        }
 
-    Ok(build_fs_delete_response(
-        workspace_id.as_str(),
-        trimmed,
-        kind,
-        true,
-    ))
+        Ok(build_fs_delete_response(
+            workspace_id.as_str(),
+            trimmed.as_str(),
+            kind,
+            true,
+        ))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn fs_move(
+pub async fn fs_move(
     workspace_id: String,
     from_path: String,
     to_path: String,
@@ -797,50 +824,56 @@ pub fn fs_move(
     }
 
     let root = resolve_workspace_root(&state, &workspace_id)?;
-    let source = resolve_target_path(&root, from_trimmed, true, None)?;
-    let target = resolve_target_path(&root, to_trimmed, false, None)?;
+    let from_trimmed = from_trimmed.to_string();
+    let to_trimmed = to_trimmed.to_string();
+    run_fs_blocking("FS_MOVE_FAILED", move || {
+        let source = resolve_target_path(&root, from_trimmed.as_str(), true, None)?;
+        let target = resolve_target_path(&root, to_trimmed.as_str(), false, None)?;
 
-    if source == target {
+        if source == target {
+            let metadata = source
+                .metadata()
+                .map_err(|error| format!("FS_MOVE_FAILED: metadata read failed: {error}"))?;
+            let kind = if metadata.is_dir() { "dir" } else { "file" };
+            return Ok(build_fs_move_response(
+                workspace_id.as_str(),
+                from_trimmed.as_str(),
+                to_trimmed.as_str(),
+                kind,
+                false,
+            ));
+        }
+
+        if target.exists() {
+            return Err(format!(
+                "FS_MOVE_CONFLICT: target path already exists '{}'",
+                to_trimmed
+            ));
+        }
+
         let metadata = source
             .metadata()
             .map_err(|error| format!("FS_MOVE_FAILED: metadata read failed: {error}"))?;
         let kind = if metadata.is_dir() { "dir" } else { "file" };
-        return Ok(build_fs_move_response(
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!("FS_MOVE_FAILED: unable to create target parent: {error}")
+            })?;
+        }
+
+        fs::rename(&source, &target)
+            .map_err(|error| format!("FS_MOVE_FAILED: unable to move path: {error}"))?;
+
+        Ok(build_fs_move_response(
             workspace_id.as_str(),
-            from_trimmed,
-            to_trimmed,
+            from_trimmed.as_str(),
+            to_trimmed.as_str(),
             kind,
-            false,
-        ));
-    }
-
-    if target.exists() {
-        return Err(format!(
-            "FS_MOVE_CONFLICT: target path already exists '{}'",
-            to_trimmed
-        ));
-    }
-
-    let metadata = source
-        .metadata()
-        .map_err(|error| format!("FS_MOVE_FAILED: metadata read failed: {error}"))?;
-    let kind = if metadata.is_dir() { "dir" } else { "file" };
-
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("FS_MOVE_FAILED: unable to create target parent: {error}"))?;
-    }
-
-    fs::rename(&source, &target)
-        .map_err(|error| format!("FS_MOVE_FAILED: unable to move path: {error}"))?;
-
-    Ok(build_fs_move_response(
-        workspace_id.as_str(),
-        from_trimmed,
-        to_trimmed,
-        kind,
-        true,
-    ))
+            true,
+        ))
+    })
+    .await
 }
 
 #[tauri::command]

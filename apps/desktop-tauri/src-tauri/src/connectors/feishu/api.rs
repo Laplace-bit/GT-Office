@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 use std::process::Command;
 use uuid::Uuid;
 
+use crate::process_utils::configure_std_command;
+
 use super::types::FeishuDomain;
 
 #[derive(Debug, Clone)]
@@ -89,7 +91,9 @@ pub fn build_client(
 }
 
 fn run_curl_json(args: &[&str]) -> Result<Value, String> {
-    let output = Command::new("curl")
+    let mut command = Command::new("curl");
+    configure_std_command(&mut command);
+    let output = command
         .args(args)
         .output()
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;

@@ -12,6 +12,21 @@ fn to_command_error(error: impl ToString) -> String {
     error.to_string()
 }
 
+async fn run_git_blocking<T, F>(
+    state: &State<'_, AppState>,
+    op_name: &'static str,
+    task: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(crate::app_state::AppState) -> Result<T, String> + Send + 'static,
+{
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || task(app_state))
+        .await
+        .map_err(|error| format!("{op_name}: git worker join failed: {error}"))?
+}
+
 fn emit_git_updated(
     app: &AppHandle,
     workspace_id: &WorkspaceId,
@@ -29,15 +44,19 @@ fn emit_git_updated(
     .map_err(|error| format!("GIT_EVENT_EMIT_FAILED: {error}"))
 }
 
-fn emit_git_updated_from_service(
+async fn emit_git_updated_from_service(
     app: &AppHandle,
     state: &State<'_, AppState>,
     workspace_id: &WorkspaceId,
 ) -> Result<(), String> {
-    let summary = state
-        .git_service
-        .status(workspace_id)
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let summary = run_git_blocking(state, "GIT_STATUS_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .status(&workspace_id_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
     emit_git_updated(
         app,
         workspace_id,
@@ -162,40 +181,40 @@ fn build_git_stash_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitStas
 }
 
 #[tauri::command]
-pub fn git_status(
+pub async fn git_status(
     workspace_id: String,
     state: State<'_, AppState>,
-    app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let summary = state
-        .git_service
-        .status(&workspace_id)
-        .map_err(to_command_error)?;
-
-    emit_git_updated(
-        &app,
-        &workspace_id,
-        &summary.branch,
-        !summary.files.is_empty(),
-    )?;
+    let workspace_id_owned = workspace_id.clone();
+    let summary = run_git_blocking(&state, "GIT_STATUS_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .status(&workspace_id_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
 
     Ok(build_git_status_payload(&workspace_id, &summary))
 }
 
 #[tauri::command]
-pub fn git_init(
+pub async fn git_init(
     workspace_id: String,
     initial_branch: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let branch = state
-        .git_service
-        .init_repo(&workspace_id, initial_branch.as_deref())
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let branch = run_git_blocking(&state, "GIT_INIT_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .init_repo(&workspace_id_owned, initial_branch.as_deref())
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "branch": branch,
@@ -204,32 +223,42 @@ pub fn git_init(
 }
 
 #[tauri::command]
-pub fn git_diff_file(
+pub async fn git_diff_file(
     workspace_id: String,
     path: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let patch = state
-        .git_service
-        .diff_file(&workspace_id, &path)
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let path_owned = path.clone();
+    let patch = run_git_blocking(&state, "GIT_DIFF_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .diff_file(&workspace_id_owned, &path_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(build_git_diff_payload(&workspace_id, &path, &patch))
 }
 
 /// High-performance structured diff command
 /// Returns parsed diff hunks for immediate frontend rendering
 #[tauri::command]
-pub fn git_diff_file_structured(
+pub async fn git_diff_file_structured(
     workspace_id: String,
     path: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let diff = state
-        .git_service
-        .diff_file_structured(&workspace_id, &path)
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let path_owned = path.clone();
+    let diff = run_git_blocking(&state, "GIT_DIFF_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .diff_file_structured(&workspace_id_owned, &path_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "path": diff.path,
@@ -246,39 +275,47 @@ pub fn git_diff_file_structured(
 }
 
 #[tauri::command]
-pub fn git_stage(
+pub async fn git_stage(
     workspace_id: String,
     paths: Vec<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let staged = state
-        .git_service
-        .stage(&workspace_id, &paths)
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let staged = run_git_blocking(&state, "GIT_STAGE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .stage(&workspace_id_owned, &paths)
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_stage_payload(&workspace_id, staged))
 }
 
 #[tauri::command]
-pub fn git_unstage(
+pub async fn git_unstage(
     workspace_id: String,
     paths: Vec<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let unstaged = state
-        .git_service
-        .unstage(&workspace_id, &paths)
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let unstaged = run_git_blocking(&state, "GIT_UNSTAGE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .unstage(&workspace_id_owned, &paths)
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_unstage_payload(&workspace_id, unstaged))
 }
 
 #[tauri::command]
-pub fn git_discard(
+pub async fn git_discard(
     workspace_id: String,
     paths: Vec<String>,
     include_untracked: Option<bool>,
@@ -286,27 +323,37 @@ pub fn git_discard(
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let discarded = state
-        .git_service
-        .discard(&workspace_id, &paths, include_untracked.unwrap_or(false))
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let include_untracked = include_untracked.unwrap_or(false);
+    let discarded = run_git_blocking(&state, "GIT_DISCARD_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .discard(&workspace_id_owned, &paths, include_untracked)
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_discard_payload(&workspace_id, discarded))
 }
 
 #[tauri::command]
-pub fn git_commit(
+pub async fn git_commit(
     workspace_id: String,
     message: String,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let commit_id = state
-        .git_service
-        .commit(&workspace_id, &message)
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let message_owned = message.clone();
+    let commit_id = run_git_blocking(&state, "GIT_COMMIT_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .commit(&workspace_id_owned, &message_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_commit_payload(
         &workspace_id,
         &message,
@@ -315,50 +362,66 @@ pub fn git_commit(
 }
 
 #[tauri::command]
-pub fn git_log(
+pub async fn git_log(
     workspace_id: String,
     limit: Option<usize>,
     skip: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let entries = state
-        .git_service
-        .log(&workspace_id, limit.unwrap_or(50), skip.unwrap_or(0))
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let effective_limit = limit.unwrap_or(50);
+    let effective_skip = skip.unwrap_or(0);
+    let entries = run_git_blocking(&state, "GIT_LOG_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .log(&workspace_id_owned, effective_limit, effective_skip)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(build_git_log_payload(&workspace_id, entries))
 }
 
 #[tauri::command]
-pub fn git_commit_detail(
+pub async fn git_commit_detail(
     workspace_id: String,
     commit: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let detail = state
-        .git_service
-        .commit_detail(&workspace_id, &commit)
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let commit_owned = commit.clone();
+    let detail = run_git_blocking(&state, "GIT_COMMIT_DETAIL_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .commit_detail(&workspace_id_owned, &commit_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(build_git_commit_detail_payload(&workspace_id, detail))
 }
 
 #[tauri::command]
-pub fn git_list_branches(
+pub async fn git_list_branches(
     workspace_id: String,
     include_remote: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let branches = state
-        .git_service
-        .list_branches(&workspace_id, include_remote.unwrap_or(false))
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let include_remote = include_remote.unwrap_or(false);
+    let branches = run_git_blocking(&state, "GIT_BRANCH_LIST_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .list_branches(&workspace_id_owned, include_remote)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(build_git_branches_payload(&workspace_id, branches))
 }
 
 #[tauri::command]
-pub fn git_checkout(
+pub async fn git_checkout(
     workspace_id: String,
     target: String,
     create: Option<bool>,
@@ -367,37 +430,50 @@ pub fn git_checkout(
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    state
-        .git_service
-        .checkout(
-            &workspace_id,
-            &target,
-            create.unwrap_or(false),
-            start_point.as_deref(),
-        )
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let target_owned = target.clone();
+    let create = create.unwrap_or(false);
+    let start_point_for_task = start_point.clone();
+    run_git_blocking(&state, "GIT_CHECKOUT_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .checkout(
+                &workspace_id_owned,
+                &target_owned,
+                create,
+                start_point_for_task.as_deref(),
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "target": target,
-        "create": create.unwrap_or(false),
+        "create": create,
         "startPoint": start_point,
         "checkedOut": true
     }))
 }
 
 #[tauri::command]
-pub fn git_create_branch(
+pub async fn git_create_branch(
     workspace_id: String,
     branch: String,
     start_point: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    state
-        .git_service
-        .create_branch(&workspace_id, &branch, start_point.as_deref())
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let branch_owned = branch.clone();
+    let start_point_for_task = start_point.clone();
+    run_git_blocking(&state, "GIT_BRANCH_CREATE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .create_branch(&workspace_id_owned, &branch_owned, start_point_for_task.as_deref())
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "branch": branch,
@@ -407,27 +483,33 @@ pub fn git_create_branch(
 }
 
 #[tauri::command]
-pub fn git_delete_branch(
+pub async fn git_delete_branch(
     workspace_id: String,
     branch: String,
     force: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    state
-        .git_service
-        .delete_branch(&workspace_id, &branch, force.unwrap_or(false))
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let branch_owned = branch.clone();
+    let force = force.unwrap_or(false);
+    run_git_blocking(&state, "GIT_BRANCH_DELETE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .delete_branch(&workspace_id_owned, &branch_owned, force)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "branch": branch,
-        "force": force.unwrap_or(false),
+        "force": force,
         "deleted": true
     }))
 }
 
 #[tauri::command]
-pub fn git_fetch(
+pub async fn git_fetch(
     workspace_id: String,
     remote: Option<String>,
     prune: Option<bool>,
@@ -436,21 +518,28 @@ pub fn git_fetch(
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let result = state
-        .git_service
-        .fetch(
-            &workspace_id,
-            remote.as_deref(),
-            prune.unwrap_or(true),
-            include_tags.unwrap_or(true),
-        )
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let prune = prune.unwrap_or(true);
+    let include_tags = include_tags.unwrap_or(true);
+    let remote_for_task = remote.clone();
+    let result = run_git_blocking(&state, "GIT_FETCH_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .fetch(
+                &workspace_id_owned,
+                remote_for_task.as_deref(),
+                prune,
+                include_tags,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_fetch_payload(&workspace_id, result))
 }
 
 #[tauri::command]
-pub fn git_pull(
+pub async fn git_pull(
     workspace_id: String,
     remote: Option<String>,
     branch: Option<String>,
@@ -459,44 +548,61 @@ pub fn git_pull(
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let result = state
-        .git_service
-        .pull(
-            &workspace_id,
-            remote.as_deref(),
-            branch.as_deref(),
-            rebase.unwrap_or(false),
-        )
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let rebase = rebase.unwrap_or(false);
+    let remote_for_task = remote.clone();
+    let branch_for_task = branch.clone();
+    let result = run_git_blocking(&state, "GIT_PULL_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .pull(
+                &workspace_id_owned,
+                remote_for_task.as_deref(),
+                branch_for_task.as_deref(),
+                rebase,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_pull_payload(&workspace_id, result))
 }
 
 #[tauri::command]
-pub fn git_push(
+pub async fn git_push(
     workspace_id: String,
     remote: Option<String>,
     branch: Option<String>,
     set_upstream: Option<bool>,
     force_with_lease: Option<bool>,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let result = state
-        .git_service
-        .push(
-            &workspace_id,
-            remote.as_deref(),
-            branch.as_deref(),
-            set_upstream.unwrap_or(false),
-            force_with_lease.unwrap_or(false),
-        )
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let set_upstream = set_upstream.unwrap_or(false);
+    let force_with_lease = force_with_lease.unwrap_or(false);
+    let remote_for_task = remote.clone();
+    let branch_for_task = branch.clone();
+    let result = run_git_blocking(&state, "GIT_PUSH_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .push(
+                &workspace_id_owned,
+                remote_for_task.as_deref(),
+                branch_for_task.as_deref(),
+                set_upstream,
+                force_with_lease,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(build_git_push_payload(&workspace_id, result))
 }
 
 #[tauri::command]
-pub fn git_stash_push(
+pub async fn git_stash_push(
     workspace_id: String,
     message: Option<String>,
     include_untracked: Option<bool>,
@@ -505,38 +611,50 @@ pub fn git_stash_push(
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    state
-        .git_service
-        .stash_push(
-            &workspace_id,
-            message.as_deref(),
-            include_untracked.unwrap_or(false),
-            keep_index.unwrap_or(false),
-        )
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let include_untracked = include_untracked.unwrap_or(false);
+    let keep_index = keep_index.unwrap_or(false);
+    let message_for_task = message.clone();
+    run_git_blocking(&state, "GIT_STASH_PUSH_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .stash_push(
+                &workspace_id_owned,
+                message_for_task.as_deref(),
+                include_untracked,
+                keep_index,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "message": message,
-        "includeUntracked": include_untracked.unwrap_or(false),
-        "keepIndex": keep_index.unwrap_or(false),
+        "includeUntracked": include_untracked,
+        "keepIndex": keep_index,
         "stashed": true
     }))
 }
 
 #[tauri::command]
-pub fn git_stash_pop(
+pub async fn git_stash_pop(
     workspace_id: String,
     stash: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    state
-        .git_service
-        .stash_pop(&workspace_id, stash.as_deref())
-        .map_err(to_command_error)?;
-    emit_git_updated_from_service(&app, &state, &workspace_id)?;
+    let workspace_id_owned = workspace_id.clone();
+    let stash_for_task = stash.clone();
+    run_git_blocking(&state, "GIT_STASH_POP_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .stash_pop(&workspace_id_owned, stash_for_task.as_deref())
+            .map_err(to_command_error)
+    })
+    .await?;
+    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "stash": stash,
@@ -545,16 +663,21 @@ pub fn git_stash_pop(
 }
 
 #[tauri::command]
-pub fn git_stash_list(
+pub async fn git_stash_list(
     workspace_id: String,
     limit: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
-    let entries = state
-        .git_service
-        .stash_list(&workspace_id, limit.unwrap_or(20))
-        .map_err(to_command_error)?;
+    let workspace_id_owned = workspace_id.clone();
+    let effective_limit = limit.unwrap_or(20);
+    let entries = run_git_blocking(&state, "GIT_STASH_LIST_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .stash_list(&workspace_id_owned, effective_limit)
+            .map_err(to_command_error)
+    })
+    .await?;
     Ok(build_git_stash_list_payload(&workspace_id, entries))
 }
 
