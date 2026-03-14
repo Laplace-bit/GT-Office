@@ -134,7 +134,7 @@ export function ClaudeConfigModal({
     setError(null)
     try {
       await desktopApi.aiConfigApplyPatch(workspaceId, preview.previewId, 'System Admin')
-      setSuccess(t(locale, '配置已成功应用', 'Configuration applied successfully'))
+      setSuccess(t(locale, 'aiConfig.common.success'))
       await onReload()
       setTimeout(() => {
         onClose()
@@ -147,23 +147,23 @@ export function ClaudeConfigModal({
   }
 
   const steps = [
-    { id: 'check', label: t(locale, '环境检查', 'System Check') },
-    { id: 'provider', label: t(locale, '供应商模式', 'Provider Mode') },
-    { id: 'guidance', label: t(locale, '获取凭据', 'Get Credentials') },
-    { id: 'details', label: t(locale, '详细配置', 'Config Details') },
-    { id: 'apply', label: t(locale, '预览并应用', 'Review & Apply') },
+    { id: 'check', label: t(locale, 'aiConfig.step.check') },
+    { id: 'provider', label: t(locale, 'aiConfig.step.provider') },
+    { id: 'guidance', label: t(locale, 'aiConfig.step.guidance') },
+    { id: 'details', label: t(locale, 'aiConfig.step.details') },
+    { id: 'apply', label: t(locale, 'aiConfig.step.apply') },
   ]
 
   const localizeCategory = (cat: string) => {
-    if (cat === 'Global') return t(locale, '全球', 'Global')
-    if (cat === 'China') return t(locale, '中国镜像', 'China')
+    if (cat === 'Global') return t(locale, 'aiConfig.category.global')
+    if (cat === 'China') return t(locale, 'aiConfig.category.china')
     return cat
   }
 
   return (
     <AiConfigOverlay
-      title={agent.title}
-      subtitle={agent.subtitle}
+      title={t(locale, agent.title as any)}
+      subtitle={t(locale, agent.subtitle as any)}
       onClose={onClose}
     >
       <div className="ai-provider-stepper">
@@ -188,31 +188,25 @@ export function ClaudeConfigModal({
           <div className="ai-provider-install-grid">
             <div className="ai-provider-panel__header" style={{ gridColumn: 'span 2' }}>
               <div>
-                <h4>{t(locale, '运行环境检查', 'Runtime Environment')}</h4>
-                <p>
-                  {t(
-                    locale,
-                    'Claude Code 需要 Node.js 环境。请确保已安装最新版本并将其添加到系统 PATH 中。',
-                    'Claude Code requires Node.js. Ensure you have the latest version installed and added to your system PATH.',
-                  )}
-                </p>
+                <h4>{t(locale, 'aiConfig.runtime.title')}</h4>
+                <p>{t(locale, 'aiConfig.runtime.desc')}</p>
               </div>
             </div>
             <div className="ai-provider-guide-card__summary" style={{ gridColumn: 'span 2' }}>
               <div>
-                <span>{t(locale, 'Node.js 状态', 'Node.js Status')}</span>
+                <span>{t(locale, 'aiConfig.runtime.nodeStatus')}</span>
                 <strong style={{ color: agent.installStatus.nodeReady ? '#0f8f50' : '#d4af37' }}>
                   {agent.installStatus.nodeReady
-                    ? t(locale, '已就绪', 'Ready')
-                    : t(locale, '未找到', 'Not Found')}
+                    ? t(locale, 'aiConfig.runtime.ready')
+                    : t(locale, 'aiConfig.runtime.notFound')}
                 </strong>
               </div>
               <div>
-                <span>{t(locale, '安装状态', 'Install Status')}</span>
+                <span>{t(locale, 'aiConfig.runtime.installStatus')}</span>
                 <strong style={{ color: agent.installStatus.installed ? '#0f8f50' : '#d4af37' }}>
                   {agent.installStatus.installed
-                    ? t(locale, '已安装 CLI', 'CLI Installed')
-                    : t(locale, '未安装', 'Not Installed')}
+                    ? t(locale, 'aiConfig.runtime.cliInstalled')
+                    : t(locale, 'aiConfig.runtime.notInstalled')}
                 </strong>
               </div>
             </div>
@@ -225,12 +219,12 @@ export function ClaudeConfigModal({
                 >
                   <AppIcon name="cloud-download" width={16} height={16} />
                   {installing
-                    ? t(locale, '安装中...', 'Installing...')
-                    : t(locale, '立即安装 CLI', 'Install CLI')}
+                    ? t(locale, 'aiConfig.runtime.installing')
+                    : t(locale, 'aiConfig.runtime.installAction')}
                 </button>
               )}
               <button className="nav-btn btn-primary" onClick={() => setStepIndex(1)}>
-                {t(locale, '下一步', 'Next')}
+                {t(locale, 'aiConfig.common.next')}
                 <AppIcon name="chevron-right" width={16} height={16} />
               </button>
             </div>
@@ -241,14 +235,8 @@ export function ClaudeConfigModal({
           <div className="ai-provider-guide-card">
             <div className="ai-provider-panel__header">
               <div>
-                <h4>{t(locale, '选择供应商模式', 'Select Provider Mode')}</h4>
-                <p>
-                  {t(
-                    locale,
-                    '您可以直接连接 Anthropic 官方，也可以通过预设的网关供应商（如 DeepSeek、Kimi）或自定义 API 代理。',
-                    'Connect directly to Anthropic, use a preset gateway (DeepSeek, Kimi), or a custom API proxy.',
-                  )}
-                </p>
+                <h4>{t(locale, 'aiConfig.mode.title')}</h4>
+                <p>{t(locale, 'aiConfig.mode.desc')}</p>
               </div>
             </div>
             <div className="ai-provider-mode-toggle">
@@ -259,7 +247,7 @@ export function ClaudeConfigModal({
                   clearDerivedState()
                 }}
               >
-                {t(locale, '官方', 'Official')}
+                {t(locale, 'aiConfig.mode.official')}
               </button>
               <button
                 className={mode === 'preset' ? 'is-active' : ''}
@@ -268,7 +256,7 @@ export function ClaudeConfigModal({
                   clearDerivedState()
                 }}
               >
-                {t(locale, '预设网关', 'Presets')}
+                {t(locale, 'aiConfig.mode.presets')}
               </button>
               <button
                 className={mode === 'custom' ? 'is-active' : ''}
@@ -277,7 +265,7 @@ export function ClaudeConfigModal({
                   clearDerivedState()
                 }}
               >
-                {t(locale, '自定义', 'Custom')}
+                {t(locale, 'aiConfig.mode.custom')}
               </button>
             </div>
 
@@ -292,8 +280,8 @@ export function ClaudeConfigModal({
                       onClick={() => resetPresetFields(p.providerId)}
                     >
                       <span>{localizeCategory(p.category)}</span>
-                      <strong>{p.name}</strong>
-                      <small>{p.description}</small>
+                      <strong>{t(locale, p.name as any)}</strong>
+                      <small>{t(locale, p.description as any)}</small>
                     </button>
                   ))}
               </div>
@@ -302,13 +290,13 @@ export function ClaudeConfigModal({
             <div className="ai-config-footer-nav">
               <button className="nav-btn btn-secondary" onClick={() => setStepIndex(0)}>
                 <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, '上一步', 'Back')}
+                {t(locale, 'aiConfig.common.back')}
               </button>
               <button
                 className="nav-btn btn-primary"
                 onClick={() => setStepIndex(mode === 'official' ? 3 : 2)}
               >
-                {t(locale, '下一步', 'Next')}
+                {t(locale, 'aiConfig.common.next')}
                 <AppIcon name="chevron-right" width={16} height={16} />
               </button>
             </div>
@@ -320,18 +308,18 @@ export function ClaudeConfigModal({
             <div className="ai-provider-panel__header">
               <div>
                 <h4>
-                  {t(locale, '获取凭据引导', 'Credentials Guide')}: {selectedPreset.name}
+                  {t(locale, 'aiConfig.guide.title')}: {t(locale, selectedPreset.name as any)}
                 </h4>
-                <p>{selectedPreset.description}</p>
+                <p>{t(locale, selectedPreset.description as any)}</p>
               </div>
             </div>
             <div className="ai-provider-guide-card__summary">
               <div>
-                <span>{t(locale, '推荐模型', 'Recommended')}</span>
+                <span>{t(locale, 'aiConfig.guide.recommended')}</span>
                 <strong>{selectedPreset.recommendedModel}</strong>
               </div>
               <div>
-                <span>{t(locale, '鉴权方案', 'Auth Scheme')}</span>
+                <span>{t(locale, 'aiConfig.guide.authScheme')}</span>
                 <strong>{selectedPreset.authScheme}</strong>
               </div>
             </div>
@@ -341,9 +329,9 @@ export function ClaudeConfigModal({
                   <div className="ai-provider-dot is-warning" />
                   <div style={{ alignItems: 'flex-start', flex: 1 }}>
                     <strong>
-                      {t(locale, '步骤', 'Step')} {idx + 1}
+                      {t(locale, 'aiConfig.guide.step')} {idx + 1}
                     </strong>
-                    <small>{step}</small>
+                    <small>{t(locale, step as any)}</small>
                   </div>
                 </div>
               ))}
@@ -351,20 +339,20 @@ export function ClaudeConfigModal({
             <div className="ai-provider-guide-card__links">
               <a href={selectedPreset.websiteUrl} target="_blank" rel="noreferrer">
                 <AppIcon name="external" width={14} height={14} style={{ marginRight: 6 }} />
-                {t(locale, '供应商官网', 'Website')}
+                {t(locale, 'aiConfig.guide.website')}
               </a>
               <a href={selectedPreset.apiKeyUrl} target="_blank" rel="noreferrer">
                 <AppIcon name="bolt" width={14} height={14} style={{ marginRight: 6 }} />
-                {t(locale, '获取 API Key', 'Get API Key')}
+                {t(locale, 'aiConfig.guide.getApiKey')}
               </a>
             </div>
             <div className="ai-config-footer-nav">
               <button className="nav-btn btn-secondary" onClick={() => setStepIndex(1)}>
                 <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, '上一步', 'Back')}
+                {t(locale, 'aiConfig.common.back')}
               </button>
               <button className="nav-btn btn-primary" onClick={() => setStepIndex(3)}>
-                {t(locale, '已获取，下一步', 'Got it, next')}
+                {t(locale, 'aiConfig.common.gotIt')}
                 <AppIcon name="chevron-right" width={16} height={16} />
               </button>
             </div>
@@ -375,19 +363,11 @@ export function ClaudeConfigModal({
           <div className="ai-provider-guide-card">
             <div className="ai-provider-panel__header">
               <div>
-                <h4>{t(locale, '详细参数配置', 'Configuration Details')}</h4>
+                <h4>{t(locale, 'aiConfig.details.title')}</h4>
                 <p>
                   {mode === 'official'
-                    ? t(
-                        locale,
-                        '官方模式下，配置将由 CLI 自动托管。',
-                        'In official mode, config is managed by CLI.',
-                      )
-                    : t(
-                        locale,
-                        '请核对 API 端点、模型名称并填入您的 API Key。',
-                        'Please verify the endpoint, model, and enter your API Key.',
-                      )}
+                    ? t(locale, 'aiConfig.details.officialDesc')
+                    : t(locale, 'aiConfig.details.customDesc')}
                 </p>
               </div>
             </div>
@@ -395,17 +375,18 @@ export function ClaudeConfigModal({
             {mode !== 'official' && (
               <div className="ai-provider-form-grid">
                 <div className="ai-provider-field" style={{ gridColumn: mode === 'custom' ? '1' : 'span 2' }}>
-                  <span>{t(locale, '网关名称', 'Provider Name')}</span>
+                  <span>{t(locale, 'aiConfig.details.providerName')}</span>
                   <input
                     type="text"
                     value={providerName}
+                    placeholder={t(locale, 'aiConfig.details.namePlaceholder')}
                     readOnly={mode === 'preset'}
                     onChange={(e) => setProviderName(e.target.value)}
                   />
                 </div>
                 {mode === 'custom' && (
                   <div className="ai-provider-field">
-                    <span>{t(locale, '鉴权方案', 'Auth Scheme')}</span>
+                    <span>{t(locale, 'aiConfig.guide.authScheme')}</span>
                     <select
                       value={authScheme}
                       onChange={(e) => setAuthScheme(e.target.value as ClaudeAuthScheme)}
@@ -416,34 +397,34 @@ export function ClaudeConfigModal({
                   </div>
                 )}
                 <div className="ai-provider-field" style={{ gridColumn: 'span 2' }}>
-                  <span>{t(locale, 'API 端点 (Base URL)', 'Endpoint URL')}</span>
+                  <span>{t(locale, 'aiConfig.details.baseUrl')}</span>
                   <input
                     type="text"
                     value={baseUrl}
-                    placeholder="https://..."
+                    placeholder={t(locale, 'aiConfig.details.endpointPlaceholder')}
                     readOnly={mode === 'preset'}
                     onChange={(e) => setBaseUrl(e.target.value)}
                   />
                 </div>
                 <div className="ai-provider-field">
-                  <span>{t(locale, '模型 (Model)', 'Model')}</span>
+                  <span>{t(locale, 'aiConfig.details.model')}</span>
                   <input
                     type="text"
                     value={model}
-                    placeholder="claude-3-5-sonnet-20241022"
+                    placeholder={t(locale, 'aiConfig.details.modelPlaceholder')}
                     onChange={(e) => setModel(e.target.value)}
                   />
                 </div>
                 <div className="ai-provider-field">
-                  <span>{t(locale, 'API Key', 'API Key')}</span>
+                  <span>{t(locale, 'aiConfig.details.apiKey')}</span>
                   <input
                     type="password"
                     value={apiKey}
                     autoComplete="new-password"
                     placeholder={
                       snapshot.config.hasSecret
-                        ? t(locale, '已托管 (输入以覆盖)', 'Vaulted (enter to override)')
-                        : t(locale, '未设置', 'Not set')
+                        ? t(locale, 'aiConfig.details.vaulted')
+                        : t(locale, 'aiConfig.details.notSet')
                     }
                     onChange={(e) => setApiKey(e.target.value)}
                   />
@@ -456,14 +437,8 @@ export function ClaudeConfigModal({
                 <div className="ai-provider-diff-list__item">
                   <div className="ai-provider-dot is-success" />
                   <div style={{ alignItems: 'flex-start', flex: 1 }}>
-                    <strong>{t(locale, '官方直连', 'Direct Official')}</strong>
-                    <small>
-                      {t(
-                        locale,
-                        '直接使用 `claude` 命令内置的登录与配置流程。GT Office 不会干预其凭据。',
-                        'Uses the native `claude` login flow. GT Office will not intercept credentials.',
-                      )}
-                    </small>
+                    <strong>{t(locale, 'aiConfig.details.directTitle')}</strong>
+                    <small>{t(locale, 'aiConfig.details.directDesc')}</small>
                   </div>
                 </div>
               </div>
@@ -475,7 +450,7 @@ export function ClaudeConfigModal({
                 onClick={() => setStepIndex(mode === 'official' ? 1 : 2)}
               >
                 <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, '上一步', 'Back')}
+                {t(locale, 'aiConfig.common.back')}
               </button>
               <button
                 className="nav-btn btn-primary"
@@ -483,8 +458,8 @@ export function ClaudeConfigModal({
                 onClick={() => void handleGeneratePreview()}
               >
                 {loading
-                  ? t(locale, '生成中...', 'Generating...')
-                  : t(locale, '查看预览', 'Preview Changes')}
+                  ? t(locale, 'aiConfig.common.generating')
+                  : t(locale, 'aiConfig.common.previewChanges')}
                 <AppIcon name="chevron-right" width={16} height={16} />
               </button>
             </div>
@@ -495,14 +470,8 @@ export function ClaudeConfigModal({
           <div className="ai-provider-guide-card">
             <div className="ai-provider-panel__header">
               <div>
-                <h4>{t(locale, '核对并确认变更', 'Review & Confirm')}</h4>
-                <p>
-                  {t(
-                    locale,
-                    '请确认以下变更。凭据将加密存储，其他配置将写入工作区设置。',
-                    'Please confirm changes. Credentials will be vaulted, other configs saved to workspace settings.',
-                  )}
-                </p>
+                <h4>{t(locale, 'aiConfig.review.title')}</h4>
+                <p>{t(locale, 'aiConfig.review.desc')}</p>
               </div>
             </div>
 
@@ -511,7 +480,7 @@ export function ClaudeConfigModal({
                 <div key={change.key} className="ai-provider-diff-list__item">
                   <span>{change.label}</span>
                   <div>
-                    <small>{change.before || t(locale, '(空)', '(empty)')}</small>
+                    <small>{change.before || t(locale, 'aiConfig.common.empty')}</small>
                     <strong style={{ color: '#007aff' }}>
                       {change.secret ? '********' : change.after}
                     </strong>
@@ -538,11 +507,11 @@ export function ClaudeConfigModal({
             <div className="ai-config-footer-nav">
               <button className="nav-btn btn-secondary" onClick={() => setStepIndex(3)}>
                 <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, '返回修改', 'Modify')}
+                {t(locale, 'aiConfig.common.modify')}
               </button>
               <button className="nav-btn btn-apply" disabled={loading} onClick={() => void handleApply()}>
                 <AppIcon name="check" width={16} height={16} />
-                {loading ? t(locale, '应用中...', 'Applying...') : t(locale, '确认并应用', 'Confirm & Apply')}
+                {loading ? t(locale, 'aiConfig.common.applying') : t(locale, 'aiConfig.common.confirmApply')}
               </button>
             </div>
           </div>

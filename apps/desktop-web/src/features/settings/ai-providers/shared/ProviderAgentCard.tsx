@@ -26,12 +26,12 @@ function resolveStatusTone(agent: AiAgentSnapshotCard): 'success' | 'warning' | 
 
 function resolveStatusLabel(locale: Locale, agent: AiAgentSnapshotCard): string {
   if (agent.installStatus.installed && agent.configStatus === 'configured') {
-    return t(locale, '已就绪', 'Ready')
+    return t(locale, 'aiConfig.card.ready')
   }
   if (!agent.installStatus.installed) {
-    return t(locale, '未安装', 'Not installed')
+    return t(locale, 'aiConfig.card.notInstalled')
   }
-  return t(locale, '待配置', 'Needs setup')
+  return t(locale, 'aiConfig.card.needsSetup')
 }
 
 export function ProviderAgentCard({
@@ -57,13 +57,13 @@ export function ProviderAgentCard({
           {agent.agent === 'claude' ? '󰚩' : '󰚩'}
         </div>
         <div className="ai-provider-card__title">
-          <h4>{agent.title}</h4>
+          <h4>{t(locale, agent.title as any)}</h4>
           <span className={`status-dot tone-${tone}`} title={label} />
         </div>
       </div>
 
       <div className="ai-provider-card__body">
-        <p>{agent.subtitle}</p>
+        <p>{t(locale, agent.subtitle as any)}</p>
         <div className="ai-provider-card__meta">
           {agent.installStatus.installed ? (
             <div className="meta-item">
@@ -73,7 +73,7 @@ export function ProviderAgentCard({
           ) : (
             <div className="meta-item warn">
               <AppIcon name="info" width={12} height={12} />
-              <span>{t(locale, '未检测到可执行文件', 'Not installed')}</span>
+              <span>{t(locale, 'aiConfig.card.noExecutable')}</span>
             </div>
           )}
         </div>
@@ -86,7 +86,7 @@ export function ProviderAgentCard({
             onClick={(e) => { e.stopPropagation(); onInstall(); }}
             disabled={installDisabled}
           >
-            {installing ? t(locale, '安装中...', 'Installing...') : t(locale, '立即安装', 'Install')}
+            {installing ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.install')}
           </button>
         ) : (
           <button
@@ -94,7 +94,7 @@ export function ProviderAgentCard({
             onClick={(e) => { e.stopPropagation(); onConfigure(); }}
           >
             <AppIcon name="settings" width={14} height={14} />
-            {t(locale, '配置', 'Configure')}
+            {t(locale, 'aiConfig.card.configure')}
           </button>
         )}
       </div>

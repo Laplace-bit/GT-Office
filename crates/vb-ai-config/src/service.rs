@@ -424,8 +424,8 @@ impl AiConfigService {
             agents: vec![
                 crate::models::AiAgentSnapshotCard {
                     agent: AiConfigAgent::Claude,
-                    title: "Claude Code".to_string(),
-                    subtitle: "Full provider configuration, model override, and runtime injection."
+                    title: "aiConfig.agent.claude.title".to_string(),
+                    subtitle: "aiConfig.agent.claude.subtitle"
                         .to_string(),
                     install_status: map_install_status(AiConfigAgent::Claude),
                     config_status: if claude_config.active_mode.is_some() {
@@ -437,8 +437,8 @@ impl AiConfigService {
                 },
                 crate::models::AiAgentSnapshotCard {
                     agent: AiConfigAgent::Codex,
-                    title: "Codex CLI".to_string(),
-                    subtitle: "Lightweight API Key configuration and terminal injection."
+                    title: "aiConfig.agent.codex.title".to_string(),
+                    subtitle: "aiConfig.agent.codex.subtitle"
                         .to_string(),
                     install_status: map_install_status(AiConfigAgent::Codex),
                     config_status: if codex_guide.config.has_secret {
@@ -446,12 +446,12 @@ impl AiConfigService {
                     } else {
                         crate::models::AiAgentConfigStatus::Unconfigured
                     },
-                    active_summary: Some("Injected OPENAI_API_KEY when starting.".to_string()),
+                    active_summary: Some("aiConfig.agent.codex.summary".to_string()),
                 },
                 crate::models::AiAgentSnapshotCard {
                     agent: AiConfigAgent::Gemini,
-                    title: "Gemini CLI".to_string(),
-                    subtitle: "Lightweight API Key configuration and terminal injection."
+                    title: "aiConfig.agent.gemini.title".to_string(),
+                    subtitle: "aiConfig.agent.gemini.subtitle"
                         .to_string(),
                     install_status: map_install_status(AiConfigAgent::Gemini),
                     config_status: if gemini_guide.config.has_secret {
@@ -459,7 +459,7 @@ impl AiConfigService {
                     } else {
                         crate::models::AiAgentConfigStatus::Unconfigured
                     },
-                    active_summary: Some("Injected GOOGLE_API_KEY when starting.".to_string()),
+                    active_summary: Some("aiConfig.agent.gemini.summary".to_string()),
                 },
             ],
             claude: ClaudeSnapshot {

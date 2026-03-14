@@ -916,6 +916,201 @@ export const messages = {
     'zh-CN': '文件超出完整读取上限，已加载 {preview} / {size} bytes。',
     'en-US': 'File exceeds full-read limit, loaded {preview} / {size} bytes.',
   },
+
+  'aiConfig.step.check': { 'zh-CN': '环境检查', 'en-US': 'System Check' },
+  'aiConfig.step.provider': { 'zh-CN': '供应商模式', 'en-US': 'Provider Mode' },
+  'aiConfig.step.guidance': { 'zh-CN': '获取凭据', 'en-US': 'Get Credentials' },
+  'aiConfig.step.details': { 'zh-CN': '详细配置', 'en-US': 'Config Details' },
+  'aiConfig.step.apply': { 'zh-CN': '预览并应用', 'en-US': 'Review & Apply' },
+
+  'aiConfig.category.global': { 'zh-CN': '全球', 'en-US': 'Global' },
+  'aiConfig.category.china': { 'zh-CN': '中国镜像', 'en-US': 'China' },
+
+  'aiConfig.common.next': { 'zh-CN': '下一步', 'en-US': 'Next' },
+  'aiConfig.common.back': { 'zh-CN': '上一步', 'en-US': 'Back' },
+  'aiConfig.common.gotIt': { 'zh-CN': '知道了', 'en-US': 'Got it' },
+  'aiConfig.common.modify': { 'zh-CN': '返回修改', 'en-US': 'Modify' },
+  'aiConfig.common.confirmApply': { 'zh-CN': '确认并应用', 'en-US': 'Confirm & Apply' },
+  'aiConfig.common.applying': { 'zh-CN': '应用中...', 'en-US': 'Applying...' },
+  'aiConfig.common.generating': { 'zh-CN': '生成中...', 'en-US': 'Generating...' },
+  'aiConfig.common.previewChanges': { 'zh-CN': '查看预览', 'en-US': 'Preview Changes' },
+  'aiConfig.common.success': { 'zh-CN': '配置已成功应用', 'en-US': 'Configuration applied successfully' },
+  'aiConfig.common.empty': { 'zh-CN': '(空)', 'en-US': '(empty)' },
+
+  'aiConfig.runtime.title': { 'zh-CN': '运行环境检查', 'en-US': 'Runtime Environment' },
+  'aiConfig.runtime.desc': {
+    'zh-CN': 'Claude Code 需要 Node.js 环境。请确保已安装最新版本并将其添加到系统 PATH 中。',
+    'en-US': 'Claude Code requires Node.js. Ensure you have the latest version installed and added to your system PATH.',
+  },
+  'aiConfig.runtime.nodeStatus': { 'zh-CN': 'Node.js 状态', 'en-US': 'Node.js Status' },
+  'aiConfig.runtime.ready': { 'zh-CN': '已就绪', 'en-US': 'Ready' },
+  'aiConfig.runtime.notFound': { 'zh-CN': '未找到', 'en-US': 'Not Found' },
+  'aiConfig.runtime.installStatus': { 'zh-CN': '安装状态', 'en-US': 'Install Status' },
+  'aiConfig.runtime.cliInstalled': { 'zh-CN': '已安装 CLI', 'en-US': 'CLI Installed' },
+  'aiConfig.runtime.notInstalled': { 'zh-CN': '未安装', 'en-US': 'Not Installed' },
+  'aiConfig.runtime.installAction': { 'zh-CN': '立即安装 CLI', 'en-US': 'Install CLI' },
+  'aiConfig.runtime.installing': { 'zh-CN': '安装中...', 'en-US': 'Installing...' },
+
+  'aiConfig.mode.title': { 'zh-CN': '选择供应商模式', 'en-US': 'Select Provider Mode' },
+  'aiConfig.mode.desc': {
+    'zh-CN': '您可以直接连接 Anthropic 官方，也可以通过预设的网关供应商（如 DeepSeek、Kimi）或自定义 API 代理。',
+    'en-US': 'Connect directly to Anthropic, use a preset gateway (DeepSeek, Kimi), or a custom API proxy.',
+  },
+  'aiConfig.mode.official': { 'zh-CN': '官方', 'en-US': 'Official' },
+  'aiConfig.mode.presets': { 'zh-CN': '预设网关', 'en-US': 'Presets' },
+  'aiConfig.mode.custom': { 'zh-CN': '自定义', 'en-US': 'Custom' },
+
+  'aiConfig.guide.title': { 'zh-CN': '获取凭据引导', 'en-US': 'Credentials Guide' },
+  'aiConfig.guide.recommended': { 'zh-CN': '推荐模型', 'en-US': 'Recommended' },
+  'aiConfig.guide.authScheme': { 'zh-CN': '鉴权方案', 'en-US': 'Auth Scheme' },
+  'aiConfig.guide.step': { 'zh-CN': '步骤', 'en-US': 'Step' },
+  'aiConfig.guide.website': { 'zh-CN': '供应商官网', 'en-US': 'Website' },
+  'aiConfig.guide.getApiKey': { 'zh-CN': '获取 API Key', 'en-US': 'Get API Key' },
+
+  'aiConfig.details.title': { 'zh-CN': '详细参数配置', 'en-US': 'Configuration Details' },
+  'aiConfig.details.officialDesc': {
+    'zh-CN': '官方模式下，配置将由 CLI 自动托管。',
+    'en-US': 'In official mode, config is managed by CLI.',
+  },
+  'aiConfig.details.customDesc': {
+    'zh-CN': '请核对 API 端点、模型名称并填入您的 API Key。',
+    'en-US': 'Please verify the endpoint, model, and enter your API Key.',
+  },
+  'aiConfig.details.providerName': { 'zh-CN': '网关名称', 'en-US': 'Provider Name' },
+  'aiConfig.details.baseUrl': { 'zh-CN': 'API 端点 (Base URL)', 'en-US': 'Endpoint URL' },
+  'aiConfig.details.model': { 'zh-CN': '模型 (Model)', 'en-US': 'Model' },
+  'aiConfig.details.apiKey': { 'zh-CN': 'API Key', 'en-US': 'API Key' },
+  'aiConfig.details.namePlaceholder': { 'zh-CN': '例如：我的代理', 'en-US': 'e.g. My Proxy' },
+  'aiConfig.details.endpointPlaceholder': { 'zh-CN': '例如：https://api.anthropic.com', 'en-US': 'e.g. https://api.anthropic.com' },
+  'aiConfig.details.modelPlaceholder': { 'zh-CN': '例如：claude-3-5-sonnet-latest', 'en-US': 'e.g. claude-3-5-sonnet-latest' },
+  'aiConfig.details.vaulted': { 'zh-CN': '已托管 (输入以覆盖)', 'en-US': 'Vaulted (enter to override)' },
+  'aiConfig.details.notSet': { 'zh-CN': '未设置', 'en-US': 'Not set' },
+  'aiConfig.details.directTitle': { 'zh-CN': '官方直连', 'en-US': 'Direct Official' },
+  'aiConfig.details.directDesc': {
+    'zh-CN': '直接使用 `claude` 命令内置的登录与配置流程。GT Office 不会干预其凭据。',
+    'en-US': 'Uses the native `claude` login flow. GT Office will not intercept credentials.',
+  },
+
+  'aiConfig.review.title': { 'zh-CN': '核对并确认变更', 'en-US': 'Review & Confirm' },
+  'aiConfig.review.desc': {
+    'zh-CN': '请确认以下变更。凭据将加密存储，其他配置将写入工作区设置。',
+    'en-US': 'Please confirm changes. Credentials will be vaulted, other configs saved to workspace settings.',
+  },
+
+  /* Agent Intro */
+  'aiConfig.agent.claude.title': { 'zh-CN': 'Claude Code', 'en-US': 'Claude Code' },
+  'aiConfig.agent.claude.subtitle': { 
+    'zh-CN': '完整的供应商配置、模型覆盖及运行时注入。', 
+    'en-US': 'Full provider configuration, model override, and runtime injection.' 
+  },
+  'aiConfig.agent.codex.title': { 'zh-CN': 'Codex CLI', 'en-US': 'Codex CLI' },
+  'aiConfig.agent.codex.subtitle': { 
+    'zh-CN': '轻量化 API Key 配置与终端环境注入。', 
+    'en-US': 'Lightweight API Key configuration and terminal injection.' 
+  },
+  'aiConfig.agent.codex.summary': { 
+    'zh-CN': '自动注入 OPENAI_API_KEY。', 
+    'en-US': 'Injected OPENAI_API_KEY when starting.' 
+  },
+  'aiConfig.agent.gemini.title': { 'zh-CN': 'Gemini CLI', 'en-US': 'Gemini CLI' },
+  'aiConfig.agent.gemini.subtitle': { 
+    'zh-CN': '轻量化 API Key 配置与终端环境注入。', 
+    'en-US': 'Lightweight API Key configuration and terminal injection.' 
+  },
+  'aiConfig.agent.gemini.summary': { 
+    'zh-CN': '自动注入 GOOGLE_API_KEY。', 
+    'en-US': 'Injected GOOGLE_API_KEY when starting.' 
+  },
+
+  /* Claude Presets */
+  'aiConfig.preset.anthropic.name': { 'zh-CN': 'Anthropic 官方', 'en-US': 'Anthropic Official' },
+  'aiConfig.preset.anthropic.desc': { 'zh-CN': '直接连接 Anthropic 官方 Claude API。', 'en-US': 'Use Anthropic\'s official Claude API endpoint.' },
+  'aiConfig.preset.anthropic.why': { 'zh-CN': '需要标准的 Claude API 行为时，兼容性最佳。', 'en-US': 'Best compatibility when you want the default Claude API behavior.' },
+  'aiConfig.preset.anthropic.bestFor': { 'zh-CN': '希望使用官方账单和支持服务的团队。', 'en-US': 'Teams that want the official Anthropic billing and support path.' },
+  'aiConfig.preset.anthropic.step1': { 'zh-CN': '打开 Anthropic 控制台。', 'en-US': 'Open Anthropic Console.' },
+  'aiConfig.preset.anthropic.step2': { 'zh-CN': '如果是新账户，请添加账单信息。', 'en-US': 'Add billing if your account is new.' },
+  'aiConfig.preset.anthropic.step3': { 'zh-CN': '创建 API Key 并粘贴到下方。', 'en-US': 'Create an API key and paste it below.' },
+
+  'aiConfig.preset.deepseek.name': { 'zh-CN': 'DeepSeek', 'en-US': 'DeepSeek' },
+  'aiConfig.preset.deepseek.desc': { 'zh-CN': '高性价比的 Claude 兼容网关。', 'en-US': 'Anthropic-compatible gateway for lower-cost usage.' },
+  'aiConfig.preset.deepseek.why': { 'zh-CN': '在需要 Claude 兼容端点时，具有极高的性价比。', 'en-US': 'Strong price/performance when you want a Claude-compatible endpoint.' },
+  'aiConfig.preset.deepseek.bestFor': { 'zh-CN': '优化 Token 成本且接受三方网关的开发者。', 'en-US': 'Users optimizing token cost and comfortable with a gateway provider.' },
+  'aiConfig.preset.deepseek.step1': { 'zh-CN': '注册 DeepSeek 开放平台账号。', 'en-US': 'Register a DeepSeek platform account.' },
+  'aiConfig.preset.deepseek.step2': { 'zh-CN': '如果账户余额不足，请先充值。', 'en-US': 'Recharge your balance if the account is empty.' },
+  'aiConfig.preset.deepseek.step3': { 'zh-CN': '为 Claude 兼容端点创建 API Key。', 'en-US': 'Create an API key for the Anthropic-compatible endpoint.' },
+
+  'aiConfig.preset.kimi.name': { 'zh-CN': 'Kimi 开发者平台', 'en-US': 'Kimi For Coding' },
+  'aiConfig.preset.kimi.desc': { 'zh-CN': 'Moonshot Kimi 提供的 Claude 兼容网关。', 'en-US': 'Moonshot Kimi gateway with Claude-style routing.' },
+  'aiConfig.preset.kimi.why': { 'zh-CN': '适合已在使用 Kimi 并希望统一供应商栈的用户。', 'en-US': 'Good for users already using Kimi and wanting a single vendor stack.' },
+  'aiConfig.preset.kimi.bestFor': { 'zh-CN': '希望使用本地账单和熟悉平台的国内团队。', 'en-US': 'China-based teams that want local billing and a familiar platform.' },
+  'aiConfig.preset.kimi.step1': { 'zh-CN': '创建 Moonshot 开放平台账户。', 'en-US': 'Create a Moonshot platform account.' },
+  'aiConfig.preset.kimi.step2': { 'zh-CN': '完成充值或配额购买。', 'en-US': 'Complete recharge or quota purchase.' },
+  'aiConfig.preset.kimi.step3': { 'zh-CN': '为编程端点创建 API Key。', 'en-US': 'Create an API key for the coding endpoint.' },
+
+  'aiConfig.preset.bailian.name': { 'zh-CN': '阿里云百炼', 'en-US': 'Bailian For Coding' },
+  'aiConfig.preset.bailian.desc': { 'zh-CN': '阿里云提供的企业级 Claude 兼容网关。', 'en-US': 'Alibaba Cloud Bailian gateway for enterprise scenarios.' },
+  'aiConfig.preset.bailian.why': { 'zh-CN': '当采购、发票和组织控制均在阿里云上时非常有用。', 'en-US': 'Useful when procurement, invoicing, and org controls are on Alibaba Cloud.' },
+  'aiConfig.preset.bailian.bestFor': { 'zh-CN': '需要公司级账单和权限控制的企业采购者。', 'en-US': 'Enterprise buyers that need company billing and permissions controls.' },
+  'aiConfig.preset.bailian.step1': { 'zh-CN': '为阿里云账号开通百炼服务。', 'en-US': 'Enable Bailian for the Alibaba Cloud account.' },
+  'aiConfig.preset.bailian.step2': { 'zh-CN': '确保账号已配置有效的计费方式。', 'en-US': 'Make sure the account has billing enabled.' },
+  'aiConfig.preset.bailian.step3': { 'zh-CN': '创建具有所需权限的 API Key。', 'en-US': 'Create an API key with the required permissions.' },
+
+  'aiConfig.preset.stepfun.name': { 'zh-CN': '阶跃星辰', 'en-US': 'StepFun' },
+  'aiConfig.preset.stepfun.desc': { 'zh-CN': '适合偏好国内服务商面板的用户。', 'en-US': 'StepFun gateway for users who prefer a domestic provider.' },
+  'aiConfig.preset.stepfun.why': { 'zh-CN': '简洁的控制面板体验与轻量化的接入路径。', 'en-US': 'Single-panel experience with a lightweight onboarding path.' },
+  'aiConfig.preset.stepfun.bestFor': { 'zh-CN': '希望快速设置并使用国内支付流程的用户。', 'en-US': 'Users who want fast setup and a domestic payment workflow.' },
+  'aiConfig.preset.stepfun.step1': { 'zh-CN': '注册阶跃星辰开放平台账户。', 'en-US': 'Register a StepFun platform account.' },
+  'aiConfig.preset.stepfun.step2': { 'zh-CN': '充值或激活计费配额。', 'en-US': 'Recharge or activate billing quota.' },
+  'aiConfig.preset.stepfun.step3': { 'zh-CN': '创建 API Key 并复制到 GT Office。', 'en-US': 'Create an API key and copy it into GT Office.' },
+
+  'aiConfig.preset.custom.name': { 'zh-CN': '自定义网关', 'en-US': 'Custom Gateway' },
+  'aiConfig.preset.custom.desc': { 'zh-CN': '使用您自己的 Claude 兼容端点、模型和 API Key。', 'en-US': 'Bring your own Claude-compatible endpoint and model.' },
+  'aiConfig.preset.custom.why': { 'zh-CN': '当您已有代理、中转或企业内部网关时，可实现完全控制。', 'en-US': 'Full control when you already have a proxy, relay, or enterprise gateway.' },
+  'aiConfig.preset.custom.bestFor': { 'zh-CN': '高级用户或管理自有端点的内部平台。', 'en-US': 'Advanced users or internal platforms managing their own endpoint.' },
+  'aiConfig.preset.custom.step1': { 'zh-CN': '准备一个兼容的端点 URL。', 'en-US': 'Prepare a compatible endpoint URL.' },
+  'aiConfig.preset.custom.step2': { 'zh-CN': '确认网关支持标准的鉴权变量。', 'en-US': 'Confirm the gateway expects standard auth vars.' },
+  'aiConfig.preset.custom.step3': { 'zh-CN': '在自定义表单中粘贴端点、模型和 API Key。', 'en-US': 'Paste endpoint, model, and API key in the custom form.' },
+
+  /* Light Guides */
+  'aiConfig.guide.codex.summary': { 
+    'zh-CN': 'GT Office 检查 Codex 的安装状态。大多数用户可以使用默认的 CLI 认证流程。', 
+    'en-US': 'GT Office checks install status for Codex. Most users can keep the default CLI auth flow.' 
+  },
+  'aiConfig.guide.codex.tip1': { 'zh-CN': '先安装 CLI，然后使用官方流程登录。', 'en-US': 'Install the CLI first, then sign in with the official flow.' },
+  'aiConfig.guide.codex.tip2': { 'zh-CN': '如果使用公司网关，请在 Codex 自身的配置文件中修改。', 'en-US': 'If using a company gateway, configure it in Codex\'s own config file.' },
+  'aiConfig.guide.codex.tip3': { 'zh-CN': 'GT Office 将持续检测并确保其处于就绪状态。', 'en-US': 'GT Office will continue to detect readiness.' },
+
+  'aiConfig.guide.gemini.summary': { 
+    'zh-CN': 'GT Office 提供安装检测、官方文档及本地配置路径引导。', 
+    'en-US': 'GT Office provides install detection, official docs, and local config guidance.' 
+  },
+  'aiConfig.guide.gemini.tip1': { 'zh-CN': 'Gemini 通常在安装后通过官方 CLI 流程进行配置。', 'en-US': 'Gemini is usually configured with official CLI flow after install.' },
+  'aiConfig.guide.gemini.tip2': { 'zh-CN': '如已使用 API Key，请保持在 Gemini 自身的配置文件中。', 'en-US': 'Keep existing API keys inside Gemini\'s own config file.' },
+  'aiConfig.guide.gemini.tip3': { 'zh-CN': '此页面用于就绪状态检查，而非次级配置面板。', 'en-US': 'Use this page as a launch readiness check.' },
+
+  'aiConfig.light.readiness': { 'zh-CN': '安装与就绪检查', 'en-US': 'Installation & Readiness' },
+  'aiConfig.light.cliTool': { 'zh-CN': 'CLI 工具', 'en-US': 'CLI Tool' },
+  'aiConfig.light.mcpBridge': { 'zh-CN': 'MCP 网桥', 'en-US': 'MCP Bridge' },
+  'aiConfig.light.configured': { 'zh-CN': '已配置', 'en-US': 'Configured' },
+  'aiConfig.light.notConfigured': { 'zh-CN': '未配置', 'en-US': 'Not Configured' },
+  'aiConfig.light.installed': { 'zh-CN': '已安装', 'en-US': 'Installed' },
+  'aiConfig.light.notFound': { 'zh-CN': '未找到', 'en-US': 'Not Found' },
+  'aiConfig.light.installAction': { 'zh-CN': '立即安装 CLI 与网桥', 'en-US': 'Install CLI & Bridge' },
+  'aiConfig.light.credentials': { 'zh-CN': '凭据配置', 'en-US': 'Credentials' },
+  'aiConfig.light.credentialsDesc': {
+    'zh-CN': '填入 API Key 后，GT Office 将在启动该工具的终端时自动注入对应的环境变量。',
+    'en-US': 'GT Office will inject the API Key into the terminal environment.',
+  },
+  'aiConfig.light.confirmChanges': { 'zh-CN': '确认变更', 'en-US': 'Confirm Changes' },
+  'aiConfig.light.ready': { 'zh-CN': '就绪', 'en-US': 'Ready' },
+
+  'aiConfig.card.ready': { 'zh-CN': '已就绪', 'en-US': 'Ready' },
+  'aiConfig.card.notInstalled': { 'zh-CN': '未安装', 'en-US': 'Not installed' },
+  'aiConfig.card.needsSetup': { 'zh-CN': '待配置', 'en-US': 'Needs setup' },
+  'aiConfig.card.noExecutable': { 'zh-CN': '未检测到可执行文件', 'en-US': 'Not installed' },
+  'aiConfig.card.configure': { 'zh-CN': '配置', 'en-US': 'Configure' },
+  'aiConfig.card.install': { 'zh-CN': '立即安装', 'en-US': 'Install' },
+  'aiConfig.card.installing': { 'zh-CN': '安装中...', 'en-US': 'Installing...' },
 }
 
 export type TranslationKey = keyof typeof messages

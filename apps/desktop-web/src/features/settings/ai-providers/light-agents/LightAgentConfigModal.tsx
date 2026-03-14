@@ -72,6 +72,7 @@ export function LightAgentConfigModal({
     try {
       await desktopApi.aiConfigApplyPatch(workspaceId, preview.previewId, 'System Admin')
       onReload()
+      // Success delay then close
       setTimeout(() => {
         onClose()
       }, 1000)
@@ -84,8 +85,8 @@ export function LightAgentConfigModal({
 
   return (
     <AiConfigOverlay
-      title={agent.title}
-      subtitle={agent.subtitle}
+      title={t(locale, agent.title as any)}
+      subtitle={t(locale, agent.subtitle as any)}
       onClose={onClose}
     >
       <div className="light-stepper">
@@ -102,21 +103,37 @@ export function LightAgentConfigModal({
       <div className="step-container">
         {stepIndex === 0 && (
           <div className="step-pane">
-            <h4>{t(locale, '安装与就绪检查', 'Installation & Readiness')}</h4>
+            <h4>{t(locale, 'aiConfig.light.readiness')}</h4>
             <div className="readiness-grid">
               <div className="readiness-item">
-                <span>CLI {t(locale, '工具', 'Tool')}</span>
+                <span>{t(locale, 'aiConfig.light.cliTool')}</span>
                 <strong className={agent.installStatus.installed ? 'ok' : 'warn'}>
-                  {agent.installStatus.installed ? 'Installed' : 'Not Found'}
+                  {agent.installStatus.installed ? t(locale, 'aiConfig.light.installed') : t(locale, 'aiConfig.light.notFound')}
                 </strong>
               </div>
               <div className="readiness-item">
-                <span>MCP {t(locale, '网桥', 'Bridge')}</span>
+                <span>{t(locale, 'aiConfig.light.mcpBridge')}</span>
                 <strong className={guide.mcpInstalled ? 'ok' : 'warn'}>
-                  {guide.mcpInstalled ? 'Configured' : 'Not Configured'}
+                  {guide.mcpInstalled ? t(locale, 'aiConfig.light.configured') : t(locale, 'aiConfig.light.notConfigured')}
                 </strong>
               </div>
             </div>
+
+            <div className="guide-tips" style={{ 
+              marginTop: 16, 
+              padding: 16, 
+              background: 'var(--vb-bg-tertiary)', 
+              borderRadius: 12,
+              border: '1px solid var(--vb-border-subtle)'
+            }}>
+              <p style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 600 }}>{t(locale, 'aiConfig.guide.title')}</p>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--vb-text-muted)', lineHeight: 1.6 }}>
+                {guide.tips.map((tip, idx) => (
+                  <li key={idx}>{t(locale, tip as any)}</li>
+                ))}
+              </ul>
+            </div>
+
             <div className="ai-config-footer-nav">
               {canInstall && (
                 <button
@@ -125,11 +142,11 @@ export function LightAgentConfigModal({
                   onClick={onInstall}
                 >
                   <AppIcon name="cloud-download" width={16} height={16} />
-                  {installing ? 'Installing...' : 'Install CLI & Bridge'}
+                  {installing ? t(locale, 'aiConfig.runtime.installing') : t(locale, 'aiConfig.light.installAction')}
                 </button>
               )}
               <button className="nav-btn btn-primary" onClick={() => setStepIndex(1)}>
-                {t(locale, '下一步', 'Next')}
+                {t(locale, 'aiConfig.common.next')}
                 <AppIcon name="chevron-right" width={16} height={16} />
               </button>
             </div>
@@ -138,14 +155,8 @@ export function LightAgentConfigModal({
 
         {stepIndex === 1 && (
           <div className="step-pane">
-            <h4>{t(locale, '凭据配置', 'Credentials')}</h4>
-            <p>
-              {t(
-                locale,
-                '填入 API Key 后，GT Office 将在启动该工具的终端时自动注入对应的环境变量。',
-                'GT Office will inject the API Key into the terminal environment.',
-              )}
-            </p>
+            <h4>{t(locale, 'aiConfig.light.credentials')}</h4>
+            <p>{t(locale, 'aiConfig.light.credentialsDesc')}</p>
             <div className="field-group">
               <label>
                 {agent.agent === 'codex' ? 'OPENAI_API_KEY' : 'GOOGLE_API_KEY'}
@@ -155,7 +166,7 @@ export function LightAgentConfigModal({
                 className="settings-input"
                 value={apiKey}
                 placeholder={
-                  guide.config.hasSecret ? 'Vaulted (enter to override)' : 'sk-...'
+                  guide.config.hasSecret ? t(locale, 'aiConfig.details.vaulted') : 'sk-...'
                 }
                 onChange={(e) => setApiKey(e.target.value)}
               />
@@ -163,14 +174,14 @@ export function LightAgentConfigModal({
             <div className="ai-config-footer-nav">
               <button className="nav-btn btn-secondary" onClick={() => setStepIndex(0)}>
                 <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, '上一步', 'Back')}
+                {t(locale, 'aiConfig.common.back')}
               </button>
               <button
                 className="nav-btn btn-primary"
                 disabled={loading || (!apiKey && !guide.config.hasSecret)}
                 onClick={() => void handleGeneratePreview()}
               >
-                {loading ? '...' : t(locale, '查看预览', 'Preview')}
+                {loading ? '...' : t(locale, 'aiConfig.common.previewChanges')}
                 <AppIcon name="chevron-right" width={16} height={16} />
               </button>
             </div>
@@ -179,23 +190,23 @@ export function LightAgentConfigModal({
 
         {stepIndex === 2 && preview && (
           <div className="step-pane">
-            <h4>{t(locale, '确认变更', 'Confirm Changes')}</h4>
+            <h4>{t(locale, 'aiConfig.light.confirmChanges')}</h4>
             <div className="diff-box">
               {preview.maskedDiff.map((change) => (
                 <div key={change.key} className="diff-row">
                   <span className="label">{change.label}</span>
-                  <span className="val">Ready</span>
+                  <span className="val">{t(locale, 'aiConfig.light.ready')}</span>
                 </div>
               ))}
             </div>
             <div className="ai-config-footer-nav">
               <button className="nav-btn btn-secondary" onClick={() => setStepIndex(1)}>
                 <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, '返回修改', 'Modify')}
+                {t(locale, 'aiConfig.common.modify')}
               </button>
               <button className="nav-btn btn-apply" disabled={loading} onClick={() => void handleApply()}>
                 <AppIcon name="check" width={16} height={16} />
-                {loading ? 'Applying...' : 'Confirm & Apply'}
+                {loading ? t(locale, 'aiConfig.common.applying') : t(locale, 'aiConfig.common.confirmApply')}
               </button>
             </div>
           </div>
