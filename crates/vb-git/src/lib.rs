@@ -12,6 +12,8 @@ use vb_abstractions::{WorkspaceId, WorkspaceService};
 const MAX_STATUS_FILES: usize = 2000;
 const LOG_FIELD_SEP: char = '\u{001f}';
 const LOG_RECORD_SEP: char = '\u{001e}';
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Maximum line length for word-level diff computation (performance optimization)
 const MAX_WORD_DIFF_LINE_LENGTH: usize = 500;
@@ -390,7 +392,9 @@ where
 
     fn run_git(&self, root: &Path, args: &[&str], error_code: &str) -> AbstractionResult<String> {
         debug!(root = %root.display(), args = ?args, "running git command");
-        let output = Command::new("git")
+        let mut command = Command::new("git");
+        configure_background_command(&mut command);
+        let output = command
             .arg("-C")
             .arg(root)
             // Ensure UTF-8 output encoding
@@ -1614,5 +1618,19 @@ where
             });
         }
         Ok(entries)
+    }
+}
+
+fn configure_background_command(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = command;
     }
 }
