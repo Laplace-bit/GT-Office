@@ -3,12 +3,11 @@ import { useEffect, useState } from 'react'
 import { desktopApi, type AiConfigAgent, type AiConfigReadSnapshotResponse } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 
-import { ClaudeProviderWorkspace } from './claude/ClaudeProviderWorkspace'
-import { LightAgentProviderWorkspace } from './light-agents/LightAgentProviderWorkspace'
 import { ProviderAgentCard } from './shared/ProviderAgentCard'
+import { ClaudeConfigModal } from './claude/ClaudeConfigModal'
+import { LightAgentConfigModal } from './light-agents/LightAgentConfigModal'
 
 import './AiProvidersSection.scss'
-import './claude/ClaudeProviderWorkspace.scss'
 
 interface AiProvidersSectionProps {
   workspaceId: string
@@ -19,6 +18,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   const [snapshot, setSnapshot] = useState<AiConfigReadSnapshotResponse | null>(null)
   const [installingAgent, setInstallingAgent] = useState<AiConfigAgent | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<AiConfigAgent | null>(null)
+  const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
 
   const handleReload = async () => {
     try {
@@ -56,7 +56,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     return <div className="ai-providers-loading">{t(locale, '加载中...', 'Loading...')}</div>
   }
 
-  const selectedCard = snapshot.snapshot.agents.find((a) => a.agent === selectedAgentId)
+  const configAgent = snapshot.snapshot.agents.find((a) => a.agent === configAgentId)
 
   return (
     <section className="ai-providers-section">
@@ -70,33 +70,36 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
             onSelect={() => setSelectedAgentId(agent.agent)}
             installing={installingAgent === agent.agent}
             onInstall={() => void handleInstall(agent.agent)}
+            onConfigure={() => setConfigAgentId(agent.agent)}
           />
         ))}
       </div>
 
-      <div className="ai-providers-divider" />
-
-      {selectedCard?.agent === 'claude' ? (
-        <ClaudeProviderWorkspace
+      {configAgentId === 'claude' && configAgent && (
+        <ClaudeConfigModal
           workspaceId={workspaceId}
           locale={locale}
-          agent={selectedCard}
+          agent={configAgent}
           snapshot={snapshot.snapshot.claude}
           installing={installingAgent === 'claude'}
           onInstall={() => void handleInstall('claude')}
           onReload={handleReload}
+          onClose={() => setConfigAgentId(null)}
         />
-      ) : selectedCard ? (
-        <LightAgentProviderWorkspace
+      )}
+
+      {configAgentId && configAgentId !== 'claude' && configAgent && (
+        <LightAgentConfigModal
           workspaceId={workspaceId}
           locale={locale}
-          agent={selectedCard}
-          guide={selectedCard.agent === 'codex' ? snapshot.snapshot.codex : snapshot.snapshot.gemini}
-          installing={installingAgent === selectedCard.agent}
-          onInstall={() => void handleInstall(selectedCard.agent as any)}
+          agent={configAgent}
+          guide={configAgentId === 'codex' ? snapshot.snapshot.codex : snapshot.snapshot.gemini}
+          installing={installingAgent === configAgentId}
+          onInstall={() => void handleInstall(configAgentId)}
           onReload={() => void handleReload()}
+          onClose={() => setConfigAgentId(null)}
         />
-      ) : null}
+      )}
     </section>
   )
 }

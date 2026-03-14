@@ -1450,13 +1450,6 @@ export const desktopApi = {
       confirmedBy,
     })
   },
-  aiConfigListAuditLogs(workspaceId: string, agent: string, limit?: number | null) {
-    return invokeCommand<any[]>('ai_config_list_audit_logs', {
-      workspaceId,
-      agent,
-      limit: limit ?? null,
-    })
-  },
   agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
