@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
-import { AgenticOneSection } from './AgenticOneSection'
+import { AiProvidersSection } from './ai-providers'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
@@ -101,7 +101,7 @@ export function SettingsModal({
       case 'ai':
         return (
           <div className="settings-pane-section">
-            <AgenticOneSection locale={locale} />
+            <AiProvidersSection locale={locale} workspaceId={workspaceId} />
           </div>
         )
       case 'about':
@@ -190,4 +190,3 @@ export function SettingsModal({
     </div>
   )
 }
-

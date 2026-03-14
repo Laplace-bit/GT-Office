@@ -70,7 +70,7 @@
 
 | Command | Req（关键字段） | Resp（关键字段） |
 |---|---|---|
-| `terminal.create` | `workspaceId,shell?,cwd?,cwdMode,env?` | `sessionId,resolvedCwd` |
+| `terminal.create` | `workspaceId,shell?,cwd?,cwdMode,env?,agentToolKind?` | `sessionId,resolvedCwd` |
 | `terminal.write` | `sessionId,input` | `accepted` |
 | `terminal.resize` | `sessionId,cols,rows` | `resized` |
 | `terminal.kill` | `sessionId,signal?` | `killed` |
@@ -79,6 +79,7 @@
 Station 约束（T-072）：
 1. 角色模式优先 `cwdMode=custom`，目录映射 `.gtoffice/org/{role}/{agent_id}`。
 2. `screenRevision` 必须单调递增；乱序/重复快照静默丢弃。
+3. 当 `agentToolKind=claude` 且 workspace 存在生效的 Claude provider 配置时，GT Office 必须在创建 terminal 时自动注入 Claude runtime env；Codex/Gemini v1 不注入额外 provider secret env。
 
 ### 3.4 Git
 
@@ -150,11 +151,18 @@ MCP Bridge（T-171）：
 | `keymap.list` | `workspaceId?` | `bindings[]` |
 | `keymap.update_binding` | `scope,commandId,keystroke` | `saved,conflicts` |
 | `keymap.reset` | `scope,commandId?` | `reset` |
-| `ai_config.read_snapshot` | `workspaceId,allow` | `snapshot,masking` |
-| `ai_config.preview_patch` | `workspaceId,scope,patch` | `allowed,diff,warnings` |
-| `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId` |
+| `ai_config.read_snapshot` | `workspaceId,allow?` | `snapshot{agents[],claude,codex,gemini},masking[]` |
+| `ai_config.preview_patch` | `workspaceId,scope,agent,draft` | `previewId,allowed,normalizedDraft,maskedDiff[],changedKeys[],secretRefs[],warnings[]` |
+| `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady` |
 | `install_agent` | `agent` | `ok`（成功后前端需重新查询 `agent_install_status`） |
+
+AI Config 约束（T-171）：
+1. v1 仅 Claude 支持进阶供应商配置；Codex/Gemini 只返回轻量引导信息。
+2. Claude `draft.mode` 允许 `official|preset|custom`。
+3. Claude `preview_patch` 必须拒绝缺失 `baseUrl/model/apiKey` 且无已有 `secretRef` 的新配置。
+4. `apply_patch` 必须把 API Key 写入系统凭据库，只在工作区配置保存 `secretRef`。
+5. `ai_config.read_snapshot` 返回的 Claude 预设目录必须包含 `websiteUrl/apiKeyUrl/billingUrl/recommendedModel/endpoint/authScheme/setupSteps[]`，以支撑新手引导。
 
 ### 3.7 Agent / Hook / Policy / Observability
 
@@ -329,6 +337,11 @@ MCP Bridge（T-171）：
 11. `hooks`
 12. `aiConfig`
 13. `toolProfiles`
+
+AI Provider 配置补充（T-171）：
+1. 工作区配置新增 `ai.providers.claude`。
+2. `ai.providers.claude` 仅允许保存 `activeMode/providerId/providerName/baseUrl/model/authScheme/secretRef/hasSecret/updatedAtMs`。
+3. `ai_config_audit_logs` 必须记录 `auditId/workspaceId/agent/mode/providerId/changedKeysJson/secretRefsJson/confirmedBy/createdAtMs`。
 
 ## 7. 版本策略
 

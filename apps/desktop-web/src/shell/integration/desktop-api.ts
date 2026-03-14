@@ -485,6 +485,146 @@ export interface SettingsUpdatedPayload {
   tsMs: number
 }
 
+export type AiConfigAgent = 'claude' | 'codex' | 'gemini'
+
+export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
+
+export type ClaudeAuthScheme = 'anthropic_api_key' | 'anthropic_auth_token'
+
+export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
+
+export interface AiAgentInstallStatus {
+  installed: boolean
+  executable?: string | null
+  requiresNode: boolean
+  nodeReady: boolean
+}
+
+export interface AiAgentSnapshotCard {
+  agent: AiConfigAgent
+  title: string
+  subtitle: string
+  installStatus: AiAgentInstallStatus
+  configStatus: AiAgentConfigStatus
+  activeSummary?: string | null
+}
+
+export interface ClaudeProviderPreset {
+  providerId: string
+  name: string
+  category: string
+  description: string
+  websiteUrl: string
+  apiKeyUrl: string
+  billingUrl: string
+  recommendedModel: string
+  endpoint: string
+  authScheme: ClaudeAuthScheme
+  whyChoose: string
+  bestFor: string
+  requiresBilling: boolean
+  setupSteps: string[]
+}
+
+export interface ClaudeConfigSnapshot {
+  activeMode?: ClaudeProviderMode | null
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  authScheme?: ClaudeAuthScheme | null
+  secretRef?: string | null
+  hasSecret: boolean
+  updatedAtMs?: number | null
+}
+
+export interface ClaudeSnapshot {
+  presets: ClaudeProviderPreset[]
+  config: ClaudeConfigSnapshot
+  canApplyOfficialMode: boolean
+}
+
+export interface LightAgentGuide {
+  title: string
+  summary: string
+  configPath?: string | null
+  docsUrl: string
+  tips: string[]
+}
+
+export interface AiConfigSnapshot {
+  agents: AiAgentSnapshotCard[]
+  claude: ClaudeSnapshot
+  codex: LightAgentGuide
+  gemini: LightAgentGuide
+}
+
+export interface AiConfigReadSnapshotResponse {
+  workspaceId: string
+  allow: string
+  snapshot: AiConfigSnapshot
+  masking: string[]
+}
+
+export interface ClaudeDraftInput {
+  mode: ClaudeProviderMode
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  authScheme?: ClaudeAuthScheme | null
+  apiKey?: string | null
+}
+
+export interface ClaudeNormalizedDraft {
+  mode: ClaudeProviderMode
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  authScheme?: ClaudeAuthScheme | null
+  secretRef?: string | null
+  hasSecret: boolean
+}
+
+export interface AiConfigMaskedChange {
+  key: string
+  label: string
+  before?: string | null
+  after?: string | null
+  secret: boolean
+}
+
+export interface AiConfigPreviewResponse {
+  workspaceId: string
+  scope: string
+  agent: AiConfigAgent
+  previewId: string
+  allowed: boolean
+  normalizedDraft: ClaudeNormalizedDraft
+  maskedDiff: AiConfigMaskedChange[]
+  changedKeys: string[]
+  secretRefs: string[]
+  warnings: string[]
+}
+
+export interface AiConfigApplyResponse {
+  workspaceId: string
+  previewId: string
+  confirmedBy: string
+  applied: boolean
+  auditId: string
+  effective: ClaudeConfigSnapshot
+  changedTargets: string[]
+}
+
+export interface AgentInstallStatus {
+  installed: boolean
+  executable?: string | null
+  requiresNode: boolean
+  nodeReady: boolean
+}
+
 export interface GitUpdatedPayload {
   workspaceId: string
   branch: string
@@ -1259,6 +1399,7 @@ export const desktopApi = {
       cwd?: string | null
       cwdMode?: 'workspace_root' | 'custom'
       env?: Record<string, string>
+      agentToolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
     },
   ) {
     return invokeCommand<TerminalCreateResponse>('terminal_create', {
@@ -1267,7 +1408,40 @@ export const desktopApi = {
       cwd: options?.cwd ?? null,
       cwdMode: options?.cwdMode ?? 'workspace_root',
       env: options?.env ?? null,
+      agentToolKind: options?.agentToolKind ?? null,
     })
+  },
+  aiConfigReadSnapshot(workspaceId: string, allow?: string | null) {
+    return invokeCommand<AiConfigReadSnapshotResponse>('ai_config_read_snapshot', {
+      workspaceId,
+      allow: allow ?? null,
+    })
+  },
+  aiConfigPreviewPatch(
+    workspaceId: string,
+    agent: AiConfigAgent,
+    scope: 'workspace',
+    draft: ClaudeDraftInput,
+  ) {
+    return invokeCommand<AiConfigPreviewResponse>('ai_config_preview_patch', {
+      workspaceId,
+      agent,
+      scope,
+      draft,
+    })
+  },
+  aiConfigApplyPatch(workspaceId: string, previewId: string, confirmedBy: string) {
+    return invokeCommand<AiConfigApplyResponse>('ai_config_apply_patch', {
+      workspaceId,
+      previewId,
+      confirmedBy,
+    })
+  },
+  agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+    return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
+  },
+  installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+    return invokeCommand<void>('install_agent', { agent })
   },
   terminalWrite(sessionId: string, input: string) {
     return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write', {

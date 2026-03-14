@@ -1,0 +1,186 @@
+.light-agent-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fade-in 0.3s ease-out;
+
+  .workspace-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px;
+
+    .header-main {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+
+      .agent-icon {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--vb-bg-tertiary);
+        border: 1px solid var(--vb-border-subtle);
+        border-radius: 12px;
+        font-size: 24px;
+      }
+
+      .agent-info {
+        h3 { margin: 0; font-size: 18px; color: var(--vb-text-primary); }
+        p { margin: 0; font-size: 13px; color: var(--vb-text-tertiary); }
+      }
+    }
+
+    .status-tag {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--vb-bg-tertiary);
+      color: var(--vb-text-tertiary);
+
+      &.configured {
+        background: var(--vb-accent-light);
+        color: var(--vb-accent);
+      }
+    }
+  }
+
+  .workspace-tabs {
+    display: flex;
+    gap: 24px;
+    border-bottom: 1px solid var(--vb-border-subtle);
+    
+    button {
+      padding: 8px 0 12px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--vb-text-muted);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      &.active {
+        color: var(--vb-accent);
+        border-bottom-color: var(--vb-accent);
+      }
+    }
+  }
+
+  .light-stepper {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    padding: 10px 0;
+
+    .step {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--vb-bg-tertiary);
+      border: 1px solid var(--vb-border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--vb-text-tertiary);
+      position: relative;
+
+      &.active {
+        background: var(--vb-text-primary);
+        color: var(--vb-bg-primary);
+        border-color: var(--vb-text-primary);
+      }
+
+      &.current {
+        box-shadow: 0 0 0 4px var(--vb-accent-light);
+      }
+
+      &:not(:last-child)::after {
+        content: "";
+        position: absolute;
+        left: 32px;
+        width: 24px;
+        height: 1px;
+        background: var(--vb-border-subtle);
+      }
+    }
+  }
+
+  .step-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 24px;
+    background: var(--vb-bg-secondary);
+    border: 1px solid var(--vb-border-subtle);
+    border-radius: 16px;
+    box-shadow: var(--vb-shadow-md);
+
+    h4 { margin: 0; font-size: 16px; }
+    p { margin: 0; font-size: 14px; color: var(--vb-text-tertiary); line-height: 1.5; }
+
+    .readiness-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+
+      .readiness-item {
+        padding: 16px;
+        background: var(--vb-bg-tertiary);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        span { font-size: 11px; text-transform: uppercase; color: var(--vb-text-tertiary); }
+        strong { 
+          font-size: 15px; 
+          &.ok { color: #0f8f50; }
+          &.warn { color: #d4af37; }
+        }
+      }
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      label { font-size: 13px; font-weight: 600; }
+      input {
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--vb-border-subtle);
+        background: var(--vb-bg-primary);
+        color: var(--vb-text-primary);
+        &:focus { border-color: var(--vb-accent); outline: none; }
+      }
+    }
+
+    .diff-box {
+      background: var(--vb-bg-tertiary);
+      border-radius: 12px;
+      padding: 12px;
+      .diff-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        .label { color: var(--vb-text-tertiary); font-size: 13px; }
+        .val { color: var(--vb-accent); font-weight: 600; font-size: 13px; }
+      }
+    }
+
+    .pane-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 10px;
+    }
+  }
+}

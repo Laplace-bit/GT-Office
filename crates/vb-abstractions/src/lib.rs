@@ -116,6 +116,7 @@ pub struct TerminalCreateRequest {
     pub cwd: Option<String>,
     pub cwd_mode: TerminalCwdMode,
     pub env: BTreeMap<String, String>,
+    pub agent_tool_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

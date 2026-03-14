@@ -7,6 +7,7 @@ use std::{
 };
 use tracing::debug;
 use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
+use vb_ai_config::StoredClaudePreview;
 use vb_git::GitService;
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
 use vb_task::AgentToolKind;
@@ -176,6 +177,7 @@ pub struct AppState {
     workspace_watchers: WorkspaceWatcherRegistry,
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
     mcp_directory_snapshots: Arc<Mutex<HashMap<String, Value>>>,
+    ai_config_previews: Arc<Mutex<HashMap<String, StoredClaudePreview>>>,
 }
 
 impl Default for AppState {
@@ -197,6 +199,7 @@ impl Default for AppState {
             workspace_watchers: WorkspaceWatcherRegistry::default(),
             external_reply_sessions: Arc::new(Mutex::new(HashMap::new())),
             mcp_directory_snapshots: Arc::new(Mutex::new(HashMap::new())),
+            ai_config_previews: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -307,6 +310,21 @@ impl AppState {
         })?;
         snapshots.remove(workspace_id);
         Ok(())
+    }
+
+    pub fn cache_ai_config_preview(&self, preview: StoredClaudePreview) -> Result<(), String> {
+        let mut previews = self.ai_config_previews.lock().map_err(|_| {
+            "AI_CONFIG_PREVIEW_LOCK_POISONED: ai config preview lock poisoned".to_string()
+        })?;
+        previews.insert(preview.preview_id.clone(), preview);
+        Ok(())
+    }
+
+    pub fn take_ai_config_preview(&self, preview_id: &str) -> Result<Option<StoredClaudePreview>, String> {
+        let mut previews = self.ai_config_previews.lock().map_err(|_| {
+            "AI_CONFIG_PREVIEW_LOCK_POISONED: ai config preview lock poisoned".to_string()
+        })?;
+        Ok(previews.remove(preview_id))
     }
 
     pub fn load_effective_settings(

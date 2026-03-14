@@ -83,6 +83,7 @@ fn workspace_root_mode_resolves_to_workspace_root() {
             cwd: None,
             cwd_mode: TerminalCwdMode::WorkspaceRoot,
             env: BTreeMap::new(),
+            agent_tool_kind: None,
         })
         .expect("create session");
 
@@ -105,6 +106,7 @@ fn custom_mode_resolves_relative_path_inside_workspace() {
             cwd: Some("src".to_string()),
             cwd_mode: TerminalCwdMode::Custom,
             env: BTreeMap::new(),
+            agent_tool_kind: None,
         })
         .expect("create session");
 
@@ -131,6 +133,7 @@ fn custom_mode_rejects_path_outside_workspace() {
         cwd: Some(outside_dir.path.to_string_lossy().to_string()),
         cwd_mode: TerminalCwdMode::Custom,
         env: BTreeMap::new(),
+        agent_tool_kind: None,
     });
 
     let error = result.expect_err("should reject outside cwd");
@@ -162,6 +165,7 @@ fn pty_provider_emits_output_event_after_write() {
             cwd: None,
             cwd_mode: TerminalCwdMode::WorkspaceRoot,
             env: BTreeMap::new(),
+            agent_tool_kind: None,
         })
         .expect("create pty session");
     provider

@@ -24,6 +24,7 @@ use vb_task::{
 };
 
 use crate::app_state::AppState;
+use crate::commands::settings::ai_config::augment_terminal_env_for_agent;
 use crate::commands::task_center::write_terminal_with_submit;
 
 const BRIDGE_HOST: &str = "127.0.0.1";
@@ -488,7 +489,7 @@ fn publish_channel(app: &AppHandle, state: &AppState, params: Value) -> Result<V
 }
 
 fn dev_bootstrap_agents(
-    _app: &AppHandle,
+    app: &AppHandle,
     state: &AppState,
     params: Value,
 ) -> Result<Value, BridgeError> {
@@ -536,6 +537,14 @@ fn dev_bootstrap_agents(
     for agent_id in targets {
         let terminal_env =
             build_agent_terminal_env(workspace.workspace_id.as_str(), &agent_id, None, &agent_id);
+        let terminal_env = augment_terminal_env_for_agent(
+            app,
+            state,
+            workspace.workspace_id.as_str(),
+            tool_kind,
+            terminal_env,
+        )
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_TERMINAL_INVALID", error))?;
         let session = state
             .terminal_provider
             .create_session(TerminalCreateRequest {
@@ -544,6 +553,7 @@ fn dev_bootstrap_agents(
                 cwd: request.cwd.clone(),
                 cwd_mode: cwd_mode.clone(),
                 env: terminal_env,
+                agent_tool_kind: Some(format!("{tool_kind:?}").to_ascii_lowercase()),
             })
             .map_err(|error| {
                 BridgeError::new(

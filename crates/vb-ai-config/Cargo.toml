@@ -9,3 +9,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
+vb-abstractions = { path = "../vb-abstractions" }
+vb-security = { path = "../vb-security" }
+vb-settings = { path = "../vb-settings" }
+vb-storage = { path = "../vb-storage" }

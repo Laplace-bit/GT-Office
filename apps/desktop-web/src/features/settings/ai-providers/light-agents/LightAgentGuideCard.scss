@@ -1,0 +1,55 @@
+.ai-light-guide-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface) 96%, white), color-mix(in srgb, var(--vb-surface-muted) 28%, transparent));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+}
+
+.ai-light-guide-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    color: var(--vb-text);
+    letter-spacing: -0.03em;
+  }
+
+  p {
+    margin: 0;
+    color: var(--vb-text-muted);
+    line-height: 1.65;
+    max-width: 64ch;
+  }
+}
+
+.ai-light-guide-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-light-guide-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .ai-light-guide-card__header {
+    flex-direction: column;
+  }
+
+  .ai-light-guide-card__actions {
+    justify-content: stretch;
+  }
+}

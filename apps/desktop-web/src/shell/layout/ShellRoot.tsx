@@ -2685,6 +2685,7 @@ export function ShellRoot() {
           cwd: agentWorkspaceCwd,
           cwdMode: 'custom',
           env: terminalEnv,
+          agentToolKind: normalizeStationToolKind(station.tool),
         })
         sessionStationRef.current[session.sessionId] = stationId
         terminalSessionSeqRef.current[session.sessionId] = 0
@@ -3762,6 +3763,7 @@ export function ShellRoot() {
               cwdMode: restoreCwdMode,
               cwd: restoreCwd,
               env: terminalEnv,
+              agentToolKind: station ? normalizeStationToolKind(station.tool) : 'unknown',
             })
             sessionStationRef.current[session.sessionId] = terminal.stationId
             terminalSessionSeqRef.current[session.sessionId] = 0

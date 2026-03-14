@@ -1,12 +1,15 @@
 use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use tauri::State;
+use tauri::{AppHandle, State};
 use vb_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
 
 use crate::app_state::{AppState, RenderedScreenSnapshot};
+use crate::commands::settings::ai_config::{
+    agent_tool_kind_from_param, augment_terminal_env_for_agent,
+};
 
 fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
     match cwd_mode.as_deref().unwrap_or("workspace_root") {
@@ -135,16 +138,27 @@ pub fn terminal_create(
     cwd: Option<String>,
     cwd_mode: Option<String>,
     env: Option<BTreeMap<String, String>>,
+    agent_tool_kind: Option<String>,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Value, String> {
     let cwd_mode = parse_cwd_mode(cwd_mode)?;
     let shell_name = shell.unwrap_or_else(|| "auto".to_string());
+    let tool_kind = agent_tool_kind_from_param(agent_tool_kind.clone());
+    let env = augment_terminal_env_for_agent(
+        &app,
+        state.inner(),
+        &workspace_id,
+        tool_kind,
+        env.unwrap_or_default(),
+    )?;
     let request = TerminalCreateRequest {
         workspace_id: WorkspaceId::new(workspace_id.clone()),
         shell: Some(shell_name.clone()),
         cwd,
         cwd_mode: cwd_mode.clone(),
-        env: env.unwrap_or_default(),
+        env,
+        agent_tool_kind,
     };
     let session = state
         .terminal_provider
