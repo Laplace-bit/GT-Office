@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { AppIcon } from '@shell/ui/icons'
 import type { AgentStation } from '@features/workspace-hub'
 import {
   toggleTaskTarget,
@@ -158,6 +159,15 @@ function TaskCenterPaneView({
     }
   }, [targetPickerOpen])
 
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) {
+      return
+    }
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [draft.markdown])
+
   const syncMentionState = (value: string, cursor: number) => {
     const nextRange = resolveMentionRange(value, cursor)
     const nextQuery = nextRange?.query ?? ''
@@ -205,7 +215,6 @@ function TaskCenterPaneView({
     <aside className="panel task-center-pane">
       <header className="task-center-header">
         <h2>{t(locale, 'taskCenter.title')}</h2>
-        <p>{t(locale, 'taskCenter.subtitle')}</p>
       </header>
 
       <section className="task-center-target-picker">
@@ -330,7 +339,6 @@ function TaskCenterPaneView({
                           }}
                         >
                           <span>{station.name}</span>
-                          <em>{station.id}</em>
                           <i>{checked ? '✓' : ''}</i>
                         </button>
                       </li>
@@ -346,17 +354,28 @@ function TaskCenterPaneView({
       <section className="task-center-editor">
         <header className="task-center-editor-header">
           <strong>{t(locale, 'taskCenter.editorLabel')}</strong>
-          <span>{t(locale, 'taskCenter.editorHint')}</span>
         </header>
 
         <section className="task-center-markdown-toolbar">
-          <button type="button" onClick={() => onInsertSnippet('heading')}>
+          <button
+            type="button"
+            className="task-center-toolbar-btn"
+            onClick={() => onInsertSnippet('heading')}
+          >
             {t(locale, 'taskCenter.template.heading')}
           </button>
-          <button type="button" onClick={() => onInsertSnippet('code')}>
+          <button
+            type="button"
+            className="task-center-toolbar-btn"
+            onClick={() => onInsertSnippet('code')}
+          >
             {t(locale, 'taskCenter.template.code')}
           </button>
-          <button type="button" onClick={() => onInsertSnippet('checklist')}>
+          <button
+            type="button"
+            className="task-center-toolbar-btn"
+            onClick={() => onInsertSnippet('checklist')}
+          >
             {t(locale, 'taskCenter.template.checklist')}
           </button>
         </section>
@@ -408,14 +427,6 @@ function TaskCenterPaneView({
               }
             }}
           />
-          <button
-            type="button"
-            className="task-center-inline-send"
-            onClick={onSendTask}
-            disabled={sending || stations.length === 0}
-          >
-            {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
-          </button>
 
           {mentionRange ? (
             <div className="task-center-mention-popover" role="listbox">
@@ -446,6 +457,20 @@ function TaskCenterPaneView({
               )}
             </div>
           ) : null}
+        </div>
+
+        <div className="task-center-editor-footer">
+          <button
+            type="button"
+            className="task-center-inline-send primary"
+            onClick={onSendTask}
+            disabled={sending || stations.length === 0}
+          >
+            <AppIcon name="sparkles" className="vb-icon" />
+            <span>
+              {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
+            </span>
+          </button>
         </div>
       </section>
 

@@ -167,19 +167,15 @@ export function useTaskDispatchActions({
         targetStationIds,
       })
 
-      let sentCount = 0
-      let failedCount = 0
+      const sentResults = response.results.filter((r) => r.status === 'sent')
+      const failedResults = response.results.filter((r) => r.status === 'failed')
+      const sentCount = sentResults.length
+      const failedCount = failedResults.length
+
       setTaskDispatchHistory((prev) => {
         let next = prev
         response.results.forEach((result) => {
-          if (result.status === 'sent') {
-            sentCount += 1
-          } else {
-            failedCount += 1
-          }
-          const station = stationsRef.current.find(
-            (item) => item.id === result.targetAgentId,
-          )
+          const station = stationsRef.current.find((item) => item.id === result.targetAgentId)
           next = pushTaskDispatchHistory(
             next,
             buildDispatchRecord({
@@ -203,17 +199,20 @@ export function useTaskDispatchActions({
         setTaskDraft((prev) => ({
           ...prev,
           markdown: '',
-          targetStationIds,
         }))
       }
 
-      setTaskNotice({
-        kind: failedCount > 0 ? 'error' : 'success',
-        message: t(locale, 'taskCenter.notice.batchSummary', {
-          sent: sentCount,
-          failed: failedCount,
-        }),
-      })
+      if (failedCount > 0) {
+        setTaskNotice({
+          kind: 'error',
+          message: t(locale, 'taskCenter.notice.batchSummary', {
+            sent: sentCount,
+            failed: failedCount,
+          }),
+        })
+      } else {
+        setTaskNotice(null)
+      }
     } catch (error) {
       const detail = describeError(error)
       setTaskNotice({
