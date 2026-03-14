@@ -160,11 +160,85 @@ export function ClaudeConfigModal({
     return cat
   }
 
+  const getPresetLogo = (pid: string) => {
+    if (pid === 'anthropic-official') return '/assets/logos/claude.webp'
+    return null
+  }
+
+  const renderLeftAction = () => {
+    if (stepIndex === 0) return null
+    return (
+      <button
+        className="nav-side-btn"
+        title={stepIndex === 4 ? t(locale, 'aiConfig.common.modify') : t(locale, 'aiConfig.common.back')}
+        onClick={() => {
+          if (stepIndex === 4) setStepIndex(3)
+          else if (stepIndex === 3) setStepIndex(mode === 'official' ? 1 : 2)
+          else setStepIndex(stepIndex - 1)
+        }}
+      >
+        <AppIcon name="chevron-left" width={24} height={24} />
+      </button>
+    )
+  }
+
+  const renderRightAction = () => {
+    // Special case for Step 0: Install button might be needed.
+    // However, if we only have one right button, we prioritze Next.
+    // If we need Install, we can show it as a specific icon or just keep it in content.
+    // Let's keep Install in content and only use side buttons for navigation.
+    
+    if (stepIndex < 3) {
+      return (
+        <button
+          className="nav-side-btn"
+          title={stepIndex === 2 ? t(locale, 'aiConfig.common.gotIt') : t(locale, 'aiConfig.common.next')}
+          onClick={() => {
+            if (stepIndex === 1) setStepIndex(mode === 'official' ? 3 : 2)
+            else setStepIndex(stepIndex + 1)
+          }}
+        >
+          <AppIcon name="chevron-right" width={24} height={24} />
+        </button>
+      )
+    }
+
+    if (stepIndex === 3) {
+      return (
+        <button
+          className="nav-side-btn"
+          disabled={loading}
+          title={t(locale, 'aiConfig.common.previewChanges')}
+          onClick={() => void handleGeneratePreview()}
+        >
+          <AppIcon name={loading ? 'loading' : 'chevron-right'} width={24} height={24} />
+        </button>
+      )
+    }
+
+    if (stepIndex === 4 && preview) {
+      return (
+        <button 
+          className="nav-side-btn btn-apply" 
+          disabled={loading} 
+          title={t(locale, 'aiConfig.common.confirmApply')}
+          onClick={() => void handleApply()}
+        >
+          <AppIcon name={loading ? 'loading' : 'check'} width={24} height={24} />
+        </button>
+      )
+    }
+
+    return null
+  }
+
   return (
     <AiConfigOverlay
       title={t(locale, agent.title as any)}
       subtitle={t(locale, agent.subtitle as any)}
       onClose={onClose}
+      leftAction={renderLeftAction()}
+      rightAction={renderRightAction()}
     >
       <div className="ai-provider-stepper">
         {steps.map((step, idx) => (
@@ -185,334 +259,287 @@ export function ClaudeConfigModal({
 
       <div className="ai-provider-panel">
         {stepIndex === 0 && (
-          <div className="ai-provider-install-grid">
-            <div className="ai-provider-panel__header" style={{ gridColumn: 'span 2' }}>
-              <div>
-                <h4>{t(locale, 'aiConfig.runtime.title')}</h4>
-                <p>{t(locale, 'aiConfig.runtime.desc')}</p>
+          <div className="ai-provider-panel-step">
+            <div className="ai-provider-panel-content is-centered">
+              <div className="ai-provider-panel__header">
+                <div>
+                  <h4>{t(locale, 'aiConfig.runtime.title')}</h4>
+                  <p>{t(locale, 'aiConfig.runtime.desc')}</p>
+                </div>
               </div>
-            </div>
-            <div className="ai-provider-guide-card__summary" style={{ gridColumn: 'span 2' }}>
-              <div>
-                <span>{t(locale, 'aiConfig.runtime.nodeStatus')}</span>
-                <strong style={{ color: agent.installStatus.nodeReady ? '#0f8f50' : '#d4af37' }}>
-                  {agent.installStatus.nodeReady
-                    ? t(locale, 'aiConfig.runtime.ready')
-                    : t(locale, 'aiConfig.runtime.notFound')}
-                </strong>
+              <div className="ai-provider-guide-card__summary">
+                <div>
+                  <span>{t(locale, 'aiConfig.runtime.nodeStatus')}</span>
+                  <strong style={{ color: agent.installStatus.nodeReady ? '#0f8f50' : '#d4af37' }}>
+                    {agent.installStatus.nodeReady
+                      ? t(locale, 'aiConfig.runtime.ready')
+                      : t(locale, 'aiConfig.runtime.notFound')}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t(locale, 'aiConfig.runtime.installStatus')}</span>
+                  <strong style={{ color: agent.installStatus.installed ? '#0f8f50' : '#d4af37' }}>
+                    {agent.installStatus.installed
+                      ? t(locale, 'aiConfig.runtime.cliInstalled')
+                      : t(locale, 'aiConfig.runtime.notInstalled')}
+                  </strong>
+                </div>
               </div>
-              <div>
-                <span>{t(locale, 'aiConfig.runtime.installStatus')}</span>
-                <strong style={{ color: agent.installStatus.installed ? '#0f8f50' : '#d4af37' }}>
-                  {agent.installStatus.installed
-                    ? t(locale, 'aiConfig.runtime.cliInstalled')
-                    : t(locale, 'aiConfig.runtime.notInstalled')}
-                </strong>
-              </div>
-            </div>
-            <div className="ai-config-footer-nav" style={{ gridColumn: 'span 2' }}>
+
               {canInstall && (
-                <button
-                  className="nav-btn btn-primary"
-                  disabled={installDisabled}
-                  onClick={() => onInstall()}
-                >
-                  <AppIcon name="cloud-download" width={16} height={16} />
-                  {installing
-                    ? t(locale, 'aiConfig.runtime.installing')
-                    : t(locale, 'aiConfig.runtime.installAction')}
-                </button>
+                <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+                  <button
+                    className="nav-btn btn-primary"
+                    style={{ height: 44, padding: '0 24px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 8, border: 'none', background: '#171717', color: 'white', cursor: 'pointer' }}
+                    disabled={installDisabled}
+                    onClick={() => onInstall()}
+                  >
+                    <AppIcon name="cloud-download" width={18} height={18} />
+                    {installing
+                      ? t(locale, 'aiConfig.runtime.installing')
+                      : t(locale, 'aiConfig.runtime.installAction')}
+                  </button>
+                </div>
               )}
-              <button className="nav-btn btn-primary" onClick={() => setStepIndex(1)}>
-                {t(locale, 'aiConfig.common.next')}
-                <AppIcon name="chevron-right" width={16} height={16} />
-              </button>
             </div>
           </div>
         )}
 
         {stepIndex === 1 && (
-          <div className="ai-provider-guide-card">
-            <div className="ai-provider-panel__header">
-              <div>
-                <h4>{t(locale, 'aiConfig.mode.title')}</h4>
-                <p>{t(locale, 'aiConfig.mode.desc')}</p>
+          <div className="ai-provider-panel-step">
+            <div className="ai-provider-panel-content">
+              <div className="ai-provider-panel__header">
+                <div>
+                  <h4>{t(locale, 'aiConfig.mode.title')}</h4>
+                  <p>{t(locale, 'aiConfig.mode.desc')}</p>
+                </div>
               </div>
-            </div>
-            <div className="ai-provider-mode-toggle">
-              <button
-                className={mode === 'official' ? 'is-active' : ''}
-                onClick={() => {
-                  setMode('official')
-                  clearDerivedState()
-                }}
-              >
-                {t(locale, 'aiConfig.mode.official')}
-              </button>
-              <button
-                className={mode === 'preset' ? 'is-active' : ''}
-                onClick={() => {
-                  setMode('preset')
-                  clearDerivedState()
-                }}
-              >
-                {t(locale, 'aiConfig.mode.presets')}
-              </button>
-              <button
-                className={mode === 'custom' ? 'is-active' : ''}
-                onClick={() => {
-                  setMode('custom')
-                  clearDerivedState()
-                }}
-              >
-                {t(locale, 'aiConfig.mode.custom')}
-              </button>
-            </div>
-
-            {mode === 'preset' && (
-              <div className="ai-provider-preset-grid">
-                {snapshot.presets
-                  .filter((p) => p.providerId !== 'custom-gateway')
-                  .map((p) => (
-                    <button
-                      key={p.providerId}
-                      className={`ai-provider-preset-card ${providerId === p.providerId ? 'is-active' : ''}`}
-                      onClick={() => resetPresetFields(p.providerId)}
-                    >
-                      <span>{localizeCategory(p.category)}</span>
-                      <strong>{t(locale, p.name as any)}</strong>
-                      <small>{t(locale, p.description as any)}</small>
-                    </button>
-                  ))}
+              <div className="ai-provider-mode-toggle">
+                <button
+                  className={mode === 'official' ? 'is-active' : ''}
+                  onClick={() => {
+                    setMode('official')
+                    clearDerivedState()
+                  }}
+                >
+                  {t(locale, 'aiConfig.mode.official')}
+                </button>
+                <button
+                  className={mode === 'preset' ? 'is-active' : ''}
+                  onClick={() => {
+                    setMode('preset')
+                    clearDerivedState()
+                  }}
+                >
+                  {t(locale, 'aiConfig.mode.presets')}
+                </button>
+                <button
+                  className={mode === 'custom' ? 'is-active' : ''}
+                  onClick={() => {
+                    setMode('custom')
+                    clearDerivedState()
+                  }}
+                >
+                  {t(locale, 'aiConfig.mode.custom')}
+                </button>
               </div>
-            )}
 
-            <div className="ai-config-footer-nav">
-              <button className="nav-btn btn-secondary" onClick={() => setStepIndex(0)}>
-                <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, 'aiConfig.common.back')}
-              </button>
-              <button
-                className="nav-btn btn-primary"
-                onClick={() => setStepIndex(mode === 'official' ? 3 : 2)}
-              >
-                {t(locale, 'aiConfig.common.next')}
-                <AppIcon name="chevron-right" width={16} height={16} />
-              </button>
+              {mode === 'preset' && (
+                <div className="ai-provider-preset-grid">
+                  {snapshot.presets
+                    .filter((p) => p.providerId !== 'custom-gateway')
+                    .map((p) => (
+                      <button
+                        key={p.providerId}
+                        className={`ai-provider-preset-card ${providerId === p.providerId ? 'is-active' : ''}`}
+                        onClick={() => resetPresetFields(p.providerId)}
+                      >
+                        <div className="preset-card-header">
+                          {getPresetLogo(p.providerId) ? (
+                            <img src={getPresetLogo(p.providerId)!} alt="" className="preset-logo" />
+                          ) : (
+                            <div className="preset-logo-placeholder">{p.name.charAt(0)}</div>
+                          )}
+                          <span>{localizeCategory(p.category)}</span>
+                        </div>
+                        <strong>{t(locale, p.name as any)}</strong>
+                        <small>{t(locale, p.description as any)}</small>
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {stepIndex === 2 && (
-          <div className="ai-provider-guide-card">
-            <div className="ai-provider-panel__header">
-              <div>
-                <h4>
-                  {t(locale, 'aiConfig.guide.title')}: {t(locale, selectedPreset.name as any)}
-                </h4>
-                <p>{t(locale, selectedPreset.description as any)}</p>
-              </div>
-            </div>
-            <div className="ai-provider-guide-card__summary">
-              <div>
-                <span>{t(locale, 'aiConfig.guide.recommended')}</span>
-                <strong>{selectedPreset.recommendedModel}</strong>
-              </div>
-              <div>
-                <span>{t(locale, 'aiConfig.guide.authScheme')}</span>
-                <strong>{selectedPreset.authScheme}</strong>
-              </div>
-            </div>
-            <div className="ai-provider-diff-list">
-              {selectedPreset.setupSteps.map((step, idx) => (
-                <div key={idx} className="ai-provider-diff-list__item">
-                  <div className="ai-provider-dot is-warning" />
-                  <div style={{ alignItems: 'flex-start', flex: 1 }}>
-                    <strong>
-                      {t(locale, 'aiConfig.guide.step')} {idx + 1}
-                    </strong>
-                    <small>{t(locale, step as any)}</small>
-                  </div>
+          <div className="ai-provider-panel-step">
+            <div className="ai-provider-panel-content">
+
+              <div className="ai-provider-guide-card__summary">
+                <div>
+                  <span>{t(locale, 'aiConfig.guide.recommended')}</span>
+                  <strong>{selectedPreset.recommendedModel}</strong>
                 </div>
-              ))}
-            </div>
-            <div className="ai-provider-guide-card__links">
-              <a href={selectedPreset.websiteUrl} target="_blank" rel="noreferrer">
-                <AppIcon name="external" width={14} height={14} style={{ marginRight: 6 }} />
-                {t(locale, 'aiConfig.guide.website')}
-              </a>
-              <a href={selectedPreset.apiKeyUrl} target="_blank" rel="noreferrer">
-                <AppIcon name="bolt" width={14} height={14} style={{ marginRight: 6 }} />
-                {t(locale, 'aiConfig.guide.getApiKey')}
-              </a>
-            </div>
-            <div className="ai-config-footer-nav">
-              <button className="nav-btn btn-secondary" onClick={() => setStepIndex(1)}>
-                <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, 'aiConfig.common.back')}
-              </button>
-              <button className="nav-btn btn-primary" onClick={() => setStepIndex(3)}>
-                {t(locale, 'aiConfig.common.gotIt')}
-                <AppIcon name="chevron-right" width={16} height={16} />
-              </button>
+                <div>
+                  <span>{t(locale, 'aiConfig.guide.authScheme')}</span>
+                  <strong>{selectedPreset.authScheme}</strong>
+                </div>
+              </div>
+              <div className="ai-provider-diff-list">
+                {selectedPreset.setupSteps.map((step, idx) => (
+                  <div key={idx} className="ai-provider-diff-list__item">
+                    <div className="ai-provider-dot is-warning" />
+                    <div style={{ alignItems: 'flex-start', flex: 1 }}>
+                      <strong>
+                        {t(locale, 'aiConfig.guide.step')} {idx + 1}
+                      </strong>
+                      <small>{t(locale, step as any)}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="ai-provider-guide-card__links">
+                <a href={selectedPreset.websiteUrl} target="_blank" rel="noreferrer">
+                  <AppIcon name="external" width={14} height={14} style={{ marginRight: 6 }} />
+                  {t(locale, 'aiConfig.guide.website')}
+                </a>
+                <a href={selectedPreset.apiKeyUrl} target="_blank" rel="noreferrer">
+                  <AppIcon name="bolt" width={14} height={14} style={{ marginRight: 6 }} />
+                  {t(locale, 'aiConfig.guide.getApiKey')}
+                </a>
+              </div>
             </div>
           </div>
         )}
 
         {stepIndex === 3 && (
-          <div className="ai-provider-guide-card">
-            <div className="ai-provider-panel__header">
-              <div>
-                <h4>{t(locale, 'aiConfig.details.title')}</h4>
-                <p>
-                  {mode === 'official'
-                    ? t(locale, 'aiConfig.details.officialDesc')
-                    : t(locale, 'aiConfig.details.customDesc')}
-                </p>
-              </div>
-            </div>
-
-            {mode !== 'official' && (
-              <div className="ai-provider-form-grid">
-                <div className="ai-provider-field" style={{ gridColumn: mode === 'custom' ? '1' : 'span 2' }}>
-                  <span>{t(locale, 'aiConfig.details.providerName')}</span>
-                  <input
-                    type="text"
-                    value={providerName}
-                    placeholder={t(locale, 'aiConfig.details.namePlaceholder')}
-                    readOnly={mode === 'preset'}
-                    onChange={(e) => setProviderName(e.target.value)}
-                  />
+          <div className="ai-provider-panel-step">
+            <div className="ai-provider-panel-content">
+              <div className="ai-provider-panel__header">
+                <div>
+                  <h4>{t(locale, 'aiConfig.details.title')}</h4>
+                  <p>
+                    {mode === 'official'
+                      ? t(locale, 'aiConfig.details.officialDesc')
+                      : t(locale, 'aiConfig.details.customDesc')}
+                  </p>
                 </div>
-                {mode === 'custom' && (
+              </div>
+
+              {mode !== 'official' && (
+                <div className="ai-provider-form-grid">
+                  <div className="ai-provider-field" style={{ gridColumn: mode === 'custom' ? '1' : 'span 2' }}>
+                    <span>{t(locale, 'aiConfig.details.providerName')}</span>
+                    <input
+                      type="text"
+                      value={providerName}
+                      placeholder={t(locale, 'aiConfig.details.namePlaceholder')}
+                      readOnly={mode === 'preset'}
+                      onChange={(e) => setProviderName(e.target.value)}
+                    />
+                  </div>
+                  {mode === 'custom' && (
+                    <div className="ai-provider-field">
+                      <span>{t(locale, 'aiConfig.guide.authScheme')}</span>
+                      <select
+                        value={authScheme}
+                        onChange={(e) => setAuthScheme(e.target.value as ClaudeAuthScheme)}
+                      >
+                        <option value="anthropic_api_key">ANTHROPIC_API_KEY</option>
+                        <option value="anthropic_auth_token">ANTHROPIC_AUTH_TOKEN</option>
+                      </select>
+                    </div>
+                  )}
+                  <div className="ai-provider-field" style={{ gridColumn: 'span 2' }}>
+                    <span>{t(locale, 'aiConfig.details.baseUrl')}</span>
+                    <input
+                      type="text"
+                      value={baseUrl}
+                      placeholder={t(locale, 'aiConfig.details.endpointPlaceholder')}
+                      readOnly={mode === 'preset'}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                    />
+                  </div>
                   <div className="ai-provider-field">
-                    <span>{t(locale, 'aiConfig.guide.authScheme')}</span>
-                    <select
-                      value={authScheme}
-                      onChange={(e) => setAuthScheme(e.target.value as ClaudeAuthScheme)}
-                    >
-                      <option value="anthropic_api_key">ANTHROPIC_API_KEY</option>
-                      <option value="anthropic_auth_token">ANTHROPIC_AUTH_TOKEN</option>
-                    </select>
+                    <span>{t(locale, 'aiConfig.details.model')}</span>
+                    <input
+                      type="text"
+                      value={model}
+                      placeholder={t(locale, 'aiConfig.details.modelPlaceholder')}
+                      onChange={(e) => setModel(e.target.value)}
+                    />
                   </div>
-                )}
-                <div className="ai-provider-field" style={{ gridColumn: 'span 2' }}>
-                  <span>{t(locale, 'aiConfig.details.baseUrl')}</span>
-                  <input
-                    type="text"
-                    value={baseUrl}
-                    placeholder={t(locale, 'aiConfig.details.endpointPlaceholder')}
-                    readOnly={mode === 'preset'}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                  />
-                </div>
-                <div className="ai-provider-field">
-                  <span>{t(locale, 'aiConfig.details.model')}</span>
-                  <input
-                    type="text"
-                    value={model}
-                    placeholder={t(locale, 'aiConfig.details.modelPlaceholder')}
-                    onChange={(e) => setModel(e.target.value)}
-                  />
-                </div>
-                <div className="ai-provider-field">
-                  <span>{t(locale, 'aiConfig.details.apiKey')}</span>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    autoComplete="new-password"
-                    placeholder={
-                      snapshot.config.hasSecret
-                        ? t(locale, 'aiConfig.details.vaulted')
-                        : t(locale, 'aiConfig.details.notSet')
-                    }
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-
-            {mode === 'official' && (
-              <div className="ai-provider-diff-list">
-                <div className="ai-provider-diff-list__item">
-                  <div className="ai-provider-dot is-success" />
-                  <div style={{ alignItems: 'flex-start', flex: 1 }}>
-                    <strong>{t(locale, 'aiConfig.details.directTitle')}</strong>
-                    <small>{t(locale, 'aiConfig.details.directDesc')}</small>
+                  <div className="ai-provider-field">
+                    <span>{t(locale, 'aiConfig.details.apiKey')}</span>
+                    <input
+                      type="password"
+                      value={apiKey}
+                      autoComplete="new-password"
+                      placeholder={
+                        snapshot.config.hasSecret
+                          ? t(locale, 'aiConfig.details.vaulted')
+                          : t(locale, 'aiConfig.details.notSet')
+                      }
+                      onChange={(e) => setApiKey(e.target.value)}
+                    />
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="ai-config-footer-nav">
-              <button
-                className="nav-btn btn-secondary"
-                onClick={() => setStepIndex(mode === 'official' ? 1 : 2)}
-              >
-                <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, 'aiConfig.common.back')}
-              </button>
-              <button
-                className="nav-btn btn-primary"
-                disabled={loading}
-                onClick={() => void handleGeneratePreview()}
-              >
-                {loading
-                  ? t(locale, 'aiConfig.common.generating')
-                  : t(locale, 'aiConfig.common.previewChanges')}
-                <AppIcon name="chevron-right" width={16} height={16} />
-              </button>
+              {mode === 'official' && (
+                <div className="ai-provider-diff-list">
+                  <div className="ai-provider-diff-list__item">
+                    <div className="ai-provider-dot is-success" />
+                    <div style={{ alignItems: 'flex-start', flex: 1 }}>
+                      <strong>{t(locale, 'aiConfig.details.directTitle')}</strong>
+                      <small>{t(locale, 'aiConfig.details.directDesc')}</small>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {stepIndex === 4 && preview && (
-          <div className="ai-provider-guide-card">
-            <div className="ai-provider-panel__header">
-              <div>
-                <h4>{t(locale, 'aiConfig.review.title')}</h4>
-                <p>{t(locale, 'aiConfig.review.desc')}</p>
-              </div>
-            </div>
-
-            <div className="ai-provider-diff-list">
-              {preview.maskedDiff.map((change) => (
-                <div key={change.key} className="ai-provider-diff-list__item">
-                  <span>{change.label}</span>
-                  <div>
-                    <small>{change.before || t(locale, 'aiConfig.common.empty')}</small>
-                    <strong style={{ color: '#007aff' }}>
-                      {change.secret ? '********' : change.after}
-                    </strong>
-                  </div>
+          <div className="ai-provider-panel-step">
+            <div className="ai-provider-panel-content">
+              <div className="ai-provider-panel__header">
+                <div>
+                  <h4>{t(locale, 'aiConfig.review.title')}</h4>
+                  <p>{t(locale, 'aiConfig.review.desc')}</p>
                 </div>
-              ))}
-            </div>
+              </div>
 
-            {preview.warnings.length > 0 && (
-              <div className="ai-provider-diff-list" style={{ marginTop: 8 }}>
-                {preview.warnings.map((w, i) => (
-                  <div
-                    key={i}
-                    className="ai-provider-diff-list__item"
-                    style={{ background: '#fff9e6', borderColor: '#ffe58f' }}
-                  >
-                    <div className="ai-provider-dot is-warning" />
-                    <small style={{ color: '#856404' }}>{w}</small>
+              <div className="ai-provider-diff-list">
+                {preview.maskedDiff.map((change) => (
+                  <div key={change.key} className="ai-provider-diff-list__item">
+                    <span>{change.label}</span>
+                    <div>
+                      <small>{change.before || t(locale, 'aiConfig.common.empty')}</small>
+                      <strong style={{ color: '#007aff' }}>
+                        {change.secret ? '********' : change.after}
+                      </strong>
+                    </div>
                   </div>
                 ))}
               </div>
-            )}
 
-            <div className="ai-config-footer-nav">
-              <button className="nav-btn btn-secondary" onClick={() => setStepIndex(3)}>
-                <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, 'aiConfig.common.modify')}
-              </button>
-              <button className="nav-btn btn-apply" disabled={loading} onClick={() => void handleApply()}>
-                <AppIcon name="check" width={16} height={16} />
-                {loading ? t(locale, 'aiConfig.common.applying') : t(locale, 'aiConfig.common.confirmApply')}
-              </button>
+              {preview.warnings.length > 0 && (
+                <div className="ai-provider-diff-list" style={{ marginTop: 8 }}>
+                  {preview.warnings.map((w, i) => (
+                    <div
+                      key={i}
+                      className="ai-provider-diff-list__item"
+                      style={{ background: '#fff9e6', borderColor: '#ffe58f' }}
+                    >
+                      <div className="ai-provider-dot is-warning" />
+                      <small style={{ color: '#856404' }}>{w}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

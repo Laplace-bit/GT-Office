@@ -7,10 +7,12 @@ interface AiConfigOverlayProps {
   title: string
   subtitle?: string
   children: ReactNode
+  leftAction?: ReactNode
+  rightAction?: ReactNode
   onClose: () => void
 }
 
-export function AiConfigOverlay({ title, subtitle, children, onClose }: AiConfigOverlayProps) {
+export function AiConfigOverlay({ title, subtitle, children, leftAction, rightAction, onClose }: AiConfigOverlayProps) {
   const content = (
     <div className="ai-config-overlay-backdrop" onClick={onClose}>
       <div className="ai-config-overlay-container" onClick={(e) => e.stopPropagation()}>
@@ -23,8 +25,23 @@ export function AiConfigOverlay({ title, subtitle, children, onClose }: AiConfig
             <AppIcon name="close" />
           </button>
         </header>
-        <div className="ai-config-overlay-body">
-          {children}
+
+        <div className="ai-config-overlay-main">
+          {leftAction && (
+            <div className="ai-config-side-action is-left">
+              {leftAction}
+            </div>
+          )}
+          
+          <div className="ai-config-overlay-body">
+            {children}
+          </div>
+
+          {rightAction && (
+            <div className="ai-config-side-action is-right">
+              {rightAction}
+            </div>
+          )}
         </div>
       </div>
     </div>

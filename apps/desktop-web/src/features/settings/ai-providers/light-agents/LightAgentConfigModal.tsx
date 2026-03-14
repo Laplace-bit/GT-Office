@@ -83,11 +83,62 @@ export function LightAgentConfigModal({
     }
   }
 
+  const renderFooter = () => (
+    <div className="ai-config-footer-nav">
+      <div className="footer-left">
+        {stepIndex > 0 && (
+          <button className="nav-btn btn-secondary" onClick={() => setStepIndex(stepIndex - 1)}>
+            <AppIcon name="chevron-left" width={16} height={16} />
+            {stepIndex === 2 ? t(locale, 'aiConfig.common.modify') : t(locale, 'aiConfig.common.back')}
+          </button>
+        )}
+      </div>
+      <div className="footer-right">
+        {stepIndex === 0 && canInstall && (
+          <button
+            className="nav-btn btn-primary"
+            disabled={installDisabled}
+            onClick={onInstall}
+          >
+            <AppIcon name="cloud-download" width={16} height={16} />
+            {installing ? t(locale, 'aiConfig.runtime.installing') : t(locale, 'aiConfig.light.installAction')}
+          </button>
+        )}
+        
+        {stepIndex === 0 && (
+          <button className="nav-btn btn-primary" onClick={() => setStepIndex(1)}>
+            {t(locale, 'aiConfig.common.next')}
+            <AppIcon name="chevron-right" width={16} height={16} />
+          </button>
+        )}
+
+        {stepIndex === 1 && (
+          <button
+            className="nav-btn btn-primary"
+            disabled={loading || (!apiKey && !guide.config.hasSecret)}
+            onClick={() => void handleGeneratePreview()}
+          >
+            {loading ? '...' : t(locale, 'aiConfig.common.previewChanges')}
+            <AppIcon name="chevron-right" width={16} height={16} />
+          </button>
+        )}
+
+        {stepIndex === 2 && preview && (
+          <button className="nav-btn btn-apply" disabled={loading} onClick={() => void handleApply()}>
+            <AppIcon name="check" width={16} height={16} />
+            {loading ? t(locale, 'aiConfig.common.applying') : t(locale, 'aiConfig.common.confirmApply')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <AiConfigOverlay
       title={t(locale, agent.title as any)}
       subtitle={t(locale, agent.subtitle as any)}
       onClose={onClose}
+      footer={renderFooter()}
     >
       <div className="light-stepper">
         {[1, 2, 3].map((s) => (
@@ -133,23 +184,6 @@ export function LightAgentConfigModal({
                 ))}
               </ul>
             </div>
-
-            <div className="ai-config-footer-nav">
-              {canInstall && (
-                <button
-                  className="nav-btn btn-primary"
-                  disabled={installDisabled}
-                  onClick={onInstall}
-                >
-                  <AppIcon name="cloud-download" width={16} height={16} />
-                  {installing ? t(locale, 'aiConfig.runtime.installing') : t(locale, 'aiConfig.light.installAction')}
-                </button>
-              )}
-              <button className="nav-btn btn-primary" onClick={() => setStepIndex(1)}>
-                {t(locale, 'aiConfig.common.next')}
-                <AppIcon name="chevron-right" width={16} height={16} />
-              </button>
-            </div>
           </div>
         )}
 
@@ -171,20 +205,6 @@ export function LightAgentConfigModal({
                 onChange={(e) => setApiKey(e.target.value)}
               />
             </div>
-            <div className="ai-config-footer-nav">
-              <button className="nav-btn btn-secondary" onClick={() => setStepIndex(0)}>
-                <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, 'aiConfig.common.back')}
-              </button>
-              <button
-                className="nav-btn btn-primary"
-                disabled={loading || (!apiKey && !guide.config.hasSecret)}
-                onClick={() => void handleGeneratePreview()}
-              >
-                {loading ? '...' : t(locale, 'aiConfig.common.previewChanges')}
-                <AppIcon name="chevron-right" width={16} height={16} />
-              </button>
-            </div>
           </div>
         )}
 
@@ -198,16 +218,6 @@ export function LightAgentConfigModal({
                   <span className="val">{t(locale, 'aiConfig.light.ready')}</span>
                 </div>
               ))}
-            </div>
-            <div className="ai-config-footer-nav">
-              <button className="nav-btn btn-secondary" onClick={() => setStepIndex(1)}>
-                <AppIcon name="chevron-left" width={16} height={16} />
-                {t(locale, 'aiConfig.common.modify')}
-              </button>
-              <button className="nav-btn btn-apply" disabled={loading} onClick={() => void handleApply()}>
-                <AppIcon name="check" width={16} height={16} />
-                {loading ? t(locale, 'aiConfig.common.applying') : t(locale, 'aiConfig.common.confirmApply')}
-              </button>
             </div>
           </div>
         )}

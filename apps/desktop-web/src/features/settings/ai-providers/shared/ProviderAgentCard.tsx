@@ -47,6 +47,12 @@ export function ProviderAgentCard({
   const tone = resolveStatusTone(agent)
   const label = resolveStatusLabel(locale, agent)
 
+  const logoSrc = {
+    claude: '/assets/logos/claude.webp',
+    codex: '/assets/logos/openai.webp',
+    gemini: '/assets/logos/gemini.webp',
+  }[agent.agent]
+
   return (
     <article
       className={`ai-provider-card ${selected ? 'is-active' : ''} is-${tone}`}
@@ -54,7 +60,7 @@ export function ProviderAgentCard({
     >
       <div className="ai-provider-card__header">
         <div className="ai-provider-card__icon">
-          {agent.agent === 'claude' ? '󰚩' : '󰚩'}
+          <img src={logoSrc} alt={agent.agent} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div className="ai-provider-card__title">
           <h4>{t(locale, agent.title as any)}</h4>
@@ -89,13 +95,15 @@ export function ProviderAgentCard({
             {installing ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.install')}
           </button>
         ) : (
-          <button
-            className="action-button secondary"
-            onClick={(e) => { e.stopPropagation(); onConfigure(); }}
-          >
-            <AppIcon name="settings" width={14} height={14} />
-            {t(locale, 'aiConfig.card.configure')}
-          </button>
+          agent.agent !== 'gemini' && (
+            <button
+              className="action-button secondary"
+              onClick={(e) => { e.stopPropagation(); onConfigure(); }}
+            >
+              <AppIcon name="settings" width={14} height={14} />
+              {t(locale, 'aiConfig.card.configure')}
+            </button>
+          )
         )}
       </div>
     </article>

@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   display: grid;
@@ -12,17 +12,17 @@
 }
 
 .ai-config-overlay-container {
-  width: 720px;
+  width: 80%; /* Slightly wider to accommodate side buttons if needed, but we keep buttons inside */
+  height: min(820px, 90vh);
   max-width: 100%;
-  max-height: 90vh;
-  background: color-mix(in srgb, var(--vb-surface) 85%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 95%, transparent);
   backdrop-filter: blur(40px) saturate(150%);
   -webkit-backdrop-filter: blur(40px) saturate(150%);
-  border: 1px solid color-mix(in srgb, var(--vb-border) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vb-border) 40%, transparent);
   border-radius: 24px;
   box-shadow: 
-    0 20px 60px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 24px 80px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -30,30 +30,32 @@
 }
 
 .ai-config-overlay-header {
-  padding: 24px 32px;
+  padding: 16px 32px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   border-bottom: 1px solid var(--vb-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  flex-shrink: 0;
 
   .header-info {
     h2 {
       margin: 0;
-      font-size: 20px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--vb-text);
-      letter-spacing: -0.02em;
+      letter-spacing: -0.01em;
     }
     p {
-      margin: 4px 0 0;
-      font-size: 13px;
+      margin: 2px 0 0;
+      font-size: 11px;
       color: var(--vb-text-muted);
     }
   }
 
   .close-button {
-    width: 32px;
-    height: 32px;
+    width: 26px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -67,15 +69,24 @@
     &:hover {
       background: var(--vb-hover-overlay);
       color: var(--vb-text);
-      transform: scale(1.1);
+      transform: scale(1.05);
     }
   }
+}
+
+.ai-config-overlay-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
 }
 
 .ai-config-overlay-body {
   flex: 1;
   overflow-y: auto;
-  padding: 32px;
+  padding: 32px 48px; /* Added side padding for cleaner look */
+  display: flex;
+  flex-direction: column;
 
   /* Custom scrollbar for glass effect */
   &::-webkit-scrollbar {
@@ -87,76 +98,62 @@
   }
 }
 
-/* === Premium Navigation Buttons === */
-.ai-config-footer-nav {
+/* === Side Action Buttons === */
+.ai-config-side-action {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  pointer-events: none; /* Let container below be clickable unless hitting the button */
   display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid var(--vb-border-subtle);
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
 
-  .nav-btn {
-    height: 40px;
-    padding: 0 20px;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 600;
+  &.is-left { left: 0; }
+  &.is-right { right: 0; }
+
+  .nav-side-btn {
+    pointer-events: auto;
+    width: 32px;
+    height: 84px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    border: 1px solid var(--vb-border-subtle);
+    background: color-mix(in srgb, var(--vb-surface) 60%, transparent);
+    backdrop-filter: blur(10px);
+    color: var(--vb-text);
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    border: none;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
-    svg {
-      transition: transform 0.2s ease;
-    }
-
-    &.btn-secondary {
-      background: var(--vb-bg-tertiary);
-      color: var(--vb-text);
-      border: 1px solid var(--vb-border-subtle);
-      
-      &:hover:not(:disabled) {
-        background: var(--vb-hover-overlay);
-        border-color: var(--vb-accent);
-        transform: translateY(-1px);
-        svg { transform: translateX(-2px); }
-      }
-    }
-
-    &.btn-primary {
-      background: linear-gradient(180deg, var(--vb-accent) 0%, color-mix(in srgb, var(--vb-accent) 90%, black) 100%);
+    &:hover:not(:disabled) {
+      background: var(--vb-accent);
       color: white;
-      box-shadow: 0 4px 12px color-mix(in srgb, var(--vb-accent) 30%, transparent);
-      
-      &:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 16px color-mix(in srgb, var(--vb-accent) 45%, transparent);
-        svg { transform: translateX(2px); }
-      }
-
-      &:active:not(:disabled) {
-        transform: scale(0.98);
-      }
+      border-color: var(--vb-accent);
+      transform: scale(1.1);
+      box-shadow: 0 8px 24px color-mix(in srgb, var(--vb-accent) 30%, transparent);
     }
 
-    &.btn-apply {
-      background: linear-gradient(180deg, #34c759 0%, #28a745 100%);
-      color: white;
-      box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
-
-      &:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 16px rgba(52, 199, 89, 0.45);
-      }
+    &:active:not(:disabled) {
+      transform: scale(0.95);
     }
 
     &:disabled {
-      opacity: 0.4;
+      opacity: 0.15;
       cursor: not-allowed;
-      filter: grayscale(0.5);
+    }
+
+    &.btn-apply {
+      background: #10b981;
+      color: white;
+      border-color: #10b981;
+      &:hover {
+        background: #059669;
+        box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+      }
     }
   }
 }
@@ -167,12 +164,12 @@
 }
 
 @keyframes modal-pop-in {
-  from { opacity: 0; transform: scale(0.95) translateY(20px); }
+  from { opacity: 0; transform: scale(0.98) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* Dark theme specific adjustments */
 [data-theme='graphite-dark'] .ai-config-overlay-container {
-  background: rgba(28, 28, 30, 0.85);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(28, 28, 30, 0.95);
+  border-color: rgba(255, 255, 255, 0.08);
 }
