@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+
 use vb_tools::agent_installer::{AgentInstallStatus, AgentInstaller, AgentType};
 
 use crate::process_utils::configure_std_command;
@@ -90,9 +91,44 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
         window
             .emit(
                 &progress_event,
-                format!("✨ {} installed successfully!", name),
+                format!("✅ {} base tool installed. Configuring MCP bridge...", name),
             )
             .unwrap();
+
+        // Run MCP installer
+        let resource_path = window.app_handle().path().resource_dir().unwrap_or_default();
+        let installer_script = resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
+
+        // Fallback to relative path if resource_dir doesn't work (e.g. in dev)
+        let installer_path = if installer_script.exists() {
+            installer_script
+        } else {
+            std::path::PathBuf::from("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs")
+        };
+
+        let mut mcp_cmd = Command::new("node");
+        configure_std_command(&mut mcp_cmd);
+        mcp_cmd.arg(installer_path);
+
+        let mcp_status = mcp_cmd
+            .status()
+            .map_err(|e| format!("MCP installer failed to start: {}", e))?;
+        if mcp_status.success() {
+            window
+                .emit(
+                    &progress_event,
+                    format!("🎉 {} fully deployed with MCP bridge!", name),
+                )
+                .unwrap();
+        } else {
+            window
+                .emit(
+                    &progress_event,
+                    format!("⚠️ {} installed, but MCP bridge configuration failed.", name),
+                )
+                .unwrap();
+        }
+
         Ok(())
     } else {
         Err(format!(

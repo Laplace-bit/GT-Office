@@ -154,6 +154,8 @@ pub fn codex_light_guide() -> LightAgentGuide {
             "GT Office will continue to detect whether Codex is installed and ready to launch."
                 .to_string(),
         ],
+        config: Default::default(),
+        mcp_installed: false,
     }
 }
 
@@ -171,5 +173,7 @@ pub fn gemini_light_guide() -> LightAgentGuide {
             "Use this page as a launch readiness check, not as a secondary configuration panel."
                 .to_string(),
         ],
+        config: Default::default(),
+        mcp_installed: false,
     }
 }

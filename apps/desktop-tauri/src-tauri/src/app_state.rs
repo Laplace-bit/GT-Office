@@ -7,7 +7,7 @@ use std::{
 };
 use tracing::debug;
 use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
-use vb_ai_config::StoredClaudePreview;
+use vb_ai_config::StoredAiConfigPreview;
 use vb_git::GitService;
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
 use vb_task::AgentToolKind;
@@ -177,7 +177,7 @@ pub struct AppState {
     workspace_watchers: WorkspaceWatcherRegistry,
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
     mcp_directory_snapshots: Arc<Mutex<HashMap<String, Value>>>,
-    ai_config_previews: Arc<Mutex<HashMap<String, StoredClaudePreview>>>,
+    ai_config_previews: Arc<Mutex<HashMap<String, StoredAiConfigPreview>>>,
 }
 
 impl Default for AppState {
@@ -312,15 +312,23 @@ impl AppState {
         Ok(())
     }
 
-    pub fn cache_ai_config_preview(&self, preview: StoredClaudePreview) -> Result<(), String> {
+    pub fn cache_ai_config_preview(&self, preview: StoredAiConfigPreview) -> Result<(), String> {
+        let preview_id = match &preview {
+            StoredAiConfigPreview::Claude(p) => p.preview_id.clone(),
+            StoredAiConfigPreview::Codex(p) => p.preview_id.clone(),
+            StoredAiConfigPreview::Gemini(p) => p.preview_id.clone(),
+        };
         let mut previews = self.ai_config_previews.lock().map_err(|_| {
             "AI_CONFIG_PREVIEW_LOCK_POISONED: ai config preview lock poisoned".to_string()
         })?;
-        previews.insert(preview.preview_id.clone(), preview);
+        previews.insert(preview_id, preview);
         Ok(())
     }
 
-    pub fn take_ai_config_preview(&self, preview_id: &str) -> Result<Option<StoredClaudePreview>, String> {
+    pub fn take_ai_config_preview(
+        &self,
+        preview_id: &str,
+    ) -> Result<Option<StoredAiConfigPreview>, String> {
         let mut previews = self.ai_config_previews.lock().map_err(|_| {
             "AI_CONFIG_PREVIEW_LOCK_POISONED: ai config preview lock poisoned".to_string()
         })?;

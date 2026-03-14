@@ -112,6 +112,14 @@ pub struct ClaudeConfigSnapshot {
     pub updated_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LightAgentConfigSnapshot {
+    pub has_secret: bool,
+    pub secret_ref: Option<String>,
+    pub updated_at_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeSnapshot {
@@ -128,6 +136,8 @@ pub struct LightAgentGuide {
     pub config_path: Option<String>,
     pub docs_url: String,
     pub tips: Vec<String>,
+    pub config: LightAgentConfigSnapshot,
+    pub mcp_installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +178,20 @@ pub struct ClaudeDraftInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LightAgentDraftInput {
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiConfigDraftInput {
+    Claude(ClaudeDraftInput),
+    Codex(LightAgentDraftInput),
+    Gemini(LightAgentDraftInput),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaudeNormalizedDraft {
     pub mode: ClaudeProviderMode,
     pub provider_id: Option<String>,
@@ -177,6 +201,21 @@ pub struct ClaudeNormalizedDraft {
     pub auth_scheme: Option<ClaudeAuthScheme>,
     pub secret_ref: Option<String>,
     pub has_secret: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LightAgentNormalizedDraft {
+    pub has_secret: bool,
+    pub secret_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiConfigNormalizedDraft {
+    Claude(ClaudeNormalizedDraft),
+    Codex(LightAgentNormalizedDraft),
+    Gemini(LightAgentNormalizedDraft),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,7 +237,7 @@ pub struct AiConfigPreviewResponse {
     pub agent: AiConfigAgent,
     pub preview_id: String,
     pub allowed: bool,
-    pub normalized_draft: ClaudeNormalizedDraft,
+    pub normalized_draft: AiConfigNormalizedDraft,
     pub masked_diff: Vec<AiConfigMaskedChange>,
     pub changed_keys: Vec<String>,
     pub secret_refs: Vec<String>,
@@ -213,14 +252,32 @@ pub struct AiConfigApplyResponse {
     pub confirmed_by: String,
     pub applied: bool,
     pub audit_id: String,
-    pub effective: ClaudeConfigSnapshot,
+    pub effective: AiConfigSnapshot,
     pub changed_targets: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum StoredAiConfigPreview {
+    Claude(StoredClaudePreview),
+    Codex(StoredLightAgentPreview),
+    Gemini(StoredLightAgentPreview),
 }
 
 #[derive(Debug, Clone)]
 pub struct StoredClaudePreview {
     pub preview_id: String,
     pub normalized_draft: ClaudeNormalizedDraft,
+    pub changed_keys: Vec<String>,
+    pub secret_refs: Vec<String>,
+    pub warnings: Vec<String>,
+    pub api_key_secret: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredLightAgentPreview {
+    pub preview_id: String,
+    pub agent: AiConfigAgent,
+    pub normalized_draft: LightAgentNormalizedDraft,
     pub changed_keys: Vec<String>,
     pub secret_refs: Vec<String>,
     pub warnings: Vec<String>,

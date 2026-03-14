@@ -101,7 +101,13 @@ export function SettingsModal({
       case 'ai':
         return (
           <div className="settings-pane-section">
-            <AiProvidersSection locale={locale} workspaceId={workspaceId} />
+            {workspaceId ? (
+              <AiProvidersSection locale={locale} workspaceId={workspaceId} />
+            ) : (
+              <p style={{ padding: '24px 0', color: 'var(--vb-text-muted)' }}>
+                {t(locale, '请先打开一个工作区以管理 AI 配置。', 'Please open a workspace to manage AI configuration.')}
+              </p>
+            )}
           </div>
         )
       case 'about':

@@ -1,15 +1,13 @@
 use std::collections::BTreeMap;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use vb_ai_config::{
-    claude_provider_presets, codex_light_guide, gemini_light_guide, AiAgentConfigStatus,
-    AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent, AiConfigReadSnapshotResponse,
-    AiConfigService, AiConfigSnapshot, ClaudeDraftInput, ClaudeSnapshot,
+    AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
+    LightAgentDraftInput, StoredAiConfigPreview,
 };
 use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
 use vb_task::AgentToolKind;
-use vb_tools::agent_installer::{AgentInstaller, AgentType};
 
 use crate::app_state::AppState;
 
@@ -39,48 +37,6 @@ fn resolve_ai_config_service(
     ))
 }
 
-fn map_install_status(agent: AgentType) -> AiAgentInstallStatus {
-    let status = AgentInstaller::install_status(agent);
-    AiAgentInstallStatus {
-        installed: status.installed,
-        executable: status.executable,
-        requires_node: status.requires_node,
-        node_ready: status.node_ready,
-    }
-}
-
-fn claude_summary(config: &vb_ai_config::ClaudeConfigSnapshot) -> Option<String> {
-    let provider = config.provider_name.as_deref().unwrap_or("Native Claude");
-    let model = config.model.as_deref().unwrap_or("default");
-    config
-        .active_mode
-        .as_ref()
-        .map(|mode| format!("{mode:?}: {provider} / {model}"))
-}
-
-fn claude_status(config: &vb_ai_config::ClaudeConfigSnapshot) -> AiAgentConfigStatus {
-    if config.active_mode.is_some() {
-        AiAgentConfigStatus::Configured
-    } else {
-        AiAgentConfigStatus::Unconfigured
-    }
-}
-
-fn parse_tool_kind(value: Option<String>) -> AgentToolKind {
-    match value
-        .unwrap_or_else(|| "unknown".to_string())
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "claude" => AgentToolKind::Claude,
-        "codex" => AgentToolKind::Codex,
-        "gemini" => AgentToolKind::Gemini,
-        "shell" => AgentToolKind::Shell,
-        _ => AgentToolKind::Unknown,
-    }
-}
-
 pub fn augment_terminal_env_for_agent(
     app: &AppHandle,
     state: &AppState,
@@ -88,13 +44,17 @@ pub fn augment_terminal_env_for_agent(
     tool_kind: AgentToolKind,
     mut env: BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, String>, String> {
-    if tool_kind != AgentToolKind::Claude {
-        return Ok(env);
-    }
+    let agent = match tool_kind {
+        AgentToolKind::Claude => AiConfigAgent::Claude,
+        AgentToolKind::Codex => AiConfigAgent::Codex,
+        AgentToolKind::Gemini => AiConfigAgent::Gemini,
+        _ => return Ok(env),
+    };
+
     let workspace_root = state.workspace_root_path(workspace_id)?;
     let service = resolve_ai_config_service(app, state)?;
     let runtime_env = service
-        .build_claude_runtime_env(&workspace_root)
+        .build_agent_runtime_env(agent, &workspace_root)
         .map_err(|error| error.to_string())?;
     env.extend(runtime_env);
     Ok(env)
@@ -110,48 +70,9 @@ pub fn ai_config_read_snapshot(
     ensure_workspace_exists(&state, &workspace_id)?;
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let service = resolve_ai_config_service(&app, &state)?;
-    let claude_config = service
-        .read_claude_config(&workspace_root)
+    let snapshot = service
+        .read_snapshot(&workspace_id, &workspace_root)
         .map_err(|error| error.to_string())?;
-
-    let snapshot = AiConfigSnapshot {
-        agents: vec![
-            AiAgentSnapshotCard {
-                agent: AiConfigAgent::Claude,
-                title: "Claude Code".to_string(),
-                subtitle: "Full provider configuration, model override, and runtime injection."
-                    .to_string(),
-                install_status: map_install_status(AgentType::ClaudeCode),
-                config_status: claude_status(&claude_config),
-                active_summary: claude_summary(&claude_config),
-            },
-            AiAgentSnapshotCard {
-                agent: AiConfigAgent::Codex,
-                title: "Codex CLI".to_string(),
-                subtitle: "Install check and official configuration guidance only in v1."
-                    .to_string(),
-                install_status: map_install_status(AgentType::Codex),
-                config_status: AiAgentConfigStatus::GuidanceOnly,
-                active_summary: Some("Use Codex's native login and config flow.".to_string()),
-            },
-            AiAgentSnapshotCard {
-                agent: AiConfigAgent::Gemini,
-                title: "Gemini CLI".to_string(),
-                subtitle: "Install check and official configuration guidance only in v1."
-                    .to_string(),
-                install_status: map_install_status(AgentType::Gemini),
-                config_status: AiAgentConfigStatus::GuidanceOnly,
-                active_summary: Some("Use Gemini's native configuration flow.".to_string()),
-            },
-        ],
-        claude: ClaudeSnapshot {
-            presets: claude_provider_presets(),
-            config: claude_config,
-            can_apply_official_mode: true,
-        },
-        codex: codex_light_guide(),
-        gemini: gemini_light_guide(),
-    };
 
     Ok(AiConfigReadSnapshotResponse {
         workspace_id,
@@ -171,19 +92,26 @@ pub fn ai_config_preview_patch(
     app: AppHandle,
 ) -> Result<vb_ai_config::AiConfigPreviewResponse, String> {
     ensure_workspace_exists(&state, &workspace_id)?;
-    let agent = AiConfigAgent::parse(&agent)
+    let agent_type = AiConfigAgent::parse(&agent)
         .ok_or_else(|| "AI_CONFIG_AGENT_UNSUPPORTED: unsupported agent".to_string())?;
-    if agent != AiConfigAgent::Claude {
-        return Err("AI_CONFIG_AGENT_UNSUPPORTED: only Claude supports advanced provider configuration in v1".to_string());
-    }
 
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let service = resolve_ai_config_service(&app, &state)?;
-    let draft: ClaudeDraftInput = serde_json::from_value(draft)
-        .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
-    let (preview, stored_preview) = service
-        .preview_claude_patch(&workspace_id, &workspace_root, &scope, draft)
-        .map_err(|error| error.to_string())?;
+
+    let (preview, stored_preview) = match agent_type {
+        AiConfigAgent::Claude => {
+            let draft: ClaudeDraftInput = serde_json::from_value(draft)
+                .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
+            service.preview_claude_patch(&workspace_id, &workspace_root, &scope, draft)
+        }
+        AiConfigAgent::Codex | AiConfigAgent::Gemini => {
+            let draft: LightAgentDraftInput = serde_json::from_value(draft)
+                .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
+            service.preview_light_agent_patch(&workspace_id, &workspace_root, agent_type, draft)
+        }
+    }
+    .map_err(|error| error.to_string())?;
+
     state.cache_ai_config_preview(stored_preview)?;
     Ok(preview)
 }
@@ -202,20 +130,59 @@ pub fn ai_config_apply_patch(
         .ok_or_else(|| "AI_CONFIG_PREVIEW_NOT_FOUND: preview has expired".to_string())?;
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let service = resolve_ai_config_service(&app, &state)?;
-    let response = service
-        .apply_claude_preview(&workspace_id, &workspace_root, &confirmed_by, &preview)
-        .map_err(|error| error.to_string())?;
+
+    let response = match &preview {
+        StoredAiConfigPreview::Claude(p) => {
+            service.apply_claude_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+        }
+        StoredAiConfigPreview::Codex(p) | StoredAiConfigPreview::Gemini(p) => {
+            service.apply_light_agent_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+        }
+    }
+    .map_err(|error| error.to_string())?;
+
+    let changed_keys = match &preview {
+        StoredAiConfigPreview::Claude(p) => p.changed_keys.clone(),
+        StoredAiConfigPreview::Codex(p) | StoredAiConfigPreview::Gemini(p) => p.changed_keys.clone(),
+    };
+
     let _ = app.emit(
         "ai_config/changed",
-        serde_json::json!({
+        json!({
             "auditId": response.audit_id,
             "scope": "workspace",
-            "changedKeys": preview.changed_keys,
+            "changedKeys": changed_keys,
         }),
     );
     Ok(response)
 }
 
+#[tauri::command]
+pub fn ai_config_list_audit_logs(
+    workspace_id: String,
+    agent: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Vec<vb_storage::AiConfigAuditLogInput>, String> {
+    ensure_workspace_exists(&state, &workspace_id)?;
+    let service = resolve_ai_config_service(&app, &state)?;
+    service
+        .list_audit_logs(&workspace_id, &agent, limit.unwrap_or(10))
+        .map_err(|error| error.to_string())
+}
+
 pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {
-    parse_tool_kind(value)
+    match value
+        .unwrap_or_else(|| "unknown".to_string())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "claude" => AgentToolKind::Claude,
+        "codex" => AgentToolKind::Codex,
+        "gemini" => AgentToolKind::Gemini,
+        "shell" => AgentToolKind::Shell,
+        _ => AgentToolKind::Unknown,
+    }
 }

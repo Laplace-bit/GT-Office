@@ -1,3 +1,4 @@
+
 export interface WorkspaceWindowActiveResponse {
   windowLabel: string
   workspaceId?: string | null
@@ -544,12 +545,20 @@ export interface ClaudeSnapshot {
   canApplyOfficialMode: boolean
 }
 
+export interface LightAgentConfigSnapshot {
+  hasSecret: boolean
+  secretRef: string | null
+  updatedAtMs: number | null
+}
+
 export interface LightAgentGuide {
   title: string
   summary: string
   configPath?: string | null
   docsUrl: string
   tips: string[]
+  config: LightAgentConfigSnapshot
+  mcpInstalled: boolean
 }
 
 export interface AiConfigSnapshot {
@@ -573,6 +582,10 @@ export interface ClaudeDraftInput {
   baseUrl?: string | null
   model?: string | null
   authScheme?: ClaudeAuthScheme | null
+  apiKey?: string | null
+}
+
+export interface LightAgentDraftInput {
   apiKey?: string | null
 }
 
@@ -614,7 +627,7 @@ export interface AiConfigApplyResponse {
   confirmedBy: string
   applied: boolean
   auditId: string
-  effective: ClaudeConfigSnapshot
+  effective: AiConfigSnapshot
   changedTargets: string[]
 }
 
@@ -1026,7 +1039,7 @@ export interface ChannelAckPayload {
   workspaceId: string
   messageId: string
   targetAgentId: string
-  status: 'delivered' | 'failed'
+  status: 'delivered' | 'failed' | 'ack'
   reason?: string | null
   tsMs: number
 }
@@ -1421,7 +1434,7 @@ export const desktopApi = {
     workspaceId: string,
     agent: AiConfigAgent,
     scope: 'workspace',
-    draft: ClaudeDraftInput,
+    draft: ClaudeDraftInput | LightAgentDraftInput,
   ) {
     return invokeCommand<AiConfigPreviewResponse>('ai_config_preview_patch', {
       workspaceId,
@@ -1435,6 +1448,13 @@ export const desktopApi = {
       workspaceId,
       previewId,
       confirmedBy,
+    })
+  },
+  aiConfigListAuditLogs(workspaceId: string, agent: string, limit?: number | null) {
+    return invokeCommand<any[]>('ai_config_list_audit_logs', {
+      workspaceId,
+      agent,
+      limit: limit ?? null,
     })
   },
   agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {

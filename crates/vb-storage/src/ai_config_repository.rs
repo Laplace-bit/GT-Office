@@ -84,6 +84,61 @@ impl SqliteAiConfigRepository {
         })?;
         Ok(())
     }
+
+    pub fn query_audit_logs(
+        &self,
+        workspace_id: &str,
+        agent: &str,
+        limit: usize,
+    ) -> Result<Vec<AiConfigAuditLogInput>, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT 
+                    audit_id,
+                    workspace_id,
+                    agent,
+                    mode,
+                    provider_id,
+                    changed_keys_json,
+                    secret_refs_json,
+                    confirmed_by,
+                    created_at_ms
+                FROM ai_config_audit_logs
+                WHERE workspace_id = ?1 AND agent = ?2
+                ORDER BY created_at_ms DESC
+                LIMIT ?3",
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let rows = stmt
+            .query_map(params![workspace_id, agent, limit], |row| {
+                Ok(AiConfigAuditLogInput {
+                    audit_id: row.get(0)?,
+                    workspace_id: row.get(1)?,
+                    agent: row.get(2)?,
+                    mode: row.get(3)?,
+                    provider_id: row.get(4)?,
+                    changed_keys_json: row.get(5)?,
+                    secret_refs_json: row.get(6)?,
+                    confirmed_by: row.get(7)?,
+                    created_at_ms: row.get(8)?,
+                })
+            })
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?);
+        }
+        Ok(results)
+    }
 }
 
 const AI_CONFIG_SCHEMA: &str = r#"

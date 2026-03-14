@@ -187,6 +187,7 @@ pub fn run() {
             settings::ai_config::ai_config_read_snapshot,
             settings::ai_config::ai_config_preview_patch,
             settings::ai_config::ai_config_apply_patch,
+            settings::ai_config::ai_config_list_audit_logs,
             security::security_health,
             system::system_gto_doctor,
             system::system_pick_directory,

@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'react'
 
-import { desktopApi, type AiAgentSnapshotCard, type AiConfigPreviewResponse, type ClaudeAuthScheme, type ClaudeDraftInput, type ClaudeProviderMode, type ClaudeSnapshot } from '@shell/integration/desktop-api'
+import {
+  desktopApi,
+  type AiAgentSnapshotCard,
+  type AiConfigPreviewResponse,
+  type ClaudeAuthScheme,
+  type ClaudeDraftInput,
+  type ClaudeProviderMode,
+  type ClaudeSnapshot,
+} from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+
+import { AuditLogView } from '../shared/AuditLogView'
+
+import './ClaudeProviderWorkspace.scss'
 
 interface ClaudeProviderWorkspaceProps {
   locale: Locale
@@ -13,8 +25,6 @@ interface ClaudeProviderWorkspaceProps {
   onInstall: () => void
   onReload: () => Promise<void>
 }
-
-const STEP_IDS = ['check', 'provider', 'guidance', 'details', 'apply'] as const
 
 function defaultPresetId(snapshot: ClaudeSnapshot): string {
   const nonCustom = snapshot.presets.find((preset) => preset.providerId !== 'custom-gateway')
@@ -34,6 +44,8 @@ function formatTimestamp(locale: Locale, tsMs?: number | null): string | null {
   }).format(tsMs)
 }
 
+type Tab = 'setup' | 'audit'
+
 export function ClaudeProviderWorkspace({
   locale,
   workspaceId,
@@ -43,6 +55,7 @@ export function ClaudeProviderWorkspace({
   onInstall,
   onReload,
 }: ClaudeProviderWorkspaceProps) {
+  const [activeTab, setActiveTab] = useState<Tab>('setup')
   const [stepIndex, setStepIndex] = useState(0)
   const [mode, setMode] = useState<ClaudeProviderMode>('preset')
   const [providerId, setProviderId] = useState(defaultPresetId(snapshot))
@@ -56,7 +69,8 @@ export function ClaudeProviderWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const selectedPreset = snapshot.presets.find((preset) => preset.providerId === providerId) ?? snapshot.presets[0]
+  const selectedPreset =
+    snapshot.presets.find((preset) => preset.providerId === providerId) ?? snapshot.presets[0]
   const currentUpdatedAt = formatTimestamp(locale, snapshot.config.updatedAtMs)
   const canInstall = !agent.installStatus.installed
   const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
@@ -70,20 +84,26 @@ export function ClaudeProviderWorkspace({
   useEffect(() => {
     const nextMode = snapshot.config.activeMode ?? 'preset'
     const nextProviderId =
-      snapshot.config.providerId && snapshot.presets.some((preset) => preset.providerId === snapshot.config.providerId)
+      snapshot.config.providerId &&
+      snapshot.presets.some((preset) => preset.providerId === snapshot.config.providerId)
         ? snapshot.config.providerId
         : defaultPresetId(snapshot)
-    const nextPreset = snapshot.presets.find((preset) => preset.providerId === nextProviderId) ?? snapshot.presets[0]
+    const nextPreset =
+      snapshot.presets.find((preset) => preset.providerId === nextProviderId) ?? snapshot.presets[0]
 
     setMode(nextMode)
     setProviderId(nextProviderId)
-    setProviderName(snapshot.config.providerName ?? (nextMode === 'custom' ? '' : nextPreset?.name ?? ''))
+    setProviderName(
+      snapshot.config.providerName ?? (nextMode === 'custom' ? '' : nextPreset?.name ?? ''),
+    )
     setBaseUrl(snapshot.config.baseUrl ?? (nextPreset?.endpoint ?? ''))
     setModel(snapshot.config.model ?? (nextPreset?.recommendedModel ?? ''))
     setAuthScheme(snapshot.config.authScheme ?? (nextPreset?.authScheme ?? 'anthropic_api_key'))
     setApiKey('')
     clearDerivedState()
-    setStepIndex(0)
+    if (activeTab === 'setup') {
+      setStepIndex(0)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.config.activeMode, snapshot.config.providerId, snapshot.config.updatedAtMs])
 
@@ -100,431 +120,509 @@ export function ClaudeProviderWorkspace({
     clearDerivedState()
   }
 
-  function buildDraft(): ClaudeDraftInput {
-    if (mode === 'official') {
-      return { mode: 'official' }
-    }
-    if (mode === 'custom') {
-      return {
-        mode: 'custom',
-        providerName,
-        baseUrl,
-        model,
-        authScheme,
-        apiKey: apiKey || null,
-      }
-    }
-    return {
-      mode: 'preset',
-      providerId,
-      baseUrl,
-      model,
-      authScheme,
-      apiKey: apiKey || null,
-    }
-  }
-
-  async function handlePreview() {
+  async function handleGeneratePreview() {
     setLoading(true)
     setError(null)
-    setSuccess(null)
     try {
-      const nextPreview = await desktopApi.aiConfigPreviewPatch(workspaceId, 'claude', 'workspace', buildDraft())
-      setPreview(nextPreview)
+      const draft: ClaudeDraftInput = {
+        mode,
+        providerId: mode === 'preset' ? providerId : undefined,
+        providerName: mode === 'custom' ? providerName : undefined,
+        baseUrl: mode === 'official' ? undefined : baseUrl,
+        model: mode === 'official' ? undefined : model,
+        authScheme: mode === 'official' ? undefined : authScheme,
+        apiKey: apiKey.trim() || undefined,
+      }
+      const resp = await desktopApi.aiConfigPreviewPatch(workspaceId, 'claude', 'workspace', draft)
+      setPreview(resp)
       setStepIndex(4)
-    } catch (previewError) {
-      setError(String(previewError))
+    } catch (err: any) {
+      setError(err.message || String(err))
     } finally {
       setLoading(false)
     }
   }
 
   async function handleApply() {
+    if (!preview) {
+      return
+    }
     setLoading(true)
     setError(null)
-    setSuccess(null)
     try {
-      const ensuredPreview = preview ?? (await desktopApi.aiConfigPreviewPatch(workspaceId, 'claude', 'workspace', buildDraft()))
-      if (!preview) {
-        setPreview(ensuredPreview)
-      }
-      await desktopApi.aiConfigApplyPatch(workspaceId, ensuredPreview.previewId, 'settings-ui')
-      setApiKey('')
-      setSuccess(
-        t(
-          locale,
-          'Claude 配置已应用。新的 Claude 会话启动后会自动生效。',
-          'Claude settings applied. They will take effect for new Claude sessions.',
-        ),
-      )
+      await desktopApi.aiConfigApplyPatch(workspaceId, preview.previewId, 'System Admin')
+      setSuccess(t(locale, '配置已成功应用', 'Configuration applied successfully'))
       await onReload()
-      setStepIndex(4)
-    } catch (applyError) {
-      setError(String(applyError))
+      setStepIndex(0)
+      setPreview(null)
+      setActiveTab('audit')
+    } catch (err: any) {
+      setError(err.message || String(err))
     } finally {
       setLoading(false)
     }
   }
 
-  const stepLabels = [
-    t(locale, '安装检查', 'Install check'),
-    t(locale, '选择供应商', 'Choose provider'),
-    t(locale, '充值与 Key', 'Billing & key'),
-    t(locale, '模型与高级项', 'Model & advanced'),
-    t(locale, '预览并应用', 'Preview & apply'),
+  const steps = [
+    {
+      id: 'check',
+      label: t(locale, '环境检查', 'System Check'),
+      active: stepIndex === 0,
+      complete: stepIndex > 0,
+    },
+    {
+      id: 'provider',
+      label: t(locale, '供应商模式', 'Provider Mode'),
+      active: stepIndex === 1,
+      complete: stepIndex > 1,
+    },
+    {
+      id: 'guidance',
+      label: t(locale, '获取凭据', 'Get Credentials'),
+      active: stepIndex === 2,
+      complete: stepIndex > 2,
+    },
+    {
+      id: 'details',
+      label: t(locale, '详细配置', 'Config Details'),
+      active: stepIndex === 3,
+      complete: stepIndex > 3,
+    },
+    {
+      id: 'apply',
+      label: t(locale, '预览并应用', 'Review & Apply'),
+      active: stepIndex === 4,
+      complete: false,
+    },
   ]
 
   return (
     <section className="ai-claude-workspace">
-      <div className="ai-claude-workspace__header">
+      <header className="ai-claude-workspace__header">
         <div>
-          <h3>{t(locale, 'Claude Code 深度配置', 'Claude Code advanced setup')}</h3>
-          <p>
-            {t(
-              locale,
-              '针对 Claude 做完整供应商切换、模型覆盖和 API Key 托管。密钥仅进入系统凭据库，不写入工作区明文文件。',
-              'Claude supports provider switching, model override, and API key vaulting. Secrets stay in the system credential store and are never written to workspace files.',
-            )}
-          </p>
+          <h3>{agent.title}</h3>
+          <p>{agent.subtitle}</p>
         </div>
-        <div className="ai-provider-surface-block ai-provider-surface-block--compact">
-          <span className="ai-provider-surface-block__label">{t(locale, '当前生效配置', 'Current effective setup')}</span>
-          <strong>{snapshot.config.providerName ?? t(locale, '尚未配置', 'Not configured')}</strong>
-          <small>{snapshot.config.model ?? t(locale, '将使用原生 Claude 配置', 'Using native Claude config')}</small>
-          {currentUpdatedAt ? <small>{t(locale, `最近更新 ${currentUpdatedAt}`, `Updated ${currentUpdatedAt}`)}</small> : null}
-        </div>
-      </div>
-
-      <div className="ai-provider-stepper">
-        {STEP_IDS.map((stepId, index) => (
-          <button
-            key={stepId}
-            type="button"
-            className={`ai-provider-stepper__item ${index === stepIndex ? 'is-active' : ''} ${index < stepIndex ? 'is-complete' : ''}`}
-            onClick={() => setStepIndex(index)}
-          >
-            <span>{index + 1}</span>
-            <strong>{stepLabels[index]}</strong>
-          </button>
-        ))}
-      </div>
-
-      {stepIndex === 0 ? (
-        <div className="ai-provider-panel">
-          <div className="ai-provider-panel__header">
-            <div>
-              <h4>{t(locale, '先确认 Claude CLI 状态', 'Start with Claude CLI readiness')}</h4>
-              <p>{t(locale, '如果 CLI 还没装好，先在这里完成安装。', 'If Claude CLI is not installed yet, complete that first.')}</p>
-            </div>
-            <span className={`ai-provider-dot ${agent.installStatus.installed ? 'is-success' : 'is-warning'}`} />
+        <div className="ai-provider-guide-card__summary">
+          <div>
+            <span>{t(locale, '当前状态', 'Status')}</span>
+            <strong style={{ color: agent.configStatus === 'configured' ? '#0f8f50' : undefined }}>
+              {agent.configStatus === 'configured'
+                ? t(locale, '已配置', 'Configured')
+                : t(locale, '未配置', 'Unconfigured')}
+            </strong>
           </div>
-
-          <div className="ai-provider-install-grid">
-            <div className="ai-provider-surface-block">
-              <span className="ai-provider-surface-block__label">{t(locale, 'CLI 状态', 'CLI status')}</span>
-              <strong>{agent.installStatus.installed ? t(locale, '已安装', 'Installed') : t(locale, '尚未安装', 'Not installed')}</strong>
-              <small>{agent.installStatus.executable ?? t(locale, '未检测到 Claude 可执行命令', 'Claude executable not detected')}</small>
-            </div>
-            <div className="ai-provider-surface-block">
-              <span className="ai-provider-surface-block__label">{t(locale, '生效方式', 'How it applies')}</span>
-              <strong>{t(locale, 'GT Office 会在启动 Claude 会话时自动注入配置', 'GT Office injects settings when a Claude session is launched')}</strong>
-              <small>{t(locale, '已运行中的 Claude 会话不会热切换。', 'Existing Claude sessions are not hot-swapped.')}</small>
-            </div>
-          </div>
-
-          {canInstall ? (
-            <button
-              type="button"
-              className="ai-provider-primary-button"
-              onClick={onInstall}
-              disabled={installDisabled}
-            >
-              {installing ? t(locale, '安装中...', 'Installing...') : t(locale, '安装 Claude CLI', 'Install Claude CLI')}
-            </button>
-          ) : (
-            <button type="button" className="ai-provider-primary-button" onClick={() => setStepIndex(1)}>
-              {t(locale, '继续配置供应商', 'Continue to provider setup')}
-            </button>
-          )}
-        </div>
-      ) : null}
-
-      {stepIndex === 1 ? (
-        <div className="ai-provider-panel">
-          <div className="ai-provider-mode-toggle">
-            <button
-              type="button"
-              className={mode === 'official' ? 'is-active' : ''}
-              onClick={() => {
-                setMode('official')
-                clearDerivedState()
-              }}
-            >
-              {t(locale, '恢复原生 Claude', 'Use native Claude')}
-            </button>
-            <button
-              type="button"
-              className={mode === 'preset' ? 'is-active' : ''}
-              onClick={() => {
-                setMode('preset')
-                resetPresetFields(providerId)
-              }}
-            >
-              {t(locale, '精选预设', 'Curated presets')}
-            </button>
-            <button
-              type="button"
-              className={mode === 'custom' ? 'is-active' : ''}
-              onClick={() => {
-                setMode('custom')
-                setProviderName(snapshot.config.providerName ?? '')
-                clearDerivedState()
-              }}
-            >
-              {t(locale, '自定义网关', 'Custom gateway')}
-            </button>
-          </div>
-
-          {mode === 'official' ? (
-            <div className="ai-provider-surface-block">
-              <span className="ai-provider-surface-block__label">{t(locale, '原生模式说明', 'Native mode')}</span>
-              <strong>{t(locale, 'GT Office 不注入任何 Claude 供应商环境变量，Claude CLI 将继续使用你本机已有的登录或默认配置。', 'GT Office will not inject provider env vars. Claude CLI keeps using your local sign-in or default configuration.')}</strong>
-            </div>
-          ) : null}
-
-          {mode === 'preset' ? (
-            <div className="ai-provider-preset-grid">
-              {snapshot.presets
-                .filter((preset) => preset.providerId !== 'custom-gateway')
-                .map((preset) => (
-                  <button
-                    key={preset.providerId}
-                    type="button"
-                    className={`ai-provider-preset-card ${providerId === preset.providerId ? 'is-active' : ''}`}
-                    onClick={() => resetPresetFields(preset.providerId)}
-                  >
-                    <span>{preset.name}</span>
-                    <strong>{preset.recommendedModel}</strong>
-                    <small>{preset.description}</small>
-                  </button>
-                ))}
-            </div>
-          ) : null}
-
-          {mode === 'custom' ? (
-            <div className="ai-provider-surface-block">
-              <span className="ai-provider-surface-block__label">{t(locale, '自定义模式说明', 'Custom mode')}</span>
-              <strong>{t(locale, '适用于内部网关、企业代理或你自己的兼容端点。', 'Use this for an internal gateway, enterprise proxy, or your own compatible endpoint.')}</strong>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {stepIndex === 2 ? (
-        <div className="ai-provider-panel">
-          <div className="ai-provider-panel__header">
-            <div>
-              <h4>{t(locale, '不会充值或拿 Key？按这里做', 'Need billing or API key help? Follow this')}</h4>
-              <p>{t(locale, '把用户最容易卡住的两件事直接前置：充值和创建 API Key。', 'Surface the two most common blockers first: billing and API key creation.')}</p>
-            </div>
-            <AppIcon name="sparkles" aria-hidden="true" />
-          </div>
-
-          {mode === 'official' ? (
-            <div className="ai-provider-surface-block">
-              <span className="ai-provider-surface-block__label">{t(locale, '原生模式没有必填表单', 'No required form in native mode')}</span>
-              <strong>{t(locale, '如果你已经在本机登录过 Claude CLI，可以直接下一步；如果想用 API Key 托管，请切回“精选预设”。', 'If Claude CLI is already signed in on this machine, continue. Switch back to curated presets if you want GT Office to manage an API key.')}</strong>
-            </div>
-          ) : (
-            <div className="ai-provider-guide-card">
-              <div className="ai-provider-guide-card__links">
-                <a href={selectedPreset.websiteUrl} target="_blank" rel="noreferrer">
-                  {t(locale, '打开供应商控制台', 'Open provider console')}
-                </a>
-                <a href={selectedPreset.billingUrl} target="_blank" rel="noreferrer">
-                  {t(locale, '充值/订阅入口', 'Billing / recharge')}
-                </a>
-                <a href={selectedPreset.apiKeyUrl} target="_blank" rel="noreferrer">
-                  {t(locale, 'API Key 管理页', 'API key page')}
-                </a>
-              </div>
-
-              <div className="ai-provider-guide-card__summary">
-                <div>
-                  <span>{t(locale, '推荐理由', 'Why choose it')}</span>
-                  <strong>{selectedPreset.whyChoose}</strong>
-                </div>
-                <div>
-                  <span>{t(locale, '适合谁', 'Best for')}</span>
-                  <strong>{selectedPreset.bestFor}</strong>
-                </div>
-              </div>
-
-              <ol className="ai-provider-ordered-list">
-                {selectedPreset.setupSteps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-            </div>
-          )}
-
-          <div className="ai-provider-footer-actions">
-            <button type="button" className="ai-provider-link-button" onClick={() => setStepIndex(3)}>
-              {t(locale, '跳过引导，直接填写配置', 'Skip guidance and fill settings')}
-            </button>
+          <div>
+            <span>{t(locale, '最后更新', 'Last Updated')}</span>
+            <strong>{currentUpdatedAt || t(locale, '从无', 'Never')}</strong>
           </div>
         </div>
-      ) : null}
+      </header>
 
-      {stepIndex === 3 ? (
-        <div className="ai-provider-panel">
-          <div className="ai-provider-form-grid">
-            {mode === 'custom' ? (
-              <label className="ai-provider-field">
-                <span>{t(locale, '供应商名称', 'Provider name')}</span>
-                <input
-                  value={providerName}
-                  onChange={(event) => {
-                    setProviderName(event.target.value)
-                    clearDerivedState()
-                  }}
-                  placeholder="My Gateway"
-                />
-              </label>
-            ) : null}
+      <nav className="ai-provider-tabs">
+        <button
+          className={`ai-provider-tab ${activeTab === 'setup' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('setup')}
+        >
+          {t(locale, '配置引导', 'Setup Guide')}
+        </button>
+        <button
+          className={`ai-provider-tab ${activeTab === 'audit' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('audit')}
+        >
+          {t(locale, '审计日志', 'Audit Log')}
+        </button>
+      </nav>
 
-            {mode !== 'official' ? (
-              <>
-                <label className="ai-provider-field">
-                  <span>{t(locale, 'Endpoint', 'Endpoint')}</span>
-                  <input
-                    value={baseUrl}
-                    onChange={(event) => {
-                      setBaseUrl(event.target.value)
-                      clearDerivedState()
-                    }}
-                    placeholder="https://api.example.com/anthropic"
-                  />
-                </label>
-                <label className="ai-provider-field">
-                  <span>{t(locale, '模型名称', 'Model')}</span>
-                  <input
-                    value={model}
-                    onChange={(event) => {
-                      setModel(event.target.value)
-                      clearDerivedState()
-                    }}
-                    placeholder="claude-sonnet-4-5"
-                  />
-                </label>
-                <label className="ai-provider-field">
-                  <span>{t(locale, '认证变量', 'Auth env')}</span>
-                  <select
-                    value={authScheme}
-                    onChange={(event) => {
-                      setAuthScheme(event.target.value as ClaudeAuthScheme)
-                      clearDerivedState()
-                    }}
-                  >
-                    <option value="anthropic_api_key">ANTHROPIC_API_KEY</option>
-                    <option value="anthropic_auth_token">ANTHROPIC_AUTH_TOKEN</option>
-                  </select>
-                </label>
-                <label className="ai-provider-field">
-                  <span>{t(locale, 'API Key', 'API key')}</span>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => {
-                      setApiKey(event.target.value)
-                      clearDerivedState()
-                    }}
-                    placeholder={
-                      snapshot.config.hasSecret
-                        ? t(locale, '留空则继续使用当前已保存的密钥', 'Leave blank to keep the saved secret')
-                        : 'sk-...'
-                    }
-                  />
-                  <small>{t(locale, '密钥只会进入系统凭据库，不会写进 `.gtoffice/config.json`。', 'The key is stored only in the system credential store, never in `.gtoffice/config.json`.')}</small>
-                </label>
-              </>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {stepIndex === 4 ? (
-        <div className="ai-provider-panel">
-          <div className="ai-provider-panel__header">
-            <div>
-              <h4>{t(locale, '应用前预览', 'Preview before apply')}</h4>
-              <p>{t(locale, '任何 AI 配置变更都必须经过预览、确认和审计。', 'Every AI configuration change goes through preview, confirmation, and audit.')}</p>
-            </div>
-            <AppIcon name="check" aria-hidden="true" />
+      {activeTab === 'audit' ? (
+        <AuditLogView workspaceId={workspaceId} agent="claude" locale={locale} />
+      ) : (
+        <>
+          <div className="ai-provider-stepper">
+            {steps.map((step, idx) => (
+              <button
+                key={step.id}
+                className={`ai-provider-stepper__item ${step.active ? 'is-active' : ''} ${step.complete ? 'is-complete' : ''}`}
+                disabled={idx > stepIndex && !step.complete}
+                onClick={() => {
+                  setStepIndex(idx)
+                  clearDerivedState()
+                }}
+              >
+                <span>{idx + 1}</span>
+                <strong>{step.label}</strong>
+              </button>
+            ))}
           </div>
 
-          {preview ? (
-            <div className="ai-provider-diff-list">
-              {preview.maskedDiff.map((item) => (
-                <div key={item.key} className="ai-provider-diff-list__item">
-                  <span>{item.label}</span>
+          <div className="ai-provider-panel">
+            {stepIndex === 0 && (
+              <div className="ai-provider-install-grid">
+                <div className="ai-provider-panel__header" style={{ gridColumn: 'span 2' }}>
                   <div>
-                    <small>{item.before ?? t(locale, '未设置', 'Not set')}</small>
-                    <strong>{item.after ?? t(locale, '未设置', 'Not set')}</strong>
+                    <h4>{t(locale, '运行环境检查', 'Runtime Environment')}</h4>
+                    <p>
+                      {t(
+                        locale,
+                        'Claude Code 需要 Node.js 环境。请确保已安装最新版本并将其添加到系统 PATH 中。',
+                        'Claude Code requires Node.js. Ensure you have the latest version installed and added to your system PATH.',
+                      )}
+                    </p>
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="ai-provider-surface-block">
-              <span className="ai-provider-surface-block__label">{t(locale, '尚未生成预览', 'Preview not generated yet')}</span>
-              <strong>{t(locale, '先生成预览，再决定是否应用。', 'Generate a preview first, then decide whether to apply it.')}</strong>
-            </div>
-          )}
+                <div className="ai-provider-guide-card__summary" style={{ gridColumn: 'span 2' }}>
+                  <div>
+                    <span>{t(locale, 'Node.js 状态', 'Node.js Status')}</span>
+                    <strong style={{ color: agent.installStatus.nodeReady ? '#0f8f50' : '#d4af37' }}>
+                      {agent.installStatus.nodeReady
+                        ? t(locale, '已就绪', 'Ready')
+                        : t(locale, '未找到', 'Not Found')}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{t(locale, '安装状态', 'Install Status')}</span>
+                    <strong style={{ color: agent.installStatus.installed ? '#0f8f50' : '#d4af37' }}>
+                      {agent.installStatus.installed
+                        ? t(locale, '已安装 CLI', 'CLI Installed')
+                        : t(locale, '未安装', 'Not Installed')}
+                    </strong>
+                  </div>
+                </div>
+                <div className="ai-provider-footer-actions" style={{ gridColumn: 'span 2' }}>
+                  {canInstall && (
+                    <button
+                      className="primary-button"
+                      disabled={installDisabled}
+                      onClick={() => onInstall()}
+                    >
+                      {installing
+                        ? t(locale, '安装中...', 'Installing...')
+                        : t(locale, '立即安装 CLI', 'Install CLI')}
+                    </button>
+                  )}
+                  <button className="primary-button" onClick={() => setStepIndex(1)}>
+                    {t(locale, '下一步', 'Next')}
+                  </button>
+                </div>
+              </div>
+            )}
 
-          {preview?.warnings.length ? (
-            <ul className="ai-provider-list">
-              {preview.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+            {stepIndex === 1 && (
+              <div className="ai-provider-guide-card">
+                <div className="ai-provider-panel__header">
+                  <div>
+                    <h4>{t(locale, '选择供应商模式', 'Select Provider Mode')}</h4>
+                    <p>
+                      {t(
+                        locale,
+                        '您可以直接连接 Anthropic 官方，也可以通过预设的网关供应商（如 DeepSeek、Kimi）或自定义 API 代理。',
+                        'Connect directly to Anthropic, use a preset gateway (DeepSeek, Kimi), or a custom API proxy.',
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="ai-provider-mode-toggle">
+                  <button
+                    className={mode === 'official' ? 'is-active' : ''}
+                    onClick={() => {
+                      setMode('official')
+                      clearDerivedState()
+                    }}
+                  >
+                    {t(locale, '官方', 'Official')}
+                  </button>
+                  <button
+                    className={mode === 'preset' ? 'is-active' : ''}
+                    onClick={() => {
+                      setMode('preset')
+                      clearDerivedState()
+                    }}
+                  >
+                    {t(locale, '预设网关', 'Presets')}
+                  </button>
+                  <button
+                    className={mode === 'custom' ? 'is-active' : ''}
+                    onClick={() => {
+                      setMode('custom')
+                      clearDerivedState()
+                    }}
+                  >
+                    {t(locale, '自定义', 'Custom')}
+                  </button>
+                </div>
 
-      {error ? <p className="ai-provider-feedback ai-provider-feedback--error">{error}</p> : null}
-      {success ? <p className="ai-provider-feedback ai-provider-feedback--success">{success}</p> : null}
+                {mode === 'preset' && (
+                  <div className="ai-provider-preset-grid">
+                    {snapshot.presets
+                      .filter((p) => p.providerId !== 'custom-gateway')
+                      .map((p) => (
+                        <button
+                          key={p.providerId}
+                          className={`ai-provider-preset-card ${providerId === p.providerId ? 'is-active' : ''}`}
+                          onClick={() => resetPresetFields(p.providerId)}
+                        >
+                          <span>{p.category}</span>
+                          <strong>{p.name}</strong>
+                          <small>{p.description}</small>
+                        </button>
+                      ))}
+                  </div>
+                )}
 
-      <div className="ai-provider-footer-actions">
-        <button
-          type="button"
-          className="ai-provider-secondary-button"
-          onClick={() => setStepIndex((current) => Math.max(0, current - 1))}
-          disabled={stepIndex === 0 || loading}
-        >
-          {t(locale, '上一步', 'Back')}
-        </button>
+                <div className="ai-provider-footer-actions">
+                  <button className="secondary-button" onClick={() => setStepIndex(0)}>
+                    {t(locale, '上一步', 'Back')}
+                  </button>
+                  <button
+                    className="primary-button"
+                    onClick={() => setStepIndex(mode === 'official' ? 3 : 2)}
+                  >
+                    {t(locale, '下一步', 'Next')}
+                  </button>
+                </div>
+              </div>
+            )}
 
-        {stepIndex < 4 ? (
-          <button
-            type="button"
-            className="ai-provider-primary-button"
-            onClick={() => setStepIndex((current) => Math.min(4, current + 1))}
-            disabled={loading}
-          >
-            {t(locale, '下一步', 'Next')}
-          </button>
-        ) : (
-          <>
-            <button type="button" className="ai-provider-secondary-button" onClick={handlePreview} disabled={loading}>
-              {loading ? t(locale, '处理中...', 'Working...') : t(locale, '生成预览', 'Generate preview')}
-            </button>
-            <button type="button" className="ai-provider-primary-button" onClick={handleApply} disabled={loading}>
-              {loading ? t(locale, '应用中...', 'Applying...') : t(locale, '确认并应用', 'Confirm and apply')}
-            </button>
-          </>
-        )}
-      </div>
+            {stepIndex === 2 && (
+              <div className="ai-provider-guide-card">
+                <div className="ai-provider-panel__header">
+                  <div>
+                    <h4>
+                      {t(locale, '获取凭据引导', 'Credentials Guide')}: {selectedPreset.name}
+                    </h4>
+                    <p>{selectedPreset.description}</p>
+                  </div>
+                </div>
+                <div className="ai-provider-guide-card__summary">
+                  <div>
+                    <span>{t(locale, '推荐模型', 'Recommended')}</span>
+                    <strong>{selectedPreset.recommendedModel}</strong>
+                  </div>
+                  <div>
+                    <span>{t(locale, '鉴权方案', 'Auth Scheme')}</span>
+                    <strong>{selectedPreset.authScheme}</strong>
+                  </div>
+                </div>
+                <div className="ai-provider-diff-list">
+                  {selectedPreset.setupSteps.map((step, idx) => (
+                    <div key={idx} className="ai-provider-diff-list__item">
+                      <div className="ai-provider-dot is-warning" />
+                      <div style={{ alignItems: 'flex-start', flex: 1 }}>
+                        <strong>
+                          {t(locale, '步骤', 'Step')} {idx + 1}
+                        </strong>
+                        <small>{step}</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="ai-provider-guide-card__links">
+                  <a href={selectedPreset.websiteUrl} target="_blank" rel="noreferrer">
+                    <AppIcon name="external" width={14} height={14} style={{ marginRight: 6 }} />
+                    {t(locale, '供应商官网', 'Website')}
+                  </a>
+                  <a href={selectedPreset.apiKeyUrl} target="_blank" rel="noreferrer">
+                    <AppIcon name="bolt" width={14} height={14} style={{ marginRight: 6 }} />
+                    {t(locale, '获取 API Key', 'Get API Key')}
+                  </a>
+                </div>
+                <div className="ai-provider-footer-actions">
+                  <button className="secondary-button" onClick={() => setStepIndex(1)}>
+                    {t(locale, '上一步', 'Back')}
+                  </button>
+                  <button className="primary-button" onClick={() => setStepIndex(3)}>
+                    {t(locale, '已获取，下一步', 'Got it, next')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {stepIndex === 3 && (
+              <div className="ai-provider-guide-card">
+                <div className="ai-provider-panel__header">
+                  <div>
+                    <h4>{t(locale, '详细参数配置', 'Configuration Details')}</h4>
+                    <p>
+                      {mode === 'official'
+                        ? t(
+                            locale,
+                            '官方模式下，配置将由 CLI 自动托管。',
+                            'In official mode, config is managed by CLI.',
+                          )
+                        : t(
+                            locale,
+                            '请核对 API 端点、模型名称并填入您的 API Key。',
+                            'Please verify the endpoint, model, and enter your API Key.',
+                          )}
+                    </p>
+                  </div>
+                </div>
+
+                {mode !== 'official' && (
+                  <div className="ai-provider-form-grid">
+                    <div className="ai-provider-field" style={{ gridColumn: mode === 'custom' ? '1' : 'span 2' }}>
+                      <span>{t(locale, '网关名称', 'Provider Name')}</span>
+                      <input
+                        type="text"
+                        value={providerName}
+                        readOnly={mode === 'preset'}
+                        onChange={(e) => setProviderName(e.target.value)}
+                      />
+                    </div>
+                    {mode === 'custom' && (
+                      <div className="ai-provider-field">
+                        <span>{t(locale, '鉴权方案', 'Auth Scheme')}</span>
+                        <select
+                          value={authScheme}
+                          onChange={(e) => setAuthScheme(e.target.value as ClaudeAuthScheme)}
+                        >
+                          <option value="anthropic_api_key">ANTHROPIC_API_KEY</option>
+                          <option value="anthropic_auth_token">ANTHROPIC_AUTH_TOKEN</option>
+                        </select>
+                      </div>
+                    )}
+                    <div className="ai-provider-field" style={{ gridColumn: 'span 2' }}>
+                      <span>{t(locale, 'API 端点 (Base URL)', 'Endpoint URL')}</span>
+                      <input
+                        type="text"
+                        value={baseUrl}
+                        placeholder="https://..."
+                        readOnly={mode === 'preset'}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                      />
+                    </div>
+                    <div className="ai-provider-field">
+                      <span>{t(locale, '模型 (Model)', 'Model')}</span>
+                      <input
+                        type="text"
+                        value={model}
+                        placeholder="claude-3-5-sonnet-20241022"
+                        onChange={(e) => setModel(e.target.value)}
+                      />
+                    </div>
+                    <div className="ai-provider-field">
+                      <span>{t(locale, 'API Key', 'API Key')}</span>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        autoComplete="new-password"
+                        placeholder={
+                          snapshot.config.hasSecret
+                            ? t(locale, '已托管 (输入以覆盖)', 'Vaulted (enter to override)')
+                            : t(locale, '未设置', 'Not set')
+                        }
+                        onChange={(e) => setApiKey(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mode === 'official' && (
+                  <div className="ai-provider-diff-list">
+                    <div className="ai-provider-diff-list__item">
+                      <div className="ai-provider-dot is-success" />
+                      <div style={{ alignItems: 'flex-start', flex: 1 }}>
+                        <strong>{t(locale, '官方直连', 'Direct Official')}</strong>
+                        <small>
+                          {t(
+                            locale,
+                            '直接使用 `claude` 命令内置的登录与配置流程。GT Office 不会干预其凭据。',
+                            'Uses the native `claude` login flow. GT Office will not intercept credentials.',
+                          )}
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="ai-provider-footer-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => setStepIndex(mode === 'official' ? 1 : 2)}
+                  >
+                    {t(locale, '上一步', 'Back')}
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={loading}
+                    onClick={() => void handleGeneratePreview()}
+                  >
+                    {loading
+                      ? t(locale, '生成中...', 'Generating...')
+                      : t(locale, '查看预览', 'Preview Changes')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {stepIndex === 4 && preview && (
+              <div className="ai-provider-guide-card">
+                <div className="ai-provider-panel__header">
+                  <div>
+                    <h4>{t(locale, '核对并确认变更', 'Review & Confirm')}</h4>
+                    <p>
+                      {t(
+                        locale,
+                        '请确认以下变更。凭据将加密存储，其他配置将写入工作区设置。',
+                        'Please confirm changes. Credentials will be vaulted, other configs saved to workspace settings.',
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="ai-provider-diff-list">
+                  {preview.maskedDiff.map((change) => (
+                    <div key={change.key} className="ai-provider-diff-list__item">
+                      <span>{change.label}</span>
+                      <div>
+                        <small>{change.before || t(locale, '(空)', '(empty)')}</small>
+                        <strong style={{ color: '#007aff' }}>
+                          {change.secret ? '********' : change.after}
+                        </strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {preview.warnings.length > 0 && (
+                  <div className="ai-provider-diff-list" style={{ marginTop: 8 }}>
+                    {preview.warnings.map((w, i) => (
+                      <div
+                        key={i}
+                        className="ai-provider-diff-list__item"
+                        style={{ background: '#fff9e6', borderColor: '#ffe58f' }}
+                      >
+                        <div className="ai-provider-dot is-warning" />
+                        <small style={{ color: '#856404' }}>{w}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="ai-provider-footer-actions">
+                  <button className="secondary-button" onClick={() => setStepIndex(3)}>
+                    {t(locale, '返回修改', 'Modify')}
+                  </button>
+                  <button className="primary-button" disabled={loading} onClick={() => void handleApply()}>
+                    {loading ? t(locale, '应用中...', 'Applying...') : t(locale, '确认并应用', 'Confirm & Apply')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <div className="error-message" style={{ marginTop: 16 }}>
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="success-message" style={{ marginTop: 16 }}>
+                {success}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </section>
   )
 }

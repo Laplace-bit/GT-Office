@@ -4,6 +4,35 @@
   gap: 20px;
 }
 
+.ai-provider-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--vb-border-subtle);
+  padding: 0 4px;
+  margin-bottom: 8px;
+
+  .ai-provider-tab {
+    padding: 8px 0 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--vb-text-muted);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover {
+      color: var(--vb-text);
+    }
+
+    &.is-active {
+      color: var(--vb-accent);
+      border-bottom-color: var(--vb-accent);
+    }
+  }
+}
+
 .ai-claude-workspace__header {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);

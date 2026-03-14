@@ -9,10 +9,13 @@ use vb_settings::{JsonSettingsService, SettingsPaths};
 use vb_storage::{AiConfigAuditLogInput, SqliteAiConfigRepository};
 
 use crate::{
-    catalog::claude_provider_presets,
+    catalog::{claude_provider_presets, codex_light_guide, gemini_light_guide},
     models::{
-        AiConfigApplyResponse, AiConfigMaskedChange, AiConfigPreviewResponse, ClaudeConfigSnapshot,
-        ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode, StoredClaudePreview,
+        AiConfigAgent, AiConfigApplyResponse, AiConfigMaskedChange, AiConfigNormalizedDraft,
+        AiConfigPreviewResponse, AiConfigSnapshot, ClaudeConfigSnapshot, ClaudeDraftInput,
+        ClaudeNormalizedDraft, ClaudeProviderMode, ClaudeSnapshot, LightAgentConfigSnapshot,
+        LightAgentDraftInput, LightAgentNormalizedDraft, StoredAiConfigPreview,
+        StoredClaudePreview, StoredLightAgentPreview,
     },
 };
 
@@ -59,6 +62,17 @@ impl AiConfigService {
             .to_string()
     }
 
+    pub fn list_audit_logs(
+        &self,
+        workspace_id: &str,
+        agent: &str,
+        limit: usize,
+    ) -> AiConfigResult<Vec<AiConfigAuditLogInput>> {
+        self.audit_repository
+            .query_audit_logs(workspace_id, agent, limit)
+            .map_err(|error| AiConfigError::Storage(error.to_string()))
+    }
+
     pub fn read_claude_config(&self, workspace_root: &Path) -> AiConfigResult<ClaudeConfigSnapshot> {
         let effective = self
             .settings
@@ -67,13 +81,46 @@ impl AiConfigService {
         read_claude_config_from_value(&effective.values)
     }
 
+    pub fn read_light_agent_config(
+        &self,
+        agent: AiConfigAgent,
+        workspace_root: &Path,
+    ) -> AiConfigResult<LightAgentConfigSnapshot> {
+        let effective = self
+            .settings
+            .load_effective(Some(workspace_root))
+            .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+        let path = format!("/ai/providers/{}", agent.as_str());
+        let config_value = effective
+            .values
+            .pointer(&path)
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+
+        let secret_ref = config_value
+            .get("secretRef")
+            .and_then(Value::as_str)
+            .map(|v| v.to_string());
+        let has_secret = config_value
+            .get("hasSecret")
+            .and_then(Value::as_bool)
+            .unwrap_or_else(|| secret_ref.is_some());
+        let updated_at_ms = config_value.get("updatedAtMs").and_then(Value::as_u64);
+
+        Ok(LightAgentConfigSnapshot {
+            has_secret,
+            secret_ref,
+            updated_at_ms,
+        })
+    }
+
     pub fn preview_claude_patch(
         &self,
         workspace_id: &str,
         workspace_root: &Path,
         scope: &str,
         draft: ClaudeDraftInput,
-    ) -> AiConfigResult<(AiConfigPreviewResponse, StoredClaudePreview)> {
+    ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
         if !scope.trim().eq_ignore_ascii_case("workspace") {
             return Err(AiConfigError::UnsupportedScope(
                 "only workspace scope is supported".to_string(),
@@ -99,10 +146,10 @@ impl AiConfigService {
         let response = AiConfigPreviewResponse {
             workspace_id: workspace_id.to_string(),
             scope: "workspace".to_string(),
-            agent: crate::models::AiConfigAgent::Claude,
+            agent: AiConfigAgent::Claude,
             preview_id: preview_id.clone(),
             allowed: true,
-            normalized_draft: normalized.clone(),
+            normalized_draft: AiConfigNormalizedDraft::Claude(normalized.clone()),
             masked_diff: changes.clone(),
             changed_keys: changes.iter().map(|entry| entry.key.clone()).collect(),
             secret_refs: secret_refs.clone(),
@@ -111,13 +158,110 @@ impl AiConfigService {
 
         Ok((
             response,
-            StoredClaudePreview {
+            StoredAiConfigPreview::Claude(StoredClaudePreview {
                 preview_id,
                 normalized_draft: normalized,
                 changed_keys: changes.into_iter().map(|entry| entry.key).collect(),
                 secret_refs,
                 warnings,
                 api_key_secret,
+            }),
+        ))
+    }
+
+    pub fn preview_light_agent_patch(
+        &self,
+        workspace_id: &str,
+        workspace_root: &Path,
+        agent: AiConfigAgent,
+        draft: LightAgentDraftInput,
+    ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
+        let current = self.read_light_agent_config(agent.clone(), workspace_root)?;
+        let secret_input = normalize_non_empty(draft.api_key);
+        let can_reuse_secret = current.has_secret && current.secret_ref.is_some();
+
+        let secret_ref = if secret_input.is_some() {
+            Some(format!(
+                "ai-config/{}/{}/api_key",
+                sanitize_secret_segment(workspace_id),
+                agent.as_str()
+            ))
+        } else if can_reuse_secret {
+            current.secret_ref.clone()
+        } else {
+            None
+        };
+
+        if secret_ref.is_none() {
+            return Err(AiConfigError::Invalid(format!(
+                "API key is required for {}",
+                agent.as_str()
+            )));
+        }
+
+        let normalized = LightAgentNormalizedDraft {
+            has_secret: true,
+            secret_ref: secret_ref.clone(),
+        };
+
+        let mut changes = Vec::new();
+        let before_secret = if current.has_secret {
+            Some("Saved".to_string())
+        } else {
+            Some("Missing".to_string())
+        };
+        push_change_owned(
+            &mut changes,
+            &format!("ai.providers.{}.apiKey", agent.as_str()),
+            "API Key",
+            before_secret,
+            Some("Ready".to_string()),
+            true,
+        );
+
+        if changes.is_empty() {
+            return Err(AiConfigError::Invalid(
+                "no effective changes to apply".to_string(),
+            ));
+        }
+
+        let preview_id = format!("preview:{}", Uuid::new_v4());
+        let warnings = vec!["Changes apply to new sessions after restart.".to_string()];
+        let secret_refs: Vec<String> = secret_ref.clone().into_iter().collect();
+
+        let response = AiConfigPreviewResponse {
+            workspace_id: workspace_id.to_string(),
+            scope: "workspace".to_string(),
+            agent: agent.clone(),
+            preview_id: preview_id.clone(),
+            allowed: true,
+            normalized_draft: match agent {
+                AiConfigAgent::Codex => AiConfigNormalizedDraft::Codex(normalized.clone()),
+                AiConfigAgent::Gemini => AiConfigNormalizedDraft::Gemini(normalized.clone()),
+                _ => unreachable!(),
+            },
+            masked_diff: changes.clone(),
+            changed_keys: changes.iter().map(|entry| entry.key.clone()).collect(),
+            secret_refs: secret_refs.clone(),
+            warnings: warnings.clone(),
+        };
+
+        let stored = StoredLightAgentPreview {
+            preview_id,
+            agent: agent.clone(),
+            normalized_draft: normalized,
+            changed_keys: changes.into_iter().map(|entry| entry.key).collect(),
+            secret_refs,
+            warnings,
+            api_key_secret: secret_input,
+        };
+
+        Ok((
+            response,
+            match agent {
+                AiConfigAgent::Codex => StoredAiConfigPreview::Codex(stored),
+                AiConfigAgent::Gemini => StoredAiConfigPreview::Gemini(stored),
+                _ => unreachable!(),
             },
         ))
     }
@@ -168,7 +312,7 @@ impl AiConfigService {
             })
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
-        let effective = self.read_claude_config(workspace_root)?;
+        let effective = self.read_snapshot(workspace_id, workspace_root)?;
 
         Ok(AiConfigApplyResponse {
             workspace_id: workspace_id.to_string(),
@@ -185,7 +329,180 @@ impl AiConfigService {
         })
     }
 
-    pub fn build_claude_runtime_env(
+    pub fn apply_light_agent_preview(
+        &self,
+        workspace_id: &str,
+        workspace_root: &Path,
+        confirmed_by: &str,
+        preview: &StoredLightAgentPreview,
+    ) -> AiConfigResult<AiConfigApplyResponse> {
+        self.audit_repository
+            .ensure_schema()
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+
+        if let (Some(secret_ref), Some(secret_value)) = (
+            preview.normalized_draft.secret_ref.as_deref(),
+            preview.api_key_secret.as_deref(),
+        ) {
+            self.secret_store
+                .store(secret_ref, secret_value)
+                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
+        }
+
+        let patch = json!({
+            "ai": {
+                "providers": {
+                    preview.agent.as_str(): {
+                        "secretRef": preview.normalized_draft.secret_ref,
+                        "hasSecret": preview.normalized_draft.has_secret,
+                        "updatedAtMs": now_ms(),
+                    }
+                }
+            }
+        });
+
+        self.settings
+            .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+            .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+
+        let audit_id = format!("audit:{}", Uuid::new_v4());
+        let created_at_ms = now_ms() as i64;
+        let changed_keys_json = serde_json::to_string(&preview.changed_keys)
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        let secret_refs_json = serde_json::to_string(&preview.secret_refs)
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+
+        self.audit_repository
+            .insert_audit_log(&AiConfigAuditLogInput {
+                audit_id: audit_id.clone(),
+                workspace_id: workspace_id.to_string(),
+                agent: preview.agent.as_str().to_string(),
+                mode: "light".to_string(),
+                provider_id: None,
+                changed_keys_json,
+                secret_refs_json,
+                confirmed_by: confirmed_by.to_string(),
+                created_at_ms,
+            })
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+
+        let effective = self.read_snapshot(workspace_id, workspace_root)?;
+
+        Ok(AiConfigApplyResponse {
+            workspace_id: workspace_id.to_string(),
+            preview_id: preview.preview_id.clone(),
+            confirmed_by: confirmed_by.to_string(),
+            applied: true,
+            audit_id,
+            effective,
+            changed_targets: vec![
+                "workspace_settings".to_string(),
+                "secret_store".to_string(),
+                "audit_log".to_string(),
+            ],
+        })
+    }
+
+    pub fn read_snapshot(
+        &self,
+        workspace_id: &str,
+        workspace_root: &Path,
+    ) -> AiConfigResult<AiConfigSnapshot> {
+        let claude_config = self.read_claude_config(workspace_root)?;
+        let codex_config = self.read_light_agent_config(AiConfigAgent::Codex, workspace_root)?;
+        let gemini_config = self.read_light_agent_config(AiConfigAgent::Gemini, workspace_root)?;
+
+        let mut codex_guide = codex_light_guide();
+        codex_guide.config = codex_config;
+        codex_guide.mcp_installed = check_mcp_installed(AiConfigAgent::Codex);
+
+        let mut gemini_guide = gemini_light_guide();
+        gemini_guide.config = gemini_config;
+        gemini_guide.mcp_installed = check_mcp_installed(AiConfigAgent::Gemini);
+
+        Ok(AiConfigSnapshot {
+            agents: vec![
+                crate::models::AiAgentSnapshotCard {
+                    agent: AiConfigAgent::Claude,
+                    title: "Claude Code".to_string(),
+                    subtitle: "Full provider configuration, model override, and runtime injection."
+                        .to_string(),
+                    install_status: map_install_status(AiConfigAgent::Claude),
+                    config_status: if claude_config.active_mode.is_some() {
+                        crate::models::AiAgentConfigStatus::Configured
+                    } else {
+                        crate::models::AiAgentConfigStatus::Unconfigured
+                    },
+                    active_summary: claude_summary(&claude_config),
+                },
+                crate::models::AiAgentSnapshotCard {
+                    agent: AiConfigAgent::Codex,
+                    title: "Codex CLI".to_string(),
+                    subtitle: "Lightweight API Key configuration and terminal injection."
+                        .to_string(),
+                    install_status: map_install_status(AiConfigAgent::Codex),
+                    config_status: if codex_guide.config.has_secret {
+                        crate::models::AiAgentConfigStatus::Configured
+                    } else {
+                        crate::models::AiAgentConfigStatus::Unconfigured
+                    },
+                    active_summary: Some("Injected OPENAI_API_KEY when starting.".to_string()),
+                },
+                crate::models::AiAgentSnapshotCard {
+                    agent: AiConfigAgent::Gemini,
+                    title: "Gemini CLI".to_string(),
+                    subtitle: "Lightweight API Key configuration and terminal injection."
+                        .to_string(),
+                    install_status: map_install_status(AiConfigAgent::Gemini),
+                    config_status: if gemini_guide.config.has_secret {
+                        crate::models::AiAgentConfigStatus::Configured
+                    } else {
+                        crate::models::AiAgentConfigStatus::Unconfigured
+                    },
+                    active_summary: Some("Injected GOOGLE_API_KEY when starting.".to_string()),
+                },
+            ],
+            claude: ClaudeSnapshot {
+                presets: claude_provider_presets(),
+                config: claude_config,
+                can_apply_official_mode: true,
+            },
+            codex: codex_guide,
+            gemini: gemini_guide,
+        })
+    }
+
+    pub fn build_agent_runtime_env(
+        &self,
+        agent: AiConfigAgent,
+        workspace_root: &Path,
+    ) -> AiConfigResult<BTreeMap<String, String>> {
+        match agent {
+            AiConfigAgent::Claude => self.build_claude_runtime_env(workspace_root),
+            AiConfigAgent::Codex => {
+                let config = self.read_light_agent_config(AiConfigAgent::Codex, workspace_root)?;
+                let mut env = BTreeMap::new();
+                if let Some(secret_ref) = config.secret_ref {
+                    if let Ok(secret) = self.secret_store.load(&secret_ref) {
+                        env.insert("OPENAI_API_KEY".to_string(), secret);
+                    }
+                }
+                Ok(env)
+            }
+            AiConfigAgent::Gemini => {
+                let config = self.read_light_agent_config(AiConfigAgent::Gemini, workspace_root)?;
+                let mut env = BTreeMap::new();
+                if let Some(secret_ref) = config.secret_ref {
+                    if let Ok(secret) = self.secret_store.load(&secret_ref) {
+                        env.insert("GOOGLE_API_KEY".to_string(), secret);
+                    }
+                }
+                Ok(env)
+            }
+        }
+    }
+
+    fn build_claude_runtime_env(
         &self,
         workspace_root: &Path,
     ) -> AiConfigResult<BTreeMap<String, String>> {
@@ -604,6 +921,64 @@ fn auth_to_string(auth: &crate::models::ClaudeAuthScheme) -> &'static str {
     }
 }
 
+fn map_install_status(agent: AiConfigAgent) -> crate::models::AiAgentInstallStatus {
+    use vb_tools::agent_installer::{AgentInstaller, AgentType};
+    let agent_type = match agent {
+        AiConfigAgent::Claude => AgentType::ClaudeCode,
+        AiConfigAgent::Codex => AgentType::Codex,
+        AiConfigAgent::Gemini => AgentType::Gemini,
+    };
+    let status = AgentInstaller::install_status(agent_type);
+    crate::models::AiAgentInstallStatus {
+        installed: status.installed,
+        executable: status.executable,
+        requires_node: status.requires_node,
+        node_ready: status.node_ready,
+    }
+}
+
+fn claude_summary(config: &ClaudeConfigSnapshot) -> Option<String> {
+    let provider = config.provider_name.as_deref().unwrap_or("Native Claude");
+    let model = config.model.as_deref().unwrap_or("default");
+    config
+        .active_mode
+        .as_ref()
+        .map(|mode| format!("{mode:?}: {provider} / {model}"))
+}
+
+fn check_mcp_installed(agent: AiConfigAgent) -> bool {
+    let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        Ok(h) => std::path::PathBuf::from(h),
+        Err(_) => return false,
+    };
+
+    let (path1, path2) = match agent {
+        AiConfigAgent::Claude => (
+            home.join(".claude.json"),
+            home.join(".claude").join("settings.json"),
+        ),
+        AiConfigAgent::Codex => (
+            home.join(".codex").join("config.toml"),
+            home.join(".codex").join("config.toml"),
+        ),
+        AiConfigAgent::Gemini => (
+            home.join(".gemini").join("settings.json"),
+            home.join(".gemini").join("settings.json"),
+        ),
+    };
+
+    let check = |p: &std::path::Path| {
+        if !p.exists() {
+            return false;
+        }
+        std::fs::read_to_string(p)
+            .map(|c| c.contains("gto-agent-bridge"))
+            .unwrap_or(false)
+    };
+
+    check(&path1) || check(&path2)
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -689,14 +1064,18 @@ mod tests {
                 },
             )
             .unwrap();
+        let stored_claude = match stored {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
         let applied = service
-            .apply_claude_preview("ws:test", &workspace_root, "tester", &stored)
+            .apply_claude_preview("ws:test", &workspace_root, "tester", &stored_claude)
             .unwrap();
         let config_raw = fs::read_to_string(workspace_root.join(".gtoffice/config.json")).unwrap();
         assert!(!config_raw.contains("secret-token"));
         assert!(config_raw.contains("secretRef"));
         assert!(preview.secret_refs.len() == 1);
-        assert_eq!(applied.effective.provider_id.as_deref(), Some("deepseek"));
+        assert_eq!(applied.effective.claude.config.provider_id.as_deref(), Some("deepseek"));
     }
 
     #[test]
@@ -721,10 +1100,14 @@ mod tests {
                 },
             )
             .unwrap();
+        let stored_claude = match stored {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
         service
-            .apply_claude_preview("ws:test", &workspace_root, "tester", &stored)
+            .apply_claude_preview("ws:test", &workspace_root, "tester", &stored_claude)
             .unwrap();
-        let env = service.build_claude_runtime_env(&workspace_root).unwrap();
+        let env = service.build_agent_runtime_env(AiConfigAgent::Claude, &workspace_root).unwrap();
         assert_eq!(
             env.get("ANTHROPIC_BASE_URL").map(String::as_str),
             Some("https://api.example.com/anthropic")
