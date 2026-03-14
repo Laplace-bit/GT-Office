@@ -41,13 +41,14 @@ export function LightAgentConfigModal({
 
   const canInstall = !agent.installStatus.installed
   const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
+  const canReuseSecret = guide.config.hasSecret
 
   useEffect(() => {
     setApiKey('')
     setPreview(null)
     setError(null)
-    setStepIndex(0)
-  }, [agent.agent])
+    setStepIndex(canInstall ? 0 : 1)
+  }, [agent.agent, canInstall])
 
   const handleGeneratePreview = async () => {
     setLoading(true)
@@ -115,7 +116,7 @@ export function LightAgentConfigModal({
         {stepIndex === 1 && (
           <button
             className="nav-btn btn-primary"
-            disabled={loading || (!apiKey && !guide.config.hasSecret)}
+            disabled={loading || (!apiKey.trim() && !canReuseSecret)}
             onClick={() => void handleGeneratePreview()}
           >
             {loading ? '...' : t(locale, 'aiConfig.common.previewChanges')}
@@ -200,10 +201,25 @@ export function LightAgentConfigModal({
                 className="settings-input"
                 value={apiKey}
                 placeholder={
-                  guide.config.hasSecret ? t(locale, 'aiConfig.details.vaulted') : 'sk-...'
+                  canReuseSecret ? t(locale, 'aiConfig.details.vaulted') : 'sk-...'
                 }
                 onChange={(e) => setApiKey(e.target.value)}
               />
+            </div>
+            <div className="light-guide-panel">
+              <p className="light-guide-summary">{t(locale, guide.summary as any)}</p>
+              <div className="light-guide-meta">
+                <a href={guide.docsUrl} target="_blank" rel="noreferrer">
+                  <AppIcon name="external" width={14} height={14} />
+                  {t(locale, 'aiConfig.light.docs')}
+                </a>
+                {guide.configPath && (
+                  <div className="config-path-chip">
+                    <span>{t(locale, 'aiConfig.light.configPath')}</span>
+                    <code>{guide.configPath}</code>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

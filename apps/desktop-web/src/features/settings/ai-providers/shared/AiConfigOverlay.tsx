@@ -9,10 +9,19 @@ interface AiConfigOverlayProps {
   children: ReactNode
   leftAction?: ReactNode
   rightAction?: ReactNode
+  footer?: ReactNode
   onClose: () => void
 }
 
-export function AiConfigOverlay({ title, subtitle, children, leftAction, rightAction, onClose }: AiConfigOverlayProps) {
+export function AiConfigOverlay({
+  title,
+  subtitle,
+  children,
+  leftAction,
+  rightAction,
+  footer,
+  onClose,
+}: AiConfigOverlayProps) {
   const content = (
     <div className="ai-config-overlay-backdrop" onClick={onClose}>
       <div className="ai-config-overlay-container" onClick={(e) => e.stopPropagation()}>
@@ -28,21 +37,17 @@ export function AiConfigOverlay({ title, subtitle, children, leftAction, rightAc
 
         <div className="ai-config-overlay-main">
           {leftAction && (
-            <div className="ai-config-side-action is-left">
-              {leftAction}
-            </div>
+            <div className="ai-config-side-action is-left">{leftAction}</div>
           )}
-          
-          <div className="ai-config-overlay-body">
-            {children}
-          </div>
+
+          <div className="ai-config-overlay-body">{children}</div>
 
           {rightAction && (
-            <div className="ai-config-side-action is-right">
-              {rightAction}
-            </div>
+            <div className="ai-config-side-action is-right">{rightAction}</div>
           )}
         </div>
+
+        {footer && <div className="ai-config-overlay-footer">{footer}</div>}
       </div>
     </div>
   )

@@ -1101,6 +1101,8 @@ export const messages = {
     'zh-CN': '填入 API Key 后，GT Office 将在启动该工具的终端时自动注入对应的环境变量。',
     'en-US': 'GT Office will inject the API Key into the terminal environment.',
   },
+  'aiConfig.light.docs': { 'zh-CN': '官方文档', 'en-US': 'Official Docs' },
+  'aiConfig.light.configPath': { 'zh-CN': '本地配置', 'en-US': 'Local Config' },
   'aiConfig.light.confirmChanges': { 'zh-CN': '确认变更', 'en-US': 'Confirm Changes' },
   'aiConfig.light.ready': { 'zh-CN': '就绪', 'en-US': 'Ready' },
 

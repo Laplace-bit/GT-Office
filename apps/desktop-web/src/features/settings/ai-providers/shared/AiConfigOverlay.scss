@@ -98,6 +98,74 @@
   }
 }
 
+.ai-config-overlay-footer {
+  flex-shrink: 0;
+  padding: 16px 32px 24px;
+  border-top: 1px solid var(--vb-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ai-config-footer-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  .footer-left,
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .footer-right {
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+}
+
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 78%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 94%, white);
+  color: var(--vb-text);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &.btn-primary {
+    background: #171717;
+    border-color: #171717;
+    color: #fff;
+  }
+
+  &.btn-secondary {
+    background: transparent;
+  }
+
+  &.btn-apply {
+    background: #10b981;
+    border-color: #10b981;
+    color: #fff;
+  }
+}
+
 /* === Side Action Buttons === */
 .ai-config-side-action {
   position: absolute;
@@ -172,4 +240,25 @@
 [data-theme='graphite-dark'] .ai-config-overlay-container {
   background: rgba(28, 28, 30, 0.95);
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 900px) {
+  .ai-config-overlay-footer {
+    padding: 16px 20px 20px;
+  }
+
+  .ai-config-footer-nav {
+    flex-direction: column;
+    align-items: stretch;
+
+    .footer-left,
+    .footer-right {
+      justify-content: stretch;
+      margin-left: 0;
+    }
+  }
+
+  .nav-btn {
+    width: 100%;
+  }
 }

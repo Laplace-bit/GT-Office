@@ -53,8 +53,9 @@
 }
 
 .ai-provider-stepper {
+  --step-count: 5;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--step-count), minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -225,6 +226,11 @@
       background: #171717;
       border-color: #171717;
       color: #fff;
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
   }
 }

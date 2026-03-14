@@ -95,15 +95,13 @@ export function ProviderAgentCard({
             {installing ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.install')}
           </button>
         ) : (
-          agent.agent !== 'gemini' && (
-            <button
-              className="action-button secondary"
-              onClick={(e) => { e.stopPropagation(); onConfigure(); }}
-            >
-              <AppIcon name="settings" width={14} height={14} />
-              {t(locale, 'aiConfig.card.configure')}
-            </button>
-          )
+          <button
+            className="action-button secondary"
+            onClick={(e) => { e.stopPropagation(); onConfigure(); }}
+          >
+            <AppIcon name="settings" width={14} height={14} />
+            {t(locale, 'aiConfig.card.configure')}
+          </button>
         )}
       </div>
     </article>
