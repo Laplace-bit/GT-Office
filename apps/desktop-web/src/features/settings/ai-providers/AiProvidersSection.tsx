@@ -4,6 +4,7 @@ import { desktopApi, type AiConfigAgent, type AiConfigReadSnapshotResponse } fro
 import { t, type Locale } from '@shell/i18n/ui-locale'
 
 import { ProviderAgentCard } from './shared/ProviderAgentCard'
+import { isLightAgentSnapshotCard } from './shared/provider-utils'
 import { ClaudeConfigModal } from './claude/ClaudeConfigModal'
 import { LightAgentConfigModal } from './light-agents/LightAgentConfigModal'
 
@@ -57,6 +58,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   }
 
   const configAgent = snapshot.snapshot.agents.find((a) => a.agent === configAgentId)
+  const lightConfigAgent = isLightAgentSnapshotCard(configAgent) ? configAgent : null
 
   return (
     <section className="ai-providers-section">
@@ -88,15 +90,15 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
         />
       )}
 
-      {configAgentId && configAgentId !== 'claude' && configAgent && (
+      {configAgentId && configAgentId !== 'claude' && lightConfigAgent && (
         <LightAgentConfigModal
           workspaceId={workspaceId}
           locale={locale}
-          agent={configAgent}
+          agent={lightConfigAgent}
           guide={configAgentId === 'codex' ? snapshot.snapshot.codex : snapshot.snapshot.gemini}
           installing={installingAgent === configAgentId}
           onInstall={() => void handleInstall(configAgentId)}
-          onReload={() => void handleReload()}
+          onReload={handleReload}
           onClose={() => setConfigAgentId(null)}
         />
       )}

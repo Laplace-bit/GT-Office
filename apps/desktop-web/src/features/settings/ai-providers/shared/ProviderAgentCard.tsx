@@ -1,6 +1,6 @@
 import type { AiAgentSnapshotCard } from '@shell/integration/desktop-api'
 import { AppIcon } from '@shell/ui/icons'
-import { t, type Locale } from '@shell/i18n/ui-locale'
+import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
 
 import './ProviderAgentCard.scss'
 
@@ -63,13 +63,13 @@ export function ProviderAgentCard({
           <img src={logoSrc} alt={agent.agent} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div className="ai-provider-card__title">
-          <h4>{t(locale, agent.title as any)}</h4>
+          <h4>{translateMaybeKey(locale, agent.title)}</h4>
           <span className={`status-dot tone-${tone}`} title={label} />
         </div>
       </div>
 
       <div className="ai-provider-card__body">
-        <p>{t(locale, agent.subtitle as any)}</p>
+        <p>{translateMaybeKey(locale, agent.subtitle)}</p>
         <div className="ai-provider-card__meta">
           {agent.installStatus.installed ? (
             <div className="meta-item">

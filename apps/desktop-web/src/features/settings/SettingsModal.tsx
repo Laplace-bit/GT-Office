@@ -87,7 +87,7 @@ export function SettingsModal({
                   workspaceId={workspaceId} 
                   variant="settings"
                   onEnterStudio={() => {
-                    (window as any).__GTO_OPEN_CHANNEL_STUDIO__?.()
+                    window.__GTO_OPEN_CHANNEL_STUDIO__?.()
                   }}
                 />
               ) : (

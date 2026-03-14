@@ -3,6 +3,10 @@ import { supportedLocales, type Locale } from './locale-types'
 
 type TranslationParams = Record<string, string | number | undefined>
 
+export function isTranslationKey(value: string): value is TranslationKey {
+  return Object.prototype.hasOwnProperty.call(messages, value)
+}
+
 function interpolate(template: string, params?: TranslationParams): string {
   if (!params) {
     return template
@@ -26,10 +30,10 @@ export function t(
 ): string {
   if (
     typeof keyOrZh === 'string' &&
-    Object.prototype.hasOwnProperty.call(messages, keyOrZh) &&
+    isTranslationKey(keyOrZh) &&
     (paramsOrEn === undefined || typeof paramsOrEn !== 'string')
   ) {
-    const entry = messages[keyOrZh as TranslationKey]
+    const entry = messages[keyOrZh]
     const template = entry[locale] ?? entry['en-US']
     return interpolate(template, paramsOrEn as TranslationParams | undefined)
   }
@@ -41,6 +45,21 @@ export function t(
     : paramsOrEn) as TranslationParams | undefined
   const template = locale === 'zh-CN' ? zh : en
   return interpolate(template, params)
+}
+
+export function translateMaybeKey(locale: Locale, value: string): string
+export function translateMaybeKey(
+  locale: Locale,
+  value: string | null | undefined,
+): string | null | undefined
+export function translateMaybeKey(
+  locale: Locale,
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value == null) {
+    return value
+  }
+  return isTranslationKey(value) ? t(locale, value) : value
 }
 
 const localeLabels: Record<Locale, string> = {

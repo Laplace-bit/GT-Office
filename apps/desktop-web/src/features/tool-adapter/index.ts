@@ -1,4 +1,5 @@
 export * from './ChannelBotCard'
+export * from './CommunicationChannelsPane'
 export * from './ChannelManagerPane'
 export * from './ChannelOverview'
 export * from './ChannelStudio'

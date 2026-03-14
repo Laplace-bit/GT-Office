@@ -1,25 +1,26 @@
 import { useEffect, useState } from 'react'
 import {
   desktopApi,
-  type AiAgentSnapshotCard,
   type AiConfigPreviewResponse,
   type LightAgentGuide,
+  type LightAgentDraftInput,
 } from '@shell/integration/desktop-api'
-import { t, type Locale } from '@shell/i18n/ui-locale'
+import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 
 import { AiConfigOverlay } from '../shared/AiConfigOverlay'
+import { describeUnknownError, type LightAgentSnapshotCard } from '../shared/provider-utils'
 
 import './LightAgentProviderWorkspace.scss'
 
 interface LightAgentConfigModalProps {
   workspaceId: string
   locale: Locale
-  agent: AiAgentSnapshotCard
+  agent: LightAgentSnapshotCard
   guide: LightAgentGuide
   installing: boolean
   onInstall: () => void
-  onReload: () => void
+  onReload: () => void | Promise<void>
   onClose: () => void
 }
 
@@ -54,13 +55,14 @@ export function LightAgentConfigModal({
     setLoading(true)
     setError(null)
     try {
-      const resp = await desktopApi.aiConfigPreviewPatch(workspaceId, agent.agent, 'workspace', {
+      const draft: LightAgentDraftInput = {
         apiKey: apiKey.trim() || undefined,
-      } as any)
+      }
+      const resp = await desktopApi.aiConfigPreviewPatch(workspaceId, agent.agent, 'workspace', draft)
       setPreview(resp)
       setStepIndex(2)
-    } catch (err: any) {
-      setError(err.message || String(err))
+    } catch (err) {
+      setError(describeUnknownError(err))
     } finally {
       setLoading(false)
     }
@@ -72,13 +74,13 @@ export function LightAgentConfigModal({
     setError(null)
     try {
       await desktopApi.aiConfigApplyPatch(workspaceId, preview.previewId, 'System Admin')
-      onReload()
+      await onReload()
       // Success delay then close
       setTimeout(() => {
         onClose()
       }, 1000)
-    } catch (err: any) {
-      setError(err.message || String(err))
+    } catch (err) {
+      setError(describeUnknownError(err))
     } finally {
       setLoading(false)
     }
@@ -136,8 +138,8 @@ export function LightAgentConfigModal({
 
   return (
     <AiConfigOverlay
-      title={t(locale, agent.title as any)}
-      subtitle={t(locale, agent.subtitle as any)}
+      title={translateMaybeKey(locale, agent.title)}
+      subtitle={translateMaybeKey(locale, agent.subtitle)}
       onClose={onClose}
       footer={renderFooter()}
     >
@@ -181,7 +183,7 @@ export function LightAgentConfigModal({
               <p style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 600 }}>{t(locale, 'aiConfig.guide.title')}</p>
               <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--vb-text-muted)', lineHeight: 1.6 }}>
                 {guide.tips.map((tip, idx) => (
-                  <li key={idx}>{t(locale, tip as any)}</li>
+                  <li key={idx}>{translateMaybeKey(locale, tip)}</li>
                 ))}
               </ul>
             </div>
@@ -207,7 +209,7 @@ export function LightAgentConfigModal({
               />
             </div>
             <div className="light-guide-panel">
-              <p className="light-guide-summary">{t(locale, guide.summary as any)}</p>
+              <p className="light-guide-summary">{translateMaybeKey(locale, guide.summary)}</p>
               <div className="light-guide-meta">
                 <a href={guide.docsUrl} target="_blank" rel="noreferrer">
                   <AppIcon name="external" width={14} height={14} />

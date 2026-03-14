@@ -10,10 +10,11 @@ import {
   type ClaudeProviderPreset,
   type ClaudeSnapshot,
 } from '@shell/integration/desktop-api'
-import { t, type Locale } from '@shell/i18n/ui-locale'
+import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 
 import { AiConfigOverlay } from '../shared/AiConfigOverlay'
+import { describeUnknownError } from '../shared/provider-utils'
 
 import {
   type ClaudeFlowStepId,
@@ -48,13 +49,6 @@ function getPresetById(snapshot: ClaudeSnapshot, providerId: string): ClaudeProv
 
 function getCustomPreset(snapshot: ClaudeSnapshot): ClaudeProviderPreset | undefined {
   return getPresetById(snapshot, 'custom-gateway')
-}
-
-function localizeMaybeKey(locale: Locale, value?: string | null): string | null | undefined {
-  if (!value) {
-    return value
-  }
-  return value.startsWith('aiConfig.') ? t(locale, value as any) : value
 }
 
 export function ClaudeConfigModal({
@@ -123,7 +117,7 @@ export function ClaudeConfigModal({
       return
     }
     setProviderId(nextPreset.providerId)
-    setProviderName(overrides?.providerName ?? t(locale, nextPreset.name as any))
+    setProviderName(overrides?.providerName ?? translateMaybeKey(locale, nextPreset.name))
     setBaseUrl(overrides?.baseUrl ?? nextPreset.endpoint)
     setModel(overrides?.model ?? nextPreset.recommendedModel)
     setAuthScheme(overrides?.authScheme ?? nextPreset.authScheme)
@@ -133,15 +127,15 @@ export function ClaudeConfigModal({
     setProviderId(customPreset?.providerId ?? 'custom-gateway')
     if (snapshot.config.activeMode === 'custom') {
       setProviderName(
-        localizeMaybeKey(locale, snapshot.config.providerName) ??
-          (customPreset?.name ? t(locale, customPreset.name as any) : ''),
+        translateMaybeKey(locale, snapshot.config.providerName) ??
+          (customPreset?.name ? translateMaybeKey(locale, customPreset.name) : ''),
       )
       setBaseUrl(snapshot.config.baseUrl ?? customPreset?.endpoint ?? '')
       setModel(snapshot.config.model ?? customPreset?.recommendedModel ?? '')
       setAuthScheme(snapshot.config.authScheme ?? customPreset?.authScheme ?? 'anthropic_api_key')
       return
     }
-    setProviderName(customPreset?.name ? t(locale, customPreset.name as any) : '')
+    setProviderName(customPreset?.name ? translateMaybeKey(locale, customPreset.name) : '')
     setBaseUrl(customPreset?.endpoint ?? '')
     setModel(customPreset?.recommendedModel ?? '')
     setAuthScheme(customPreset?.authScheme ?? 'anthropic_api_key')
@@ -194,8 +188,8 @@ export function ClaudeConfigModal({
     if (nextMode === 'custom') {
       setProviderId(customPreset?.providerId ?? 'custom-gateway')
       setProviderName(
-        localizeMaybeKey(locale, snapshot.config.providerName) ??
-          (customPreset?.name ? t(locale, customPreset.name as any) : ''),
+        translateMaybeKey(locale, snapshot.config.providerName) ??
+          (customPreset?.name ? translateMaybeKey(locale, customPreset.name) : ''),
       )
       setBaseUrl(snapshot.config.baseUrl ?? customPreset?.endpoint ?? '')
       setModel(snapshot.config.model ?? customPreset?.recommendedModel ?? '')
@@ -205,10 +199,10 @@ export function ClaudeConfigModal({
       setProviderName(
         nextMode === 'preset'
           ? savedPreset?.name
-            ? t(locale, savedPreset.name as any)
+            ? translateMaybeKey(locale, savedPreset.name)
             : ''
           : snapshot.config.providerName ??
-            (savedPreset?.name ? t(locale, savedPreset.name as any) : ''),
+            (savedPreset?.name ? translateMaybeKey(locale, savedPreset.name) : ''),
       )
       setBaseUrl(snapshot.config.baseUrl ?? savedPreset?.endpoint ?? '')
       setModel(snapshot.config.model ?? savedPreset?.recommendedModel ?? '')
@@ -254,8 +248,8 @@ export function ClaudeConfigModal({
       const resp = await desktopApi.aiConfigPreviewPatch(workspaceId, 'claude', 'workspace', draft)
       setPreview(resp)
       setCurrentStep('apply')
-    } catch (err: any) {
-      setError(err.message || String(err))
+    } catch (err) {
+      setError(describeUnknownError(err))
     } finally {
       setLoading(false)
     }
@@ -274,8 +268,8 @@ export function ClaudeConfigModal({
       setTimeout(() => {
         onClose()
       }, 1500)
-    } catch (err: any) {
-      setError(err.message || String(err))
+    } catch (err) {
+      setError(describeUnknownError(err))
     } finally {
       setLoading(false)
     }
@@ -292,7 +286,7 @@ export function ClaudeConfigModal({
   const localizeCategory = (cat: string) => {
     if (cat === 'Global') return t(locale, 'aiConfig.category.global')
     if (cat === 'China') return t(locale, 'aiConfig.category.china')
-    return t(locale, cat as any)
+    return translateMaybeKey(locale, cat)
   }
 
   const getPresetLogo = (pid: string) => {
@@ -363,8 +357,8 @@ export function ClaudeConfigModal({
 
   return (
     <AiConfigOverlay
-      title={t(locale, agent.title as any)}
-      subtitle={t(locale, agent.subtitle as any)}
+      title={translateMaybeKey(locale, agent.title)}
+      subtitle={translateMaybeKey(locale, agent.subtitle)}
       onClose={onClose}
       leftAction={renderLeftAction()}
       rightAction={renderRightAction()}
@@ -493,12 +487,12 @@ export function ClaudeConfigModal({
                           {getPresetLogo(preset.providerId) ? (
                             <img src={getPresetLogo(preset.providerId)!} alt="" className="preset-logo" />
                           ) : (
-                            <div className="preset-logo-placeholder">{t(locale, preset.name as any).charAt(0)}</div>
+                            <div className="preset-logo-placeholder">{translateMaybeKey(locale, preset.name).charAt(0)}</div>
                           )}
                           <span>{localizeCategory(preset.category)}</span>
                         </div>
-                        <strong>{t(locale, preset.name as any)}</strong>
-                        <small>{t(locale, preset.description as any)}</small>
+                        <strong>{translateMaybeKey(locale, preset.name)}</strong>
+                        <small>{translateMaybeKey(locale, preset.description)}</small>
                       </button>
                     ))}
                 </div>
@@ -528,7 +522,7 @@ export function ClaudeConfigModal({
                       <strong>
                         {t(locale, 'aiConfig.guide.step')} {idx + 1}
                       </strong>
-                      <small>{t(locale, step as any)}</small>
+                      <small>{translateMaybeKey(locale, step)}</small>
                     </div>
                   </div>
                 ))}
@@ -663,9 +657,9 @@ export function ClaudeConfigModal({
                   <div key={change.key} className="ai-provider-diff-list__item">
                     <span>{change.label}</span>
                     <div>
-                      <small>{localizeMaybeKey(locale, change.before) || t(locale, 'aiConfig.common.empty')}</small>
+                      <small>{translateMaybeKey(locale, change.before) || t(locale, 'aiConfig.common.empty')}</small>
                       <strong style={{ color: '#007aff' }}>
-                        {change.secret ? '********' : localizeMaybeKey(locale, change.after)}
+                        {change.secret ? '********' : translateMaybeKey(locale, change.after)}
                       </strong>
                     </div>
                   </div>
@@ -681,7 +675,7 @@ export function ClaudeConfigModal({
                       style={{ background: '#fff9e6', borderColor: '#ffe58f' }}
                     >
                       <div className="ai-provider-dot is-warning" />
-                      <small style={{ color: '#856404' }}>{warning}</small>
+                      <small style={{ color: '#856404' }}>{translateMaybeKey(locale, warning)}</small>
                     </div>
                   ))}
                 </div>

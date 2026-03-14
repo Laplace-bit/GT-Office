@@ -7,7 +7,6 @@ import {
   type CSSProperties,
 } from 'react'
 import { FileEditorPane, FileTreePane, type OpenedFile } from '@features/file-explorer'
-import { CommunicationChannelsPane } from '@features/channels'
 import {
   GitHistoryPane,
   GitOperationsPane,
@@ -39,6 +38,7 @@ import type { StationTerminalSink, StationTerminalSinkBindingHandler } from '@fe
 import {
   buildStationChannelBotBindingMap,
   ChannelStudio,
+  CommunicationChannelsPane,
   resolveConnectorAccounts,
 } from '@features/tool-adapter'
 import {
@@ -902,12 +902,12 @@ export function ShellRoot() {
   const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
 
   useEffect(() => {
-    (window as any).__GTO_OPEN_CHANNEL_STUDIO__ = () => {
+    window.__GTO_OPEN_CHANNEL_STUDIO__ = () => {
       setIsSettingsOpen(false)
       setIsChannelStudioOpen(true)
     }
     return () => {
-      delete (window as any).__GTO_OPEN_CHANNEL_STUDIO__
+      delete window.__GTO_OPEN_CHANNEL_STUDIO__
     }
   }, [])
 
