@@ -188,6 +188,7 @@ pub fn run() {
             settings::ai_config::ai_config_preview_patch,
             settings::ai_config::ai_config_apply_patch,
             settings::ai_config::ai_config_list_audit_logs,
+            settings::ai_config::ai_config_switch_saved_claude_provider,
             security::security_health,
             system::system_gto_doctor,
             system::system_pick_directory,

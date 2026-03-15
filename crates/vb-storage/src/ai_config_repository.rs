@@ -1,7 +1,8 @@
 use crate::sqlite::SqliteStorage;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum AiConfigRepositoryError {
@@ -21,6 +22,45 @@ pub struct AiConfigAuditLogInput {
     pub secret_refs_json: String,
     pub confirmed_by: String,
     pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedClaudeProviderInput {
+    pub workspace_id: String,
+    pub saved_provider_id: Option<String>,
+    pub fingerprint: String,
+    pub mode: String,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub auth_scheme: Option<String>,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub last_applied_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedClaudeProviderRecord {
+    pub saved_provider_id: String,
+    pub workspace_id: String,
+    pub fingerprint: String,
+    pub mode: String,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub auth_scheme: Option<String>,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
+    pub is_active: bool,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub last_applied_at_ms: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +179,265 @@ impl SqliteAiConfigRepository {
         }
         Ok(results)
     }
+
+    pub fn upsert_saved_claude_provider(
+        &self,
+        input: &SavedClaudeProviderInput,
+    ) -> Result<SavedClaudeProviderRecord, AiConfigRepositoryError> {
+        let mut conn = self.connection()?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let existing = tx
+            .query_row(
+                "SELECT
+                    saved_provider_id,
+                    workspace_id,
+                    fingerprint,
+                    mode,
+                    provider_id,
+                    provider_name,
+                    base_url,
+                    model,
+                    auth_scheme,
+                    secret_ref,
+                    has_secret,
+                    is_active,
+                    created_at_ms,
+                    updated_at_ms,
+                    last_applied_at_ms
+                 FROM ai_config_saved_claude_providers
+                 WHERE workspace_id = ?1 AND fingerprint = ?2",
+                params![input.workspace_id, input.fingerprint],
+                map_saved_claude_provider_row,
+            )
+            .optional()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        tx.execute(
+            "UPDATE ai_config_saved_claude_providers
+             SET is_active = 0
+             WHERE workspace_id = ?1",
+            params![input.workspace_id],
+        )
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })?;
+
+        let saved_provider_id = input
+            .saved_provider_id
+            .clone()
+            .or_else(|| existing.as_ref().map(|item| item.saved_provider_id.clone()))
+            .unwrap_or_else(|| format!("claude-provider:{}", Uuid::new_v4()));
+        let created_at_ms = existing
+            .as_ref()
+            .map(|item| item.created_at_ms)
+            .unwrap_or(input.created_at_ms);
+
+        tx.execute(
+            "INSERT INTO ai_config_saved_claude_providers (
+                saved_provider_id,
+                workspace_id,
+                fingerprint,
+                mode,
+                provider_id,
+                provider_name,
+                base_url,
+                model,
+                auth_scheme,
+                secret_ref,
+                has_secret,
+                is_active,
+                created_at_ms,
+                updated_at_ms,
+                last_applied_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14)
+            ON CONFLICT(saved_provider_id) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                mode = excluded.mode,
+                provider_id = excluded.provider_id,
+                provider_name = excluded.provider_name,
+                base_url = excluded.base_url,
+                model = excluded.model,
+                auth_scheme = excluded.auth_scheme,
+                secret_ref = excluded.secret_ref,
+                has_secret = excluded.has_secret,
+                is_active = 1,
+                updated_at_ms = excluded.updated_at_ms,
+                last_applied_at_ms = excluded.last_applied_at_ms",
+            params![
+                saved_provider_id,
+                input.workspace_id,
+                input.fingerprint,
+                input.mode,
+                input.provider_id,
+                input.provider_name,
+                input.base_url,
+                input.model,
+                input.auth_scheme,
+                input.secret_ref,
+                input.has_secret,
+                created_at_ms,
+                input.updated_at_ms,
+                input.last_applied_at_ms,
+            ],
+        )
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })?;
+
+        tx.commit()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        self.get_saved_claude_provider(&input.workspace_id, &saved_provider_id)?
+            .ok_or_else(|| AiConfigRepositoryError::Storage {
+                message: "saved Claude provider missing after upsert".to_string(),
+            })
+    }
+
+    pub fn list_saved_claude_providers(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<SavedClaudeProviderRecord>, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT
+                    saved_provider_id,
+                    workspace_id,
+                    fingerprint,
+                    mode,
+                    provider_id,
+                    provider_name,
+                    base_url,
+                    model,
+                    auth_scheme,
+                    secret_ref,
+                    has_secret,
+                    is_active,
+                    created_at_ms,
+                    updated_at_ms,
+                    last_applied_at_ms
+                 FROM ai_config_saved_claude_providers
+                 WHERE workspace_id = ?1
+                 ORDER BY is_active DESC, last_applied_at_ms DESC, updated_at_ms DESC, created_at_ms DESC",
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let rows = stmt
+            .query_map(params![workspace_id], map_saved_claude_provider_row)
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_saved_claude_provider(
+        &self,
+        workspace_id: &str,
+        saved_provider_id: &str,
+    ) -> Result<Option<SavedClaudeProviderRecord>, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        conn.query_row(
+            "SELECT
+                saved_provider_id,
+                workspace_id,
+                fingerprint,
+                mode,
+                provider_id,
+                provider_name,
+                base_url,
+                model,
+                auth_scheme,
+                secret_ref,
+                has_secret,
+                is_active,
+                created_at_ms,
+                updated_at_ms,
+                last_applied_at_ms
+             FROM ai_config_saved_claude_providers
+             WHERE workspace_id = ?1 AND saved_provider_id = ?2",
+            params![workspace_id, saved_provider_id],
+            map_saved_claude_provider_row,
+        )
+        .optional()
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })
+    }
+
+    pub fn set_active_saved_claude_provider(
+        &self,
+        workspace_id: &str,
+        saved_provider_id: &str,
+        last_applied_at_ms: i64,
+    ) -> Result<Option<SavedClaudeProviderRecord>, AiConfigRepositoryError> {
+        let mut conn = self.connection()?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let updated = tx
+            .execute(
+                "UPDATE ai_config_saved_claude_providers
+                 SET is_active = CASE WHEN saved_provider_id = ?2 THEN 1 ELSE 0 END,
+                     last_applied_at_ms = CASE WHEN saved_provider_id = ?2 THEN ?3 ELSE last_applied_at_ms END
+                 WHERE workspace_id = ?1",
+                params![workspace_id, saved_provider_id, last_applied_at_ms],
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+        tx.commit()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        if updated == 0 {
+            return Ok(None);
+        }
+        self.get_saved_claude_provider(workspace_id, saved_provider_id)
+    }
+}
+
+fn map_saved_claude_provider_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<SavedClaudeProviderRecord> {
+    Ok(SavedClaudeProviderRecord {
+        saved_provider_id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        fingerprint: row.get(2)?,
+        mode: row.get(3)?,
+        provider_id: row.get(4)?,
+        provider_name: row.get(5)?,
+        base_url: row.get(6)?,
+        model: row.get(7)?,
+        auth_scheme: row.get(8)?,
+        secret_ref: row.get(9)?,
+        has_secret: row.get(10)?,
+        is_active: row.get::<_, i64>(11)? != 0,
+        created_at_ms: row.get(12)?,
+        updated_at_ms: row.get(13)?,
+        last_applied_at_ms: row.get(14)?,
+    })
 }
 
 const AI_CONFIG_SCHEMA: &str = r#"
@@ -156,4 +455,28 @@ CREATE TABLE IF NOT EXISTS ai_config_audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_ai_config_audit_logs_workspace_created
   ON ai_config_audit_logs(workspace_id, created_at_ms DESC);
+
+CREATE TABLE IF NOT EXISTS ai_config_saved_claude_providers (
+  saved_provider_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  provider_id TEXT,
+  provider_name TEXT NOT NULL,
+  base_url TEXT,
+  model TEXT,
+  auth_scheme TEXT,
+  secret_ref TEXT,
+  has_secret INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 0,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  last_applied_at_ms INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_fingerprint
+  ON ai_config_saved_claude_providers(workspace_id, fingerprint);
+
+CREATE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_active
+  ON ai_config_saved_claude_providers(workspace_id, is_active, last_applied_at_ms DESC);
 "#;

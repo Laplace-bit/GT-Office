@@ -181,10 +181,7 @@ fn build_git_stash_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitStas
 }
 
 #[tauri::command]
-pub async fn git_status(
-    workspace_id: String,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
+pub async fn git_status(workspace_id: String, state: State<'_, AppState>) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
     let workspace_id_owned = workspace_id.clone();
     let summary = run_git_blocking(&state, "GIT_STATUS_FAILED", move |app_state| {
@@ -470,7 +467,11 @@ pub async fn git_create_branch(
     run_git_blocking(&state, "GIT_BRANCH_CREATE_FAILED", move |app_state| {
         app_state
             .git_service
-            .create_branch(&workspace_id_owned, &branch_owned, start_point_for_task.as_deref())
+            .create_branch(
+                &workspace_id_owned,
+                &branch_owned,
+                start_point_for_task.as_deref(),
+            )
             .map_err(to_command_error)
     })
     .await?;

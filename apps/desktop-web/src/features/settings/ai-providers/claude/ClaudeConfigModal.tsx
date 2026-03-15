@@ -8,6 +8,7 @@ import {
   type ClaudeDraftInput,
   type ClaudeProviderMode,
   type ClaudeProviderPreset,
+  type ClaudeSavedProviderSnapshot,
   type ClaudeSnapshot,
 } from '@shell/integration/desktop-api'
 import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
@@ -38,9 +39,20 @@ interface ClaudeConfigModalProps {
   onClose: () => void
 }
 
+type ClaudeWorkspaceTab = 'wizard' | 'saved'
+
+function isSelectablePreset(preset: ClaudeProviderPreset): boolean {
+  return preset.providerId !== 'custom-gateway' && preset.providerId !== 'anthropic-official'
+}
+
+function getSelectablePresets(snapshot: ClaudeSnapshot): ClaudeProviderPreset[] {
+  const selectable = snapshot.presets.filter(isSelectablePreset)
+  return selectable.length > 0 ? selectable : snapshot.presets.filter((preset) => preset.providerId !== 'custom-gateway')
+}
+
 function defaultPresetId(snapshot: ClaudeSnapshot): string {
-  const nonCustom = snapshot.presets.find((preset) => preset.providerId !== 'custom-gateway')
-  return nonCustom?.providerId ?? snapshot.presets[0]?.providerId ?? 'anthropic-official'
+  const defaultPreset = getSelectablePresets(snapshot)[0]
+  return defaultPreset?.providerId ?? snapshot.presets[0]?.providerId ?? 'custom-gateway'
 }
 
 function getPresetById(snapshot: ClaudeSnapshot, providerId: string): ClaudeProviderPreset | undefined {
@@ -63,6 +75,7 @@ export function ClaudeConfigModal({
 }: ClaudeConfigModalProps) {
   const runtimeCheckRequired = needsClaudeRuntimeCheck(agent.installStatus)
   const [currentStep, setCurrentStep] = useState<ClaudeFlowStepId>('check')
+  const [activeTab, setActiveTab] = useState<ClaudeWorkspaceTab>('wizard')
   const [mode, setMode] = useState<ClaudeProviderMode>('preset')
   const [providerId, setProviderId] = useState(defaultPresetId(snapshot))
   const [providerName, setProviderName] = useState('')
@@ -72,16 +85,19 @@ export function ClaudeConfigModal({
   const [apiKey, setApiKey] = useState('')
   const [preview, setPreview] = useState<AiConfigPreviewResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const [switchingSavedProviderId, setSwitchingSavedProviderId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
   const canInstall = !agent.installStatus.installed
   const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
   const availableSteps = resolveClaudeFlowSteps(mode, runtimeCheckRequired)
+  const selectablePresets = getSelectablePresets(snapshot)
+  const savedProviders = snapshot.savedProviders
   const currentStepIndex = Math.max(availableSteps.indexOf(currentStep), 0)
   const nextStep = getNextClaudeStep(currentStep, availableSteps)
   const previousStep = getPreviousClaudeStep(currentStep, availableSteps)
-  const selectedPreset = getPresetById(snapshot, providerId) ?? snapshot.presets[0]
+  const selectedPreset = getPresetById(snapshot, providerId) ?? selectablePresets[0] ?? snapshot.presets[0]
   const customPreset = getCustomPreset(snapshot)
   const canReusePresetSecret =
     snapshot.config.providerId === providerId &&
@@ -98,7 +114,7 @@ export function ClaudeConfigModal({
     (mode === 'official'
       ? !snapshot.canApplyOfficialMode
       : mode === 'preset'
-        ? !hasApiKeyInput && !canReusePresetSecret
+        ? !baseUrl.trim() || !model.trim() || (!hasApiKeyInput && !canReusePresetSecret)
         : !providerName.trim() ||
           !baseUrl.trim() ||
           !model.trim() ||
@@ -109,6 +125,41 @@ export function ClaudeConfigModal({
     setPreview(null)
     setError(null)
     setSuccess(null)
+  }
+
+  function formatTimestamp(value: number): string {
+    return new Intl.DateTimeFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value))
+  }
+
+  function modeLabel(savedMode: ClaudeProviderMode): string {
+    if (savedMode === 'official') return t(locale, 'aiConfig.mode.official')
+    if (savedMode === 'preset') return t(locale, 'aiConfig.mode.presets')
+    return t(locale, 'aiConfig.mode.custom')
+  }
+
+  async function handleSwitchSavedProvider(savedProvider: ClaudeSavedProviderSnapshot) {
+    setSwitchingSavedProviderId(savedProvider.savedProviderId)
+    setError(null)
+    setSuccess(null)
+    try {
+      await desktopApi.aiConfigSwitchSavedClaudeProvider(
+        workspaceId,
+        savedProvider.savedProviderId,
+        'System Admin',
+      )
+      setSuccess(t(locale, 'aiConfig.saved.switchSuccess'))
+      await onReload()
+    } catch (err) {
+      setError(describeUnknownError(err))
+    } finally {
+      setSwitchingSavedProviderId(null)
+    }
   }
 
   function seedPresetFields(nextProviderId: string, overrides?: Partial<ClaudeDraftInput>) {
@@ -146,7 +197,10 @@ export function ClaudeConfigModal({
     clearDerivedState()
 
     if (nextMode === 'preset') {
-      const nextPresetId = providerId === 'custom-gateway' ? defaultPresetId(snapshot) : providerId
+      const nextPresetId =
+        providerId === 'custom-gateway' || providerId === 'anthropic-official'
+          ? defaultPresetId(snapshot)
+          : providerId
       seedPresetFields(nextPresetId)
       setCurrentStep('provider')
       return
@@ -178,11 +232,10 @@ export function ClaudeConfigModal({
     const nextMode = snapshot.config.activeMode ?? 'preset'
     const savedPresetId =
       snapshot.config.providerId &&
-      snapshot.config.providerId !== 'custom-gateway' &&
-      snapshot.presets.some((preset) => preset.providerId === snapshot.config.providerId)
+      selectablePresets.some((preset) => preset.providerId === snapshot.config.providerId)
         ? snapshot.config.providerId
         : defaultPresetId(snapshot)
-    const savedPreset = getPresetById(snapshot, savedPresetId) ?? snapshot.presets[0]
+    const savedPreset = getPresetById(snapshot, savedPresetId) ?? selectablePresets[0] ?? snapshot.presets[0]
 
     setMode(nextMode)
     if (nextMode === 'custom') {
@@ -289,12 +342,12 @@ export function ClaudeConfigModal({
     return translateMaybeKey(locale, cat)
   }
 
-  const getPresetLogo = (pid: string) => {
-    if (pid === 'anthropic-official') return '/assets/logos/claude.webp'
-    return null
-  }
+  const getPresetLogo = () => null
 
   const renderLeftAction = () => {
+    if (activeTab === 'saved') {
+      return null
+    }
     if (!previousStep) {
       return null
     }
@@ -310,6 +363,9 @@ export function ClaudeConfigModal({
   }
 
   const renderRightAction = () => {
+    if (activeTab === 'saved') {
+      return null
+    }
     if (currentStep === 'details') {
       return (
         <button
@@ -363,28 +419,124 @@ export function ClaudeConfigModal({
       leftAction={renderLeftAction()}
       rightAction={renderRightAction()}
     >
-      <div className="ai-provider-stepper" style={stepperStyle}>
-        {availableSteps.map((stepId, idx) => {
-          const stepIndex = availableSteps.indexOf(stepId)
-          return (
-            <button
-              key={stepId}
-              className={`ai-provider-stepper__item ${currentStep === stepId ? 'is-active' : ''} ${currentStepIndex > stepIndex ? 'is-complete' : ''}`}
-              disabled={stepIndex > currentStepIndex}
-              onClick={() => {
-                setCurrentStep(stepId)
-                clearDerivedState()
-              }}
-            >
-              <span>{idx + 1}</span>
-              <strong>{stepLabels[stepId]}</strong>
-            </button>
-          )
-        })}
+      <div className="ai-provider-tabs">
+        <button
+          className={`ai-provider-tab ${activeTab === 'wizard' ? 'is-active' : ''}`}
+          onClick={() => {
+            setActiveTab('wizard')
+            clearDerivedState()
+          }}
+        >
+          {t(locale, 'aiConfig.tab.wizard')}
+        </button>
+        <button
+          className={`ai-provider-tab ${activeTab === 'saved' ? 'is-active' : ''}`}
+          onClick={() => {
+            setActiveTab('saved')
+            clearDerivedState()
+          }}
+        >
+          {t(locale, 'aiConfig.tab.saved')}
+        </button>
       </div>
 
+      {activeTab === 'wizard' && (
+        <div className="ai-provider-stepper" style={stepperStyle}>
+          {availableSteps.map((stepId, idx) => {
+            const stepIndex = availableSteps.indexOf(stepId)
+            return (
+              <button
+                key={stepId}
+                className={`ai-provider-stepper__item ${currentStep === stepId ? 'is-active' : ''} ${currentStepIndex > stepIndex ? 'is-complete' : ''}`}
+                disabled={stepIndex > currentStepIndex}
+                onClick={() => {
+                  setCurrentStep(stepId)
+                  clearDerivedState()
+                }}
+              >
+                <span>{idx + 1}</span>
+                <strong>{stepLabels[stepId]}</strong>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <div className="ai-provider-panel">
-        {currentStep === 'check' && (
+        {activeTab === 'saved' && (
+          <div className="ai-provider-panel-step">
+            <div className="ai-provider-panel-content">
+              <div className="ai-provider-panel__header">
+                <div>
+                  <h4>{t(locale, 'aiConfig.saved.title')}</h4>
+                  <p>{t(locale, 'aiConfig.saved.desc')}</p>
+                </div>
+              </div>
+
+              {savedProviders.length === 0 ? (
+                <div className="ai-provider-saved-empty">
+                  <strong>{t(locale, 'aiConfig.saved.emptyTitle')}</strong>
+                  <small>{t(locale, 'aiConfig.saved.emptyDesc')}</small>
+                </div>
+              ) : (
+                <div className="ai-provider-saved-list">
+                  {savedProviders.map((savedProvider) => {
+                    const providerLabel =
+                      translateMaybeKey(locale, savedProvider.providerName) || savedProvider.providerName
+                    const isSwitching = switchingSavedProviderId === savedProvider.savedProviderId
+                    return (
+                      <article
+                        key={savedProvider.savedProviderId}
+                        className={`ai-provider-saved-card ${savedProvider.isActive ? 'is-active' : ''}`}
+                      >
+                        <div className="ai-provider-saved-card__top">
+                          <div>
+                            <strong>{providerLabel}</strong>
+                            <div className="ai-provider-saved-card__meta">
+                              <span>{modeLabel(savedProvider.mode)}</span>
+                              {savedProvider.model && <span>{savedProvider.model}</span>}
+                              {savedProvider.hasSecret && <span>{t(locale, 'aiConfig.saved.vaulted')}</span>}
+                            </div>
+                          </div>
+                          {savedProvider.isActive ? (
+                            <span className="ai-provider-saved-card__badge">
+                              {t(locale, 'aiConfig.saved.active')}
+                            </span>
+                          ) : (
+                            <button
+                              className="nav-btn btn-secondary"
+                              disabled={Boolean(switchingSavedProviderId)}
+                              onClick={() => void handleSwitchSavedProvider(savedProvider)}
+                            >
+                              {isSwitching
+                                ? t(locale, 'aiConfig.saved.switching')
+                                : t(locale, 'aiConfig.saved.switch')}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="ai-provider-saved-card__details">
+                          <div>
+                            <span>{t(locale, 'aiConfig.details.baseUrl')}</span>
+                            <strong>
+                              {savedProvider.baseUrl || t(locale, 'aiConfig.saved.officialManaged')}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>{t(locale, 'aiConfig.saved.lastApplied')}</span>
+                            <strong>{formatTimestamp(savedProvider.lastAppliedAtMs)}</strong>
+                          </div>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'wizard' && currentStep === 'check' && (
           <div className="ai-provider-panel-step">
             <div className="ai-provider-panel-content is-centered">
               <div className="ai-provider-panel__header">
@@ -442,7 +594,7 @@ export function ClaudeConfigModal({
           </div>
         )}
 
-        {currentStep === 'provider' && (
+        {activeTab === 'wizard' && currentStep === 'provider' && (
           <div className="ai-provider-panel-step">
             <div className="ai-provider-panel-content">
               <div className="ai-provider-panel__header">
@@ -475,17 +627,15 @@ export function ClaudeConfigModal({
 
               {mode === 'preset' && (
                 <div className="ai-provider-preset-grid">
-                  {snapshot.presets
-                    .filter((preset) => preset.providerId !== 'custom-gateway')
-                    .map((preset) => (
+                  {selectablePresets.map((preset) => (
                       <button
                         key={preset.providerId}
                         className={`ai-provider-preset-card ${providerId === preset.providerId ? 'is-active' : ''}`}
                         onClick={() => handlePresetSelect(preset.providerId)}
                       >
                         <div className="preset-card-header">
-                          {getPresetLogo(preset.providerId) ? (
-                            <img src={getPresetLogo(preset.providerId)!} alt="" className="preset-logo" />
+                          {getPresetLogo() ? (
+                            <img src={getPresetLogo()!} alt="" className="preset-logo" />
                           ) : (
                             <div className="preset-logo-placeholder">{translateMaybeKey(locale, preset.name).charAt(0)}</div>
                           )}
@@ -501,7 +651,7 @@ export function ClaudeConfigModal({
           </div>
         )}
 
-        {currentStep === 'guidance' && (
+        {activeTab === 'wizard' && currentStep === 'guidance' && (
           <div className="ai-provider-panel-step">
             <div className="ai-provider-panel-content">
               <div className="ai-provider-guide-card__summary">
@@ -541,7 +691,7 @@ export function ClaudeConfigModal({
           </div>
         )}
 
-        {currentStep === 'details' && (
+        {activeTab === 'wizard' && currentStep === 'details' && (
           <div className="ai-provider-panel-step">
             <div className="ai-provider-panel-content">
               <div className="ai-provider-panel__header">
@@ -591,7 +741,6 @@ export function ClaudeConfigModal({
                       type="text"
                       value={baseUrl}
                       placeholder={t(locale, 'aiConfig.details.endpointPlaceholder')}
-                      readOnly={mode === 'preset'}
                       onChange={(event) =>
                         handleCustomFieldChange(() => setBaseUrl(event.target.value))
                       }
@@ -642,7 +791,7 @@ export function ClaudeConfigModal({
           </div>
         )}
 
-        {currentStep === 'apply' && preview && (
+        {activeTab === 'wizard' && currentStep === 'apply' && preview && (
           <div className="ai-provider-panel-step">
             <div className="ai-provider-panel-content">
               <div className="ai-provider-panel__header">

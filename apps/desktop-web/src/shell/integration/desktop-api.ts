@@ -528,6 +528,7 @@ export interface ClaudeProviderPreset {
 }
 
 export interface ClaudeConfigSnapshot {
+  savedProviderId?: string | null
   activeMode?: ClaudeProviderMode | null
   providerId?: string | null
   providerName?: string | null
@@ -539,9 +540,25 @@ export interface ClaudeConfigSnapshot {
   updatedAtMs?: number | null
 }
 
+export interface ClaudeSavedProviderSnapshot {
+  savedProviderId: string
+  mode: ClaudeProviderMode
+  providerId?: string | null
+  providerName: string
+  baseUrl?: string | null
+  model?: string | null
+  authScheme?: ClaudeAuthScheme | null
+  hasSecret: boolean
+  isActive: boolean
+  createdAtMs: number
+  updatedAtMs: number
+  lastAppliedAtMs: number
+}
+
 export interface ClaudeSnapshot {
   presets: ClaudeProviderPreset[]
   config: ClaudeConfigSnapshot
+  savedProviders: ClaudeSavedProviderSnapshot[]
   canApplyOfficialMode: boolean
 }
 
@@ -1447,6 +1464,13 @@ export const desktopApi = {
     return invokeCommand<AiConfigApplyResponse>('ai_config_apply_patch', {
       workspaceId,
       previewId,
+      confirmedBy,
+    })
+  },
+  aiConfigSwitchSavedClaudeProvider(workspaceId: string, savedProviderId: string, confirmedBy: string) {
+    return invokeCommand<AiConfigApplyResponse>('ai_config_switch_saved_claude_provider', {
+      workspaceId,
+      savedProviderId,
       confirmedBy,
     })
   },

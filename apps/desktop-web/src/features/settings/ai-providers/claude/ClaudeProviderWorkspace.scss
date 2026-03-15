@@ -181,6 +181,126 @@
   }
 }
 
+.ai-provider-saved-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  padding: 32px;
+  border-radius: 18px;
+  border: 1px dashed color-mix(in srgb, var(--vb-border) 78%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 94%, white);
+  text-align: center;
+
+  strong {
+    font-size: 16px;
+    color: var(--vb-text);
+  }
+
+  small {
+    max-width: 420px;
+    color: var(--vb-text-muted);
+    line-height: 1.7;
+  }
+}
+
+.ai-provider-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ai-provider-saved-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 80%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 96%, white);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+
+  &.is-active {
+    border-color: color-mix(in srgb, var(--vb-accent) 56%, transparent);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  }
+}
+
+.ai-provider-saved-card__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+
+  strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 16px;
+    color: var(--vb-text);
+  }
+}
+
+.ai-provider-saved-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vb-accent) 10%, transparent);
+    color: color-mix(in srgb, var(--vb-accent) 75%, var(--vb-text));
+    font-size: 12px;
+    font-weight: 600;
+  }
+}
+
+.ai-provider-saved-card__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #171717;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-provider-saved-card__details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+
+  div {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--vb-surface-secondary) 72%, white);
+  }
+
+  span {
+    color: var(--vb-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  strong {
+    color: var(--vb-text);
+    font-size: 13px;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+}
+
 .ai-provider-install-grid,
 .ai-provider-form-grid,
 .ai-provider-guide-card__summary {

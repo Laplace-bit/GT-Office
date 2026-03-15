@@ -8,9 +8,9 @@ pub use models::{
     AiConfigApplyResponse, AiConfigDraftInput, AiConfigMaskedChange, AiConfigNormalizedDraft,
     AiConfigPreviewResponse, AiConfigReadSnapshotResponse, AiConfigSnapshot, ClaudeAuthScheme,
     ClaudeConfigSnapshot, ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode,
-    ClaudeProviderPreset, ClaudeSnapshot, LightAgentConfigSnapshot, LightAgentDraftInput,
-    LightAgentGuide, LightAgentNormalizedDraft, StoredAiConfigPreview, StoredClaudePreview,
-    StoredLightAgentPreview,
+    ClaudeProviderPreset, ClaudeSavedProviderSnapshot, ClaudeSnapshot, LightAgentConfigSnapshot,
+    LightAgentDraftInput, LightAgentGuide, LightAgentNormalizedDraft, StoredAiConfigPreview,
+    StoredClaudePreview, StoredLightAgentPreview,
 };
 pub use service::{AiConfigError, AiConfigResult, AiConfigService};
 

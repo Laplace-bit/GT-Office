@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,6 +70,8 @@ pub struct ClaudeProviderPreset {
     pub best_for: String,
     pub requires_billing: bool,
     pub setup_steps: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra_env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -101,6 +105,7 @@ pub struct AiAgentSnapshotCard {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeConfigSnapshot {
+    pub saved_provider_id: Option<String>,
     pub active_mode: Option<ClaudeProviderMode>,
     pub provider_id: Option<String>,
     pub provider_name: Option<String>,
@@ -110,6 +115,23 @@ pub struct ClaudeConfigSnapshot {
     pub secret_ref: Option<String>,
     pub has_secret: bool,
     pub updated_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSavedProviderSnapshot {
+    pub saved_provider_id: String,
+    pub mode: ClaudeProviderMode,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub auth_scheme: Option<ClaudeAuthScheme>,
+    pub has_secret: bool,
+    pub is_active: bool,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+    pub last_applied_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -125,6 +147,7 @@ pub struct LightAgentConfigSnapshot {
 pub struct ClaudeSnapshot {
     pub presets: Vec<ClaudeProviderPreset>,
     pub config: ClaudeConfigSnapshot,
+    pub saved_providers: Vec<ClaudeSavedProviderSnapshot>,
     pub can_apply_official_mode: bool,
 }
 

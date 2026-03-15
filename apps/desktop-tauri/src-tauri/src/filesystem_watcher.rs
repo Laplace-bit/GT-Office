@@ -4,8 +4,8 @@ use notify::{
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
-    sync::mpsc::{self, RecvTimeoutError, Sender},
     path::{Path, PathBuf},
+    sync::mpsc::{self, RecvTimeoutError, Sender},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -86,8 +86,7 @@ impl WorkspaceWatcherRegistry {
                     let _ = event_tx_for_callback.send(WatchBatchMessage::Event(event));
                 }
                 Err(error) => {
-                    let _ = event_tx_for_callback
-                        .send(WatchBatchMessage::Error(error.to_string()));
+                    let _ = event_tx_for_callback.send(WatchBatchMessage::Error(error.to_string()));
                 }
             })
             .map_err(|error| {
@@ -195,11 +194,7 @@ fn accumulate_watch_batch_message(
             if paths.is_empty() {
                 return;
             }
-            pending
-                .paths_by_kind
-                .entry(kind)
-                .or_default()
-                .extend(paths);
+            pending.paths_by_kind.entry(kind).or_default().extend(paths);
         }
         WatchBatchMessage::Error(error) => {
             pending.errors.push(error);

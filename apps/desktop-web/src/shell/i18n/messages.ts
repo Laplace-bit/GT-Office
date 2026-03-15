@@ -922,6 +922,8 @@ export const messages = {
   'aiConfig.step.guidance': { 'zh-CN': '获取凭据', 'en-US': 'Get Credentials' },
   'aiConfig.step.details': { 'zh-CN': '详细配置', 'en-US': 'Config Details' },
   'aiConfig.step.apply': { 'zh-CN': '预览并应用', 'en-US': 'Review & Apply' },
+  'aiConfig.tab.wizard': { 'zh-CN': '配置向导', 'en-US': 'Config Wizard' },
+  'aiConfig.tab.saved': { 'zh-CN': '已保存供应商', 'en-US': 'Saved Providers' },
 
   'aiConfig.category.global': { 'zh-CN': '全球', 'en-US': 'Global' },
   'aiConfig.category.china': { 'zh-CN': '中国镜像', 'en-US': 'China' },
@@ -953,8 +955,8 @@ export const messages = {
 
   'aiConfig.mode.title': { 'zh-CN': '选择供应商模式', 'en-US': 'Select Provider Mode' },
   'aiConfig.mode.desc': {
-    'zh-CN': '您可以直接连接 Anthropic 官方，也可以通过预设的网关供应商（如 DeepSeek、Kimi）或自定义 API 代理。',
-    'en-US': 'Connect directly to Anthropic, use a preset gateway (DeepSeek, Kimi), or a custom API proxy.',
+    'zh-CN': '您可以直接连接 Anthropic 官方，也可以通过预设供应商快速接入 DeepSeek、GLM、Qwen、Kimi、MiniMax 等模型，或改用自定义 API 代理。',
+    'en-US': 'Connect directly to Anthropic, use presets for DeepSeek, GLM, Qwen, Kimi, MiniMax, and more, or switch to a custom API proxy.',
   },
   'aiConfig.mode.official': { 'zh-CN': '官方', 'en-US': 'Official' },
   'aiConfig.mode.presets': { 'zh-CN': '预设网关', 'en-US': 'Presets' },
@@ -993,15 +995,40 @@ export const messages = {
 
   'aiConfig.review.title': { 'zh-CN': '核对并确认变更', 'en-US': 'Review & Confirm' },
   'aiConfig.review.desc': {
-    'zh-CN': '请确认以下变更。凭据将加密存储，其他配置将写入工作区设置。',
-    'en-US': 'Please confirm changes. Credentials will be vaulted, other configs saved to workspace settings.',
+    'zh-CN': '请确认以下变更。凭据将加密存储，工作区仅保存 `secretRef`，并同步受管 Claude 环境变量到 `~/.claude/settings.json`。',
+    'en-US': 'Please confirm changes. Credentials will be vaulted, workspace config keeps only `secretRef`, and managed Claude env vars will sync to `~/.claude/settings.json`.',
   },
+  'aiConfig.warning.systemClaudeSync': {
+    'zh-CN': '应用后会同步 GT Office 托管的 Claude 环境变量到 `~/.claude/settings.json`；切回官方模式时会清除这些托管覆盖。',
+    'en-US': 'Applying will sync GT Office-managed Claude env vars to `~/.claude/settings.json`; switching back to official mode clears those managed overrides.',
+  },
+  'aiConfig.warning.customGateway': {
+    'zh-CN': '自定义网关目前只校验必填字段，GT Office 不会额外验证远端协议兼容性。',
+    'en-US': 'Custom gateways are only validated for required fields; GT Office does not verify remote protocol compatibility.',
+  },
+  'aiConfig.saved.title': { 'zh-CN': '已保存的 Claude 供应商', 'en-US': 'Saved Claude Providers' },
+  'aiConfig.saved.desc': {
+    'zh-CN': '每次应用 Claude 配置后，当前供应商都会写入数据库。您可以在这里查看并直接切换到任意已保存配置。',
+    'en-US': 'Each applied Claude configuration is stored in the database. Review them here and switch to any saved setup directly.',
+  },
+  'aiConfig.saved.emptyTitle': { 'zh-CN': '还没有已保存的供应商', 'en-US': 'No saved providers yet' },
+  'aiConfig.saved.emptyDesc': {
+    'zh-CN': '完成一次 Claude 配置应用后，这里会自动出现可切换的供应商记录。',
+    'en-US': 'After you apply a Claude configuration once, switchable provider records will appear here automatically.',
+  },
+  'aiConfig.saved.switch': { 'zh-CN': '切换为当前配置', 'en-US': 'Switch to This Config' },
+  'aiConfig.saved.switching': { 'zh-CN': '切换中...', 'en-US': 'Switching...' },
+  'aiConfig.saved.switchSuccess': { 'zh-CN': '已切换到所选 Claude 配置', 'en-US': 'Switched to the selected Claude configuration' },
+  'aiConfig.saved.active': { 'zh-CN': '当前生效', 'en-US': 'Active' },
+  'aiConfig.saved.lastApplied': { 'zh-CN': '最近应用', 'en-US': 'Last Applied' },
+  'aiConfig.saved.vaulted': { 'zh-CN': '已托管密钥', 'en-US': 'Vaulted Secret' },
+  'aiConfig.saved.officialManaged': { 'zh-CN': '官方模式由 Claude CLI 原生托管', 'en-US': 'Official mode is managed natively by Claude CLI' },
 
   /* Agent Intro */
   'aiConfig.agent.claude.title': { 'zh-CN': 'Claude Code', 'en-US': 'Claude Code' },
   'aiConfig.agent.claude.subtitle': { 
-    'zh-CN': '完整的供应商配置、模型覆盖及运行时注入。', 
-    'en-US': 'Full provider configuration, model override, and runtime injection.' 
+    'zh-CN': '完整的供应商配置、模型覆盖及系统级 Claude settings 同步。', 
+    'en-US': 'Full provider configuration, model override, and system-level Claude settings sync.' 
   },
   'aiConfig.agent.codex.title': { 'zh-CN': 'Codex CLI', 'en-US': 'Codex CLI' },
   'aiConfig.agent.codex.subtitle': { 
@@ -1038,6 +1065,261 @@ export const messages = {
   'aiConfig.preset.deepseek.step1': { 'zh-CN': '注册 DeepSeek 开放平台账号。', 'en-US': 'Register a DeepSeek platform account.' },
   'aiConfig.preset.deepseek.step2': { 'zh-CN': '如果账户余额不足，请先充值。', 'en-US': 'Recharge your balance if the account is empty.' },
   'aiConfig.preset.deepseek.step3': { 'zh-CN': '为 Claude 兼容端点创建 API Key。', 'en-US': 'Create an API key for the Anthropic-compatible endpoint.' },
+
+  'aiConfig.preset.zhipuGlm.name': { 'zh-CN': 'Zhipu GLM', 'en-US': 'Zhipu GLM' },
+  'aiConfig.preset.zhipuGlm.desc': {
+    'zh-CN': '智谱官方的 Claude 兼容入口，默认推荐 GLM-5。',
+    'en-US': 'Zhipu\'s first-party Claude-compatible endpoint with GLM-5 as the default.',
+  },
+  'aiConfig.preset.zhipuGlm.why': {
+    'zh-CN': '国内可用性、模型稳定性和编码能力比较均衡。',
+    'en-US': 'Balanced availability, stability, and coding capability for China-based teams.',
+  },
+  'aiConfig.preset.zhipuGlm.bestFor': {
+    'zh-CN': '希望优先使用 GLM-5，且需要国内账单链路的团队。',
+    'en-US': 'Teams that want GLM-5 with local billing and support.',
+  },
+  'aiConfig.preset.zhipuGlm.step1': { 'zh-CN': '打开智谱开放平台并开通模型服务。', 'en-US': 'Open Zhipu\'s platform and enable model access.' },
+  'aiConfig.preset.zhipuGlm.step2': { 'zh-CN': '按需充值或确认套餐额度可用。', 'en-US': 'Top up or confirm available quota.' },
+  'aiConfig.preset.zhipuGlm.step3': { 'zh-CN': '创建 API Key，并用于 Claude 兼容入口。', 'en-US': 'Create an API key for the Claude-compatible endpoint.' },
+
+  'aiConfig.preset.zhipuGlmEn.name': { 'zh-CN': 'Zhipu GLM en', 'en-US': 'Zhipu GLM en' },
+  'aiConfig.preset.zhipuGlmEn.desc': {
+    'zh-CN': 'Z.ai 国际入口，默认同样推荐 GLM-5。',
+    'en-US': 'Z.ai\'s international endpoint with GLM-5 as the default.',
+  },
+  'aiConfig.preset.zhipuGlmEn.why': {
+    'zh-CN': '适合希望使用 Z.ai 国际站与英文控制台的用户。',
+    'en-US': 'Useful when you prefer Z.ai\'s international site and English console.',
+  },
+  'aiConfig.preset.zhipuGlmEn.bestFor': {
+    'zh-CN': '需要海外入口或英文工作台的团队。',
+    'en-US': 'Teams that need a global endpoint or English-language workflow.',
+  },
+  'aiConfig.preset.zhipuGlmEn.step1': { 'zh-CN': '打开 Z.ai 并完成账号注册。', 'en-US': 'Open Z.ai and complete account sign-up.' },
+  'aiConfig.preset.zhipuGlmEn.step2': { 'zh-CN': '订阅额度或确认账户余额可用。', 'en-US': 'Subscribe for credits or confirm available balance.' },
+  'aiConfig.preset.zhipuGlmEn.step3': { 'zh-CN': '创建 API Key，并用于 Claude 兼容入口。', 'en-US': 'Create an API key for the Claude-compatible endpoint.' },
+
+  'aiConfig.preset.qwenCoder.name': { 'zh-CN': 'Qwen Coder', 'en-US': 'Qwen Coder' },
+  'aiConfig.preset.qwenCoder.desc': {
+    'zh-CN': '阿里云百炼 Coding 入口，面向 Qwen 编程模型。',
+    'en-US': 'Alibaba Cloud Bailian coding endpoint for Qwen coding models.',
+  },
+  'aiConfig.preset.qwenCoder.why': {
+    'zh-CN': 'Qwen 系列知名度高，控制台、账单和企业采购路径都比较成熟。',
+    'en-US': 'Qwen has strong market recognition, with mature console, billing, and enterprise procurement paths.',
+  },
+  'aiConfig.preset.qwenCoder.bestFor': {
+    'zh-CN': '已经在阿里云体系内，或希望优先使用 Qwen 编程模型的团队。',
+    'en-US': 'Teams already on Alibaba Cloud or prioritizing Qwen coding models.',
+  },
+  'aiConfig.preset.qwenCoder.step1': { 'zh-CN': '打开阿里云百炼控制台并开通相关服务。', 'en-US': 'Open the Bailian console and enable the required service.' },
+  'aiConfig.preset.qwenCoder.step2': { 'zh-CN': '创建或确认 API Key，并确保 Coding 能力已开通。', 'en-US': 'Create or confirm an API key and ensure coding access is enabled.' },
+  'aiConfig.preset.qwenCoder.step3': { 'zh-CN': '将 API Key 粘贴到 GT Office 中。', 'en-US': 'Paste the API key into GT Office.' },
+
+  'aiConfig.preset.kimiK2.name': { 'zh-CN': 'Kimi k2', 'en-US': 'Kimi k2' },
+  'aiConfig.preset.kimiK2.desc': {
+    'zh-CN': 'Moonshot 官方 Claude 兼容入口，默认推荐 Kimi K2 系列。',
+    'en-US': 'Moonshot\'s first-party Claude-compatible endpoint with the Kimi K2 line as the default.',
+  },
+  'aiConfig.preset.kimiK2.why': {
+    'zh-CN': 'Kimi 在代码和中文理解上表现稳定，平台认知度也很高。',
+    'en-US': 'Kimi is well-known for strong coding and Chinese-language performance.',
+  },
+  'aiConfig.preset.kimiK2.bestFor': {
+    'zh-CN': '想使用 Moonshot 官方接口并保留 Claude 兼容接入方式的团队。',
+    'en-US': 'Teams that want Moonshot\'s official endpoint while keeping Claude-compatible wiring.',
+  },
+  'aiConfig.preset.kimiK2.step1': { 'zh-CN': '打开 Moonshot 控制台。', 'en-US': 'Open the Moonshot console.' },
+  'aiConfig.preset.kimiK2.step2': { 'zh-CN': '充值额度或确认套餐可用。', 'en-US': 'Top up credits or confirm your plan is active.' },
+  'aiConfig.preset.kimiK2.step3': { 'zh-CN': '创建 API Key，并用于 Claude 兼容入口。', 'en-US': 'Create an API key for the Claude-compatible endpoint.' },
+
+  'aiConfig.preset.kimiForCoding.name': { 'zh-CN': 'Kimi For Coding', 'en-US': 'Kimi For Coding' },
+  'aiConfig.preset.kimiForCoding.desc': {
+    'zh-CN': 'Kimi Coding 专用入口，针对编程场景做了更直接的接入。',
+    'en-US': 'Dedicated Kimi Coding endpoint with a more direct path for programming workflows.',
+  },
+  'aiConfig.preset.kimiForCoding.why': {
+    'zh-CN': '如果 Claude Code 主要用于编码任务，这个入口更贴近 Kimi 的 coding plan。',
+    'en-US': 'A better fit when Claude Code is used primarily for coding tasks.',
+  },
+  'aiConfig.preset.kimiForCoding.bestFor': {
+    'zh-CN': '重度编码场景，且希望单独隔离 Kimi Coding 配额的用户。',
+    'en-US': 'Heavy coding workflows that want separate Kimi Coding quota and controls.',
+  },
+  'aiConfig.preset.kimiForCoding.step1': { 'zh-CN': '阅读 Kimi Coding 文档并确认服务已开通。', 'en-US': 'Review the Kimi Coding docs and confirm the service is enabled.' },
+  'aiConfig.preset.kimiForCoding.step2': { 'zh-CN': '在 Moonshot 控制台准备可用额度。', 'en-US': 'Prepare available quota in the Moonshot console.' },
+  'aiConfig.preset.kimiForCoding.step3': { 'zh-CN': '创建 API Key，并用于 Coding 入口。', 'en-US': 'Create an API key for the coding endpoint.' },
+
+  'aiConfig.preset.minimax.name': { 'zh-CN': 'MiniMax', 'en-US': 'MiniMax' },
+  'aiConfig.preset.minimax.desc': {
+    'zh-CN': 'MiniMax 国内 Coding Plan，默认推荐 MiniMax M2.5。',
+    'en-US': 'MiniMax China coding plan with MiniMax M2.5 as the default.',
+  },
+  'aiConfig.preset.minimax.why': {
+    'zh-CN': 'MiniMax 最近热度很高，能力、速度和价格都比较均衡。',
+    'en-US': 'MiniMax currently has strong momentum with a balanced capability, speed, and price profile.',
+  },
+  'aiConfig.preset.minimax.bestFor': {
+    'zh-CN': '想平衡能力、速度和成本，并使用国内结算路径的团队。',
+    'en-US': 'Teams that want a strong capability/cost balance with domestic billing.',
+  },
+  'aiConfig.preset.minimax.step1': { 'zh-CN': '打开 MiniMax 控制台。', 'en-US': 'Open the MiniMax console.' },
+  'aiConfig.preset.minimax.step2': { 'zh-CN': '购买或确认 Coding Plan/额度可用。', 'en-US': 'Purchase or confirm your coding plan and credits.' },
+  'aiConfig.preset.minimax.step3': { 'zh-CN': '创建 API Key 并粘贴到 GT Office。', 'en-US': 'Create an API key and paste it into GT Office.' },
+
+  'aiConfig.preset.minimaxEn.name': { 'zh-CN': 'MiniMax en', 'en-US': 'MiniMax en' },
+  'aiConfig.preset.minimaxEn.desc': {
+    'zh-CN': 'MiniMax 国际站入口，默认推荐 MiniMax M2.5。',
+    'en-US': 'MiniMax international endpoint with MiniMax M2.5 as the default.',
+  },
+  'aiConfig.preset.minimaxEn.why': {
+    'zh-CN': '适合需要国际域名、英文控制台和跨区协作的场景。',
+    'en-US': 'Better for international domains, English console usage, and cross-region collaboration.',
+  },
+  'aiConfig.preset.minimaxEn.bestFor': {
+    'zh-CN': '多地区协作、偏好英文工作台的团队。',
+    'en-US': 'Distributed teams that prefer an English-language workspace.',
+  },
+  'aiConfig.preset.minimaxEn.step1': { 'zh-CN': '打开 MiniMax 国际站。', 'en-US': 'Open the MiniMax international console.' },
+  'aiConfig.preset.minimaxEn.step2': { 'zh-CN': '订阅额度或确认计划可用。', 'en-US': 'Subscribe for credits or confirm your plan is active.' },
+  'aiConfig.preset.minimaxEn.step3': { 'zh-CN': '创建 API Key 并粘贴到 GT Office。', 'en-US': 'Create an API key and paste it into GT Office.' },
+
+  'aiConfig.preset.doubaoSeed.name': { 'zh-CN': 'DouBaoSeed', 'en-US': 'DouBaoSeed' },
+  'aiConfig.preset.doubaoSeed.desc': {
+    'zh-CN': '火山引擎 DouBaoSeed 编程入口，默认推荐 Seed Code Preview。',
+    'en-US': 'Volcengine DouBaoSeed coding endpoint with Seed Code Preview as the default.',
+  },
+  'aiConfig.preset.doubaoSeed.why': {
+    'zh-CN': '字节系云平台和工具链成熟，适合已在火山体系内的团队。',
+    'en-US': 'Useful for teams already invested in Volcengine and ByteDance cloud tooling.',
+  },
+  'aiConfig.preset.doubaoSeed.bestFor': {
+    'zh-CN': '已有火山引擎账号，想直接接入豆包编程模型的用户。',
+    'en-US': 'Users with an existing Volcengine account who want direct access to DouBao coding models.',
+  },
+  'aiConfig.preset.doubaoSeed.step1': { 'zh-CN': '打开火山引擎/Ark 控制台。', 'en-US': 'Open the Volcengine / Ark console.' },
+  'aiConfig.preset.doubaoSeed.step2': { 'zh-CN': '开通模型服务并确认额度可用。', 'en-US': 'Enable model access and confirm quota is available.' },
+  'aiConfig.preset.doubaoSeed.step3': { 'zh-CN': '创建 API Key 并用于 Coding 入口。', 'en-US': 'Create an API key for the coding endpoint.' },
+
+  'aiConfig.preset.xiaomiMimo.name': { 'zh-CN': 'Xiaomi MiMo', 'en-US': 'Xiaomi MiMo' },
+  'aiConfig.preset.xiaomiMimo.desc': {
+    'zh-CN': '小米 MiMo 官方入口，默认推荐 MiMo V2 Flash。',
+    'en-US': 'Xiaomi MiMo\'s official endpoint with MiMo V2 Flash as the default.',
+  },
+  'aiConfig.preset.xiaomiMimo.why': {
+    'zh-CN': 'MiMo 在代码和中文任务上的热度持续提升，接入也相对直接。',
+    'en-US': 'MiMo is gaining recognition for coding and Chinese-language tasks with a straightforward setup path.',
+  },
+  'aiConfig.preset.xiaomiMimo.bestFor': {
+    'zh-CN': '想尝试新一代国内代码模型，同时保留标准化接入方式的开发者。',
+    'en-US': 'Developers exploring newer China-based coding models with a standard integration path.',
+  },
+  'aiConfig.preset.xiaomiMimo.step1': { 'zh-CN': '打开 MiMo 控制台。', 'en-US': 'Open the MiMo console.' },
+  'aiConfig.preset.xiaomiMimo.step2': { 'zh-CN': '创建或确认可用的 API Key。', 'en-US': 'Create or confirm an available API key.' },
+  'aiConfig.preset.xiaomiMimo.step3': { 'zh-CN': '将 API Key 粘贴到 GT Office 中。', 'en-US': 'Paste the API key into GT Office.' },
+
+  'aiConfig.preset.modelScope.name': { 'zh-CN': 'ModelScope', 'en-US': 'ModelScope' },
+  'aiConfig.preset.modelScope.desc': {
+    'zh-CN': 'ModelScope 聚合推理入口，当前推荐 GLM-5。',
+    'en-US': 'ModelScope aggregate inference endpoint, currently recommending GLM-5.',
+  },
+  'aiConfig.preset.modelScope.why': {
+    'zh-CN': '对已经在魔搭社区工作的团队来说，上手门槛低且生态集中。',
+    'en-US': 'A convenient fit for teams already working within the ModelScope ecosystem.',
+  },
+  'aiConfig.preset.modelScope.bestFor': {
+    'zh-CN': '已经在用 ModelScope 资产，希望统一到单个平台的团队。',
+    'en-US': 'Teams already using ModelScope assets and wanting a single platform.',
+  },
+  'aiConfig.preset.modelScope.step1': { 'zh-CN': '打开 ModelScope AccessToken 页面。', 'en-US': 'Open the ModelScope Access Token page.' },
+  'aiConfig.preset.modelScope.step2': { 'zh-CN': '创建新的 Access Token。', 'en-US': 'Create a new access token.' },
+  'aiConfig.preset.modelScope.step3': { 'zh-CN': '在 GT Office 中使用该 Token 和 GLM-5 预设。', 'en-US': 'Use that token with the GLM-5 preset in GT Office.' },
+
+  'aiConfig.preset.openRouter.name': { 'zh-CN': 'OpenRouter', 'en-US': 'OpenRouter' },
+  'aiConfig.preset.openRouter.desc': {
+    'zh-CN': 'OpenRouter 聚合入口，可统一管理多家模型账单与路由。',
+    'en-US': 'OpenRouter aggregate endpoint for unified model billing and routing.',
+  },
+  'aiConfig.preset.openRouter.why': {
+    'zh-CN': '在需要多模型备份和统一 API Key 管理时非常方便。',
+    'en-US': 'Convenient when you want multi-model fallback and unified API key management.',
+  },
+  'aiConfig.preset.openRouter.bestFor': {
+    'zh-CN': '希望通过一个平台切换不同模型或做备用路由的用户。',
+    'en-US': 'Users who want to switch providers or keep backup routes behind one platform.',
+  },
+  'aiConfig.preset.openRouter.step1': { 'zh-CN': '打开 OpenRouter 并完成注册。', 'en-US': 'Open OpenRouter and finish account setup.' },
+  'aiConfig.preset.openRouter.step2': { 'zh-CN': '充值额度或启用可用支付方式。', 'en-US': 'Add credits or enable a working billing method.' },
+  'aiConfig.preset.openRouter.step3': { 'zh-CN': '创建 API Key 并粘贴到 GT Office。', 'en-US': 'Create an API key and paste it into GT Office.' },
+
+  'aiConfig.preset.nvidia.name': { 'zh-CN': 'Nvidia', 'en-US': 'Nvidia' },
+  'aiConfig.preset.nvidia.desc': {
+    'zh-CN': 'Nvidia Build 平台入口，当前推荐 Kimi K2 系列。',
+    'en-US': 'Nvidia Build endpoint, currently recommending the Kimi K2 line.',
+  },
+  'aiConfig.preset.nvidia.why': {
+    'zh-CN': '如果你已经在使用 Nvidia Build / NIM 生态，这个入口更顺手。',
+    'en-US': 'Useful when your team is already working inside Nvidia Build or NIM workflows.',
+  },
+  'aiConfig.preset.nvidia.bestFor': {
+    'zh-CN': '已有 Nvidia 开发平台账号，想复用同一套 API 凭据的团队。',
+    'en-US': 'Teams that already have Nvidia developer accounts and want to reuse the same credentials.',
+  },
+  'aiConfig.preset.nvidia.step1': { 'zh-CN': '打开 Nvidia Build 控制台。', 'en-US': 'Open the Nvidia Build console.' },
+  'aiConfig.preset.nvidia.step2': { 'zh-CN': '创建 API Key，并确认目标模型路由已可用。', 'en-US': 'Create an API key and confirm the target model route is enabled.' },
+  'aiConfig.preset.nvidia.step3': { 'zh-CN': '将 API Key 粘贴到 GT Office 中。', 'en-US': 'Paste the API key into GT Office.' },
+
+  'aiConfig.preset.katCoder.name': { 'zh-CN': 'KAT-Coder', 'en-US': 'KAT-Coder' },
+  'aiConfig.preset.katCoder.desc': {
+    'zh-CN': 'KAT-Coder 提供面向编程代理的专用线路。',
+    'en-US': 'KAT-Coder provides a dedicated route for coding agents.',
+  },
+  'aiConfig.preset.katCoder.why': {
+    'zh-CN': '如果团队已经购买 KAT-Coder 端点，这个预设可以减少手工填表。',
+    'en-US': 'A useful shortcut when your team already owns a KAT-Coder endpoint.',
+  },
+  'aiConfig.preset.katCoder.bestFor': {
+    'zh-CN': '已有 StreamLake / Vanchin 端点 ID，希望快速接入的团队。',
+    'en-US': 'Teams with an existing StreamLake / Vanchin endpoint ID that want faster setup.',
+  },
+  'aiConfig.preset.katCoder.step1': { 'zh-CN': '在 StreamLake 控制台创建或确认可用端点。', 'en-US': 'Create or confirm an available endpoint in the StreamLake console.' },
+  'aiConfig.preset.katCoder.step2': { 'zh-CN': '将 Base URL 中的 `YOUR_ENDPOINT_ID` 替换为真实端点 ID。', 'en-US': 'Replace `YOUR_ENDPOINT_ID` in the base URL with your real endpoint ID.' },
+  'aiConfig.preset.katCoder.step3': { 'zh-CN': '创建 API Key 并在 GT Office 中完成验证。', 'en-US': 'Create an API key and finish setup in GT Office.' },
+
+  'aiConfig.preset.longcat.name': { 'zh-CN': 'Longcat', 'en-US': 'Longcat' },
+  'aiConfig.preset.longcat.desc': {
+    'zh-CN': 'Longcat 提供面向代码场景的 Claude 兼容入口。',
+    'en-US': 'Longcat offers a Claude-compatible endpoint oriented toward coding workflows.',
+  },
+  'aiConfig.preset.longcat.why': {
+    'zh-CN': '社区认知度不错，默认模型和延迟表现适合日常开发。',
+    'en-US': 'A visible community option with default models and latency suited to day-to-day development.',
+  },
+  'aiConfig.preset.longcat.bestFor': {
+    'zh-CN': '希望引入国内编程模型新选择的个人开发者或小团队。',
+    'en-US': 'Individual developers or small teams wanting another China-based coding provider option.',
+  },
+  'aiConfig.preset.longcat.step1': { 'zh-CN': '打开 Longcat 平台。', 'en-US': 'Open the Longcat platform.' },
+  'aiConfig.preset.longcat.step2': { 'zh-CN': '充值或确认订阅可用。', 'en-US': 'Add credits or confirm your subscription is active.' },
+  'aiConfig.preset.longcat.step3': { 'zh-CN': '创建 API Key，并用于 Claude 兼容入口。', 'en-US': 'Create an API key for the Claude-compatible endpoint.' },
+
+  'aiConfig.preset.baiLing.name': { 'zh-CN': 'BaiLing', 'en-US': 'BaiLing' },
+  'aiConfig.preset.baiLing.desc': {
+    'zh-CN': '百灵提供国内可用的 Claude 兼容编程模型入口。',
+    'en-US': 'BaiLing provides a China-accessible Claude-compatible endpoint for coding models.',
+  },
+  'aiConfig.preset.baiLing.why': {
+    'zh-CN': '适合作为补充性国内供应商，用于分摊主供应商的容量与成本。',
+    'en-US': 'A reasonable supplemental domestic provider to spread capacity and cost.',
+  },
+  'aiConfig.preset.baiLing.bestFor': {
+    'zh-CN': '希望增加一个备用国内线路的团队。',
+    'en-US': 'Teams that want an additional China-based backup route.',
+  },
+  'aiConfig.preset.baiLing.step1': { 'zh-CN': '阅读百灵接入文档并确认账号已开通。', 'en-US': 'Review BaiLing onboarding docs and confirm your account is enabled.' },
+  'aiConfig.preset.baiLing.step2': { 'zh-CN': '创建 API Key 或确认接入凭据已准备好。', 'en-US': 'Create an API key or confirm your access credentials are ready.' },
+  'aiConfig.preset.baiLing.step3': { 'zh-CN': '将 API Key 粘贴到 GT Office 中。', 'en-US': 'Paste the API key into GT Office.' },
 
   'aiConfig.preset.kimi.name': { 'zh-CN': 'Kimi 开发者平台', 'en-US': 'Kimi For Coding' },
   'aiConfig.preset.kimi.desc': { 'zh-CN': 'Moonshot Kimi 提供的 Claude 兼容网关。', 'en-US': 'Moonshot Kimi gateway with Claude-style routing.' },

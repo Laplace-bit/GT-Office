@@ -154,6 +154,7 @@ MCP Bridge（T-171）：
 | `ai_config.read_snapshot` | `workspaceId,allow?` | `snapshot{agents[],claude,codex,gemini},masking[]` |
 | `ai_config.preview_patch` | `workspaceId,scope,agent,draft` | `previewId,allowed,normalizedDraft,maskedDiff[],changedKeys[],secretRefs[],warnings[]` |
 | `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
+| `ai_config.switch_saved_claude_provider` | `workspaceId,savedProviderId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady` |
 | `install_agent` | `agent` | `ok`（成功后前端需重新查询 `agent_install_status`） |
 
@@ -161,8 +162,12 @@ AI Config 约束（T-171）：
 1. v1 仅 Claude 支持进阶供应商配置；Codex/Gemini 只返回轻量引导信息。
 2. Claude `draft.mode` 允许 `official|preset|custom`。
 3. Claude `preview_patch` 必须拒绝缺失 `baseUrl/model/apiKey` 且无已有 `secretRef` 的新配置。
-4. `apply_patch` 必须把 API Key 写入系统凭据库，只在工作区配置保存 `secretRef`。
+4. `apply_patch` 必须把 API Key 写入系统凭据库，只在工作区配置保存 `secretRef`；Claude 应用时还必须同步 GT Office 受管 env 键到 `~/.claude/settings.json`。
 5. `ai_config.read_snapshot` 返回的 Claude 预设目录必须包含 `websiteUrl/apiKeyUrl/billingUrl/recommendedModel/endpoint/authScheme/setupSteps[]`，以支撑新手引导。
+6. Claude live sync 必须保留 `~/.claude/settings.json` 中与当前供应商无关的根字段和 `env` 键，例如 `mcpServers`、`permissions` 及用户自定义 env；仅允许增删 GT Office 受管的 Claude provider 键。
+7. `ai_config.read_snapshot.snapshot.claude` 必须返回 `savedProviders[]`，其中每项至少包含 `savedProviderId,mode,providerId,providerName,baseUrl,model,authScheme,hasSecret,isActive,createdAtMs,updatedAtMs,lastAppliedAtMs`。
+8. `ai_config.switch_saved_claude_provider` 必须基于数据库中的 saved provider 切换当前生效 Claude 配置，并同步工作区配置、live settings 与 active saved provider 标记。
+9. Claude 选择 `official` 并应用时，也必须落一条可切换的 saved provider 记录；后续从 saved list 切回官方时，应清除 GT Office 托管的 Claude env 覆盖并恢复原生官方模式。
 
 ### 3.7 Agent / Hook / Policy / Observability
 

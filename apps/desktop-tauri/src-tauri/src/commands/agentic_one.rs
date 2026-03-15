@@ -96,8 +96,13 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
             .unwrap();
 
         // Run MCP installer
-        let resource_path = window.app_handle().path().resource_dir().unwrap_or_default();
-        let installer_script = resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
+        let resource_path = window
+            .app_handle()
+            .path()
+            .resource_dir()
+            .unwrap_or_default();
+        let installer_script =
+            resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
 
         // Fallback to relative path if resource_dir doesn't work (e.g. in dev)
         let installer_path = if installer_script.exists() {
@@ -124,7 +129,10 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
             window
                 .emit(
                     &progress_event,
-                    format!("⚠️ {} installed, but MCP bridge configuration failed.", name),
+                    format!(
+                        "⚠️ {} installed, but MCP bridge configuration failed.",
+                        name
+                    ),
                 )
                 .unwrap();
         }

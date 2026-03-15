@@ -27,10 +27,7 @@ fn resolve_ai_config_repository(app: &AppHandle) -> Result<SqliteAiConfigReposit
     Ok(SqliteAiConfigRepository::new(storage))
 }
 
-fn resolve_ai_config_service(
-    app: &AppHandle,
-    state: &AppState,
-) -> Result<AiConfigService, String> {
+fn resolve_ai_config_service(app: &AppHandle, state: &AppState) -> Result<AiConfigService, String> {
     Ok(AiConfigService::new(
         state.settings_service.clone(),
         resolve_ai_config_repository(app)?,
@@ -143,7 +140,9 @@ pub fn ai_config_apply_patch(
 
     let changed_keys = match &preview {
         StoredAiConfigPreview::Claude(p) => p.changed_keys.clone(),
-        StoredAiConfigPreview::Codex(p) | StoredAiConfigPreview::Gemini(p) => p.changed_keys.clone(),
+        StoredAiConfigPreview::Codex(p) | StoredAiConfigPreview::Gemini(p) => {
+            p.changed_keys.clone()
+        }
     };
 
     let _ = app.emit(
@@ -170,6 +169,46 @@ pub fn ai_config_list_audit_logs(
     service
         .list_audit_logs(&workspace_id, &agent, limit.unwrap_or(10))
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn ai_config_switch_saved_claude_provider(
+    workspace_id: String,
+    saved_provider_id: String,
+    confirmed_by: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
+    ensure_workspace_exists(&state, &workspace_id)?;
+    let workspace_root = state.workspace_root_path(&workspace_id)?;
+    let service = resolve_ai_config_service(&app, &state)?;
+
+    let response = service
+        .switch_saved_claude_provider(
+            &workspace_id,
+            &workspace_root,
+            &saved_provider_id,
+            &confirmed_by,
+        )
+        .map_err(|error| error.to_string())?;
+
+    let _ = app.emit(
+        "ai_config/changed",
+        json!({
+            "auditId": response.audit_id,
+            "scope": "workspace",
+            "changedKeys": [
+                "ai.providers.claude.savedProviderId",
+                "ai.providers.claude.activeMode",
+                "ai.providers.claude.providerId",
+                "ai.providers.claude.providerName",
+                "ai.providers.claude.baseUrl",
+                "ai.providers.claude.model",
+                "ai.providers.claude.authScheme",
+            ],
+        }),
+    );
+    Ok(response)
 }
 
 pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {
