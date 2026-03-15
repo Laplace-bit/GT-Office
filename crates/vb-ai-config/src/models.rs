@@ -186,6 +186,8 @@ pub struct AiConfigReadSnapshotResponse {
 pub struct ClaudeDraftInput {
     pub mode: ClaudeProviderMode,
     #[serde(default)]
+    pub saved_provider_id: Option<String>,
+    #[serde(default)]
     pub provider_id: Option<String>,
     #[serde(default)]
     pub provider_name: Option<String>,
@@ -289,6 +291,7 @@ pub enum StoredAiConfigPreview {
 #[derive(Debug, Clone)]
 pub struct StoredClaudePreview {
     pub preview_id: String,
+    pub saved_provider_id: Option<String>,
     pub normalized_draft: ClaudeNormalizedDraft,
     pub changed_keys: Vec<String>,
     pub secret_refs: Vec<String>,

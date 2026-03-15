@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 
-import { desktopApi, type AiConfigAgent, type AiConfigReadSnapshotResponse } from '@shell/integration/desktop-api'
+import {
+  desktopApi,
+  type AiConfigAgent,
+  type AiConfigReadSnapshotResponse,
+  type AiConfigSnapshot,
+} from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 
 import { ProviderAgentCard } from './shared/ProviderAgentCard'
@@ -15,11 +20,14 @@ interface AiProvidersSectionProps {
   locale: Locale
 }
 
+type ClaudeConfigEntryMode = 'wizard' | 'saved'
+
 export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionProps) {
   const [snapshot, setSnapshot] = useState<AiConfigReadSnapshotResponse | null>(null)
   const [installingAgent, setInstallingAgent] = useState<AiConfigAgent | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<AiConfigAgent | null>(null)
   const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
+  const [claudeEntryMode, setClaudeEntryMode] = useState<ClaudeConfigEntryMode>('wizard')
 
   const handleReload = async () => {
     try {
@@ -28,6 +36,20 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     } catch (err) {
       console.error('Failed to read AI config snapshot', err)
     }
+  }
+
+  const handleSnapshotUpdate = (effective: AiConfigSnapshot) => {
+    startTransition(() => {
+      setSnapshot((current) => {
+        if (!current) {
+          return current
+        }
+        return {
+          ...current,
+          snapshot: effective,
+        }
+      })
+    })
   }
 
   useEffect(() => {
@@ -72,7 +94,37 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
             onSelect={() => setSelectedAgentId(agent.agent)}
             installing={installingAgent === agent.agent}
             onInstall={() => void handleInstall(agent.agent)}
-            onConfigure={() => setConfigAgentId(agent.agent)}
+            onConfigure={() => {
+              setSelectedAgentId(agent.agent)
+              if (agent.agent === 'claude') {
+                setClaudeEntryMode('wizard')
+              }
+              setConfigAgentId(agent.agent)
+            }}
+            configureActions={
+              agent.agent === 'claude'
+                ? [
+                    {
+                      key: 'wizard',
+                      label: t(locale, 'aiConfig.card.configureWizard'),
+                      onClick: () => {
+                        setSelectedAgentId('claude')
+                        setClaudeEntryMode('wizard')
+                        setConfigAgentId('claude')
+                      },
+                    },
+                    {
+                      key: 'saved',
+                      label: t(locale, 'aiConfig.card.savedProviders'),
+                      onClick: () => {
+                        setSelectedAgentId('claude')
+                        setClaudeEntryMode('saved')
+                        setConfigAgentId('claude')
+                      },
+                    },
+                  ]
+                : undefined
+            }
           />
         ))}
       </div>
@@ -83,9 +135,11 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
           locale={locale}
           agent={configAgent}
           snapshot={snapshot.snapshot.claude}
+          entryMode={claudeEntryMode}
           installing={installingAgent === 'claude'}
           onInstall={() => void handleInstall('claude')}
           onReload={handleReload}
+          onSnapshotUpdate={handleSnapshotUpdate}
           onClose={() => setConfigAgentId(null)}
         />
       )}

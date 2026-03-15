@@ -12,6 +12,11 @@ interface ProviderAgentCardProps {
   onSelect: () => void
   onInstall: () => void
   onConfigure: () => void
+  configureActions?: Array<{
+    key: string
+    label: string
+    onClick: () => void
+  }>
 }
 
 function resolveStatusTone(agent: AiAgentSnapshotCard): 'success' | 'warning' | 'muted' {
@@ -42,10 +47,21 @@ export function ProviderAgentCard({
   onSelect,
   onInstall,
   onConfigure,
+  configureActions,
 }: ProviderAgentCardProps) {
   const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
   const tone = resolveStatusTone(agent)
   const label = resolveStatusLabel(locale, agent)
+  const effectiveConfigureActions =
+    configureActions && configureActions.length > 0
+      ? configureActions
+      : [
+          {
+            key: 'configure',
+            label: t(locale, 'aiConfig.card.configure'),
+            onClick: onConfigure,
+          },
+        ]
 
   const logoSrc = {
     claude: '/assets/logos/claude.webp',
@@ -95,13 +111,27 @@ export function ProviderAgentCard({
             {installing ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.install')}
           </button>
         ) : (
-          <button
-            className="action-button secondary"
-            onClick={(e) => { e.stopPropagation(); onConfigure(); }}
-          >
-            <AppIcon name="settings" width={14} height={14} />
-            {t(locale, 'aiConfig.card.configure')}
-          </button>
+          <div className={`ai-provider-card__action-group ${effectiveConfigureActions.length > 1 ? 'is-multi' : ''}`}>
+            {effectiveConfigureActions.map((action) => (
+              <button
+                key={action.key}
+                className={`action-button secondary ${effectiveConfigureActions.length > 1 ? 'is-subaction' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  action.onClick()
+                }}
+              >
+                {effectiveConfigureActions.length === 1 ? (
+                  <>
+                    <AppIcon name="settings" width={14} height={14} />
+                    {action.label}
+                  </>
+                ) : (
+                  action.label
+                )}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </article>

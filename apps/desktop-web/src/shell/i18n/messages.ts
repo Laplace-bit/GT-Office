@@ -922,8 +922,6 @@ export const messages = {
   'aiConfig.step.guidance': { 'zh-CN': '获取凭据', 'en-US': 'Get Credentials' },
   'aiConfig.step.details': { 'zh-CN': '详细配置', 'en-US': 'Config Details' },
   'aiConfig.step.apply': { 'zh-CN': '预览并应用', 'en-US': 'Review & Apply' },
-  'aiConfig.tab.wizard': { 'zh-CN': '配置向导', 'en-US': 'Config Wizard' },
-  'aiConfig.tab.saved': { 'zh-CN': '已保存供应商', 'en-US': 'Saved Providers' },
 
   'aiConfig.category.global': { 'zh-CN': '全球', 'en-US': 'Global' },
   'aiConfig.category.china': { 'zh-CN': '中国镜像', 'en-US': 'China' },
@@ -1016,6 +1014,7 @@ export const messages = {
     'zh-CN': '完成一次 Claude 配置应用后，这里会自动出现可切换的供应商记录。',
     'en-US': 'After you apply a Claude configuration once, switchable provider records will appear here automatically.',
   },
+  'aiConfig.saved.edit': { 'zh-CN': '编辑配置', 'en-US': 'Edit Config' },
   'aiConfig.saved.switch': { 'zh-CN': '切换为当前配置', 'en-US': 'Switch to This Config' },
   'aiConfig.saved.switching': { 'zh-CN': '切换中...', 'en-US': 'Switching...' },
   'aiConfig.saved.switchSuccess': { 'zh-CN': '已切换到所选 Claude 配置', 'en-US': 'Switched to the selected Claude configuration' },
@@ -1393,6 +1392,8 @@ export const messages = {
   'aiConfig.card.needsSetup': { 'zh-CN': '待配置', 'en-US': 'Needs setup' },
   'aiConfig.card.noExecutable': { 'zh-CN': '未检测到可执行文件', 'en-US': 'Not installed' },
   'aiConfig.card.configure': { 'zh-CN': '配置', 'en-US': 'Configure' },
+  'aiConfig.card.configureWizard': { 'zh-CN': '配置向导', 'en-US': 'Config Wizard' },
+  'aiConfig.card.savedProviders': { 'zh-CN': '已保存供应商', 'en-US': 'Saved Providers' },
   'aiConfig.card.install': { 'zh-CN': '立即安装', 'en-US': 'Install' },
   'aiConfig.card.installing': { 'zh-CN': '安装中...', 'en-US': 'Installing...' },
 }

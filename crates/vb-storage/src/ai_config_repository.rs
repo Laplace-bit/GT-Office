@@ -191,7 +191,7 @@ impl SqliteAiConfigRepository {
                 message: error.to_string(),
             })?;
 
-        let existing = tx
+        let existing_by_fingerprint = tx
             .query_row(
                 "SELECT
                     saved_provider_id,
@@ -219,6 +219,40 @@ impl SqliteAiConfigRepository {
                 message: error.to_string(),
             })?;
 
+        let existing_by_id = input
+            .saved_provider_id
+            .as_ref()
+            .map(|saved_provider_id| {
+                tx.query_row(
+                    "SELECT
+                        saved_provider_id,
+                        workspace_id,
+                        fingerprint,
+                        mode,
+                        provider_id,
+                        provider_name,
+                        base_url,
+                        model,
+                        auth_scheme,
+                        secret_ref,
+                        has_secret,
+                        is_active,
+                        created_at_ms,
+                        updated_at_ms,
+                        last_applied_at_ms
+                     FROM ai_config_saved_claude_providers
+                     WHERE workspace_id = ?1 AND saved_provider_id = ?2",
+                    params![input.workspace_id, saved_provider_id],
+                    map_saved_claude_provider_row,
+                )
+                .optional()
+            })
+            .transpose()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?
+            .flatten();
+
         tx.execute(
             "UPDATE ai_config_saved_claude_providers
              SET is_active = 0
@@ -232,10 +266,15 @@ impl SqliteAiConfigRepository {
         let saved_provider_id = input
             .saved_provider_id
             .clone()
-            .or_else(|| existing.as_ref().map(|item| item.saved_provider_id.clone()))
+            .or_else(|| {
+                existing_by_fingerprint
+                    .as_ref()
+                    .map(|item| item.saved_provider_id.clone())
+            })
             .unwrap_or_else(|| format!("claude-provider:{}", Uuid::new_v4()));
-        let created_at_ms = existing
+        let created_at_ms = existing_by_id
             .as_ref()
+            .or(existing_by_fingerprint.as_ref())
             .map(|item| item.created_at_ms)
             .unwrap_or(input.created_at_ms);
 
@@ -327,7 +366,7 @@ impl SqliteAiConfigRepository {
                     last_applied_at_ms
                  FROM ai_config_saved_claude_providers
                  WHERE workspace_id = ?1
-                 ORDER BY is_active DESC, last_applied_at_ms DESC, updated_at_ms DESC, created_at_ms DESC",
+                 ORDER BY created_at_ms DESC, saved_provider_id DESC",
             )
             .map_err(|error| AiConfigRepositoryError::Storage {
                 message: error.to_string(),
@@ -479,4 +518,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_fingerpri
 
 CREATE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_active
   ON ai_config_saved_claude_providers(workspace_id, is_active, last_applied_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_created
+  ON ai_config_saved_claude_providers(workspace_id, created_at_ms DESC);
 "#;

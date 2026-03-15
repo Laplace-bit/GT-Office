@@ -594,6 +594,7 @@ export interface AiConfigReadSnapshotResponse {
 
 export interface ClaudeDraftInput {
   mode: ClaudeProviderMode
+  savedProviderId?: string | null
   providerId?: string | null
   providerName?: string | null
   baseUrl?: string | null

@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::models::{ClaudeAuthScheme, ClaudeProviderPreset, LightAgentGuide};
 
+pub const CLAUDE_OFFICIAL_PROVIDER_ID: &str = "anthropic-official";
+pub const CLAUDE_OFFICIAL_BASE_URL: &str = "https://api.anthropic.com";
+pub const CLAUDE_OFFICIAL_MODEL: &str = "claude-sonnet-4-20250514";
+
 fn preset_key(prefix: &str, suffix: &str) -> String {
     format!("aiConfig.preset.{prefix}.{suffix}")
 }
@@ -49,8 +53,25 @@ fn env_map(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
         .collect()
 }
 
+pub fn claude_official_provider_preset() -> ClaudeProviderPreset {
+    build_preset(
+        "anthropic",
+        CLAUDE_OFFICIAL_PROVIDER_ID,
+        "aiConfig.category.global",
+        "https://console.anthropic.com/",
+        "https://console.anthropic.com/settings/keys",
+        "https://console.anthropic.com/",
+        CLAUDE_OFFICIAL_MODEL,
+        CLAUDE_OFFICIAL_BASE_URL,
+        ClaudeAuthScheme::AnthropicAuthToken,
+        true,
+        BTreeMap::new(),
+    )
+}
+
 pub fn claude_provider_presets() -> Vec<ClaudeProviderPreset> {
     vec![
+        claude_official_provider_preset(),
         build_preset(
             "deepseek",
             "deepseek",

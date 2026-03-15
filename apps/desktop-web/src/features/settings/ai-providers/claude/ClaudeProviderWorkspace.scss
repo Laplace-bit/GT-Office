@@ -4,35 +4,6 @@
   gap: 20px;
 }
 
-.ai-provider-tabs {
-  display: flex;
-  gap: 24px;
-  border-bottom: 1px solid var(--vb-border-subtle);
-  padding: 0 4px;
-  margin-bottom: 8px;
-
-  .ai-provider-tab {
-    padding: 8px 0 12px;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--vb-text-muted);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-
-    &:hover {
-      color: var(--vb-text);
-    }
-
-    &.is-active {
-      color: var(--vb-accent);
-      border-bottom-color: var(--vb-accent);
-    }
-  }
-}
-
 .ai-claude-workspace__header {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
@@ -137,7 +108,9 @@
     flex: 1;
     gap: 16px;
     overflow-y: auto; /* Enable scrolling for the content */
+    padding-left: 2px;
     padding-right: 8px; /* Room for scrollbar */
+    padding-bottom: 2px;
     min-height: 0;
 
     &.is-centered {
@@ -242,6 +215,14 @@
   }
 }
 
+.ai-provider-saved-card__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: center;
+}
+
 .ai-provider-saved-card__meta {
   display: flex;
   flex-wrap: wrap;
@@ -307,6 +288,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.ai-provider-form-grid {
+  padding-inline: 2px 0;
 }
 
 .ai-provider-dot {
@@ -490,6 +475,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 
   span {
     color: var(--vb-text);
@@ -499,6 +485,7 @@
 
   input,
   select {
+    width: 100%;
     min-height: 44px;
     padding: 0 14px;
     border-radius: 12px;

@@ -17,7 +17,10 @@ use vb_storage::{
 };
 
 use crate::{
-    catalog::{claude_provider_presets, codex_light_guide, gemini_light_guide},
+    catalog::{
+        claude_official_provider_preset, claude_provider_presets, codex_light_guide,
+        gemini_light_guide, CLAUDE_OFFICIAL_PROVIDER_ID,
+    },
     models::{
         AiConfigAgent, AiConfigApplyResponse, AiConfigMaskedChange, AiConfigNormalizedDraft,
         AiConfigPreviewResponse, AiConfigSnapshot, ClaudeConfigSnapshot, ClaudeDraftInput,
@@ -298,17 +301,33 @@ impl AiConfigService {
         &self,
         workspace_id: &str,
         normalized: &ClaudeNormalizedDraft,
+        preferred_saved_provider_id: Option<&str>,
     ) -> AiConfigResult<String> {
         let fingerprint = fingerprint_claude_config(normalized);
-        let existing = self
+        let existing_records = self
             .audit_repository
             .list_saved_claude_providers(workspace_id)
             .map_err(|error| AiConfigError::Storage(error.to_string()))?
             .into_iter()
-            .find(|item| item.fingerprint == fingerprint);
-        Ok(existing
-            .map(|item| item.saved_provider_id)
-            .unwrap_or_else(|| format!("claude-provider:{}", Uuid::new_v4())))
+            .collect::<Vec<_>>();
+        if let Some(existing) = existing_records
+            .iter()
+            .find(|item| item.fingerprint == fingerprint)
+        {
+            return Ok(existing.saved_provider_id.clone());
+        }
+        if let Some(preferred_saved_provider_id) = preferred_saved_provider_id {
+            if existing_records
+                .iter()
+                .any(|item| item.saved_provider_id == preferred_saved_provider_id)
+            {
+                return Ok(preferred_saved_provider_id.to_string());
+            }
+            return Err(AiConfigError::SavedProviderNotFound(
+                preferred_saved_provider_id.to_string(),
+            ));
+        }
+        Ok(format!("claude-provider:{}", Uuid::new_v4()))
     }
 
     fn upsert_saved_claude_provider_record(
@@ -411,8 +430,26 @@ impl AiConfigService {
             ));
         }
 
+        self.audit_repository
+            .ensure_schema()
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+
         let current = self.read_claude_config(workspace_root)?;
-        let (normalized, api_key_secret) = normalize_claude_draft(workspace_id, &current, draft)?;
+        let saved_provider_id = draft.saved_provider_id.clone();
+        let saved_provider = if let Some(saved_provider_id) = saved_provider_id.as_deref() {
+            Some(
+                self.audit_repository
+                    .get_saved_claude_provider(workspace_id, saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
+                    .ok_or_else(|| {
+                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
+                    })?,
+            )
+        } else {
+            None
+        };
+        let (normalized, api_key_secret) =
+            normalize_claude_draft(workspace_id, &current, saved_provider.as_ref(), draft)?;
         let changes = diff_claude_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -444,6 +481,7 @@ impl AiConfigService {
             response,
             StoredAiConfigPreview::Claude(StoredClaudePreview {
                 preview_id,
+                saved_provider_id,
                 normalized_draft: normalized,
                 changed_keys: changes.into_iter().map(|entry| entry.key).collect(),
                 secret_refs,
@@ -580,8 +618,11 @@ impl AiConfigService {
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
         let applied_at_ms = now_ms();
-        let saved_provider_id =
-            self.resolve_saved_claude_provider_id(workspace_id, &preview.normalized_draft)?;
+        let saved_provider_id = self.resolve_saved_claude_provider_id(
+            workspace_id,
+            &preview.normalized_draft,
+            preview.saved_provider_id.as_deref(),
+        )?;
         let live_settings_backup = self.snapshot_file_state(live_settings_path)?;
 
         if let (Some(secret_ref), Some(secret_value)) = (
@@ -883,28 +924,19 @@ impl AiConfigService {
 fn normalize_claude_draft(
     workspace_id: &str,
     current: &ClaudeConfigSnapshot,
+    saved_provider: Option<&SavedClaudeProviderRecord>,
     draft: ClaudeDraftInput,
 ) -> AiConfigResult<(ClaudeNormalizedDraft, Option<String>)> {
     match draft.mode {
-        ClaudeProviderMode::Official => Ok((
-            ClaudeNormalizedDraft {
-                mode: ClaudeProviderMode::Official,
-                provider_id: Some("anthropic-official".to_string()),
-                provider_name: Some("aiConfig.preset.anthropic.name".to_string()),
-                base_url: None,
-                model: None,
-                auth_scheme: None,
-                secret_ref: None,
-                has_secret: false,
-            },
-            None,
-        )),
+        ClaudeProviderMode::Official => Ok((official_claude_normalized_draft(), None)),
         ClaudeProviderMode::Preset => {
             let provider_id = required_field(draft.provider_id, "providerId")?;
             let preset = claude_provider_presets()
                 .into_iter()
                 .find(|item| item.provider_id == provider_id)
                 .ok_or_else(|| AiConfigError::Invalid("unknown Claude preset".to_string()))?;
+            let provider_name =
+                normalize_non_empty(draft.provider_name).unwrap_or_else(|| preset.name.clone());
             let model = Some(
                 normalize_non_empty(draft.model)
                     .unwrap_or_else(|| preset.recommended_model.clone()),
@@ -918,8 +950,21 @@ fn normalize_claude_draft(
                 == Some(preset.provider_id.as_str())
                 && current.has_secret
                 && current.secret_ref.is_some();
+            let saved_provider_secret_ref = saved_provider.and_then(|item| {
+                if item.provider_id.as_deref() == Some(preset.provider_id.as_str())
+                    && item.has_secret
+                {
+                    item.secret_ref
+                        .as_ref()
+                        .and_then(|value| none_if_empty(value.clone()))
+                } else {
+                    None
+                }
+            });
             let secret_ref = if secret_input.is_some() {
                 Some(build_secret_ref(workspace_id, &preset.provider_id))
+            } else if saved_provider_secret_ref.is_some() {
+                saved_provider_secret_ref
             } else if can_reuse_secret {
                 current.secret_ref.clone()
             } else {
@@ -934,7 +979,7 @@ fn normalize_claude_draft(
                 ClaudeNormalizedDraft {
                     mode: ClaudeProviderMode::Preset,
                     provider_id: Some(preset.provider_id),
-                    provider_name: Some(preset.name),
+                    provider_name: Some(provider_name),
                     base_url,
                     model,
                     auth_scheme,
@@ -961,8 +1006,19 @@ fn normalize_claude_draft(
             let can_reuse_secret = current.provider_id.as_deref() == Some("custom-gateway")
                 && current.has_secret
                 && current.secret_ref.is_some();
+            let saved_provider_secret_ref = saved_provider.and_then(|item| {
+                if item.provider_id.as_deref() == Some("custom-gateway") && item.has_secret {
+                    item.secret_ref
+                        .as_ref()
+                        .and_then(|value| none_if_empty(value.clone()))
+                } else {
+                    None
+                }
+            });
             let secret_ref = if secret_input.is_some() {
                 Some(build_secret_ref(workspace_id, "custom-gateway"))
+            } else if saved_provider_secret_ref.is_some() {
+                saved_provider_secret_ref
             } else if can_reuse_secret {
                 current.secret_ref.clone()
             } else {
@@ -1125,7 +1181,7 @@ fn read_claude_config_from_value(value: &Value) -> AiConfigResult<ClaudeConfigSn
         .unwrap_or_else(|| secret_ref.is_some());
     let updated_at_ms = object.get("updatedAtMs").and_then(Value::as_u64);
 
-    Ok(ClaudeConfigSnapshot {
+    Ok(with_official_claude_config_defaults(ClaudeConfigSnapshot {
         saved_provider_id,
         active_mode,
         provider_id,
@@ -1136,7 +1192,7 @@ fn read_claude_config_from_value(value: &Value) -> AiConfigResult<ClaudeConfigSn
         secret_ref,
         has_secret,
         updated_at_ms,
-    })
+    }))
 }
 
 fn build_warnings(normalized: &ClaudeNormalizedDraft) -> Vec<String> {
@@ -1163,6 +1219,35 @@ fn display_name_for_claude_provider(normalized: &ClaudeNormalizedDraft) -> Strin
         })
 }
 
+fn official_claude_normalized_draft() -> ClaudeNormalizedDraft {
+    let preset = claude_official_provider_preset();
+    ClaudeNormalizedDraft {
+        mode: ClaudeProviderMode::Official,
+        provider_id: Some(preset.provider_id),
+        provider_name: Some(preset.name),
+        base_url: Some(preset.endpoint),
+        model: Some(preset.recommended_model),
+        auth_scheme: Some(preset.auth_scheme),
+        secret_ref: None,
+        has_secret: false,
+    }
+}
+
+fn with_official_claude_config_defaults(mut config: ClaudeConfigSnapshot) -> ClaudeConfigSnapshot {
+    let is_official = config.active_mode == Some(ClaudeProviderMode::Official)
+        || config.provider_id.as_deref() == Some(CLAUDE_OFFICIAL_PROVIDER_ID);
+    if !is_official {
+        return config;
+    }
+    let defaults = official_claude_normalized_draft();
+    config.provider_id = config.provider_id.or(defaults.provider_id);
+    config.provider_name = config.provider_name.or(defaults.provider_name);
+    config.base_url = config.base_url.or(defaults.base_url);
+    config.model = config.model.or(defaults.model);
+    config.auth_scheme = config.auth_scheme.or(defaults.auth_scheme);
+    config
+}
+
 fn fingerprint_claude_config(normalized: &ClaudeNormalizedDraft) -> String {
     let payload = json!({
         "mode": mode_to_string(&normalized.mode),
@@ -1179,19 +1264,48 @@ fn fingerprint_claude_config(normalized: &ClaudeNormalizedDraft) -> String {
 fn saved_claude_provider_snapshot_from_record(
     record: SavedClaudeProviderRecord,
 ) -> AiConfigResult<ClaudeSavedProviderSnapshot> {
+    let mode = parse_mode(&record.mode).ok_or_else(|| {
+        AiConfigError::Storage(format!(
+            "saved Claude provider has invalid mode: {}",
+            record.mode
+        ))
+    })?;
+    let defaults = if mode == ClaudeProviderMode::Official {
+        Some(official_claude_normalized_draft())
+    } else {
+        None
+    };
     Ok(ClaudeSavedProviderSnapshot {
         saved_provider_id: record.saved_provider_id,
-        mode: parse_mode(&record.mode).ok_or_else(|| {
-            AiConfigError::Storage(format!(
-                "saved Claude provider has invalid mode: {}",
-                record.mode
-            ))
-        })?,
-        provider_id: record.provider_id,
-        provider_name: record.provider_name,
-        base_url: record.base_url,
-        model: record.model,
-        auth_scheme: record.auth_scheme.as_deref().and_then(parse_auth_scheme),
+        mode,
+        provider_id: record.provider_id.or_else(|| {
+            defaults
+                .as_ref()
+                .and_then(|value| value.provider_id.clone())
+        }),
+        provider_name: if record.provider_name.trim().is_empty() {
+            defaults
+                .as_ref()
+                .and_then(|value| value.provider_name.clone())
+                .unwrap_or_else(|| "aiConfig.preset.anthropic.name".to_string())
+        } else {
+            record.provider_name
+        },
+        base_url: record
+            .base_url
+            .or_else(|| defaults.as_ref().and_then(|value| value.base_url.clone())),
+        model: record
+            .model
+            .or_else(|| defaults.as_ref().and_then(|value| value.model.clone())),
+        auth_scheme: record
+            .auth_scheme
+            .as_deref()
+            .and_then(parse_auth_scheme)
+            .or_else(|| {
+                defaults
+                    .as_ref()
+                    .and_then(|value| value.auth_scheme.clone())
+            }),
         has_secret: record.has_secret,
         is_active: record.is_active,
         created_at_ms: record.created_at_ms.max(0) as u64,
@@ -1209,6 +1323,9 @@ fn normalized_from_saved_claude_provider(
             record.mode
         ))
     })?;
+    if mode == ClaudeProviderMode::Official {
+        return Ok(official_claude_normalized_draft());
+    }
     let auth_scheme = record.auth_scheme.as_deref().and_then(parse_auth_scheme);
     let missing_secret_ref = record
         .secret_ref
@@ -1680,6 +1797,7 @@ mod tests {
                 "workspace",
                 ClaudeDraftInput {
                     mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
                     provider_id: Some("deepseek".to_string()),
                     provider_name: None,
                     base_url: None,
@@ -1691,6 +1809,102 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("API key is required"));
+    }
+
+    #[test]
+    fn preview_preset_mode_preserves_custom_provider_name() {
+        let dir = temp_dir("preset-provider-name");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("preset-provider-name");
+
+        let (preview, _) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
+                    provider_id: Some("deepseek".to_string()),
+                    provider_name: Some("DeepSeek Team Gateway".to_string()),
+                    base_url: None,
+                    model: None,
+                    auth_scheme: None,
+                    api_key: Some("deepseek-secret".to_string()),
+                },
+            )
+            .unwrap();
+
+        let normalized = match preview.normalized_draft {
+            AiConfigNormalizedDraft::Claude(value) => value,
+            _ => panic!("Expected Claude normalized draft"),
+        };
+        assert_eq!(
+            normalized.provider_name.as_deref(),
+            Some("DeepSeek Team Gateway")
+        );
+    }
+
+    #[test]
+    fn preview_official_mode_uses_official_defaults() {
+        let dir = temp_dir("official-preview");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("official-preview");
+
+        let (preview, _) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Official,
+                    saved_provider_id: None,
+                    provider_id: None,
+                    provider_name: None,
+                    base_url: None,
+                    model: None,
+                    auth_scheme: None,
+                    api_key: None,
+                },
+            )
+            .unwrap();
+
+        let normalized = match preview.normalized_draft {
+            AiConfigNormalizedDraft::Claude(value) => value,
+            _ => panic!("Expected Claude normalized draft"),
+        };
+        assert_eq!(
+            normalized.provider_id.as_deref(),
+            Some("anthropic-official")
+        );
+        assert_eq!(
+            normalized.provider_name.as_deref(),
+            Some("aiConfig.preset.anthropic.name")
+        );
+        assert_eq!(
+            normalized.base_url.as_deref(),
+            Some("https://api.anthropic.com")
+        );
+        assert_eq!(
+            normalized.model.as_deref(),
+            Some("claude-sonnet-4-20250514")
+        );
+        assert_eq!(
+            normalized.auth_scheme,
+            Some(crate::models::ClaudeAuthScheme::AnthropicAuthToken)
+        );
+        assert!(preview.masked_diff.iter().any(|entry| {
+            entry.key == "ai.providers.claude.baseUrl"
+                && entry.after.as_deref() == Some("https://api.anthropic.com")
+        }));
+        assert!(preview.masked_diff.iter().any(|entry| {
+            entry.key == "ai.providers.claude.model"
+                && entry.after.as_deref() == Some("claude-sonnet-4-20250514")
+        }));
     }
 
     #[test]
@@ -1708,6 +1922,7 @@ mod tests {
                 "workspace",
                 ClaudeDraftInput {
                     mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
                     provider_id: Some("deepseek".to_string()),
                     provider_name: None,
                     base_url: None,
@@ -1763,6 +1978,7 @@ mod tests {
                 "workspace",
                 ClaudeDraftInput {
                     mode: ClaudeProviderMode::Custom,
+                    saved_provider_id: None,
                     provider_id: None,
                     provider_name: Some("My Gateway".to_string()),
                     base_url: Some("https://api.example.com/anthropic".to_string()),
@@ -1819,6 +2035,7 @@ mod tests {
                 "workspace",
                 ClaudeDraftInput {
                     mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
                     provider_id: Some("deepseek".to_string()),
                     provider_name: None,
                     base_url: None,
@@ -1857,6 +2074,7 @@ mod tests {
                 "workspace",
                 ClaudeDraftInput {
                     mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
                     provider_id: Some("minimax".to_string()),
                     provider_name: None,
                     base_url: None,
@@ -1879,6 +2097,12 @@ mod tests {
                 &live_settings_path,
             )
             .unwrap();
+        let before_switch_order = service
+            .list_saved_claude_providers(&workspace_id)
+            .unwrap()
+            .into_iter()
+            .map(|item| item.saved_provider_id)
+            .collect::<Vec<_>>();
 
         let switched = service
             .switch_saved_claude_provider_with_live_settings_path(
@@ -1904,6 +2128,14 @@ mod tests {
             Some("deepseek")
         );
         assert_eq!(switched.effective.claude.saved_providers.len(), 2);
+        let after_switch_order = switched
+            .effective
+            .claude
+            .saved_providers
+            .iter()
+            .map(|item| item.saved_provider_id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(after_switch_order, before_switch_order);
         let active = switched
             .effective
             .claude
@@ -1928,6 +2160,138 @@ mod tests {
             live_settings["env"]["ANTHROPIC_BASE_URL"],
             json!("https://api.deepseek.com/anthropic")
         );
+        assert_eq!(
+            live_settings["env"]["ANTHROPIC_AUTH_TOKEN"],
+            json!("deepseek-secret")
+        );
+    }
+
+    #[test]
+    fn editing_saved_claude_provider_reuses_saved_provider_id_and_secret() {
+        let dir = temp_dir("saved-edit");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("saved-edit");
+        let live_settings_path = live_settings_path_for(&dir);
+
+        let (_, deepseek_stored) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
+                    provider_id: Some("deepseek".to_string()),
+                    provider_name: Some("DeepSeek Primary".to_string()),
+                    base_url: None,
+                    model: None,
+                    auth_scheme: None,
+                    api_key: Some("deepseek-secret".to_string()),
+                },
+            )
+            .unwrap();
+        let deepseek_stored = match deepseek_stored {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
+        let first = service
+            .apply_claude_preview_with_live_settings_path(
+                &workspace_id,
+                &workspace_root,
+                "tester",
+                &deepseek_stored,
+                &live_settings_path,
+            )
+            .unwrap();
+        let deepseek_saved_id = first
+            .effective
+            .claude
+            .saved_providers
+            .iter()
+            .find(|item| item.provider_id.as_deref() == Some("deepseek"))
+            .map(|item| item.saved_provider_id.clone())
+            .expect("deepseek saved provider");
+
+        let (_, minimax_stored) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
+                    provider_id: Some("minimax".to_string()),
+                    provider_name: Some("MiniMax Primary".to_string()),
+                    base_url: None,
+                    model: None,
+                    auth_scheme: None,
+                    api_key: Some("minimax-secret".to_string()),
+                },
+            )
+            .unwrap();
+        let minimax_stored = match minimax_stored {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
+        service
+            .apply_claude_preview_with_live_settings_path(
+                &workspace_id,
+                &workspace_root,
+                "tester",
+                &minimax_stored,
+                &live_settings_path,
+            )
+            .unwrap();
+
+        let (_, edited_preview) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: Some(deepseek_saved_id.clone()),
+                    provider_id: Some("deepseek".to_string()),
+                    provider_name: Some("DeepSeek Team Gateway".to_string()),
+                    base_url: Some("https://api.deepseek.com/anthropic".to_string()),
+                    model: Some("DeepSeek-V3.2".to_string()),
+                    auth_scheme: Some(crate::models::ClaudeAuthScheme::AnthropicAuthToken),
+                    api_key: None,
+                },
+            )
+            .unwrap();
+        let edited_preview = match edited_preview {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
+        let applied = service
+            .apply_claude_preview_with_live_settings_path(
+                &workspace_id,
+                &workspace_root,
+                "tester",
+                &edited_preview,
+                &live_settings_path,
+            )
+            .unwrap();
+
+        assert_eq!(applied.effective.claude.saved_providers.len(), 2);
+        let edited = applied
+            .effective
+            .claude
+            .saved_providers
+            .iter()
+            .find(|item| item.saved_provider_id == deepseek_saved_id)
+            .expect("edited deepseek provider");
+        assert_eq!(edited.provider_name, "DeepSeek Team Gateway");
+        assert!(edited.is_active);
+        assert_eq!(
+            applied.effective.claude.config.saved_provider_id.as_deref(),
+            Some(deepseek_saved_id.as_str())
+        );
+
+        let live_settings = read_json_object_file(&live_settings_path).unwrap();
         assert_eq!(
             live_settings["env"]["ANTHROPIC_AUTH_TOKEN"],
             json!("deepseek-secret")
@@ -1989,6 +2353,7 @@ mod tests {
                 "workspace",
                 ClaudeDraftInput {
                     mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
                     provider_id: Some("minimax".to_string()),
                     provider_name: None,
                     base_url: None,

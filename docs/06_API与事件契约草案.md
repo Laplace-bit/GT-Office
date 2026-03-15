@@ -161,13 +161,17 @@ MCP Bridge（T-171）：
 AI Config 约束（T-171）：
 1. v1 仅 Claude 支持进阶供应商配置；Codex/Gemini 只返回轻量引导信息。
 2. Claude `draft.mode` 允许 `official|preset|custom`。
-3. Claude `preview_patch` 必须拒绝缺失 `baseUrl/model/apiKey` 且无已有 `secretRef` 的新配置。
-4. `apply_patch` 必须把 API Key 写入系统凭据库，只在工作区配置保存 `secretRef`；Claude 应用时还必须同步 GT Office 受管 env 键到 `~/.claude/settings.json`。
-5. `ai_config.read_snapshot` 返回的 Claude 预设目录必须包含 `websiteUrl/apiKeyUrl/billingUrl/recommendedModel/endpoint/authScheme/setupSteps[]`，以支撑新手引导。
-6. Claude live sync 必须保留 `~/.claude/settings.json` 中与当前供应商无关的根字段和 `env` 键，例如 `mcpServers`、`permissions` 及用户自定义 env；仅允许增删 GT Office 受管的 Claude provider 键。
-7. `ai_config.read_snapshot.snapshot.claude` 必须返回 `savedProviders[]`，其中每项至少包含 `savedProviderId,mode,providerId,providerName,baseUrl,model,authScheme,hasSecret,isActive,createdAtMs,updatedAtMs,lastAppliedAtMs`。
-8. `ai_config.switch_saved_claude_provider` 必须基于数据库中的 saved provider 切换当前生效 Claude 配置，并同步工作区配置、live settings 与 active saved provider 标记。
-9. Claude 选择 `official` 并应用时，也必须落一条可切换的 saved provider 记录；后续从 saved list 切回官方时，应清除 GT Office 托管的 Claude env 覆盖并恢复原生官方模式。
+3. Claude `draft.savedProviderId` 可选；当前端从“已保存供应商”编辑已有记录时，必须携带该字段，以便后端复用原 saved provider 记录与托管密钥。
+4. Claude `preview_patch` 必须拒绝缺失 `baseUrl/model/apiKey` 且无已有 `secretRef` 的新配置。
+5. `apply_patch` 必须把 API Key 写入系统凭据库，只在工作区配置保存 `secretRef`；Claude 应用时还必须同步 GT Office 受管 env 键到 `~/.claude/settings.json`。
+6. `ai_config.read_snapshot` 返回的 Claude 预设目录必须包含 `websiteUrl/apiKeyUrl/billingUrl/recommendedModel/endpoint/authScheme/setupSteps[]`，以支撑新手引导。
+7. Claude live sync 必须保留 `~/.claude/settings.json` 中与当前供应商无关的根字段和 `env` 键，例如 `mcpServers`、`permissions` 及用户自定义 env；仅允许增删 GT Office 受管的 Claude provider 键。
+8. `ai_config.read_snapshot.snapshot.claude` 必须返回 `savedProviders[]`，其中每项至少包含 `savedProviderId,mode,providerId,providerName,baseUrl,model,authScheme,hasSecret,isActive,createdAtMs,updatedAtMs,lastAppliedAtMs`。
+9. `ai_config.switch_saved_claude_provider` 必须基于数据库中的 saved provider 切换当前生效 Claude 配置，并同步工作区配置、live settings 与 active saved provider 标记。
+10. Claude 选择 `official` 并应用时，也必须落一条可切换的 saved provider 记录；后续从 saved list 切回官方时，应清除 GT Office 托管的 Claude env 覆盖并恢复原生官方模式。
+11. Claude `official` 模式在 `preview_patch`、`read_snapshot` 与 `savedProviders[]` 中必须返回规范化后的 Anthropic 官方基线字段（如 `providerName/baseUrl/model/authScheme`）；即使 live settings 最终会清空托管 env，也不能把这些字段留空或显示上一家供应商的残留值。
+12. Claude saved provider 编辑成功后，后端必须优先复用原 `savedProviderId` 更新该条记录；若编辑结果与同 workspace 下另一条记录的 fingerprint 完全一致，则允许折叠到已有记录，但不得额外生成重复 saved provider。
+13. `savedProviders[]` 的返回顺序必须稳定反映“保存顺序”；从列表切换当前配置时只能更新 `isActive` 和应用结果，不能因为激活状态变化把目标项重排到数组前面。
 
 ### 3.7 Agent / Hook / Policy / Observability
 
