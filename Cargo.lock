@@ -1739,6 +1739,7 @@ dependencies = [
  "vb-git",
  "vb-keymap",
  "vb-security",
+ "vb-session-log",
  "vb-settings",
  "vb-storage",
  "vb-task",
@@ -5531,6 +5532,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "vb-session-log"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

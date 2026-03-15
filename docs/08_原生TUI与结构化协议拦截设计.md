@@ -20,10 +20,10 @@
 ### 1.2 方案定位
 本文件定义 GT Office 当前阶段的正式主方案：
 
-- **只保留 xterm rendered-screen / screen model 路线**。
+- **保持 live terminal session 为唯一执行载体**。
 - **不引入协议拦截、代理转发、虚拟 API Key、MITM、额外 headless runner**。
-- **当前 live terminal session 仍是唯一执行载体**。
-- **正文提取只从“已展示出的 TUI 界面”进行**，主事实源为 `xterm.buffer.active`，而不是 DOM。
+- **preview / 交互态 / finalize 边界仍基于 xterm rendered-screen / screen model**。
+- **最终正文允许引入 provider session log 作为高置信主源**，当前 v1 支持 Claude/Codex；不支持的 provider 继续回退到 rendered-screen / VT 文本。
 
 该方案的目标是：
 
@@ -50,26 +50,27 @@
       |
       | 1. 正常执行并在 xterm 中原生显示
       v
-[ xterm rendered TUI ]
+[ xterm rendered TUI ] ----> [ provider session log ]
+      |                               |
+      | 2. 采集已渲染 screen snapshot      | 3. 绑定并轮询 Claude/Codex session log
+      v                               v
+[ Screen Normalizer ]             [ Session Log Reader ]
+      |                               |
+      | 4. diff / prompt / finalize    | 5. high-confidence final body
+      v                               |
+[ Candidate Block Extractor ] <--------
       |
-      | 2. 采集已渲染 screen snapshot
-      v
-[ Screen Normalizer ]
-      |
-      | 3. 与上一稳定快照做 diff
-      v
-[ Candidate Block Extractor ]
-      |
-      | 4. 置信度判定 / 噪音抑制 / 稳定窗口
+      | 6. source selection / fallback
       v
 [ Channel Relay ]
 ```
 
 ### 2.2 核心原则
 1. **执行与提取分离**：消息执行仍通过当前终端进行，正文提取只读取渲染结果。
-2. **渲染结果优先于原始 buffer**：不再依赖 PTY chunk 拼接来决定外发内容。
-3. **标准化后再 diff**：直接读取 `xterm.buffer.active` 的屏幕行与光标状态，不对零散 DOM 节点、`innerText`、原始 xterm class 做业务判断。
-4. **低置信静默**：没有明确正文块时，不允许回退整屏文本。
+2. **双源但单控制面**：live terminal 负责执行与交互态；session log 只作为最终正文辅助源，不驱动执行。
+3. **渲染结果优先于原始 buffer**：不再依赖 PTY chunk 拼接来决定外发内容。
+4. **标准化后再 diff**：直接读取 `xterm.buffer.active` 的屏幕行与光标状态，不对零散 DOM 节点、`innerText`、原始 xterm class 做业务判断。
+5. **低置信静默**：没有明确正文块时，不允许回退整屏文本。
 
 ---
 
@@ -227,11 +228,12 @@ Candidate Block Extractor 的职责是从 diff 结果中找出“可能是最新
 - **模糊边界静默**
 
 ### 4.5 失败与降级
-当 rendered-screen 解析失败或置信度不足时：
+当 rendered-screen 解析失败或 session log 不可用时：
 
 1. 不影响当前 terminal 的正常执行与显示。
-2. 当前条消息不向 Channel 发送正文。
-3. 允许记录调试样本，但不允许发送原始整屏作为兜底。
+2. 若 provider session log 已给出最终正文，则允许直接使用 session log 完成 finalize。
+3. 若 session log 不可用，则回退到 rendered-screen，再回退到 VT 文本。
+4. 允许记录调试样本，但不允许发送原始整屏作为兜底。
 
 ---
 
@@ -258,9 +260,10 @@ Candidate Block Extractor 的职责是从 diff 结果中找出“可能是最新
 3. 明确“不发优于误发”的默认行为。
 
 ### Phase 5：Channel Relay 接入
-1. 将当前 Channel reply 链路接到屏幕正文候选，而不是 PTY chunk 文本。
+1. 将当前 Channel reply 链路接到“rendered-screen preview + session-log finalize”双源选择器，而不是 PTY chunk 文本。
 2. 保持“消息进入当前 live terminal session 执行”的主链路不变。
-3. 补齐调试采样与误判样本记录能力，便于后续规则收敛。
+3. Telegram 交互 prompt 需支持 `gto:<text>` 与 `gto-key:*` 两类 callback，均回写同一 session。
+4. 补齐调试采样与误判样本记录能力，便于后续规则收敛。
 
 ---
 
@@ -296,6 +299,9 @@ Candidate Block Extractor 的职责是从 diff 结果中找出“可能是最新
 - [ ] 来自 Channel 的消息仍直接写入当前绑定的 live terminal session 执行。
 - [ ] 不额外启动第二个 headless `claude/codex/gemini` 进程参与正文回传。
 - [ ] reply 提取不再依赖 PTY 原始 chunk/buffer 作为主事实源。
+- [ ] Claude/Codex 在 session log 可用时，final body 优先取 session log。
+- [ ] rendered-screen 继续负责 interaction prompt、preview 与 finalize 边界。
+- [ ] Telegram 方向键交互通过 `gto-key:*` 回写同一 live terminal session。
 - [ ] 对明显 `thinking / working / tool / status / prompt / placeholder` 文本不误发到 Channel。
 - [ ] 当正文置信度不足时，系统静默而不是发送整屏文本。
 - [ ] 同时开启多个 terminal session 时，屏幕提取与 Channel 回传互不串线。
@@ -305,8 +311,8 @@ Candidate Block Extractor 的职责是从 diff 结果中找出“可能是最新
 ### 正常流
 1. 用户通过 Telegram 向当前绑定 station 发送消息。
 2. 消息进入当前 live terminal session 执行。
-3. xterm 中出现多段流式正文追加。
-4. 系统从 rendered screen diff 中提取新增正文块并回传 Telegram。
+3. xterm 中出现多段流式正文追加，同时后端成功绑定 Claude/Codex session log。
+4. 系统从 rendered screen diff 中提取 preview / interaction prompt，并从 session log 提取最终正文。
 5. 最终只发送正文，不夹带 prompt、spinner、tool/status 行。
 
 ### 异常流

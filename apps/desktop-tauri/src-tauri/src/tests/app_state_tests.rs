@@ -3,8 +3,9 @@ use super::{
     normalize_reply_text, normalize_terminal_text, sanitize_terminal_chunk,
     should_skip_cli_prompt_line, should_skip_external_reply_line, should_skip_log_prefix_line,
     should_skip_runtime_noise_line, should_skip_startup_banner_line, snapshot_has_ready_prompt,
-    AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget, RenderedScreenSnapshot,
-    RenderedScreenSnapshotRow,
+    AppState, ExternalInteractionAction, ExternalInteractionControlMode,
+    ExternalReplyDispatchPhase, ExternalReplyRelayTarget, ExternalTerminalKey,
+    RenderedScreenSnapshot, RenderedScreenSnapshotRow,
 };
 use vb_task::AgentToolKind;
 
@@ -2328,14 +2329,103 @@ fn rendered_screen_menu_prompt_is_extracted_without_polluting_reply_text() {
         extract_rendered_interaction_prompt(&snapshot, Some("查看系统时间")).expect("menu prompt");
     assert_eq!(prompt.title, "Select Reasoning Level for gpt-5.4");
     assert_eq!(prompt.options.len(), 4);
-    assert_eq!(prompt.options[0].submit_text, "1");
-    assert_eq!(prompt.options[1].submit_text, "2");
+    assert_eq!(prompt.options[0].submit_text.as_deref(), Some("1"));
+    assert_eq!(prompt.options[1].submit_text.as_deref(), Some("2"));
+    assert_eq!(
+        prompt.control_mode,
+        ExternalInteractionControlMode::SemanticButtons
+    );
+    assert_eq!(prompt.selected_index, Some(0));
 
     let reply_text = extract_rendered_reply_text(&snapshot, Some("查看系统时间"), Some(&prompt));
     assert_eq!(
         reply_text,
         "• 我先读取当前系统时间，给你精确结果。\n• 当前系统时间是 2026-03-06 20:46:35 CST +0800。"
     );
+}
+
+#[test]
+fn rendered_screen_extracts_terminal_navigation_menu_prompt() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_rendered_nav_menu_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 10,
+        base_y: 0,
+        cursor_row: Some(6),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "› /model".to_string(),
+                trimmed_text: "› /model".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "Select model".to_string(),
+                trimmed_text: "Select model".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "  GPT-5.4".to_string(),
+                trimmed_text: "GPT-5.4".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "› Claude Sonnet 4".to_string(),
+                trimmed_text: "› Claude Sonnet 4".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "  Gemini 2.5 Pro".to_string(),
+                trimmed_text: "Gemini 2.5 Pro".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "Use ↑/↓ to select · Enter to confirm · Esc to cancel".to_string(),
+                trimmed_text: "Use ↑/↓ to select · Enter to confirm · Esc to cancel".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "❯ ".to_string(),
+                trimmed_text: "❯".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let prompt =
+        extract_rendered_interaction_prompt(&snapshot, Some("/model")).expect("nav menu prompt");
+    assert_eq!(prompt.title, "Select model");
+    assert_eq!(prompt.options.len(), 3);
+    assert_eq!(prompt.options[0].label, "GPT-5.4");
+    assert_eq!(prompt.options[1].label, "Claude Sonnet 4");
+    assert_eq!(prompt.options[2].label, "Gemini 2.5 Pro");
+    assert_eq!(prompt.options[0].submit_text, None);
+    assert_eq!(
+        prompt.control_mode,
+        ExternalInteractionControlMode::TerminalNavigation
+    );
+    assert_eq!(prompt.selected_index, Some(1));
+    assert!(prompt.controls.iter().any(|control| {
+        control.action == ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Up)
+    }));
+    assert!(prompt.controls.iter().any(|control| {
+        control.action == ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Down)
+    }));
+    assert!(prompt.controls.iter().any(|control| {
+        control.action == ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Enter)
+    }));
+    assert!(prompt.controls.iter().any(|control| {
+        control.action == ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Esc)
+    }));
 }
 
 #[test]

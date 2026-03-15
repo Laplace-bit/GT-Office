@@ -1,0 +1,12 @@
+[package]
+name = "vb-session-log"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }

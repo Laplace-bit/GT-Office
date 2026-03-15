@@ -209,22 +209,31 @@ AI Config 约束（T-171）：
 2. 默认准入策略 `pairing`。
 3. 幂等命中返回 `duplicate`，不得重复派发。
 4. 入站派发后必须写入已绑定 live terminal session；禁止另起 headless 会话替代。
-5. 正文提取主事实源为 `RenderedScreenSnapshot`；低置信时静默，不回退整屏文本。
-6. Telegram 交互按钮（inline keyboard）与正文分离，按钮回调需复用同一 reply session。
-7. `channel_connector_account_upsert` 对 Feishu 需支持：
+5. 外部回复采用双源提取：
+   - `RenderedScreenSnapshot`：preview、交互 prompt、ready/finalize 边界、低置信 fallback。
+   - provider `session log`：Claude/Codex 的高置信最终正文。
+   - 优先级：`session-log > rendered-screen-fallback > vt-fallback`。
+6. finalize 判定继续以 live terminal 状态为主；只要存在 active interaction prompt，就禁止 finalize。
+7. Telegram 交互按钮（inline keyboard）与正文分离，按钮回调需复用同一 reply session。
+8. Telegram callback payload 允许两种前缀：
+   - `gto:<submit_text>`
+   - `gto-key:up|down|enter|esc|tab`
+9. `channel_external.inbound` 遇到 `gto-key:*` 时必须向目标 terminal 写入对应 ANSI 控制序列，而不是把 payload 当普通文本派发。
+10. `channel_connector_account_upsert` 对 Feishu 需支持：
    - `connectionMode=websocket|webhook`
    - `domain=feishu|lark`
    - `appId/appSecret/appSecretRef`
    - `verificationToken/verificationTokenRef`
    - `webhookPath/webhookHost/webhookPort`
-8. `channel_connector_health` 对 Feishu 需补充：
+11. `channel_connector_health` 对 Feishu 需补充：
    - `botName`
    - `botOpenId`
    - `domain`
    - `runtimeConnected`
    - `connectionMode`
    - `configuredWebhookUrl/runtimeWebhookUrl/webhookMatched`
-9. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
+12. Feishu v1 不提供远程方向控件；若存在交互 prompt，只发送提示文本，不声明可远程选择。
+13. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
 
 ## 4. Event 契约（V1）
 
@@ -267,6 +276,16 @@ AI Config 约束（T-171）：
 | `external/channel_error` | `traceId,code,detail` |
 | `external/channel_outbound_result` | `workspaceId,messageId,targetAgentId,status,detail?,relayMode,confidence,textPreview?` |
 | `external/channel_connector_health_changed` | `channel,accountId,ok,status,detail,checkedAtMs` |
+
+`external/channel_outbound_result` 约束：
+1. `relayMode` 取值固定为：
+   - `session-log`
+   - `rendered-screen-fallback`
+   - `vt-fallback`
+2. `confidence` 与 `relayMode` 对应：
+   - `session-log -> high`
+   - `rendered-screen-fallback -> medium`
+   - `vt-fallback -> low`
 
 ## 5. 错误码规范
 

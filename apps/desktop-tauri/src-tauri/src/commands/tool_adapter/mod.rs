@@ -26,7 +26,12 @@ use vb_task::{
 };
 
 use crate::{
-    app_state::{AppState, ExternalReplyDispatchPhase, ExternalReplyRelayTarget},
+    app_state::{
+        AppState, ExternalInteractionAction, ExternalReplyDispatchPhase, ExternalReplyRelayTarget,
+        ExternalTerminalKey,
+    },
+    channel_sinks,
+    commands::task_center::write_terminal_with_submit,
     connectors::{feishu, telegram},
     process_utils::configure_tokio_command,
 };
@@ -1426,9 +1431,11 @@ fn bind_external_reply_sessions(
             emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
             continue;
         }
-        if let Err(error) =
-            state.set_external_reply_session_tool_kind(session_id, runtime.tool_kind)
-        {
+        if let Err(error) = state.set_external_reply_session_runtime_metadata(
+            session_id,
+            runtime.tool_kind,
+            runtime.resolved_cwd.as_deref(),
+        ) {
             emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
             continue;
         }
@@ -1480,6 +1487,45 @@ pub(crate) fn spawn_external_reply_flush_worker(app: AppHandle, state: AppState)
 }
 
 async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> Result<(), String> {
+    state.refresh_external_reply_session_logs()?;
+
+    let interaction_candidates = state.take_external_interaction_dispatch_candidates()?;
+    for candidate in interaction_candidates {
+        match channel_sinks::deliver_interaction_prompt(app, &candidate).await {
+            Ok(message_id) => match candidate.phase {
+                crate::app_state::ExternalInteractionDispatchPhase::Show => {
+                    if let (Some(prompt), Some(message_id)) =
+                        (candidate.prompt.as_ref(), message_id.as_deref())
+                    {
+                        state.set_external_interaction_message_id(
+                            &candidate.session_id,
+                            message_id,
+                            &prompt.signature(),
+                        )?;
+                    }
+                }
+                crate::app_state::ExternalInteractionDispatchPhase::Clear => {
+                    state.clear_external_interaction_message(&candidate.session_id)?;
+                }
+            },
+            Err(error) => {
+                warn!(
+                    trace_id = %candidate.target.trace_id,
+                    session_id = %candidate.session_id,
+                    phase = ?candidate.phase,
+                    error = %error,
+                    "delivering external interaction prompt failed"
+                );
+                emit_external_error(
+                    app,
+                    &candidate.target.trace_id,
+                    "CHANNEL_REPLY_INTERACTION_SEND_FAILED",
+                    &error,
+                );
+            }
+        }
+    }
+
     let candidates = state.take_external_reply_dispatch_candidates(
         now_ms(),
         EXTERNAL_REPLY_IDLE_FLUSH_MS,
@@ -1508,296 +1554,86 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
             chunk_count = chunks.len(),
             "delivering external reply candidate"
         );
-        let text = chunks[0].clone();
-        match candidate.target.channel.as_str() {
-            "telegram" => {
-                let delivery_result = match candidate.phase {
-                    ExternalReplyDispatchPhase::Preview => {
-                        if let Some(preview_message_id) = candidate.preview_message_id.as_deref() {
-                            match telegram::edit_text_reply(
-                                app,
-                                Some(&candidate.target.account_id),
-                                &candidate.target.peer_id,
-                                preview_message_id,
-                                &text,
-                            )
-                            .await
-                            {
-                                Ok(snapshot) => Ok(snapshot),
-                                Err(error) => {
-                                    warn!(
-                                        trace_id = %candidate.target.trace_id,
-                                        session_id = %candidate.session_id,
-                                        preview_message_id = %preview_message_id,
-                                        error = %error,
-                                        "telegram preview edit failed, falling back to send"
-                                    );
-                                    telegram::send_text_reply(
-                                        app,
-                                        Some(&candidate.target.account_id),
-                                        &candidate.target.peer_id,
-                                        &text,
-                                        Some(&candidate.target.inbound_message_id),
-                                    )
-                                    .await
-                                }
-                            }
-                        } else {
-                            // First preview message — send a "typing" indicator
-                            // before the actual message for better UX
-                            if let Err(error) = telegram::send_typing_action(
-                                app,
-                                Some(&candidate.target.account_id),
-                                &candidate.target.peer_id,
-                            )
-                            .await
-                            {
-                                debug!(
-                                    trace_id = %candidate.target.trace_id,
-                                    error = %error,
-                                    "telegram typing action failed (non-fatal)"
-                                );
-                            }
-                            telegram::send_text_reply(
-                                app,
-                                Some(&candidate.target.account_id),
-                                &candidate.target.peer_id,
-                                &text,
-                                Some(&candidate.target.inbound_message_id),
-                            )
-                            .await
-                        }
-                    }
-                    ExternalReplyDispatchPhase::Finalize => {
-                        if let Some(preview_message_id) = candidate.preview_message_id.as_deref() {
-                            match telegram::edit_text_reply(
-                                app,
-                                Some(&candidate.target.account_id),
-                                &candidate.target.peer_id,
-                                preview_message_id,
-                                &text,
-                            )
-                            .await
-                            {
-                                Ok(snapshot) => Ok(snapshot),
-                                Err(error) => {
-                                    warn!(
-                                        trace_id = %candidate.target.trace_id,
-                                        session_id = %candidate.session_id,
-                                        preview_message_id = %preview_message_id,
-                                        error = %error,
-                                        "telegram final edit failed, falling back to send"
-                                    );
-                                    telegram::send_text_reply(
-                                        app,
-                                        Some(&candidate.target.account_id),
-                                        &candidate.target.peer_id,
-                                        &text,
-                                        Some(&candidate.target.inbound_message_id),
-                                    )
-                                    .await
-                                }
-                            }
-                        } else {
-                            telegram::send_text_reply(
-                                app,
-                                Some(&candidate.target.account_id),
-                                &candidate.target.peer_id,
-                                &text,
-                                Some(&candidate.target.inbound_message_id),
-                            )
-                            .await
-                        }
-                    }
-                };
-
-                match delivery_result {
-                    Ok(send_result) => {
-                        if candidate.phase == ExternalReplyDispatchPhase::Finalize {
-                            for extra_chunk in chunks.iter().skip(1) {
-                                telegram::send_text_reply(
-                                    app,
-                                    Some(&candidate.target.account_id),
-                                    &candidate.target.peer_id,
-                                    extra_chunk,
-                                    Some(&candidate.target.inbound_message_id),
-                                )
-                                .await
-                                .map_err(|error| {
-                                    format!("CHANNEL_REPLY_CONTINUATION_SEND_FAILED: {}", error)
-                                })?;
-                            }
-                            if let Err(error) =
-                                state.mark_external_reply_finalize_delivered(&candidate.session_id)
-                            {
-                                warn!(
-                                    trace_id = %candidate.target.trace_id,
-                                    session_id = %candidate.session_id,
-                                    error = %error,
-                                    "failed to clear finalized external reply session"
-                                );
-                            }
-                        }
-                        if candidate.phase == ExternalReplyDispatchPhase::Preview {
-                            let _ = state.set_external_reply_preview_message_id(
-                                &candidate.session_id,
-                                &send_result.message_id,
-                            );
-                        }
-                        let _ = app.emit(
-                            "external/channel_outbound_result",
-                            json!({
-                                "traceId": candidate.target.trace_id,
-                                "workspaceId": candidate.target.workspace_id,
-                                "messageId": send_result.message_id,
-                                "targetAgentId": candidate.target.target_agent_id,
-                                "status": "delivered",
-                                "detail": if candidate.phase == ExternalReplyDispatchPhase::Preview {
-                                    "stream preview updated"
-                                } else if chunks.len() > 1 {
-                                    "reply finalized with continuation chunks"
-                                } else {
-                                    "reply finalized"
-                                },
-                                "tsMs": send_result.delivered_at_ms,
-                                "relayMode": "pty-fallback",
-                                "confidence": "low",
-                                "textPreview": text_preview.clone(),
-                            }),
-                        );
-                    }
-                    Err(error) => {
-                        if candidate.phase == ExternalReplyDispatchPhase::Preview {
-                            let _ = state.mark_external_reply_preview_delivery_failed(
-                                &candidate.session_id,
-                                &candidate.text,
-                            );
-                        }
-                        let _ = app.emit(
-                            "external/channel_outbound_result",
-                            json!({
-                                "traceId": candidate.target.trace_id,
-                                "workspaceId": candidate.target.workspace_id,
-                                "messageId": candidate.preview_message_id.as_deref().unwrap_or(&candidate.target.inbound_message_id),
-                                "targetAgentId": candidate.target.target_agent_id,
-                                "status": "failed",
-                                "detail": error,
-                                "tsMs": now_ms(),
-                                "relayMode": "pty-fallback",
-                                "confidence": "low",
-                                "textPreview": text_preview.clone(),
-                            }),
-                        );
-                        emit_external_error(
-                            app,
-                            &candidate.target.trace_id,
-                            "CHANNEL_REPLY_SEND_FAILED",
-                            &error,
+        let mut preview_message_id = candidate.preview_message_id.clone();
+        match channel_sinks::deliver_reply_text(
+            app,
+            &candidate.target,
+            candidate.phase,
+            &chunks,
+            &mut preview_message_id,
+        )
+        .await
+        {
+            Ok(send_result) => {
+                if candidate.phase == ExternalReplyDispatchPhase::Finalize {
+                    if let Err(error) =
+                        state.mark_external_reply_finalize_delivered(&candidate.session_id)
+                    {
+                        warn!(
+                            trace_id = %candidate.target.trace_id,
+                            session_id = %candidate.session_id,
+                            error = %error,
+                            "failed to clear finalized external reply session"
                         );
                     }
                 }
-            }
-            "feishu" => {
                 if candidate.phase == ExternalReplyDispatchPhase::Preview {
-                    continue;
+                    let _ = state.set_external_reply_preview_message_id(
+                        &candidate.session_id,
+                        preview_message_id
+                            .as_deref()
+                            .unwrap_or(send_result.message_id.as_str()),
+                    );
                 }
-                match feishu::send_text_reply(
-                    app,
-                    Some(&candidate.target.account_id),
-                    &candidate.target.peer_id,
-                    &text,
-                    Some(&candidate.target.inbound_message_id),
-                )
-                .await
-                {
-                    Ok(send_result) => {
-                        for extra_chunk in chunks.iter().skip(1) {
-                            feishu::send_text_reply(
-                                app,
-                                Some(&candidate.target.account_id),
-                                &candidate.target.peer_id,
-                                extra_chunk,
-                                Some(&candidate.target.inbound_message_id),
-                            )
-                            .await
-                            .map_err(|error| {
-                                format!("CHANNEL_REPLY_CONTINUATION_SEND_FAILED: {}", error)
-                            })?;
-                        }
-                        if let Err(error) =
-                            state.mark_external_reply_finalize_delivered(&candidate.session_id)
-                        {
-                            warn!(
-                                trace_id = %candidate.target.trace_id,
-                                session_id = %candidate.session_id,
-                                error = %error,
-                                "failed to clear finalized external reply session"
-                            );
-                        }
-                        let _ = app.emit(
-                            "external/channel_outbound_result",
-                            json!({
-                                "traceId": candidate.target.trace_id,
-                                "workspaceId": candidate.target.workspace_id,
-                                "messageId": send_result.message_id,
-                                "targetAgentId": candidate.target.target_agent_id,
-                                "status": "delivered",
-                                "detail": if chunks.len() > 1 {
-                                    "reply finalized with continuation chunks"
-                                } else {
-                                    "reply finalized"
-                                },
-                                "tsMs": send_result.delivered_at_ms,
-                                "relayMode": "pty-fallback",
-                                "confidence": "low",
-                                "textPreview": text_preview.clone(),
-                            }),
-                        );
-                    }
-                    Err(error) => {
-                        let _ = app.emit(
-                            "external/channel_outbound_result",
-                            json!({
-                                "traceId": candidate.target.trace_id,
-                                "workspaceId": candidate.target.workspace_id,
-                                "messageId": candidate.target.inbound_message_id,
-                                "targetAgentId": candidate.target.target_agent_id,
-                                "status": "failed",
-                                "detail": error,
-                                "tsMs": now_ms(),
-                                "relayMode": "pty-fallback",
-                                "confidence": "low",
-                                "textPreview": text_preview.clone(),
-                            }),
-                        );
-                        emit_external_error(
-                            app,
-                            &candidate.target.trace_id,
-                            "CHANNEL_REPLY_SEND_FAILED",
-                            &error,
-                        );
-                    }
-                }
-            }
-            _ => {
-                let detail = format!(
-                    "CHANNEL_REPLY_SEND_UNSUPPORTED: channel {} outbound is unsupported",
-                    candidate.target.channel
-                );
                 let _ = app.emit(
                     "external/channel_outbound_result",
                     json!({
-                    "traceId": candidate.target.trace_id,
-                    "workspaceId": candidate.target.workspace_id,
-                    "messageId": candidate.target.inbound_message_id,
+                        "traceId": candidate.target.trace_id,
+                        "workspaceId": candidate.target.workspace_id,
+                        "messageId": send_result.message_id,
                         "targetAgentId": candidate.target.target_agent_id,
-                        "status": "failed",
-                        "detail": detail,
-                        "tsMs": now_ms(),
-                        "relayMode": "unsupported",
-                        "confidence": "high",
+                        "status": "delivered",
+                        "detail": if candidate.phase == ExternalReplyDispatchPhase::Preview {
+                            "stream preview updated"
+                        } else if send_result.continuation_chunks > 0 {
+                            "reply finalized with continuation chunks"
+                        } else {
+                            "reply finalized"
+                        },
+                        "tsMs": send_result.delivered_at_ms,
+                        "relayMode": candidate.body_source.relay_mode(),
+                        "confidence": candidate.body_source.confidence(),
                         "textPreview": text_preview.clone(),
                     }),
+                );
+            }
+            Err(error) => {
+                if candidate.phase == ExternalReplyDispatchPhase::Preview {
+                    let _ = state.mark_external_reply_preview_delivery_failed(
+                        &candidate.session_id,
+                        &candidate.text,
+                    );
+                }
+                let _ = app.emit(
+                    "external/channel_outbound_result",
+                    json!({
+                        "traceId": candidate.target.trace_id,
+                        "workspaceId": candidate.target.workspace_id,
+                        "messageId": preview_message_id.as_deref().unwrap_or(&candidate.target.inbound_message_id),
+                        "targetAgentId": candidate.target.target_agent_id,
+                        "status": "failed",
+                        "detail": error,
+                        "tsMs": now_ms(),
+                        "relayMode": candidate.body_source.relay_mode(),
+                        "confidence": candidate.body_source.confidence(),
+                        "textPreview": text_preview.clone(),
+                    }),
+                );
+                emit_external_error(
+                    app,
+                    &candidate.target.trace_id,
+                    "CHANNEL_REPLY_SEND_FAILED",
+                    &error,
                 );
             }
         }
@@ -2090,6 +1926,163 @@ fn into_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
 }
 
+fn metadata_value_to_string(value: Option<&Value>) -> Option<String> {
+    value.and_then(|value| {
+        value
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| value.as_i64().map(|value| value.to_string()))
+            .or_else(|| value.as_u64().map(|value| value.to_string()))
+    })
+}
+
+fn parse_external_interaction_callback(
+    message: &ExternalInboundMessage,
+) -> Option<(String, ExternalInteractionAction)> {
+    if !message.channel.trim().eq_ignore_ascii_case("telegram") {
+        return None;
+    }
+    let callback = message.metadata.get("callback_query")?;
+    let raw_data = callback.get("data")?.as_str()?.trim();
+    let prompt_message_id = metadata_value_to_string(
+        callback
+            .get("message")
+            .and_then(|value| value.get("message_id")),
+    )?;
+
+    if let Some(text) = raw_data.strip_prefix("gto:") {
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        return Some((
+            prompt_message_id,
+            ExternalInteractionAction::SubmitText(text.to_string()),
+        ));
+    }
+
+    let key = raw_data.strip_prefix("gto-key:")?;
+    let key = match key.trim().to_ascii_lowercase().as_str() {
+        "up" => ExternalTerminalKey::Up,
+        "down" => ExternalTerminalKey::Down,
+        "enter" => ExternalTerminalKey::Enter,
+        "esc" => ExternalTerminalKey::Esc,
+        "tab" => ExternalTerminalKey::Tab,
+        _ => return None,
+    };
+    Some((
+        prompt_message_id,
+        ExternalInteractionAction::TerminalKey(key),
+    ))
+}
+
+fn find_runtime_for_session(
+    state: &AppState,
+    workspace_id: &str,
+    session_id: &str,
+) -> Option<AgentRuntimeRegistration> {
+    state
+        .task_service
+        .list_runtimes(Some(workspace_id))
+        .into_iter()
+        .find(|runtime| runtime.session_id == session_id)
+}
+
+fn dispatch_external_interaction_callback(
+    state: &AppState,
+    app: &AppHandle,
+    message: &ExternalInboundMessage,
+    trace_id: &str,
+    account_id: &str,
+) -> Result<Option<ExternalInboundResponse>, String> {
+    let Some((prompt_message_id, action)) = parse_external_interaction_callback(message) else {
+        return Ok(None);
+    };
+
+    let matched = state.find_external_interaction_session(
+        &message.channel,
+        account_id,
+        &message.peer_id,
+        &prompt_message_id,
+        &action,
+    )?;
+    let Some(matched) = matched else {
+        let response = ExternalInboundResponse {
+            trace_id: trace_id.to_string(),
+            status: ExternalInboundStatus::Failed,
+            idempotent_hit: false,
+            workspace_id: None,
+            target_agent_id: None,
+            task_id: None,
+            pairing_code: None,
+            detail: Some("CHANNEL_INTERACTION_SESSION_NOT_FOUND".to_string()),
+        };
+        emit_external_error(
+            app,
+            trace_id,
+            "CHANNEL_INTERACTION_SESSION_NOT_FOUND",
+            "interactive callback did not match an active session",
+        );
+        return Ok(Some(response));
+    };
+
+    let Some(runtime) =
+        find_runtime_for_session(state, &matched.target.workspace_id, &matched.session_id)
+    else {
+        let response = ExternalInboundResponse {
+            trace_id: trace_id.to_string(),
+            status: ExternalInboundStatus::Failed,
+            idempotent_hit: false,
+            workspace_id: Some(matched.target.workspace_id.clone()),
+            target_agent_id: Some(matched.target.target_agent_id.clone()),
+            task_id: None,
+            pairing_code: None,
+            detail: Some("CHANNEL_INTERACTION_RUNTIME_NOT_FOUND".to_string()),
+        };
+        emit_external_error(
+            app,
+            trace_id,
+            "CHANNEL_INTERACTION_RUNTIME_NOT_FOUND",
+            "interactive callback matched a session without an online runtime",
+        );
+        return Ok(Some(response));
+    };
+
+    match &action {
+        ExternalInteractionAction::SubmitText(text) => {
+            write_terminal_with_submit(
+                state,
+                &matched.session_id,
+                text,
+                runtime.submit_sequence.as_deref().unwrap_or("\r"),
+            )?;
+        }
+        ExternalInteractionAction::TerminalKey(key) => {
+            let accepted = state
+                .terminal_provider
+                .write_session(&matched.session_id, key.input())
+                .map_err(|error| error.to_string())?;
+            if !accepted {
+                return Err(
+                    "CHANNEL_INTERACTION_DELIVERY_FAILED: terminal write rejected".to_string(),
+                );
+            }
+        }
+    }
+    state.touch_external_reply_session_activity(&matched.session_id, now_ms())?;
+
+    Ok(Some(ExternalInboundResponse {
+        trace_id: trace_id.to_string(),
+        status: ExternalInboundStatus::Dispatched,
+        idempotent_hit: false,
+        workspace_id: Some(matched.target.workspace_id.clone()),
+        target_agent_id: Some(matched.target.target_agent_id.clone()),
+        task_id: None,
+        pairing_code: None,
+        detail: Some("CHANNEL_INTERACTION_CALLBACK_DISPATCHED".to_string()),
+    }))
+}
+
 pub(crate) fn process_external_inbound_message(
     state: &AppState,
     app: &AppHandle,
@@ -2135,6 +2128,15 @@ pub(crate) fn process_external_inbound_message(
         cached.idempotent_hit = true;
         cached.status = ExternalInboundStatus::Duplicate;
         return Ok(cached);
+    }
+
+    if let Some(response) =
+        dispatch_external_interaction_callback(state, app, &message, &trace_id, &account_id)?
+    {
+        state
+            .task_service
+            .store_external_idempotency(idempotency_key, response.clone());
+        return Ok(response);
     }
 
     let route = state

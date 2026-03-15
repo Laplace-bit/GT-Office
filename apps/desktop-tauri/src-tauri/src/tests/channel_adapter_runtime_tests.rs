@@ -45,3 +45,29 @@ fn parse_telegram_callback_query() {
         Some("telegram-callback-cbq_123")
     );
 }
+
+#[test]
+fn parse_telegram_key_callback_query_preserves_key_payload() {
+    let payload = serde_json::json!({
+        "update_id": 10003,
+        "callback_query": {
+            "id": "cbq_key_123",
+            "data": "gto-key:down",
+            "from": { "id": 5566, "username": "alice" },
+            "message": {
+                "message_id": 90,
+                "chat": { "id": -100123, "type": "supergroup" }
+            }
+        }
+    });
+    let inbound = parse_telegram_payload(&payload).expect("telegram key callback parsed");
+    assert_eq!(inbound.channel, "telegram");
+    assert_eq!(inbound.peer_kind, ExternalPeerKind::Group);
+    assert_eq!(inbound.peer_id, "-100123");
+    assert_eq!(inbound.sender_id, "5566");
+    assert_eq!(inbound.text, "gto-key:down");
+    assert_eq!(
+        inbound.idempotency_key.as_deref(),
+        Some("telegram-callback-cbq_key_123")
+    );
+}

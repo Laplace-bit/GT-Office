@@ -9,6 +9,10 @@ use tracing::debug;
 use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
 use vb_ai_config::StoredAiConfigPreview;
 use vb_git::GitService;
+use vb_session_log::{
+    bind_session_log, SessionLogBinding, SessionLogHealth, SessionLogProvider, SessionLogRequest,
+    SessionLogRuntime,
+};
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
 use vb_task::AgentToolKind;
 use vb_task::TaskService;
@@ -50,6 +54,7 @@ pub struct ExternalReplyDispatchCandidate {
     pub text: String,
     pub preview_message_id: Option<String>,
     pub phase: ExternalReplyDispatchPhase,
+    pub body_source: ExternalReplyBodySource,
 }
 
 fn channel_supports_preview(channel: &str) -> bool {
@@ -65,7 +70,34 @@ pub enum ExternalInteractionPromptKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalInteractionOption {
     pub label: String,
-    pub submit_text: String,
+    pub submit_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalInteractionControlMode {
+    SemanticButtons,
+    TerminalNavigation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalTerminalKey {
+    Up,
+    Down,
+    Enter,
+    Esc,
+    Tab,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalInteractionAction {
+    SubmitText(String),
+    TerminalKey(ExternalTerminalKey),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalInteractionControl {
+    pub label: String,
+    pub action: ExternalInteractionAction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +105,9 @@ pub struct ExternalInteractionPrompt {
     pub kind: ExternalInteractionPromptKind,
     pub title: String,
     pub options: Vec<ExternalInteractionOption>,
+    pub controls: Vec<ExternalInteractionControl>,
+    pub control_mode: ExternalInteractionControlMode,
+    pub selected_index: Option<usize>,
     pub hint: Option<String>,
     start_row: u32,
     end_row: u32,
@@ -87,14 +122,38 @@ impl ExternalInteractionPrompt {
         let options = self
             .options
             .iter()
-            .map(|option| format!("{}=>{}", option.label, option.submit_text))
+            .map(|option| {
+                format!(
+                    "{}=>{}",
+                    option.label,
+                    option.submit_text.clone().unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+        let controls = self
+            .controls
+            .iter()
+            .map(|control| match &control.action {
+                ExternalInteractionAction::SubmitText(text) => {
+                    format!("{}=>submit:{text}", control.label)
+                }
+                ExternalInteractionAction::TerminalKey(key) => {
+                    format!("{}=>key:{}", control.label, key.id())
+                }
+            })
             .collect::<Vec<_>>()
             .join("|");
         format!(
-            "{kind}\u{1f}{}\u{1f}{}\u{1f}{}",
+            "{kind}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
             self.title,
             self.hint.clone().unwrap_or_default(),
-            options
+            options,
+            controls,
+            self.selected_index
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            self.control_mode.id(),
         )
     }
 
@@ -109,7 +168,91 @@ impl ExternalInteractionPrompt {
         }
         self.options
             .iter()
-            .any(|option| option.submit_text == normalized)
+            .filter_map(|option| option.submit_text.as_deref())
+            .any(|submit_text| submit_text == normalized)
+    }
+
+    fn accepts_injected_input(&self, input: &str) -> bool {
+        if self.matches_input(input) {
+            return true;
+        }
+        let normalized = input.trim();
+        if normalized.is_empty() {
+            return false;
+        }
+        let lower = normalized.to_ascii_lowercase();
+        match self.control_mode {
+            ExternalInteractionControlMode::SemanticButtons => {
+                normalized.chars().all(|ch| ch.is_ascii_digit())
+                    || normalized.starts_with('/')
+                    || matches!(lower.as_str(), "y" | "yes" | "n" | "no" | "allow" | "deny")
+            }
+            ExternalInteractionControlMode::TerminalNavigation => {
+                matches!(lower.as_str(), "up" | "down" | "enter" | "esc" | "tab")
+            }
+        }
+    }
+
+    pub(crate) fn allows_action(&self, action: &ExternalInteractionAction) -> bool {
+        self.controls
+            .iter()
+            .any(|control| &control.action == action)
+    }
+}
+
+impl ExternalInteractionControlMode {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::SemanticButtons => "semantic",
+            Self::TerminalNavigation => "terminal_navigation",
+        }
+    }
+}
+
+impl ExternalTerminalKey {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::Enter => "enter",
+            Self::Esc => "esc",
+            Self::Tab => "tab",
+        }
+    }
+
+    pub(crate) fn input(self) -> &'static str {
+        match self {
+            Self::Up => "\u{1b}[A",
+            Self::Down => "\u{1b}[B",
+            Self::Enter => "\r",
+            Self::Esc => "\u{1b}",
+            Self::Tab => "\t",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalReplyBodySource {
+    SessionLog,
+    RenderedScreen,
+    VtFallback,
+}
+
+impl ExternalReplyBodySource {
+    pub(crate) fn relay_mode(self) -> &'static str {
+        match self {
+            Self::SessionLog => "session-log",
+            Self::RenderedScreen => "rendered-screen-fallback",
+            Self::VtFallback => "vt-fallback",
+        }
+    }
+
+    pub(crate) fn confidence(self) -> &'static str {
+        match self {
+            Self::SessionLog => "high",
+            Self::RenderedScreen => "medium",
+            Self::VtFallback => "low",
+        }
     }
 }
 
@@ -120,6 +263,12 @@ pub struct ExternalInteractionDispatchCandidate {
     pub prompt: Option<ExternalInteractionPrompt>,
     pub message_id: Option<String>,
     pub phase: ExternalInteractionDispatchPhase,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalInteractionSessionMatch {
+    pub session_id: String,
+    pub target: ExternalReplyRelayTarget,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,6 +298,7 @@ pub struct RenderedScreenSnapshot {
 struct ExternalReplyRelaySession {
     target: ExternalReplyRelayTarget,
     tool_kind: AgentToolKind,
+    resolved_cwd: Option<String>,
     created_at_ms: u64,
     last_chunk_at_ms: u64,
     last_preview_sent_at_ms: u64,
@@ -159,6 +309,9 @@ struct ExternalReplyRelaySession {
     preview_message_id: Option<String>,
     last_rendered_snapshot: Option<RenderedScreenSnapshot>,
     last_rendered_reply_text: String,
+    session_log_binding: Option<SessionLogBinding>,
+    session_log_text: String,
+    session_log_health: Option<SessionLogHealth>,
     active_interaction_prompt: Option<ExternalInteractionPrompt>,
     interaction_message_id: Option<String>,
     last_interaction_signature: Option<String>,
@@ -413,7 +566,7 @@ impl AppState {
                         target
                             .injected_input
                             .as_deref()
-                            .is_some_and(|input| prompt.matches_input(input))
+                            .is_some_and(|input| prompt.accepts_injected_input(input))
                     })
             {
                 existing.last_chunk_at_ms = now_ms;
@@ -425,6 +578,7 @@ impl AppState {
             ExternalReplyRelaySession {
                 target,
                 tool_kind: AgentToolKind::Unknown,
+                resolved_cwd: None,
                 created_at_ms: now_ms,
                 last_chunk_at_ms: now_ms,
                 last_preview_sent_at_ms: 0,
@@ -435,6 +589,9 @@ impl AppState {
                 preview_message_id: None,
                 last_rendered_snapshot: None,
                 last_rendered_reply_text: String::new(),
+                session_log_binding: None,
+                session_log_text: String::new(),
+                session_log_health: None,
                 active_interaction_prompt: None,
                 interaction_message_id: None,
                 last_interaction_signature: None,
@@ -591,18 +748,34 @@ impl AppState {
         Ok(())
     }
 
-    pub fn set_external_reply_session_tool_kind(
+    pub fn set_external_reply_session_runtime_metadata(
         &self,
         session_id: &str,
         tool_kind: AgentToolKind,
+        resolved_cwd: Option<&str>,
     ) -> Result<(), String> {
         let mut guard = self.external_reply_sessions.lock().map_err(|_| {
             "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
         })?;
         if let Some(session) = guard.get_mut(session_id) {
             session.tool_kind = tool_kind;
+            if let Some(resolved_cwd) = resolved_cwd
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                session.resolved_cwd = Some(resolved_cwd.to_string());
+            }
+            refresh_external_reply_session_log_binding(session);
         }
         Ok(())
+    }
+
+    pub fn set_external_reply_session_tool_kind(
+        &self,
+        session_id: &str,
+        tool_kind: AgentToolKind,
+    ) -> Result<(), String> {
+        self.set_external_reply_session_runtime_metadata(session_id, tool_kind, None)
     }
 
     pub fn set_external_interaction_message_id(
@@ -634,6 +807,80 @@ impl AppState {
             session.last_interaction_signature = None;
         }
         Ok(())
+    }
+
+    pub fn touch_external_reply_session_activity(
+        &self,
+        session_id: &str,
+        ts_ms: u64,
+    ) -> Result<(), String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        if let Some(session) = guard.get_mut(session_id) {
+            session.last_chunk_at_ms = session.last_chunk_at_ms.max(ts_ms);
+        }
+        Ok(())
+    }
+
+    pub fn refresh_external_reply_session_logs(&self) -> Result<(), String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+
+        for session in guard.values_mut() {
+            if session.session_log_binding.is_none()
+                || session.session_log_health == Some(SessionLogHealth::Failed)
+            {
+                refresh_external_reply_session_log_binding(session);
+            }
+            let Some(binding) = session.session_log_binding.as_mut() else {
+                continue;
+            };
+            let outcome = binding.poll();
+            session.session_log_health = Some(outcome.health);
+            if let Some(text) = outcome.text {
+                if !text.trim().is_empty() {
+                    session.session_log_text =
+                        merge_rendered_reply_text(&session.session_log_text, text.trim());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn find_external_interaction_session(
+        &self,
+        channel: &str,
+        account_id: &str,
+        peer_id: &str,
+        interaction_message_id: &str,
+        action: &ExternalInteractionAction,
+    ) -> Result<Option<ExternalInteractionSessionMatch>, String> {
+        let guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        for (session_id, session) in guard.iter() {
+            if !session.target.channel.eq_ignore_ascii_case(channel)
+                || session.target.account_id != account_id
+                || session.target.peer_id != peer_id
+                || session.interaction_message_id.as_deref() != Some(interaction_message_id)
+            {
+                continue;
+            }
+            let Some(prompt) = session.active_interaction_prompt.as_ref() else {
+                continue;
+            };
+            if !prompt.allows_action(action) {
+                continue;
+            }
+            return Ok(Some(ExternalInteractionSessionMatch {
+                session_id: session_id.clone(),
+                target: session.target.clone(),
+            }));
+        }
+        Ok(None)
     }
 
     pub fn take_external_interaction_dispatch_candidates(
@@ -692,8 +939,17 @@ impl AppState {
         let mut drop_session_ids = Vec::new();
 
         for (session_id, session) in guard.iter_mut() {
-            let normalized_text = external_reply_session_text(session);
-            let has_text = !normalized_text.is_empty();
+            let preview = external_reply_preview_text(session);
+            let finalize = external_reply_finalize_text(session);
+            let preview_text = preview
+                .as_ref()
+                .map(|(text, _)| text.clone())
+                .unwrap_or_default();
+            let finalize_text = finalize
+                .as_ref()
+                .map(|(text, _)| text.clone())
+                .unwrap_or_default();
+            let has_text = !finalize_text.is_empty();
             let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
             let promptless_rendered_idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms)
                 >= idle_threshold_ms.saturating_mul(3);
@@ -709,14 +965,16 @@ impl AppState {
                             ToolScreenProfile::from_tool_kind(session.tool_kind),
                         )
                     });
+            let interaction_blocked =
+                session.active_interaction_prompt.is_some() || session.permission_prompt_active;
             let promptless_rendered_finalize = has_text
                 && rendered_has_text
                 && session.last_rendered_snapshot.is_some()
                 && !rendered_ready_for_finalize
                 && promptless_rendered_idle_elapsed
-                && session.active_interaction_prompt.is_none()
-                && !session.permission_prompt_active;
+                && !interaction_blocked;
             let should_finalize_with_text = has_text
+                && !interaction_blocked
                 && (session.ended
                     || expired
                     || (idle_elapsed
@@ -725,6 +983,7 @@ impl AppState {
                             || rendered_ready_for_finalize))
                     || promptless_rendered_finalize);
             let should_drop_without_text = !has_text
+                && !interaction_blocked
                 && (session.ended
                     || expired
                     || (idle_elapsed
@@ -756,29 +1015,33 @@ impl AppState {
                 debug!(
                     session_id = %session_id,
                     profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
-                    final_chars = normalized_text.chars().count(),
+                    final_chars = finalize_text.chars().count(),
                     promptless_rendered_finalize,
                     "queued external reply finalize candidate"
                 );
+                let Some((text, body_source)) = finalize.clone() else {
+                    continue;
+                };
                 candidates.push(ExternalReplyDispatchCandidate {
                     session_id: session_id.clone(),
                     target: session.target.clone(),
-                    text: normalized_text,
+                    text,
                     preview_message_id: session.preview_message_id.clone(),
                     phase: ExternalReplyDispatchPhase::Finalize,
+                    body_source,
                 });
                 continue;
             }
-            if !has_text {
+            if preview_text.is_empty() {
                 continue;
             }
             let preview_enabled = channel_supports_preview(&session.target.channel)
-                && (normalized_text.chars().count() >= preview_min_chars
+                && (preview_text.chars().count() >= preview_min_chars
                     || session.preview_message_id.is_some());
             if !preview_enabled {
                 continue;
             }
-            let preview_changed = normalized_text != session.last_preview_text;
+            let preview_changed = preview_text != session.last_preview_text;
             if !preview_changed {
                 continue;
             }
@@ -788,19 +1051,23 @@ impl AppState {
                 continue;
             }
             session.last_preview_sent_at_ms = now_ms;
-            session.last_preview_text = normalized_text.clone();
+            session.last_preview_text = preview_text.clone();
             debug!(
                 session_id = %session_id,
                 profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
-                preview_chars = normalized_text.chars().count(),
+                preview_chars = preview_text.chars().count(),
                 "queued external reply preview candidate"
             );
+            let Some((text, body_source)) = preview.clone() else {
+                continue;
+            };
             candidates.push(ExternalReplyDispatchCandidate {
                 session_id: session_id.clone(),
                 target: session.target.clone(),
-                text: normalized_text,
+                text,
                 preview_message_id: session.preview_message_id.clone(),
                 phase: ExternalReplyDispatchPhase::Preview,
+                body_source,
             });
         }
 
@@ -814,14 +1081,48 @@ impl AppState {
     }
 }
 
-fn external_reply_session_text(session: &ExternalReplyRelaySession) -> String {
+fn external_reply_preview_text(
+    session: &ExternalReplyRelaySession,
+) -> Option<(String, ExternalReplyBodySource)> {
     let rendered_text = session.last_rendered_reply_text.trim();
     if !rendered_text.is_empty() {
-        return session.last_rendered_reply_text.clone();
+        return Some((
+            session.last_rendered_reply_text.clone(),
+            ExternalReplyBodySource::RenderedScreen,
+        ));
     }
+    external_reply_vt_text(session).map(|text| (text, ExternalReplyBodySource::VtFallback))
+}
+
+fn external_reply_finalize_text(
+    session: &ExternalReplyRelaySession,
+) -> Option<(String, ExternalReplyBodySource)> {
+    let session_log_text = session.session_log_text.trim();
+    if !session_log_text.is_empty() {
+        return Some((
+            session.session_log_text.clone(),
+            ExternalReplyBodySource::SessionLog,
+        ));
+    }
+    let rendered_text = session.last_rendered_reply_text.trim();
+    if !rendered_text.is_empty() {
+        return Some((
+            session.last_rendered_reply_text.clone(),
+            ExternalReplyBodySource::RenderedScreen,
+        ));
+    }
+    external_reply_vt_text(session).map(|text| (text, ExternalReplyBodySource::VtFallback))
+}
+
+fn external_reply_vt_text(session: &ExternalReplyRelaySession) -> Option<String> {
     let screen_text = session.vt_parser.screen().contents();
     let stripped = strip_ansi_escapes::strip_str(&screen_text);
-    normalize_reply_text(&stripped, session.target.injected_input.as_deref())
+    let normalized = normalize_reply_text(&stripped, session.target.injected_input.as_deref());
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
 }
 
 fn extract_rendered_interaction_prompt(
@@ -882,7 +1183,10 @@ fn extract_rendered_permission_prompt(
             continue;
         }
         if let Some((submit_text, label)) = parse_numbered_option_line(trimmed) {
-            options.push(ExternalInteractionOption { label, submit_text });
+            options.push(ExternalInteractionOption {
+                label,
+                submit_text: Some(submit_text),
+            });
             continue;
         }
         let lower = trim_display_leader(trimmed).to_ascii_lowercase();
@@ -892,7 +1196,7 @@ fn extract_rendered_permission_prompt(
         ) {
             options.push(ExternalInteractionOption {
                 label: trim_display_leader(trimmed).to_string(),
-                submit_text: lower,
+                submit_text: Some(lower),
             });
         }
     }
@@ -904,6 +1208,9 @@ fn extract_rendered_permission_prompt(
     Some(ExternalInteractionPrompt {
         kind: ExternalInteractionPromptKind::Permission,
         title: "需要权限确认".to_string(),
+        controls: permission_controls(&options),
+        control_mode: ExternalInteractionControlMode::SemanticButtons,
+        selected_index: None,
         options,
         hint,
         start_row,
@@ -924,14 +1231,14 @@ fn extract_rendered_menu_prompt(
         .collect::<Vec<_>>();
     let last_option_idx = filtered_rows
         .iter()
-        .rposition(|row| parse_interaction_menu_option(&row.text).is_some())?;
+        .rposition(|row| is_interaction_menu_option_row(&row.text))?;
 
     let mut option_rows = Vec::new();
     let mut cursor = last_option_idx;
     loop {
         let row = filtered_rows[cursor];
         let trimmed = row.trimmed_text.trim();
-        if parse_interaction_menu_option(trimmed).is_some() {
+        if is_interaction_menu_option_row(trimmed) {
             option_rows.push(row);
         } else if !trimmed.is_empty() {
             break;
@@ -952,10 +1259,22 @@ fn extract_rendered_menu_prompt(
     }
     let has_slash_option = options
         .iter()
-        .any(|option| option.submit_text.trim_start().starts_with('/'));
+        .filter_map(|option| option.submit_text.as_deref())
+        .any(|submit_text| submit_text.trim_start().starts_with('/'));
+    let semantic_menu = options.iter().all(|option| option.submit_text.is_some());
+    let selected_index = option_rows
+        .iter()
+        .position(|row| row_has_selected_option_marker(&row.text))
+        .or_else(|| {
+            snapshot.cursor_row.and_then(|cursor_row| {
+                option_rows
+                    .iter()
+                    .position(|row| row.row_index == cursor_row)
+            })
+        });
 
     let option_start_row = option_rows.first()?.row_index;
-    let end_row = option_rows.last()?.row_index;
+    let mut end_row = option_rows.last()?.row_index;
     let title_info = find_menu_title_before_row(&filtered_rows, option_start_row, profile);
     if title_info.is_none() && !has_slash_option {
         return None;
@@ -963,12 +1282,72 @@ fn extract_rendered_menu_prompt(
     let (start_row, title) = title_info
         .map(|(row, title)| (row, title))
         .unwrap_or_else(|| (option_start_row, "请选择一个操作".to_string()));
+    let hint = find_menu_hint_after_row(&filtered_rows, end_row);
+    if let Some((hint_row, _)) = hint.as_ref() {
+        end_row = end_row.max(*hint_row);
+    }
+    let hint_text = hint.map(|(_, hint)| hint);
+    let (controls, control_mode) = if semantic_menu {
+        (
+            options
+                .iter()
+                .filter_map(|option| {
+                    option
+                        .submit_text
+                        .as_ref()
+                        .map(|submit_text| ExternalInteractionControl {
+                            label: option.label.clone(),
+                            action: ExternalInteractionAction::SubmitText(submit_text.clone()),
+                        })
+                })
+                .collect::<Vec<_>>(),
+            ExternalInteractionControlMode::SemanticButtons,
+        )
+    } else {
+        let mut controls = vec![
+            ExternalInteractionControl {
+                label: "Up".to_string(),
+                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Up),
+            },
+            ExternalInteractionControl {
+                label: "Down".to_string(),
+                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Down),
+            },
+            ExternalInteractionControl {
+                label: "Enter".to_string(),
+                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Enter),
+            },
+            ExternalInteractionControl {
+                label: "Esc".to_string(),
+                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Esc),
+            },
+        ];
+        if hint_text
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|value| value.contains("tab"))
+        {
+            controls.push(ExternalInteractionControl {
+                label: "Tab".to_string(),
+                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Tab),
+            });
+        }
+        (controls, ExternalInteractionControlMode::TerminalNavigation)
+    };
+    if control_mode == ExternalInteractionControlMode::TerminalNavigation
+        && selected_index.is_none()
+    {
+        return None;
+    }
 
     Some(ExternalInteractionPrompt {
         kind: ExternalInteractionPromptKind::Menu,
         title,
         options,
-        hint: None,
+        controls,
+        control_mode,
+        selected_index,
+        hint: hint_text,
         start_row,
         end_row,
     })
@@ -988,7 +1367,7 @@ fn find_menu_title_before_row(
         {
             continue;
         }
-        if parse_interaction_menu_option(trimmed).is_some()
+        if is_interaction_menu_option_row(trimmed)
             || is_permission_prompt_line(trimmed)
             || should_skip_runtime_noise_line_for_tool(trimmed, profile)
             || should_skip_tool_execution_line_for_tool(trimmed, profile)
@@ -1006,6 +1385,30 @@ fn find_menu_title_before_row(
         }
         if is_probable_interaction_menu_title(normalized) {
             return Some((row.row_index, normalized.to_string()));
+        }
+    }
+    None
+}
+
+fn find_menu_hint_after_row(
+    rows: &[&RenderedScreenSnapshotRow],
+    end_row: u32,
+) -> Option<(u32, String)> {
+    let end_index = rows.iter().position(|row| row.row_index == end_row)?;
+    for row in rows.iter().skip(end_index + 1).take(4) {
+        let trimmed = row.text.trim();
+        if trimmed.is_empty() || is_ready_prompt_line(trimmed) {
+            continue;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("esc")
+            || lower.contains("enter")
+            || lower.contains("tab")
+            || lower.contains("select")
+            || trimmed.contains('↑')
+            || trimmed.contains('↓')
+        {
+            return Some((row.row_index, collapse_whitespace(trimmed)));
         }
     }
     None
@@ -1070,12 +1473,128 @@ fn parse_slash_command_option_line(line: &str) -> Option<(String, String)> {
 
 fn parse_interaction_menu_option(line: &str) -> Option<ExternalInteractionOption> {
     if let Some((submit_text, label)) = parse_numbered_option_line(line) {
-        return Some(ExternalInteractionOption { label, submit_text });
+        return Some(ExternalInteractionOption {
+            label,
+            submit_text: Some(submit_text),
+        });
     }
     if let Some((submit_text, label)) = parse_slash_command_option_line(line) {
-        return Some(ExternalInteractionOption { label, submit_text });
+        return Some(ExternalInteractionOption {
+            label,
+            submit_text: Some(submit_text),
+        });
+    }
+    if let Some(label) = parse_directional_option_label(line) {
+        return Some(ExternalInteractionOption {
+            label,
+            submit_text: None,
+        });
     }
     None
+}
+
+fn is_interaction_menu_option_row(line: &str) -> bool {
+    parse_interaction_menu_option(line).is_some()
+}
+
+fn parse_directional_option_label(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let without_cursor = trimmed
+        .strip_prefix("› ")
+        .or_else(|| trimmed.strip_prefix("❯ "))
+        .unwrap_or(trimmed)
+        .trim_start();
+    if without_cursor.is_empty() {
+        return None;
+    }
+    let collapsed = collapse_whitespace(without_cursor);
+    let lower = collapsed.to_ascii_lowercase();
+    if collapsed.is_empty()
+        || is_probable_interaction_menu_title(&collapsed)
+        || is_ready_prompt_line(&collapsed)
+        || is_permission_prompt_line(&collapsed)
+        || should_skip_runtime_noise_line(&collapsed)
+        || should_skip_tool_execution_line(&collapsed)
+        || should_skip_thinking_line(&collapsed)
+        || is_tui_status_bar_line(&collapsed)
+        || should_skip_cli_prompt_line(&collapsed)
+        || should_skip_startup_banner_line(&collapsed)
+        || should_skip_log_prefix_line(&collapsed)
+        || lower.starts_with("use ")
+        || lower.contains("to select")
+        || lower.contains("to confirm")
+        || lower.contains("to cancel")
+        || lower.contains("↑")
+        || lower.contains("↓")
+    {
+        return None;
+    }
+    Some(collapsed)
+}
+
+fn row_has_selected_option_marker(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("› ") || trimmed.starts_with("❯ ")
+}
+
+fn permission_controls(options: &[ExternalInteractionOption]) -> Vec<ExternalInteractionControl> {
+    options
+        .iter()
+        .filter_map(|option| {
+            option
+                .submit_text
+                .as_ref()
+                .map(|submit_text| ExternalInteractionControl {
+                    label: option.label.clone(),
+                    action: ExternalInteractionAction::SubmitText(submit_text.clone()),
+                })
+        })
+        .collect()
+}
+
+fn refresh_external_reply_session_log_binding(session: &mut ExternalReplyRelaySession) {
+    let Some(provider) = session_log_provider_for_tool_kind(session.tool_kind) else {
+        session.session_log_binding = None;
+        session.session_log_health = None;
+        return;
+    };
+    let Some(resolved_cwd) = session
+        .resolved_cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let Some(dispatched_text) = session
+        .target
+        .injected_input
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let runtime = SessionLogRuntime {
+        provider,
+        resolved_cwd: PathBuf::from(resolved_cwd),
+    };
+    let request = SessionLogRequest {
+        dispatched_text: dispatched_text.to_string(),
+    };
+    session.session_log_binding = bind_session_log(&runtime, &request);
+    if session.session_log_binding.is_some() && session.session_log_health.is_none() {
+        session.session_log_health = Some(SessionLogHealth::Pending);
+    }
+}
+
+fn session_log_provider_for_tool_kind(tool_kind: AgentToolKind) -> Option<SessionLogProvider> {
+    match tool_kind {
+        AgentToolKind::Claude => Some(SessionLogProvider::Claude),
+        AgentToolKind::Codex => Some(SessionLogProvider::Codex),
+        AgentToolKind::Gemini => Some(SessionLogProvider::Gemini),
+        AgentToolKind::Shell | AgentToolKind::Unknown => None,
+    }
 }
 
 fn collapse_whitespace(input: &str) -> String {

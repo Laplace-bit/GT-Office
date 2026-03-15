@@ -12,6 +12,7 @@ members = [
   "crates/vb-tools",
   "crates/vb-changefeed",
   "crates/vb-settings",
+  "crates/vb-session-log",
   "crates/vb-keymap",
   "crates/vb-ai-config",
   "crates/vb-task",
