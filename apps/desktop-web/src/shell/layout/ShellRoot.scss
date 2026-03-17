@@ -16,10 +16,8 @@
     var(--vb-bg);
   transition: background-color 0.3s ease;
 
-  // macOS 专用透明与边距修正
   :root[data-vb-platform='macos'] & {
-    background: transparent !important; // 强制背景透明，依靠 body 渲染
-    padding-top: 4px; // 继续收紧 macOS 原生标题栏模式的外层补白
+    padding-top: 4px;
   }
 }
 
