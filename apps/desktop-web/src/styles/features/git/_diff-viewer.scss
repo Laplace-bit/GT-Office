@@ -17,8 +17,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--vb-surface);
-  border-radius: var(--vb-radius-md);
+  background: transparent;
   overflow: hidden;
   contain: layout;
 }
@@ -32,8 +31,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
-  background: color-mix(in srgb, var(--vb-surface) 90%, var(--vb-chip));
+  min-height: 40px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--vb-surface) 84%, var(--vb-bg) 16%);
   border-bottom: 1px solid var(--vb-border);
   flex-shrink: 0;
 }
@@ -69,32 +69,37 @@
 
 .diff-viewer__badge {
   flex-shrink: 0;
-  padding: 1px 5px;
-  border-radius: var(--vb-radius-sm);
+  padding: 2px 6px;
+  border-radius: 999px;
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  border: 1px solid transparent;
 }
 
 .diff-viewer__badge--new {
   background: color-mix(in srgb, var(--vb-success) 15%, transparent);
   color: var(--vb-success);
+  border-color: color-mix(in srgb, var(--vb-success) 30%, transparent);
 }
 
 .diff-viewer__badge--deleted {
   background: color-mix(in srgb, var(--vb-error) 15%, transparent);
   color: var(--vb-error);
+  border-color: color-mix(in srgb, var(--vb-error) 30%, transparent);
 }
 
 .diff-viewer__badge--renamed {
   background: color-mix(in srgb, var(--vb-warning) 15%, transparent);
   color: var(--vb-warning);
+  border-color: color-mix(in srgb, var(--vb-warning) 30%, transparent);
 }
 
 .diff-viewer__badge--binary {
   background: color-mix(in srgb, var(--vb-text-muted) 15%, transparent);
   color: var(--vb-text-muted);
+  border-color: color-mix(in srgb, var(--vb-border) 70%, transparent);
 }
 
 /* Compact meta section with stats and mode toggle */
@@ -103,6 +108,8 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--vb-border) 78%, transparent);
 }
 
 .diff-viewer__stat {
@@ -126,9 +133,10 @@
 
 /* Compact mode chip buttons */
 .diff-viewer__mode-chip {
+  min-height: 24px;
   padding: 2px 8px;
-  border: none;
-  border-radius: var(--vb-radius-sm);
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--vb-text-muted);
   font-size: 10px;
@@ -139,12 +147,14 @@
 
 .diff-viewer__mode-chip:hover {
   color: var(--vb-text);
-  background: var(--vb-hover-overlay);
+  background: color-mix(in srgb, var(--vb-hover-overlay) 82%, transparent);
+  border-color: color-mix(in srgb, var(--vb-border) 68%, transparent);
 }
 
 .diff-viewer__mode-chip--active {
-  background: var(--vb-accent);
-  color: white;
+  background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
+  color: var(--vb-accent);
+  border-color: color-mix(in srgb, var(--vb-accent) 28%, transparent);
 }
 
 /* ========================================
@@ -210,7 +220,7 @@
   overscroll-behavior: contain;
   scroll-behavior: auto;
   -webkit-overflow-scrolling: touch;
-  background: var(--vb-bg);
+  background: color-mix(in srgb, var(--vb-input-bg) 28%, var(--vb-surface));
 }
 
 /* Custom scrollbar */
@@ -245,7 +255,7 @@
 }
 
 .simple-diff__hunk {
-  border-bottom: 1px solid var(--vb-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 58%, transparent);
 }
 
 .simple-diff__hunk:last-child {
@@ -255,13 +265,13 @@
 .simple-diff__hunk-header {
   display: flex;
   align-items: center;
-  padding: 4px 12px;
+  padding: 4px 14px;
   height: 28px;
-  background: color-mix(in srgb, var(--vb-primary) 8%, var(--vb-bg));
+  background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
   border-bottom: 1px solid var(--vb-border);
   font-size: 11px;
   font-family: var(--vb-font-mono);
-  color: var(--vb-primary);
+  color: color-mix(in srgb, var(--vb-accent) 70%, var(--vb-text));
   font-weight: 500;
 }
 
@@ -294,7 +304,7 @@
 }
 
 .simple-diff--split .simple-diff__side--left {
-  border-right: 2px solid var(--vb-border);
+  border-right: 1px solid color-mix(in srgb, var(--vb-border) 82%, transparent);
 }
 
 /* Side backgrounds */
@@ -321,7 +331,7 @@
   padding: 0 8px;
   text-align: right;
   color: var(--vb-text-muted);
-  background: color-mix(in srgb, var(--vb-chip) 50%, transparent);
+  background: color-mix(in srgb, var(--vb-chip) 34%, transparent);
   border-right: 1px solid var(--vb-border);
   user-select: none;
   font-size: 11px;
@@ -333,7 +343,7 @@
 .simple-diff__code {
   flex: 1;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 14px;
   white-space: pre;
   font-family: var(--vb-font-mono);
   font-size: 12px;
@@ -431,7 +441,7 @@
 
 .simple-diff--split .simple-diff__row:hover .simple-diff__side--ctx,
 .simple-diff--unified .simple-diff__line--ctx:hover {
-  background: color-mix(in srgb, var(--vb-chip) 30%, transparent);
+  background: color-mix(in srgb, var(--vb-chip) 20%, transparent);
 }
 
 .simple-diff--split .simple-diff__row:hover .simple-diff__side--del {
