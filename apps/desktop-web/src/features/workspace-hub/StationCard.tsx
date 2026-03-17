@@ -193,17 +193,21 @@ interface StationCardProps {
 
 function buildTaskAckLine(locale: Locale, nonce: number): string {
   const zh = [
-    '任务收到，键盘已经热身完成 😄⌨️',
-    '收到老板，我先喝口咖啡就开工 ☕😎',
-    '安排上了，这就开始啪啪打字 🚀',
+    '任务收到，终端已进入执行状态。',
+    '收到，本工作站开始处理当前任务。',
+    '已锁定任务，准备进入编码流程。',
   ]
   const en = [
-    'Task received. Keyboard warmed up 😄⌨️',
-    'Roger that. Coffee sip, then coding ☕😎',
-    'Locked in. Typing noises incoming 🚀',
+    'Task received. Terminal is primed for execution.',
+    'Acknowledged. This station is processing the task.',
+    'Locked in. Entering the coding flow now.',
   ]
   const list = locale === 'zh-CN' ? zh : en
   return list[Math.abs(nonce) % list.length]
+}
+
+function sessionStateLabel(locale: Locale, hasTerminalSession: boolean): string {
+  return hasTerminalSession ? t(locale, '实时会话', 'Live session') : t(locale, '待启动', 'Ready')
 }
 
 function StationCardView({
@@ -342,6 +346,7 @@ function StationCardView({
     0,
     channelBindingSummaries.length - visibleChannelBindingSummaries.length,
   )
+  const sessionLabel = sessionStateLabel(locale, hasTerminalSession)
   const requestTerminalFocus = useCallback(() => {
     pendingTerminalFocusRef.current = true
     terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
@@ -456,6 +461,11 @@ function StationCardView({
             <p className="station-window-meta-text">{station.agentWorkdirRel}</p>
             <span className="station-window-title-dot-small" aria-hidden="true" />
             <p className="station-window-meta-text">{station.tool}</p>
+            <span className="station-window-title-dot-small" aria-hidden="true" />
+            <span className={['station-window-status-pill', hasTerminalSession ? 'live' : 'idle'].join(' ')}>
+              <span className="station-window-status-pill-dot" aria-hidden="true" />
+              {sessionLabel}
+            </span>
             {visibleChannelBindingSummaries.length > 0 ? (
               <div className="station-header-bot-chips" aria-label={t(locale, 'station.channelBindings.aria')}>
                 {visibleChannelBindingSummaries.map((summary) => (
@@ -546,7 +556,6 @@ function StationCardView({
           </StationIconButton>
         </div>
       </header>
-
       {hasTerminalSession ? (
         <StationXtermTerminal
           stationId={station.id}

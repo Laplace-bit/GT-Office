@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
+import { TaskDispatchPreferences } from './TaskDispatchPreferences'
 import { AiProvidersSection } from './ai-providers'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
 import type { AmbientLightingIntensity, MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
+import type { ShortcutBinding } from '@features/keybindings'
 import './SettingsModal.scss'
 
 interface SettingsModalProps {
@@ -17,6 +19,9 @@ interface SettingsModalProps {
   uiFontSize: UiFontSize
   ambientLightingEnabled: boolean
   ambientLightingIntensity: AmbientLightingIntensity
+  isMacOs: boolean
+  taskQuickDispatchShortcut: ShortcutBinding
+  defaultTaskQuickDispatchShortcut: ShortcutBinding
   onClose: () => void
   onLocaleChange: (value: Locale) => void
   onThemeModeChange: (value: ThemeMode) => void
@@ -25,9 +30,11 @@ interface SettingsModalProps {
   onUiFontSizeChange: (value: UiFontSize) => void
   onAmbientLightingChange: (enabled: boolean) => void
   onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
+  onTaskQuickDispatchShortcutChange: (binding: ShortcutBinding) => void
+  onTaskQuickDispatchShortcutReset: () => void
 }
 
-type SettingsTab = 'general' | 'channels' | 'ai' | 'about'
+type SettingsTab = 'general' | 'shortcuts' | 'channels' | 'ai' | 'about'
 
 export function SettingsModal({
   open,
@@ -39,6 +46,9 @@ export function SettingsModal({
   uiFontSize,
   ambientLightingEnabled,
   ambientLightingIntensity,
+  isMacOs,
+  taskQuickDispatchShortcut,
+  defaultTaskQuickDispatchShortcut,
   onClose,
   onLocaleChange,
   onThemeModeChange,
@@ -47,6 +57,8 @@ export function SettingsModal({
   onUiFontSizeChange,
   onAmbientLightingChange,
   onAmbientLightingIntensityChange,
+  onTaskQuickDispatchShortcutChange,
+  onTaskQuickDispatchShortcutReset,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
@@ -120,6 +132,19 @@ export function SettingsModal({
             </div>
           </div>
         )
+      case 'shortcuts':
+        return (
+          <div className="settings-pane-section">
+            <TaskDispatchPreferences
+              locale={locale}
+              isMacOs={isMacOs}
+              shortcut={taskQuickDispatchShortcut}
+              defaultShortcut={defaultTaskQuickDispatchShortcut}
+              onShortcutChange={onTaskQuickDispatchShortcutChange}
+              onShortcutReset={onTaskQuickDispatchShortcutReset}
+            />
+          </div>
+        )
     }
   }
 
@@ -139,7 +164,7 @@ export function SettingsModal({
             <h2>{t(locale, 'settingsModal.title')}</h2>
           </div>
           <nav className="settings-sidebar-nav">
-            <button 
+            <button
               className={`settings-nav-item ${activeTab === 'general' ? 'active' : ''}`}
               onClick={() => setActiveTab('general')}
             >
@@ -153,14 +178,21 @@ export function SettingsModal({
               <AppIcon name="channels" aria-hidden="true" />
               {t(locale, 'settingsModal.nav.channels')}
             </button>
-            <button 
+            <button
+              className={`settings-nav-item ${activeTab === 'shortcuts' ? 'active' : ''}`}
+              onClick={() => setActiveTab('shortcuts')}
+            >
+              <AppIcon name="command" aria-hidden="true" />
+              {t(locale, '快捷键', 'Keybindings')}
+            </button>
+            <button
               className={`settings-nav-item ${activeTab === 'ai' ? 'active' : ''}`}
               onClick={() => setActiveTab('ai')}
             >
               <AppIcon name="sparkles" aria-hidden="true" />
               {t(locale, 'Agent 供应商', 'Agent Providers')}
             </button>
-            <button 
+            <button
               className={`settings-nav-item ${activeTab === 'about' ? 'active' : ''}`}
               onClick={() => setActiveTab('about')}
             >
@@ -175,6 +207,7 @@ export function SettingsModal({
           <header className="settings-content-header">
             <h3>
               {activeTab === 'general' && t(locale, 'settingsModal.nav.general')}
+              {activeTab === 'shortcuts' && t(locale, '快捷键', 'Keybindings')}
               {activeTab === 'channels' && t(locale, 'settingsModal.nav.channels')}
               {activeTab === 'ai' && t(locale, 'Agent 供应商', 'Agent Providers')}
               {activeTab === 'about' && t(locale, 'settingsModal.nav.about')}

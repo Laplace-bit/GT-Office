@@ -172,6 +172,8 @@ AI Config 约束（T-171）：
 11. Claude `official` 模式在 `preview_patch`、`read_snapshot` 与 `savedProviders[]` 中必须返回规范化后的 Anthropic 官方基线字段（如 `providerName/baseUrl/model/authScheme`）；即使 live settings 最终会清空托管 env，也不能把这些字段留空或显示上一家供应商的残留值。
 12. Claude saved provider 编辑成功后，后端必须优先复用原 `savedProviderId` 更新该条记录；若编辑结果与同 workspace 下另一条记录的 fingerprint 完全一致，则允许折叠到已有记录，但不得额外生成重复 saved provider。
 13. `savedProviders[]` 的返回顺序必须稳定反映“保存顺序”；从列表切换当前配置时只能更新 `isActive` 和应用结果，不能因为激活状态变化把目标项重排到数组前面。
+14. `settings.values.ui.taskQuickDispatch.opacity` 用于控制全局任务派发浮层面板透明度，建议范围 `0.55 - 1.00`。
+15. `settings.values.keybindings.overrides[]` 中允许命令 `task.center.quick_dispatch`；默认键位为 `Mod+Shift+K`，用于任意主界面唤起全局任务派发浮层。
 
 ### 3.7 Agent / Hook / Policy / Observability
 

@@ -32,6 +32,11 @@ interface TaskCenterPaneProps {
   onSendTask: () => void
   onSearchMentionFiles: (query: string) => void
   onClearMentionSearch: () => void
+  variant?: 'pane' | 'overlay'
+  showHeader?: boolean
+  title?: string
+  description?: string | null
+  sendShortcutHint?: string | null
 }
 
 interface MentionRange {
@@ -86,6 +91,11 @@ function TaskCenterPaneView({
   onSendTask,
   onSearchMentionFiles,
   onClearMentionSearch,
+  variant = 'pane',
+  showHeader = true,
+  title,
+  description = null,
+  sendShortcutHint = null,
 }: TaskCenterPaneProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -212,10 +222,13 @@ function TaskCenterPaneView({
   }
 
   return (
-    <aside className="panel task-center-pane">
-      <header className="task-center-header">
-        <h2>{t(locale, 'taskCenter.title')}</h2>
-      </header>
+    <aside className={`panel task-center-pane ${variant === 'overlay' ? 'task-center-pane--overlay' : ''}`}>
+      {showHeader ? (
+        <header className="task-center-header">
+          <h2>{title ?? t(locale, 'taskCenter.title')}</h2>
+          {description ? <p>{description}</p> : null}
+        </header>
+      ) : null}
 
       <section className="task-center-target-picker">
         <div className="task-center-targets-header">
@@ -460,6 +473,9 @@ function TaskCenterPaneView({
         </div>
 
         <div className="task-center-editor-footer">
+          {sendShortcutHint ? (
+            <span className="task-center-send-shortcut-hint">{sendShortcutHint}</span>
+          ) : null}
           <button
             type="button"
             className="task-center-inline-send primary"

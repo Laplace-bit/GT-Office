@@ -14,17 +14,23 @@ import {
   useGitWorkspaceController,
 } from '@features/git'
 import {
+  formatShortcutBinding,
   areShortcutBindingsEqual,
   defaultShortcutBindings,
   matchesShortcutEvent,
   resolveShortcutBindingsFromSettings,
+  shortcutBindingToKeystroke,
+  type ShortcutBinding,
 } from '@features/keybindings'
 import {
+  DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
+  GlobalTaskDispatchOverlay,
   TaskCenterPane,
-  buildTaskDispatchCommand,
   areTaskTargetsEqual,
   buildTaskCenterDraftFilePath,
+  buildTaskDispatchCommand,
   createInitialTaskDraft,
+  normalizeTaskQuickDispatchOpacity,
   resolveValidTaskTargets,
   useTaskDispatchActions,
   useTaskCenterDraftPersistence,
@@ -732,6 +738,26 @@ function readAmbientLightingFromSettings(values: Record<string, unknown>): {
   }
 }
 
+function readTaskQuickDispatchOpacityFromSettings(values: Record<string, unknown>): number | null {
+  const ui = values.ui
+  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) {
+    return null
+  }
+  const taskQuickDispatch = (ui as Record<string, unknown>).taskQuickDispatch
+  if (
+    !taskQuickDispatch ||
+    typeof taskQuickDispatch !== 'object' ||
+    Array.isArray(taskQuickDispatch)
+  ) {
+    return null
+  }
+  const opacity = (taskQuickDispatch as Record<string, unknown>).opacity
+  if (typeof opacity !== 'number') {
+    return null
+  }
+  return normalizeTaskQuickDispatchOpacity(opacity)
+}
+
 export function ShellRoot() {
   const initialStations = useMemo(() => createDefaultStations(), [])
   const stationCounterRef = useRef(nextStationNumber(initialStations))
@@ -742,11 +768,15 @@ export function ShellRoot() {
   const nativeWindowTopWindows = nativeWindowTop && !nativeWindowTopMacOs && !nativeWindowTopLinux
   const [uiPreferences, setUiPreferences] = useState(loadUiPreferences)
   const [shortcutBindings, setShortcutBindings] = useState(() => defaultShortcutBindings)
+  const [taskQuickDispatchOpacity, setTaskQuickDispatchOpacity] = useState(
+    DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
+  )
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
   const [leftPaneResizing, setLeftPaneResizing] = useState(false)
   const [leftPaneVisible, setLeftPaneVisible] = useState(true)
   const [activeNavId, setActiveNavId] = useState<NavItemId>('stations')
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isTaskQuickDispatchOpen, setIsTaskQuickDispatchOpen] = useState(false)
   const [isChannelStudioOpen, setIsChannelStudioOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [editingStation, setEditingStation] = useState<UpdateStationInput | null>(null)
@@ -1027,6 +1057,14 @@ export function ShellRoot() {
         setShortcutBindings((prev) =>
           areShortcutBindingsEqual(prev, runtimeShortcuts) ? prev : runtimeShortcuts,
         )
+        const runtimeTaskQuickDispatchOpacity = readTaskQuickDispatchOpacityFromSettings(
+          response.values,
+        )
+        if (runtimeTaskQuickDispatchOpacity !== null) {
+          setTaskQuickDispatchOpacity((prev) =>
+            prev === runtimeTaskQuickDispatchOpacity ? prev : runtimeTaskQuickDispatchOpacity,
+          )
+        }
         const runtimeAmbientLighting = readAmbientLightingFromSettings(response.values)
         if (runtimeAmbientLighting.enabled === null && runtimeAmbientLighting.intensity === null) {
           return
@@ -1115,6 +1153,85 @@ export function ShellRoot() {
     },
     [persistAmbientLightingPatch],
   )
+
+  const persistShortcutBindings = useCallback((bindings: typeof shortcutBindings) => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+
+    void desktopApi
+      .settingsUpdate('user', {
+        keybindings: {
+          overrides: [
+            {
+              command: 'shell.search.open_file',
+              keystroke: shortcutBindingToKeystroke(bindings.openFileSearch),
+            },
+            {
+              command: 'shell.search.open_content',
+              keystroke: shortcutBindingToKeystroke(bindings.openContentSearch),
+            },
+            {
+              command: 'shell.editor.find',
+              keystroke: shortcutBindingToKeystroke(bindings.editorFind),
+            },
+            {
+              command: 'shell.editor.replace',
+              keystroke: shortcutBindingToKeystroke(bindings.editorReplace),
+            },
+            {
+              command: 'task.center.quick_dispatch',
+              keystroke: shortcutBindingToKeystroke(bindings.taskQuickDispatch),
+            },
+          ],
+        },
+      })
+      .catch(() => {
+        // Keep local shortcut state even if settings persistence fails.
+      })
+  }, [])
+
+  const handleTaskQuickDispatchShortcutChange = useCallback((binding: ShortcutBinding) => {
+    setShortcutBindings((prev) => {
+      const next = {
+        ...prev,
+        taskQuickDispatch: binding,
+      }
+      persistShortcutBindings(next)
+      return next
+    })
+  }, [persistShortcutBindings])
+
+  const handleTaskQuickDispatchShortcutReset = useCallback(() => {
+    setShortcutBindings((prev) => {
+      const next = {
+        ...prev,
+        taskQuickDispatch: defaultShortcutBindings.taskQuickDispatch,
+      }
+      persistShortcutBindings(next)
+      return next
+    })
+  }, [persistShortcutBindings])
+
+  const handleTaskQuickDispatchOpacityChange = useCallback((value: number) => {
+    const nextOpacity = normalizeTaskQuickDispatchOpacity(value)
+    setTaskQuickDispatchOpacity(nextOpacity)
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+
+    void desktopApi
+      .settingsUpdate('user', {
+        ui: {
+          taskQuickDispatch: {
+            opacity: nextOpacity,
+          },
+        },
+      })
+      .catch(() => {
+        // The overlay remains usable even if settings persistence fails.
+      })
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -4131,13 +4248,24 @@ export function ShellRoot() {
     }))
   }, [])
 
+  const closeTaskQuickDispatch = useCallback(() => {
+    setIsTaskQuickDispatchOpen(false)
+  }, [])
+
   useEffect(() => {
     const onGlobalShortcut = (event: KeyboardEvent) => {
-      if (event.altKey) {
+      if (document.body.dataset.gtoShortcutRecording === 'true') {
         return
       }
       const editableTarget = isEditableKeyboardTarget(event.target)
       const codeEditorTarget = isCodeEditorKeyboardTarget(event.target)
+
+      if (matchesShortcutEvent(event, shortcutBindings.taskQuickDispatch, nativeWindowTopMacOs)) {
+        event.preventDefault()
+        event.stopPropagation()
+        setIsTaskQuickDispatchOpen((prev) => !prev)
+        return
+      }
 
       if (matchesShortcutEvent(event, shortcutBindings.openContentSearch, nativeWindowTopMacOs)) {
         event.preventDefault()
@@ -4550,6 +4678,30 @@ export function ShellRoot() {
         />
       </div>
 
+      <GlobalTaskDispatchOverlay
+        open={isTaskQuickDispatchOpen}
+        locale={locale}
+        stations={stations}
+        draft={taskDraft}
+        sending={taskSending}
+        draftSavedAtMs={taskDraftSavedAtMs}
+        notice={taskNotice}
+        mentionCandidates={taskMentionCandidates}
+        mentionLoading={taskMentionLoading}
+        mentionError={taskMentionError}
+        shortcutLabel={formatShortcutBinding(shortcutBindings.taskQuickDispatch, nativeWindowTopMacOs)}
+        opacity={taskQuickDispatchOpacity}
+        onClose={closeTaskQuickDispatch}
+        onOpacityChange={handleTaskQuickDispatchOpacityChange}
+        onDraftChange={updateTaskDraft}
+        onInsertSnippet={insertTaskSnippet}
+        onSendTask={() => {
+          void dispatchTaskToAgent()
+        }}
+        onSearchMentionFiles={searchTaskMentionFiles}
+        onClearMentionSearch={clearTaskMentionSearch}
+      />
+
       <SettingsModal
         open={isSettingsOpen}
         locale={locale}
@@ -4560,6 +4712,9 @@ export function ShellRoot() {
         uiFontSize={uiPreferences.uiFontSize}
         ambientLightingEnabled={uiPreferences.ambientLightingEnabled}
         ambientLightingIntensity={uiPreferences.ambientLightingIntensity}
+        isMacOs={nativeWindowTopMacOs}
+        taskQuickDispatchShortcut={shortcutBindings.taskQuickDispatch}
+        defaultTaskQuickDispatchShortcut={defaultShortcutBindings.taskQuickDispatch}
         onClose={() => {
           setIsSettingsOpen(false)
         }}
@@ -4590,6 +4745,8 @@ export function ShellRoot() {
         }
         onAmbientLightingChange={handleAmbientLightingChange}
         onAmbientLightingIntensityChange={handleAmbientLightingIntensityChange}
+        onTaskQuickDispatchShortcutChange={handleTaskQuickDispatchShortcutChange}
+        onTaskQuickDispatchShortcutReset={handleTaskQuickDispatchShortcutReset}
       />
 
       <StationManageModal

@@ -1,13 +1,16 @@
 @use "sass:color";
 
 .vb-top-control-bar {
+  --vb-top-control-button-size: 26px;
+  --vb-top-control-edge-inset: 4px;
   width: 100%;
   min-width: 0;
-  min-height: 40px;
+  min-height: calc(var(--vb-top-control-button-size) + 8px);
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px;
+  padding: 4px 12px;
+  box-sizing: border-box;
   border-radius: 14px;
   background: var(--vb-glass-light);
   backdrop-filter: blur(28px) saturate(180%);
@@ -20,7 +23,11 @@
 
   &.native-window-top {
     border-radius: 0 0 14px 14px;
-    padding-top: max(4px, env(titlebar-area-height, 0px));
+    padding-top: max(
+      var(--vb-top-control-edge-inset),
+      calc(env(titlebar-area-height, 0px) - var(--vb-top-control-button-size))
+    );
+    padding-bottom: 3px;
     border-top: 0;
   }
 }
@@ -31,6 +38,7 @@
   gap: 8px;
   min-width: 0;
   flex: 0 1 auto;
+  min-height: var(--vb-top-control-button-size);
 
   &::after {
     content: '';
@@ -52,6 +60,7 @@
   border: 0;
   max-width: 480px;
   min-width: 120px;
+  min-height: var(--vb-top-control-button-size);
   transition: all 0.2s ease;
   opacity: 0.82;
 
@@ -85,12 +94,13 @@
   align-items: center;
   gap: 6px;
   flex: 1;
+  min-height: var(--vb-top-control-button-size);
   justify-content: flex-end;
 }
 
 .vb-top-action-button {
-  width: 26px;
-  height: 26px;
+  width: var(--vb-top-control-button-size);
+  height: var(--vb-top-control-button-size);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,12 +159,13 @@
   gap: 4px;
   margin-left: auto;
   flex: 0 0 auto;
-  align-self: stretch;
+  min-height: var(--vb-top-control-button-size);
+  align-self: center;
 }
 
 .vb-window-action-button {
   width: 36px;
-  height: 100%;
+  height: var(--vb-top-control-button-size);
   min-height: 28px;
   display: flex;
   align-items: center;
@@ -188,7 +199,8 @@
 .titlebar-drag-region {
   flex: 1 1 auto;
   min-width: 16px;
-  align-self: stretch;
+  min-height: var(--vb-top-control-button-size);
+  align-self: center;
 }
 
 /* Platform-specific refinements */
@@ -202,7 +214,7 @@
 
 .window-platform-macos {
   .vb-top-control-leading {
-    padding-left: 72px;
+    padding-left: 68px;
   }
 
   .vb-top-actions {

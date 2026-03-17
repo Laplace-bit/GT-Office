@@ -22,6 +22,14 @@
   }
 }
 
+.task-center-pane--overlay {
+  padding: 0;
+  gap: 14px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .task-center-header {
   margin-bottom: 4px;
   min-width: 0;
@@ -247,9 +255,18 @@
 
 .task-center-editor-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 12px;
   padding-top: 4px;
   flex-shrink: 0;
+}
+
+.task-center-send-shortcut-hint {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--vb-text-muted);
+  font-family: var(--vb-font-mono);
 }
 
 .task-center-inline-send {
@@ -323,7 +340,7 @@
   border-radius: 14px;
   box-shadow: var(--vb-shadow-xl);
   overflow: hidden;
-  z-index: 1000;
+  z-index: 1450;
 }
 
 .task-center-target-popover-tools {

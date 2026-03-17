@@ -40,6 +40,8 @@ export interface TaskCenterWorkspaceSnapshot {
 
 export type TaskMarkdownSnippet = 'heading' | 'code' | 'checklist'
 
+export const DEFAULT_TASK_QUICK_DISPATCH_OPACITY = 0.9
+
 const TASK_CENTER_LOCAL_STORAGE_PREFIX = 'gtoffice.task-center'
 const TASK_CENTER_DRAFT_FILE_REL = '.gtoffice/tasks/.task-center-draft.json'
 
@@ -189,6 +191,16 @@ export function buildTaskCenterStorageKey(workspaceId: string): string {
 
 export function buildTaskCenterDraftFilePath(): string {
   return TASK_CENTER_DRAFT_FILE_REL
+}
+
+export function normalizeTaskQuickDispatchOpacity(
+  value: unknown,
+  fallback = DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
+): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return fallback
+  }
+  return Math.max(0.55, Math.min(1, Math.round(value * 100) / 100))
 }
 
 function isTaskDispatchRecord(value: unknown): value is TaskDispatchRecord {

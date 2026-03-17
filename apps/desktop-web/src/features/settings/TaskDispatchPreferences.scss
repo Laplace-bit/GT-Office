@@ -1,0 +1,82 @@
+.task-dispatch-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.task-dispatch-preferences-row {
+  align-items: center;
+}
+
+.task-dispatch-shortcut-control {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.task-dispatch-shortcut-chip,
+.task-dispatch-secondary-button {
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--vb-border) 50%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 78%, transparent);
+  color: var(--vb-text);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--vb-accent) 40%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vb-accent) 18%, transparent);
+  }
+}
+
+.task-dispatch-shortcut-chip {
+  min-width: 180px;
+  justify-content: center;
+  font-family: var(--vb-font-mono);
+
+  &.is-recording {
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
+    border-color: color-mix(in srgb, var(--vb-accent) 44%, transparent);
+    color: var(--vb-accent);
+  }
+}
+
+.task-dispatch-secondary-button {
+  color: var(--vb-text-muted);
+}
+
+.task-dispatch-preferences-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--vb-text-muted);
+}
+
+@media (max-width: 720px) {
+  .task-dispatch-preferences-row {
+    align-items: flex-start;
+  }
+
+  .task-dispatch-shortcut-control,
+  .task-dispatch-preferences-row .settings-row-control {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .task-dispatch-shortcut-chip {
+    min-width: 0;
+    width: 100%;
+  }
+}

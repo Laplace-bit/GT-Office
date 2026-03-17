@@ -1,4 +1,5 @@
 export * from './task-center-model'
+export * from './GlobalTaskDispatchOverlay'
 export * from './TaskCenterPane'
 export * from './useTaskDispatchActions'
 export * from './useTaskCenterDraftPersistence'

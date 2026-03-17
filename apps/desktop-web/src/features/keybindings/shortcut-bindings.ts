@@ -3,6 +3,7 @@ export type ShortcutCommandId =
   | 'shell.search.open_content'
   | 'shell.editor.find'
   | 'shell.editor.replace'
+  | 'task.center.quick_dispatch'
 
 export interface ShortcutBinding {
   key: string
@@ -18,6 +19,7 @@ export interface ShortcutBindings {
   openContentSearch: ShortcutBinding
   editorFind: ShortcutBinding
   editorReplace: ShortcutBinding
+  taskQuickDispatch: ShortcutBinding
 }
 
 type ShortcutBindingKey = keyof ShortcutBindings
@@ -58,11 +60,21 @@ const FALLBACK_EDITOR_REPLACE: ShortcutBinding = {
   shift: false,
 }
 
+const FALLBACK_TASK_QUICK_DISPATCH: ShortcutBinding = {
+  key: 'k',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: true,
+}
+
 const COMMAND_TO_BINDING_KEY: Record<ShortcutCommandId, ShortcutBindingKey> = {
   'shell.search.open_file': 'openFileSearch',
   'shell.search.open_content': 'openContentSearch',
   'shell.editor.find': 'editorFind',
   'shell.editor.replace': 'editorReplace',
+  'task.center.quick_dispatch': 'taskQuickDispatch',
 }
 
 const MODIFIER_TOKEN_SET = new Set(['mod', 'ctrl', 'control', 'meta', 'cmd', 'command', 'alt', 'option', 'shift'])
@@ -213,6 +225,7 @@ export const defaultShortcutBindings: ShortcutBindings = {
   openContentSearch: parseOrFallback('Mod+Shift+F', FALLBACK_OPEN_CONTENT_SEARCH),
   editorFind: parseOrFallback('Mod+F', FALLBACK_EDITOR_FIND),
   editorReplace: parseOrFallback('Mod+H', FALLBACK_EDITOR_REPLACE),
+  taskQuickDispatch: parseOrFallback('Mod+Shift+K', FALLBACK_TASK_QUICK_DISPATCH),
 }
 
 export function resolveShortcutBindingsFromSettings(values: Record<string, unknown>): ShortcutBindings {
@@ -224,6 +237,9 @@ export function resolveShortcutBindingsFromSettings(values: Record<string, unkno
     ),
     editorFind: cloneShortcutBinding(overrides.editorFind ?? defaultShortcutBindings.editorFind),
     editorReplace: cloneShortcutBinding(overrides.editorReplace ?? defaultShortcutBindings.editorReplace),
+    taskQuickDispatch: cloneShortcutBinding(
+      overrides.taskQuickDispatch ?? defaultShortcutBindings.taskQuickDispatch,
+    ),
   }
 }
 
@@ -232,8 +248,107 @@ export function areShortcutBindingsEqual(left: ShortcutBindings, right: Shortcut
     equalsShortcutBinding(left.openFileSearch, right.openFileSearch) &&
     equalsShortcutBinding(left.openContentSearch, right.openContentSearch) &&
     equalsShortcutBinding(left.editorFind, right.editorFind) &&
-    equalsShortcutBinding(left.editorReplace, right.editorReplace)
+    equalsShortcutBinding(left.editorReplace, right.editorReplace) &&
+    equalsShortcutBinding(left.taskQuickDispatch, right.taskQuickDispatch)
   )
+}
+
+function isModifierOnlyKey(key: string): boolean {
+  return (
+    key === 'shift' ||
+    key === 'control' ||
+    key === 'ctrl' ||
+    key === 'meta' ||
+    key === 'alt' ||
+    key === 'option' ||
+    key === 'command' ||
+    key === 'cmd'
+  )
+}
+
+function formatKeyLabel(key: string): string {
+  if (key === ' ') {
+    return 'Space'
+  }
+  if (key === 'escape') {
+    return 'Esc'
+  }
+  if (key === 'arrowup') {
+    return 'Up'
+  }
+  if (key === 'arrowdown') {
+    return 'Down'
+  }
+  if (key === 'arrowleft') {
+    return 'Left'
+  }
+  if (key === 'arrowright') {
+    return 'Right'
+  }
+  if (key.length === 1) {
+    return key.toUpperCase()
+  }
+  return key.slice(0, 1).toUpperCase() + key.slice(1)
+}
+
+export function shortcutBindingToKeystroke(binding: ShortcutBinding): string {
+  const tokens: string[] = []
+  if (binding.mod) {
+    tokens.push('Mod')
+  }
+  if (binding.ctrl) {
+    tokens.push('Ctrl')
+  }
+  if (binding.meta) {
+    tokens.push('Meta')
+  }
+  if (binding.alt) {
+    tokens.push('Alt')
+  }
+  if (binding.shift) {
+    tokens.push('Shift')
+  }
+  tokens.push(formatKeyLabel(binding.key))
+  return tokens.join('+')
+}
+
+export function formatShortcutBinding(binding: ShortcutBinding, isMacOs: boolean): string {
+  const tokens: string[] = []
+  if (binding.mod) {
+    tokens.push(isMacOs ? 'Cmd' : 'Ctrl')
+  }
+  if (binding.ctrl) {
+    tokens.push('Ctrl')
+  }
+  if (binding.meta) {
+    tokens.push(isMacOs ? 'Cmd' : 'Meta')
+  }
+  if (binding.alt) {
+    tokens.push(isMacOs ? 'Option' : 'Alt')
+  }
+  if (binding.shift) {
+    tokens.push('Shift')
+  }
+  tokens.push(formatKeyLabel(binding.key))
+  return tokens.join('+')
+}
+
+export function createShortcutBindingFromKeyboardEvent(
+  event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>,
+  isMacOs: boolean,
+): ShortcutBinding | null {
+  const normalizedKey = normalizeShortcutKey(event.key)
+  if (!normalizedKey || isModifierOnlyKey(normalizedKey)) {
+    return null
+  }
+  return {
+    key: normalizedKey,
+    mod: isMacOs ? event.metaKey : event.ctrlKey,
+    ctrl: isMacOs ? event.ctrlKey : false,
+    meta: isMacOs ? false : event.metaKey,
+    alt: event.altKey,
+    shift: event.shiftKey,
+  }
 }
 
 export function matchesShortcutEvent(
