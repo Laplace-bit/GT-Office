@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo } from 'react'
 import type { TaskDispatchRecord } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -10,6 +10,8 @@ type ExternalChannelEventItem = {
   tsMs: number
   kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'outbound' | 'error'
   primary: string
+  channel?: string
+  status?: 'received' | 'sent' | 'failed'
   secondary?: string
   detail?: string
 }
@@ -41,38 +43,6 @@ interface CommunicationChannelsPaneProps {
   onRefreshExternalStatus: () => void
 }
 
-function statusLabel(locale: Locale, status: TaskDispatchRecord['status']): string {
-  if (status === 'sending') {
-    return t(locale, 'taskCenter.status.sending')
-  }
-  if (status === 'sent') {
-    return t(locale, 'taskCenter.status.sent')
-  }
-  return t(locale, 'taskCenter.status.failed')
-}
-
-function externalEventKindLabel(
-  locale: Locale,
-  kind: ExternalChannelEventItem['kind'],
-): string {
-  if (kind === 'inbound') {
-    return t(locale, 'taskCenter.external.events.kind.inbound')
-  }
-  if (kind === 'routed') {
-    return t(locale, 'taskCenter.external.events.kind.routed')
-  }
-  if (kind === 'dispatch') {
-    return t(locale, 'taskCenter.external.events.kind.dispatch')
-  }
-  if (kind === 'reply') {
-    return t(locale, 'taskCenter.external.events.kind.reply')
-  }
-  if (kind === 'outbound') {
-    return t(locale, 'taskCenter.external.events.kind.outbound')
-  }
-  return t(locale, 'taskCenter.external.events.kind.error')
-}
-
 function externalChannelLabel(locale: Locale, channel: string): string {
   if (channel === 'telegram') {
     return 'Telegram'
@@ -81,6 +51,50 @@ function externalChannelLabel(locale: Locale, channel: string): string {
     return t(locale, '飞书', 'Feishu')
   }
   return channel
+}
+
+function eventStatusLabel(locale: Locale, event: ExternalChannelEventItem): string {
+  if (event.status === 'failed' || event.kind === 'error') {
+    return t(locale, 'taskCenter.status.failed')
+  }
+  if (event.status === 'sent' || event.kind === 'outbound') {
+    return t(locale, 'taskCenter.status.sent')
+  }
+  return t(locale, 'taskCenter.external.events.kind.inbound')
+}
+
+function eventStatusClass(event: ExternalChannelEventItem): string {
+  if (event.status === 'failed' || event.kind === 'error') {
+    return 'failed'
+  }
+  if (event.status === 'sent' || event.kind === 'outbound') {
+    return 'sent'
+  }
+  return 'received'
+}
+
+function eventStatusIcon(event: ExternalChannelEventItem): 'arrow-down' | 'check' | 'x-mark' {
+  if (event.status === 'failed' || event.kind === 'error') {
+    return 'x-mark'
+  }
+  if (event.status === 'sent' || event.kind === 'outbound') {
+    return 'check'
+  }
+  return 'arrow-down'
+}
+
+function eventChannelIcon(channel: string): 'telegram' | 'feishu' | 'external' {
+  if (channel === 'telegram') {
+    return 'telegram'
+  }
+  if (channel === 'feishu') {
+    return 'feishu'
+  }
+  return 'external'
+}
+
+function resolveEventContent(event: ExternalChannelEventItem): string {
+  return event.primary.trim() || event.secondary?.trim() || event.detail?.trim() || '-'
 }
 
 function formatTimestamp(value: number): string {
@@ -100,184 +114,77 @@ function CommunicationChannelsPaneView({
   onRetryDispatchTask,
   onRefreshExternalStatus,
 }: CommunicationChannelsPaneProps) {
-  const [isHistoryExpanded, setIsHistoryExpanded] = useState(true)
+  void dispatchHistory
+  void retryingTaskId
+  void onRetryDispatchTask
+  void onRefreshExternalStatus
 
   return (
     <aside className="panel communication-channels-pane">
       <header className="communication-channels-header">
         <h2>{t(locale, 'pane.channels.title')}</h2>
-        <p>{t(locale, 'pane.channels.subtitle')}</p>
       </header>
 
-      <section className="communication-channels-card">
-        <header className="communication-channels-card-header">
-          <div>
-            <h3>{t(locale, 'taskCenter.external.title')}</h3>
-            <p>{t(locale, 'taskCenter.external.subtitle')}</p>
-          </div>
-          <div className="communication-channels-card-controls">
-            <span
-              className={`communication-channels-runtime-pill ${
-                externalStatus.running ? 'running' : 'stopped'
-              }`}
-            >
-              {externalStatus.running
-                ? t(locale, 'taskCenter.external.runtime.running')
-                : t(locale, 'taskCenter.external.runtime.stopped')}
-            </span>
-            <button
-              type="button"
-              onClick={onRefreshExternalStatus}
-              disabled={externalStatus.loading}
-            >
-              {externalStatus.loading
-                ? t(locale, 'taskCenter.external.refreshing')
-                : t(locale, 'taskCenter.external.refresh')}
-            </button>
-          </div>
-        </header>
-
-        {externalStatus.configuredChannels && externalStatus.configuredChannels.length > 0 ? (
-          <div className="communication-channels-summary-pills">
-            {externalStatus.configuredChannels.map((channel) => (
-              <span key={channel}>{externalChannelLabel(locale, channel)}</span>
-            ))}
-          </div>
-        ) : (
-          <div className="communication-channels-summary-empty">
-            <span>{t(locale, 'taskCenter.external.configuredEmpty')}</span>
-          </div>
-        )}
-
-        {externalStatus.summary ? (
-          <div className="communication-channels-stats">
-            <span>
-              {t(locale, 'taskCenter.external.summary.routeBindings', {
-                count: externalStatus.summary.routeBindings,
-              })}
-            </span>
-            <span>
-              {t(locale, 'taskCenter.external.summary.allowlistEntries', {
-                count: externalStatus.summary.allowlistEntries,
-              })}
-            </span>
-            <span>
-              {t(locale, 'taskCenter.external.summary.pairingPending', {
-                count: externalStatus.summary.pairingPending,
-              })}
-            </span>
-            <span>
-              {t(locale, 'taskCenter.external.summary.idempotencyEntries', {
-                count: externalStatus.summary.idempotencyEntries,
-              })}
-            </span>
-          </div>
-        ) : null}
-
-        <div className="communication-channels-meta">
-          {externalStatus.lastSyncAtMs ? (
-            <span>
-              {t(locale, 'taskCenter.external.lastSyncAt', {
-                time: formatTimestamp(externalStatus.lastSyncAtMs),
-              })}
-            </span>
-          ) : null}
-          {externalStatus.doctorOk === false ? (
-            <span className="communication-channels-meta-warn">
-              {t(locale, 'taskCenter.external.doctorWarn')}
-            </span>
-          ) : null}
-          {externalStatus.error ? (
-            <span className="communication-channels-meta-error">{externalStatus.error}</span>
-          ) : null}
-        </div>
-
-        <div className="communication-channels-event-list">
-          <h4>{t(locale, 'taskCenter.external.events.title')}</h4>
+      <section className="communication-channels-surface">
+        <div className="communication-channels-feed">
+          <header className="communication-channels-feed-header">
+            <div>
+              <h3>{t(locale, 'taskCenter.external.events.title')}</h3>
+            </div>
+          </header>
           {externalEvents.length === 0 ? (
             <p className="communication-channels-empty">
               {t(locale, 'taskCenter.external.events.empty')}
             </p>
           ) : (
             <ul>
-              {externalEvents.map((event) => (
-                <li key={event.id}>
-                  <div className="communication-channels-event-row">
-                    <span className={`communication-channels-event-kind ${event.kind}`}>
-                      {externalEventKindLabel(locale, event.kind)}
-                    </span>
-                    <span>{formatTimestamp(event.tsMs)}</span>
+              {externalEvents.map((event) => {
+                const content = resolveEventContent(event)
+                const channel =
+                  event.channel ?? externalStatus.configuredChannels?.[0] ?? 'external'
+                const channelLabel = externalChannelLabel(locale, channel)
+                const statusLabel = eventStatusLabel(locale, event)
+
+                return (
+                <li key={event.id} className="communication-channels-message-row">
+                  <div className="communication-channels-message-copy">
+                    <p className="communication-channels-message-content" title={content}>
+                      {content}
+                    </p>
+                    {event.detail && event.status === 'failed' ? (
+                      <p className="communication-channels-message-detail" title={event.detail}>
+                        {event.detail}
+                      </p>
+                    ) : null}
                   </div>
-                  <p>{event.primary}</p>
-                  {event.secondary ? <p>{event.secondary}</p> : null}
-                  {event.detail ? <p>{event.detail}</p> : null}
+                  <div className="communication-channels-message-meta">
+                    <span
+                      className="communication-channels-message-time"
+                      title={formatTimestamp(event.tsMs)}
+                    >
+                      <AppIcon name="clock" aria-hidden="true" />
+                      <span>{formatTimestamp(event.tsMs)}</span>
+                    </span>
+                    <span
+                      className="communication-channels-message-channel"
+                      title={channelLabel}
+                    >
+                      <AppIcon name={eventChannelIcon(channel)} aria-hidden="true" />
+                      <span>{channelLabel}</span>
+                    </span>
+                    <span
+                      className={`communication-channels-message-status ${eventStatusClass(event)}`}
+                      title={statusLabel}
+                    >
+                      <AppIcon name={eventStatusIcon(event)} aria-hidden="true" />
+                      <span>{statusLabel}</span>
+                    </span>
+                  </div>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
-        </div>
-      </section>
-
-      <section className="communication-channels-card communication-channels-history">
-        <header
-          className="communication-channels-history-header"
-          onClick={() => setIsHistoryExpanded((prev) => !prev)}
-        >
-          <h3>{t(locale, 'taskCenter.history')}</h3>
-          <AppIcon
-            name="chevron-down"
-            className={isHistoryExpanded ? 'communication-channels-chevron expanded' : 'communication-channels-chevron'}
-          />
-        </header>
-
-        <div
-          className={
-            isHistoryExpanded
-              ? 'communication-channels-history-body expanded'
-              : 'communication-channels-history-body'
-          }
-        >
-          <div className="communication-channels-history-inner">
-            {dispatchHistory.length === 0 ? (
-              <p className="communication-channels-empty">{t(locale, 'taskCenter.historyEmpty')}</p>
-            ) : (
-              <ul>
-                {dispatchHistory.map((record) => (
-                  <li key={`${record.batchId}:${record.taskId}`}>
-                    <div className="communication-channels-history-title-row">
-                      <strong>{record.title}</strong>
-                      <span className={`communication-channels-status ${record.status}`}>
-                        {statusLabel(locale, record.status)}
-                      </span>
-                    </div>
-                    <p>
-                      {record.taskId} · {record.targetStationName} ·{' '}
-                      {formatTimestamp(record.createdAtMs)}
-                    </p>
-                    <p>
-                      <code>{record.taskFilePath}</code>
-                    </p>
-                    {record.status === 'failed' ? (
-                      <div className="communication-channels-history-actions">
-                        <button
-                          type="button"
-                          onClick={() => onRetryDispatchTask(record.taskId)}
-                          disabled={Boolean(retryingTaskId)}
-                        >
-                          {retryingTaskId === record.taskId
-                            ? t(locale, 'taskCenter.retrying')
-                            : t(locale, 'taskCenter.retryFailed')}
-                        </button>
-                      </div>
-                    ) : null}
-                    {record.detail ? (
-                      <p className="communication-channels-history-detail">{record.detail}</p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
       </section>
     </aside>

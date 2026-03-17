@@ -1,10 +1,17 @@
 .communication-channels-pane {
+  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 84%, rgba(255, 255, 255, 0.5));
+  --communication-surface-border: color-mix(in srgb, var(--vb-border) 78%, transparent);
+  --communication-row-divider: color-mix(in srgb, var(--vb-border-subtle) 85%, transparent);
+  --communication-row-hover: color-mix(in srgb, var(--vb-glass-lighter) 55%, transparent);
+  --communication-channel-bg: color-mix(in srgb, #b68b2d 12%, var(--vb-panel-bg));
+  --communication-channel-text: color-mix(in srgb, #6f5313 86%, var(--vb-text));
+
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   height: 100%;
   min-height: 0;
-  padding: 16px;
+  padding: 12px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
@@ -20,265 +27,161 @@
   }
 }
 
-.communication-channels-header {
-  h2 {
-    margin: 0;
-    color: var(--vb-text);
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-  }
-
-  p {
-    margin: 4px 0 0;
-    color: var(--vb-text-muted);
-    font-size: 12px;
-  }
+.communication-channels-header h2 {
+  margin: 0;
+  color: var(--vb-text);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.communication-channels-card {
+.communication-channels-surface {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, rgba(255, 255, 255, 0.5) 40%, transparent), transparent 34%),
+    var(--communication-surface-bg);
+  border: 1px solid var(--communication-surface-border);
+  border-radius: 24px;
+  box-shadow:
+    0 18px 48px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(20px);
+  overflow: hidden;
+}
+
+.communication-channels-feed {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  background: var(--vb-glass-lighter);
-  border: 1px solid var(--vb-border-subtle);
-  border-radius: 16px;
+  min-height: 0;
 }
 
-.communication-channels-card-header,
-.communication-channels-history-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+.communication-channels-feed-header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--communication-row-divider);
 
   h3 {
     margin: 0;
-    color: var(--vb-text);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  p {
-    margin: 4px 0 0;
     color: var(--vb-text-muted);
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 }
 
-.communication-channels-card-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-
-  button {
-    border: 1px solid var(--vb-border);
-    background: var(--vb-input-bg);
-    color: var(--vb-text);
-    border-radius: 10px;
-    padding: 7px 10px;
-    font-size: 12px;
-    transition: border-color 0.2s ease, background 0.2s ease;
-
-    &:hover:enabled {
-      border-color: var(--vb-border-strong);
-      background: var(--vb-glass-lighter-hover);
-    }
-  }
-}
-
-.communication-channels-runtime-pill,
-.communication-channels-status,
-.communication-channels-summary-pills span,
-.communication-channels-stats span {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.communication-channels-runtime-pill {
-  padding: 5px 9px;
-
-  &.running {
-    background: var(--vb-success-bg);
-    color: var(--vb-success);
-  }
-
-  &.stopped {
-    background: var(--vb-error-bg);
-    color: var(--vb-error);
-  }
-}
-
-.communication-channels-summary-pills,
-.communication-channels-stats,
-.communication-channels-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.communication-channels-summary-pills span,
-.communication-channels-stats span {
-  padding: 5px 10px;
-  background: var(--vb-input-bg);
-  color: var(--vb-text-muted);
-  border: 1px solid var(--vb-border);
-}
-
-.communication-channels-summary-empty,
 .communication-channels-empty {
-  color: var(--vb-text-muted);
-  font-size: 12px;
-}
-
-.communication-channels-meta {
+  padding: 14px;
   font-size: 12px;
   color: var(--vb-text-muted);
 }
 
-.communication-channels-meta-warn {
-  color: var(--vb-warning, #d97706);
-}
-
-.communication-channels-meta-error {
-  color: var(--vb-error);
-}
-
-.communication-channels-event-list,
-.communication-channels-history-inner {
+.communication-channels-feed {
   ul {
     list-style: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
   }
 
   li {
-    padding: 12px;
-    background: color-mix(in srgb, var(--vb-panel-bg) 72%, transparent);
-    border: 1px solid var(--vb-border-subtle);
-    border-radius: 12px;
-  }
+    border-bottom: 1px solid var(--communication-row-divider);
 
-  p {
-    margin: 0;
-    color: var(--vb-text);
-    font-size: 12px;
-    line-height: 1.55;
-  }
-
-  p + p {
-    margin-top: 4px;
+    &:last-child {
+      border-bottom: 0;
+    }
   }
 }
 
-.communication-channels-event-list h4 {
-  margin: 0 0 2px;
+.communication-channels-message-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: var(--communication-row-hover);
+  }
+}
+
+.communication-channels-message-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.communication-channels-message-content {
+  margin: 0;
+  color: var(--vb-text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.communication-channels-message-detail {
+  margin: 6px 0 0;
   color: var(--vb-text-muted);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.communication-channels-event-row,
-.communication-channels-history-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.communication-channels-event-kind {
+.communication-channels-message-meta {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.communication-channels-message-time,
+.communication-channels-message-channel,
+.communication-channels-message-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 7px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
 
-  &.inbound,
-  &.dispatch {
-    background: var(--vb-accent-light);
-    color: var(--vb-accent);
-  }
-
-  &.routed {
-    background: color-mix(in srgb, var(--vb-info, #0ea5e9) 12%, transparent);
-    color: var(--vb-info, #0ea5e9);
-  }
-
-  &.reply {
-    background: var(--vb-success-bg);
-    color: var(--vb-success);
-  }
-
-  &.error {
-    background: var(--vb-error-bg);
-    color: var(--vb-error);
+  svg {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
   }
 }
 
-.communication-channels-history {
-  gap: 10px;
+.communication-channels-message-channel span,
+.communication-channels-message-time span,
+.communication-channels-message-status span {
+  display: none;
 }
 
-.communication-channels-history-header {
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-}
-
-.communication-channels-chevron {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
+.communication-channels-message-time {
   color: var(--vb-text-muted);
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-
-  &.expanded {
-    transform: rotate(-180deg);
-  }
+  background: color-mix(in srgb, var(--vb-panel-bg) 86%, transparent);
+  border: 1px solid var(--vb-border-subtle);
 }
 
-.communication-channels-history-body {
-  display: grid;
-  grid-template-rows: 0fr;
-  overflow: hidden;
-  transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-
-  &.expanded {
-    grid-template-rows: 1fr;
-  }
+.communication-channels-message-channel {
+  background: var(--communication-channel-bg);
+  color: var(--communication-channel-text);
+  border: 1px solid color-mix(in srgb, #b68b2d 18%, var(--vb-border));
 }
 
-.communication-channels-history-inner {
-  min-height: 0;
-}
-
-.communication-channels-history-title-row strong {
-  color: var(--vb-text);
-  font-size: 13px;
-}
-
-.communication-channels-status {
-  padding: 3px 8px;
-
-  &.sending {
-    background: var(--vb-accent-light);
+.communication-channels-message-status {
+  &.received {
+    background: color-mix(in srgb, var(--vb-accent) 10%, transparent);
     color: var(--vb-accent);
   }
 
@@ -293,17 +196,12 @@
   }
 }
 
-.communication-channels-history-actions button {
-  margin-top: 8px;
-  border: 1px solid var(--vb-border);
-  background: transparent;
-  color: var(--vb-text);
-  border-radius: 10px;
-  padding: 7px 10px;
-  font-size: 12px;
-}
+@media (max-width: 880px) {
+  .communication-channels-message-row {
+    flex-direction: column;
+  }
 
-.communication-channels-history-detail {
-  margin-top: 8px !important;
-  color: var(--vb-text-muted) !important;
+  .communication-channels-message-meta {
+    justify-content: flex-start;
+  }
 }

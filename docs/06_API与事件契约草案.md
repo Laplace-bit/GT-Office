@@ -236,6 +236,7 @@ AI Config 约束（T-171）：
    - `configuredWebhookUrl/runtimeWebhookUrl/webhookMatched`
 12. Feishu v1 不提供远程方向控件；若存在交互 prompt，只发送提示文本，不声明可远程选择。
 13. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
+14. `external/channel_outbound_result` payload 应补充 `channel?`，供用户侧消息流直接展示通道名；前端不得再从 `textPreview/detail` 文案反推 channel。
 
 ## 4. Event 契约（V1）
 

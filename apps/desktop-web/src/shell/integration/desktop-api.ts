@@ -1114,6 +1114,7 @@ export interface ExternalChannelOutboundResultPayload {
   workspaceId: string
   messageId: string
   targetAgentId: string
+  channel?: string | null
   status: 'delivered' | 'failed'
   detail?: string | null
   tsMs: number

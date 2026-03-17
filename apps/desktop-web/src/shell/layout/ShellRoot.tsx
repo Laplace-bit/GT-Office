@@ -236,6 +236,8 @@ type ExternalChannelEventItem = {
   tsMs: number
   kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'outbound' | 'error'
   primary: string
+  channel?: string
+  status?: 'received' | 'sent' | 'failed'
   secondary?: string
   detail?: string
   mergeKey?: string
@@ -2376,6 +2378,8 @@ export function ShellRoot() {
           appendExternalChannelEvent({
             kind: 'inbound',
             primary: textPreview ?? `${payload.channel} · ${payload.senderId}`,
+            channel: payload.channel,
+            status: 'received',
             secondary: `${payload.channel} · ${payload.senderId}`,
             detail: `peer=${payload.peerId} · msg=${payload.messageId}`,
           })
@@ -2399,6 +2403,8 @@ export function ShellRoot() {
           appendExternalChannelEvent({
             kind: 'outbound',
             primary: textPreview ?? `${payload.targetAgentId} · ${payload.status}`,
+            channel: payload.channel ?? undefined,
+            status: payload.status === 'failed' ? 'failed' : 'sent',
             secondary: `${payload.targetAgentId} · ${payload.status}`,
             detail: payload.status === 'failed' ? payload.detail ?? undefined : undefined,
             mergeKey: failureMergeKey,

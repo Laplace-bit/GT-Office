@@ -1592,6 +1592,7 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                         "workspaceId": candidate.target.workspace_id,
                         "messageId": send_result.message_id,
                         "targetAgentId": candidate.target.target_agent_id,
+                        "channel": candidate.target.channel,
                         "status": "delivered",
                         "detail": if candidate.phase == ExternalReplyDispatchPhase::Preview {
                             "stream preview updated"
@@ -1621,6 +1622,7 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
                         "workspaceId": candidate.target.workspace_id,
                         "messageId": preview_message_id.as_deref().unwrap_or(&candidate.target.inbound_message_id),
                         "targetAgentId": candidate.target.target_agent_id,
+                        "channel": candidate.target.channel,
                         "status": "failed",
                         "detail": error,
                         "tsMs": now_ms(),

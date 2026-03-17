@@ -378,6 +378,10 @@ export const messages = {
     'en-US': 'Doctor warning: channel runtime is unhealthy.',
   },
   'taskCenter.external.events.title': { 'zh-CN': '最近外部事件', 'en-US': 'Recent External Events' },
+  'taskCenter.external.events.subtitle': {
+    'zh-CN': '仅保留用户最关心的消息内容、时间、通道和状态。',
+    'en-US': 'Only show content, time, channel, and status for end users.',
+  },
   'taskCenter.external.events.empty': { 'zh-CN': '暂无外部事件', 'en-US': 'No external events yet' },
   'taskCenter.external.events.kind.inbound': { 'zh-CN': '入站', 'en-US': 'Inbound' },
   'taskCenter.external.events.kind.routed': { 'zh-CN': '路由', 'en-US': 'Routed' },
