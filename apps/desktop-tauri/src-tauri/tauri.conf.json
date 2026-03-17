@@ -12,12 +12,23 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "GT Office",
         "width": 1400,
         "height": 900,
         "minWidth": 1100,
         "minHeight": 700,
-        "decorations": false
+        "decorations": true,
+        "transparent": true,
+        "shadow": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "acceptFirstMouse": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 20
+        }
       }
     ]
   },

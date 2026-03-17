@@ -1156,7 +1156,7 @@ export function ShellRoot() {
       }
     }
 
-    void desktopApi.windowSetDecorations(false)
+    void desktopApi.windowSetDecorations(nativeWindowTopMacOs)
     void syncMaximized()
     void desktopApi.subscribeWindowResized(() => {
       const timerId = windowResizeSyncTimerRef.current
@@ -1182,11 +1182,11 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [nativeWindowTop])
+  }, [nativeWindowTop, nativeWindowTopMacOs])
 
   useEffect(() => {
     const draggingClassName = 'vb-window-dragging'
-    if (!nativeWindowTop) {
+    if (!nativeWindowTopWindows) {
       document.body.classList.remove(draggingClassName)
       return
     }
@@ -1242,7 +1242,28 @@ export function ShellRoot() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       clearDraggingClass()
     }
-  }, [nativeWindowTop])
+  }, [nativeWindowTopWindows])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const platform = nativeWindowTopMacOs
+      ? 'macos'
+      : nativeWindowTopLinux
+        ? 'linux'
+        : nativeWindowTopWindows
+          ? 'windows'
+          : tauriRuntime
+            ? 'unknown'
+            : 'web'
+
+    root.setAttribute('data-vb-platform', platform)
+
+    return () => {
+      if (root.getAttribute('data-vb-platform') === platform) {
+        root.removeAttribute('data-vb-platform')
+      }
+    }
+  }, [nativeWindowTopLinux, nativeWindowTopMacOs, nativeWindowTopWindows, tauriRuntime])
 
   const handleWindowMinimize = useCallback(() => {
     void desktopApi.windowMinimize()

@@ -248,6 +248,13 @@ body,
   overflow: hidden;
 }
 
+:root[data-vb-platform='macos'] {
+  html,
+  body {
+    background: transparent !important;
+  }
+}
+
 body {
   background: var(--vb-bg);
   color: var(--vb-text);

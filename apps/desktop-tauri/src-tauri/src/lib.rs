@@ -11,7 +11,7 @@ mod process_utils;
 
 use base64::Engine;
 use serde_json::json;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tracing::warn;
 use vb_terminal::TerminalRuntimeEvent;
 
@@ -25,6 +25,19 @@ pub fn run() {
     tauri::Builder::default()
         .manage(app_state::AppState::default())
         .setup(|app| {
+            let main_window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+                .ok_or_else(|| "missing main window config".to_string())?;
+            WebviewWindowBuilder::from_config(app, &main_window_config)
+                .map_err(|error| format!("failed to prepare main window builder: {error}"))?
+                .build()
+                .map_err(|error| format!("failed to build main window: {error}"))?;
+
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
             if let Err(error) =

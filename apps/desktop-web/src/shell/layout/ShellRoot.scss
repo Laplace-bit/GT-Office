@@ -7,7 +7,7 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   padding: 0;
   overflow: hidden;
   background:
@@ -15,6 +15,12 @@
     radial-gradient(ellipse 60% 40% at 100% 100%, rgba(88, 86, 214, 0.03), transparent 50%),
     var(--vb-bg);
   transition: background-color 0.3s ease;
+
+  // macOS 专用透明与边距修正
+  :root[data-vb-platform='macos'] & {
+    background: transparent !important; // 强制背景透明，依靠 body 渲染
+    padding-top: 6px; // 为标题栏留出尽量克制的微调空隙
+  }
 }
 
 :root[data-theme='graphite-dark'] .agent-shell {
@@ -30,7 +36,7 @@
   overflow: hidden;
   display: flex;
   align-items: stretch;
-  gap: 6px;
+  gap: 4px;
 }
 
 .shell-top-slot {
@@ -190,9 +196,28 @@
   }
 }
 
-.vb-window-dragging .agent-shell * {
+.vb-window-dragging .shell-native-window-top-windows * {
   pointer-events: none !important;
   user-select: none !important;
+}
+
+:root[data-vb-platform='macos'] {
+  button,
+  [role='button'] {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      box-shadow 200ms ease,
+      color 150ms ease,
+      opacity 150ms ease !important;
+  }
+
+  button:hover,
+  button:active,
+  [role='button']:hover,
+  [role='button']:active {
+    transform: none !important;
+  }
 }
 
 @media (max-width: 1024px) {

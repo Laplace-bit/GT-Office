@@ -157,11 +157,12 @@ export function TopControlBar({
     .filter(Boolean)
     .join(' ')
 
-  const workspaceBadgeDragRegion = nativeWindowTop && windowPlatform !== 'windows' ? '' : undefined
-  const headerDragRegion = nativeWindowTop ? '' : undefined
+  const workspaceBadgeDragRegion = nativeWindowTopLinux ? '' : undefined
+  const headerDragRegion =
+    nativeWindowTop && windowPlatform !== 'macos' ? '' : undefined
 
   const handleTitlebarDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!nativeWindowTop) {
+    if (windowPlatform !== 'windows') {
       return
     }
     const target = event.target
@@ -197,7 +198,6 @@ export function TopControlBar({
       data-tauri-drag-region={headerDragRegion}
       onDoubleClick={handleTitlebarDoubleClick}
     >
-      {nativeWindowTop && windowPlatform === 'macos' ? renderWindowControls() : null}
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
           {actionButtons.map((btn) => (
