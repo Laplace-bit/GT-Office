@@ -1053,6 +1053,10 @@ export interface ChannelMessagePayload {
   tsMs: number
 }
 
+export interface ChannelListMessagesResponse {
+  messages: ChannelMessagePayload[]
+}
+
 export interface ChannelAckPayload {
   workspaceId: string
   messageId: string
@@ -1566,6 +1570,23 @@ export const desktopApi = {
         type: request.type,
         payload: request.payload,
         idempotencyKey: request.idempotencyKey ?? null,
+      },
+    })
+  },
+  channelListMessages(request: {
+    workspaceId: string
+    targetAgentId?: string | null
+    senderAgentId?: string | null
+    taskId?: string | null
+    limit?: number
+  }) {
+    return invokeCommand<ChannelListMessagesResponse>('channel_list_messages', {
+      request: {
+        workspaceId: request.workspaceId,
+        targetAgentId: request.targetAgentId ?? null,
+        senderAgentId: request.senderAgentId ?? null,
+        taskId: request.taskId ?? null,
+        limit: request.limit ?? 20,
       },
     })
   },

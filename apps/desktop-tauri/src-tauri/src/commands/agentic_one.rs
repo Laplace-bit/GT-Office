@@ -122,7 +122,7 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
             window
                 .emit(
                     &progress_event,
-                    format!("🎉 {} fully deployed with MCP bridge!", name),
+                    format!("🎉 {} fully deployed with MCP bridge and default GT Office communication rules!", name),
                 )
                 .unwrap();
         } else {

@@ -342,6 +342,12 @@ pub struct ChannelPublishOutcome {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChannelListMessagesResponse {
+    pub messages: Vec<ChannelMessageEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskDispatchBatchOutcome {
     pub response: TaskDispatchBatchResponse,
     pub progress_events: Vec<TaskDispatchProgressEvent>,
@@ -353,6 +359,7 @@ pub struct TaskDispatchBatchOutcome {
 struct TaskServiceState {
     runtimes: HashMap<String, AgentRuntimeRegistration>,
     channel_seq: HashMap<String, u64>,
+    channel_messages: Vec<ChannelMessageEvent>,
     route_bindings: Vec<ChannelRouteBinding>,
     access_policies: HashMap<String, ExternalAccessPolicyMode>,
     allowlist_entries: HashSet<String>,
@@ -376,6 +383,50 @@ impl Default for TaskService {
 }
 
 impl TaskService {
+    pub fn list_messages(
+        &self,
+        workspace_id: &str,
+        target_agent_id: Option<&str>,
+        sender_agent_id: Option<&str>,
+        task_id: Option<&str>,
+        limit: usize,
+    ) -> Vec<ChannelMessageEvent> {
+        let guard = match self.state.read() {
+            Ok(guard) => guard,
+            Err(_) => return Vec::new(),
+        };
+        let target_agent_id = target_agent_id.map(str::trim).filter(|value| !value.is_empty());
+        let sender_agent_id = sender_agent_id.map(str::trim).filter(|value| !value.is_empty());
+        let task_id = task_id.map(str::trim).filter(|value| !value.is_empty());
+        let limit = limit.max(1);
+
+        let mut messages: Vec<ChannelMessageEvent> = guard
+            .channel_messages
+            .iter()
+            .filter(|message| message.workspace_id == workspace_id)
+            .filter(|message| {
+                target_agent_id
+                    .map(|agent_id| message.target_agent_id == agent_id)
+                    .unwrap_or(true)
+            })
+            .filter(|message| {
+                sender_agent_id
+                    .map(|agent_id| message.sender_agent_id.as_deref() == Some(agent_id))
+                    .unwrap_or(true)
+            })
+            .filter(|message| {
+                task_id
+                    .map(|task_id| message.payload.get("taskId").and_then(Value::as_str) == Some(task_id))
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+
+        messages.sort_by(|left, right| right.ts_ms.cmp(&left.ts_ms));
+        messages.truncate(limit);
+        messages
+    }
+
     pub fn register_runtime(&self, registration: AgentRuntimeRegistration) -> bool {
         let key = runtime_key(&registration.workspace_id, &registration.agent_id);
         let mut guard = match self.state.write() {
@@ -784,6 +835,8 @@ impl TaskService {
             accepted_targets.push(target_agent_id.clone());
         }
 
+        self.store_channel_messages(&message_events);
+
         ChannelPublishOutcome {
             response: ChannelPublishResponse {
                 message_id: base_message_id,
@@ -894,7 +947,11 @@ impl TaskService {
             });
 
             let submit_sequence = resolve_submit_sequence(request, &target_agent_id, &runtime);
-            let command = build_task_dispatch_command(&request.markdown, &task_id, &task_file_path);
+            let command = build_task_dispatch_command(
+                &enrich_dispatch_markdown(&request.markdown, request, &task_id),
+                &task_id,
+                &task_file_path,
+            );
             if let Err(error) = write_terminal(&runtime.session_id, &command, &submit_sequence) {
                 warn!(
                     workspace_id = %request.workspace_id,
@@ -965,6 +1022,8 @@ impl TaskService {
             });
         }
 
+        self.store_channel_messages(&message_events);
+
         TaskDispatchBatchOutcome {
             response: TaskDispatchBatchResponse { batch_id, results },
             progress_events,
@@ -994,6 +1053,23 @@ impl TaskService {
     fn next_id(&self, prefix: &str) -> String {
         let seq = self.id_counter.fetch_add(1, Ordering::Relaxed) + 1;
         format!("{prefix}_{:x}_{:x}", now_ms(), seq)
+    }
+
+    fn store_channel_messages(&self, messages: &[ChannelMessageEvent]) {
+        const MAX_CHANNEL_MESSAGES: usize = 512;
+
+        if messages.is_empty() {
+            return;
+        }
+        let mut guard = match self.state.write() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        guard.channel_messages.extend(messages.iter().cloned());
+        if guard.channel_messages.len() > MAX_CHANNEL_MESSAGES {
+            let remove_count = guard.channel_messages.len() - MAX_CHANNEL_MESSAGES;
+            guard.channel_messages.drain(0..remove_count);
+        }
     }
 }
 
@@ -1259,6 +1335,40 @@ fn build_task_dispatch_command(markdown: &str, task_id: &str, task_file_path: &s
     format!("echo '[vb-task] assigned {task_id} from {escaped}'")
 }
 
+fn build_managed_agent_reply_instruction(
+    request: &TaskDispatchBatchRequest,
+    task_id: &str,
+) -> Option<String> {
+    if request.sender.sender_type != DispatchSenderType::Agent {
+        return None;
+    }
+    let sender_agent_id = request
+        .sender
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    Some(format!(
+        "## GT Office MCP Reply\n\n收到后不要只在你自己的终端里打印回复。\n\n如果你要回复当前发送方，请直接使用 GT Office MCP：\n- tool: `gto_report_status`\n- workspace_id: `{workspace_id}`\n- target_agent_ids: `[\"{sender_agent_id}\"]`\n- task_id: `{task_id}`\n- status: `reply`\n- detail: 写入你真正想回复给发送方的正文\n\n如果你是在汇总完成情况、阻塞和下一步，请改用 `gto_handover`，并把同一个 `task_id` 带回去。\n",
+        workspace_id = request.workspace_id,
+        sender_agent_id = sender_agent_id,
+        task_id = task_id,
+    ))
+}
+
+fn enrich_dispatch_markdown(markdown: &str, request: &TaskDispatchBatchRequest, task_id: &str) -> String {
+    let mut sections = Vec::new();
+    let body = markdown.trim();
+    if !body.is_empty() {
+        sections.push(body.to_string());
+    }
+    if let Some(reply_instruction) = build_managed_agent_reply_instruction(request, task_id) {
+        sections.push(reply_instruction.trim().to_string());
+    }
+    sections.join("\n\n")
+}
+
 fn write_task_bundle(
     workspace_root: &Path,
     task_id: &str,
@@ -1292,10 +1402,11 @@ fn write_task_bundle(
             .join("\n")
     };
 
-    let markdown_body = if request.markdown.trim().is_empty() {
+    let enriched_markdown = enrich_dispatch_markdown(&request.markdown, request, task_id);
+    let markdown_body = if enriched_markdown.trim().is_empty() {
         "(empty)".to_string()
     } else {
-        request.markdown.trim().to_string()
+        enriched_markdown.trim().to_string()
     };
 
     let markdown = format!(

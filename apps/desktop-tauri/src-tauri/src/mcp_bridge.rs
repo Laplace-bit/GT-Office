@@ -109,6 +109,20 @@ struct DirectoryGetRequest {
     workspace_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChannelListMessagesRequest {
+    workspace_id: String,
+    #[serde(default)]
+    target_agent_id: Option<String>,
+    #[serde(default)]
+    sender_agent_id: Option<String>,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
 impl BridgeError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
@@ -272,6 +286,7 @@ async fn handle_request(
         "dev.bootstrap_agents" => dev_bootstrap_agents(app, state, request.params.clone()),
         "task.dispatch_batch" => dispatch_batch(app, state, request.params.clone()),
         "channel.publish" => publish_channel(app, state, request.params.clone()),
+        "channel.list_messages" => list_channel_messages(state, request.params.clone()),
         method => Err(BridgeError::new(
             "MCP_BRIDGE_METHOD_UNSUPPORTED",
             format!("unsupported method: {method}"),
@@ -486,6 +501,31 @@ fn publish_channel(app: &AppHandle, state: &AppState, params: Value) -> Result<V
     emit_channel_events(app, &outcome.message_events, &outcome.ack_events);
     serde_json::to_value(outcome.response)
         .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))
+}
+
+fn list_channel_messages(state: &AppState, params: Value) -> Result<Value, BridgeError> {
+    let request: ChannelListMessagesRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("channel.list_messages params invalid: {error}"),
+        )
+    })?;
+
+    if request.workspace_id.trim().is_empty() {
+        return Err(BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            "workspaceId is required",
+        ));
+    }
+
+    let messages = state.task_service.list_messages(
+        &request.workspace_id,
+        request.target_agent_id.as_deref(),
+        request.sender_agent_id.as_deref(),
+        request.task_id.as_deref(),
+        request.limit.unwrap_or(20) as usize,
+    );
+    Ok(json!({ "messages": messages }))
 }
 
 fn dev_bootstrap_agents(

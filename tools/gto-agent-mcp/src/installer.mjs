@@ -11,6 +11,9 @@ const INSTALL_MODE_AUTO = 'auto'
 const DEFAULT_NPX_COMMAND = 'npx'
 const DEFAULT_NPX_PACKAGE = '@gtoffice/agent-mcp-bridge'
 const DEFAULT_NPX_VERSION = '0.1.0'
+const POLICY_ENV_KEY = 'GTO_AGENT_COMMUNICATION_POLICY_FILE'
+const MANAGED_BEGIN = '# BEGIN gto-agent-bridge'
+const MANAGED_END = '# END gto-agent-bridge'
 
 const currentFile = fileURLToPath(import.meta.url)
 const packageRoot = path.resolve(path.dirname(currentFile), '..')
@@ -162,6 +165,21 @@ function tomlQuote(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+function buildCommunicationPolicy() {
+  return [
+    '# GT Office Agent Communication Policy',
+    '',
+    'When communicating with another GT Office agent, use the `gto-agent-bridge` MCP by default.',
+    '',
+    '- Use `gto_get_agent_directory` to discover agents and reuse `workspaceId` and `agentId` from that result.',
+    '- Use `gto_dispatch_task` when you need another agent to execute or answer in its own terminal.',
+    '- Use `gto_report_status` for short replies and progress updates.',
+    '- Use `gto_handover` for completion summaries, blockers, and next steps.',
+    '- Do not rely on plain terminal-only replies when an MCP reply is expected.',
+    '',
+  ].join('\n')
+}
+
 async function readJsonOrEmpty(filePath) {
   try {
     const raw = await fs.readFile(filePath, 'utf8')
@@ -174,6 +192,25 @@ async function readJsonOrEmpty(filePath) {
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+async function ensureManagedMarkdown(filePath, body) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+
+  let current = ''
+  try {
+    current = await fs.readFile(filePath, 'utf8')
+  } catch {
+    current = ''
+  }
+
+  const markerBlockPattern = new RegExp(`${MANAGED_BEGIN}[\\s\\S]*?${MANAGED_END}\\n?`, 'g')
+  let next = current.replace(markerBlockPattern, '').trimEnd()
+  if (next.length > 0) {
+    next += '\n\n'
+  }
+  next += `${MANAGED_BEGIN}\n${body.trim()}\n${MANAGED_END}\n`
+  await fs.writeFile(filePath, next, 'utf8')
 }
 
 async function ensureJsonMcpServer(filePath, entry) {
@@ -247,20 +284,18 @@ async function ensureCodexToml(filePath, entry) {
     current = ''
   }
 
-  const begin = '# BEGIN gto-agent-bridge'
-  const end = '# END gto-agent-bridge'
   const argsLiteral = entry.args.map((value) => tomlQuote(value)).join(', ')
   const envLiteral = Object.entries(entry.env || {})
     .map(([key, value]) => `${key} = ${tomlQuote(value)}`)
     .join(', ')
   const block = [
-    begin,
+    MANAGED_BEGIN,
     `[mcp_servers.${SERVER_ID}]`,
     `command = ${tomlQuote(entry.command)}`,
     `args = [${argsLiteral}]`,
     `env = { ${envLiteral} }`,
     'startup_timeout_sec = 20',
-    end,
+    MANAGED_END,
     '',
   ].join('\n')
 
@@ -292,14 +327,28 @@ export function getDefaultInstallTargets(homeDir = os.homedir()) {
   }
 }
 
+function getInstructionTargets(homeDir = os.homedir()) {
+  return {
+    globalPolicy: path.join(homeDir, '.gtoffice', 'mcp', 'agent-communication.md'),
+    claude: path.join(homeDir, '.claude', 'CLAUDE.md'),
+    codex: path.join(homeDir, '.codex', 'AGENTS.md'),
+    gemini: path.join(homeDir, '.gemini', 'GEMINI.md'),
+    qwen: path.join(homeDir, '.qwen', 'QWEN.md'),
+  }
+}
+
 export async function installAll(options = {}) {
   const homeDir = options.homeDir ? path.resolve(options.homeDir) : os.homedir()
   const workspaceRoot = options.workspaceRoot ? path.resolve(options.workspaceRoot) : process.cwd()
   const runtimePath = preferredRuntimePath(homeDir)
+  const instructionTargets = getInstructionTargets(homeDir)
+  const policyBody = buildCommunicationPolicy()
+  await ensureManagedMarkdown(instructionTargets.globalPolicy, policyBody)
   const entry = {
     ...resolveServerEntry(options),
     env: {
       GTO_MCP_RUNTIME_FILE: runtimePath,
+      [POLICY_ENV_KEY]: instructionTargets.globalPolicy,
     },
     ...(options.serverEntry || {}),
   }
@@ -313,35 +362,50 @@ export async function installAll(options = {}) {
       run: async () => {
         await ensureJsonMcpServer(targets.claudeLegacy, entry)
         await ensureClaudeProjectMcpServer(targets.claudeModern, entry, workspaceRoot)
+        await ensureManagedMarkdown(instructionTargets.claude, policyBody)
       },
       path: `${targets.claudeModern}, ${targets.claudeLegacy}`,
+      rulesApplied: [instructionTargets.globalPolicy, instructionTargets.claude],
     },
     {
       name: 'codex',
-      run: () => ensureCodexToml(targets.codex, entry),
+      run: async () => {
+        await ensureCodexToml(targets.codex, entry)
+        await ensureManagedMarkdown(instructionTargets.codex, policyBody)
+      },
       path: targets.codex,
+      rulesApplied: [instructionTargets.globalPolicy, instructionTargets.codex],
     },
     {
       name: 'gemini',
-      run: () => ensureJsonMcpServer(targets.gemini, entry),
+      run: async () => {
+        await ensureJsonMcpServer(targets.gemini, entry)
+        await ensureManagedMarkdown(instructionTargets.gemini, policyBody)
+      },
       path: targets.gemini,
+      rulesApplied: [instructionTargets.globalPolicy, instructionTargets.gemini],
     },
     {
       name: 'qwen',
-      run: () => ensureJsonMcpServer(targets.qwen, entry),
+      run: async () => {
+        await ensureJsonMcpServer(targets.qwen, entry)
+        await ensureManagedMarkdown(instructionTargets.qwen, policyBody)
+      },
       path: targets.qwen,
+      rulesApplied: [instructionTargets.globalPolicy, instructionTargets.qwen],
     },
   ]
 
   for (const writer of writers) {
     try {
       await writer.run()
-      report.push({ target: writer.name, ok: true, path: writer.path })
+      report.push({ target: writer.name, ok: true, path: writer.path, rulesApplied: writer.rulesApplied })
     } catch (error) {
       report.push({
         target: writer.name,
         ok: false,
         path: writer.path,
+        rulesApplied: writer.rulesApplied,
         message: error instanceof Error ? error.message : String(error),
       })
     }

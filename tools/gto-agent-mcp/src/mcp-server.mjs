@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import {
   callBridge,
   BridgeClientError,
@@ -18,15 +19,11 @@ const ENV_WORKSPACE_ID = 'GTO_WORKSPACE_ID'
 const ENV_AGENT_ID = 'GTO_AGENT_ID'
 const ENV_ROLE_KEY = 'GTO_ROLE_KEY'
 const ENV_STATION_ID = 'GTO_STATION_ID'
-const COMMUNICATION_GUIDANCE =
-  'Use response.workspaceId for follow-up sends, target only agents[].agentId, and call gto_health before sending. Only send when bridgeAvailable=true. If bridgeAvailable=false, directory may be snapshot-only and dispatch/status/handover are unavailable.'
-const ENVIRONMENT_NOTE =
-  'Windows desktop app + WSL agent/MCP is supported. The MCP sidecar prefers the runtime/directory state root whose directory snapshot contains the requested workspace, then connects to that runtime host/port.'
 
 const TOOL_DEFINITIONS = [
   {
     name: 'gto_get_agent_directory',
-    description: '协作第一步。先获取当前 workspace 的 Agent 组织目录与在线 runtime 视图。优先省略 workspace_id 让系统自动解析；如果显式传入，必须是 ws:... 形式的 workspaceId，不要传 agent_id。Windows 桌面端 + WSL agent/MCP 是支持场景。后续发送时复用本响应里的 workspaceId 和 agents[].agentId。',
+    description: '列出当前 workspace 的 agent。GT Office agent 间通信默认走本 MCP；后续发送复用返回里的 workspaceId 和 agents[].agentId。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -38,11 +35,11 @@ const TOOL_DEFINITIONS = [
   {
     name: 'gto_dispatch_task',
     description:
-      '协作第二步。通过 GT Office 任务中心批量派发任务给目标 Agent（manager -> workers）。这会把文本写入目标 agent terminal，并自动提交执行。必须使用 gto_get_agent_directory 返回的 workspaceId 和 target agentId；发送前先调用 gto_health，只有 bridgeAvailable=true 时才可发送。',
+      '向目标 agent 写入并执行任务文本。需要让其他 GT Office agent 执行或回复时使用它；workspace_id 可省略并自动解析。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['workspace_id', 'targets', 'title', 'markdown'],
+      required: ['targets', 'title', 'markdown'],
       properties: {
         workspace_id: { type: 'string' },
         targets: {
@@ -58,11 +55,11 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'gto_report_status',
-    description: '协作第二步。执行 Agent 向 manager 或其他 Agent 汇报状态进展（status）。这是协作消息记录，不会向目标 terminal 注入并执行命令。必须使用目录结果中的 workspaceId 和 agentId；发送前先调用 gto_health，只有 bridgeAvailable=true 时才可发送。',
+    description: '向其他 GT Office agent 回报状态。agent 间普通回复、进展同步默认用它；workspace_id 可省略并自动解析。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['workspace_id', 'target_agent_ids', 'status'],
+      required: ['target_agent_ids', 'status'],
       properties: {
         workspace_id: { type: 'string' },
         sender_agent_id: { type: 'string' },
@@ -79,11 +76,11 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'gto_handover',
-    description: '协作第二步。执行 Agent 完成后发送结构化交接（handover）给 manager。这是协作消息记录，不会向目标 terminal 注入并执行命令。必须使用目录结果中的 workspaceId 和 agentId；发送前先调用 gto_health，只有 bridgeAvailable=true 时才可发送。',
+    description: '向其他 GT Office agent 发送结构化交接。任务完成后的总结、阻塞、下一步默认用它；workspace_id 可省略并自动解析。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['workspace_id', 'target_agent_ids', 'summary'],
+      required: ['target_agent_ids', 'summary'],
       properties: {
         workspace_id: { type: 'string' },
         sender_agent_id: { type: 'string' },
@@ -107,11 +104,26 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'gto_health',
-    description: '发送前必查。检查本地 GT Office MCP bridge 健康状态与运行时配置。若 bridgeAvailable=false，目录查询仍可能来自 snapshot，但任何 dispatch/status/handover 发送都不可用。Windows 桌面端 + WSL agent/MCP 是支持场景，health 会优先选择与目标 workspace 同源的 runtime/directory 状态。',
+    description: '检查本地 GT Office bridge 是否可发送。bridgeAvailable=false 时只能查目录快照，不能发送。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {},
+    },
+  },
+  {
+    name: 'gto_list_messages',
+    description: '读取当前 agent 最近收到的 GT Office MCP 消息。默认读取当前 agent 的 inbox，可按 task_id 过滤。',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        workspace_id: { type: 'string' },
+        target_agent_id: { type: 'string' },
+        sender_agent_id: { type: 'string' },
+        task_id: { type: 'string' },
+        limit: { type: 'number' },
+      },
     },
   },
 ]
@@ -127,7 +139,7 @@ function sendMessage(message, transport = TRANSPORT_HEADERS) {
 }
 
 function makeTextResult(value, isError = false) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
   return {
     content: [{ type: 'text', text }],
     ...(isError ? { isError: true } : {}),
@@ -146,6 +158,8 @@ async function callTool(name, args) {
       return await gtoHandover(args)
     case 'gto_health':
       return await gtoHealth()
+    case 'gto_list_messages':
+      return await gtoListMessages(args)
     default:
       throw new Error(`unsupported tool: ${name}`)
   }
@@ -169,7 +183,111 @@ function currentAgentContext() {
   }
 }
 
-function resolveSenderAgentId(explicitSenderAgentId) {
+function normalizeCwd(value) {
+  if (!value) {
+    return ''
+  }
+  try {
+    return path.resolve(value)
+  } catch {
+    return ''
+  }
+}
+
+function compactAgent(agent) {
+  return {
+    agentId: agent?.agentId || null,
+    name: agent?.name || null,
+    roleKey: agent?.roleKey || null,
+    online: Boolean(agent?.online),
+    state: agent?.state || null,
+    resolvedCwd: agent?.resolvedCwd || null,
+  }
+}
+
+function matchAgentByCwd(agents, cwd = process.cwd()) {
+  const normalizedCwd = normalizeCwd(cwd)
+  if (!normalizedCwd || !Array.isArray(agents)) {
+    return null
+  }
+
+  const scored = agents
+    .map((agent) => {
+      const agentCwd = normalizeCwd(agent?.resolvedCwd)
+      if (!agentCwd) {
+        return null
+      }
+      if (normalizedCwd === agentCwd) {
+        return { agent, score: agentCwd.length + 1000 }
+      }
+      if (normalizedCwd.startsWith(`${agentCwd}${path.sep}`)) {
+        return { agent, score: agentCwd.length }
+      }
+      return null
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score)
+
+  return scored[0]?.agent || null
+}
+
+async function loadDirectorySnapshot(workspaceId) {
+  return await loadDirectorySnapshotFallback(workspaceId)
+}
+
+async function loadAgentDirectory(workspaceId) {
+  try {
+    return await callBridge('directory.get', { workspaceId }, { workspaceId })
+  } catch (error) {
+    if (error instanceof BridgeClientError && error.code === 'WORKSPACE_NOT_FOUND') {
+      throw new BridgeClientError(
+        'MCP_WORKSPACE_NOT_AVAILABLE',
+        `workspace '${workspaceId}' is not active; refresh directory and retry.`,
+        await buildWorkspaceRefreshDetails(workspaceId),
+      )
+    }
+    if (!(error instanceof BridgeClientError)) {
+      throw error
+    }
+    return await loadDirectorySnapshot(workspaceId)
+  }
+}
+
+function attachSelfContext(directory) {
+  const context = currentAgentContext()
+  const inferredByCwd = matchAgentByCwd(directory?.agents)
+  const agentId = context?.agentId || inferredByCwd?.agentId || null
+  const roleKey = context?.roleKey || inferredByCwd?.roleKey || null
+  const stationId = context?.stationId || inferredByCwd?.agentId || null
+
+  return {
+    workspaceId: directory?.workspaceId || null,
+    directoryVersion: directory?.directoryVersion || null,
+    updatedAtMs: directory?.updatedAtMs || null,
+    agents: Array.isArray(directory?.agents) ? directory.agents.map(compactAgent) : [],
+    self: agentId
+      ? {
+          agentId,
+          roleKey,
+          stationId,
+          sessionId: null,
+          toolKind: null,
+        }
+      : null,
+  }
+}
+
+async function inferSenderAgentIdFromDirectory(preferredWorkspaceId = '') {
+  const workspaceId = preferredWorkspaceId || (await resolveDirectoryWorkspaceId(null)).workspaceId
+  const directory = await loadAgentDirectory(workspaceId)
+  const matched = attachSelfContext(directory)?.self?.agentId || matchAgentByCwd(directory?.agents)?.agentId || null
+  if (!matched) {
+    throw new Error('sender agent could not be inferred from current terminal context')
+  }
+  return { agentId: matched, resolvedFrom: 'directory', workspaceId }
+}
+
+async function resolveSenderAgentId(explicitSenderAgentId, preferredWorkspaceId = '') {
   const explicit = String(explicitSenderAgentId || '').trim()
   if (explicit) {
     return { agentId: explicit, resolvedFrom: 'explicit' }
@@ -178,7 +296,7 @@ function resolveSenderAgentId(explicitSenderAgentId) {
   if (envAgentId) {
     return { agentId: envAgentId, resolvedFrom: 'env' }
   }
-  throw new Error('sender_agent_id is required or GTO_AGENT_ID must be available in the current terminal')
+  return await inferSenderAgentIdFromDirectory(preferredWorkspaceId)
 }
 
 function validateWorkspaceId(explicitWorkspaceId, { allowAutoResolve = false } = {}) {
@@ -187,10 +305,10 @@ function validateWorkspaceId(explicitWorkspaceId, { allowAutoResolve = false } =
     if (allowAutoResolve) {
       return ''
     }
-    throw new Error('workspace_id is required and must be a GT Office workspace id like ws:...')
+    throw new Error('workspace_id is required and must look like ws:...')
   }
   if (!value.startsWith('ws:')) {
-    throw new Error('workspace_id must be a GT Office workspace id like ws:..., not an agent_id. Use gto_get_agent_directory({}) first and reuse response.workspaceId.')
+    throw new Error('workspace_id must look like ws:..., not an agent id')
   }
   return value
 }
@@ -205,7 +323,7 @@ async function buildWorkspaceRefreshDetails(requestedWorkspaceId) {
   return {
     requestedWorkspaceId,
     suggestedWorkspaceId,
-    hint: 'Call gto_get_agent_directory({}) again without workspace_id and reuse response.workspaceId from the latest live/snapshot directory.',
+    hint: 'Call gto_get_agent_directory({}) again and reuse the returned workspaceId.',
   }
 }
 
@@ -216,14 +334,14 @@ async function callBridgeForSend(method, params, workspaceId) {
     if (error instanceof BridgeClientError && error.code === 'WORKSPACE_NOT_FOUND') {
       throw new BridgeClientError(
         'MCP_WORKSPACE_NOT_AVAILABLE',
-        `workspace_id '${workspaceId}' is not active in the live GT Office desktop bridge. Call gto_get_agent_directory({}) again without workspace_id and reuse the returned workspaceId.`,
+        `workspace '${workspaceId}' is not active in the live bridge.`,
         await buildWorkspaceRefreshDetails(workspaceId),
       )
     }
     if (error instanceof BridgeClientError && error.code === 'MCP_BRIDGE_UNAVAILABLE') {
       throw new BridgeClientError(
         'MCP_BRIDGE_SEND_UNAVAILABLE',
-        'send requires a live GT Office bridge. Use gto_health first and only send when bridgeAvailable=true. Directory lookup can fall back to snapshot, but dispatch/status/handover cannot.',
+        'send requires a live GT Office bridge; directory snapshot alone is not enough.',
         {
           ...error.details,
           originalCode: error.code,
@@ -288,34 +406,9 @@ async function resolveDirectoryWorkspaceId(explicitWorkspaceId) {
     .filter(([, snapshot]) => snapshot && typeof snapshot === 'object')
     .sort((left, right) => Number(right[1]?.updatedAtMs || 0) - Number(left[1]?.updatedAtMs || 0))
   if (entries.length === 0) {
-    throw new Error('workspace_id is required and no directory snapshot workspace could be inferred')
+    throw new Error('workspace_id is missing and no directory snapshot workspace could be inferred')
   }
   return { workspaceId: entries[0][0], resolvedFrom: 'snapshot' }
-}
-
-function attachSelfContext(directory) {
-  const context = currentAgentContext()
-  if (!context) {
-    return {
-      ...directory,
-      self: null,
-    }
-  }
-
-  const matchedAgent = Array.isArray(directory?.agents)
-    ? directory.agents.find((agent) => agent?.agentId === context.agentId)
-    : null
-
-  return {
-    ...directory,
-    self: {
-      agentId: context.agentId,
-      roleKey: context.roleKey || matchedAgent?.roleKey || null,
-      stationId: context.stationId,
-      sessionId: null,
-      toolKind: null,
-    },
-  }
 }
 
 function parseTargets(raw) {
@@ -330,50 +423,28 @@ function parseTargets(raw) {
 
 async function gtoGetAgentDirectory(args = {}) {
   const { workspaceId, resolvedFrom } = await resolveDirectoryWorkspaceId(args.workspace_id)
-
-  let directory
-  try {
-    directory = await callBridge('directory.get', { workspaceId }, { workspaceId })
-  } catch (error) {
-    if (error instanceof BridgeClientError && error.code === 'WORKSPACE_NOT_FOUND') {
-      throw new BridgeClientError(
-        'MCP_WORKSPACE_NOT_AVAILABLE',
-        `workspace_id '${workspaceId}' is not active in the live GT Office desktop bridge. Call gto_get_agent_directory({}) again without workspace_id and reuse the returned workspaceId.`,
-        await buildWorkspaceRefreshDetails(workspaceId),
-      )
-    }
-    if (!(error instanceof BridgeClientError)) {
-      throw error
-    }
-    directory = await loadDirectorySnapshotFallback(workspaceId)
-  }
-
+  const directory = await loadAgentDirectory(workspaceId)
   return {
     ...attachSelfContext(directory),
-    communicationGuidance: COMMUNICATION_GUIDANCE,
-    environmentNote: ENVIRONMENT_NOTE,
     workspaceResolvedFrom: resolvedFrom,
   }
 }
 
 async function gtoDispatchTask(args = {}) {
-  const workspaceId = validateWorkspaceId(args.workspace_id)
+  const { workspaceId } = await resolveDirectoryWorkspaceId(args.workspace_id)
   const targets = parseTargets(args.targets)
   const title = String(args.title || '').trim()
   const markdown = String(args.markdown || '').trim()
   let senderAgentId = ''
   let senderResolvedFrom = 'human'
   try {
-    const resolvedSender = resolveSenderAgentId(args.sender_agent_id)
+    const resolvedSender = await resolveSenderAgentId(args.sender_agent_id, workspaceId)
     senderAgentId = resolvedSender.agentId
     senderResolvedFrom = resolvedSender.resolvedFrom
   } catch {
     senderAgentId = ''
   }
 
-  if (!workspaceId) {
-    throw new Error('workspace_id is required')
-  }
   if (targets.length === 0) {
     throw new Error('targets must contain at least one agent id')
   }
@@ -406,15 +477,16 @@ async function gtoDispatchTask(args = {}) {
 
   return {
     summary: `batch=${response.batchId} sent=${sent} failed=${failed}`,
-    senderResolvedFrom,
+    ...(senderResolvedFrom === 'human' ? {} : { senderResolvedFrom }),
     response,
   }
 }
 
 async function gtoReportStatus(args = {}) {
-  const workspaceId = validateWorkspaceId(args.workspace_id)
-  const { agentId: senderAgentId, resolvedFrom: senderResolvedFrom } = resolveSenderAgentId(
+  const { workspaceId } = await resolveDirectoryWorkspaceId(args.workspace_id)
+  const { agentId: senderAgentId, resolvedFrom: senderResolvedFrom } = await resolveSenderAgentId(
     args.sender_agent_id,
+    workspaceId,
   )
   const targetAgentIds = parseTargets(args.target_agent_ids)
   const status = String(args.status || '').trim()
@@ -452,9 +524,10 @@ async function gtoReportStatus(args = {}) {
 }
 
 async function gtoHandover(args = {}) {
-  const workspaceId = validateWorkspaceId(args.workspace_id)
-  const { agentId: senderAgentId, resolvedFrom: senderResolvedFrom } = resolveSenderAgentId(
+  const { workspaceId } = await resolveDirectoryWorkspaceId(args.workspace_id)
+  const { agentId: senderAgentId, resolvedFrom: senderResolvedFrom } = await resolveSenderAgentId(
     args.sender_agent_id,
+    workspaceId,
   )
   const targetAgentIds = parseTargets(args.target_agent_ids)
   const summary = String(args.summary || '').trim()
@@ -547,13 +620,38 @@ async function gtoHealth() {
     directory = null
   }
   return {
-    runtime,
-    bridge,
     bridgeAvailable,
     self,
     directory,
-    communicationGuidance: COMMUNICATION_GUIDANCE,
-    environmentNote: ENVIRONMENT_NOTE,
+    ...(bridgeAvailable ? {} : { bridge, runtime }),
+  }
+}
+
+async function gtoListMessages(args = {}) {
+  const { workspaceId } = await resolveDirectoryWorkspaceId(args.workspace_id)
+  const targetAgentId = String(args.target_agent_id || '').trim()
+    ? String(args.target_agent_id || '').trim()
+    : (await resolveSenderAgentId(null, workspaceId)).agentId
+  const senderAgentId = String(args.sender_agent_id || '').trim() || null
+  const taskId = String(args.task_id || '').trim() || null
+  const limitRaw = Number(args.limit)
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(100, Math.floor(limitRaw)) : 20
+
+  const response = await callBridgeForSend(
+    'channel.list_messages',
+    {
+      workspaceId,
+      targetAgentId,
+      senderAgentId,
+      taskId,
+      limit,
+    },
+    workspaceId,
+  )
+
+  return {
+    targetAgentId,
+    messages: Array.isArray(response.messages) ? response.messages : [],
   }
 }
 

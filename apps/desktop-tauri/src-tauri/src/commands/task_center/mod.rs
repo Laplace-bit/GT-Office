@@ -17,6 +17,20 @@ pub struct AgentRuntimeUnregisterRequest {
     pub agent_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelListMessagesRequest {
+    pub workspace_id: String,
+    #[serde(default)]
+    pub target_agent_id: Option<String>,
+    #[serde(default)]
+    pub sender_agent_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
 fn to_terminal_error(error: AbstractionError) -> String {
     match error {
         AbstractionError::WorkspaceNotFound { workspace_id } => {
@@ -134,6 +148,24 @@ pub fn channel_publish(
     let outcome = state.task_service.publish(&request);
     emit_channel_events(&app, &outcome.message_events, &outcome.ack_events);
     serde_json::to_value(outcome.response).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn channel_list_messages(
+    request: ChannelListMessagesRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if request.workspace_id.trim().is_empty() {
+        return Err("CHANNEL_LIST_INVALID: workspaceId is required".to_string());
+    }
+    let messages = state.task_service.list_messages(
+        &request.workspace_id,
+        request.target_agent_id.as_deref(),
+        request.sender_agent_id.as_deref(),
+        request.task_id.as_deref(),
+        request.limit.unwrap_or(20) as usize,
+    );
+    Ok(json!({ "messages": messages }))
 }
 
 #[tauri::command]

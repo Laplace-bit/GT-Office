@@ -18,10 +18,6 @@ const ENV_WORKSPACE_ID: &str = "GTO_WORKSPACE_ID";
 const ENV_AGENT_ID: &str = "GTO_AGENT_ID";
 const ENV_ROLE_KEY: &str = "GTO_ROLE_KEY";
 const ENV_STATION_ID: &str = "GTO_STATION_ID";
-const COMMUNICATION_GUIDANCE: &str =
-    "Use response.workspaceId for follow-up sends, target only agents[].agentId, and call gto_health before sending. Only send when bridgeAvailable=true. If bridgeAvailable=false, directory may be snapshot-only and dispatch/status/handover are unavailable.";
-const ENVIRONMENT_NOTE: &str =
-    "Windows desktop app + WSL agent/MCP is supported. The MCP sidecar prefers the runtime/directory state root whose directory snapshot contains the requested workspace, then connects to that runtime host/port.";
 
 static BRIDGE_REQ_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -164,6 +160,20 @@ struct HandoverArgs {
     next_steps: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ListMessagesArgs {
+    #[serde(default)]
+    workspace_id: String,
+    #[serde(default)]
+    target_agent_id: Option<String>,
+    #[serde(default)]
+    sender_agent_id: Option<String>,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
 fn default_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -283,7 +293,7 @@ fn tool_text_result(value: Value, is_error: bool) -> Value {
     json!({
         "content": [{
             "type": "text",
-            "text": serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
+            "text": serde_json::to_string(&value).unwrap_or_else(|_| value.to_string())
         }],
         "isError": is_error,
     })
@@ -293,7 +303,7 @@ fn tool_definitions() -> Value {
     json!([
       {
         "name": "gto_get_agent_directory",
-        "description": "协作第一步。先获取当前 workspace 的 Agent 组织目录与在线 runtime 视图。优先省略 workspace_id 让系统自动解析；如果显式传入，必须是 ws:... 形式的 workspaceId，不要传 agent_id。Windows 桌面端 + WSL agent/MCP 是支持场景。后续发送时复用本响应里的 workspaceId 和 agents[].agentId。",
+        "description": "列出当前 workspace 的 agent。GT Office agent 间通信默认走本 MCP；后续发送复用返回里的 workspaceId 和 agents[].agentId。",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -304,11 +314,11 @@ fn tool_definitions() -> Value {
       },
       {
         "name": "gto_dispatch_task",
-        "description": "协作第二步。通过 GT Office 任务中心批量派发任务给目标 Agent（manager -> workers）。这会把文本写入目标 agent terminal，并自动提交执行。必须使用 gto_get_agent_directory 返回的 workspaceId 和 target agentId；发送前先调用 gto_health，只有 bridgeAvailable=true 时才可发送。",
+        "description": "向目标 agent 写入并执行任务文本。需要让其他 GT Office agent 执行或回复时使用它；workspace_id 可省略并自动解析。",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["workspace_id", "targets", "title", "markdown"],
+          "required": ["targets", "title", "markdown"],
           "properties": {
             "workspace_id": { "type": "string" },
             "targets": { "type": "array", "minItems": 1, "items": { "type": "string" } },
@@ -320,11 +330,11 @@ fn tool_definitions() -> Value {
       },
       {
         "name": "gto_report_status",
-        "description": "协作第二步。执行 Agent 向 manager 或其他 Agent 汇报状态进展（status）。这是协作消息记录，不会向目标 terminal 注入并执行命令。必须使用目录结果中的 workspaceId 和 agentId；发送前先调用 gto_health，只有 bridgeAvailable=true 时才可发送。",
+        "description": "向其他 GT Office agent 回报状态。agent 间普通回复、进展同步默认用它；workspace_id 可省略并自动解析。",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["workspace_id", "target_agent_ids", "status"],
+          "required": ["target_agent_ids", "status"],
           "properties": {
             "workspace_id": { "type": "string" },
             "sender_agent_id": { "type": "string" },
@@ -337,11 +347,11 @@ fn tool_definitions() -> Value {
       },
       {
         "name": "gto_handover",
-        "description": "协作第二步。执行 Agent 完成后发送结构化交接（handover）给 manager。这是协作消息记录，不会向目标 terminal 注入并执行命令。必须使用目录结果中的 workspaceId 和 agentId；发送前先调用 gto_health，只有 bridgeAvailable=true 时才可发送。",
+        "description": "向其他 GT Office agent 发送结构化交接。任务完成后的总结、阻塞、下一步默认用它；workspace_id 可省略并自动解析。",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["workspace_id", "target_agent_ids", "summary"],
+          "required": ["target_agent_ids", "summary"],
           "properties": {
             "workspace_id": { "type": "string" },
             "sender_agent_id": { "type": "string" },
@@ -355,11 +365,26 @@ fn tool_definitions() -> Value {
       },
       {
         "name": "gto_health",
-        "description": "发送前必查。检查本地 GT Office MCP bridge 健康状态与运行时配置。若 bridgeAvailable=false，目录查询仍可能来自 snapshot，但任何 dispatch/status/handover 发送都不可用。Windows 桌面端 + WSL agent/MCP 是支持场景，health 会优先选择与目标 workspace 同源的 runtime/directory 状态。",
+        "description": "检查本地 GT Office bridge 是否可发送。bridgeAvailable=false 时只能查目录快照，不能发送。",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
           "properties": {}
+        }
+      },
+      {
+        "name": "gto_list_messages",
+        "description": "读取当前 agent 最近收到的 GT Office MCP 消息。默认读取当前 agent 的 inbox，可按 task_id 过滤。",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workspace_id": { "type": "string" },
+            "target_agent_id": { "type": "string" },
+            "sender_agent_id": { "type": "string" },
+            "task_id": { "type": "string" },
+            "limit": { "type": "number" }
+          }
         }
       }
     ])
@@ -372,6 +397,7 @@ fn call_tool(name: &str, arguments: Value) -> Result<Value, ToolError> {
         "gto_report_status" => gto_report_status(arguments),
         "gto_handover" => gto_handover(arguments),
         "gto_health" => gto_health(),
+        "gto_list_messages" => gto_list_messages(arguments),
         _ => Err(ToolError::new(
             "MCP_INVALID_PARAMS",
             format!("unsupported tool: {name}"),
@@ -399,7 +425,156 @@ fn current_agent_context() -> Value {
     })
 }
 
-fn resolve_sender_agent_id(explicit: Option<String>) -> Result<(String, &'static str), ToolError> {
+fn normalize_path(value: &str) -> Option<PathBuf> {
+    if value.trim().is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(value))
+}
+
+fn compact_agent(agent: &Value) -> Value {
+    json!({
+        "agentId": agent.get("agentId").cloned().unwrap_or(Value::Null),
+        "name": agent.get("name").cloned().unwrap_or(Value::Null),
+        "roleKey": agent.get("roleKey").cloned().unwrap_or(Value::Null),
+        "online": agent.get("online").and_then(Value::as_bool).unwrap_or(false),
+        "state": agent.get("state").cloned().unwrap_or(Value::Null),
+        "resolvedCwd": agent.get("resolvedCwd").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn match_agent_by_cwd(agents: &[Value]) -> Option<Value> {
+    let cwd = env::current_dir().ok()?;
+    let cwd_text = cwd.to_string_lossy().to_string();
+    let mut matched: Option<(usize, Value)> = None;
+
+    for agent in agents {
+        let Some(agent_cwd) = agent.get("resolvedCwd").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(agent_path) = normalize_path(agent_cwd) else {
+            continue;
+        };
+
+        let score = if cwd == agent_path {
+            agent_cwd.len() + 1000
+        } else if cwd_text.starts_with(&format!("{}{}", agent_cwd, std::path::MAIN_SEPARATOR)) {
+            agent_cwd.len()
+        } else {
+            continue;
+        };
+
+        match &matched {
+            Some((best_score, _)) if *best_score >= score => {}
+            _ => matched = Some((score, agent.clone())),
+        }
+    }
+
+    matched.map(|(_, agent)| agent)
+}
+
+fn compact_directory(directory: &Value) -> Value {
+    let context = current_agent_context();
+    let inferred_by_cwd = directory
+        .get("agents")
+        .and_then(Value::as_array)
+        .and_then(|agents| match_agent_by_cwd(agents));
+
+    let inferred_agent_id = inferred_by_cwd
+        .as_ref()
+        .and_then(|agent| agent.get("agentId"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let inferred_role_key = inferred_by_cwd
+        .as_ref()
+        .and_then(|agent| agent.get("roleKey"))
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    let self_payload = if context.is_null() && inferred_agent_id.is_null() {
+        Value::Null
+    } else {
+        json!({
+            "agentId": context.get("agentId").cloned().filter(|value| !value.is_null()).unwrap_or(inferred_agent_id.clone()),
+            "roleKey": context.get("roleKey").cloned().filter(|value| !value.is_null()).unwrap_or(inferred_role_key),
+            "stationId": context.get("stationId").cloned().filter(|value| !value.is_null()).unwrap_or(inferred_agent_id),
+            "sessionId": Value::Null,
+            "toolKind": Value::Null,
+        })
+    };
+
+    json!({
+        "workspaceId": directory.get("workspaceId").cloned().unwrap_or(Value::Null),
+        "directoryVersion": directory.get("directoryVersion").cloned().unwrap_or(Value::Null),
+        "updatedAtMs": directory.get("updatedAtMs").cloned().unwrap_or(Value::Null),
+        "agents": directory
+            .get("agents")
+            .and_then(Value::as_array)
+            .map(|agents| agents.iter().map(compact_agent).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        "self": self_payload,
+    })
+}
+
+fn load_agent_directory(workspace_id: &str) -> Result<Value, ToolError> {
+    match call_bridge(
+        "directory.get",
+        json!({
+            "workspaceId": workspace_id,
+        }),
+        Some(workspace_id),
+    ) {
+        Ok(directory) => Ok(directory),
+        Err(error) if error.code == "WORKSPACE_NOT_FOUND" => Err(
+            ToolError::new(
+                "MCP_WORKSPACE_NOT_AVAILABLE",
+                format!("workspace '{workspace_id}' is not active; refresh directory and retry."),
+            )
+            .with_details(json!({
+                "requestedWorkspaceId": workspace_id,
+                "suggestedWorkspaceId": resolve_directory_workspace_id(None).ok().map(|(workspace_id, _)| workspace_id),
+                "hint": "Call gto_get_agent_directory({}) again and reuse the returned workspaceId.",
+            })),
+        ),
+        Err(error) if error.code == "MCP_BRIDGE_UNAVAILABLE" => load_directory_snapshot(workspace_id),
+        Err(error) => Err(error),
+    }
+}
+
+fn infer_sender_agent_id_from_directory(
+    preferred_workspace_id: Option<&str>,
+) -> Result<(String, &'static str), ToolError> {
+    let workspace_id = preferred_workspace_id
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.to_string())
+        .or_else(|| resolve_directory_workspace_id(None).ok().map(|(workspace_id, _)| workspace_id))
+        .ok_or_else(|| {
+            ToolError::new(
+                "MCP_INVALID_PARAMS",
+                "sender agent could not be inferred from current terminal context",
+            )
+        })?;
+    let directory = load_agent_directory(&workspace_id)?;
+    let compact = compact_directory(&directory);
+    let agent_id = compact
+        .get("self")
+        .and_then(Value::as_object)
+        .and_then(|self_value| self_value.get("agentId"))
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+        .ok_or_else(|| {
+            ToolError::new(
+                "MCP_INVALID_PARAMS",
+                "sender agent could not be inferred from current terminal context",
+            )
+        })?;
+    Ok((agent_id, "directory"))
+}
+
+fn resolve_sender_agent_id(
+    explicit: Option<String>,
+    preferred_workspace_id: Option<&str>,
+) -> Result<(String, &'static str), ToolError> {
     if let Some(agent_id) = explicit.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
         return Ok((agent_id, "explicit"));
     }
@@ -412,10 +587,7 @@ fn resolve_sender_agent_id(explicit: Option<String>) -> Result<(String, &'static
         return Ok((agent_id, "env"));
     }
 
-    Err(ToolError::new(
-        "MCP_INVALID_PARAMS",
-        "sender_agent_id is required or GTO_AGENT_ID must be available in the current terminal",
-    ))
+    infer_sender_agent_id_from_directory(preferred_workspace_id)
 }
 
 fn validate_workspace_id(
@@ -429,13 +601,13 @@ fn validate_workspace_id(
         }
         return Err(ToolError::new(
             "MCP_INVALID_PARAMS",
-            "workspace_id is required and must be a GT Office workspace id like ws:...",
+            "workspace_id is required and must look like ws:...",
         ));
     }
     if !value.starts_with("ws:") {
         return Err(ToolError::new(
             "MCP_INVALID_PARAMS",
-            "workspace_id must be a GT Office workspace id like ws:..., not an agent_id. Use gto_get_agent_directory({}) first and reuse response.workspaceId.",
+            "workspace_id must look like ws:..., not an agent id",
         ));
     }
     Ok(Some(value.to_string()))
@@ -467,52 +639,10 @@ fn resolve_directory_workspace_id(explicit: Option<&str>) -> Result<(String, &'s
         .ok_or_else(|| {
             ToolError::new(
                 "MCP_INVALID_PARAMS",
-                "workspace_id is required and no directory snapshot workspace could be inferred",
+                "workspace_id is missing and no directory snapshot workspace could be inferred",
             )
         })?;
     Ok((workspace_id, "snapshot"))
-}
-
-fn attach_self_context(mut directory: Value) -> Value {
-    let context = current_agent_context();
-    let agent_id = context
-        .get("agentId")
-        .and_then(Value::as_str)
-        .map(|value| value.to_string());
-
-    let matched_role_key = agent_id.as_deref().and_then(|agent_id| {
-        directory
-            .get("agents")
-            .and_then(Value::as_array)
-            .and_then(|agents| {
-                agents.iter().find_map(|agent| {
-                    (agent.get("agentId").and_then(Value::as_str) == Some(agent_id))
-                        .then(|| agent.get("roleKey").cloned())
-                        .flatten()
-                })
-            })
-    });
-
-    let self_payload = if context.is_null() {
-        Value::Null
-    } else {
-        json!({
-            "agentId": context.get("agentId").cloned().unwrap_or(Value::Null),
-            "roleKey": context
-                .get("roleKey")
-                .cloned()
-                .filter(|value| !value.is_null())
-                .unwrap_or_else(|| matched_role_key.unwrap_or(Value::Null)),
-            "stationId": context.get("stationId").cloned().unwrap_or(Value::Null),
-            "sessionId": Value::Null,
-            "toolKind": Value::Null,
-        })
-    };
-
-    if let Some(object) = directory.as_object_mut() {
-        object.insert("self".to_string(), self_payload);
-    }
-    directory
 }
 
 fn call_bridge_for_send(
@@ -523,7 +653,7 @@ fn call_bridge_for_send(
     match call_bridge(method, params, Some(workspace_id)) {
         Err(error) if error.code == "MCP_BRIDGE_UNAVAILABLE" => Err(ToolError::new(
             "MCP_BRIDGE_SEND_UNAVAILABLE",
-            "send requires a live GT Office bridge. Use gto_health first and only send when bridgeAvailable=true. Directory lookup can fall back to snapshot, but dispatch/status/handover cannot.",
+            "send requires a live GT Office bridge; directory snapshot alone is not enough.",
         )
         .with_details(json!({
             "originalCode": error.code,
@@ -543,31 +673,11 @@ fn gto_get_agent_directory(arguments: Value) -> Result<Value, ToolError> {
     let (workspace_id, workspace_resolved_from) =
         resolve_directory_workspace_id(Some(args.workspace_id.as_str()))?;
 
-    let directory = match call_bridge(
-        "directory.get",
-        json!({
-            "workspaceId": workspace_id,
-        }),
-        Some(workspace_id.as_str()),
-    ) {
-        Ok(directory) => directory,
-        Err(error) if error.code == "MCP_BRIDGE_UNAVAILABLE" => load_directory_snapshot(&workspace_id)?,
-        Err(error) => return Err(error),
-    };
-
-    let mut directory = attach_self_context(directory);
+    let mut directory = compact_directory(&load_agent_directory(&workspace_id)?);
     if let Some(object) = directory.as_object_mut() {
-        object.insert(
-            "communicationGuidance".to_string(),
-            Value::String(COMMUNICATION_GUIDANCE.to_string()),
-        );
         object.insert(
             "workspaceResolvedFrom".to_string(),
             Value::String(workspace_resolved_from.to_string()),
-        );
-        object.insert(
-            "environmentNote".to_string(),
-            Value::String(ENVIRONMENT_NOTE.to_string()),
         );
     }
     Ok(directory)
@@ -580,13 +690,15 @@ fn gto_dispatch_task(arguments: Value) -> Result<Value, ToolError> {
             format!("gto_dispatch_task invalid args: {error}"),
         )
     })?;
-    let (sender_agent_id, sender_resolved_from) = match resolve_sender_agent_id(args.sender_agent_id.clone()) {
+    let (workspace_id, _) = resolve_directory_workspace_id(Some(args.workspace_id.as_str()))?;
+    let (sender_agent_id, sender_resolved_from) = match resolve_sender_agent_id(
+        args.sender_agent_id.clone(),
+        Some(workspace_id.as_str()),
+    ) {
         Ok(resolved) => (Some(resolved.0), resolved.1),
         Err(_) => (None, "human"),
     };
 
-    let workspace_id = validate_workspace_id(Some(args.workspace_id.as_str()), false)?
-        .expect("workspace_id is required when auto resolve is disabled");
     if args.targets.is_empty() {
         return Err(ToolError::new(
             "MCP_INVALID_PARAMS",
@@ -638,8 +750,8 @@ fn gto_dispatch_task(arguments: Value) -> Result<Value, ToolError> {
 
     Ok(json!({
         "summary": format!("batch={} sent={} failed={}", response.get("batchId").and_then(Value::as_str).unwrap_or("unknown"), sent, failed),
-        "senderResolvedFrom": sender_resolved_from,
         "response": response,
+        "senderResolvedFrom": if sender_resolved_from == "human" { Value::Null } else { Value::String(sender_resolved_from.to_string()) },
     }))
 }
 
@@ -650,8 +762,7 @@ fn gto_report_status(arguments: Value) -> Result<Value, ToolError> {
             format!("gto_report_status invalid args: {error}"),
         )
     })?;
-    let workspace_id = validate_workspace_id(Some(args.workspace_id.as_str()), false)?
-        .expect("workspace_id is required when auto resolve is disabled");
+    let (workspace_id, _) = resolve_directory_workspace_id(Some(args.workspace_id.as_str()))?;
     if args.target_agent_ids.is_empty() {
         return Err(ToolError::new(
             "MCP_INVALID_PARAMS",
@@ -662,7 +773,8 @@ fn gto_report_status(arguments: Value) -> Result<Value, ToolError> {
         return Err(ToolError::new("MCP_INVALID_PARAMS", "status is required"));
     }
 
-    let (sender_agent_id, sender_resolved_from) = resolve_sender_agent_id(args.sender_agent_id)?;
+    let (sender_agent_id, sender_resolved_from) =
+        resolve_sender_agent_id(args.sender_agent_id, Some(workspace_id.as_str()))?;
     let direct = args.target_agent_ids.len() == 1;
     let response = call_bridge_for_send(
         "channel.publish",
@@ -706,8 +818,7 @@ fn gto_handover(arguments: Value) -> Result<Value, ToolError> {
         )
     })?;
 
-    let workspace_id = validate_workspace_id(Some(args.workspace_id.as_str()), false)?
-        .expect("workspace_id is required when auto resolve is disabled");
+    let (workspace_id, _) = resolve_directory_workspace_id(Some(args.workspace_id.as_str()))?;
     if args.target_agent_ids.is_empty() {
         return Err(ToolError::new(
             "MCP_INVALID_PARAMS",
@@ -718,7 +829,8 @@ fn gto_handover(arguments: Value) -> Result<Value, ToolError> {
         return Err(ToolError::new("MCP_INVALID_PARAMS", "summary is required"));
     }
 
-    let (sender_agent_id, sender_resolved_from) = resolve_sender_agent_id(args.sender_agent_id)?;
+    let (sender_agent_id, sender_resolved_from) =
+        resolve_sender_agent_id(args.sender_agent_id, Some(workspace_id.as_str()))?;
     let direct = args.target_agent_ids.len() == 1;
     let response = call_bridge_for_send(
         "channel.publish",
@@ -790,13 +902,51 @@ fn gto_health() -> Result<Value, ToolError> {
         })
     });
     Ok(json!({
-        "runtime": runtime,
-        "bridge": bridge,
         "bridgeAvailable": bridge_available,
         "self": self_context,
         "directory": directory,
-        "communicationGuidance": COMMUNICATION_GUIDANCE,
-        "environmentNote": ENVIRONMENT_NOTE,
+        "runtime": if bridge_available { Value::Null } else { runtime },
+        "bridge": if bridge_available { Value::Null } else { bridge },
+    }))
+}
+
+fn gto_list_messages(arguments: Value) -> Result<Value, ToolError> {
+    let args: ListMessagesArgs = serde_json::from_value(arguments).map_err(|error| {
+        ToolError::new(
+            "MCP_INVALID_PARAMS",
+            format!("gto_list_messages invalid args: {error}"),
+        )
+    })?;
+    let (workspace_id, _) = resolve_directory_workspace_id(Some(args.workspace_id.as_str()))?;
+    let target_agent_id = args
+        .target_agent_id
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| {
+            resolve_sender_agent_id(None, Some(workspace_id.as_str()))
+                .map(|resolved| resolved.0)
+                .unwrap_or_default()
+        });
+    if target_agent_id.trim().is_empty() {
+        return Err(ToolError::new(
+            "MCP_INVALID_PARAMS",
+            "target_agent_id could not be inferred from current terminal context",
+        ));
+    }
+    let response = call_bridge_for_send(
+        "channel.list_messages",
+        json!({
+            "workspaceId": workspace_id,
+            "targetAgentId": target_agent_id,
+            "senderAgentId": args.sender_agent_id,
+            "taskId": args.task_id,
+            "limit": args.limit.unwrap_or(20),
+        }),
+        workspace_id.as_str(),
+    )?;
+    Ok(json!({
+        "targetAgentId": target_agent_id,
+        "messages": response.get("messages").cloned().unwrap_or_else(|| json!([])),
     }))
 }
 

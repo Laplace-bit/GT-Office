@@ -176,6 +176,7 @@ pub fn run() {
             task_center::task_list,
             task_center::task_dispatch_batch,
             task_center::channel_publish,
+            task_center::channel_list_messages,
             tool_adapter::channel_adapter_status,
             tool_adapter::channel_connector_account_upsert,
             tool_adapter::channel_connector_account_list,

@@ -142,6 +142,104 @@ fn publish_handover_to_online_target_is_accepted() {
 }
 
 #[test]
+fn list_messages_returns_recent_filtered_inbox() {
+    let service = TaskService::default();
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "manager".to_string(),
+        station_id: "manager".to_string(),
+        role_key: None,
+        session_id: "ts-manager".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        online: true,
+    });
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "worker".to_string(),
+        station_id: "worker".to_string(),
+        role_key: None,
+        session_id: "ts-worker".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        online: true,
+    });
+
+    let _ = service.publish(&ChannelPublishRequest {
+        workspace_id: "ws-1".to_string(),
+        channel: ChannelDescriptor {
+            kind: ChannelKind::Direct,
+            id: "manager".to_string(),
+        },
+        sender_agent_id: Some("worker".to_string()),
+        target_agent_ids: vec!["manager".to_string()],
+        message_type: ChannelMessageType::Status,
+        payload: json!({ "taskId": "task-1", "detail": "ONLINE: yes" }),
+        idempotency_key: None,
+    });
+
+    let inbox = service.list_messages("ws-1", Some("manager"), None, Some("task-1"), 20);
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].target_agent_id, "manager");
+    assert_eq!(inbox[0].sender_agent_id.as_deref(), Some("worker"));
+    assert_eq!(inbox[0].payload["detail"], json!("ONLINE: yes"));
+}
+
+#[test]
+fn dispatch_batch_includes_managed_mcp_reply_instruction_for_agent_sender() {
+    let service = TaskService::default();
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "worker".to_string(),
+        station_id: "worker".to_string(),
+        role_key: None,
+        session_id: "ts-worker".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        online: true,
+    });
+    let workspace_root = new_workspace_root();
+    let mut written_command = String::new();
+
+    let outcome = service.dispatch_batch(
+        &TaskDispatchBatchRequest {
+            workspace_id: "ws-1".to_string(),
+            sender: DispatchSender {
+                sender_type: DispatchSenderType::Agent,
+                agent_id: Some("manager".to_string()),
+            },
+            targets: vec!["worker".to_string()],
+            title: "Need reply".to_string(),
+            markdown: "请回复我一句确认消息。".to_string(),
+            attachments: vec![],
+            submit_sequences: HashMap::new(),
+        },
+        &workspace_root,
+        |_, command, _| {
+            written_command = command.to_string();
+            Ok(())
+        },
+    );
+
+    let task_file_path = outcome.response.results[0]
+        .task_file_path
+        .as_ref()
+        .expect("task file path");
+    let task_markdown = fs::read_to_string(workspace_root.join(task_file_path)).expect("read task file");
+
+    assert!(written_command.contains("gto_report_status"));
+    assert!(written_command.contains("target_agent_ids"));
+    assert!(written_command.contains("manager"));
+    assert!(task_markdown.contains("GT Office MCP Reply"));
+    assert!(task_markdown.contains("task_id:"));
+
+    let _ = fs::remove_dir_all(workspace_root);
+}
+
+#[test]
 fn dispatch_batch_writes_files_and_emits_events() {
     let service = TaskService::default();
     service.register_runtime(AgentRuntimeRegistration {

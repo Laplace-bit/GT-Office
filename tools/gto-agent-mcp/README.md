@@ -4,7 +4,7 @@
 
 - manager agent 派发任务给执行 agent（复用 GT Office `task_dispatch_batch`）
 - 执行 agent 向 manager 汇报 `status/handover`（复用 GT Office `channel_publish`）
-- 自动将 MCP server 写入主流 CLI Agent 用户配置（Claude/Codex/Gemini/Qwen）
+- 自动将 MCP server 与默认通信 policy 写入主流 CLI Agent 用户配置（Claude/Codex/Gemini/Qwen）
 
 ## 命令
 
@@ -50,10 +50,21 @@ WSL 兼容说明：
 
 - 当 CLI Agent 运行在 WSL、而 GT Office 桌面端运行在 Windows 时，sidecar 会优先探测 `/mnt/c/Users/<user>/.gtoffice/mcp/runtime.json`
 - 安装器会把 `GTO_MCP_RUNTIME_FILE` 写入 MCP 配置，避免读取到陈旧的 Linux 家目录 runtime
+- 安装器还会写入 `GTO_AGENT_COMMUNICATION_POLICY_FILE`，并在常见指令文件位置落一份托管的默认协作 policy
+
+默认行为：
+
+- GT Office agent 间通信默认走本 MCP
+- `workspace_id` 在 `gto_get_agent_directory/gto_dispatch_task/gto_report_status/gto_handover` 中都可自动解析
+- `sender_agent_id` 在 `gto_report_status/gto_handover` 中可按 `显式参数 -> GTO_AGENT_ID -> 当前 cwd/目录推断` 自动识别
+- sender agent 可通过 `gto_list_messages` 拉取自己收到的 `status/handover` 回复内容
+- 纯终端打印但未走 MCP 的回复，不会进入 inbox
 
 ## 暴露工具
 
+- `gto_get_agent_directory`
 - `gto_dispatch_task`
 - `gto_report_status`
 - `gto_handover`
 - `gto_health`
+- `gto_list_messages`
