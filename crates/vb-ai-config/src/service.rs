@@ -798,6 +798,7 @@ impl AiConfigService {
                     title: "aiConfig.agent.claude.title".to_string(),
                     subtitle: "aiConfig.agent.claude.subtitle".to_string(),
                     install_status: map_install_status(AiConfigAgent::Claude),
+                    mcp_installed: check_mcp_installed(AiConfigAgent::Claude),
                     config_status: if claude_config.active_mode.is_some() {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {
@@ -810,6 +811,7 @@ impl AiConfigService {
                     title: "aiConfig.agent.codex.title".to_string(),
                     subtitle: "aiConfig.agent.codex.subtitle".to_string(),
                     install_status: map_install_status(AiConfigAgent::Codex),
+                    mcp_installed: codex_guide.mcp_installed,
                     config_status: if codex_guide.config.has_secret {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {
@@ -822,6 +824,7 @@ impl AiConfigService {
                     title: "aiConfig.agent.gemini.title".to_string(),
                     subtitle: "aiConfig.agent.gemini.subtitle".to_string(),
                     install_status: map_install_status(AiConfigAgent::Gemini),
+                    mcp_installed: gemini_guide.mcp_installed,
                     config_status: if gemini_guide.config.has_secret {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {

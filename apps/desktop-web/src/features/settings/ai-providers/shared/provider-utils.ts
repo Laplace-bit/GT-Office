@@ -18,3 +18,19 @@ export function describeUnknownError(value: unknown): string {
   }
   return String(value)
 }
+
+export type AgentEnhancementState = 'not_installed' | 'preconfigured' | 'installed'
+
+export function resolveMcpEnhancementState(agent: AiAgentSnapshotCard): AgentEnhancementState {
+  if (!agent.installStatus.installed) {
+    return 'not_installed'
+  }
+  if (!agent.mcpInstalled) {
+    return 'not_installed'
+  }
+  return 'installed'
+}
+
+export function resolveEnabledEnhancementCount(agent: AiAgentSnapshotCard): number {
+  return agent.installStatus.installed && agent.mcpInstalled ? 1 : 0
+}

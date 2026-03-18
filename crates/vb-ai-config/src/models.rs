@@ -98,6 +98,7 @@ pub struct AiAgentSnapshotCard {
     pub title: String,
     pub subtitle: String,
     pub install_status: AiAgentInstallStatus,
+    pub mcp_installed: bool,
     pub config_status: AiAgentConfigStatus,
     pub active_summary: Option<String>,
 }

@@ -1,6 +1,7 @@
 import type { AiAgentSnapshotCard } from '@shell/integration/desktop-api'
 import { AppIcon } from '@shell/ui/icons'
 import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
+import { resolveEnabledEnhancementCount } from './provider-utils'
 
 import './ProviderAgentCard.scss'
 
@@ -8,9 +9,10 @@ interface ProviderAgentCardProps {
   locale: Locale
   agent: AiAgentSnapshotCard
   selected: boolean
-  installing: boolean
+  installingCli: boolean
   onSelect: () => void
   onInstall: () => void
+  onOpenEnhancements: () => void
   onConfigure: () => void
   configureActions?: Array<{
     key: string
@@ -43,15 +45,19 @@ export function ProviderAgentCard({
   locale,
   agent,
   selected,
-  installing,
+  installingCli,
   onSelect,
   onInstall,
+  onOpenEnhancements,
   onConfigure,
   configureActions,
 }: ProviderAgentCardProps) {
-  const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
+  const installCliDisabled =
+    installingCli || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
+  const enhancementDisabled = !agent.installStatus.installed
   const tone = resolveStatusTone(agent)
   const label = resolveStatusLabel(locale, agent)
+  const enabledEnhancementCount = resolveEnabledEnhancementCount(agent)
   const effectiveConfigureActions =
     configureActions && configureActions.length > 0
       ? configureActions
@@ -98,6 +104,14 @@ export function ProviderAgentCard({
               <span>{t(locale, 'aiConfig.card.noExecutable')}</span>
             </div>
           )}
+          <div className={`meta-item ${enabledEnhancementCount > 0 ? '' : 'warn'}`}>
+            <AppIcon name="sparkles" width={12} height={12} />
+            <span>
+              {enabledEnhancementCount > 0
+                ? t(locale, 'aiConfig.card.enhancementEnabled', { count: String(enabledEnhancementCount) })
+                : t(locale, 'aiConfig.card.enhancementEmpty')}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -105,10 +119,13 @@ export function ProviderAgentCard({
         {!agent.installStatus.installed ? (
           <button
             className="action-button primary"
-            onClick={(e) => { e.stopPropagation(); onInstall(); }}
-            disabled={installDisabled}
+            onClick={(e) => {
+              e.stopPropagation()
+              onInstall()
+            }}
+            disabled={installCliDisabled}
           >
-            {installing ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.install')}
+            {installingCli ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.installCli')}
           </button>
         ) : (
           <div className={`ai-provider-card__action-group ${effectiveConfigureActions.length > 1 ? 'is-multi' : ''}`}>
@@ -133,6 +150,19 @@ export function ProviderAgentCard({
             ))}
           </div>
         )}
+        <button
+          className="action-button secondary"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (!enhancementDisabled) {
+              onOpenEnhancements()
+            }
+          }}
+          disabled={enhancementDisabled}
+        >
+          <AppIcon name="sparkles" width={14} height={14} />
+          {t(locale, 'aiConfig.card.enhancementEntry')}
+        </button>
       </div>
     </article>
   )

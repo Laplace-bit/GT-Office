@@ -14,6 +14,7 @@ const DEFAULT_NPX_VERSION = '0.1.0'
 const POLICY_ENV_KEY = 'GTO_AGENT_COMMUNICATION_POLICY_FILE'
 const MANAGED_BEGIN = '# BEGIN gto-agent-bridge'
 const MANAGED_END = '# END gto-agent-bridge'
+const SUPPORTED_TARGETS = ['claude', 'codex', 'gemini', 'qwen']
 
 const currentFile = fileURLToPath(import.meta.url)
 const packageRoot = path.resolve(path.dirname(currentFile), '..')
@@ -327,6 +328,24 @@ export function getDefaultInstallTargets(homeDir = os.homedir()) {
   }
 }
 
+function normalizeTargets(values) {
+  const source = Array.isArray(values) ? values : values ? [values] : SUPPORTED_TARGETS
+  const normalized = []
+  for (const value of source) {
+    const target = String(value || '').trim().toLowerCase()
+    if (!target) {
+      continue
+    }
+    if (!SUPPORTED_TARGETS.includes(target)) {
+      throw new Error(`unsupported install target: ${value}`)
+    }
+    if (!normalized.includes(target)) {
+      normalized.push(target)
+    }
+  }
+  return normalized.length > 0 ? normalized : [...SUPPORTED_TARGETS]
+}
+
 function getInstructionTargets(homeDir = os.homedir()) {
   return {
     globalPolicy: path.join(homeDir, '.gtoffice', 'mcp', 'agent-communication.md'),
@@ -355,6 +374,7 @@ export async function installAll(options = {}) {
   const targets = getDefaultInstallTargets(homeDir)
 
   const report = []
+  const selectedTargets = new Set(normalizeTargets(options.targets))
 
   const writers = [
     {
@@ -397,6 +417,9 @@ export async function installAll(options = {}) {
   ]
 
   for (const writer of writers) {
+    if (!selectedTargets.has(writer.name)) {
+      continue
+    }
     try {
       await writer.run()
       report.push({ target: writer.name, ok: true, path: writer.path, rulesApplied: writer.rulesApplied })

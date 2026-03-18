@@ -10,6 +10,7 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 
 import { ProviderAgentCard } from './shared/ProviderAgentCard'
 import { isLightAgentSnapshotCard } from './shared/provider-utils'
+import { AgentEnhancementsModal } from './shared/AgentEnhancementsModal'
 import { ClaudeConfigModal } from './claude/ClaudeConfigModal'
 import { LightAgentConfigModal } from './light-agents/LightAgentConfigModal'
 
@@ -25,8 +26,10 @@ type ClaudeConfigEntryMode = 'wizard' | 'saved'
 export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionProps) {
   const [snapshot, setSnapshot] = useState<AiConfigReadSnapshotResponse | null>(null)
   const [installingAgent, setInstallingAgent] = useState<AiConfigAgent | null>(null)
+  const [installingMcpAgent, setInstallingMcpAgent] = useState<AiConfigAgent | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<AiConfigAgent | null>(null)
   const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
+  const [serviceAgentId, setServiceAgentId] = useState<AiConfigAgent | null>(null)
   const [claudeEntryMode, setClaudeEntryMode] = useState<ClaudeConfigEntryMode>('wizard')
 
   const handleReload = async () => {
@@ -75,6 +78,18 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     }
   }
 
+  const handleInstallMcp = async (agent: AiConfigAgent) => {
+    setInstallingMcpAgent(agent)
+    try {
+      await desktopApi.installAgentMcp(agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini')
+      await handleReload()
+    } catch (err) {
+      console.error('Failed to install MCP bridge', err)
+    } finally {
+      setInstallingMcpAgent(null)
+    }
+  }
+
   if (!snapshot) {
     return <div className="ai-providers-loading">{t(locale, '加载中...', 'Loading...')}</div>
   }
@@ -92,8 +107,12 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
             agent={agent}
             selected={selectedAgentId === agent.agent}
             onSelect={() => setSelectedAgentId(agent.agent)}
-            installing={installingAgent === agent.agent}
+            installingCli={installingAgent === agent.agent}
             onInstall={() => void handleInstall(agent.agent)}
+            onOpenEnhancements={() => {
+              setSelectedAgentId(agent.agent)
+              setServiceAgentId(agent.agent)
+            }}
             onConfigure={() => {
               setSelectedAgentId(agent.agent)
               if (agent.agent === 'claude') {
@@ -154,6 +173,16 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
           onInstall={() => void handleInstall(configAgentId)}
           onReload={handleReload}
           onClose={() => setConfigAgentId(null)}
+        />
+      )}
+
+      {serviceAgentId && (
+        <AgentEnhancementsModal
+          locale={locale}
+          agent={snapshot.snapshot.agents.find((item) => item.agent === serviceAgentId) ?? null}
+          installingMcp={installingMcpAgent === serviceAgentId}
+          onInstallMcp={() => void handleInstallMcp(serviceAgentId)}
+          onClose={() => setServiceAgentId(null)}
         />
       )}
     </section>

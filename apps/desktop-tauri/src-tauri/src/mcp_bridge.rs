@@ -31,22 +31,12 @@ const BRIDGE_HOST: &str = "127.0.0.1";
 const BRIDGE_RUNTIME_RELATIVE_PATH: &str = ".gtoffice/mcp/runtime.json";
 const BRIDGE_DIRECTORY_RELATIVE_PATH: &str = ".gtoffice/mcp/directory.json";
 const BRIDGE_VERSION: &str = "0.1.0";
-const MCP_SERVER_ID: &str = "gto-agent-bridge";
 const MCP_SIDECAR_NAME: &str = "gto-agent-mcp-sidecar";
-const MCP_NPX_COMMAND_DEFAULT: &str = "npx";
-const MCP_NPX_PACKAGE_DEFAULT: &str = "@gtoffice/agent-mcp-bridge";
 
 #[derive(Debug, Clone)]
 struct McpCommandSpec {
     command: String,
     args: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum McpInstallMode {
-    Auto,
-    Local,
-    Npx,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,8 +151,6 @@ async fn run_bridge(app: AppHandle, state: AppState) -> Result<(), String> {
 
     write_runtime_file(&addr, &token, mcp_command.as_ref())
         .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: write runtime failed: {error}"))?;
-    try_auto_install(mcp_command.as_ref());
-
     info!(addr = %addr, "mcp bridge listening");
 
     loop {
@@ -827,116 +815,6 @@ fn chrono_like_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-#[derive(Debug)]
-struct InstallTargetReport {
-    target: &'static str,
-    path: PathBuf,
-    ok: bool,
-    message: Option<String>,
-}
-
-fn try_auto_install(command: Option<&McpCommandSpec>) {
-    if env::var("GTO_MCP_AUTO_INSTALL")
-        .ok()
-        .is_some_and(|value| value == "0" || value.eq_ignore_ascii_case("false"))
-    {
-        return;
-    }
-
-    let Some(command) = resolve_install_command(command) else {
-        warn!("skip MCP auto install because no command candidate is available");
-        return;
-    };
-
-    let marker_path = runtime_file_path()
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(".installer.stamp");
-    let stamp_value = format!(
-        "{}|{}|{}",
-        BRIDGE_VERSION,
-        command.command,
-        command.args.join("\u{1f}")
-    );
-    if fs::read_to_string(&marker_path).ok().as_deref() == Some(stamp_value.as_str()) {
-        return;
-    }
-
-    match install_cli_configs(&command) {
-        Ok(reports) => {
-            for report in reports {
-                if report.ok {
-                    info!(target = report.target, path = %report.path.display(), "mcp config installed");
-                } else {
-                    warn!(
-                        target = report.target,
-                        path = %report.path.display(),
-                        reason = %report.message.unwrap_or_else(|| "unknown".to_string()),
-                        "mcp config install failed"
-                    );
-                }
-            }
-            let _ = fs::write(marker_path, stamp_value.as_bytes());
-            info!("mcp installer executed successfully");
-        }
-        Err(error) => warn!(error = %error, "failed to install MCP configs"),
-    }
-}
-
-fn resolve_install_command(local_command: Option<&McpCommandSpec>) -> Option<McpCommandSpec> {
-    match resolve_install_mode() {
-        McpInstallMode::Local => local_command.cloned().or_else(resolve_npx_install_command),
-        McpInstallMode::Npx => resolve_npx_install_command().or_else(|| local_command.cloned()),
-        McpInstallMode::Auto => {
-            if cfg!(debug_assertions) {
-                local_command.cloned().or_else(resolve_npx_install_command)
-            } else {
-                resolve_npx_install_command().or_else(|| local_command.cloned())
-            }
-        }
-    }
-}
-
-fn resolve_install_mode() -> McpInstallMode {
-    match env::var("GTO_MCP_INSTALL_MODE")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("local") => McpInstallMode::Local,
-        Some("npx") => McpInstallMode::Npx,
-        _ => McpInstallMode::Auto,
-    }
-}
-
-fn resolve_npx_install_command() -> Option<McpCommandSpec> {
-    let command = env::var("GTO_MCP_NPX_COMMAND")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| MCP_NPX_COMMAND_DEFAULT.to_string());
-    let package_name = env::var("GTO_MCP_NPX_PACKAGE")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| MCP_NPX_PACKAGE_DEFAULT.to_string());
-    if package_name.trim().is_empty() {
-        return None;
-    }
-
-    let version = env::var("GTO_MCP_NPX_VERSION")
-        .ok()
-        .unwrap_or_else(|| BRIDGE_VERSION.to_string());
-    let package_spec = if version.trim().is_empty() || version.eq_ignore_ascii_case("latest") {
-        package_name
-    } else {
-        format!("{package_name}@{version}")
-    };
-
-    Some(McpCommandSpec {
-        command,
-        args: vec!["-y".to_string(), package_spec, "serve".to_string()],
-    })
-}
-
 fn resolve_mcp_command(app: &AppHandle) -> Option<McpCommandSpec> {
     if let Ok(command) = env::var("GTO_MCP_COMMAND") {
         let trimmed = command.trim();
@@ -1023,142 +901,4 @@ fn find_sidecar_binary(dir: &Path) -> Option<PathBuf> {
     }
 
     None
-}
-
-fn install_cli_configs(command: &McpCommandSpec) -> Result<Vec<InstallTargetReport>, String> {
-    let home_dir = user_home_dir()
-        .ok_or_else(|| "MCP_INSTALL_HOME_UNAVAILABLE: unable to resolve user home".to_string())?;
-
-    let targets = vec![
-        ("claude", home_dir.join(".claude/settings.json"), true),
-        ("codex", home_dir.join(".codex/config.toml"), false),
-        ("gemini", home_dir.join(".gemini/settings.json"), true),
-        ("qwen", home_dir.join(".qwen/settings.json"), true),
-    ];
-
-    let mut reports = Vec::new();
-    for (target, path, json_config) in targets {
-        let result = if json_config {
-            install_json_client_config(&path, command)
-        } else {
-            install_codex_toml_config(&path, command)
-        };
-
-        match result {
-            Ok(()) => reports.push(InstallTargetReport {
-                target,
-                path,
-                ok: true,
-                message: None,
-            }),
-            Err(error) => reports.push(InstallTargetReport {
-                target,
-                path,
-                ok: false,
-                message: Some(error),
-            }),
-        }
-    }
-
-    Ok(reports)
-}
-
-fn install_json_client_config(path: &Path, command: &McpCommandSpec) -> Result<(), String> {
-    let mut root = if path.exists() {
-        let raw = fs::read_to_string(path)
-            .map_err(|error| format!("MCP_INSTALL_READ_FAILED: {error}"))?;
-        serde_json::from_str::<Value>(&raw)
-            .map_err(|error| format!("MCP_INSTALL_JSON_INVALID: {error}"))?
-    } else {
-        json!({})
-    };
-
-    if !root.is_object() {
-        return Err("MCP_INSTALL_JSON_INVALID: root must be object".to_string());
-    }
-
-    let object = root
-        .as_object_mut()
-        .ok_or_else(|| "MCP_INSTALL_JSON_INVALID: root must be object".to_string())?;
-    let mcp_servers = object
-        .entry("mcpServers".to_string())
-        .or_insert_with(|| json!({}));
-    if !mcp_servers.is_object() {
-        *mcp_servers = json!({});
-    }
-    let mcp_servers_object = mcp_servers
-        .as_object_mut()
-        .ok_or_else(|| "MCP_INSTALL_JSON_INVALID: mcpServers must be object".to_string())?;
-
-    mcp_servers_object.insert(
-        MCP_SERVER_ID.to_string(),
-        json!({
-            "command": command.command,
-            "args": command.args,
-            "env": {
-                "GTO_MCP_RUNTIME_FILE": runtime_file_path(),
-            },
-        }),
-    );
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("MCP_INSTALL_WRITE_FAILED: {error}"))?;
-    }
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(&root)
-            .map_err(|error| format!("MCP_INSTALL_JSON_INVALID: {error}"))?,
-    )
-    .map_err(|error| format!("MCP_INSTALL_WRITE_FAILED: {error}"))?;
-    Ok(())
-}
-
-fn install_codex_toml_config(path: &Path, command: &McpCommandSpec) -> Result<(), String> {
-    let mut current = if path.exists() {
-        fs::read_to_string(path).map_err(|error| format!("MCP_INSTALL_READ_FAILED: {error}"))?
-    } else {
-        String::new()
-    };
-
-    let begin = "# BEGIN gto-agent-bridge";
-    let end = "# END gto-agent-bridge";
-    let args_literal = command
-        .args
-        .iter()
-        .map(|value| toml_quote(value))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let runtime_path_literal = toml_quote(runtime_file_path().to_string_lossy().as_ref());
-    let block = format!(
-        "{begin}\n[mcp_servers.{MCP_SERVER_ID}]\ncommand = {}\nargs = [{args_literal}]\nenv = {{ GTO_MCP_RUNTIME_FILE = {runtime_path_literal} }}\nstartup_timeout_sec = 20\n{end}\n",
-        toml_quote(&command.command),
-    );
-
-    match (current.find(begin), current.find(end)) {
-        (Some(begin_index), Some(end_index)) if end_index > begin_index => {
-            let replace_end = end_index + end.len();
-            current = format!(
-                "{}{}{}",
-                &current[..begin_index],
-                block,
-                &current[replace_end..]
-            );
-        }
-        _ => {
-            if !current.is_empty() && !current.ends_with('\n') {
-                current.push('\n');
-            }
-            current.push_str(&block);
-        }
-    }
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("MCP_INSTALL_WRITE_FAILED: {error}"))?;
-    }
-    fs::write(path, current).map_err(|error| format!("MCP_INSTALL_WRITE_FAILED: {error}"))?;
-    Ok(())
-}
-
-fn toml_quote(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }

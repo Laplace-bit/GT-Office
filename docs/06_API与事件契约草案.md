@@ -156,7 +156,9 @@ MCP Bridge（T-171）：
 | `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `ai_config.switch_saved_claude_provider` | `workspaceId,savedProviderId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady` |
+| `agent_mcp_install_status` | `agent` | `installed` |
 | `install_agent` | `agent` | `ok`（成功后前端需重新查询 `agent_install_status`） |
+| `install_agent_mcp` | `agent` | `ok`（成功后前端需重新查询 `ai_config.read_snapshot` 或 `agent_mcp_install_status`） |
 
 AI Config 约束（T-171）：
 1. v1 仅 Claude 支持进阶供应商配置；Codex/Gemini 只返回轻量引导信息。
@@ -174,6 +176,12 @@ AI Config 约束（T-171）：
 13. `savedProviders[]` 的返回顺序必须稳定反映“保存顺序”；从列表切换当前配置时只能更新 `isActive` 和应用结果，不能因为激活状态变化把目标项重排到数组前面。
 14. `settings.values.ui.taskQuickDispatch.opacity` 用于控制全局任务派发浮层面板透明度，建议范围 `0.55 - 1.00`。
 15. `settings.values.keybindings.overrides[]` 中允许命令 `task.center.quick_dispatch`；默认键位为 `Mod+Shift+K`，用于任意主界面唤起全局任务派发浮层。
+16. `AiAgentSnapshotCard` 必须返回 `mcpInstalled`，供设置页在每个 agent 项中单独展示 MCP 状态。
+17. `install_agent` 只负责安装 CLI，本身不得再触发 MCP 安装。
+18. `install_agent_mcp` 必须支持按单个 agent 定向安装 MCP 配置，不得隐式修改其他 agent 的配置文件。
+19. 设置页 UI 必须将 MCP 收口到“增强服务”弹窗中，不在 agent 卡片主操作区直接暴露原始 MCP 状态术语。
+20. “增强服务”弹窗至少预留 `MCP` 与 `Skills` 两个 tab；当前版本只有 `MCP` tab 具备真实服务项。
+21. 当 `mcpInstalled=true` 但 `installStatus.installed=false` 时，前端必须显示“已预配置，待 CLI 可用”之类的依赖态，而不是直接显示“已安装”。
 
 ### 3.7 Agent / Hook / Policy / Observability
 

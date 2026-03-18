@@ -8,6 +8,7 @@ function parseArgs(argv) {
     homeDir: undefined,
     workspaceRoot: undefined,
     installMode: undefined,
+    targets: [],
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -43,6 +44,15 @@ function parseArgs(argv) {
       index += 1
       continue
     }
+    if (value === '--target') {
+      const next = argv[index + 1]
+      if (!next) {
+        throw new Error('--target requires a value')
+      }
+      options.targets.push(next)
+      index += 1
+      continue
+    }
     throw new Error(`unknown option: ${value}`)
   }
 
@@ -61,6 +71,7 @@ const result = await installAll({
   homeDir: options.homeDir,
   workspaceRoot: options.workspaceRoot,
   installMode: options.installMode,
+  targets: options.targets,
 })
 if (!options.quiet) {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

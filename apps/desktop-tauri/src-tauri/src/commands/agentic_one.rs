@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager};
 
@@ -9,6 +10,11 @@ use crate::process_utils::configure_std_command;
 #[tauri::command]
 pub fn agent_install_status(agent: AgentType) -> Result<AgentInstallStatus, String> {
     Ok(AgentInstaller::install_status(agent))
+}
+
+#[tauri::command]
+pub fn agent_mcp_install_status(agent: AgentType) -> Result<bool, String> {
+    Ok(check_mcp_installed(agent))
 }
 
 #[tauri::command]
@@ -91,51 +97,9 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
         window
             .emit(
                 &progress_event,
-                format!("✅ {} base tool installed. Configuring MCP bridge...", name),
+                format!("✅ {} installed.", name),
             )
             .unwrap();
-
-        // Run MCP installer
-        let resource_path = window
-            .app_handle()
-            .path()
-            .resource_dir()
-            .unwrap_or_default();
-        let installer_script =
-            resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
-
-        // Fallback to relative path if resource_dir doesn't work (e.g. in dev)
-        let installer_path = if installer_script.exists() {
-            installer_script
-        } else {
-            std::path::PathBuf::from("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs")
-        };
-
-        let mut mcp_cmd = Command::new("node");
-        configure_std_command(&mut mcp_cmd);
-        mcp_cmd.arg(installer_path);
-
-        let mcp_status = mcp_cmd
-            .status()
-            .map_err(|e| format!("MCP installer failed to start: {}", e))?;
-        if mcp_status.success() {
-            window
-                .emit(
-                    &progress_event,
-                    format!("🎉 {} fully deployed with MCP bridge and default GT Office communication rules!", name),
-                )
-                .unwrap();
-        } else {
-            window
-                .emit(
-                    &progress_event,
-                    format!(
-                        "⚠️ {} installed, but MCP bridge configuration failed.",
-                        name
-                    ),
-                )
-                .unwrap();
-        }
 
         Ok(())
     } else {
@@ -145,4 +109,96 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
             status.code()
         ))
     }
+}
+
+#[tauri::command]
+pub async fn install_agent_mcp(window: tauri::Window, agent: AgentType) -> Result<(), String> {
+    if check_mcp_installed(agent) {
+        return Ok(());
+    }
+
+    let (name, event_id) = match agent {
+        AgentType::ClaudeCode => ("Claude Code", "claude"),
+        AgentType::Codex => ("Codex CLI", "codex"),
+        AgentType::Gemini => ("Gemini CLI", "gemini"),
+    };
+
+    let progress_event = format!("install-progress:{event_id}");
+    window
+        .emit(
+            &progress_event,
+            format!("🚀 Installing GT Office MCP bridge for {name}..."),
+        )
+        .unwrap();
+
+    let installer_path = resolve_mcp_installer_path(&window);
+    let target = match agent {
+        AgentType::ClaudeCode => "claude",
+        AgentType::Codex => "codex",
+        AgentType::Gemini => "gemini",
+    };
+
+    let mut mcp_cmd = Command::new("node");
+    configure_std_command(&mut mcp_cmd);
+    mcp_cmd.arg(installer_path).arg("--target").arg(target);
+
+    let mcp_status = mcp_cmd
+        .status()
+        .map_err(|e| format!("MCP installer failed to start: {}", e))?;
+    if !mcp_status.success() {
+        return Err(format!(
+            "MCP installer exited with error code: {:?}",
+            mcp_status.code()
+        ));
+    }
+
+    window
+        .emit(
+            &progress_event,
+            format!("✅ GT Office MCP bridge installed for {name}."),
+        )
+        .unwrap();
+    Ok(())
+}
+
+fn resolve_mcp_installer_path(window: &tauri::Window) -> PathBuf {
+    let resource_path = window.app_handle().path().resource_dir().unwrap_or_default();
+    let installer_script = resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
+    if installer_script.exists() {
+        installer_script
+    } else {
+        PathBuf::from("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs")
+    }
+}
+
+fn user_home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+}
+
+fn check_mcp_installed(agent: AgentType) -> bool {
+    let Some(home) = user_home_dir() else {
+        return false;
+    };
+
+    let paths = match agent {
+        AgentType::ClaudeCode => vec![home.join(".claude.json"), home.join(".claude").join("settings.json")],
+        AgentType::Codex => vec![home.join(".codex").join("config.toml")],
+        AgentType::Gemini => vec![home.join(".gemini").join("settings.json")],
+    };
+
+    paths.iter().any(|path| file_contains_bridge_marker(path))
+}
+
+fn file_contains_bridge_marker(path: &Path) -> bool {
+    path.exists()
+        && std::fs::read_to_string(path)
+            .map(|content| content.contains("gto-agent-bridge"))
+            .unwrap_or(false)
 }

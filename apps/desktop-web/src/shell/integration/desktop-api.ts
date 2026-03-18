@@ -506,6 +506,7 @@ export interface AiAgentSnapshotCard {
   title: string
   subtitle: string
   installStatus: AiAgentInstallStatus
+  mcpInstalled: boolean
   configStatus: AiAgentConfigStatus
   activeSummary?: string | null
 }
@@ -1483,8 +1484,14 @@ export const desktopApi = {
   agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
+  agentMcpInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+    return invokeCommand<boolean>('agent_mcp_install_status', { agent })
+  },
   installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent', { agent })
+  },
+  installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+    return invokeCommand<void>('install_agent_mcp', { agent })
   },
   terminalWrite(sessionId: string, input: string) {
     return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write', {
