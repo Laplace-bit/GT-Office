@@ -295,6 +295,14 @@ function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
 }
 
+function shouldPreventDesktopBrowserShortcut(event: KeyboardEvent): boolean {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+    return false
+  }
+  const key = event.key.toLowerCase()
+  return key === 'r' || key === '+' || key === '=' || key === '-' || key === '0'
+}
+
 function clampCanvasLayoutValue(value: number): number {
   return Math.max(CANVAS_LAYOUT_MIN, Math.min(CANVAS_LAYOUT_MAX, Math.round(value)))
 }
@@ -4320,9 +4328,8 @@ export function ShellRoot() {
         return
       }
 
-      // Prevent WebView default browser shortcuts in desktop runtime.
-      const key = event.key.toLowerCase()
-      if (desktopApi.isTauriRuntime() && (key === 'r' || key === '+' || key === '=' || key === '-' || key === '0')) {
+      // Prevent desktop WebView reload/zoom shortcuts without swallowing plain text input.
+      if (desktopApi.isTauriRuntime() && shouldPreventDesktopBrowserShortcut(event)) {
         event.preventDefault()
         event.stopPropagation()
       }
