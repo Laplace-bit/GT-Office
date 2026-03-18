@@ -231,7 +231,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     preloadDiff,
   } = controller
 
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    commit: true,
+    branches: true,
+    stash: true,
+  })
+  const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   const fileVirtualizer = useVirtualizer({
@@ -244,6 +250,28 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const toggleSection = useCallback((key: string) => {
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
+
+  useEffect(() => {
+    const contentElement = contentRef.current
+    if (!contentElement) {
+      return
+    }
+
+    const updateChangesSectionHeight = () => {
+      if (collapsedSections.changes) {
+        setChangesSectionHeight(null)
+        return
+      }
+      setChangesSectionHeight(Math.max(180, Math.floor(contentElement.clientHeight * 0.5)))
+    }
+
+    updateChangesSectionHeight()
+    const observer = new ResizeObserver(updateChangesSectionHeight)
+    observer.observe(contentElement)
+    return () => {
+      observer.disconnect()
+    }
+  }, [collapsedSections.changes])
 
   // Memoized callbacks for file actions
   const handleSelectPath = useCallback((path: string) => selectPath(path), [selectPath])
@@ -300,9 +328,12 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
       {errorMessage ? <div className="git-pane__error">{errorMessage}</div> : null}
 
       {/* Scrollable content area */}
-      <div className="git-pane__content">
+      <div ref={contentRef} className="git-pane__content">
         {/* Changes Section */}
-        <section className="git-section">
+        <section
+          className={`git-section git-section--changes ${!collapsedSections.changes ? 'git-section--expanded' : ''}`}
+          style={!collapsedSections.changes && changesSectionHeight ? { height: `${changesSectionHeight}px` } : undefined}
+        >
           <GitSectionHeader
             title={t(locale, 'git.files.title')}
             count={totalFiles}
@@ -381,7 +412,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         </section>
 
         {/* Commit Section */}
-        <section className="git-section">
+        <section className={`git-section ${!collapsedSections.commit ? 'git-section--expanded' : ''}`}>
           <GitSectionHeader
             title={t(locale, 'git.commit.title')}
             collapsed={collapsedSections.commit}
@@ -420,7 +451,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         </section>
 
         {/* Branch Section */}
-        <section className="git-section">
+        <section className={`git-section ${!collapsedSections.branches ? 'git-section--expanded' : ''}`}>
           <GitSectionHeader
             title={t(locale, 'git.branch.title')}
             count={branches.length}
@@ -480,7 +511,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         </section>
 
         {/* Stash Section */}
-        <section className="git-section">
+        <section className={`git-section ${!collapsedSections.stash ? 'git-section--expanded' : ''}`}>
           <GitSectionHeader
             title={t(locale, 'git.stash.title')}
             count={stashEntries.length}

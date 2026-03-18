@@ -220,8 +220,7 @@
 .git-pane__content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -235,6 +234,36 @@
   border-top: 1px solid color-mix(in srgb, var(--vb-border) 84%, transparent);
   background: transparent;
   overflow: clip;
+}
+
+.git-section--expanded {
+  flex: 1;
+  min-height: 0;
+}
+
+.git-section--changes.git-section--expanded {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.git-section--changes.git-section--expanded .git-file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.git-section--expanded .git-section__content {
+  flex: 1;
+  min-height: 0;
+}
+
+.git-section--expanded .git-file-list,
+.git-section--expanded .git-stash-list {
+  flex: 1;
+  max-height: none;
+}
+
+.git-section--expanded .git-file-list {
+  min-height: 180px;
 }
 
 .git-pane__content > .git-section:first-child {
