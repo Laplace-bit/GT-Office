@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { AppIcon } from '@shell/ui/icons'
 import type { AgentStation } from '@features/workspace-hub'
@@ -76,6 +76,20 @@ function resolveMentionRange(value: string, cursor: number): MentionRange | null
   }
 } 
 
+const DEFAULT_ROOT_FONT_SIZE = 14
+
+function getRootFontSize(): number {
+  if (typeof window === 'undefined') {
+    return DEFAULT_ROOT_FONT_SIZE
+  }
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_ROOT_FONT_SIZE
+}
+
+function toRem(value: number): string {
+  return `${value / getRootFontSize()}rem`
+}
+
 function TaskCenterPaneView({
   locale,
   stations,
@@ -132,10 +146,21 @@ function TaskCenterPaneView({
         return
       }
       const rect = trigger.getBoundingClientRect()
+      const viewportPadding = 16
+      const minWidth = 320
+      const viewportWidth = window.innerWidth
+      const width = Math.min(
+        Math.max(rect.width, minWidth),
+        Math.max(minWidth, viewportWidth - viewportPadding * 2),
+      )
+      const left = Math.min(
+        Math.max(rect.left, viewportPadding),
+        Math.max(viewportPadding, viewportWidth - width - viewportPadding),
+      )
       setTargetPopoverStyle({
         top: rect.bottom + 6,
-        left: rect.left,
-        width: rect.width,
+        left,
+        width,
       })
     }
     updatePosition()
@@ -174,8 +199,14 @@ function TaskCenterPaneView({
     if (!textarea) {
       return
     }
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
+    const syncHeight = () => {
+      textarea.style.height = 'auto'
+      textarea.style.height = toRem(textarea.scrollHeight)
+    }
+    syncHeight()
+    const observer = new ResizeObserver(syncHeight)
+    observer.observe(textarea)
+    return () => observer.disconnect()
   }, [draft.markdown])
 
   const syncMentionState = (value: string, cursor: number) => {
@@ -289,12 +320,13 @@ function TaskCenterPaneView({
         ? createPortal(
             <div
               className="task-center-target-popover-portal"
-              style={{
-                position: 'fixed',
-                top: `${targetPopoverStyle.top}px`,
-                left: `${targetPopoverStyle.left}px`,
-                width: `${targetPopoverStyle.width}px`,
-              }}
+              style={
+                {
+                  '--task-center-target-popover-top': toRem(targetPopoverStyle.top),
+                  '--task-center-target-popover-left': toRem(targetPopoverStyle.left),
+                  '--task-center-target-popover-width': toRem(targetPopoverStyle.width),
+                } as CSSProperties
+              }
             >
               <div className="task-center-target-popover-tools">
                 <input

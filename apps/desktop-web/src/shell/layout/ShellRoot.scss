@@ -1,13 +1,13 @@
-@use "sass:color";
+@use '../../styles/tokens/responsive' as *;
 
 .agent-shell {
-  height: 100vh;
-  min-height: 100vh;
-  max-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--vb-space-2xs);
   padding: 0;
   overflow: hidden;
   background:
@@ -17,7 +17,7 @@
   transition: background-color 0.3s ease;
 
   :root[data-vb-platform='macos'] & {
-    padding-top: 4px;
+    padding-top: var(--vb-space-2xs);
   }
 }
 
@@ -34,7 +34,7 @@
   overflow: hidden;
   display: flex;
   align-items: stretch;
-  gap: 4px;
+  gap: var(--vb-space-2xs);
 }
 
 .shell-top-slot {
@@ -45,21 +45,21 @@
 
 .telegram-debug-toast {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + #{rem(10)});
   right: 0;
-  width: min(420px, calc(100vw - 24px));
-  padding: 14px 16px 12px;
-  border-radius: 18px;
-  border: 1px solid var(--vb-border-strong);
+  width: min(#{rem(420)}, calc(100vw - var(--vb-space-xl)));
+  padding: #{rem(14)} var(--vb-space-lg) var(--vb-space-md);
+  border-radius: #{rem(18)};
+  border: var(--vb-border-width) solid var(--vb-border-strong);
   background: color-mix(in srgb, var(--vb-surface-elevated) 86%, transparent);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(#{rem(28)}) saturate(180%);
+  -webkit-backdrop-filter: blur(#{rem(28)}) saturate(180%);
+  box-shadow: 0 #{rem(24)} #{rem(48)} rgba(15, 23, 42, 0.18);
   pointer-events: auto;
 
   p {
     margin: 0;
-    font-size: 12px;
+    font-size: #{rem(12)};
     line-height: 1.45;
     color: var(--vb-text-muted);
   }
@@ -69,20 +69,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: var(--vb-space-md);
+  margin-bottom: #{rem(10)};
 
   strong {
-    font-size: 13px;
+    font-size: #{rem(13)};
     color: var(--vb-text);
     letter-spacing: 0.01em;
   }
 
   button {
-    width: 24px;
-    height: 24px;
-    border-radius: 999px;
-    border: 1px solid var(--vb-border-subtle);
+    width: var(--vb-size-control-sm);
+    height: var(--vb-size-control-sm);
+    border-radius: var(--vb-radius-full);
+    border: var(--vb-border-width) solid var(--vb-border-subtle);
     background: var(--vb-chip);
     color: var(--vb-text-muted);
     display: inline-flex;
@@ -98,16 +98,16 @@
 }
 
 .telegram-debug-toast-time {
-  margin-top: 10px !important;
+  margin-top: #{rem(10)} !important;
   font-family: var(--vb-font-mono);
   letter-spacing: 0.02em;
   color: var(--vb-text-subtle);
 }
 
 .shell-rail-slot {
-  width: 64px;
-  min-width: 64px;
-  max-width: 64px;
+  width: #{rem(64)};
+  min-width: #{rem(64)};
+  max-width: #{rem(64)};
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -115,18 +115,18 @@
 }
 
 .shell-left-pane {
-  width: var(--shell-left-pane-width, 270px);
-  min-width: 198px;
-  max-width: 420px;
+  width: var(--shell-left-pane-width, #{rem(270)});
+  min-width: var(--vb-platform-pane-min-width);
+  max-width: #{rem(420)};
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  border-radius: 18px;
+  border-radius: #{rem(18)};
   background: var(--vb-glass-light);
-  backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid var(--vb-border-subtle);
+  backdrop-filter: blur(#{rem(32)}) saturate(180%);
+  -webkit-backdrop-filter: blur(#{rem(32)}) saturate(180%);
+  border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-sm);
   transition: width 0.1s ease-out, background-color 0.3s ease;
   z-index: 5;
@@ -139,11 +139,11 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  border-radius: 18px;
+  border-radius: #{rem(18)};
   background: var(--vb-glass-light);
-  backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid var(--vb-border-subtle);
+  backdrop-filter: blur(#{rem(32)}) saturate(180%);
+  -webkit-backdrop-filter: blur(#{rem(32)}) saturate(180%);
+  border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-md);
   transition: background-color 0.3s ease;
 }
@@ -161,9 +161,9 @@
 }
 
 .shell-column-resizer {
-  width: 6px;
-  flex: 0 0 6px;
-  margin: 0 -3px;
+  width: var(--vb-space-xs);
+  flex: 0 0 var(--vb-space-xs);
+  margin: 0 calc(var(--vb-space-xs) / -2);
   cursor: col-resize;
   position: relative;
   z-index: 20;
@@ -175,9 +175,9 @@
     top: 20%;
     bottom: 20%;
     left: 50%;
-    width: 2px;
+    width: #{rem(2)};
     transform: translateX(-50%);
-    border-radius: 999px;
+    border-radius: var(--vb-radius-full);
     background: transparent;
     transition: background-color 0.2s ease;
   }
@@ -218,7 +218,7 @@
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: $breakpoint-medium) {
   .telegram-debug-toast {
     right: 0;
     left: 0;
@@ -226,11 +226,11 @@
   }
 
   .shell-rail-slot {
-    width: 58px;
-    min-width: 58px;
+    width: #{rem(58)};
+    min-width: #{rem(58)};
   }
   
   .shell-left-pane {
-    width: clamp(200px, 25vw, 260px);
+    width: clamp(#{rem(200)}, 25vw, #{rem(260)});
   }
 }

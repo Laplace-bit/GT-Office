@@ -1,0 +1,38 @@
+@use 'responsive' as *;
+
+:root {
+  // Spacing
+  --vb-space-2xs: #{rem(4)};
+  --vb-space-xs: #{rem(6)};
+  --vb-space-sm: #{rem(8)};
+  --vb-space-md: #{rem(12)};
+  --vb-space-lg: #{rem(16)};
+  --vb-space-xl: #{rem(24)};
+
+  // Radius
+  --vb-radius-xs: #{rem(6)};
+  --vb-radius-sm: #{rem(8)};
+  --vb-radius-md: #{rem(12)};
+  --vb-radius-lg: #{rem(16)};
+  --vb-radius-xl: #{rem(20)};
+  --vb-radius-full: 999rem;
+
+  // Icons
+  --vb-size-icon-sm: #{rem(12)};
+  --vb-size-icon-md: #{rem(14)};
+  --vb-size-icon-lg: #{rem(16)};
+
+  // Controls
+  --vb-size-control-sm: #{rem(24)};
+  --vb-size-control-md: #{rem(28)};
+  --vb-size-control-lg: #{rem(32)};
+
+  // Panes & Modals
+  --vb-pane-width-sm: #{fluid(196, 22vw, 252)};
+  --vb-pane-width-md: #{fluid(224, 25vw, 280)};
+  --vb-modal-width-md: #{fluid(476, 62vw, 672)};
+
+  // Border & Hairline
+  --vb-border-width: #{rem(1)};
+  --vb-hairline: #{rem(0.5)};
+}

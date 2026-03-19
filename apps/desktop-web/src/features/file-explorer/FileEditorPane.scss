@@ -1,3 +1,4 @@
+@use '../../styles/tokens/responsive' as *;
 @use "sass:color";
 
 .file-editor-pane {
@@ -6,40 +7,41 @@
   height: 100%;
   background: transparent;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 /* === Tabs Section === */
 .file-editor-tabs-wrapper {
   background: color-mix(in srgb, var(--vb-surface-muted) 15%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 15%, transparent);
-  padding: 4px 12px 0; /* 更紧凑的顶部间距 */
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 15%, transparent);
+  padding: var(--vb-space-2xs) var(--vb-space-md) 0;
   flex-shrink: 0;
 }
 
 .file-editor-tabs {
   display: flex;
-  gap: 2px;
+  gap: var(--vb-space-2xs);
   overflow-x: auto;
   overflow-y: hidden;
   
   &::-webkit-scrollbar {
-    height: 2px;
+    height: var(--vb-space-2xs);
   }
 }
 
 .file-editor-tab {
-  height: 28px; /* 进一步压缩高度 */
-  min-width: 90px;
-  max-width: 160px;
+  height: #{rem(28)};
+  min-width: #{rem(90)};
+  max-width: #{rem(160)};
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 var(--vb-space-sm);
   background: transparent;
-  border-radius: 6px 6px 0 0;
-  border: 1px solid transparent;
+  border-radius: var(--vb-radius-sm) var(--vb-radius-sm) 0 0;
+  border: var(--vb-border-width) solid transparent;
   border-bottom: none;
-  font-size: 11px;
+  font-size: #{rem(11)};
   color: var(--vb-text-muted);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -53,7 +55,7 @@
   
   &.active {
     background: color-mix(in srgb, var(--vb-surface) 95%, transparent);
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(#{rem(8)});
     border-color: color-mix(in srgb, var(--vb-border) 25%, transparent);
     color: var(--vb-accent);
     font-weight: 600;
@@ -61,10 +63,10 @@
     &::after {
       content: '';
       position: absolute;
-      bottom: -1px;
+      bottom: calc(-1 * var(--vb-border-width));
       left: 0;
       right: 0;
-      height: 1px;
+      height: var(--vb-border-width);
       background: var(--vb-surface);
       z-index: 2;
     }
@@ -74,31 +76,31 @@
 .file-editor-tab-name {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--vb-space-xs);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .file-editor-tab-modified {
-  width: 5px;
-  height: 5px;
+  width: #{rem(5)};
+  height: #{rem(5)};
   border-radius: 50%;
   background: var(--vb-accent);
-  box-shadow: 0 0 6px var(--vb-accent);
+  box-shadow: 0 0 #{rem(6)} var(--vb-accent);
   flex: 0 0 auto;
 }
 
 .file-editor-tab-close {
-  width: 18px;
-  height: 18px;
+  width: #{rem(18)};
+  height: #{rem(18)};
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-left: 8px;
+  margin-left: var(--vb-space-sm);
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  border: var(--vb-border-width) solid transparent;
+  border-radius: var(--vb-radius-xs);
   background: transparent;
   color: color-mix(in srgb, var(--vb-text-muted) 88%, transparent);
   opacity: 0;
@@ -111,8 +113,8 @@
     transform 0.16s ease;
 
   svg {
-    width: 11px;
-    height: 11px;
+    width: #{rem(11)};
+    height: #{rem(11)};
     display: block;
   }
   
@@ -132,7 +134,7 @@
     opacity: 1;
     outline: none;
     border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vb-accent) 14%, transparent);
+    box-shadow: 0 0 0 #{rem(3)} color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 }
 
@@ -147,18 +149,18 @@
 
 /* === Info Bar (Minimal & Static) === */
 .file-editor-info-bar {
-  height: 26px; /* 极致压缩高度 */
+  height: #{rem(26)};
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
+  padding: 0 var(--vb-space-md);
   background: color-mix(in srgb, var(--vb-surface-muted) 5%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 10%, transparent);
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 10%, transparent);
   flex-shrink: 0;
 }
 
 .file-editor-mini-path {
-  font-size: 10px;
+  font-size: #{rem(10)};
   font-family: var(--vb-font-mono);
   color: var(--vb-text-muted);
   opacity: 0.6;
@@ -166,12 +168,12 @@
 }
 
 .file-editor-status {
-  padding: 1px 6px;
-  border-radius: 3px;
+  padding: #{rem(1)} var(--vb-space-xs);
+  border-radius: var(--vb-radius-2xs, #{rem(3)});
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  font-size: 9px;
+  font-size: #{rem(9)};
   
   &-saving { color: var(--vb-accent); }
   &-saved { color: #52c41a; }
@@ -193,7 +195,50 @@
   justify-content: center;
   height: 100%;
   color: var(--vb-text-muted);
-  font-size: 12px;
+  font-size: #{rem(12)};
   font-style: italic;
   opacity: 0.3;
+}
+
+@container (max-width: 34rem) {
+  .file-editor-tabs-wrapper {
+    padding-inline: var(--vb-space-sm);
+  }
+
+  .file-editor-tabs {
+    flex-wrap: wrap;
+    overflow-x: hidden;
+  }
+
+  .file-editor-tab {
+    min-width: #{rem(72)};
+    max-width: none;
+    flex: 1 1 #{rem(72)};
+  }
+
+  .file-editor-info-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    height: auto;
+    gap: var(--vb-space-2xs);
+    padding-block: var(--vb-space-2xs);
+  }
+
+  .file-editor-mini-path {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@container (max-width: 24rem) {
+  .file-editor-tab {
+    min-width: #{rem(64)};
+    padding-inline: var(--vb-space-xs);
+  }
+
+  .file-editor-tab-close {
+    margin-left: var(--vb-space-xs);
+  }
 }

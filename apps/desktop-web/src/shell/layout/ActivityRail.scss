@@ -1,12 +1,12 @@
-@use "sass:color";
+@use '../../styles/tokens/responsive' as *;
 
 .shell-rail-slot {
-  width: 64px;
-  min-width: 64px;
-  max-width: 64px;
+  width: #{rem(64)};
+  min-width: #{rem(64)};
+  max-width: #{rem(64)};
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--vb-space-md);
   z-index: 10;
 }
 
@@ -15,13 +15,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 16px 0;
-  border-radius: 18px;
+  gap: #{rem(14)};
+  padding: var(--vb-space-lg) 0;
+  border-radius: #{rem(18)};
   background: var(--vb-glass-light);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border: 1px solid var(--vb-border-subtle);
+  backdrop-filter: blur(#{rem(28)}) saturate(180%);
+  -webkit-backdrop-filter: blur(#{rem(28)}) saturate(180%);
+  border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-sm);
   user-select: none;
   overflow-y: auto;
@@ -33,14 +33,14 @@
 
 .activity-rail-icon-btn {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: #{rem(40)};
+  height: #{rem(40)};
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: 12px;
+  border-radius: var(--vb-radius-md);
   color: var(--vb-text-muted);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -56,19 +56,19 @@
   &.active {
     color: var(--vb-accent);
     background: var(--vb-accent-light);
-    border: 1px solid color-mix(in srgb, var(--vb-accent) 20%, transparent);
+    border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-accent) 20%, transparent);
     
     /* Apple style indicator - sophisticated glow */
     &::after {
       content: '';
       position: absolute;
-      left: -8px;
-      top: 10px;
-      bottom: 10px;
-      width: 3.5px;
+      left: calc(var(--vb-space-sm) * -1);
+      top: #{rem(10)};
+      bottom: #{rem(10)};
+      width: #{rem(3.5)};
       background: var(--vb-accent);
-      border-radius: 0 4px 4px 0;
-      box-shadow: 2px 0 10px color-mix(in srgb, var(--vb-accent) 50%, transparent);
+      border-radius: 0 var(--vb-radius-xs) var(--vb-radius-xs) 0;
+      box-shadow: #{rem(2)} 0 #{rem(10)} color-mix(in srgb, var(--vb-accent) 50%, transparent);
     }
   }
 
@@ -76,8 +76,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: #{rem(22)};
+    height: #{rem(22)};
     
     .vb-icon {
       width: 100%;
@@ -91,16 +91,16 @@
 .activity-rail-icon-btn[data-tooltip]::before {
   content: attr(data-tooltip);
   position: absolute;
-  left: calc(100% + 12px);
+  left: calc(100% + var(--vb-space-md));
   top: 50%;
-  transform: translateY(-50%) translateX(-8px);
-  padding: 5px 10px;
+  transform: translateY(-50%) translateX(-#{rem(8)});
+  padding: #{rem(5)} #{rem(10)};
   background: var(--vb-surface-elevated);
   color: var(--vb-text);
-  font-size: 11px;
+  font-size: #{rem(11)};
   font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid var(--vb-border-strong);
+  border-radius: var(--vb-radius-xs);
+  border: var(--vb-border-width) solid var(--vb-border-strong);
   box-shadow: var(--vb-shadow-md);
   opacity: 0;
   visibility: hidden;

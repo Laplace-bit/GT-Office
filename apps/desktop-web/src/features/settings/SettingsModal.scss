@@ -1,4 +1,4 @@
-@use "sass:color";
+@use '../../styles/tokens/responsive' as *;
 
 /* ========================================
    Settings Modal - Futuristic Apple Style
@@ -10,32 +10,33 @@
   inset: 0;
   z-index: 1000;
   background: color-mix(in srgb, var(--vb-bg) 40%, transparent);
-  backdrop-filter: blur(24px) saturate(120%);
-  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(#{rem(24)}) saturate(120%);
+  -webkit-backdrop-filter: blur(#{rem(24)}) saturate(120%);
   display: grid;
   place-items: center;
-  padding: 40px;
+  padding: #{rem(40)};
   animation: apple-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-settings-modal {
-  width: 860px;
-  max-width: calc(100vw - 48px);
-  height: 640px;
-  max-height: calc(100vh - 80px);
+  width: clamp(#{rem(640)}, 85vw, #{rem(860)});
+  max-width: calc(100vw - var(--vb-space-xl) * 2);
+  height: clamp(#{rem(480)}, 80dvh, #{rem(640)});
+  max-height: calc(100dvh - #{rem(80)});
   /* The core glass layer */
   background: color-mix(in srgb, var(--vb-surface) 75%, transparent);
-  backdrop-filter: blur(60px) saturate(180%);
-  -webkit-backdrop-filter: blur(60px) saturate(180%);
+  backdrop-filter: blur(#{rem(60)}) saturate(180%);
+  -webkit-backdrop-filter: blur(#{rem(60)}) saturate(180%);
   /* Glowing inner border effect */
-  border: 1px solid color-mix(in srgb, var(--vb-border) 60%, transparent);
-  border-radius: 20px;
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 60%, transparent);
+  border-radius: var(--vb-radius-xl);
   box-shadow: 
-    0 30px 80px rgba(0, 0, 0, 0.15),
-    0 10px 30px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4); /* High light top edge */
+    0 #{rem(30)} #{rem(80)} rgba(0, 0, 0, 0.15),
+    0 #{rem(10)} #{rem(30)} rgba(0, 0, 0, 0.1),
+    inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.4); /* High light top edge */
   display: flex;
   flex-direction: row !important;
+  container-type: inline-size;
   overflow: hidden;
   animation: apple-modal-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform, opacity;
@@ -43,10 +44,10 @@
 
 /* === Sidebar === */
 .settings-sidebar {
-  width: 240px;
+  width: #{rem(240)};
   /* Slightly more opaque to ground the sidebar */
   background: color-mix(in srgb, var(--vb-surface-muted) 40%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--vb-border) 40%, transparent);
+  border-right: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -55,10 +56,10 @@
 }
 
 .settings-sidebar-header {
-  padding: 28px 24px 20px;
+  padding: #{rem(28)} var(--vb-space-xl) #{rem(20)};
   h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: #{rem(18)};
     font-weight: 700;
     color: var(--vb-text);
     letter-spacing: -0.02em;
@@ -67,23 +68,23 @@
 
 .settings-sidebar-nav {
   flex: 1;
-  padding: 0 12px 24px;
+  padding: 0 var(--vb-space-md) var(--vb-space-xl);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--vb-space-2xs);
 }
 
 .settings-nav-item {
-  height: 38px;
+  height: #{rem(38)};
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 14px;
-  border-radius: 10px;
+  gap: var(--vb-space-md);
+  padding: 0 #{rem(14)};
+  border-radius: #{rem(10)};
   border: none;
   background: transparent;
   color: var(--vb-text-muted);
-  font-size: 13px;
+  font-size: #{rem(13)};
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -92,8 +93,8 @@
   overflow: hidden;
 
   svg {
-    width: 18px;
-    height: 18px;
+    width: #{rem(18)};
+    height: #{rem(18)};
     opacity: 0.7;
     transition: opacity 0.2s;
   }
@@ -113,7 +114,7 @@
     background: var(--vb-accent);
     color: white;
     font-weight: 600;
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--vb-accent) 40%, transparent);
+    box-shadow: 0 #{rem(2)} #{rem(8)} color-mix(in srgb, var(--vb-accent) 40%, transparent);
     
     svg { opacity: 1; }
   }
@@ -128,22 +129,23 @@
   min-width: 0;
   position: relative;
   z-index: 1;
+  container-type: inline-size;
 }
 
 .settings-content-header {
-  height: 72px;
+  height: #{rem(72)};
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
-  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 20%, transparent);
+  padding: 0 #{rem(32)};
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 20%, transparent);
   flex-shrink: 0;
   /* Very subtle gradient to separate header */
   background: linear-gradient(180deg, color-mix(in srgb, var(--vb-surface) 40%, transparent), transparent);
 
   h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: #{rem(18)};
     font-weight: 600;
     color: var(--vb-text);
     letter-spacing: -0.01em;
@@ -151,8 +153,8 @@
 }
 
 .settings-content-close {
-  width: 30px;
-  height: 30px;
+  width: #{rem(30)};
+  height: #{rem(30)};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -162,13 +164,13 @@
   color: var(--vb-text-muted);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  box-shadow: 0 #{rem(1)} #{rem(2)} rgba(0,0,0,0.05);
 
   &:hover {
     background: var(--vb-chip);
     color: var(--vb-text);
     transform: rotate(90deg) scale(1.1);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    box-shadow: 0 #{rem(2)} #{rem(6)} rgba(0,0,0,0.1);
   }
   
   &:active {
@@ -179,15 +181,15 @@
 .settings-content-body {
   flex: 1;
   overflow-y: auto;
-  padding: 32px;
+  padding: #{rem(32)};
 
   &::-webkit-scrollbar {
-    width: 8px;
+    width: var(--vb-space-sm);
   }
   &::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--vb-border) 40%, transparent);
-    border-radius: 10px;
-    border: 2px solid transparent;
+    border-radius: #{rem(10)};
+    border: calc(var(--vb-border-width) * 2) solid transparent;
     background-clip: content-box;
   }
   &::-webkit-scrollbar-thumb:hover {
@@ -199,8 +201,8 @@
 /* Typography Base for sections */
 .settings-pane-section {
   h4 {
-    margin: 0 0 20px;
-    font-size: 15px;
+    margin: 0 0 #{rem(20)};
+    font-size: #{rem(15)};
     font-weight: 600;
     color: var(--vb-text);
     letter-spacing: -0.01em;
@@ -210,46 +212,46 @@
 /* Reusing channel specific styles inside settings (from previous iteration) */
 .settings-channels-list-wrapper {
   .channel-manager-pane {
-    gap: 20px;
+    gap: #{rem(20)};
   }
 
   .channel-overview-top {
-    padding: 20px;
+    padding: #{rem(20)};
     background: color-mix(in srgb, var(--vb-surface-muted) 50%, transparent);
-    border-radius: 16px;
-    border: 1px solid color-mix(in srgb, var(--vb-border) 40%, transparent);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+    border-radius: var(--vb-radius-lg);
+    border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
+    box-shadow: 0 #{rem(2)} #{rem(10)} rgba(0,0,0,0.02);
   }
 
   .channel-bot-card {
-    border-radius: 16px;
+    border-radius: var(--vb-radius-lg);
     border-color: color-mix(in srgb, var(--vb-border) 40%, transparent);
     background: color-mix(in srgb, var(--vb-surface) 40%, transparent);
-    box-shadow: 0 2px 12px rgba(0,0,0,0.02);
+    box-shadow: 0 #{rem(2)} #{rem(12)} rgba(0,0,0,0.02);
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 
     &:hover {
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
-      transform: translateY(-2px);
+      box-shadow: 0 #{rem(8)} #{rem(24)} rgba(0, 0, 0, 0.06);
+      transform: translateY(-#{rem(2)});
       background: color-mix(in srgb, var(--vb-surface) 70%, transparent);
     }
   }
 
   .channel-bot-header {
     background: transparent;
-    border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 20%, transparent);
-    padding: 16px 20px;
+    border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 20%, transparent);
+    padding: var(--vb-space-lg) #{rem(20)};
   }
 }
 
 /* Animations */
 @keyframes apple-fade-in {
-  from { opacity: 0; backdrop-filter: blur(0px); }
-  to { opacity: 1; backdrop-filter: blur(24px); }
+  from { opacity: 0; backdrop-filter: blur(0rem); }
+  to { opacity: 1; backdrop-filter: blur(#{rem(24)}); }
 }
 
 @keyframes apple-modal-in {
-  0% { opacity: 0; transform: scale(0.9) translateY(30px); }
+  0% { opacity: 0; transform: scale(0.9) translateY(#{rem(30)}); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
@@ -263,8 +265,8 @@
     background: color-mix(in srgb, #1a1a1c 65%, transparent);
     border-color: rgba(255, 255, 255, 0.15);
     box-shadow: 
-      0 30px 80px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.15); /* Top reflection */
+      0 #{rem(30)} #{rem(80)} rgba(0, 0, 0, 0.5),
+      inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.15); /* Top reflection */
   }
 
   .settings-sidebar {
@@ -279,7 +281,7 @@
   .settings-content-close {
     background: rgba(255, 255, 255, 0.1);
     color: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: var(--vb-border-width) solid rgba(255, 255, 255, 0.05);
     
     &:hover {
       background: rgba(255, 255, 255, 0.2);
@@ -291,5 +293,37 @@
     &:hover:not(.active) {
       background: rgba(255, 255, 255, 0.08);
     }
+  }
+}
+
+@container (max-width: rem(60)) {
+  .app-settings-modal {
+    flex-direction: column !important;
+    width: min(100%, calc(100vw - var(--vb-space-xl) * 2));
+    height: auto;
+    max-height: calc(100dvh - #{rem(40)});
+  }
+
+  .settings-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
+  }
+
+  .settings-sidebar-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .settings-nav-item {
+    flex: 1 1 #{rem(160)};
+  }
+
+  .settings-content-header {
+    padding: 0 #{rem(20)};
+  }
+
+  .settings-content-body {
+    padding: #{rem(20)};
   }
 }

@@ -1,44 +1,47 @@
+@use '../../../../styles/tokens/responsive' as *;
+
 .light-agent-workspace {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: rem(20);
+  container-type: inline-size;
   animation: fade-in 0.3s ease-out;
 
   .workspace-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 4px;
+    padding: 0 rem(4);
 
     .header-main {
       display: flex;
-      gap: 16px;
+      gap: rem(16);
       align-items: center;
 
       .agent-icon {
-        width: 48px;
-        height: 48px;
+        width: rem(48);
+        height: rem(48);
         display: flex;
         align-items: center;
         justify-content: center;
         background: var(--vb-bg-tertiary);
-        border: 1px solid var(--vb-border-subtle);
-        border-radius: 12px;
-        font-size: 24px;
+        border: rem(1) solid var(--vb-border-subtle);
+        border-radius: rem(12);
+        font-size: rem(24);
       }
 
       .agent-info {
-        h3 { margin: 0; font-size: 18px; color: var(--vb-text-primary); }
-        p { margin: 0; font-size: 13px; color: var(--vb-text-tertiary); }
+        h3 { margin: 0; font-size: rem(18); color: var(--vb-text-primary); }
+        p { margin: 0; font-size: rem(13); color: var(--vb-text-tertiary); }
       }
     }
 
     .status-tag {
-      font-size: 11px;
+      font-size: rem(11);
       font-weight: 700;
       text-transform: uppercase;
-      padding: 4px 10px;
-      border-radius: 999px;
+      padding: rem(4) rem(10);
+      border-radius: rem(999);
       background: var(--vb-bg-tertiary);
       color: var(--vb-text-tertiary);
 
@@ -51,16 +54,16 @@
 
   .workspace-tabs {
     display: flex;
-    gap: 24px;
-    border-bottom: 1px solid var(--vb-border-subtle);
+    gap: rem(24);
+    border-bottom: rem(1) solid var(--vb-border-subtle);
     
     button {
-      padding: 8px 0 12px;
+      padding: rem(8) 0 rem(12);
       background: none;
       border: none;
-      border-bottom: 2px solid transparent;
+      border-bottom: rem(2) solid transparent;
       color: var(--vb-text-muted);
-      font-size: 14px;
+      font-size: rem(14);
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -75,19 +78,19 @@
   .light-stepper {
     display: flex;
     justify-content: center;
-    gap: 40px;
-    padding: 10px 0;
+    gap: rem(40);
+    padding: rem(10) 0;
 
     .step {
-      width: 24px;
-      height: 24px;
+      width: rem(24);
+      height: rem(24);
       border-radius: 50%;
       background: var(--vb-bg-tertiary);
-      border: 1px solid var(--vb-border-subtle);
+      border: rem(1) solid var(--vb-border-subtle);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 12px;
+      font-size: rem(12);
       font-weight: 700;
       color: var(--vb-text-tertiary);
       position: relative;
@@ -99,15 +102,15 @@
       }
 
       &.current {
-        box-shadow: 0 0 0 4px var(--vb-accent-light);
+        box-shadow: 0 0 0 rem(4) var(--vb-accent-light);
       }
 
       &:not(:last-child)::after {
         content: "";
         position: absolute;
-        left: 32px;
-        width: 24px;
-        height: 1px;
+        left: rem(32);
+        width: rem(24);
+        height: rem(1);
         background: var(--vb-border-subtle);
       }
     }
@@ -116,32 +119,32 @@
   .step-pane {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 24px;
+    gap: rem(20);
+    padding: rem(24);
     background: var(--vb-bg-secondary);
-    border: 1px solid var(--vb-border-subtle);
-    border-radius: 16px;
+    border: rem(1) solid var(--vb-border-subtle);
+    border-radius: rem(16);
     box-shadow: var(--vb-shadow-md);
 
-    h4 { margin: 0; font-size: 16px; }
-    p { margin: 0; font-size: 14px; color: var(--vb-text-tertiary); line-height: 1.5; }
+    h4 { margin: 0; font-size: rem(16); }
+    p { margin: 0; font-size: rem(14); color: var(--vb-text-tertiary); line-height: 1.5; }
 
     .readiness-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      gap: rem(16);
 
       .readiness-item {
-        padding: 16px;
+        padding: rem(16);
         background: var(--vb-bg-tertiary);
-        border-radius: 12px;
+        border-radius: rem(12);
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: rem(4);
 
-        span { font-size: 11px; text-transform: uppercase; color: var(--vb-text-tertiary); }
+        span { font-size: rem(11); text-transform: uppercase; color: var(--vb-text-tertiary); }
         strong { 
-          font-size: 15px; 
+          font-size: rem(15); 
           &.ok { color: #0f8f50; }
           &.warn { color: #d4af37; }
         }
@@ -151,12 +154,12 @@
     .field-group {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      label { font-size: 13px; font-weight: 600; }
+      gap: rem(8);
+      label { font-size: rem(13); font-weight: 600; }
       input {
-        padding: 10px 14px;
-        border-radius: 10px;
-        border: 1px solid var(--vb-border-subtle);
+        padding: rem(10) rem(14);
+        border-radius: rem(10);
+        border: rem(1) solid var(--vb-border-subtle);
         background: var(--vb-bg-primary);
         color: var(--vb-text-primary);
         &:focus { border-color: var(--vb-accent); outline: none; }
@@ -166,10 +169,10 @@
     .light-guide-panel {
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      padding: 16px;
-      border-radius: 12px;
-      border: 1px solid var(--vb-border-subtle);
+      gap: rem(14);
+      padding: rem(16);
+      border-radius: rem(12);
+      border: rem(1) solid var(--vb-border-subtle);
       background: var(--vb-bg-tertiary);
 
       .light-guide-summary {
@@ -179,12 +182,12 @@
       .light-guide-meta {
         display: flex;
         flex-wrap: wrap;
-        gap: 12px;
+        gap: rem(12);
 
         a {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
+          gap: rem(6);
           color: var(--vb-accent);
           text-decoration: none;
           font-weight: 600;
@@ -193,20 +196,20 @@
         .config-path-chip {
           display: inline-flex;
           align-items: center;
-          gap: 8px;
-          padding: 8px 10px;
-          border-radius: 10px;
+          gap: rem(8);
+          padding: rem(8) rem(10);
+          border-radius: rem(10);
           background: var(--vb-bg-primary);
-          border: 1px solid var(--vb-border-subtle);
+          border: rem(1) solid var(--vb-border-subtle);
 
           span {
-            font-size: 11px;
+            font-size: rem(11);
             text-transform: uppercase;
             color: var(--vb-text-tertiary);
           }
 
           code {
-            font-size: 12px;
+            font-size: rem(12);
             color: var(--vb-text-primary);
           }
         }
@@ -215,22 +218,59 @@
 
     .diff-box {
       background: var(--vb-bg-tertiary);
-      border-radius: 12px;
-      padding: 12px;
+      border-radius: rem(12);
+      padding: rem(12);
       .diff-row {
         display: flex;
         justify-content: space-between;
-        padding: 8px 0;
-        .label { color: var(--vb-text-tertiary); font-size: 13px; }
-        .val { color: var(--vb-accent); font-weight: 600; font-size: 13px; }
+        padding: rem(8) 0;
+        .label { color: var(--vb-text-tertiary); font-size: rem(13); }
+        .val { color: var(--vb-accent); font-weight: 600; font-size: rem(13); }
       }
     }
 
     .pane-actions {
       display: flex;
       justify-content: flex-end;
-      gap: 12px;
-      margin-top: 10px;
+      gap: rem(12);
+      margin-top: rem(10);
     }
+  }
+}
+
+@container (max-width: rem(56)) {
+  .light-agent-workspace {
+    gap: rem(16);
+  }
+
+  .light-agent-workspace .workspace-header,
+  .light-agent-workspace .workspace-header .header-main,
+  .light-agent-workspace .step-pane .readiness-grid,
+  .light-agent-workspace .step-pane .light-guide-meta,
+  .light-agent-workspace .step-pane .diff-box .diff-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .light-agent-workspace .workspace-tabs {
+    gap: rem(12);
+    flex-wrap: wrap;
+  }
+
+  .light-agent-workspace .workspace-tabs button {
+    flex: 1 1 #{rem(120)};
+  }
+
+  .light-agent-workspace .step-pane .readiness-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .light-agent-workspace .step-pane .light-guide-meta .config-path-chip {
+    width: 100%;
+  }
+
+  .light-agent-workspace .step-pane .pane-actions {
+    justify-content: stretch;
+    flex-wrap: wrap;
   }
 }

@@ -1,7 +1,9 @@
+@use '../../styles/tokens/responsive' as *;
+
 .task-dispatch-preferences {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: #{rem(18)};
 }
 
 .task-dispatch-preferences-row {
@@ -15,13 +17,13 @@
 
 .task-dispatch-shortcut-chip,
 .task-dispatch-secondary-button {
-  height: 36px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--vb-border) 50%, transparent);
+  height: #{rem(36)};
+  border-radius: #{rem(12)};
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 50%, transparent);
   background: color-mix(in srgb, var(--vb-surface) 78%, transparent);
   color: var(--vb-text);
-  padding: 0 14px;
-  font-size: 13px;
+  padding: 0 #{rem(14)};
+  font-size: #{rem(13)};
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -31,18 +33,18 @@
     color 160ms ease;
 
   &:hover {
-    transform: translateY(-1px);
+    transform: translateY(-#{rem(1)});
     border-color: color-mix(in srgb, var(--vb-accent) 40%, transparent);
   }
 
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vb-accent) 18%, transparent);
+    box-shadow: 0 0 0 #{rem(3)} color-mix(in srgb, var(--vb-accent) 18%, transparent);
   }
 }
 
 .task-dispatch-shortcut-chip {
-  min-width: 180px;
+  min-width: #{rem(180)};
   justify-content: center;
   font-family: var(--vb-font-mono);
 
@@ -59,12 +61,12 @@
 
 .task-dispatch-preferences-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: #{rem(12)};
   line-height: 1.6;
   color: var(--vb-text-muted);
 }
 
-@media (max-width: 720px) {
+@media (max-width: $breakpoint-compact) {
   .task-dispatch-preferences-row {
     align-items: flex-start;
   }

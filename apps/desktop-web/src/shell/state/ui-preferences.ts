@@ -53,10 +53,10 @@ export const uiFontSizeOptions: Array<{ value: UiFontSize; labelKey: Translation
 ]
 
 const uiFontSizeCssMap: Record<UiFontSize, string> = {
-  small: '13px',
-  medium: '14px',
-  large: '15px',
-  xlarge: '16px',
+  small: '0.9286rem',
+  medium: '1rem',
+  large: '1.0714rem',
+  xlarge: '1.1429rem',
 }
 
 const uiFontCssMap: Record<UiFont, string> = {

@@ -76,6 +76,10 @@ const OFFICIAL_PROVIDER_NAME_KEY = 'aiConfig.preset.anthropic.name'
 const OFFICIAL_BASE_URL = 'https://api.anthropic.com'
 const OFFICIAL_MODEL = 'claude-sonnet-4-20250514'
 
+function rem14(px: number): string {
+  return `${px / 14}rem`
+}
+
 function getPresetById(snapshot: ClaudeSnapshot, providerId: string): ClaudeProviderPreset | undefined {
   return snapshot.presets.find((preset) => preset.providerId === providerId)
 }
@@ -731,16 +735,16 @@ export function ClaudeConfigModal({
               </div>
 
               {canInstall && (
-                <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+                <div style={{ marginTop: rem14(24), display: 'flex', justifyContent: 'center' }}>
                   <button
                     className="nav-btn btn-primary"
                     style={{
-                      height: 44,
-                      padding: '0 24px',
-                      borderRadius: 12,
+                      height: rem14(44),
+                      padding: `0 ${rem14(24)}`,
+                      borderRadius: rem14(12),
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 8,
+                      gap: rem14(8),
                       border: 'none',
                       background: '#171717',
                       color: 'white',

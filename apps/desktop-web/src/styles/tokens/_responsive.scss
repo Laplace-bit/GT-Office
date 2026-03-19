@@ -1,0 +1,38 @@
+@use 'sass:math';
+
+// Breakpoints
+$breakpoint-compact: 48rem;
+$breakpoint-medium: 64rem;
+$breakpoint-wide: 80rem;
+$breakpoint-xwide: 90rem;
+$breakpoint-ultra: 108rem;
+
+// Base font scale for calculations
+$base-font-size: 14 !default;
+
+@function rem($value, $base: $base-font-size) {
+  @return math.div($value, $base) * 1rem;
+}
+
+@function fluid($min, $ideal-vw, $max, $base: $base-font-size) {
+  $min-rem: math.div($min, $base) * 1rem;
+  $max-rem: math.div($max, $base) * 1rem;
+  @return clamp(#{$min-rem}, #{$ideal-vw}, #{$max-rem});
+}
+
+@function fluid-rem($min-px, $ideal-vw, $max-px, $base: $base-font-size) {
+  @return fluid($min-px, $ideal-vw, $max-px, $base);
+}
+
+// Container Query Helpers
+@mixin container-compact {
+  @container (min-width: #{$breakpoint-compact}) {
+    @content;
+  }
+}
+
+@mixin container-medium {
+  @container (min-width: #{$breakpoint-medium}) {
+    @content;
+  }
+}

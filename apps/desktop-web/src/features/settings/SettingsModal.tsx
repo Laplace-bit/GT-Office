@@ -36,6 +36,10 @@ interface SettingsModalProps {
 
 type SettingsTab = 'general' | 'shortcuts' | 'channels' | 'ai' | 'about'
 
+function rem14(px: number): string {
+  return `${px / 14}rem`
+}
+
 export function SettingsModal({
   open,
   locale,
@@ -103,7 +107,7 @@ export function SettingsModal({
                   }}
                 />
               ) : (
-                <p style={{ color: 'var(--vb-text-muted)', padding: '20px 0' }}>
+                <p style={{ color: 'var(--vb-text-muted)', padding: `${rem14(20)} 0` }}>
                   {t(locale, '请先打开一个工作区以管理通道。', 'Please open a workspace to manage channels.')}
                 </p>
               )}
@@ -116,7 +120,7 @@ export function SettingsModal({
             {workspaceId ? (
               <AiProvidersSection locale={locale} workspaceId={workspaceId} />
             ) : (
-              <p style={{ padding: '24px 0', color: 'var(--vb-text-muted)' }}>
+              <p style={{ padding: `${rem14(24)} 0`, color: 'var(--vb-text-muted)' }}>
                 {t(locale, '请先打开一个工作区以管理 AI 配置。', 'Please open a workspace to manage AI configuration.')}
               </p>
             )}
@@ -126,8 +130,8 @@ export function SettingsModal({
         return (
           <div className="settings-pane-section">
             <h4>{t(locale, 'settingsModal.nav.about')}</h4>
-            <div style={{ padding: '24px 0', color: 'var(--vb-text-muted)' }}>
-              <p style={{ marginBottom: 8 }}><strong>GT Office</strong></p>
+            <div style={{ padding: `${rem14(24)} 0`, color: 'var(--vb-text-muted)' }}>
+              <p style={{ marginBottom: rem14(8) }}><strong>GT Office</strong></p>
               <p>v0.1.0-alpha</p>
             </div>
           </div>

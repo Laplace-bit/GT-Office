@@ -1,22 +1,24 @@
+@use "../../styles/tokens/responsive" as *;
 @use "sass:color";
 
 .station-overview-pane {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 16px;
+  padding: rem(16);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
   background: transparent;
+  container-type: inline-size;
 
   &::-webkit-scrollbar { display: none; }
 }
 
 /* 聚合统计卡片 */
 .station-overview-aggregated-metrics {
-  margin-bottom: 20px;
+  margin-bottom: rem(20);
 }
 
 .metrics-summary-card {
@@ -24,14 +26,14 @@
   align-items: center;
   justify-content: space-between;
   background: var(--vb-glass-lighter);
-  backdrop-filter: blur(12px);
-  border-radius: 14px;
-  padding: 12px 16px;
-  box-shadow: 0 0 0 1px var(--vb-border-subtle), var(--vb-shadow-sm);
+  backdrop-filter: blur(rem(12));
+  border-radius: rem(14);
+  padding: rem(12) rem(16);
+  box-shadow: 0 0 0 rem(1) var(--vb-border-subtle), var(--vb-shadow-sm);
   transition: all 0.3s ease;
 
   &:hover {
-    box-shadow: 0 0 0 1px var(--vb-border-strong), var(--vb-shadow-md);
+    box-shadow: 0 0 0 rem(1) var(--vb-border-strong), var(--vb-shadow-md);
   }
 }
 
@@ -39,11 +41,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: rem(2);
   flex: 1;
 
   strong {
-    font-size: 16px;
+    font-size: rem(16);
     font-weight: 700;
     color: var(--vb-text);
     font-family: var(--vb-font-mono);
@@ -53,7 +55,7 @@
   }
 
   span {
-    font-size: 9px;
+    font-size: rem(9);
     font-weight: 600;
     color: var(--vb-text-muted);
     text-transform: uppercase;
@@ -63,27 +65,27 @@
 }
 
 .metrics-divider {
-  width: 1px;
-  height: 24px;
+  width: rem(1);
+  height: rem(24);
   background: var(--vb-border-subtle);
-  margin: 0 8px;
+  margin: 0 rem(8);
 }
 
 /* 筛选器区域 */
 .station-overview-section {
-  margin-bottom: 20px;
+  margin-bottom: rem(20);
   background: var(--vb-glass-lighter);
-  border-radius: 12px;
+  border-radius: rem(12);
   overflow: hidden;
-  border: 1px solid var(--vb-border-subtle);
+  border: rem(1) solid var(--vb-border-subtle);
 }
 
 .station-overview-section-toggle {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: rem(10);
+  padding: rem(10) rem(14);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -91,12 +93,12 @@
 
   &:hover { background: var(--vb-glass-lighter-hover); }
 
-  span { font-size: 13px; font-weight: 600; color: var(--vb-text); }
-  small { font-size: 10px; color: var(--vb-text-muted); margin-right: auto; }
+  span { font-size: rem(13); font-weight: 600; color: var(--vb-text); }
+  small { font-size: rem(10); color: var(--vb-text-muted); margin-right: auto; }
   
   .vb-icon {
-    width: 14px;
-    height: 14px;
+    width: rem(14);
+    height: rem(14);
     color: var(--vb-text-muted);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
@@ -115,16 +117,16 @@
 }
 
 .station-overview-filters {
-  padding: 0 14px 14px;
+  padding: 0 rem(14) rem(14);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: rem(12);
 
   label {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    font-size: 11px;
+    gap: rem(6);
+    font-size: rem(11);
     font-weight: 600;
     color: var(--vb-text-muted);
     text-transform: uppercase;
@@ -134,24 +136,24 @@
   select {
     width: 100%;
     background: var(--vb-input-bg);
-    border: 1px solid var(--vb-border);
-    border-radius: 8px;
-    padding: 8px 10px;
+    border: rem(1) solid var(--vb-border);
+    border-radius: rem(8);
+    padding: rem(8) rem(10);
     color: var(--vb-text);
-    font-size: 12px;
+    font-size: rem(12);
     outline: none;
     transition: all 0.2s ease;
 
-    &:focus { border-color: var(--vb-accent); box-shadow: 0 0 0 2px var(--vb-accent-light); }
+    &:focus { border-color: var(--vb-accent); box-shadow: 0 0 0 rem(2) var(--vb-accent-light); }
   }
 
   button {
-    margin-top: 4px;
-    padding: 8px;
+    margin-top: rem(4);
+    padding: rem(8);
     background: var(--vb-chip);
-    border: 1px solid var(--vb-border);
-    border-radius: 8px;
-    font-size: 12px;
+    border: rem(1) solid var(--vb-border);
+    border-radius: rem(8);
+    font-size: rem(12);
     font-weight: 600;
     color: var(--vb-text);
     transition: all 0.2s ease;
@@ -167,25 +169,25 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: rem(10);
 }
 
 /* 角色卡片行 - 匹配 StationCard 风格 */
 .station-overview-row {
   position: relative;
   background: var(--vb-glass-lighter);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: rem(12);
+  padding: rem(12) rem(14);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: rem(14);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   /* 取消物理 border，改用投影模拟，确保等宽 */
   border: none;
-  box-shadow: 0 0 0 1px var(--vb-border-subtle), var(--vb-shadow-sm);
+  box-shadow: 0 0 0 rem(1) var(--vb-border-subtle), var(--vb-shadow-sm);
   overflow: hidden;
-  margin: 2px; /* 关键：防止 box-shadow 被父元素遮挡 */
+  margin: rem(2); /* 关键：防止 box-shadow 被父元素遮挡 */
 
   /* 模仿 StationCard 的 ::after 边挡，解决锯齿和深色背景遮挡 */
   &::after {
@@ -194,14 +196,14 @@
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    border: 1px solid transparent;
+    border: rem(1) solid transparent;
     transition: border-color 0.25s ease;
     z-index: 10;
   }
 
   &:hover {
     background: var(--vb-glass-lighter-hover);
-    box-shadow: 0 0 0 1px var(--vb-border-strong), var(--vb-shadow-md);
+    box-shadow: 0 0 0 rem(1) var(--vb-border-strong), var(--vb-shadow-md);
   }
 
   &.active {
@@ -209,8 +211,8 @@
     background: var(--vb-accent-light);
     /* 与 StationCard 一致的激活投影效果 */
     box-shadow: 
-      0 0 0 1.5px var(--vb-accent), 
-      0 8px 32px color-mix(in srgb, var(--vb-accent) 20%, transparent);
+      0 0 0 rem(1.5) var(--vb-accent), 
+      0 rem(8) rem(32) color-mix(in srgb, var(--vb-accent) 20%, transparent);
     transform: translateZ(0);
 
     &::after {
@@ -222,14 +224,14 @@
 }
 
 .station-overview-edit {
-  width: 26px;
-  height: 26px;
+  width: rem(26);
+  height: rem(26);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: rem(8);
   background: var(--vb-glass-lighter);
-  border: 1px solid var(--vb-border);
+  border: rem(1) solid var(--vb-border);
   color: var(--vb-text-muted);
   opacity: 1;
   transform: none;
@@ -243,18 +245,18 @@
     border-color: var(--vb-border-strong);
   }
 
-  .vb-icon { width: 14px; height: 14px; }
+  .vb-icon { width: rem(14); height: rem(14); }
 }
 
 .station-overview-select {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: rem(2);
   min-width: 0;
 
   strong {
-    font-size: 13.5px;
+    font-size: rem(13.5);
     font-weight: 600;
     color: var(--vb-text);
     white-space: nowrap;
@@ -264,7 +266,7 @@
   }
 
   span {
-    font-size: 11px;
+    font-size: rem(11);
     color: var(--vb-text-muted);
     font-weight: 500;
     font-family: var(--vb-font-mono);
@@ -274,15 +276,15 @@
 /* 状态指示灯 */
 .station-overview-state-indicator {
   position: relative;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+  width: rem(8);
+  height: rem(8);
+  border-radius: rem(999);
   flex-shrink: 0;
 
   &::after {
     content: '';
     position: absolute;
-    inset: -3px;
+    inset: -rem(3);
     border-radius: inherit;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -290,7 +292,7 @@
 
   &[data-state='running'] {
     background: #28c840;
-    box-shadow: 0 0 8px rgba(40, 200, 64, 0.4);
+    box-shadow: 0 0 rem(8) rgba(40, 200, 64, 0.4);
     &::after {
       background: #28c840;
       opacity: 0.3;
@@ -300,7 +302,7 @@
 
   &[data-state='starting'], &[data-state='blocked'] {
     background: #febc2e;
-    box-shadow: 0 0 8px rgba(254, 188, 46, 0.4);
+    box-shadow: 0 0 rem(8) rgba(254, 188, 46, 0.4);
   }
 
   &[data-state='idle'] {
@@ -310,7 +312,7 @@
 
   &[data-state='exited'], &[data-state='killed'] {
     background: #ff5f57;
-    box-shadow: 0 0 8px rgba(255, 95, 87, 0.4);
+    box-shadow: 0 0 rem(8) rgba(255, 95, 87, 0.4);
   }
 }
 
@@ -321,17 +323,17 @@
 }
 
 .station-overview-remove {
-  width: 26px;
-  height: 26px;
+  width: rem(26);
+  height: rem(26);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: rem(8);
   background: var(--vb-error-bg);
   border: 0;
   color: var(--vb-error);
   opacity: 0;
-  transform: translateX(10px);
+  transform: translateX(rem(10));
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
 
@@ -340,5 +342,43 @@
     color: white;
   }
 
-  .vb-icon { width: 14px; height: 14px; }
+  .vb-icon { width: rem(14); height: rem(14); }
+}
+
+@container (max-width: rem(520)) {
+  .metrics-summary-card,
+  .station-overview-section-toggle,
+  .station-overview-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .metrics-summary-card {
+    gap: rem(12);
+    justify-content: flex-start;
+  }
+
+  .metrics-divider {
+    width: 100%;
+    height: rem(1);
+    margin: 0;
+  }
+
+  .station-overview-section-toggle small {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .station-overview-row {
+    gap: rem(10);
+  }
+
+  .station-overview-select {
+    width: 100%;
+  }
+
+  .station-overview-edit,
+  .station-overview-remove {
+    margin-left: auto;
+  }
 }

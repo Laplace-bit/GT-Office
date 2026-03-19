@@ -24,6 +24,10 @@ interface LightAgentConfigModalProps {
   onClose: () => void
 }
 
+function rem14(px: number): string {
+  return `${px / 14}rem`
+}
+
 export function LightAgentConfigModal({
   workspaceId,
   locale,
@@ -174,14 +178,14 @@ export function LightAgentConfigModal({
             </div>
 
             <div className="guide-tips" style={{ 
-              marginTop: 16, 
-              padding: 16, 
+              marginTop: rem14(16), 
+              padding: rem14(16), 
               background: 'var(--vb-bg-tertiary)', 
-              borderRadius: 12,
-              border: '1px solid var(--vb-border-subtle)'
+              borderRadius: rem14(12),
+              border: '0.0625rem solid var(--vb-border-subtle)'
             }}>
-              <p style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 600 }}>{t(locale, 'aiConfig.guide.title')}</p>
-              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--vb-text-muted)', lineHeight: 1.6 }}>
+              <p style={{ margin: `0 0 ${rem14(8)} 0`, fontSize: rem14(13), fontWeight: 600 }}>{t(locale, 'aiConfig.guide.title')}</p>
+              <ul style={{ margin: 0, paddingLeft: rem14(20), fontSize: rem14(13), color: 'var(--vb-text-muted)', lineHeight: 1.6 }}>
                 {guide.tips.map((tip, idx) => (
                   <li key={idx}>{translateMaybeKey(locale, tip)}</li>
                 ))}
@@ -241,7 +245,7 @@ export function LightAgentConfigModal({
         )}
 
         {error && (
-          <div className="error-message" style={{ marginTop: 16, color: '#ff4d4f' }}>
+          <div className="error-message" style={{ marginTop: rem14(16), color: '#ff4d4f' }}>
             {error}
           </div>
         )}

@@ -8,6 +8,9 @@
 
 @layer tokens {
   @include meta.load-css('tokens/theme-compat');
+  @include meta.load-css('tokens/responsive');
+  @include meta.load-css('tokens/platform');
+  @include meta.load-css('tokens/semantic-size');
 }
 
 @layer base {

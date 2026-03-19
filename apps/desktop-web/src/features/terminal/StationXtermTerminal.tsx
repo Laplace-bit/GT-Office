@@ -128,6 +128,18 @@ function readCssVarOr(name: string, fallback: string): string {
   return value || fallback
 }
 
+function readRootFontSizePx(): number {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+  if (!Number.isFinite(value) || value <= 0) {
+    return 14
+  }
+  return value
+}
+
+function resolveTerminalFontSize(): number {
+  return Math.max(10, Math.round(readRootFontSizePx() - 1))
+}
+
 function getTerminalTheme(): ITheme {
   const isDark = document.documentElement.getAttribute('data-theme') === 'graphite-dark'
   if (!isDark) {
@@ -208,7 +220,7 @@ function StationXtermTerminalView({
       return
     }
     terminal.options.fontFamily = readCssVar('--vb-font-mono')
-    terminal.options.fontSize = Math.max(10, parseInt(readCssVar('--vb-font-size-base') || '14', 10) - 1)
+    terminal.options.fontSize = resolveTerminalFontSize()
     terminal.options.theme = getTerminalTheme()
     terminal.options.cursorStyle = 'bar'
     terminal.options.cursorWidth = 2
@@ -306,7 +318,7 @@ function StationXtermTerminalView({
           cursorStyle: 'bar',
           cursorWidth: 2,
           fontFamily: readCssVar('--vb-font-mono'),
-          fontSize: Math.max(10, parseInt(readCssVar('--vb-font-size-base') || '14', 10) - 1),
+          fontSize: resolveTerminalFontSize(),
           fontWeight: '500',
           fontWeightBold: '700',
           scrollback: 4000,

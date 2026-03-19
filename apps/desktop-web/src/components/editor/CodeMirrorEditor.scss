@@ -1,3 +1,4 @@
+@use '../../styles/tokens/responsive' as *;
 @use "sass:color";
 
 /* CodeMirror Editor Overrides - VSCode-inspired Iconic Horizontal Layout */
@@ -5,30 +6,31 @@
   height: 100%;
   position: relative;
   background: transparent !important;
+  container-type: inline-size;
 
   .cm-editor {
     height: 100%;
     outline: none !important;
     background: transparent !important;
     font-family: var(--vb-font-mono);
-    font-size: 13px;
+    font-size: #{rem(13)};
   }
 
   .cm-scroller {
     font-family: inherit;
-    &::-webkit-scrollbar { width: 4px; height: 4px; }
+    &::-webkit-scrollbar { width: #{rem(4)}; height: #{rem(4)}; }
     &::-webkit-scrollbar-thumb {
       background: color-mix(in srgb, var(--vb-border) 30%, transparent);
-      border-radius: 10px;
+      border-radius: var(--vb-radius-sm);
     }
   }
 
   .cm-gutters {
     background: transparent !important;
     border: none !important;
-    border-right: 1px solid color-mix(in srgb, var(--vb-border) 15%, transparent) !important;
+    border-right: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 15%, transparent) !important;
     color: color-mix(in srgb, var(--vb-text) 20%, transparent) !important;
-    min-width: 36px;
+    min-width: #{rem(36)};
   }
 
   .cm-activeLineGutter {
@@ -37,7 +39,7 @@
   }
 
   .cm-activeLine { background: color-mix(in srgb, var(--vb-accent) 4%, transparent) !important; }
-  .cm-cursor { border-left: 2px solid var(--vb-accent) !important; }
+  .cm-cursor { border-left: #{rem(2)} solid var(--vb-accent) !important; }
 
   /* === VSCode-style Iconic Search Panel === */
   .cm-panels {
@@ -51,23 +53,23 @@
     pointer-events: none;
     display: flex;
     justify-content: flex-end;
-    padding-right: 32px;
+    padding-right: var(--vb-space-xl);
   }
 
   .cm-panel.cm-search {
     pointer-events: auto;
     background: color-mix(in srgb, var(--vb-surface) 96%, transparent) !important;
-    backdrop-filter: blur(24px) !important;
-    -webkit-backdrop-filter: blur(24px) !important;
-    border: 1px solid color-mix(in srgb, var(--vb-border) 30%, transparent) !important;
+    backdrop-filter: blur(#{rem(24)}) !important;
+    -webkit-backdrop-filter: blur(#{rem(24)}) !important;
+    border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 30%, transparent) !important;
     border-top: none !important;
-    border-radius: 0 0 8px 8px !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
-    padding: 2px 12px 2px 8px !important;
+    border-radius: 0 0 var(--vb-radius-sm) var(--vb-radius-sm) !important;
+    box-shadow: 0 #{rem(4)} #{rem(16)} rgba(0, 0, 0, 0.12) !important;
+    padding: #{rem(2)} var(--vb-space-md) #{rem(2)} var(--vb-space-sm) !important;
     display: flex !important;
     flex-direction: row !important;
     align-items: center !important;
-    gap: 8px !important;
+    gap: var(--vb-space-sm) !important;
     animation: apple-slide-down 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
     width: auto !important;
     max-width: 95%;
@@ -77,7 +79,7 @@
       display: flex !important;
       flex-direction: row !important;
       align-items: center !important;
-      gap: 4px !important;
+      gap: var(--vb-space-2xs) !important;
       flex-shrink: 0 !important;
     }
 
@@ -87,26 +89,26 @@
     }
 
     .cm-textfield {
-      height: 22px;
+      height: #{rem(22)};
       background: color-mix(in srgb, var(--vb-input-bg) 60%, transparent) !important;
-      border: 1px solid color-mix(in srgb, var(--vb-border) 40%, transparent) !important;
-      border-radius: 4px !important;
-      padding: 0 8px !important;
-      font-size: 12px !important;
+      border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent) !important;
+      border-radius: var(--vb-radius-xs) !important;
+      padding: 0 var(--vb-space-sm) !important;
+      font-size: #{rem(12)} !important;
       color: var(--vb-text) !important;
-      width: 100px !important;
+      width: #{rem(100)} !important;
       outline: none !important;
       transition: width 0.2s ease !important;
       flex-shrink: 1 !important;
-      &:focus { width: 140px !important; border-color: var(--vb-accent) !important; background: var(--vb-input-bg) !important; }
+      &:focus { width: #{rem(140)} !important; border-color: var(--vb-accent) !important; background: var(--vb-input-bg) !important; }
     }
 
     /* Iconified Buttons & Labels */
     button, label {
-      height: 22px;
-      width: 22px;
+      height: #{rem(22)};
+      width: #{rem(22)};
       padding: 0;
-      border-radius: 4px;
+      border-radius: var(--vb-radius-xs);
       background: transparent;
       border: none;
       color: var(--vb-text-muted);
@@ -123,8 +125,8 @@
       }
 
       .cm-search-icon {
-        width: 14px;
-        height: 14px;
+        width: var(--vb-size-icon-md);
+        height: var(--vb-size-icon-md);
         display: inline-flex !important;
         align-items: center;
         justify-content: center;
@@ -132,8 +134,8 @@
         flex: 0 0 auto;
 
         svg {
-          width: 14px;
-          height: 14px;
+          width: var(--vb-size-icon-md);
+          height: var(--vb-size-icon-md);
           display: block;
           stroke: currentColor;
         }
@@ -143,19 +145,19 @@
         content: attr(title);
         position: absolute;
         left: 50%;
-        bottom: calc(100% + 6px);
-        transform: translateX(-50%) translateY(2px);
+        bottom: calc(100% + #{rem(6)});
+        transform: translateX(-50%) translateY(#{rem(2)});
         min-width: max-content;
-        max-width: 160px;
-        padding: 4px 7px;
-        border-radius: 6px;
+        max-width: #{rem(160)};
+        padding: var(--vb-space-2xs) #{rem(7)};
+        border-radius: var(--vb-radius-sm);
         background: color-mix(in srgb, var(--vb-surface) 94%, transparent);
-        border: 1px solid color-mix(in srgb, var(--vb-border) 64%, transparent);
+        border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 64%, transparent);
         color: var(--vb-text);
-        font-size: 11px !important;
+        font-size: #{rem(11)} !important;
         line-height: 1.2;
         white-space: nowrap;
-        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
+        box-shadow: 0 #{rem(8)} #{rem(18)} rgba(0, 0, 0, 0.14);
         opacity: 0;
         pointer-events: none;
         transition: opacity 120ms ease, transform 120ms ease;
@@ -190,14 +192,14 @@
       &:has(input:checked) {
         background: color-mix(in srgb, var(--vb-accent) 15%, transparent);
         color: var(--vb-accent);
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vb-accent) 30%, transparent);
+        box-shadow: inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-accent) 30%, transparent);
       }
     }
   }
 }
 
 @keyframes apple-slide-down {
-  from { opacity: 0; transform: translateY(-5px); }
+  from { opacity: 0; transform: translateY(-#{rem(5)}); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -211,6 +213,31 @@
   .codemirror-editor-container .cm-panel.cm-search label::after {
     background: color-mix(in srgb, #111827 96%, transparent);
     border-color: rgba(148, 163, 184, 0.22);
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 #{rem(10)} #{rem(22)} rgba(0, 0, 0, 0.3);
+  }
+}
+
+@container (max-width: 34rem) {
+  .codemirror-editor-container {
+    .cm-panels {
+      justify-content: stretch;
+      padding-right: var(--vb-space-sm);
+    }
+
+    .cm-panel.cm-search {
+      width: 100% !important;
+      max-width: 100%;
+      flex-wrap: wrap !important;
+      gap: var(--vb-space-xs) !important;
+      padding-inline: var(--vb-space-sm) !important;
+    }
+
+    .cm-panel.cm-search div {
+      flex-wrap: wrap !important;
+    }
+
+    .cm-panel.cm-search .cm-textfield {
+      width: min(100%, #{rem(140)}) !important;
+    }
   }
 }

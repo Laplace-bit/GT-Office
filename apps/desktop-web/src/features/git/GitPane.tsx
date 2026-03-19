@@ -14,6 +14,11 @@ import {
 } from './useGitWorkspaceController'
 import { DiffViewer } from './DiffViewer'
 import { GitGraphView } from './GitGraphView'
+import {
+  actualPxToRem,
+  scaleDesignPxToActualPx,
+  useRootFontSizePx,
+} from './git-font-scale'
 
 function describeUnknownError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
@@ -24,6 +29,8 @@ function describeUnknownError(error: unknown): string {
   }
   return 'unknown'
 }
+
+const MIN_CHANGES_SECTION_BASE_HEIGHT = 180
 
 // ============================================
 // Icon Button Component - Reusable button with icon
@@ -237,13 +244,15 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     stash: true,
   })
   const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
+  const rootFontSizePx = useRootFontSizePx()
   const contentRef = useRef<HTMLDivElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const fileRowHeight = scaleDesignPxToActualPx(ROW_HEIGHT, rootFontSizePx)
 
   const fileVirtualizer = useVirtualizer({
     count: visibleFiles.length,
     getScrollElement: () => viewportRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => fileRowHeight,
     overscan: OVERSCAN_ROWS,
   })
 
@@ -262,7 +271,8 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         setChangesSectionHeight(null)
         return
       }
-      setChangesSectionHeight(Math.max(180, Math.floor(contentElement.clientHeight * 0.5)))
+      const minHeight = scaleDesignPxToActualPx(MIN_CHANGES_SECTION_BASE_HEIGHT, rootFontSizePx)
+      setChangesSectionHeight(Math.max(minHeight, Math.floor(contentElement.clientHeight * 0.5)))
     }
 
     updateChangesSectionHeight()
@@ -271,7 +281,11 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     return () => {
       observer.disconnect()
     }
-  }, [collapsedSections.changes])
+  }, [collapsedSections.changes, rootFontSizePx])
+
+  useEffect(() => {
+    fileVirtualizer.measure()
+  }, [fileRowHeight, fileVirtualizer])
 
   // Memoized callbacks for file actions
   const handleSelectPath = useCallback((path: string) => selectPath(path), [selectPath])
@@ -332,7 +346,11 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         {/* Changes Section */}
         <section
           className={`git-section git-section--changes ${!collapsedSections.changes ? 'git-section--expanded' : ''}`}
-          style={!collapsedSections.changes && changesSectionHeight ? { height: `${changesSectionHeight}px` } : undefined}
+          style={
+            !collapsedSections.changes && changesSectionHeight
+              ? { height: actualPxToRem(changesSectionHeight, rootFontSizePx) }
+              : undefined
+          }
         >
           <GitSectionHeader
             title={t(locale, 'git.files.title')}
@@ -382,7 +400,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
               <div ref={viewportRef} className="git-file-list">
                 <div
                   className="git-file-list__inner"
-                  style={{ height: `${fileVirtualizer.getTotalSize()}px` }}
+                  style={{ height: actualPxToRem(fileVirtualizer.getTotalSize(), rootFontSizePx) }}
                 >
                   {fileVirtualizer.getVirtualItems().map((virtualItem) => {
                     const file = visibleFiles[virtualItem.index]
@@ -401,7 +419,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
                         onStage={() => handleStagePath(file.path)}
                         onUnstage={() => handleUnstagePath(file.path)}
                         onDiscard={() => handleDiscardPath(file.path, isUntracked)}
-                        style={{ transform: `translateY(${virtualItem.start}px)` }}
+                        style={{ transform: `translateY(${actualPxToRem(virtualItem.start, rootFontSizePx)})` }}
                       />
                     )
                   })}

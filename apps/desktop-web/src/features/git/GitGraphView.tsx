@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useCallback } from 'react'
+import { memo, useMemo, useRef, useCallback, useEffect, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
   GitCommitDetailResponse,
@@ -14,14 +14,20 @@ import {
   type GraphRow,
   type RefLabel,
 } from './git-graph-layout'
+import {
+  actualPxToRem,
+  designPxToRem,
+  scaleDesignPxToActualPx,
+  useRootFontSizePx,
+} from './git-font-scale'
 
 // ============================================
 // Constants
 // ============================================
 
-/** Row height in pixels for virtual scrolling */
+/** Row height for virtual scrolling */
 const GRAPH_ROW_HEIGHT = 32
-/** Width per lane in pixels */
+/** Width per lane */
 const LANE_WIDTH = 20
 /** Dot radius for commit nodes */
 const DOT_RADIUS = 5
@@ -29,18 +35,22 @@ const DOT_RADIUS = 5
 const BRANCH_DOT_RADIUS = 3
 /** Overscan rows for smooth scrolling */
 const GRAPH_OVERSCAN = 15
-/** Minimum graph column width (px) */
+/** Minimum graph column width */
 const MIN_GRAPH_WIDTH = 80
-/** Minimum description column width (px) */
+/** Minimum description column width */
 const DESC_COL_MIN_WIDTH = 200
-/** Date column width (px) */
+/** Date column width */
 const DATE_COL_WIDTH = 120
-/** Author column width (px) */
+/** Author column width */
 const AUTHOR_COL_WIDTH = 120
-/** Commit hash column width (px) */
+/** Commit hash column width */
 const HASH_COL_WIDTH = 70
 /** Softer right-most lane color for visual comfort */
 const RIGHTMOST_LANE_COLOR = '#8aa6bf'
+const GRAPH_LAYOUT_MEDIUM_REM = 58
+const GRAPH_LAYOUT_COMPACT_REM = 46
+
+type GraphLayoutMode = 'full' | 'medium' | 'compact'
 
 // ============================================
 // Utility Functions
@@ -72,6 +82,19 @@ function resolveFileStatusClass(status: string): string {
     default:
       return 'other'
   }
+}
+
+function resolveGraphLayoutMode(width: number, rootFontSizePx: number): GraphLayoutMode {
+  const compactWidth = rootFontSizePx * GRAPH_LAYOUT_COMPACT_REM
+  const mediumWidth = rootFontSizePx * GRAPH_LAYOUT_MEDIUM_REM
+
+  if (width <= compactWidth) {
+    return 'compact'
+  }
+  if (width <= mediumWidth) {
+    return 'medium'
+  }
+  return 'full'
 }
 
 
@@ -108,8 +131,8 @@ const GraphCell = memo(function GraphCell({
   return (
     <svg
       className="git-graph-cell"
-      width={width}
-      height={height}
+      width={designPxToRem(width)}
+      height={designPxToRem(height)}
       viewBox={`0 0 ${width} ${height}`}
       aria-hidden="true"
     >
@@ -227,6 +250,7 @@ interface GraphRowComponentProps {
   graphColWidth: number
   columnTemplate: string
   rowMinWidth: number
+  layoutMode: GraphLayoutMode
   locale: Locale
   style: React.CSSProperties
   isSelected: boolean
@@ -241,6 +265,7 @@ const GraphRowComponent = memo(function GraphRowComponent({
   graphColWidth,
   columnTemplate,
   rowMinWidth,
+  layoutMode,
   locale,
   style,
   isSelected,
@@ -255,6 +280,9 @@ const GraphRowComponent = memo(function GraphRowComponent({
   const summary = sanitizeText(row.entry.summary)
   const author = sanitizeText(row.entry.authorName)
   const dateStr = formatGitTimestamp(row.entry.authoredAt, locale)
+  const showDateColumn = layoutMode !== 'compact'
+  const showAuthorColumn = layoutMode === 'full'
+  const maxVisibleRefs = layoutMode === 'compact' ? 1 : layoutMode === 'medium' ? 2 : 3
 
   return (
     <div
@@ -266,7 +294,7 @@ const GraphRowComponent = memo(function GraphRowComponent({
         overflow: 'hidden',
         ...style,
         width: '100%',
-        minWidth: `${rowMinWidth}px`,
+        minWidth: designPxToRem(rowMinWidth),
       }}
       onClick={handleClick}
       role="row"
@@ -324,12 +352,15 @@ const GraphRowComponent = memo(function GraphRowComponent({
               overflow: 'hidden',
             }}
           >
-            {row.refLabels.slice(0, 3).map((label) => (
+            {row.refLabels.slice(0, maxVisibleRefs).map((label) => (
               <RefBadge key={`${label.type}-${label.name}`} label={label} />
             ))}
-            {row.refLabels.length > 3 && (
-              <span className="git-graph-ref git-graph-ref--more" title={row.refLabels.slice(3).map(l => l.name).join(', ')}>
-                +{row.refLabels.length - 3}
+            {row.refLabels.length > maxVisibleRefs && (
+              <span
+                className="git-graph-ref git-graph-ref--more"
+                title={row.refLabels.slice(maxVisibleRefs).map((label) => label.name).join(', ')}
+              >
+                +{row.refLabels.length - maxVisibleRefs}
               </span>
             )}
           </span>
@@ -338,27 +369,36 @@ const GraphRowComponent = memo(function GraphRowComponent({
         <span className="git-graph-row__summary" title={summary} style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {summary}
         </span>
+        {layoutMode !== 'full' ? (
+          <span className="git-graph-row__meta" title={`${author} • ${dateStr}`}>
+            {layoutMode === 'compact' ? author : author}
+          </span>
+        ) : null}
       </div>
 
       {/* Date column */}
-      <div
-        className="git-graph-row__date"
-        role="cell"
-        title={dateStr}
-        style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-      >
-        {dateStr}
-      </div>
+      {showDateColumn ? (
+        <div
+          className="git-graph-row__date"
+          role="cell"
+          title={dateStr}
+          style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
+          {dateStr}
+        </div>
+      ) : null}
 
       {/* Author column */}
-      <div
-        className="git-graph-row__author"
-        role="cell"
-        title={author}
-        style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-      >
-        {author}
-      </div>
+      {showAuthorColumn ? (
+        <div
+          className="git-graph-row__author"
+          role="cell"
+          title={author}
+          style={{ width: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
+          {author}
+        </div>
+      ) : null}
 
       {/* Commit hash column */}
       <div
@@ -404,7 +444,10 @@ export const GitGraphView = memo(function GitGraphView({
   onLoadMore,
   onResetToLatest,
 }: GitGraphViewProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('full')
+  const rootFontSizePx = useRootFontSizePx()
 
   // Build graph layout (memoized, only recalculates when entries change)
   const graphRows = useMemo(() => buildGraphLayout(entries), [entries])
@@ -423,19 +466,68 @@ export const GitGraphView = memo(function GitGraphView({
   const graphColWidth = useMemo(() => {
     return Math.max(MIN_GRAPH_WIDTH, (maxLanes + 1) * LANE_WIDTH)
   }, [maxLanes])
+  const graphRowHeight = useMemo(
+    () => scaleDesignPxToActualPx(GRAPH_ROW_HEIGHT, rootFontSizePx),
+    [rootFontSizePx],
+  )
+  const descColMinWidth = layoutMode === 'compact' ? 160 : layoutMode === 'medium' ? 180 : DESC_COL_MIN_WIDTH
   const columnTemplate = useMemo(() => {
-    return `${graphColWidth}px minmax(${DESC_COL_MIN_WIDTH}px, 1fr) ${DATE_COL_WIDTH}px ${AUTHOR_COL_WIDTH}px ${HASH_COL_WIDTH}px`
-  }, [graphColWidth])
+    const columns = [
+      designPxToRem(graphColWidth),
+      `minmax(${designPxToRem(descColMinWidth)}, 1fr)`,
+    ]
+    if (layoutMode !== 'compact') {
+      columns.push(designPxToRem(DATE_COL_WIDTH))
+    }
+    if (layoutMode === 'full') {
+      columns.push(designPxToRem(AUTHOR_COL_WIDTH))
+    }
+    columns.push(designPxToRem(HASH_COL_WIDTH))
+    return columns.join(' ')
+  }, [descColMinWidth, graphColWidth, layoutMode])
   const tableMinWidth = useMemo(() => {
-    return graphColWidth + DESC_COL_MIN_WIDTH + DATE_COL_WIDTH + AUTHOR_COL_WIDTH + HASH_COL_WIDTH
-  }, [graphColWidth])
+    let width = graphColWidth + descColMinWidth + HASH_COL_WIDTH
+    if (layoutMode !== 'compact') {
+      width += DATE_COL_WIDTH
+    }
+    if (layoutMode === 'full') {
+      width += AUTHOR_COL_WIDTH
+    }
+    return width
+  }, [descColMinWidth, graphColWidth, layoutMode])
+
+  useEffect(() => {
+    const element = rootRef.current
+    if (!element) {
+      return
+    }
+
+    const updateLayoutMode = (width: number) => {
+      setLayoutMode(resolveGraphLayoutMode(width, rootFontSizePx))
+    }
+
+    updateLayoutMode(element.clientWidth)
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) {
+        return
+      }
+      updateLayoutMode(entry.contentRect.width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [rootFontSizePx])
 
   const virtualizer = useVirtualizer({
     count: graphRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => GRAPH_ROW_HEIGHT,
+    estimateSize: () => graphRowHeight,
     overscan: GRAPH_OVERSCAN,
   })
+
+  useEffect(() => {
+    virtualizer.measure()
+  }, [graphRowHeight, virtualizer])
   const detailDate = selectedCommitDetail
     ? formatGitTimestamp(selectedCommitDetail.authoredAt, locale)
     : ''
@@ -443,6 +535,7 @@ export const GitGraphView = memo(function GitGraphView({
 
   return (
     <div
+      ref={rootRef}
       className="git-graph-view"
       role="table"
       aria-label={t(locale, 'git.graph.ariaHistory')}
@@ -453,7 +546,7 @@ export const GitGraphView = memo(function GitGraphView({
         className="git-graph-header"
         role="row"
         style={{
-          minWidth: `${tableMinWidth}px`,
+          minWidth: designPxToRem(tableMinWidth),
           display: 'grid',
           gridTemplateColumns: columnTemplate,
           alignItems: 'center',
@@ -470,16 +563,20 @@ export const GitGraphView = memo(function GitGraphView({
         <div
           className="git-graph-header__cell git-graph-header__desc"
           role="columnheader"
-          style={{ width: '100%', minWidth: `${DESC_COL_MIN_WIDTH}px` }}
+          style={{ width: '100%', minWidth: designPxToRem(descColMinWidth) }}
         >
           {t(locale, 'git.graph.column.description')}
         </div>
-        <div className="git-graph-header__cell git-graph-header__date" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
-          {t(locale, 'git.graph.column.date')}
-        </div>
-        <div className="git-graph-header__cell git-graph-header__author" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
-          {t(locale, 'git.graph.column.author')}
-        </div>
+        {layoutMode !== 'compact' ? (
+          <div className="git-graph-header__cell git-graph-header__date" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
+            {t(locale, 'git.graph.column.date')}
+          </div>
+        ) : null}
+        {layoutMode === 'full' ? (
+          <div className="git-graph-header__cell git-graph-header__author" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
+            {t(locale, 'git.graph.column.author')}
+          </div>
+        ) : null}
         <div className="git-graph-header__cell git-graph-header__hash" role="columnheader" style={{ width: '100%', flexShrink: 0 }}>
           {t(locale, 'git.graph.column.commit')}
         </div>
@@ -490,7 +587,7 @@ export const GitGraphView = memo(function GitGraphView({
         {graphRows.length === 0 ? (
           <div className="git-graph-empty">
             <div className="git-graph-empty__icon">
-              <AppIcon name="git" width={48} height={48} aria-hidden="true" />
+              <AppIcon name="git" className="git-graph-empty__icon-svg" aria-hidden="true" />
             </div>
             <p>{t(locale, 'git.graph.empty')}</p>
           </div>
@@ -498,8 +595,8 @@ export const GitGraphView = memo(function GitGraphView({
           <div
             className="git-graph-body__inner"
             style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              minWidth: `${tableMinWidth}px`,
+              height: actualPxToRem(virtualizer.getTotalSize(), rootFontSizePx),
+              minWidth: designPxToRem(tableMinWidth),
             }}
           >
             {virtualizer.getVirtualItems().map((virtualItem) => {
@@ -513,6 +610,7 @@ export const GitGraphView = memo(function GitGraphView({
                   graphColWidth={graphColWidth}
                   columnTemplate={columnTemplate}
                   rowMinWidth={tableMinWidth}
+                  layoutMode={layoutMode}
                   locale={locale}
                   isSelected={selectedCommit === row.entry.commit}
                   isFirst={virtualItem.index === 0}
@@ -523,8 +621,8 @@ export const GitGraphView = memo(function GitGraphView({
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: `${GRAPH_ROW_HEIGHT}px`,
-                    transform: `translateY(${virtualItem.start}px)`,
+                    height: actualPxToRem(graphRowHeight, rootFontSizePx),
+                    transform: `translateY(${actualPxToRem(virtualItem.start, rootFontSizePx)})`,
                   }}
                 />
               )

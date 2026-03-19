@@ -1,3 +1,5 @@
+@use '../../tokens/responsive' as *;
+
 /* ========================================
    Apple Design System - Core Interactive
    Refined animations & focus states
@@ -29,12 +31,12 @@ select:focus,
 textarea:focus:not(.xterm-helper-textarea) {
   outline: none;
   border-color: var(--vb-accent);
-  box-shadow: 0 0 0 4px var(--vb-accent-light);
+  box-shadow: 0 0 0 #{rem(4)} var(--vb-accent-light);
 }
 
 .vb-icon {
-  width: 16px;
-  height: 16px;
+  width: var(--vb-size-icon-lg);
+  height: var(--vb-size-icon-lg);
   display: inline-block;
   fill: none;
   stroke: currentColor;

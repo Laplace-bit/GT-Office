@@ -1,26 +1,28 @@
+@use '../../../styles/tokens/responsive' as *;
+
 .ai-providers-section {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: #{rem(32)};
   animation: fade-in 0.4s ease-out;
 }
 
 .ai-providers-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(#{rem(280)}, 1fr));
+  gap: #{rem(20)};
 }
 
 .ai-providers-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 60px;
+  padding: #{rem(60)};
   color: var(--vb-text-muted);
-  font-size: 14px;
+  font-size: #{rem(14)};
 }
 
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(#{rem(10)}); }
   to { opacity: 1; transform: translateY(0); }
 }

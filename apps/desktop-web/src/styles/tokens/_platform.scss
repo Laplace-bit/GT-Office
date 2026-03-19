@@ -1,0 +1,19 @@
+@use 'responsive' as *;
+
+:root {
+  --vb-platform-topbar-height: #{fluid-rem(28, 2vw, 35)};
+  --vb-platform-leading-inset: 0rem;
+  --vb-platform-window-control-width: 0rem;
+  --vb-platform-pane-min-width: 14rem;
+  --vb-platform-density-scale: 1;
+}
+
+:root[data-vb-platform='windows'] {
+  --vb-platform-window-control-width: #{fluid-rem(84, 7vw, 105)};
+  --vb-platform-pane-min-width: 14.1429rem;
+}
+
+:root[data-vb-platform='macos'] {
+  --vb-platform-leading-inset: #{fluid-rem(56, 5vw, 70)};
+  --vb-platform-density-scale: 0.98;
+}

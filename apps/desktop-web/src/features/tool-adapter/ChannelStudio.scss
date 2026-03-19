@@ -1,12 +1,14 @@
+@use '../../styles/tokens/responsive' as *;
+
 /* === Apple Style Design Tokens === */
 :root {
   --apple-glass-bg: rgba(255, 255, 255, 0.7);
   --apple-glass-bg-dark: rgba(28, 28, 30, 0.8);
-  --apple-blur: 40px;
+  --apple-blur: #{rem(40)};
   --apple-border: rgba(0, 0, 0, 0.1);
   --apple-border-dark: rgba(255, 255, 255, 0.1);
-  --apple-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
-  --apple-radius: 24px;
+  --apple-shadow: 0 #{rem(30)} #{rem(60)} rgba(0, 0, 0, 0.25);
+  --apple-radius: #{rem(24)};
 }
 
 [data-theme='graphite-dark'] {
@@ -19,9 +21,9 @@
   inset: 0;
   z-index: 1100;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  padding: 40px;
+  backdrop-filter: blur(#{rem(20)});
+  -webkit-backdrop-filter: blur(#{rem(20)});
+  padding: #{rem(40)};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -29,15 +31,15 @@
 }
 
 .channel-studio-shell {
-  width: min(1480px, 100%);
-  height: min(900px, calc(100vh - 80px));
+  width: min(#{rem(1480)}, 100%);
+  height: min(#{rem(900)}, calc(100dvh - #{rem(80)}));
   margin: 0 auto;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 24px;
-  padding: 32px;
+  gap: #{rem(24)};
+  padding: #{rem(32)};
   border-radius: var(--apple-radius);
-  border: 1px solid var(--apple-border);
+  border: #{rem(1)} solid var(--apple-border);
   background: var(--apple-glass-bg);
   backdrop-filter: blur(var(--apple-blur));
   -webkit-backdrop-filter: blur(var(--apple-blur));
@@ -64,7 +66,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.75rem;
-  border-radius: 999px;
+  border-radius: var(--vb-radius-full);
   background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
   color: var(--vb-accent);
   font-size: 0.75rem;
@@ -90,8 +92,8 @@
 }
 
 .channel-studio-close {
-  width: 36px;
-  height: 36px;
+  width: #{rem(36)};
+  height: #{rem(36)};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -113,14 +115,14 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px;
+  padding: #{rem(4)};
 
   &::-webkit-scrollbar {
-    width: 8px;
+    width: #{rem(8)};
   }
   &::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--vb-border) 30%, transparent);
-    border-radius: 10px;
+    border-radius: #{rem(10)};
   }
 }
 
@@ -130,19 +132,18 @@
 }
 
 @keyframes apple-modal-in {
-  from { opacity: 0; transform: scale(0.95) translateY(20px); }
+  from { opacity: 0; transform: scale(0.95) translateY(#{rem(20)}); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 48rem) {
   .channel-studio-backdrop {
-    padding: 16px;
+    padding: #{rem(16)};
   }
   .channel-studio-shell {
     width: 100%;
-    height: calc(100vh - 32px);
-    padding: 24px;
-    border-radius: 16px;
+    height: calc(100dvh - #{rem(32)});
+    padding: #{rem(24)};
+    border-radius: #{rem(16)};
   }
 }
-

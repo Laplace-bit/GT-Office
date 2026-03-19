@@ -56,7 +56,7 @@ interface TreeContextMenuState {
 }
 
 const ROOT_DIR = '.'
-const ROW_HEIGHT = 26
+const ROW_HEIGHT = 30
 const OVERSCAN_ROWS = 80
 const CONTENT_MATCH_MAX_RENDER = 1200
 const PRE_RENDER_AHEAD_ROWS = 200

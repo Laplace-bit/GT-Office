@@ -1,3 +1,5 @@
+@use '../../styles/tokens/responsive' as *;
+
 .file-content-pane {
   display: flex;
   flex-direction: column;
@@ -5,33 +7,34 @@
   background: transparent;
   padding: 0;
   gap: 0;
+  container-type: inline-size;
 }
 
 .file-content-header {
-  height: 48px;
+  height: rem(48);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 rem(16);
   background: color-mix(in srgb, var(--vb-surface-muted) 30%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 20%, transparent);
+  border-bottom: rem(1) solid color-mix(in srgb, var(--vb-border) 20%, transparent);
   flex-shrink: 0;
 
   .file-content-header-copy {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: rem(12);
     overflow: hidden;
 
     .file-content-eyebrow {
-      font-size: 10px;
+      font-size: rem(10);
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--vb-accent);
       background: color-mix(in srgb, var(--vb-accent) 15%, transparent);
-      padding: 2px 6px;
-      border-radius: 4px;
+      padding: rem(2) rem(6);
+      border-radius: rem(4);
       white-space: nowrap;
     }
 
@@ -41,7 +44,7 @@
 
     p {
       margin: 0;
-      font-size: 13px;
+      font-size: rem(13);
       font-weight: 500;
       color: var(--vb-text);
       font-family: var(--vb-font-mono);
@@ -56,23 +59,23 @@
 .file-content-mode-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: rem(8);
 
   .file-content-mode-badge {
-    font-size: 11px;
+    font-size: rem(11);
     color: var(--vb-text-muted);
     background: var(--vb-chip);
-    padding: 2px 8px;
-    border-radius: 999px;
+    padding: rem(2) rem(8);
+    border-radius: var(--vb-radius-full);
   }
   
   .file-content-load-preview {
-    font-size: 11px;
+    font-size: rem(11);
     color: var(--vb-accent);
     background: transparent;
-    border: 1px solid color-mix(in srgb, var(--vb-accent) 30%, transparent);
-    padding: 2px 10px;
-    border-radius: 6px;
+    border: rem(1) solid color-mix(in srgb, var(--vb-accent) 30%, transparent);
+    padding: rem(2) rem(10);
+    border-radius: rem(6);
     cursor: pointer;
     transition: all 0.2s ease;
     
@@ -83,29 +86,29 @@
 }
 
 .file-content-toolbar {
-  height: 32px;
+  height: rem(32);
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 rem(16);
   background: color-mix(in srgb, var(--vb-surface) 30%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--vb-border) 10%, transparent);
+  border-bottom: rem(1) solid color-mix(in srgb, var(--vb-border) 10%, transparent);
   flex-shrink: 0;
   
   .file-content-load-full {
-    font-size: 11px;
+    font-size: rem(11);
     color: var(--vb-text);
     background: var(--vb-chip);
     border: none;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: rem(2) rem(8);
+    border-radius: rem(4);
     cursor: pointer;
     
     &:hover { background: var(--vb-hover-overlay); }
   }
 
   .file-content-notice {
-    margin: 0 0 0 12px;
-    font-size: 11px;
+    margin: 0 0 0 rem(12);
+    font-size: rem(11);
     color: var(--vb-accent);
     font-weight: 500;
   }
@@ -115,13 +118,13 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  padding: rem(12);
 }
 
 .file-content-view {
   margin: 0;
   font-family: var(--vb-font-mono);
-  font-size: 13px;
+  font-size: rem(13);
   line-height: 1.6;
   color: var(--vb-text);
   white-space: pre-wrap;
@@ -134,16 +137,47 @@
   justify-content: center;
   height: 100%;
   color: var(--vb-text-muted);
-  font-size: 14px;
+  font-size: rem(14);
   font-style: italic;
   opacity: 0.5;
 }
 
 .file-content-error {
-  margin: 8px 16px;
-  padding: 8px 12px;
+  margin: rem(8) rem(16);
+  padding: rem(8) rem(12);
   background: color-mix(in srgb, var(--vb-error) 10%, transparent);
-  border-radius: 8px;
+  border-radius: rem(8);
   color: var(--vb-error);
-  font-size: 12px;
+  font-size: rem(12);
+}
+
+@container (max-width: 40rem) {
+  .file-content-header,
+  .file-content-toolbar {
+    padding-inline: rem(12);
+  }
+
+  .file-content-header {
+    flex-wrap: wrap;
+    gap: rem(8);
+    height: auto;
+    padding-block: rem(10);
+  }
+
+  .file-content-header-copy,
+  .file-content-mode-row {
+    width: 100%;
+  }
+
+  .file-content-header-copy {
+    gap: rem(8);
+  }
+
+  .file-content-toolbar {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    height: auto;
+    gap: rem(8);
+    padding-block: rem(8);
+  }
 }

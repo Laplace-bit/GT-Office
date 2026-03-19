@@ -1,16 +1,16 @@
-@use "sass:color";
+@use '../../styles/tokens/responsive' as *;
 
 .left-pane {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--vb-space-lg);
   height: 100%;
-  padding: 20px;
+  padding: #{rem(20)};
   min-height: 0;
   overflow-y: auto;
   
   h2 {
-    font-size: 16px;
+    font-size: #{rem(16)};
     font-weight: 700;
     margin: 0;
     color: var(--vb-text);
@@ -18,33 +18,33 @@
   }
   
   p {
-    font-size: 12px;
+    font-size: #{rem(12)};
     color: var(--vb-text-muted);
-    margin: 4px 0 0;
+    margin: var(--vb-space-2xs) 0 0;
     line-height: 1.5;
   }
   
   ul {
     list-style: none;
     padding: 0;
-    margin: 12px 0 0;
+    margin: var(--vb-space-md) 0 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--vb-space-sm);
   }
   
   li {
-    font-size: 13px;
-    padding: 10px 14px;
+    font-size: #{rem(13)};
+    padding: #{rem(10)} #{rem(14)};
     background: var(--vb-glass-lighter);
-    border: 1px solid var(--vb-border-subtle);
-    border-radius: 10px;
+    border: var(--vb-border-width) solid var(--vb-border-subtle);
+    border-radius: #{rem(10)};
     color: var(--vb-text);
     transition: all 0.2s ease;
     
     &:hover {
       background: var(--vb-glass-lighter-hover);
-      transform: translateX(2px);
+      transform: translateX(#{rem(2)});
       border-color: var(--vb-border-strong);
     }
   }

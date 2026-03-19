@@ -1,3 +1,4 @@
+@use "../../styles/tokens/responsive" as *;
 @use "sass:color";
 
 .workbench-canvas {
@@ -9,33 +10,34 @@
   background: transparent;
   border: 0 !important;
   box-shadow: none !important;
+  container-type: inline-size;
 }
 
 .canvas-header {
-  padding: 8px 16px;
+  padding: rem(8) rem(16);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   background: var(--vb-glass-lighter);
-  border-bottom: 1px solid var(--vb-border-subtle);
-  backdrop-filter: blur(8px);
+  border-bottom: rem(1) solid var(--vb-border-subtle);
+  backdrop-filter: blur(rem(8));
   z-index: 50;
 }
 
 .canvas-header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: rem(12);
 }
 
 .canvas-header-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: rem(6);
+  padding: rem(4) rem(10);
   background: var(--vb-chip);
-  border-radius: 8px;
-  font-size: 11px;
+  border-radius: rem(8);
+  font-size: rem(11);
   color: var(--vb-text-muted);
   
   strong { color: var(--vb-text); }
@@ -44,45 +46,45 @@
 .canvas-layout-preset-group {
   display: flex;
   background: var(--vb-chip);
-  padding: 2px;
-  border-radius: 10px;
-  gap: 2px;
+  padding: rem(2);
+  border-radius: rem(10);
+  gap: rem(2);
 }
 
 .canvas-layout-custom-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: rem(8);
+  padding: rem(4) rem(8);
   background: var(--vb-chip);
-  border-radius: 10px;
+  border-radius: rem(10);
 }
 
 .canvas-layout-custom-field {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: rem(6);
   color: var(--vb-text-muted);
-  font-size: 11px;
+  font-size: rem(11);
 
   span {
-    min-width: 18px;
+    min-width: rem(18);
   }
 }
 
 .canvas-layout-custom-input {
-  width: 54px;
-  padding: 6px 8px;
-  font-size: 12px;
+  width: rem(54);
+  padding: rem(6) rem(8);
+  font-size: rem(12);
 }
 
 .canvas-layout-preset-btn {
-  width: 28px;
-  height: 28px;
+  width: rem(28);
+  height: rem(28);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: rem(8);
   border: 0;
   background: transparent;
   color: var(--vb-text-muted);
@@ -94,36 +96,36 @@
 
 .canvas-layout-preset-auto {
   font-weight: 700;
-  font-size: 10px;
+  font-size: rem(10);
 }
 
 .canvas-layout-preset-icon {
-  width: 14px;
-  height: 14px;
+  width: rem(14);
+  height: rem(14);
 }
 
 .canvas-layout-preset-glyph {
   display: grid;
-  gap: 1px;
-  width: 12px;
-  height: 12px;
+  gap: rem(1);
+  width: rem(12);
+  height: rem(12);
   
-  span { background: currentColor; border-radius: 0.5px; opacity: 0.6; }
+  span { background: currentColor; border-radius: rem(0.5); opacity: 0.6; }
 }
 
 .canvas-header-icon-button {
-  width: 32px;
-  height: 32px;
+  width: rem(32);
+  height: rem(32);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  border: 1px solid var(--vb-border-subtle);
+  border-radius: rem(10);
+  border: rem(1) solid var(--vb-border-subtle);
   background: var(--vb-surface);
   color: var(--vb-text-muted);
   transition: all 0.2s ease;
 
-  &:hover { color: var(--vb-text); border-color: var(--vb-border-strong); transform: translateY(-1px); }
+  &:hover { color: var(--vb-text); border-color: var(--vb-border-strong); transform: translateY(-rem(1)); }
   
   &.canvas-header-add { background: var(--vb-accent); color: white; border-color: transparent; }
   &.canvas-header-add:hover { background: color-mix(in srgb, var(--vb-accent) 90%, black); }
@@ -135,8 +137,8 @@
   display: grid;
   grid-template-columns: repeat(var(--station-grid-columns, auto-fit), minmax(0, 1fr));
   grid-template-rows: repeat(var(--station-grid-rows, auto-fit), minmax(0, 1fr));
-  gap: 12px;
-  padding: 12px;
+  gap: rem(12);
+  padding: rem(12);
   overflow: hidden; /* No scrolling in the container */
   min-height: 0;
   height: 100%;
@@ -158,7 +160,7 @@
 /* Focus Mode Implementation */
 .station-grid.focus-mode {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: 1fr rem(280);
   grid-template-rows: 1fr;
   padding: 0;
   gap: 0;
@@ -167,7 +169,7 @@
   .focus-main {
     flex: 1;
     height: 100%;
-    padding: 12px;
+    padding: rem(12);
     min-width: 0;
 
     .focus-main-stage {
@@ -183,20 +185,20 @@
         width: 100%;
         height: 100%;
         margin: 0;
-        border-radius: 14px;
+        border-radius: rem(14);
       }
     }
   }
 
   .focus-ring {
-    width: 280px;
+    width: rem(280);
     height: 100%;
     background: var(--vb-glass-lighter);
-    border-left: 1px solid var(--vb-border-subtle);
+    border-left: rem(1) solid var(--vb-border-subtle);
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 12px;
+    gap: rem(12);
+    padding: rem(12);
     overflow-y: auto;
     scrollbar-width: none;
     &::-webkit-scrollbar { display: none; }
@@ -205,12 +207,12 @@
       flex: 0 0 auto;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: rem(10);
       width: 100%;
-      min-height: 108px;
-      padding: 14px;
-      border: 1px solid var(--vb-border-subtle);
-      border-radius: 16px;
+      min-height: rem(108);
+      padding: rem(14);
+      border: rem(1) solid var(--vb-border-subtle);
+      border-radius: rem(16);
       background:
         linear-gradient(160deg, color-mix(in srgb, var(--vb-surface) 88%, transparent), transparent),
         var(--vb-glass-light);
@@ -219,7 +221,7 @@
       transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 
       &:hover {
-        transform: translateY(-1px);
+        transform: translateY(-rem(1));
         border-color: var(--vb-border-strong);
         box-shadow: var(--vb-shadow-md);
       }
@@ -229,17 +231,17 @@
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 10px;
+      gap: rem(10);
     }
 
     .focus-rail-item-title {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: rem(4);
       min-width: 0;
 
       strong {
-        font-size: 13px;
+        font-size: rem(13);
         font-weight: 700;
         color: var(--vb-text);
         overflow: hidden;
@@ -248,7 +250,7 @@
       }
 
       span {
-        font-size: 11px;
+        font-size: rem(11);
         color: var(--vb-text-muted);
         font-family: var(--vb-font-mono);
         overflow: hidden;
@@ -259,19 +261,19 @@
 
     .focus-rail-item-unread {
       flex-shrink: 0;
-      min-width: 20px;
-      padding: 2px 7px;
-      border-radius: 999px;
+      min-width: rem(20);
+      padding: rem(2) rem(7);
+      border-radius: rem(999);
       background: var(--vb-accent);
       color: white;
-      font-size: 10px;
+      font-size: rem(10);
       font-weight: 700;
       text-align: center;
     }
 
     .focus-rail-item-path {
       margin: 0;
-      font-size: 11px;
+      font-size: rem(11);
       line-height: 1.45;
       color: var(--vb-text-muted);
       font-family: var(--vb-font-mono);
@@ -284,9 +286,9 @@
   }
 }
 
-@media (max-width: 1200px) {
+@container (max-width: rem(1200)) {
   .canvas-header {
-    padding: 10px 12px;
+    padding: rem(10) rem(12);
   }
 
   .canvas-header-actions {
@@ -297,17 +299,48 @@
 
   .station-grid.focus-mode {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 160px;
+    grid-template-rows: 1fr rem(160);
     
     .focus-ring {
       width: 100%;
-      height: 160px;
+      height: rem(160);
       border-left: 0;
-      border-top: 1px solid var(--vb-border-subtle);
+      border-top: rem(1) solid var(--vb-border-subtle);
       flex-direction: row;
 
       .focus-rail-item {
-        flex: 0 0 240px;
+        flex: 0 0 rem(240);
+        min-height: 0;
+        height: 100%;
+      }
+    }
+  }
+}
+
+@container (max-width: rem(920)) {
+  .canvas-header {
+    justify-content: flex-start;
+  }
+
+  .canvas-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .station-grid.focus-mode {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr rem(160);
+
+    .focus-ring {
+      width: 100%;
+      height: rem(160);
+      border-left: 0;
+      border-top: rem(1) solid var(--vb-border-subtle);
+      flex-direction: row;
+
+      .focus-rail-item {
+        flex: 0 0 rem(240);
         min-height: 0;
         height: 100%;
       }

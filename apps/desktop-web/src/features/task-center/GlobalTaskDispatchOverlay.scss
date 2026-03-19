@@ -1,13 +1,15 @@
+@use '../../styles/tokens/responsive' as *;
+
 .task-quick-dispatch-overlay {
   position: fixed;
   inset: 0;
   z-index: 1400;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: var(--vb-space-lg);
   background:
     radial-gradient(
-      1200px 760px at 18% 12%,
+      #{rem(1200)} #{rem(760)} at 18% 12%,
       color-mix(
         in srgb,
         var(--vb-accent) var(--task-dispatch-overlay-glow-opacity, 24%),
@@ -16,7 +18,7 @@
       transparent 56%
     ),
     radial-gradient(
-      900px 620px at 82% 18%,
+      #{rem(900)} #{rem(620)} at 82% 18%,
       color-mix(in srgb, white 14%, transparent),
       transparent 52%
     ),
@@ -25,19 +27,19 @@
       var(--vb-bg) var(--task-dispatch-overlay-veil-opacity, 22%),
       transparent
     );
-  backdrop-filter: blur(12px) saturate(132%);
-  -webkit-backdrop-filter: blur(12px) saturate(132%);
+  backdrop-filter: blur(#{rem(12)}) saturate(132%);
+  -webkit-backdrop-filter: blur(#{rem(12)}) saturate(132%);
 }
 
 .task-quick-dispatch-panel {
   position: relative;
-  width: min(880px, calc(100vw - 32px));
-  max-height: min(860px, calc(100vh - 32px));
+  width: min(#{rem(880)}, calc(100vw - var(--vb-space-lg) * 2));
+  max-height: min(#{rem(860)}, calc(100dvh - var(--vb-space-lg) * 2));
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 28px;
-  border: 1px solid color-mix(in srgb, white 28%, var(--vb-border));
+  border-radius: var(--vb-radius-xl);
+  border: var(--vb-border-width) solid color-mix(in srgb, white 28%, var(--vb-border));
   background:
     linear-gradient(
       140deg,
@@ -61,13 +63,14 @@
         transparent
       )
     );
-  backdrop-filter: blur(28px) saturate(180%) contrast(1.05);
-  -webkit-backdrop-filter: blur(28px) saturate(180%) contrast(1.05);
+  backdrop-filter: blur(#{rem(28)}) saturate(180%) contrast(1.05);
+  -webkit-backdrop-filter: blur(#{rem(28)}) saturate(180%) contrast(1.05);
   box-shadow:
-    0 40px 120px rgba(2, 6, 23, 0.28),
-    0 16px 42px rgba(15, 23, 42, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.44),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+    0 #{rem(40)} #{rem(120)} rgba(2, 6, 23, 0.28),
+    0 #{rem(16)} #{rem(42)} rgba(15, 23, 42, 0.14),
+    inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.44),
+    inset 0 calc(var(--vb-border-width) * -1) 0 rgba(255, 255, 255, 0.12);
+  container-type: inline-size;
 }
 
 .task-quick-dispatch-panel::before,
@@ -81,7 +84,7 @@
 .task-quick-dispatch-panel::before {
   background:
     radial-gradient(
-      760px 220px at 12% 0%,
+      #{rem(760)} #{rem(220)} at 12% 0%,
       rgba(255, 255, 255, 0.34),
       rgba(255, 255, 255, 0.1) 28%,
       transparent 62%
@@ -98,9 +101,9 @@
 }
 
 .task-quick-dispatch-panel::after {
-  inset: 1px;
-  border-radius: 27px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  inset: #{rem(1)};
+  border-radius: calc(var(--vb-radius-xl) - #{rem(1)});
+  border: var(--vb-border-width) solid rgba(255, 255, 255, 0.18);
   opacity: 0.7;
 }
 
@@ -109,9 +112,9 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  padding: 22px 24px 20px;
-  border-bottom: 1px solid color-mix(in srgb, white 18%, var(--vb-border));
+  gap: var(--vb-space-lg);
+  padding: var(--vb-space-lg) var(--vb-space-xl) var(--vb-space-md);
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, white 18%, var(--vb-border));
   background:
     linear-gradient(
       180deg,
@@ -126,20 +129,21 @@
 
 .task-quick-dispatch-header-copy {
   min-width: 0;
+  flex: 1;
 
   h2 {
-    margin: 8px 0 6px;
-    font-size: 24px;
+    margin: var(--vb-space-xs) 0 var(--vb-space-2xs);
+    font-size: #{rem(24)};
     line-height: 1.05;
     letter-spacing: -0.04em;
     color: var(--vb-text);
-    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.2);
+    text-shadow: 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.2);
   }
 
   p {
     margin: 0;
     max-width: 62ch;
-    font-size: 13px;
+    font-size: #{rem(13)};
     line-height: 1.62;
     color: color-mix(in srgb, var(--vb-text-muted) 92%, var(--vb-text));
   }
@@ -148,17 +152,17 @@
 .task-quick-dispatch-kicker {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 11px;
+  gap: var(--vb-space-sm);
+  font-size: #{rem(11)};
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--vb-text-muted);
 
   kbd {
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.28);
+    padding: var(--vb-space-2xs) var(--vb-space-sm);
+    border-radius: var(--vb-radius-full);
+    border: var(--vb-border-width) solid rgba(255, 255, 255, 0.28);
     background: color-mix(
       in srgb,
       white var(--task-dispatch-panel-chrome-opacity, 34%),
@@ -168,24 +172,25 @@
     font-family: var(--vb-font-mono);
     letter-spacing: 0.02em;
     text-transform: none;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    box-shadow: inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.24);
   }
 }
 
 .task-quick-dispatch-header-actions {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--vb-space-sm);
+  flex-shrink: 0;
 }
 
 .task-quick-dispatch-opacity {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 220px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  gap: var(--vb-space-xs);
+  min-width: #{rem(220)};
+  padding: var(--vb-space-sm) var(--vb-space-md);
+  border-radius: var(--vb-radius-lg);
+  border: var(--vb-border-width) solid rgba(255, 255, 255, 0.24);
   background:
     linear-gradient(
       180deg,
@@ -197,11 +202,11 @@
       )
     );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 8px 24px rgba(15, 23, 42, 0.08);
+    inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.24),
+    0 #{rem(8)} #{rem(24)} rgba(15, 23, 42, 0.08);
 
   span {
-    font-size: 11px;
+    font-size: #{rem(11)};
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -212,7 +217,7 @@
 .task-quick-dispatch-opacity-control {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--vb-space-md);
 
   input[type='range'] {
     flex: 1;
@@ -221,22 +226,22 @@
   }
 
   strong {
-    min-width: 44px;
+    min-width: #{rem(44)};
     text-align: right;
-    font-size: 12px;
+    font-size: #{rem(12)};
     color: var(--vb-text);
     font-family: var(--vb-font-mono);
   }
 }
 
 .task-quick-dispatch-close {
-  width: 40px;
-  height: 40px;
+  width: #{rem(40)};
+  height: #{rem(40)};
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: var(--vb-radius-md);
+  border: var(--vb-border-width) solid rgba(255, 255, 255, 0.22);
   background: color-mix(
     in srgb,
     white var(--task-dispatch-panel-chrome-opacity, 34%),
@@ -252,16 +257,16 @@
     box-shadow 180ms ease;
 
   &:hover {
-    transform: translateY(-1px);
+    transform: translateY(#{rem(-1)});
     color: var(--vb-text);
     border-color: color-mix(in srgb, var(--vb-accent) 48%, rgba(255, 255, 255, 0.22));
     background: color-mix(in srgb, white 26%, var(--vb-accent-light));
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
+    box-shadow: 0 #{rem(10)} #{rem(22)} rgba(15, 23, 42, 0.1);
   }
 
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--vb-accent) 20%, transparent);
+    box-shadow: 0 0 0 #{rem(3)} color-mix(in srgb, var(--vb-accent) 20%, transparent);
   }
 }
 
@@ -269,13 +274,13 @@
   position: relative;
   min-height: 0;
   overflow: auto;
-  padding: 18px 20px 20px;
+  padding: var(--vb-space-lg) var(--vb-space-xl) var(--vb-space-xl);
 }
 
 .task-quick-dispatch-body .task-center-target-picker,
 .task-quick-dispatch-body .task-center-editor {
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: #{rem(20)};
+  border: var(--vb-border-width) solid rgba(255, 255, 255, 0.18);
   background:
     linear-gradient(
       180deg,
@@ -295,15 +300,15 @@
       )
     );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 14px 30px rgba(15, 23, 42, 0.08);
+    inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.18),
+    0 #{rem(14)} #{rem(30)} rgba(15, 23, 42, 0.08);
 }
 
 .task-quick-dispatch-body .task-center-editor-input-wrap textarea {
-  min-height: 280px;
+  min-height: #{rem(280)};
   background: color-mix(in srgb, var(--vb-input-bg) 76%, transparent);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(#{rem(10)}) saturate(140%);
+  -webkit-backdrop-filter: blur(#{rem(10)}) saturate(140%);
   border-color: rgba(255, 255, 255, 0.18);
 }
 
@@ -311,27 +316,17 @@
 .task-quick-dispatch-body .task-center-target-popover-portal,
 .task-quick-dispatch-body .task-center-toolbar-btn {
   background: color-mix(in srgb, var(--vb-surface) 52%, transparent);
-  backdrop-filter: blur(12px) saturate(150%);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: blur(#{rem(12)}) saturate(150%);
+  -webkit-backdrop-filter: blur(#{rem(12)}) saturate(150%);
 }
 
 .task-quick-dispatch-body .task-center-inline-send.primary {
   box-shadow:
-    0 10px 26px color-mix(in srgb, var(--vb-accent) 26%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    0 #{rem(10)} #{rem(26)} color-mix(in srgb, var(--vb-accent) 26%, transparent),
+    inset 0 var(--vb-border-width) 0 rgba(255, 255, 255, 0.2);
 }
 
-@media (max-width: 860px) {
-  .task-quick-dispatch-overlay {
-    padding: 16px;
-  }
-
-  .task-quick-dispatch-panel {
-    width: min(100vw - 16px, 880px);
-    max-height: calc(100vh - 16px);
-    border-radius: 24px;
-  }
-
+@container (max-width: 54rem) {
   .task-quick-dispatch-header {
     flex-direction: column;
   }
@@ -342,8 +337,34 @@
   }
 
   .task-quick-dispatch-opacity {
-    flex: 1;
+    width: 100%;
     min-width: 0;
+  }
+
+  .task-quick-dispatch-body {
+    padding: var(--vb-space-md);
+  }
+}
+
+@container (max-width: 40rem) {
+  .task-quick-dispatch-header {
+    padding: var(--vb-space-md);
+  }
+
+  .task-quick-dispatch-header-copy h2 {
+    font-size: #{rem(20)};
+  }
+
+  .task-quick-dispatch-header-copy p {
+    font-size: #{rem(12)};
+  }
+
+  .task-quick-dispatch-body {
+    padding: var(--vb-space-sm);
+  }
+
+  .task-quick-dispatch-close {
+    align-self: flex-end;
   }
 }
 
