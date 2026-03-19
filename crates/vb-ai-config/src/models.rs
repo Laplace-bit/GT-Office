@@ -89,6 +89,11 @@ pub struct AiAgentInstallStatus {
     pub executable: Option<String>,
     pub requires_node: bool,
     pub node_ready: bool,
+    pub npm_ready: bool,
+    pub install_available: bool,
+    pub uninstall_available: bool,
+    pub detected_by: Vec<String>,
+    pub issues: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

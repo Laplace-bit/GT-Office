@@ -1,6 +1,7 @@
-import { memo } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { TaskDispatchRecord } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
+import type { ChannelRouteBinding } from '@shell/integration/desktop-api'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import './CommunicationChannelsPane.scss'
@@ -14,10 +15,26 @@ type ExternalChannelEventItem = {
   status?: 'received' | 'sent' | 'failed'
   secondary?: string
   detail?: string
+  accountId?: string
+  peerKind?: 'direct' | 'group'
+  peerId?: string
+  senderId?: string
+  targetAgentId?: string
+  endpointKey?: string
+  conversationKey?: string
+}
+
+type EventDirection = 'inbound' | 'outbound'
+type ConversationGroup = {
+  key: string
+  label: string
+  events: ExternalChannelEventItem[]
+  latestTsMs: number
 }
 
 interface CommunicationChannelsPaneProps {
   locale: Locale
+  agentNameMap: Record<string, string>
   dispatchHistory: TaskDispatchRecord[]
   retryingTaskId: string | null
   externalStatus: {
@@ -35,7 +52,7 @@ interface CommunicationChannelsPaneProps {
     } | null
     lastSyncAtMs: number | null
     error: string | null
-    bindings?: Array<{ channel: string }>
+    bindings?: ChannelRouteBinding[]
     configuredChannels?: string[]
   }
   externalEvents: ExternalChannelEventItem[]
@@ -53,16 +70,6 @@ function externalChannelLabel(locale: Locale, channel: string): string {
   return channel
 }
 
-function eventStatusLabel(locale: Locale, event: ExternalChannelEventItem): string {
-  if (event.status === 'failed' || event.kind === 'error') {
-    return t(locale, 'taskCenter.status.failed')
-  }
-  if (event.status === 'sent' || event.kind === 'outbound') {
-    return t(locale, 'taskCenter.status.sent')
-  }
-  return t(locale, 'taskCenter.external.events.kind.inbound')
-}
-
 function eventStatusClass(event: ExternalChannelEventItem): string {
   if (event.status === 'failed' || event.kind === 'error') {
     return 'failed'
@@ -73,40 +80,95 @@ function eventStatusClass(event: ExternalChannelEventItem): string {
   return 'received'
 }
 
-function eventStatusIcon(event: ExternalChannelEventItem): 'arrow-down' | 'check' | 'x-mark' {
-  if (event.status === 'failed' || event.kind === 'error') {
-    return 'x-mark'
+function resolveEventDirection(event: ExternalChannelEventItem): EventDirection {
+  if (event.kind === 'inbound' || event.status === 'received') {
+    return 'inbound'
   }
-  if (event.status === 'sent' || event.kind === 'outbound') {
-    return 'check'
-  }
-  return 'arrow-down'
-}
-
-function eventChannelIcon(channel: string): 'telegram' | 'feishu' | 'external' {
-  if (channel === 'telegram') {
-    return 'telegram'
-  }
-  if (channel === 'feishu') {
-    return 'feishu'
-  }
-  return 'external'
+  return 'outbound'
 }
 
 function resolveEventContent(event: ExternalChannelEventItem): string {
   return event.primary.trim() || event.secondary?.trim() || event.detail?.trim() || '-'
 }
 
-function formatTimestamp(value: number): string {
-  const date = new Date(value)
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  const second = String(date.getSeconds()).padStart(2, '0')
-  return `${hour}:${minute}:${second}`
+function shouldShowFailureDetail(event: ExternalChannelEventItem): boolean {
+  return Boolean(event.detail && (event.status === 'failed' || event.kind === 'error'))
+}
+
+function resolveConversationKey(event: ExternalChannelEventItem): string {
+  if (event.conversationKey?.trim()) {
+    return event.conversationKey.trim()
+  }
+  const endpointKey =
+    event.endpointKey?.trim() ||
+    `${event.channel?.trim().toLowerCase() || 'external'}::${event.peerId?.trim() || 'unknown-peer'}`
+  const targetAgentId = event.targetAgentId?.trim() || 'pending'
+  return `${endpointKey}::${targetAgentId}`
+}
+
+function normalizeBindingToken(value: string | null | undefined, fallback: string): string {
+  const normalized = value?.trim().toLowerCase()
+  return normalized || fallback
+}
+
+function resolveConversationBinding(
+  event: ExternalChannelEventItem,
+  bindings: ChannelRouteBinding[],
+): ChannelRouteBinding | null {
+  if (bindings.length === 0) {
+    return null
+  }
+  const eventChannel = normalizeBindingToken(event.channel, 'external')
+  const eventTarget = event.targetAgentId?.trim() || null
+  const eventAccount = normalizeBindingToken(event.accountId, 'default')
+  const eventPeerKind = normalizeBindingToken(event.peerKind, 'direct')
+  const candidates = bindings.filter((binding) => {
+    if (normalizeBindingToken(binding.channel, 'external') !== eventChannel) {
+      return false
+    }
+    if (eventTarget && binding.targetAgentId.trim() !== eventTarget) {
+      return false
+    }
+    return true
+  })
+  if (candidates.length === 0) {
+    return null
+  }
+  const sorted = [...candidates].sort((left, right) => {
+    const leftAccount = normalizeBindingToken(left.accountId, 'default')
+    const rightAccount = normalizeBindingToken(right.accountId, 'default')
+    const leftPeerKind = normalizeBindingToken(left.peerKind, 'direct')
+    const rightPeerKind = normalizeBindingToken(right.peerKind, 'direct')
+    const leftScore = Number(leftAccount === eventAccount) * 2 + Number(leftPeerKind === eventPeerKind)
+    const rightScore = Number(rightAccount === eventAccount) * 2 + Number(rightPeerKind === eventPeerKind)
+    return rightScore - leftScore
+  })
+  return sorted[0] ?? null
+}
+
+function resolveConversationDisplayLabel(
+  locale: Locale,
+  event: ExternalChannelEventItem,
+  bindings: ChannelRouteBinding[],
+  agentNameMap: Record<string, string>,
+): string {
+  const channel = event.channel ?? 'external'
+  const channelLabel = externalChannelLabel(locale, channel)
+  const matchedBinding = resolveConversationBinding(event, bindings)
+  const botName = matchedBinding?.botName?.trim() || `${channelLabel} Bot`
+  const botLabel = botName.toLowerCase().includes(channelLabel.toLowerCase())
+    ? botName
+    : `${channelLabel} ${botName}`
+  const targetAgentId = event.targetAgentId?.trim() || matchedBinding?.targetAgentId?.trim() || null
+  const agentName = targetAgentId
+    ? agentNameMap[targetAgentId]?.trim() || t(locale, '未命名 Agent', 'Unlabeled Agent')
+    : t(locale, '待路由 Agent', 'Pending Agent')
+  return `${botLabel} - ${agentName}`
 }
 
 function CommunicationChannelsPaneView({
   locale,
+  agentNameMap,
   dispatchHistory,
   retryingTaskId,
   externalStatus,
@@ -119,6 +181,99 @@ function CommunicationChannelsPaneView({
   void onRetryDispatchTask
   void onRefreshExternalStatus
 
+  const feedScrollRef = useRef<HTMLDivElement | null>(null)
+  const hasInitialAutoScrollRef = useRef(false)
+  const [activeConversationKey, setActiveConversationKey] = useState<string | null>(null)
+  const orderedEvents = useMemo(
+    () => [...externalEvents].sort((left, right) => left.tsMs - right.tsMs),
+    [externalEvents],
+  )
+  const conversationGroups = useMemo<ConversationGroup[]>(() => {
+    const grouped = new Map<string, ConversationGroup>()
+    orderedEvents.forEach((event) => {
+      const key = resolveConversationKey(event)
+      const existing = grouped.get(key)
+      if (!existing) {
+        grouped.set(key, {
+          key,
+          label: resolveConversationDisplayLabel(
+            locale,
+            event,
+            externalStatus.bindings ?? [],
+            agentNameMap,
+          ),
+          events: [event],
+          latestTsMs: event.tsMs,
+        })
+        return
+      }
+      existing.events.push(event)
+      existing.latestTsMs = Math.max(existing.latestTsMs, event.tsMs)
+      if (event.targetAgentId?.trim()) {
+        existing.label = resolveConversationDisplayLabel(
+          locale,
+          event,
+          externalStatus.bindings ?? [],
+          agentNameMap,
+        )
+      }
+    })
+    return [...grouped.values()].sort((left, right) => right.latestTsMs - left.latestTsMs)
+  }, [agentNameMap, externalStatus.bindings, locale, orderedEvents])
+  const activeConversation = useMemo(() => {
+    if (conversationGroups.length === 0) {
+      return null
+    }
+    if (activeConversationKey) {
+      const matched = conversationGroups.find((group) => group.key === activeConversationKey)
+      if (matched) {
+        return matched
+      }
+    }
+    return conversationGroups[0]
+  }, [activeConversationKey, conversationGroups])
+  const activeEvents = activeConversation?.events ?? []
+  const latestEvent = activeEvents.length ? activeEvents[activeEvents.length - 1] : null
+
+  useEffect(() => {
+    if (conversationGroups.length === 0) {
+      setActiveConversationKey(null)
+      return
+    }
+    setActiveConversationKey((current) => {
+      if (current && conversationGroups.some((group) => group.key === current)) {
+        return current
+      }
+      return conversationGroups[0]?.key ?? null
+    })
+  }, [conversationGroups])
+
+  useEffect(() => {
+    hasInitialAutoScrollRef.current = false
+  }, [activeConversation?.key])
+
+  useEffect(() => {
+    const host = feedScrollRef.current
+    if (!host) {
+      return
+    }
+    if (!latestEvent) {
+      hasInitialAutoScrollRef.current = false
+      return
+    }
+
+    if (!hasInitialAutoScrollRef.current) {
+      host.scrollTop = host.scrollHeight
+      hasInitialAutoScrollRef.current = true
+      return
+    }
+
+    const distanceFromBottom = host.scrollHeight - host.scrollTop - host.clientHeight
+    if (distanceFromBottom <= 96) {
+      host.scrollTop = host.scrollHeight
+    }
+  }, [latestEvent?.id, latestEvent?.tsMs])
+
   return (
     <aside className="panel communication-channels-pane">
       <header className="communication-channels-header">
@@ -127,64 +282,61 @@ function CommunicationChannelsPaneView({
 
       <section className="communication-channels-surface">
         <div className="communication-channels-feed">
-          <header className="communication-channels-feed-header">
-            <div>
-              <h3>{t(locale, 'taskCenter.external.events.title')}</h3>
-            </div>
-          </header>
-          {externalEvents.length === 0 ? (
-            <p className="communication-channels-empty">
-              {t(locale, 'taskCenter.external.events.empty')}
-            </p>
-          ) : (
-            <ul>
-              {externalEvents.map((event) => {
-                const content = resolveEventContent(event)
-                const channel =
-                  event.channel ?? externalStatus.configuredChannels?.[0] ?? 'external'
-                const channelLabel = externalChannelLabel(locale, channel)
-                const statusLabel = eventStatusLabel(locale, event)
-
+          {conversationGroups.length > 0 ? (
+            <div className="communication-channels-tabs" role="tablist" aria-label={t(locale, '双端会话', 'Conversations')}>
+              {conversationGroups.map((group) => {
+                const isActive = group.key === activeConversation?.key
                 return (
-                <li key={event.id} className="communication-channels-message-row">
-                  <div className="communication-channels-message-copy">
-                    <p className="communication-channels-message-content" title={content}>
-                      {content}
-                    </p>
-                    {event.detail && event.status === 'failed' ? (
-                      <p className="communication-channels-message-detail" title={event.detail}>
-                        {event.detail}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="communication-channels-message-meta">
-                    <span
-                      className="communication-channels-message-time"
-                      title={formatTimestamp(event.tsMs)}
-                    >
-                      <AppIcon name="clock" aria-hidden="true" />
-                      <span>{formatTimestamp(event.tsMs)}</span>
-                    </span>
-                    <span
-                      className="communication-channels-message-channel"
-                      title={channelLabel}
-                    >
-                      <AppIcon name={eventChannelIcon(channel)} aria-hidden="true" />
-                      <span>{channelLabel}</span>
-                    </span>
-                    <span
-                      className={`communication-channels-message-status ${eventStatusClass(event)}`}
-                      title={statusLabel}
-                    >
-                      <AppIcon name={eventStatusIcon(event)} aria-hidden="true" />
-                      <span>{statusLabel}</span>
-                    </span>
-                  </div>
-                </li>
+                  <button
+                    key={group.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    className={`communication-channels-tab ${isActive ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setActiveConversationKey(group.key)
+                    }}
+                    title={group.label}
+                  >
+                    <span className="communication-channels-tab-title">{group.label}</span>
+                    <span className="communication-channels-tab-count">{group.events.length}</span>
+                  </button>
                 )
               })}
-            </ul>
-          )}
+            </div>
+          ) : null}
+          <div className="communication-channels-feed-scroll" ref={feedScrollRef}>
+            {activeEvents.length === 0 ? (
+              <div className="communication-channels-empty" role="status">
+                <AppIcon name="channels" aria-hidden="true" />
+                <p>{t(locale, 'taskCenter.external.events.empty')}</p>
+              </div>
+            ) : (
+              <ol className="communication-channels-message-list">
+                {activeEvents.map((event) => {
+                  const content = resolveEventContent(event)
+                  const statusClass = eventStatusClass(event)
+                  const direction = resolveEventDirection(event)
+
+                  return (
+                    <li key={event.id} className={`communication-channels-message-row is-${direction}`}>
+                      <article
+                        className={`communication-channels-bubble ${statusClass === 'failed' ? 'is-failed' : ''}`}
+                        title={content}
+                      >
+                        <p className="communication-channels-message-content">{content}</p>
+                        {shouldShowFailureDetail(event) ? (
+                          <p className="communication-channels-message-detail" title={event.detail}>
+                            {event.detail}
+                          </p>
+                        ) : null}
+                      </article>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+          </div>
         </div>
       </section>
     </aside>

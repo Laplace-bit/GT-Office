@@ -10,8 +10,10 @@ interface ProviderAgentCardProps {
   agent: AiAgentSnapshotCard
   selected: boolean
   installingCli: boolean
+  uninstallingCli: boolean
   onSelect: () => void
   onInstall: () => void
+  onUninstall: () => void
   onOpenEnhancements: () => void
   onConfigure: () => void
   configureActions?: Array<{
@@ -46,18 +48,24 @@ export function ProviderAgentCard({
   agent,
   selected,
   installingCli,
+  uninstallingCli,
   onSelect,
   onInstall,
+  onUninstall,
   onOpenEnhancements,
   onConfigure,
   configureActions,
 }: ProviderAgentCardProps) {
-  const installCliDisabled =
-    installingCli || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
+  const installCliDisabled = installingCli
+  const uninstallCliDisabled = uninstallingCli
   const enhancementDisabled = !agent.installStatus.installed
   const tone = resolveStatusTone(agent)
   const label = resolveStatusLabel(locale, agent)
   const enabledEnhancementCount = resolveEnabledEnhancementCount(agent)
+  const uninstallTitle =
+    !agent.installStatus.uninstallAvailable && agent.installStatus.issues.length > 0
+      ? agent.installStatus.issues[0]
+      : undefined
   const effectiveConfigureActions =
     configureActions && configureActions.length > 0
       ? configureActions
@@ -104,6 +112,12 @@ export function ProviderAgentCard({
               <span>{t(locale, 'aiConfig.card.noExecutable')}</span>
             </div>
           )}
+          {agent.installStatus.detectedBy.length > 0 && (
+            <div className="meta-item">
+              <AppIcon name="sparkles" width={12} height={12} />
+              <span>{agent.installStatus.detectedBy.join(', ')}</span>
+            </div>
+          )}
           <div className={`meta-item ${enabledEnhancementCount > 0 ? '' : 'warn'}`}>
             <AppIcon name="sparkles" width={12} height={12} />
             <span>
@@ -148,6 +162,17 @@ export function ProviderAgentCard({
                 )}
               </button>
             ))}
+            <button
+              className={`action-button secondary ${effectiveConfigureActions.length > 1 ? 'is-subaction' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onUninstall()
+              }}
+              disabled={uninstallCliDisabled}
+              title={uninstallTitle}
+            >
+              {uninstallingCli ? t(locale, 'aiConfig.card.uninstalling') : t(locale, 'aiConfig.card.uninstallCli')}
+            </button>
           </div>
         )}
         <button

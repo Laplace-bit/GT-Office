@@ -1649,6 +1649,11 @@ fn map_install_status(agent: AiConfigAgent) -> crate::models::AiAgentInstallStat
         executable: status.executable,
         requires_node: status.requires_node,
         node_ready: status.node_ready,
+        npm_ready: status.npm_ready,
+        install_available: status.install_available,
+        uninstall_available: status.uninstall_available,
+        detected_by: status.detected_by,
+        issues: status.issues,
     }
 }
 

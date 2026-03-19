@@ -159,7 +159,7 @@ MCP Bridge（T-171）：
 | `ai_config.preview_patch` | `workspaceId,scope,agent,draft` | `previewId,allowed,normalizedDraft,maskedDiff[],changedKeys[],secretRefs[],warnings[]` |
 | `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `ai_config.switch_saved_claude_provider` | `workspaceId,savedProviderId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
-| `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady` |
+| `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady,npmReady,installAvailable,uninstallAvailable,detectedBy[],issues[]` |
 | `agent_mcp_install_status` | `agent` | `installed` |
 | `install_agent` | `agent` | `ok`（成功后前端需重新查询 `agent_install_status`） |
 | `install_agent_mcp` | `agent` | `ok`（成功后前端需重新查询 `ai_config.read_snapshot` 或 `agent_mcp_install_status`） |
@@ -186,6 +186,8 @@ AI Config 约束（T-171）：
 19. 设置页 UI 必须将 MCP 收口到“增强服务”弹窗中，不在 agent 卡片主操作区直接暴露原始 MCP 状态术语。
 20. “增强服务”弹窗至少预留 `MCP` 与 `Skills` 两个 tab；当前版本只有 `MCP` tab 具备真实服务项。
 21. 当 `mcpInstalled=true` 但 `installStatus.installed=false` 时，前端必须显示“已预配置，待 CLI 可用”之类的依赖态，而不是直接显示“已安装”。
+22. `install_agent` 成功返回前必须执行一次真实 CLI 复检；至少要求能定位到受支持的可执行文件并通过版本探测，不得仅以安装脚本退出码判定成功。
+23. `uninstall_agent` 成功返回前必须确认本机已不再检测到对应 CLI；Claude 在可识别来源时应支持 native/homebrew/npm 受管卸载。
 
 ### 3.7 Agent / Hook / Policy / Observability
 

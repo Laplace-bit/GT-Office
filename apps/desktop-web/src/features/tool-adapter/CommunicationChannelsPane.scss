@@ -1,12 +1,13 @@
 @use '../../styles/tokens/responsive' as *;
 
 .communication-channels-pane {
-  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 84%, rgba(255, 255, 255, 0.5));
-  --communication-surface-border: color-mix(in srgb, var(--vb-border) 78%, transparent);
-  --communication-row-divider: color-mix(in srgb, var(--vb-border-subtle) 85%, transparent);
-  --communication-row-hover: color-mix(in srgb, var(--vb-glass-lighter) 55%, transparent);
-  --communication-channel-bg: color-mix(in srgb, #b68b2d 12%, var(--vb-panel-bg));
-  --communication-channel-text: color-mix(in srgb, #6f5313 86%, var(--vb-text));
+  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 90%, rgba(255, 255, 255, 0.32));
+  --communication-surface-border: color-mix(in srgb, var(--vb-border) 84%, transparent);
+  --communication-header-divider: color-mix(in srgb, var(--vb-border-subtle) 85%, transparent);
+  --communication-inbound-bubble-bg: color-mix(in srgb, var(--vb-accent) 14%, rgba(255, 255, 255, 0.82));
+  --communication-inbound-bubble-border: color-mix(in srgb, var(--vb-accent) 34%, var(--vb-border));
+  --communication-outbound-bubble-bg: color-mix(in srgb, var(--vb-panel-bg) 92%, rgba(255, 255, 255, 0.42));
+  --communication-outbound-bubble-border: color-mix(in srgb, var(--vb-border) 88%, transparent);
 
   display: flex;
   flex-direction: column;
@@ -30,6 +31,15 @@
   }
 }
 
+:root[data-theme='graphite-dark'] .communication-channels-pane {
+  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 90%, #000000 10%);
+  --communication-surface-border: color-mix(in srgb, var(--vb-border) 92%, #000000 8%);
+  --communication-inbound-bubble-bg: color-mix(in srgb, var(--vb-accent) 16%, rgba(12, 19, 29, 0.9));
+  --communication-inbound-bubble-border: color-mix(in srgb, var(--vb-accent) 38%, rgba(255, 255, 255, 0.18));
+  --communication-outbound-bubble-bg: color-mix(in srgb, var(--vb-panel-bg) 84%, #050607 16%);
+  --communication-outbound-bubble-border: color-mix(in srgb, var(--vb-border) 88%, rgba(0, 0, 0, 0.36));
+}
+
 .communication-channels-header h2 {
   margin: 0;
   color: var(--vb-text);
@@ -51,76 +61,206 @@
   overflow: hidden;
 }
 
+:root[data-theme='graphite-dark'] .communication-channels-surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 38%),
+    var(--communication-surface-bg);
+  box-shadow:
+    0 rem(16) rem(42) rgba(0, 0, 0, 0.45),
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.12);
+}
+
 .communication-channels-feed {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
 }
 
-.communication-channels-feed-header {
-  padding: rem(12) rem(14) rem(10);
-  border-bottom: rem(1) solid var(--communication-row-divider);
+.communication-channels-tabs {
+  display: flex;
+  align-items: center;
+  gap: rem(12);
+  padding: 0 rem(14);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--vb-border-strong) transparent;
+  border-bottom: rem(1) solid var(--communication-header-divider);
 
-  h3 {
-    margin: 0;
-    color: var(--vb-text-muted);
-    font-size: rem(11);
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  &::-webkit-scrollbar {
+    height: rem(5);
   }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--vb-border-strong);
+    border-radius: var(--vb-radius-full);
+  }
+}
+
+.communication-channels-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(8);
+  min-width: 0;
+  max-width: min(52%, rem(420));
+  padding: rem(9) 0 rem(8);
+  border: 0;
+  border-bottom: rem(2) solid transparent;
+  background: transparent;
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  transition:
+    color var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out);
+
+  &:hover {
+    color: var(--vb-text);
+    border-bottom-color: color-mix(in srgb, var(--vb-accent) 36%, transparent);
+  }
+
+  &.is-active {
+    color: var(--vb-text);
+    border-bottom-color: var(--vb-accent);
+  }
+}
+
+.communication-channels-tab-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: rem(11);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.communication-channels-tab-count {
+  flex: 0 0 auto;
+  color: var(--vb-text-subtle);
+  font-size: rem(10);
+  font-weight: 500;
+  line-height: 1;
 }
 
 .communication-channels-empty {
-  padding: rem(14);
-  font-size: rem(12);
+  display: grid;
+  gap: rem(8);
+  justify-items: center;
+  text-align: center;
+  padding: rem(26) rem(18);
   color: var(--vb-text-muted);
+
+  svg {
+    width: rem(16);
+    height: rem(16);
+    color: color-mix(in srgb, var(--vb-text-muted) 70%, transparent);
+  }
+
+  p {
+    margin: 0;
+    font-size: rem(12);
+    line-height: 1.45;
+  }
 }
 
-.communication-channels-feed {
-  ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
+.communication-channels-feed-scroll {
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: rem(14);
+  scrollbar-width: thin;
+  scrollbar-color: var(--vb-border-strong) transparent;
+
+  &::-webkit-scrollbar {
+    width: rem(6);
   }
 
-  li {
-    border-bottom: rem(1) solid var(--communication-row-divider);
-
-    &:last-child {
-      border-bottom: 0;
-    }
+  &::-webkit-scrollbar-thumb {
+    background: var(--vb-border-strong);
+    border-radius: var(--vb-radius-full);
   }
+}
+
+.communication-channels-message-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: rem(10);
 }
 
 .communication-channels-message-row {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: rem(12);
-  padding: rem(10) rem(14);
-  transition: background 0.2s ease;
+  flex-direction: column;
+  gap: rem(6);
+  max-width: min(88%, rem(720));
+  animation: communication-message-enter var(--vb-duration-normal) var(--vb-ease-out);
 
-  &:hover {
-    background: var(--communication-row-hover);
+  &.is-inbound {
+    align-self: flex-end;
+  }
+
+  &.is-outbound {
+    align-self: flex-start;
   }
 }
 
-.communication-channels-message-copy {
-  min-width: 0;
-  flex: 1 1 auto;
+.communication-channels-bubble {
+  padding: rem(10) rem(12);
+  border-radius: rem(17);
+  border: rem(1) solid var(--communication-outbound-bubble-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 56%),
+    var(--communication-outbound-bubble-bg);
+  box-shadow:
+    0 rem(1) 0 rgba(255, 255, 255, 0.14) inset,
+    0 rem(8) rem(20) rgba(15, 23, 42, 0.09);
+  backdrop-filter: blur(rem(16));
+  transition:
+    background var(--vb-duration-fast) var(--vb-ease-out),
+    border-color var(--vb-duration-fast) var(--vb-ease-out),
+    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
+
+  &:hover {
+    box-shadow:
+      0 rem(1) 0 rgba(255, 255, 255, 0.32) inset,
+      0 rem(10) rem(22) rgba(15, 23, 42, 0.1);
+  }
+}
+
+.communication-channels-message-row.is-inbound .communication-channels-bubble {
+  border-color: var(--communication-inbound-bubble-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 56%),
+    var(--communication-inbound-bubble-bg);
+}
+
+:root[data-theme='graphite-dark'] .communication-channels-bubble:hover {
+  box-shadow:
+    0 rem(1) 0 rgba(255, 255, 255, 0.12) inset,
+    0 rem(10) rem(24) rgba(0, 0, 0, 0.45);
+}
+
+.communication-channels-bubble.is-failed {
+  border-color: color-mix(in srgb, var(--vb-error) 45%, var(--vb-border-strong));
+  background:
+    linear-gradient(180deg, rgba(255, 69, 58, 0.12), transparent 56%),
+    color-mix(in srgb, var(--vb-error-bg) 32%, var(--communication-outbound-bubble-bg));
 }
 
 .communication-channels-message-content {
   margin: 0;
   color: var(--vb-text);
   font-size: rem(12);
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .communication-channels-message-detail {
@@ -128,83 +268,57 @@
   color: var(--vb-text-muted);
   font-size: rem(11);
   line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
-.communication-channels-message-meta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: rem(6);
-  flex: 0 0 auto;
-}
-
-.communication-channels-message-time,
-.communication-channels-message-channel,
-.communication-channels-message-status {
-  display: inline-flex;
-  align-items: center;
-  gap: rem(5);
-  min-height: rem(22);
-  padding: 0 rem(7);
-  border-radius: var(--vb-radius-full);
-  font-size: rem(10);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  white-space: nowrap;
-
-  svg {
-    width: rem(12);
-    height: rem(12);
-    flex: 0 0 auto;
-  }
-}
-
-.communication-channels-message-channel span,
-.communication-channels-message-time span,
-.communication-channels-message-status span {
-  display: none;
-}
-
-.communication-channels-message-time {
-  color: var(--vb-text-muted);
-  background: color-mix(in srgb, var(--vb-panel-bg) 86%, transparent);
-  border: rem(1) solid var(--vb-border-subtle);
-}
-
-.communication-channels-message-channel {
-  background: var(--communication-channel-bg);
-  color: var(--communication-channel-text);
-  border: rem(1) solid color-mix(in srgb, #b68b2d 18%, var(--vb-border));
-}
-
-.communication-channels-message-status {
-  &.received {
-    background: color-mix(in srgb, var(--vb-accent) 10%, transparent);
-    color: var(--vb-accent);
+@keyframes communication-message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(rem(4));
   }
 
-  &.sent {
-    background: var(--vb-success-bg);
-    color: var(--vb-success);
-  }
-
-  &.failed {
-    background: var(--vb-error-bg);
-    color: var(--vb-error);
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
 @container (max-width: 56rem) {
-  .communication-channels-message-row {
-    flex-direction: column;
+  .communication-channels-tabs {
+    padding-inline: rem(10);
   }
 
-  .communication-channels-message-meta {
-    justify-content: flex-start;
+  .communication-channels-tab {
+    max-width: min(70%, rem(340));
+  }
+
+  .communication-channels-feed-scroll {
+    padding: rem(12) rem(10);
+  }
+
+  .communication-channels-message-row {
+    max-width: 100%;
+  }
+}
+
+@container (max-width: 36rem) {
+  .communication-channels-tab {
+    max-width: 100%;
+  }
+
+  .communication-channels-message-content {
+    font-size: rem(11.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .communication-channels-message-row {
+    animation: none;
+  }
+
+  .communication-channels-bubble {
+    transition: none;
   }
 }

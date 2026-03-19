@@ -193,6 +193,35 @@ function summarizeExternalChannelText(
   return `${normalized.slice(0, maxChars)}...`
 }
 
+function normalizeExternalChannel(value: string | null | undefined): string {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) {
+    return 'external'
+  }
+  return normalized
+}
+
+function buildExternalEndpointKey(input: {
+  channel?: string | null
+  accountId?: string | null
+  peerKind?: string | null
+  peerId?: string | null
+}): string {
+  const channel = normalizeExternalChannel(input.channel)
+  const accountId = input.accountId?.trim() || 'default'
+  const peerKind = input.peerKind?.trim() || 'direct'
+  const peerId = input.peerId?.trim() || 'unknown-peer'
+  return `${channel}::${accountId}::${peerKind}::${peerId}`
+}
+
+function buildExternalConversationKey(endpointKey: string, targetAgentId?: string | null): string {
+  const target = targetAgentId?.trim()
+  if (!target) {
+    return `${endpointKey}::pending`
+  }
+  return `${endpointKey}::target::${target}`
+}
+
 function isCsiUEnterSequence(raw: string): boolean {
   if (!raw.startsWith('\x1b[13;') || !raw.endsWith('u')) {
     return false
@@ -240,6 +269,24 @@ type ExternalChannelEventItem = {
   secondary?: string
   detail?: string
   mergeKey?: string
+  traceId?: string
+  accountId?: string
+  peerKind?: 'direct' | 'group'
+  peerId?: string
+  senderId?: string
+  targetAgentId?: string
+  endpointKey?: string
+  conversationKey?: string
+}
+
+type ExternalTraceContext = {
+  channel: string
+  accountId: string
+  peerKind: 'direct' | 'group'
+  peerId: string
+  senderId: string
+  endpointKey: string
+  targetAgentId?: string
 }
 
 type TelegramInboundDebugToast = {
@@ -849,7 +896,7 @@ export function ShellRoot() {
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
   const [workspacePathInput, setWorkspacePathInput] = useState(
-    () => loadRememberedWorkspacePath() ?? '/mnt/c/project/vbCode',
+    () => loadRememberedWorkspacePath() ?? '',
   )
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [activeWorkspaceName, setActiveWorkspaceName] = useState<string | null>(null)
@@ -932,6 +979,7 @@ export function ShellRoot() {
   const taskMentionSearchTimerRef = useRef<number | null>(null)
   const taskMentionLastQueryRef = useRef('')
   const externalChannelEventSeqRef = useRef(0)
+  const externalTraceContextRef = useRef<Record<string, ExternalTraceContext>>({})
   const telegramDebugToastTimerRef = useRef<number | null>(null)
   const registeredAgentRuntimeRef = useRef<
     Record<string, { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }>
@@ -953,6 +1001,15 @@ export function ShellRoot() {
   const locale = uiPreferences.locale
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
+  const stationNameMap = useMemo(
+    () =>
+      stations.reduce<Record<string, string>>((acc, station) => {
+        const normalized = station.name.trim()
+        acc[station.id] = normalized || station.id
+        return acc
+      }, {}),
+    [stations],
+  )
   const taskCenterDraftFilePath = useMemo(() => buildTaskCenterDraftFilePath(), [])
   const workspaceSessionFilePath = useMemo(() => buildWorkspaceSessionFilePath(), [])
 
@@ -1628,6 +1685,39 @@ export function ShellRoot() {
     [scheduleStationTaskSignalDismiss],
   )
 
+  const bindExternalTraceTarget = useCallback((traceId: string, targetAgentId: string) => {
+    const normalizedTraceId = traceId.trim()
+    const normalizedTargetAgentId = targetAgentId.trim()
+    if (!normalizedTraceId || !normalizedTargetAgentId) {
+      return
+    }
+    const context = externalTraceContextRef.current[normalizedTraceId]
+    if (context) {
+      context.targetAgentId = normalizedTargetAgentId
+    }
+    setExternalChannelEvents((prev) =>
+      prev.map((event) => {
+        if (event.traceId !== normalizedTraceId) {
+          return event
+        }
+        const endpointKey =
+          event.endpointKey ??
+          context?.endpointKey ??
+          buildExternalEndpointKey({
+            channel: event.channel,
+            accountId: event.accountId,
+            peerKind: event.peerKind,
+            peerId: event.peerId,
+          })
+        return {
+          ...event,
+          targetAgentId: normalizedTargetAgentId,
+          conversationKey: buildExternalConversationKey(endpointKey, normalizedTargetAgentId),
+        }
+      }),
+    )
+  }, [])
+
   const appendExternalChannelEvent = useCallback(
     (input: Omit<ExternalChannelEventItem, 'id' | 'tsMs'> & { tsMs?: number }) => {
       externalChannelEventSeqRef.current += 1
@@ -1636,9 +1726,19 @@ export function ShellRoot() {
         tsMs: input.tsMs ?? Date.now(),
         kind: input.kind,
         primary: input.primary,
+        channel: input.channel,
+        status: input.status,
         secondary: input.secondary,
         detail: input.detail,
         mergeKey: input.mergeKey,
+        traceId: input.traceId,
+        accountId: input.accountId,
+        peerKind: input.peerKind,
+        peerId: input.peerId,
+        senderId: input.senderId,
+        targetAgentId: input.targetAgentId,
+        endpointKey: input.endpointKey,
+        conversationKey: input.conversationKey,
       }
       setExternalChannelEvents((prev) => {
         if (!nextEvent.mergeKey) {
@@ -1655,8 +1755,18 @@ export function ShellRoot() {
           ...updated[existingIndex],
           tsMs: nextEvent.tsMs,
           primary: nextEvent.primary,
+          channel: nextEvent.channel,
+          status: nextEvent.status,
           secondary: nextEvent.secondary,
           detail: nextEvent.detail,
+          traceId: nextEvent.traceId,
+          accountId: nextEvent.accountId,
+          peerKind: nextEvent.peerKind,
+          peerId: nextEvent.peerId,
+          senderId: nextEvent.senderId,
+          targetAgentId: nextEvent.targetAgentId,
+          endpointKey: nextEvent.endpointKey,
+          conversationKey: nextEvent.conversationKey,
         }
         return updated
       })
@@ -2381,19 +2491,53 @@ export function ShellRoot() {
           // Progress events are consumed by the dispatch command response in current UI.
         },
         onExternalInbound: (payload: ExternalChannelInboundPayload) => {
+          const channel = normalizeExternalChannel(payload.channel)
+          const accountId = payload.accountId?.trim() || 'default'
+          const peerKind = payload.peerKind
+          const peerId = payload.peerId?.trim() || 'unknown-peer'
+          const senderId = payload.senderId?.trim() || 'unknown-sender'
+          const endpointKey = buildExternalEndpointKey({
+            channel,
+            accountId,
+            peerKind,
+            peerId,
+          })
+          const previousTraceContext = externalTraceContextRef.current[payload.traceId]
+          const traceContext: ExternalTraceContext = {
+            channel,
+            accountId,
+            peerKind,
+            peerId,
+            senderId,
+            endpointKey,
+            targetAgentId: previousTraceContext?.targetAgentId,
+          }
+          externalTraceContextRef.current[payload.traceId] = traceContext
           const textPreview = summarizeExternalChannelText(payload.text)
           appendExternalChannelEvent({
             kind: 'inbound',
-            primary: textPreview ?? `${payload.channel} · ${payload.senderId}`,
-            channel: payload.channel,
+            primary: textPreview ?? `${channel} · ${senderId}`,
+            channel,
             status: 'received',
-            secondary: `${payload.channel} · ${payload.senderId}`,
+            secondary: `${channel} · ${senderId}`,
             detail: `peer=${payload.peerId} · msg=${payload.messageId}`,
+            traceId: payload.traceId,
+            accountId,
+            peerKind,
+            peerId,
+            senderId,
+            targetAgentId: traceContext.targetAgentId,
+            endpointKey,
+            conversationKey: buildExternalConversationKey(endpointKey, traceContext.targetAgentId),
           })
           emitTelegramInboundDebugToast(payload)
         },
-        onExternalRouted: () => {},
-        onExternalDispatchProgress: () => {},
+        onExternalRouted: (payload) => {
+          bindExternalTraceTarget(payload.traceId, payload.targetAgentId)
+        },
+        onExternalDispatchProgress: (payload) => {
+          bindExternalTraceTarget(payload.traceId, payload.targetAgentId)
+        },
         onExternalReply: () => {
           // `external/channel_reply` is an internal channel ack mirrored from task dispatch,
           // not a real external provider send result. Do not show it in recent external events.
@@ -2403,6 +2547,22 @@ export function ShellRoot() {
             return
           }
           const textPreview = summarizeExternalChannelText(payload.textPreview)
+          const traceContext =
+            payload.traceId && payload.traceId.trim()
+              ? externalTraceContextRef.current[payload.traceId]
+              : undefined
+          if (payload.traceId && traceContext) {
+            traceContext.targetAgentId = payload.targetAgentId
+          }
+          const endpointKey =
+            traceContext?.endpointKey ??
+            buildExternalEndpointKey({
+              channel: payload.channel ?? traceContext?.channel,
+              accountId: traceContext?.accountId,
+              peerKind: traceContext?.peerKind,
+              peerId: traceContext?.peerId,
+            })
+          const targetAgentId = payload.targetAgentId || traceContext?.targetAgentId
           const failureMergeKey =
             payload.status === 'failed'
               ? `outbound-failed:${payload.traceId ?? payload.messageId}:${payload.targetAgentId}:${payload.textPreview ?? ''}`
@@ -2410,12 +2570,20 @@ export function ShellRoot() {
           appendExternalChannelEvent({
             kind: 'outbound',
             primary: textPreview ?? `${payload.targetAgentId} · ${payload.status}`,
-            channel: payload.channel ?? undefined,
+            channel: payload.channel ?? traceContext?.channel ?? undefined,
             status: payload.status === 'failed' ? 'failed' : 'sent',
             secondary: `${payload.targetAgentId} · ${payload.status}`,
             detail: payload.status === 'failed' ? payload.detail ?? undefined : undefined,
             mergeKey: failureMergeKey,
             tsMs: payload.tsMs,
+            traceId: payload.traceId ?? undefined,
+            accountId: traceContext?.accountId,
+            peerKind: traceContext?.peerKind,
+            peerId: traceContext?.peerId,
+            senderId: traceContext?.senderId,
+            targetAgentId: targetAgentId ?? undefined,
+            endpointKey,
+            conversationKey: buildExternalConversationKey(endpointKey, targetAgentId),
           })
         },
         onExternalError: () => {},
@@ -2434,7 +2602,12 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [appendExternalChannelEvent, emitStationTaskSignal, emitTelegramInboundDebugToast])
+  }, [
+    appendExternalChannelEvent,
+    bindExternalTraceTarget,
+    emitStationTaskSignal,
+    emitTelegramInboundDebugToast,
+  ])
 
   useEffect(() => {
     setStationTerminals(createInitialStationTerminals(stationsRef.current))
@@ -2473,6 +2646,7 @@ export function ShellRoot() {
     setTaskNotice(null)
     setExternalChannelEvents([])
     externalChannelEventSeqRef.current = 0
+    externalTraceContextRef.current = {}
     Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
       clearStationTaskSignalTimer(stationId)
     })
@@ -4593,6 +4767,7 @@ export function ShellRoot() {
             ) : activeNavId === 'channels' ? (
               <CommunicationChannelsPane
                 locale={locale}
+                agentNameMap={stationNameMap}
                 dispatchHistory={taskDispatchHistory}
                 retryingTaskId={taskRetryingTaskId}
                 externalStatus={externalChannelStatus}

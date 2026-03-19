@@ -515,6 +515,11 @@ export interface AiAgentInstallStatus {
   executable?: string | null
   requiresNode: boolean
   nodeReady: boolean
+  npmReady: boolean
+  installAvailable: boolean
+  uninstallAvailable: boolean
+  detectedBy: string[]
+  issues: string[]
 }
 
 export interface AiAgentSnapshotCard {
@@ -1514,6 +1519,9 @@ export const desktopApi = {
   },
   installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent', { agent })
+  },
+  uninstallAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+    return invokeCommand<void>('uninstall_agent', { agent })
   },
   installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent_mcp', { agent })

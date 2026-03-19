@@ -45,7 +45,7 @@ export function LightAgentConfigModal({
   const [preview, setPreview] = useState<AiConfigPreviewResponse | null>(null)
 
   const canInstall = !agent.installStatus.installed
-  const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
+  const installDisabled = installing
   const canReuseSecret = guide.config.hasSecret
 
   useEffect(() => {
@@ -176,6 +176,20 @@ export function LightAgentConfigModal({
                 </strong>
               </div>
             </div>
+
+            {agent.installStatus.issues.length > 0 && (
+              <div className="guide-tips" style={{ 
+                marginTop: rem14(12), 
+                padding: rem14(12), 
+                background: 'var(--vb-bg-tertiary)', 
+                borderRadius: rem14(12),
+                border: '0.0625rem solid var(--vb-border-subtle)'
+              }}>
+                <p style={{ margin: 0, fontSize: rem14(13), color: 'var(--vb-text-muted)', lineHeight: 1.6 }}>
+                  {agent.installStatus.issues.join(' ')}
+                </p>
+              </div>
+            )}
 
             <div className="guide-tips" style={{ 
               marginTop: rem14(16), 

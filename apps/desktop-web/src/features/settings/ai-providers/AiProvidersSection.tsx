@@ -26,11 +26,13 @@ type ClaudeConfigEntryMode = 'wizard' | 'saved'
 export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionProps) {
   const [snapshot, setSnapshot] = useState<AiConfigReadSnapshotResponse | null>(null)
   const [installingAgent, setInstallingAgent] = useState<AiConfigAgent | null>(null)
+  const [uninstallingAgent, setUninstallingAgent] = useState<AiConfigAgent | null>(null)
   const [installingMcpAgent, setInstallingMcpAgent] = useState<AiConfigAgent | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<AiConfigAgent | null>(null)
   const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
   const [serviceAgentId, setServiceAgentId] = useState<AiConfigAgent | null>(null)
   const [claudeEntryMode, setClaudeEntryMode] = useState<ClaudeConfigEntryMode>('wizard')
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const handleReload = async () => {
     try {
@@ -68,13 +70,29 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
 
   const handleInstall = async (agent: AiConfigAgent) => {
     setInstallingAgent(agent)
+    setActionError(null)
     try {
       await desktopApi.installAgent(agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini')
       await handleReload()
     } catch (err) {
       console.error('Failed to install agent', err)
+      setActionError(err instanceof Error ? err.message : String(err))
     } finally {
       setInstallingAgent(null)
+    }
+  }
+
+  const handleUninstall = async (agent: AiConfigAgent) => {
+    setUninstallingAgent(agent)
+    setActionError(null)
+    try {
+      await desktopApi.uninstallAgent(agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini')
+      await handleReload()
+    } catch (err) {
+      console.error('Failed to uninstall agent', err)
+      setActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUninstallingAgent(null)
     }
   }
 
@@ -99,6 +117,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
 
   return (
     <section className="ai-providers-section">
+      {actionError && <div className="ai-providers-loading">{actionError}</div>}
       <div className="ai-providers-grid">
         {snapshot.snapshot.agents.map((agent) => (
           <ProviderAgentCard
@@ -108,7 +127,9 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
             selected={selectedAgentId === agent.agent}
             onSelect={() => setSelectedAgentId(agent.agent)}
             installingCli={installingAgent === agent.agent}
+            uninstallingCli={uninstallingAgent === agent.agent}
             onInstall={() => void handleInstall(agent.agent)}
+            onUninstall={() => void handleUninstall(agent.agent)}
             onOpenEnhancements={() => {
               setSelectedAgentId(agent.agent)
               setServiceAgentId(agent.agent)

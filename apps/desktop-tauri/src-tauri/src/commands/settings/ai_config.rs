@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::env;
+use std::path::Path;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -8,6 +10,7 @@ use vb_ai_config::{
 };
 use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
 use vb_task::AgentToolKind;
+use vb_tools::agent_installer::{AgentInstaller, AgentType};
 
 use crate::app_state::AppState;
 
@@ -54,7 +57,50 @@ pub fn augment_terminal_env_for_agent(
         .build_agent_runtime_env(agent, &workspace_root)
         .map_err(|error| error.to_string())?;
     env.extend(runtime_env);
+    augment_terminal_command_env(tool_kind, &mut env);
     Ok(env)
+}
+
+fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap<String, String>) {
+    let (agent_type, override_var) = match tool_kind {
+        AgentToolKind::Claude => (AgentType::ClaudeCode, "GTO_CLAUDE_COMMAND"),
+        AgentToolKind::Codex => (AgentType::Codex, "GTO_CODEX_COMMAND"),
+        AgentToolKind::Gemini => (AgentType::Gemini, "GTO_GEMINI_COMMAND"),
+        _ => return,
+    };
+
+    let status = AgentInstaller::install_status(agent_type);
+    let Some(executable) = status.executable else {
+        return;
+    };
+
+    env_map.insert(override_var.to_string(), executable.clone());
+
+    let Some(parent) = Path::new(&executable).parent() else {
+        return;
+    };
+    let parent_str = parent.to_string_lossy().trim().to_string();
+    if parent_str.is_empty() {
+        return;
+    }
+
+    let current_path = env_map
+        .get("PATH")
+        .cloned()
+        .or_else(|| env::var("PATH").ok())
+        .unwrap_or_default();
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    let mut parts = current_path
+        .split(separator)
+        .filter(|part| !part.trim().is_empty())
+        .map(|part| part.to_string())
+        .collect::<Vec<_>>();
+
+    if !parts.iter().any(|part| part == &parent_str) {
+        parts.insert(0, parent_str);
+    }
+
+    env_map.insert("PATH".to_string(), parts.join(&separator.to_string()));
 }
 
 #[tauri::command]

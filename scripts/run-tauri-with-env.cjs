@@ -2,6 +2,7 @@
 
 const fs = require('node:fs')
 const net = require('node:net')
+const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { createRequire } = require('node:module')
@@ -182,6 +183,33 @@ function pruneTauriBuildCache(rootDir, prefixes) {
   return removed
 }
 
+function pruneStaleMacOsDmgIntermediates(targetDir) {
+  if (process.platform !== 'darwin') {
+    return 0
+  }
+
+  const profileDirs = ['debug', 'release']
+  let removed = 0
+
+  for (const profileDir of profileDirs) {
+    const macOsBundleDir = path.join(targetDir, profileDir, 'bundle', 'macos')
+    if (!fs.existsSync(macOsBundleDir)) {
+      continue
+    }
+
+    for (const entry of fs.readdirSync(macOsBundleDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/^rw\..+\.dmg$/i.test(entry.name)) {
+        continue
+      }
+
+      fs.rmSync(path.join(macOsBundleDir, entry.name), { force: true })
+      removed += 1
+    }
+  }
+
+  return removed
+}
+
 function ensureFreshTauriBuildCache(env) {
   const configuredTargetDir = env.CARGO_TARGET_DIR
   if (typeof configuredTargetDir !== 'string' || configuredTargetDir.trim().length === 0) {
@@ -189,8 +217,9 @@ function ensureFreshTauriBuildCache(env) {
   }
 
   const targetDir = path.resolve(configuredTargetDir)
+  const removedDmgIntermediates = pruneStaleMacOsDmgIntermediates(targetDir)
   const staleEntries = collectStaleTauriBuildEntries(targetDir)
-  if (staleEntries.length === 0) {
+  if (staleEntries.length === 0 && removedDmgIntermediates === 0) {
     return
   }
 
@@ -200,13 +229,108 @@ function ensureFreshTauriBuildCache(env) {
   const removedBuildEntries = pruneTauriBuildCache(buildRoot, watchedPrefixes)
   const removedFingerprintEntries = pruneTauriBuildCache(fingerprintRoot, watchedPrefixes)
 
-  console.warn(
-    `[GT Office] Detected stale Tauri build cache (${staleEntries.length} entries) and cleared ${removedBuildEntries + removedFingerprintEntries} cache folders.`,
-  )
+  const logParts = []
+  if (staleEntries.length > 0) {
+    logParts.push(
+      `detected stale Tauri build cache (${staleEntries.length} entries) and cleared ${removedBuildEntries + removedFingerprintEntries} cache folders`,
+    )
+  }
+  if (removedDmgIntermediates > 0) {
+    logParts.push(`removed ${removedDmgIntermediates} stale macOS DMG intermediate files`)
+  }
+
+  if (logParts.length > 0) {
+    console.warn(`[GT Office] ${logParts.join('; ')}.`)
+  }
 }
 
 function hasTauriConfigArg(args) {
   return args.includes('--config') || args.includes('-c')
+}
+
+function hasBundleTargetArg(args) {
+  return args.includes('--bundles') || args.includes('-b')
+}
+
+function shouldUseCustomMacOsDmgFlow(args) {
+  return process.platform === 'darwin' && args[0] === 'build' && !hasBundleTargetArg(args)
+}
+
+function resolveMacOsBuildArgs(args) {
+  if (!shouldUseCustomMacOsDmgFlow(args)) {
+    return args
+  }
+  return [...args, '--bundles', 'app']
+}
+
+function resolveBuildProfile(args) {
+  return args.includes('--debug') ? 'debug' : 'release'
+}
+
+function resolveMacOsArchSuffix() {
+  switch (process.arch) {
+    case 'arm64':
+      return 'aarch64'
+    case 'x64':
+      return 'x64'
+    default:
+      return process.arch
+  }
+}
+
+function readTauriConfig() {
+  const configPath = path.join(workspacePath, 'src-tauri', 'tauri.conf.json')
+  return JSON.parse(fs.readFileSync(configPath, 'utf8'))
+}
+
+function runCommandOrThrow(command, args, options) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    shell: false,
+    ...options,
+  })
+
+  if (result.status !== 0) {
+    const detail = typeof result.status === 'number' ? `exit code ${result.status}` : 'unknown error'
+    throw new Error(`${command} ${args.join(' ')} failed with ${detail}`)
+  }
+}
+
+function createCustomMacOsDmg(env, tauriArgs) {
+  const tauriConfig = readTauriConfig()
+  const profileDir = resolveBuildProfile(tauriArgs)
+  const targetDir = path.resolve(env.CARGO_TARGET_DIR)
+  const bundleRoot = path.join(targetDir, profileDir, 'bundle')
+  const appName = `${tauriConfig.productName}.app`
+  const appBundlePath = path.join(bundleRoot, 'macos', appName)
+
+  if (!fs.existsSync(appBundlePath)) {
+    throw new Error(`Expected app bundle not found at ${appBundlePath}`)
+  }
+
+  const dmgDir = path.join(bundleRoot, 'dmg')
+  fs.mkdirSync(dmgDir, { recursive: true })
+
+  const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gtoffice-dmg-'))
+  const stageAppPath = path.join(stageDir, appName)
+  const applicationsLinkPath = path.join(stageDir, 'Applications')
+  const outputName = `${tauriConfig.productName}_${tauriConfig.version}_${resolveMacOsArchSuffix()}.dmg`
+  const outputPath = path.join(dmgDir, outputName)
+
+  try {
+    fs.cpSync(appBundlePath, stageAppPath, { recursive: true })
+    fs.symlinkSync('/Applications', applicationsLinkPath, 'dir')
+
+    console.log(`[GT Office] Creating DMG at ${outputPath}`)
+    runCommandOrThrow(
+      'hdiutil',
+      ['create', '-volname', tauriConfig.productName, '-srcfolder', stageDir, '-ov', '-format', 'UDZO', outputPath],
+      { env },
+    )
+  } finally {
+    fs.rmSync(stageDir, { recursive: true, force: true })
+  }
 }
 
 function parsePortFromAddressToken(token) {
@@ -415,9 +539,10 @@ async function resolveFrontendPort() {
 }
 
 async function resolveTauriArgs(passthroughArgs) {
+  const normalizedArgs = resolveMacOsBuildArgs(passthroughArgs)
   const isDevCommand = passthroughArgs[0] === 'dev'
-  if (!isDevCommand || hasTauriConfigArg(passthroughArgs)) {
-    return passthroughArgs
+  if (!isDevCommand || hasTauriConfigArg(normalizedArgs)) {
+    return normalizedArgs
   }
 
   const port = await resolveFrontendPort()
@@ -431,7 +556,7 @@ async function resolveTauriArgs(passthroughArgs) {
   })
 
   console.log(`[GT Office] Using frontend dev server ${devUrl}`)
-  return [...passthroughArgs, '--config', configOverride]
+  return [...normalizedArgs, '--config', configOverride]
 }
 
 async function main() {
@@ -472,12 +597,28 @@ async function main() {
 
   try {
     await tauriCliModule.run(tauriArgs, 'tauri')
+    if (shouldUseCustomMacOsDmgFlow(passthroughArgs)) {
+      createCustomMacOsDmg(cargoEnv, tauriArgs)
+    }
     process.exit(0)
   } catch (error) {
+    const normalizedErrorMessage =
+      typeof error === 'string'
+        ? error
+        : error && typeof error.message === 'string' && error.message.length > 0
+          ? error.message
+          : (() => {
+              try {
+                return JSON.stringify(error)
+              } catch {
+                return String(error)
+              }
+            })()
+
     if (typeof tauriCliModule.logError === 'function') {
-      tauriCliModule.logError(error)
+      tauriCliModule.logError(normalizedErrorMessage)
     } else {
-      console.error(error && error.message ? error.message : String(error))
+      console.error(normalizedErrorMessage)
     }
     process.exit(1)
   }

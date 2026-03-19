@@ -219,7 +219,7 @@ export function ClaudeConfigModal({
   const [success, setSuccess] = useState<string | null>(null)
 
   const canInstall = !agent.installStatus.installed
-  const installDisabled = installing || (agent.installStatus.requiresNode && !agent.installStatus.nodeReady)
+  const installDisabled = installing
   const availableSteps = resolveClaudeFlowSteps(mode, runtimeCheckRequired)
   const selectablePresets = getSelectablePresets(snapshot)
   const savedProviders = snapshot.savedProviders
@@ -733,6 +733,15 @@ export function ClaudeConfigModal({
                   </strong>
                 </div>
               </div>
+
+              {agent.installStatus.issues.length > 0 && (
+                <div className="ai-provider-guide-card__summary" style={{ marginTop: rem14(12) }}>
+                  <div>
+                    <span>{t(locale, 'aiConfig.runtime.notes')}</span>
+                    <strong style={{ color: '#d4af37' }}>{agent.installStatus.issues.join(' ')}</strong>
+                  </div>
+                </div>
+              )}
 
               {canInstall && (
                 <div style={{ marginTop: rem14(24), display: 'flex', justifyContent: 'center' }}>
