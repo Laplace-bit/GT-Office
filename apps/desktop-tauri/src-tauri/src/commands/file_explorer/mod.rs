@@ -128,6 +128,14 @@ fn build_fs_delete_response(workspace_id: &str, path: &str, kind: &str, deleted:
     })
 }
 
+fn build_fs_create_dir_response(workspace_id: &str, path: &str, created: bool) -> Value {
+    json!({
+        "workspaceId": workspace_id,
+        "path": path,
+        "created": created
+    })
+}
+
 fn build_fs_move_response(
     workspace_id: &str,
     from_path: &str,
@@ -141,6 +149,62 @@ fn build_fs_move_response(
         "toPath": to_path,
         "kind": kind,
         "moved": moved
+    })
+}
+
+fn build_fs_copy_response(
+    workspace_id: &str,
+    from_path: &str,
+    to_path: &str,
+    kind: &str,
+    copied: bool,
+) -> Value {
+    json!({
+        "workspaceId": workspace_id,
+        "fromPath": from_path,
+        "toPath": to_path,
+        "kind": kind,
+        "copied": copied
+    })
+}
+
+fn ensure_directory_target_is_creatable(target: &Path, display_path: &str) -> Result<(), String> {
+    if !target.exists() {
+        return Ok(());
+    }
+
+    let metadata = target
+        .metadata()
+        .map_err(|error| format!("FS_CREATE_DIR_FAILED: metadata read failed: {error}"))?;
+    if metadata.is_dir() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "FS_CREATE_DIR_CONFLICT: target path already exists as a file '{}'",
+        display_path
+    ))
+}
+
+fn ensure_copy_target_is_safe(source: &Path, target: &Path, source_is_dir: bool) -> Result<(), String> {
+    if !source_is_dir {
+        return Ok(());
+    }
+    if target.starts_with(source) {
+        return Err("FS_COPY_INVALID: target path cannot be inside source directory".to_string());
+    }
+    Ok(())
+}
+
+fn build_fs_show_in_folder_response(
+    workspace_id: &str,
+    path: &str,
+    opened: bool,
+) -> Value {
+    json!({
+        "workspaceId": workspace_id,
+        "path": path,
+        "opened": opened
     })
 }
 
@@ -769,6 +833,37 @@ pub async fn fs_write_file(
 }
 
 #[tauri::command]
+pub async fn fs_create_dir(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return Err("FS_CREATE_DIR_INVALID: cannot create workspace root".to_string());
+    }
+
+    let root = resolve_workspace_root(&state, &workspace_id)?;
+    let trimmed = trimmed.to_string();
+    run_fs_blocking("FS_CREATE_DIR_FAILED", move || {
+        let target = resolve_target_path(&root, trimmed.as_str(), false, None)?;
+        ensure_directory_target_is_creatable(&target, trimmed.as_str())?;
+
+        if !target.exists() {
+            std::fs::create_dir_all(&target)
+                .map_err(|e| format!("FS_CREATE_DIR_FAILED: failed to create directory: {e}"))?;
+        }
+
+        Ok(build_fs_create_dir_response(
+            workspace_id.as_str(),
+            trimmed.as_str(),
+            true,
+        ))
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn fs_delete(
     workspace_id: String,
     path: String,
@@ -870,6 +965,124 @@ pub async fn fs_move(
             from_trimmed.as_str(),
             to_trimmed.as_str(),
             kind,
+            true,
+        ))
+    })
+    .await
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(), String> {
+    fs::create_dir_all(&dst)
+        .map_err(|error| format!("FS_COPY_FAILED: unable to create directory: {error}"))?;
+    for entry in fs::read_dir(src)
+        .map_err(|error| format!("FS_COPY_FAILED: unable to read directory: {error}"))?
+    {
+        let entry = entry
+            .map_err(|error| format!("FS_COPY_FAILED: unable to read directory entry: {error}"))?;
+        let ty = entry
+            .file_type()
+            .map_err(|error| format!("FS_COPY_FAILED: file type read failed: {error}"))?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))
+                .map_err(|error| format!("FS_COPY_FAILED: unable to copy file: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fs_copy(
+    workspace_id: String,
+    from_path: String,
+    to_path: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let from_trimmed = from_path.trim();
+    let to_trimmed = to_path.trim();
+    if from_trimmed.is_empty() || from_trimmed == "." {
+        return Err("FS_COPY_INVALID: source path cannot be workspace root".to_string());
+    }
+    if to_trimmed.is_empty() || to_trimmed == "." {
+        return Err("FS_COPY_INVALID: target path cannot be workspace root".to_string());
+    }
+
+    let root = resolve_workspace_root(&state, &workspace_id)?;
+    let from_trimmed = from_trimmed.to_string();
+    let to_trimmed = to_trimmed.to_string();
+    run_fs_blocking("FS_COPY_FAILED", move || {
+        let source = resolve_target_path(&root, from_trimmed.as_str(), true, None)?;
+        let target = resolve_target_path(&root, to_trimmed.as_str(), false, None)?;
+
+        if source == target {
+            return Err("FS_COPY_CONFLICT: source and target are the same".to_string());
+        }
+
+        if target.exists() {
+            return Err(format!(
+                "FS_COPY_CONFLICT: target path already exists '{}'",
+                to_trimmed
+            ));
+        }
+
+        let metadata = source
+            .metadata()
+            .map_err(|error| format!("FS_COPY_FAILED: metadata read failed: {error}"))?;
+        let kind = if metadata.is_dir() { "dir" } else { "file" };
+        ensure_copy_target_is_safe(&source, &target, metadata.is_dir())?;
+
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!("FS_COPY_FAILED: unable to create target parent: {error}")
+            })?;
+        }
+
+        if metadata.is_dir() {
+            copy_dir_all(&source, &target)?;
+        } else {
+            fs::copy(&source, &target)
+                .map_err(|error| format!("FS_COPY_FAILED: unable to copy file: {error}"))?;
+        }
+
+        Ok(build_fs_copy_response(
+            workspace_id.as_str(),
+            from_trimmed.as_str(),
+            to_trimmed.as_str(),
+            kind,
+            true,
+        ))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn fs_show_in_folder(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let root = resolve_workspace_root(&state, &workspace_id)?;
+    let path_clone = path.clone();
+    
+    run_fs_blocking("FS_SHOW_IN_FOLDER_FAILED", move || {
+        let target = resolve_target_path(&root, path_clone.trim(), true, None)?;
+        
+        let path_to_open = if target.is_dir() {
+            target
+        } else {
+            target.parent()
+                .ok_or_else(|| "FS_SHOW_IN_FOLDER_FAILED: file has no parent directory".to_string())?
+                .to_path_buf()
+        };
+
+        open::that(path_to_open).map_err(|error| {
+            format!("FS_SHOW_IN_FOLDER_FAILED: unable to open folder: {}", error)
+        })?;
+
+        Ok(build_fs_show_in_folder_response(
+            workspace_id.as_str(),
+            path_clone.as_str(),
             true,
         ))
     })

@@ -1,0 +1,98 @@
+.notification-list {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.notification-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--vb-pane-bg, rgba(28, 28, 30, 0.85));
+  backdrop-filter: blur(48px) saturate(210%);
+  -webkit-backdrop-filter: blur(48px) saturate(210%);
+  border: 1px solid var(--vb-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: notification-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--vb-text-primary, #ffffff);
+  font-size: 0.875rem;
+  line-height: 1.4;
+
+  &.notification-error {
+    border-left: 4px solid #ff453a;
+    .notification-icon { color: #ff453a; }
+  }
+
+  &.notification-warning {
+    border-left: 4px solid #ffd60a;
+    .notification-icon { color: #ffd60a; }
+  }
+
+  &.notification-success {
+    border-left: 4px solid #32d74b;
+    .notification-icon { color: #32d74b; }
+  }
+
+  &.notification-info {
+    border-left: 4px solid #0a84ff;
+    .notification-icon { color: #0a84ff; }
+  }
+}
+
+.notification-icon {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.125rem;
+}
+
+.notification-content {
+  flex-grow: 1;
+  word-break: break-word;
+}
+
+.notification-close {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--vb-text-secondary, rgba(255, 255, 255, 0.5));
+  cursor: pointer;
+  transition: all 0.2s;
+  margin: -0.25rem -0.25rem 0 0;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--vb-text-primary, #ffffff);
+  }
+
+  svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+@keyframes notification-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}

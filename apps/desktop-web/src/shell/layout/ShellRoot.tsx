@@ -60,36 +60,33 @@ import {
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
 import {
-  StationOverviewPane,
-  defaultStationOverviewState,
-  filterStationsForOverview,
   buildAgentWorkspaceMarkerPath,
   buildRoleWorkdirRel,
   buildStationWorkdirs,
   buildWorkspaceSessionFilePath,
   buildWorkspaceSessionSnapshot,
+  defaultStationOverviewState,
+  filterStationsForOverview,
   parseWorkspaceSessionSnapshot,
   resolveAgentWorkdirAbs,
   serializeWorkspaceSessionSnapshot,
+  StationOverviewPane,
   type WorkspaceSessionTerminalSnapshot,
 } from '@features/workspace'
+import {
+  getNavItems,
+  getPaneModels,
+  type NavItemId,
+} from './navigation-model'
 import { ActivityRail } from './ActivityRail'
 import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
 import { LeftBusinessPane } from './LeftBusinessPane'
 import { StatusBar } from './StatusBar'
 import { TopControlBar } from './TopControlBar'
 import {
-  getNavItems,
-  getPaneModels,
-  type NavItemId,
-} from './navigation-model'
-import {
   type ChannelMessagePayload,
-  type ExternalChannelDispatchProgressPayload,
   type ExternalChannelInboundPayload,
   type ExternalChannelOutboundResultPayload,
-  type ExternalChannelReplyPayload,
-  type ExternalChannelRoutedPayload,
   type AgentRole,
   type AgentRuntimeRegisterRequest,
   type ChannelRouteBinding,
@@ -110,6 +107,8 @@ import {
   type AmbientLightingIntensity,
 } from '../state/ui-preferences'
 import { pickDirectory } from '../integration/directory-picker'
+import { NotificationList } from '../../components/notification/NotificationList'
+
 import './ShellRoot.scss'
 
 type FileReadMode = 'full'
@@ -2393,9 +2392,9 @@ export function ShellRoot() {
           })
           emitTelegramInboundDebugToast(payload)
         },
-        onExternalRouted: (_payload: ExternalChannelRoutedPayload) => {},
-        onExternalDispatchProgress: (_payload: ExternalChannelDispatchProgressPayload) => {},
-        onExternalReply: (_payload: ExternalChannelReplyPayload) => {
+        onExternalRouted: () => {},
+        onExternalDispatchProgress: () => {},
+        onExternalReply: () => {
           // `external/channel_reply` is an internal channel ack mirrored from task dispatch,
           // not a real external provider send result. Do not show it in recent external events.
         },
@@ -2419,7 +2418,7 @@ export function ShellRoot() {
             tsMs: payload.tsMs,
           })
         },
-        onExternalError: (_payload) => {},
+        onExternalError: () => {},
       })
       .then((unlisten) => {
         if (disposed) {
@@ -3960,7 +3959,7 @@ export function ShellRoot() {
         workspaceSessionHydratingRef.current = false
       }
     }
-  }, [activeWorkspaceId, ensureTerminalSessionVisible])
+  }, [activeWorkspaceId, ensureTerminalSessionVisible, setStationTerminalState])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -4761,8 +4760,7 @@ export function ShellRoot() {
         onTaskQuickDispatchShortcutChange={handleTaskQuickDispatchShortcutChange}
         onTaskQuickDispatchShortcutReset={handleTaskQuickDispatchShortcutReset}
       />
-
-      <StationManageModal
+<StationManageModal
         open={isStationManageOpen}
         locale={locale}
         roles={agentRoles}
@@ -4809,6 +4807,8 @@ export function ShellRoot() {
           setPendingScrollStationId(stationId)
         }}
       />
+
+      <NotificationList />
     </div>
   )
 }

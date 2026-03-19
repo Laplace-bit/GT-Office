@@ -56,6 +56,10 @@
 | `fs.read_file` | `workspaceId,path` | `content,encoding,sizeBytes,previewable,truncated` |
 | `fs.read_file_full` | `workspaceId,path,limitBytes?` | 同 `read_file` |
 | `fs.write_file` | `workspaceId,path,content` | `written` |
+| `fs.delete` | `workspaceId,path` | `kind,deleted` |
+| `fs.move` | `workspaceId,fromPath,toPath` | `kind,moved` |
+| `fs.copy` | `workspaceId,fromPath,toPath` | `kind,copied` |
+| `fs.show_in_folder` | `workspaceId,path` | `opened` |
 | `fs.search_text` | `workspaceId,query,glob?` | `matches[]` |
 | `fs.search_files` | `workspaceId,query,maxResults?` | `matches[]`（仅文件） |
 | `fs.search_stream_start` | `workspaceId,searchId?,query,glob?` | `searchId,accepted` |

@@ -239,6 +239,10 @@
   color: var(--vb-error);
 }
 
+.tree-row-cut {
+  opacity: 0.5;
+}
+
 .tree-row-expand-enter {
   animation: treeRowExpandDown 200ms cubic-bezier(0.22, 1, 0.36, 1);
   animation-fill-mode: both;
@@ -256,16 +260,19 @@
 
 .tree-context-menu {
   position: fixed;
-  z-index: 40;
-  min-width: #{rem(176)};
-  padding: var(--vb-space-sm);
-  border-radius: var(--vb-radius-lg);
-  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, transparent);
-  background: color-mix(in srgb, var(--vb-surface) 88%, transparent);
-  backdrop-filter: blur(#{rem(24)}) saturate(160%);
-  -webkit-backdrop-filter: blur(#{rem(24)}) saturate(160%);
-  box-shadow: 0 #{rem(28)} #{rem(60)} color-mix(in srgb, rgba(15, 23, 42, 0.22) 100%, transparent);
-  animation: contextMenuIn 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 9999;
+  min-width: #{rem(220)};
+  padding: #{rem(6)};
+  border-radius: #{rem(12)};
+  border: 1px solid color-mix(in srgb, var(--vb-border) 50%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 65%, transparent);
+  backdrop-filter: blur(#{rem(48)}) saturate(200%);
+  -webkit-backdrop-filter: blur(#{rem(48)}) saturate(200%);
+  box-shadow: 0 #{rem(16)} #{rem(40)} color-mix(in srgb, rgba(0, 0, 0, 0.28) 100%, transparent), 0 0 0 1px color-mix(in srgb, var(--vb-border) 10%, transparent);
+  animation: contextMenuIn 120ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: #{rem(2)};
 }
 
 @keyframes contextMenuIn {
@@ -282,19 +289,47 @@
 
 .tree-context-menu button {
   width: 100%;
-  min-height: #{rem(38)};
+  min-height: #{rem(32)};
   border: 0;
-  border-radius: var(--vb-radius-md);
+  border-radius: #{rem(6)};
   background: transparent;
   color: var(--vb-text);
   text-align: left;
-  padding: 0 var(--vb-space-md);
+  padding: 0 #{rem(10)};
   font-size: var(--vb-file-tree-font-sm);
   font-weight: 500;
+  cursor: pointer;
+  transition: background-color 80ms linear, color 80ms linear;
+  display: flex;
+  align-items: center;
+  gap: #{rem(10)};
 }
 
-.tree-context-menu button:hover {
-  background: color-mix(in srgb, var(--vb-card-hover-bg) 90%, transparent);
+.context-menu-icon {
+  width: #{rem(15)};
+  height: #{rem(15)};
+  opacity: 0.7;
+}
+
+.tree-context-menu button:hover .context-menu-icon {
+  opacity: 1;
+}
+
+.tree-context-menu button:hover:not(:disabled) {
+  background: var(--vb-brand-primary);
+  color: #ffffff;
+}
+
+.tree-context-menu button:disabled,
+.tree-context-menu button.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tree-context-separator {
+  height: 1px;
+  background: color-mix(in srgb, var(--vb-border) 40%, transparent);
+  margin: #{rem(4)} 0;
 }
 
 .tree-context-menu button.danger {

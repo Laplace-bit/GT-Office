@@ -11,6 +11,12 @@ import {
   ChevronRight,
   ChevronUp,
   Clock3,
+  ClipboardPaste,
+  Copy,
+  FilePlus,
+  FolderPlus,
+  Link,
+  Scissors,
   CloudDownload,
   Command,
   FileText,
@@ -96,6 +102,12 @@ export type AppIconName =
   | 'user-pen'
   | 'info'
   | 'external'
+  | 'file-plus'
+  | 'folder-plus'
+  | 'scissors'
+  | 'copy'
+  | 'clipboard-paste'
+  | 'link'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
@@ -145,6 +157,12 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   'user-pen': UserPen,
   info: Info,
   external: ExternalLink,
+  'file-plus': FilePlus,
+  'folder-plus': FolderPlus,
+  scissors: Scissors,
+  copy: Copy,
+  'clipboard-paste': ClipboardPaste,
+  link: Link,
 }
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {

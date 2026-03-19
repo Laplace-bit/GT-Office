@@ -1,0 +1,118 @@
+.file-tree-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  animation: modal-fade-in 0.2s ease-out;
+}
+
+.file-tree-modal-content {
+  width: 400px;
+  background: var(--vb-pane-bg, #1c1c1e);
+  border: 1px solid var(--vb-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modal-scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.file-tree-modal-header {
+  padding: 1.25rem 1.25rem 0.75rem;
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--vb-text-primary, #ffffff);
+  }
+}
+
+.file-tree-modal-body {
+  padding: 0 1.25rem 1.25rem;
+  p {
+    margin: 0;
+    color: var(--vb-text-secondary, rgba(255, 255, 255, 0.7));
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+}
+
+.file-tree-modal-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--vb-border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--vb-text-primary, #ffffff);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s;
+
+  &:focus {
+    border-color: var(--vb-accent-color, #0a84ff);
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.file-tree-modal-footer {
+  padding: 0.75rem 1.25rem 1.25rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+
+  .v-btn {
+    padding: 0.375rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .v-btn-primary {
+    background: var(--vb-accent-color, #0a84ff);
+    color: white;
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  .v-btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--vb-text-primary, #ffffff);
+    &:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+  }
+
+  .v-btn-danger {
+    background: #ff453a;
+    color: white;
+    &:hover {
+      background: #ff3b30;
+    }
+  }
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

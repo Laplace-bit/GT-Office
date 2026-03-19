@@ -1,9 +1,9 @@
 use super::{
     build_fs_delete_response, build_fs_list_dir_response, build_fs_move_response,
-    build_fs_read_file_response, build_fs_search_files_response, build_fs_search_text_response,
-    build_fs_write_file_response, is_likely_binary, resolve_target_path, sanitize_relative_path,
-    search_file_matches, search_text_matches, FileSearchMatch, FileSystemEntry, SearchMatch,
-    SearchTicket,
+    build_fs_read_file_response, build_fs_search_files_response, build_fs_search_text_response, build_fs_write_file_response,
+    ensure_copy_target_is_safe, ensure_directory_target_is_creatable, is_likely_binary, resolve_target_path,
+    sanitize_relative_path, search_file_matches, search_text_matches, FileSearchMatch, FileSystemEntry,
+    SearchMatch, SearchTicket,
 };
 use std::{
     fs,
@@ -128,6 +128,49 @@ fn fs_move_payload_keeps_contract_fields() {
     assert_eq!(payload["toPath"], "b.md");
     assert_eq!(payload["kind"], "file");
     assert_eq!(payload["moved"], true);
+}
+
+#[test]
+fn create_dir_rejects_existing_file_target() {
+    let tmp = TempDir::create();
+    let target = tmp.path.join("notes.txt");
+    fs::write(&target, "hello").expect("write file");
+
+    let err = ensure_directory_target_is_creatable(&target, "notes.txt")
+        .expect_err("expected existing file conflict");
+    assert!(err.contains("FS_CREATE_DIR_CONFLICT"));
+}
+
+#[test]
+fn create_dir_allows_existing_directory_target() {
+    let tmp = TempDir::create();
+    let target = tmp.path.join("docs");
+    fs::create_dir_all(&target).expect("create dir");
+
+    ensure_directory_target_is_creatable(&target, "docs").expect("existing directory should be allowed");
+}
+
+#[test]
+fn copy_rejects_directory_target_inside_source_tree() {
+    let tmp = TempDir::create();
+    let source = tmp.path.join("src");
+    let target = source.join("copy");
+    fs::create_dir_all(&source).expect("create source dir");
+
+    let err = ensure_copy_target_is_safe(&source, &target, true)
+        .expect_err("expected recursive copy rejection");
+    assert!(err.contains("target path cannot be inside source directory"));
+}
+
+#[test]
+fn copy_allows_file_target_inside_source_parent_tree() {
+    let tmp = TempDir::create();
+    let source = tmp.path.join("src").join("main.rs");
+    let target = tmp.path.join("src").join("main-copy.rs");
+    fs::create_dir_all(source.parent().expect("parent")).expect("create dir");
+    fs::write(&source, "fn main() {}").expect("write file");
+
+    ensure_copy_target_is_safe(&source, &target, false).expect("file copy should be allowed");
 }
 
 #[test]

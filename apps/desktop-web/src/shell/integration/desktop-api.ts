@@ -383,6 +383,22 @@ export interface FsMoveResponse {
   moved: boolean
 }
 
+export interface FsCreateDirResponse {
+  workspaceId: string
+  path: string
+  created: boolean
+}
+
+export interface FsCopyResponse {
+  workspaceId: string
+  copied: boolean
+}
+
+export interface FsShowInFolderResponse {
+  workspaceId: string
+  revealed: boolean
+}
+
 export interface FsSearchMatch {
   path: string
   line: number
@@ -1363,6 +1379,15 @@ export const desktopApi = {
   },
   fsMove(workspaceId: string, fromPath: string, toPath: string) {
     return invokeCommand<FsMoveResponse>('fs_move', { workspaceId, fromPath, toPath })
+  },
+  fsCreateDir(workspaceId: string, path: string) {
+    return invokeCommand<FsCreateDirResponse>('fs_create_dir', { workspaceId, path })
+  },
+  fsCopy(workspaceId: string, fromPath: string, toPath: string) {
+    return invokeCommand<FsCopyResponse>('fs_copy', { workspaceId, fromPath, toPath })
+  },
+  fsShowInFolder(workspaceId: string, path: string) {
+    return invokeCommand<FsShowInFolderResponse>('fs_show_in_folder', { workspaceId, path })
   },
   fsSearchText(workspaceId: string, query: string, glob?: string | null) {
     return invokeCommand<FsSearchTextResponse>('fs_search_text', {

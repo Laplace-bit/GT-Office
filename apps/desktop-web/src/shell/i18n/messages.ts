@@ -164,6 +164,29 @@ export const messages = {
   },
   'fileTree.loading': { 'zh-CN': '加载中', 'en-US': 'Loading' },
   'fileTree.createFile': { 'zh-CN': '在此新建文件', 'en-US': 'Create File Here' },
+  'fileTree.createFolder': { 'zh-CN': '新文件夹', 'en-US': 'New Folder' },
+  'fileTree.promptCreateFolderUnder': {
+    'zh-CN': '在 {base} 下新建文件夹:',
+    'en-US': 'Create folder under {base}:',
+  },
+  'fileTree.createFolderFailed': {
+    'zh-CN': '创建文件夹失败: {detail}',
+    'en-US': 'Failed to create folder: {detail}',
+  },
+  'fileTree.cut': { 'zh-CN': '剪切', 'en-US': 'Cut' },
+  'fileTree.copy': { 'zh-CN': '复制', 'en-US': 'Copy' },
+  'fileTree.paste': { 'zh-CN': '粘贴', 'en-US': 'Paste' },
+  'fileTree.pasteInvalid': { 'zh-CN': '无法粘贴到该位置', 'en-US': 'Cannot paste here' },
+  'fileTree.pasteFailed': {
+    'zh-CN': '粘贴失败: {detail}',
+    'en-US': 'Failed to paste: {detail}',
+  },
+  'fileTree.copyPath': { 'zh-CN': '复制相对路径', 'en-US': 'Copy Relative Path' },
+  'fileTree.revealInExplorer': { 'zh-CN': '在资源管理器中显示', 'en-US': 'Reveal in Explorer' },
+  'fileTree.revealFailed': {
+    'zh-CN': '打开界面失败: {detail}',
+    'en-US': 'Failed to reveal: {detail}',
+  },
   'fileTree.renameMove': { 'zh-CN': '重命名/移动', 'en-US': 'Rename / Move' },
   'fileTree.delete': { 'zh-CN': '删除', 'en-US': 'Delete' },
   'fileTree.directoryLoadFailed': {
