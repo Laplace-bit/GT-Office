@@ -38,6 +38,7 @@ interface StationXtermTerminalProps {
 const DOM_DELTA_LINE = 1
 const DOM_DELTA_PAGE = 2
 const TERMINAL_MIN_VISIBLE_SIZE_PX = 4
+const TERMINAL_OVERVIEW_RULER_WIDTH = 0
 const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
 const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
@@ -144,51 +145,75 @@ function getTerminalTheme(): ITheme {
   const isDark = document.documentElement.getAttribute('data-theme') === 'graphite-dark'
   if (!isDark) {
     return {
-      background: readCssVarOr('--vb-terminal-bg', '#f4efe4'),
-      foreground: readCssVarOr('--vb-terminal-text', '#3b3328'),
-      cursor: readCssVarOr('--vb-terminal-caret', '#9c6a2f'),
-      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f4efe4'),
-      selectionBackground: 'rgba(156, 106, 47, 0.2)',
-      black: '#4f4335',
-      red: '#b24e3f',
-      green: '#5c7b3a',
-      yellow: '#996b22',
-      blue: '#2f6f9a',
-      magenta: '#7d589e',
-      cyan: '#2d7f83',
-      white: '#6a5e50',
-      brightBlack: '#7d6f5f',
-      brightRed: '#cc6655',
-      brightGreen: '#709448',
-      brightYellow: '#b5832f',
-      brightBlue: '#4688b3',
-      brightMagenta: '#9670b3',
-      brightCyan: '#40969c',
-      brightWhite: '#2f281f',
+      background: readCssVarOr('--vb-terminal-bg', '#f5f8fd'),
+      foreground: readCssVarOr('--vb-terminal-text', '#1f2937'),
+      cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff'),
+      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f5f8fd'),
+      selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#0b1b31'),
+      selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(10, 132, 255, 0.24)'),
+      selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(97, 138, 191, 0.18)'),
+      overviewRulerBorder: 'transparent',
+      scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(84, 106, 134, 0.34)'),
+      scrollbarSliderHoverBackground: readCssVarOr(
+        '--vb-terminal-scrollbar-thumb-hover',
+        'rgba(84, 106, 134, 0.52)',
+      ),
+      scrollbarSliderActiveBackground: readCssVarOr(
+        '--vb-terminal-scrollbar-thumb-active',
+        'rgba(84, 106, 134, 0.68)',
+      ),
+      black: '#455160',
+      red: '#ba4a58',
+      green: '#2d7d5b',
+      yellow: '#9b6a28',
+      blue: '#1f6fa9',
+      magenta: '#835fb8',
+      cyan: '#2e7f8a',
+      white: '#667487',
+      brightBlack: '#6a788c',
+      brightRed: '#d76170',
+      brightGreen: '#369a70',
+      brightYellow: '#b8863f',
+      brightBlue: '#2b88cb',
+      brightMagenta: '#9a74cf',
+      brightCyan: '#3f97a3',
+      brightWhite: '#1c2633',
     }
   }
   return {
-    background: readCssVarOr('--vb-terminal-bg', '#10151c'),
-    foreground: readCssVarOr('--vb-terminal-text', '#d7e1ec'),
-    cursor: readCssVarOr('--vb-terminal-caret', '#d7e1ec'),
-    cursorAccent: readCssVarOr('--vb-terminal-bg', '#10151c'),
-    selectionBackground: 'rgba(128, 164, 202, 0.28)',
-    black: '#6f7a86',
-    red: '#ef7d8d',
-    green: '#7bdc9e',
-    yellow: '#e7c97b',
-    blue: '#8ab7ff',
-    magenta: '#c996f0',
-    cyan: '#75d8e0',
-    white: '#e4ebf3',
-    brightBlack: '#95a1ae',
-    brightRed: '#ff95a6',
-    brightGreen: '#9aebba',
-    brightYellow: '#f2d98f',
-    brightBlue: '#a4c8ff',
-    brightMagenta: '#d8b1fa',
-    brightCyan: '#93e8ef',
-    brightWhite: '#f3f7fb',
+    background: readCssVarOr('--vb-terminal-bg', '#0f141c'),
+    foreground: readCssVarOr('--vb-terminal-text', '#e6edf7'),
+    cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff'),
+    cursorAccent: readCssVarOr('--vb-terminal-bg', '#0f141c'),
+    selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#f7fbff'),
+    selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(122, 168, 255, 0.34)'),
+    selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(95, 128, 178, 0.24)'),
+    overviewRulerBorder: 'transparent',
+    scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(130, 155, 186, 0.42)'),
+    scrollbarSliderHoverBackground: readCssVarOr(
+      '--vb-terminal-scrollbar-thumb-hover',
+      'rgba(156, 179, 208, 0.6)',
+    ),
+    scrollbarSliderActiveBackground: readCssVarOr(
+      '--vb-terminal-scrollbar-thumb-active',
+      'rgba(173, 196, 224, 0.74)',
+    ),
+    black: '#768396',
+    red: '#f08b96',
+    green: '#80e2a7',
+    yellow: '#ebcb7e',
+    blue: '#8ab8ff',
+    magenta: '#cfa0f1',
+    cyan: '#7fdce5',
+    white: '#e6edf7',
+    brightBlack: '#9aa8bc',
+    brightRed: '#ff9fab',
+    brightGreen: '#9beabc',
+    brightYellow: '#f5d993',
+    brightBlue: '#a5c9ff',
+    brightMagenta: '#ddb9f8',
+    brightCyan: '#97e9ef',
+    brightWhite: '#f5f8ff',
   }
 }
 
@@ -202,7 +227,6 @@ function StationXtermTerminalView({
   onBindSink,
   onRenderedScreenSnapshot,
 }: StationXtermTerminalProps) {
-  const shellRef = useRef<HTMLDivElement | null>(null)
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
@@ -222,6 +246,7 @@ function StationXtermTerminalView({
     terminal.options.fontFamily = readCssVar('--vb-font-mono')
     terminal.options.fontSize = resolveTerminalFontSize()
     terminal.options.theme = getTerminalTheme()
+    terminal.options.overviewRuler = { width: TERMINAL_OVERVIEW_RULER_WIDTH }
     terminal.options.cursorStyle = 'bar'
     terminal.options.cursorWidth = 2
     terminal.options.cursorBlink = hostRef.current?.matches(':focus-within') ?? false
@@ -323,6 +348,7 @@ function StationXtermTerminalView({
           fontWeightBold: '700',
           scrollback: 4000,
           theme: getTerminalTheme(),
+          overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1.2,
           allowProposedApi: true,
@@ -525,7 +551,9 @@ function StationXtermTerminalView({
           }
         }
 
-        dataDisposable = terminal.onData((data) => onDataRef.current(stationId, data))
+        dataDisposable = terminal.onData((data) => {
+          onDataRef.current(stationId, data)
+        })
         const setBlinkState = (enabled: boolean) => {
           if (terminal.options.cursorBlink !== enabled) {
             terminal.options.cursorBlink = enabled
@@ -702,7 +730,6 @@ function StationXtermTerminalView({
 
   return (
     <div
-      ref={shellRef}
       className="station-terminal-shell"
       onPointerDownCapture={(event) => {
         if (event.button !== 0) {

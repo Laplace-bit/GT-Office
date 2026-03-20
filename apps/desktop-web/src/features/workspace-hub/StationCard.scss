@@ -271,12 +271,21 @@
 
 .station-terminal-shell {
   flex: 1;
-  background: rgba(0, 0, 0, 0.2);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vb-terminal-shell-bg) 84%, var(--vb-terminal-bg-top) 16%) 0%,
+      var(--vb-terminal-bg) 100%
+    );
   min-height: 0;
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  border-top: rem(1) solid color-mix(in srgb, var(--vb-terminal-border) 88%, transparent);
+  box-shadow:
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.06),
+    inset 0 rem(-1) 0 color-mix(in srgb, var(--vb-terminal-shell-shadow) 24%, transparent);
 
   .station-terminal-host {
     width: 100% !important;
@@ -284,45 +293,134 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    position: relative;
+    z-index: 1;
 
-    .terminal {
+    :where(.xterm, .terminal) {
       width: 100% !important;
       height: 100% !important;
       overflow: hidden;
+      background:
+        linear-gradient(180deg, var(--vb-terminal-bg-top) 0%, var(--vb-terminal-bg) 100%);
+
+      .xterm-decoration-overview-ruler {
+        display: none !important;
+        width: 0 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
 
       .xterm-viewport {
         width: 100% !important;
         height: 100% !important;
+        overflow-x: hidden !important;
+        scrollbar-width: none !important;
+
+        &::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
       }
 
-      .xterm-screen,
-      .xterm-scrollable-element {
-        padding: rem(2) rem(6);
+      .xterm-screen {
+        position: relative;
+        padding: rem(3) rem(7);
         width: 100% !important;
         height: 100% !important;
+        box-sizing: border-box;
+      }
+
+      .xterm-rows {
+        position: relative;
+        z-index: 2;
+      }
+
+      .xterm-rows > div {
+        position: relative;
+      }
+
+      .xterm-selection {
+        position: relative;
+        z-index: 7 !important;
+      }
+
+      .xterm-selection div,
+      [class*='xterm-dom-renderer-owner'] .xterm-selection div {
+        background-color: var(--vb-terminal-selection-inactive) !important;
+        border-radius: rem(4);
+      }
+
+      .xterm-rows span::selection,
+      [class*='xterm-dom-renderer-owner'] .xterm-rows span::selection {
+        background: var(--vb-terminal-selection-strong);
+        color: var(--vb-terminal-selection-text);
+      }
+
+      .xterm-scrollable-element {
+        width: 100% !important;
+        height: 100% !important;
+
+        > .scrollbar.vertical {
+          width: var(--vb-terminal-scrollbar-size) !important;
+          right: rem(1);
+          top: rem(4);
+          bottom: rem(4);
+          border: 0 !important;
+          border-radius: rem(999);
+          outline: none;
+          background: transparent !important;
+          box-shadow: none !important;
+          opacity: 0.76;
+          transition:
+            opacity 180ms var(--vb-ease-smooth),
+            background-color 180ms var(--vb-ease-smooth);
+        }
+
+        > .visible.scrollbar.vertical {
+          opacity: 0.92;
+        }
+
+        > .invisible.scrollbar.vertical {
+          opacity: 0;
+        }
+
+        > .scrollbar.vertical > .slider {
+          border-radius: rem(999);
+          border: 0 !important;
+          box-shadow: none !important;
+        }
+
+        > .scrollbar.horizontal {
+          display: none !important;
+          height: 0 !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+
+        > .shadow,
+        > .shadow.left,
+        > .shadow.top-left-corner,
+        > .shadow.top.left {
+          display: none !important;
+          box-shadow: none !important;
+        }
       }
     }
   }
 
-  .xterm-viewport {
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
+  &:focus-within .xterm-selection div,
+  &:focus-within [class*='xterm-dom-renderer-owner'] .xterm-selection div {
+    background-color: var(--vb-terminal-selection-strong) !important;
   }
 
-  &:focus-within .xterm-viewport {
-    scrollbar-width: thin;
+  &:focus-within .xterm-scrollable-element > .scrollbar.vertical {
+    opacity: 1;
+  }
 
-    &::-webkit-scrollbar {
-      display: block;
-      width: rem(6);
-    }
-
-    &::-webkit-scrollbar-thumb {
-      background: var(--vb-border-strong);
-      border-radius: rem(3);
+  @media (prefers-reduced-motion: reduce) {
+    .xterm-scrollable-element > .scrollbar.vertical {
+      transition: none;
     }
   }
 }

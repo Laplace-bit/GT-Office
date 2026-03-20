@@ -89,18 +89,26 @@
   --vb-pressed-scale: 0.97;
   
   /* Terminal Colors */
-  --vb-terminal-bg: #f4efe4;
-  --vb-terminal-bg-top: #fbf7ee;
-  --vb-terminal-border: rgba(102, 83, 50, 0.18);
+  --vb-terminal-bg: #f5f8fd;
+  --vb-terminal-bg-top: #fbfdff;
+  --vb-terminal-border: rgba(37, 58, 86, 0.16);
   --vb-terminal-focus: #007aff;
-  --vb-terminal-text: #3b3328;
-  --vb-terminal-prompt: #5c7b3a;
-  --vb-terminal-prefix: #2f6f9a;
-  --vb-terminal-hint: #8a7b67;
-  --vb-terminal-caret: #9c6a2f;
-  --vb-terminal-scrollbar-thumb: rgba(148, 118, 72, 0.34);
-  --vb-terminal-scrollbar-thumb-hover: rgba(148, 118, 72, 0.5);
-  --vb-terminal-scrollbar-track: rgba(251, 247, 238, 0.92);
+  --vb-terminal-text: #1f2937;
+  --vb-terminal-prompt: #2d7d5b;
+  --vb-terminal-prefix: #1f6fa9;
+  --vb-terminal-hint: #64758b;
+  --vb-terminal-caret: #0a84ff;
+  --vb-terminal-shell-bg: rgba(249, 252, 255, 0.92);
+  --vb-terminal-shell-shadow: rgba(24, 39, 61, 0.12);
+  --vb-terminal-selection-bg: rgba(10, 132, 255, 0.24);
+  --vb-terminal-selection-text: #0b1b31;
+  --vb-terminal-selection-inactive: rgba(97, 138, 191, 0.18);
+  --vb-terminal-selection-strong: rgba(10, 132, 255, 0.32);
+  --vb-terminal-scrollbar-size: 0.3571rem;
+  --vb-terminal-scrollbar-thumb: rgba(84, 106, 134, 0.34);
+  --vb-terminal-scrollbar-thumb-hover: rgba(84, 106, 134, 0.52);
+  --vb-terminal-scrollbar-thumb-active: rgba(84, 106, 134, 0.68);
+  --vb-terminal-scrollbar-track: transparent;
   
   /* Typography - SF Pro inspired */
   --vb-font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -213,18 +221,26 @@
   --vb-active-overlay: rgba(255, 255, 255, 0.10);
   
   /* Terminal Colors */
-  --vb-terminal-bg: #1c1c1e;
-  --vb-terminal-bg-top: #16171b;
-  --vb-terminal-border: rgba(255, 255, 255, 0.10);
+  --vb-terminal-bg: #0f141c;
+  --vb-terminal-bg-top: #141c27;
+  --vb-terminal-border: rgba(143, 163, 187, 0.24);
   --vb-terminal-focus: #0a84ff;
-  --vb-terminal-text: #e5e5e7;
-  --vb-terminal-prompt: #32d74b;
-  --vb-terminal-prefix: #64d2ff;
-  --vb-terminal-hint: #636366;
-  --vb-terminal-caret: #ff9f0a;
-  --vb-terminal-scrollbar-thumb: rgba(143, 163, 187, 0.44);
-  --vb-terminal-scrollbar-thumb-hover: rgba(163, 182, 204, 0.62);
-  --vb-terminal-scrollbar-track: rgba(22, 23, 27, 0.78);
+  --vb-terminal-text: #e6edf7;
+  --vb-terminal-prompt: #80e2a7;
+  --vb-terminal-prefix: #8ab8ff;
+  --vb-terminal-hint: #8594a9;
+  --vb-terminal-caret: #0a84ff;
+  --vb-terminal-shell-bg: rgba(16, 21, 31, 0.9);
+  --vb-terminal-shell-shadow: rgba(1, 4, 9, 0.55);
+  --vb-terminal-selection-bg: rgba(122, 168, 255, 0.34);
+  --vb-terminal-selection-text: #f7fbff;
+  --vb-terminal-selection-inactive: rgba(95, 128, 178, 0.24);
+  --vb-terminal-selection-strong: rgba(140, 182, 255, 0.44);
+  --vb-terminal-scrollbar-size: 0.3571rem;
+  --vb-terminal-scrollbar-thumb: rgba(130, 155, 186, 0.42);
+  --vb-terminal-scrollbar-thumb-hover: rgba(156, 179, 208, 0.6);
+  --vb-terminal-scrollbar-thumb-active: rgba(173, 196, 224, 0.74);
+  --vb-terminal-scrollbar-track: transparent;
 }
 
 /* ========================================
