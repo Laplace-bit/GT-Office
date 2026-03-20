@@ -62,6 +62,7 @@ fn publish_online_target_produces_sequential_messages() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
 
@@ -108,6 +109,7 @@ fn publish_handover_to_online_target_is_accepted() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
 
@@ -153,6 +155,7 @@ fn list_messages_returns_recent_filtered_inbox() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
     service.register_runtime(AgentRuntimeRegistration {
@@ -164,6 +167,7 @@ fn list_messages_returns_recent_filtered_inbox() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
 
@@ -199,6 +203,7 @@ fn dispatch_batch_includes_managed_mcp_reply_instruction_for_agent_sender() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
     let workspace_root = new_workspace_root();
@@ -251,6 +256,7 @@ fn dispatch_batch_writes_files_and_emits_events() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
     let workspace_root = new_workspace_root();
@@ -302,6 +308,7 @@ fn dispatch_batch_terminal_command_appends_real_crlf_enter() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
     let workspace_root = new_workspace_root();
@@ -360,6 +367,7 @@ fn dispatch_batch_honors_target_submit_sequence_override() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: None,
+        provider_session: None,
         online: true,
     });
     let workspace_root = new_workspace_root();
@@ -405,6 +413,7 @@ fn dispatch_batch_runtime_lf_submit_is_canonicalized_to_cr() {
         tool_kind: AgentToolKind::default(),
         resolved_cwd: None,
         submit_sequence: Some("\n".to_string()),
+        provider_session: None,
         online: true,
     });
     let workspace_root = new_workspace_root();

@@ -19,6 +19,8 @@ import {
   type FilesystemWatchErrorPayload,
   type FsEntry,
   type FsSearchMatch,
+  type GitStatusFile,
+  type GitUpdatedPayload,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
@@ -185,12 +187,68 @@ function resolveFocusedTreeItem(): { path: string; kind: 'dir' | 'file' } | null
   return { path, kind: 'file' }
 }
 
+type GitTone = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
+
+interface GitStatusVisual {
+  label: string
+  tone: GitTone
+}
+
+const GIT_TONE_PRIORITY: Record<GitTone, number> = {
+  conflict: 6,
+  modified: 5,
+  deleted: 4,
+  added: 3,
+  renamed: 2,
+  untracked: 1,
+}
+
+function normalizeGitFileStatus(rawStatus: string | null | undefined): GitStatusVisual | null {
+  if (!rawStatus) {
+    return null
+  }
+  const value = rawStatus.trim().toUpperCase()
+  if (!value) {
+    return null
+  }
+  if (value.startsWith('??')) {
+    return { label: '?', tone: 'untracked' }
+  }
+  if (value.includes('U')) {
+    return { label: 'U', tone: 'conflict' }
+  }
+  if (value.includes('R')) {
+    return { label: 'R', tone: 'renamed' }
+  }
+  if (value.includes('D')) {
+    return { label: 'D', tone: 'deleted' }
+  }
+  if (value.includes('A')) {
+    return { label: 'A', tone: 'added' }
+  }
+  if (value.includes('M')) {
+    return { label: 'M', tone: 'modified' }
+  }
+  return null
+}
+
+function pickDominantGitStatus(
+  current: GitStatusVisual | undefined,
+  incoming: GitStatusVisual,
+): GitStatusVisual {
+  if (!current) {
+    return incoming
+  }
+  return GIT_TONE_PRIORITY[incoming.tone] > GIT_TONE_PRIORITY[current.tone] ? incoming : current
+}
+
 interface TreeRowItemProps {
   row: TreeRow
   virtualStart: number
   virtualSize: number
   isSelected: boolean
   isCut: boolean
+  gitStatus: GitStatusVisual | null
   animateFromExpansion: boolean
   animationDelayMs: number
   loadingText: string
@@ -205,6 +263,7 @@ const TreeRowItem = memo(function TreeRowItem({
   virtualSize,
   isSelected,
   isCut,
+  gitStatus,
   animateFromExpansion,
   animationDelayMs,
   loadingText,
@@ -213,6 +272,8 @@ const TreeRowItem = memo(function TreeRowItem({
   onContextMenu,
 }: TreeRowItemProps) {
   const NodeIcon = row.visual.icon
+
+  const gitToneClass = gitStatus ? `tree-name-git--${gitStatus.tone}` : ''
 
   return (
     <div
@@ -248,7 +309,7 @@ const TreeRowItem = memo(function TreeRowItem({
           <span className={`tree-node-icon tree-node-icon--${row.visual.kind}`} aria-hidden="true">
             <NodeIcon className="vb-icon vb-icon-tree-node" />
           </span>
-          <span className="tree-toggle-label">{row.name}</span>
+          <span className={`tree-toggle-label ${gitToneClass}`}>{row.name}</span>
           {row.loading ? (
             <span className="tree-loading">{loadingText}</span>
           ) : null}
@@ -265,8 +326,17 @@ const TreeRowItem = memo(function TreeRowItem({
             <span className={`tree-node-icon tree-node-icon--${row.visual.kind}`} aria-hidden="true">
               <NodeIcon className="vb-icon vb-icon-tree-node" />
             </span>
-            <span className="tree-file-name">{row.name}</span>
-            {row.visual.badge ? <span className="tree-file-badge">{row.visual.badge}</span> : null}
+            <span className={`tree-file-name ${gitToneClass}`}>{row.name}</span>
+            {(row.visual.badge || gitStatus) ? (
+              <span className="tree-file-meta">
+                {row.visual.badge ? <span className="tree-file-badge">{row.visual.badge}</span> : null}
+                {gitStatus ? (
+                  <span className={`tree-git-status tree-git-status--${gitStatus.tone}`}>
+                    {gitStatus.label}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </span>
         </button>
       )}
@@ -285,6 +355,8 @@ const TreeRowItem = memo(function TreeRowItem({
     prev.row.depth === next.row.depth &&
     prev.isSelected === next.isSelected &&
     prev.isCut === next.isCut &&
+    prev.gitStatus?.label === next.gitStatus?.label &&
+    prev.gitStatus?.tone === next.gitStatus?.tone &&
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
     prev.animateFromExpansion === next.animateFromExpansion &&
@@ -346,6 +418,7 @@ export function FileTreePane({
   const [searchMode, setSearchMode] = useState<'file' | 'content'>('file')
   const [searchQuery, setSearchQuery] = useState('')
   const [contentMatches, setContentMatches] = useState<FsSearchMatch[]>([])
+  const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [searchDroppedChunks, setSearchDroppedChunks] = useState(0)
@@ -361,6 +434,7 @@ export function FileTreePane({
   const lastScrollTsRef = useRef(0)
   const scrollDirectionRef = useRef<'forward' | 'backward'>('forward')
   const speedTierRafRef = useRef<number | null>(null)
+  const gitStatusRefreshTimerRef = useRef<number | null>(null)
   const trimmedSearchQuery = searchQuery.trim()
 
   const cancelActiveStreamSearch = useCallback(() => {
@@ -429,6 +503,57 @@ export function FileTreePane({
     [locale, workspaceId],
   )
 
+  const refreshGitStatuses = useCallback(async () => {
+    if (!workspaceId || !desktopApi.isTauriRuntime()) {
+      setGitStatusesByPath({})
+      return
+    }
+    const requestWorkspaceId = workspaceId
+    try {
+      const summary = await desktopApi.gitStatus(requestWorkspaceId)
+      if (workspaceIdRef.current !== requestWorkspaceId) {
+        return
+      }
+      const next: Record<string, GitStatusVisual> = {}
+      for (const file of summary.files as GitStatusFile[]) {
+        const normalizedPath = normalizeDirectoryPath(file.path)
+        if (!normalizedPath || normalizedPath === ROOT_DIR) {
+          continue
+        }
+        const normalizedStatus = normalizeGitFileStatus(file.status)
+        if (!normalizedStatus) {
+          continue
+        }
+        next[normalizedPath] = pickDominantGitStatus(next[normalizedPath], normalizedStatus)
+
+        // Bubble status up to parent directories so folder labels can reflect dirty state.
+        let currentParent = parentDirectory(normalizedPath)
+        while (true) {
+          if (!currentParent || currentParent === ROOT_DIR) {
+            break
+          }
+          next[currentParent] = pickDominantGitStatus(next[currentParent], normalizedStatus)
+          currentParent = parentDirectory(currentParent)
+        }
+      }
+      setGitStatusesByPath(next)
+    } catch {
+      if (workspaceIdRef.current === requestWorkspaceId) {
+        setGitStatusesByPath({})
+      }
+    }
+  }, [workspaceId])
+
+  const scheduleGitStatusRefresh = useCallback(() => {
+    if (gitStatusRefreshTimerRef.current !== null) {
+      return
+    }
+    gitStatusRefreshTimerRef.current = window.setTimeout(() => {
+      gitStatusRefreshTimerRef.current = null
+      void refreshGitStatuses()
+    }, 180)
+  }, [refreshGitStatuses])
+
   const refreshRoot = useCallback(async () => {
     if (!workspaceId) {
       return
@@ -443,7 +568,8 @@ export function FileTreePane({
     lastScrollTsRef.current = 0
     scrollDirectionRef.current = 'forward'
     await loadDirectory(ROOT_DIR)
-  }, [loadDirectory, workspaceId])
+    await refreshGitStatuses()
+  }, [loadDirectory, refreshGitStatuses, workspaceId])
 
   useEffect(() => {
     workspaceIdRef.current = workspaceId
@@ -466,6 +592,7 @@ export function FileTreePane({
       lastScrollTsRef.current = 0
       scrollDirectionRef.current = 'forward'
       setContextMenu(null)
+      setGitStatusesByPath({})
       return
     }
     void refreshRoot()
@@ -887,8 +1014,9 @@ export function FileTreePane({
         parentPaths.push(ROOT_DIR)
       }
       scheduleDirectoryReload(parentPaths)
+      scheduleGitStatusRefresh()
     },
-    [pruneDirectoryCache, scheduleDirectoryReload, workspaceId],
+    [pruneDirectoryCache, scheduleDirectoryReload, scheduleGitStatusRefresh, workspaceId],
   )
 
   useEffect(() => {
@@ -899,6 +1027,7 @@ export function FileTreePane({
     let active = true
     let cleanupChanged: (() => void) | null = null
     let cleanupWatchError: (() => void) | null = null
+    let cleanupGitUpdated: (() => void) | null = null
     void desktopApi
       .subscribeFilesystemEvents((payload: FilesystemChangedPayload) => {
         if (!active) {
@@ -948,6 +1077,21 @@ export function FileTreePane({
         })
       })
 
+    void desktopApi
+      .subscribeGitUpdated((payload: GitUpdatedPayload) => {
+        if (!active || payload.workspaceId !== workspaceId) {
+          return
+        }
+        scheduleGitStatusRefresh()
+      })
+      .then((unlisten) => {
+        if (!active) {
+          unlisten()
+          return
+        }
+        cleanupGitUpdated = unlisten
+      })
+
     return () => {
       active = false
       if (cleanupChanged) {
@@ -956,8 +1100,11 @@ export function FileTreePane({
       if (cleanupWatchError) {
         cleanupWatchError()
       }
+      if (cleanupGitUpdated) {
+        cleanupGitUpdated()
+      }
     }
-  }, [handleFilesystemChanged, locale, workspaceId])
+  }, [handleFilesystemChanged, locale, scheduleGitStatusRefresh, workspaceId])
 
   useEffect(() => {
     return () => {
@@ -967,8 +1114,12 @@ export function FileTreePane({
       if (speedTierRafRef.current !== null) {
         window.cancelAnimationFrame(speedTierRafRef.current)
       }
+      if (gitStatusRefreshTimerRef.current !== null) {
+        window.clearTimeout(gitStatusRefreshTimerRef.current)
+      }
       refreshTimerRef.current = null
       speedTierRafRef.current = null
+      gitStatusRefreshTimerRef.current = null
     }
   }, [])
 
@@ -976,6 +1127,10 @@ export function FileTreePane({
     if (refreshTimerRef.current !== null) {
       window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = null
+    }
+    if (gitStatusRefreshTimerRef.current !== null) {
+      window.clearTimeout(gitStatusRefreshTimerRef.current)
+      gitStatusRefreshTimerRef.current = null
     }
     pendingRefreshDirectoriesRef.current.clear()
   }, [workspaceId])
@@ -1403,6 +1558,7 @@ export function FileTreePane({
                 const animationDelayMs = animateFromExpansion
                   ? Math.min(60, (row.depth - recentExpandedDepth - 1) * 18)
                   : 0
+                const gitStatus = gitStatusesByPath[row.path] ?? null
 
                 return (
                   <TreeRowItem
@@ -1412,6 +1568,7 @@ export function FileTreePane({
                     virtualSize={virtualRow.size}
                     isSelected={row.kind === 'file' && selectedFilePath === row.path}
                     isCut={clipboard?.action === 'cut' && clipboard.path === row.path}
+                    gitStatus={gitStatus}
                     animateFromExpansion={animateFromExpansion}
                     animationDelayMs={animationDelayMs}
                     loadingText={loadingText}

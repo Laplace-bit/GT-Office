@@ -10,12 +10,11 @@ use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, Works
 use vb_ai_config::StoredAiConfigPreview;
 use vb_git::GitService;
 use vb_session_log::{
-    bind_session_log, SessionLogBinding, SessionLogHealth, SessionLogProvider, SessionLogRequest,
-    SessionLogRuntime,
+    bind_session_log, SessionLogBinding, SessionLogHealth, SessionLogProvider,
+    SessionLogProviderSession, SessionLogRequest, SessionLogRuntime,
 };
 use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
-use vb_task::AgentToolKind;
-use vb_task::TaskService;
+use vb_task::{AgentProviderSessionMetadata, AgentToolKind, TaskService};
 use vb_terminal::PtyTerminalProvider;
 use vb_workspace::InMemoryWorkspaceService;
 
@@ -299,6 +298,8 @@ struct ExternalReplyRelaySession {
     target: ExternalReplyRelayTarget,
     tool_kind: AgentToolKind,
     resolved_cwd: Option<String>,
+    provider_session: Option<AgentProviderSessionMetadata>,
+    bind_started_at_ms: u64,
     created_at_ms: u64,
     last_chunk_at_ms: u64,
     last_preview_sent_at_ms: u64,
@@ -579,6 +580,8 @@ impl AppState {
                 target,
                 tool_kind: AgentToolKind::Unknown,
                 resolved_cwd: None,
+                provider_session: None,
+                bind_started_at_ms: now_ms,
                 created_at_ms: now_ms,
                 last_chunk_at_ms: now_ms,
                 last_preview_sent_at_ms: 0,
@@ -753,6 +756,7 @@ impl AppState {
         session_id: &str,
         tool_kind: AgentToolKind,
         resolved_cwd: Option<&str>,
+        provider_session: Option<&AgentProviderSessionMetadata>,
     ) -> Result<(), String> {
         let mut guard = self.external_reply_sessions.lock().map_err(|_| {
             "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
@@ -765,6 +769,9 @@ impl AppState {
             {
                 session.resolved_cwd = Some(resolved_cwd.to_string());
             }
+            if let Some(provider_session) = provider_session.cloned() {
+                session.provider_session = Some(provider_session);
+            }
             refresh_external_reply_session_log_binding(session);
         }
         Ok(())
@@ -775,7 +782,7 @@ impl AppState {
         session_id: &str,
         tool_kind: AgentToolKind,
     ) -> Result<(), String> {
-        self.set_external_reply_session_runtime_metadata(session_id, tool_kind, None)
+        self.set_external_reply_session_runtime_metadata(session_id, tool_kind, None, None)
     }
 
     pub fn set_external_interaction_message_id(
@@ -839,6 +846,18 @@ impl AppState {
             };
             let outcome = binding.poll();
             session.session_log_health = Some(outcome.health);
+            if let Some(provider_session) = outcome.provider_session.as_ref() {
+                let provider_session = provider_session_from_log(provider_session);
+                let changed = session.provider_session.as_ref() != Some(&provider_session);
+                if changed {
+                    session.provider_session = Some(provider_session.clone());
+                    let _ = self.task_service.update_runtime_provider_session(
+                        &session.target.workspace_id,
+                        &session.target.target_agent_id,
+                        Some(provider_session),
+                    );
+                }
+            }
             if let Some(text) = outcome.text {
                 if !text.trim().is_empty() {
                     session.session_log_text =
@@ -1012,20 +1031,29 @@ impl AppState {
                     continue;
                 }
                 session.last_finalize_attempt_at_ms = now_ms;
-                debug!(
-                    session_id = %session_id,
-                    profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
-                    final_chars = finalize_text.chars().count(),
-                    promptless_rendered_finalize,
-                    "queued external reply finalize candidate"
-                );
                 let Some((text, body_source)) = finalize.clone() else {
                     continue;
                 };
+                let final_text = if body_source == ExternalReplyBodySource::SessionLog {
+                    session_log_finalize_delta(&text, &session.last_preview_text)
+                } else {
+                    Some(text)
+                };
+                let Some(final_text) = final_text else {
+                    drop_session_ids.push(session_id.clone());
+                    continue;
+                };
+                debug!(
+                    session_id = %session_id,
+                    profile = %ToolScreenProfile::from_tool_kind(session.tool_kind).id(),
+                    final_chars = final_text.chars().count(),
+                    promptless_rendered_finalize,
+                    "queued external reply finalize candidate"
+                );
                 candidates.push(ExternalReplyDispatchCandidate {
                     session_id: session_id.clone(),
                     target: session.target.clone(),
-                    text,
+                    text: final_text,
                     preview_message_id: session.preview_message_id.clone(),
                     phase: ExternalReplyDispatchPhase::Finalize,
                     body_source,
@@ -1112,6 +1140,33 @@ fn external_reply_finalize_text(
         ));
     }
     external_reply_vt_text(session).map(|text| (text, ExternalReplyBodySource::VtFallback))
+}
+
+fn session_log_finalize_delta(final_text: &str, preview_text: &str) -> Option<String> {
+    let final_text = final_text.trim();
+    let preview_text = preview_text.trim();
+    if final_text.is_empty() {
+        return None;
+    }
+    if preview_text.is_empty() {
+        return Some(final_text.to_string());
+    }
+    if final_text == preview_text {
+        return None;
+    }
+    if let Some(delta) = final_text.strip_prefix(preview_text) {
+        return trimmed_owned_option(delta);
+    }
+
+    let preview_lines: Vec<&str> = preview_text.lines().collect();
+    let final_lines: Vec<&str> = final_text.lines().collect();
+    let max_overlap = preview_lines.len().min(final_lines.len());
+    for overlap in (1..=max_overlap).rev() {
+        if preview_lines[preview_lines.len() - overlap..] == final_lines[..overlap] {
+            return trimmed_owned_option(&final_lines[overlap..].join("\n"));
+        }
+    }
+    Some(final_text.to_string())
 }
 
 fn external_reply_vt_text(session: &ExternalReplyRelaySession) -> Option<String> {
@@ -1578,6 +1633,8 @@ fn refresh_external_reply_session_log_binding(session: &mut ExternalReplyRelaySe
     let runtime = SessionLogRuntime {
         provider,
         resolved_cwd: PathBuf::from(resolved_cwd),
+        bind_started_at_ms: Some(session.bind_started_at_ms),
+        provider_session: session.provider_session.as_ref().map(provider_session_to_log),
     };
     let request = SessionLogRequest {
         dispatched_text: dispatched_text.to_string(),
@@ -1585,6 +1642,38 @@ fn refresh_external_reply_session_log_binding(session: &mut ExternalReplyRelaySe
     session.session_log_binding = bind_session_log(&runtime, &request);
     if session.session_log_binding.is_some() && session.session_log_health.is_none() {
         session.session_log_health = Some(SessionLogHealth::Pending);
+    }
+}
+
+fn provider_session_to_log(
+    metadata: &AgentProviderSessionMetadata,
+) -> SessionLogProviderSession {
+    SessionLogProviderSession {
+        provider: session_log_provider_for_tool_kind(metadata.provider)
+            .unwrap_or(SessionLogProvider::Codex),
+        provider_session_id: metadata.provider_session_id.clone(),
+        log_path: metadata.log_path.as_ref().map(PathBuf::from),
+        session_started_at_ms: metadata.session_started_at_ms,
+        discovery_confidence: metadata.discovery_confidence.clone(),
+    }
+}
+
+fn provider_session_from_log(
+    metadata: &SessionLogProviderSession,
+) -> AgentProviderSessionMetadata {
+    AgentProviderSessionMetadata {
+        provider: match metadata.provider {
+            SessionLogProvider::Claude => AgentToolKind::Claude,
+            SessionLogProvider::Codex => AgentToolKind::Codex,
+            SessionLogProvider::Gemini => AgentToolKind::Gemini,
+        },
+        provider_session_id: metadata.provider_session_id.clone(),
+        log_path: metadata
+            .log_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        session_started_at_ms: metadata.session_started_at_ms,
+        discovery_confidence: metadata.discovery_confidence.clone(),
     }
 }
 
@@ -1599,6 +1688,15 @@ fn session_log_provider_for_tool_kind(tool_kind: AgentToolKind) -> Option<Sessio
 
 fn collapse_whitespace(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn trimmed_owned_option(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn extract_rendered_reply_text(
@@ -3025,6 +3123,28 @@ fn suppress_injected_input_echo(text: &str, injected_input: Option<&str>) -> Str
         }
     }
     text.to_string()
+}
+
+#[cfg(test)]
+mod internal_tests {
+    use super::session_log_finalize_delta;
+
+    #[test]
+    fn session_log_finalize_delta_returns_only_unseen_tail() {
+        let final_text = "第一段说明\n第二段说明\n最终结论";
+        let preview_text = "第一段说明\n第二段说明";
+        assert_eq!(
+            session_log_finalize_delta(final_text, preview_text).as_deref(),
+            Some("最终结论")
+        );
+    }
+
+    #[test]
+    fn session_log_finalize_delta_suppresses_duplicate_finalize() {
+        let final_text = "已经发送过的完整正文";
+        let preview_text = "已经发送过的完整正文";
+        assert_eq!(session_log_finalize_delta(final_text, preview_text), None);
+    }
 }
 
 #[cfg(test)]

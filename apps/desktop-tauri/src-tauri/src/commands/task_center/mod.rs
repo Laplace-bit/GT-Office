@@ -196,6 +196,7 @@ pub fn agent_runtime_register(
         "toolKind": request.tool_kind,
         "resolvedCwd": request.resolved_cwd,
         "submitSequence": request.submit_sequence,
+        "providerSession": request.provider_session,
         "registered": registered,
     }))
 }

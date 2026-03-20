@@ -193,7 +193,7 @@
 
 .tree-file-button {
   padding: 0;
-  color: var(--vb-text-muted);
+  color: color-mix(in srgb, var(--vb-text) 88%, var(--vb-text-muted));
 }
 
 .file-tree-pane button.tree-toggle,
@@ -234,7 +234,7 @@
   justify-content: center;
   flex: 0 0 auto;
   background: color-mix(in srgb, var(--vb-surface-muted) 40%, transparent);
-  border: var(--vb-hairline) solid color-mix(in srgb, var(--vb-border) 45%, transparent);
+  border: none;
   color: color-mix(in srgb, var(--vb-text-muted) 80%, var(--vb-text));
 }
 
@@ -302,10 +302,48 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--vb-text) 92%, var(--vb-text-muted));
+}
+
+.tree-toggle-label.tree-name-git--modified,
+.tree-file-name.tree-name-git--modified {
+  color: #d97706;
+}
+
+.tree-toggle-label.tree-name-git--added,
+.tree-file-name.tree-name-git--added {
+  color: #16a34a;
+}
+
+.tree-toggle-label.tree-name-git--deleted,
+.tree-file-name.tree-name-git--deleted {
+  color: #dc2626;
+}
+
+.tree-toggle-label.tree-name-git--renamed,
+.tree-file-name.tree-name-git--renamed {
+  color: #0284c7;
+}
+
+.tree-toggle-label.tree-name-git--untracked,
+.tree-file-name.tree-name-git--untracked {
+  color: #7c3aed;
+}
+
+.tree-toggle-label.tree-name-git--conflict,
+.tree-file-name.tree-name-git--conflict {
+  color: #ef4444;
+}
+
+.tree-file-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vb-space-xs);
+  flex: 0 0 auto;
 }
 
 .tree-file-badge {
-  margin-left: auto;
   min-width: #{rem(30)};
   max-width: #{rem(44)};
   padding: 0 var(--vb-space-xs);
@@ -320,6 +358,40 @@
   text-align: center;
   letter-spacing: 0.03em;
   flex: 0 0 auto;
+}
+
+.tree-git-status {
+  min-width: #{rem(12)};
+  text-align: center;
+  font-family: var(--vb-font-mono);
+  font-size: var(--vb-file-tree-font-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.tree-git-status--modified {
+  color: #d97706;
+}
+
+.tree-git-status--added {
+  color: #16a34a;
+}
+
+.tree-git-status--deleted {
+  color: #dc2626;
+}
+
+.tree-git-status--renamed {
+  color: #0284c7;
+}
+
+.tree-git-status--untracked {
+  color: #7c3aed;
+}
+
+.tree-git-status--conflict {
+  color: #ef4444;
 }
 
 .tree-loading {
@@ -463,13 +535,62 @@
   }
 
   .tree-node-icon {
-    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.45) 100%, transparent);
     background: color-mix(in srgb, rgba(51, 65, 85, 0.55) 100%, transparent);
   }
 
   .tree-file-badge {
     border-color: color-mix(in srgb, rgba(148, 163, 184, 0.38) 100%, transparent);
     background: color-mix(in srgb, rgba(30, 41, 59, 0.72) 100%, transparent);
+  }
+
+  .tree-git-status--modified {
+    color: #f59e0b;
+  }
+
+  .tree-git-status--added {
+    color: #4ade80;
+  }
+
+  .tree-git-status--deleted {
+    color: #f87171;
+  }
+
+  .tree-git-status--renamed {
+    color: #38bdf8;
+  }
+
+  .tree-git-status--untracked {
+    color: #a78bfa;
+  }
+
+  .tree-toggle-label.tree-name-git--modified,
+  .tree-file-name.tree-name-git--modified {
+    color: #f59e0b;
+  }
+
+  .tree-toggle-label.tree-name-git--added,
+  .tree-file-name.tree-name-git--added {
+    color: #4ade80;
+  }
+
+  .tree-toggle-label.tree-name-git--deleted,
+  .tree-file-name.tree-name-git--deleted {
+    color: #f87171;
+  }
+
+  .tree-toggle-label.tree-name-git--renamed,
+  .tree-file-name.tree-name-git--renamed {
+    color: #38bdf8;
+  }
+
+  .tree-toggle-label.tree-name-git--untracked,
+  .tree-file-name.tree-name-git--untracked {
+    color: #a78bfa;
+  }
+
+  .tree-toggle-label.tree-name-git--conflict,
+  .tree-file-name.tree-name-git--conflict {
+    color: #fb7185;
   }
 
   .tree-context-menu {

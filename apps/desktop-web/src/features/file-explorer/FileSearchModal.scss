@@ -130,7 +130,7 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  border: var(--vb-hairline) solid color-mix(in srgb, var(--vb-border) 52%, transparent);
+  border: none;
   background: color-mix(in srgb, var(--vb-surface) 70%, transparent);
   color: color-mix(in srgb, var(--vb-text-muted) 80%, var(--vb-text));
 
@@ -250,7 +250,6 @@
   }
 
   .file-search-result-icon {
-    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.42) 100%, transparent);
     background: color-mix(in srgb, rgba(30, 41, 59, 0.62) 100%, transparent);
   }
 

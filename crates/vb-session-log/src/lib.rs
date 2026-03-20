@@ -18,11 +18,22 @@ pub enum SessionLogProvider {
 pub struct SessionLogRuntime {
     pub provider: SessionLogProvider,
     pub resolved_cwd: PathBuf,
+    pub bind_started_at_ms: Option<u64>,
+    pub provider_session: Option<SessionLogProviderSession>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SessionLogRequest {
     pub dispatched_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionLogProviderSession {
+    pub provider: SessionLogProvider,
+    pub provider_session_id: Option<String>,
+    pub log_path: Option<PathBuf>,
+    pub session_started_at_ms: Option<u64>,
+    pub discovery_confidence: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -43,7 +54,9 @@ pub enum SessionLogHealth {
 #[derive(Debug, Clone)]
 pub struct SessionLogPollOutcome {
     pub text: Option<String>,
+    pub delta: Option<String>,
     pub source_path: Option<PathBuf>,
+    pub provider_session: Option<SessionLogProviderSession>,
     pub health: SessionLogHealth,
 }
 
@@ -114,6 +127,7 @@ pub struct ClaudeSessionBinding {
     resolved_cwd: PathBuf,
     project_dir: PathBuf,
     active_session_path: Option<PathBuf>,
+    provider_session: Option<SessionLogProviderSession>,
     initial_scan_offset: u64,
     offset: u64,
     carry: Vec<u8>,
@@ -145,6 +159,13 @@ impl ClaudeSessionBinding {
                 projects_root.join(claude_project_key_for_path(&runtime.resolved_cwd))
             });
         let preferred = resolve_latest_claude_session(&project_dir, &runtime.resolved_cwd);
+        let provider_session = preferred.as_ref().map(|path| SessionLogProviderSession {
+            provider: SessionLogProvider::Claude,
+            provider_session_id: None,
+            log_path: Some(path.clone()),
+            session_started_at_ms: None,
+            discovery_confidence: Some("path".to_string()),
+        });
         let initial_scan_offset = preferred
             .as_deref()
             .and_then(|path| rewind_offset(path, LOG_REWIND_BYTES))
@@ -154,6 +175,7 @@ impl ClaudeSessionBinding {
             resolved_cwd: runtime.resolved_cwd.clone(),
             project_dir,
             active_session_path: preferred,
+            provider_session,
             initial_scan_offset,
             offset: 0,
             carry: Vec::new(),
@@ -171,11 +193,15 @@ impl ClaudeSessionBinding {
             self.health = SessionLogHealth::Pending;
             return SessionLogPollOutcome {
                 text: None,
+                delta: None,
                 source_path: None,
+                provider_session: self.provider_session.clone(),
                 health: self.health,
             };
         };
+        self.reset_if_truncated(&path);
 
+        let previous_text = self.latest_text.clone();
         match read_jsonl_lines(&path, self.offset_for_next_read(), &mut self.carry) {
             Ok(read) => {
                 self.offset = read.next_offset;
@@ -217,7 +243,9 @@ impl ClaudeSessionBinding {
 
         SessionLogPollOutcome {
             text: trimmed_option(&self.latest_text),
+            delta: diff_tail(&previous_text, &self.latest_text),
             source_path: self.active_session_path.clone(),
+            provider_session: self.provider_session.clone(),
             health: self.health,
         }
     }
@@ -228,6 +256,20 @@ impl ClaudeSessionBinding {
         } else {
             self.initial_scan_offset
         }
+    }
+
+    fn reset_if_truncated(&mut self, path: &Path) {
+        let size = path.metadata().ok().map(|meta| meta.len()).unwrap_or(self.offset);
+        if size >= self.offset {
+            return;
+        }
+        self.initial_scan_offset = 0;
+        self.offset = 0;
+        self.carry.clear();
+        self.initialized = false;
+        self.anchor_found = false;
+        self.latest_text.clear();
+        self.health = SessionLogHealth::Pending;
     }
 
     fn maybe_rescan(&mut self) {
@@ -252,6 +294,13 @@ impl ClaudeSessionBinding {
         };
         if should_switch {
             self.active_session_path = latest.clone();
+            self.provider_session = latest.as_ref().map(|path| SessionLogProviderSession {
+                provider: SessionLogProvider::Claude,
+                provider_session_id: None,
+                log_path: Some(path.clone()),
+                session_started_at_ms: None,
+                discovery_confidence: Some("path".to_string()),
+            });
             self.initial_scan_offset = latest
                 .as_deref()
                 .and_then(|path| rewind_offset(path, LOG_REWIND_BYTES))
@@ -269,6 +318,8 @@ pub struct CodexSessionBinding {
     sessions_root: PathBuf,
     resolved_cwd: String,
     active_log_path: Option<PathBuf>,
+    provider_session: Option<SessionLogProviderSession>,
+    bind_started_at_ms: Option<u64>,
     initial_scan_offset: u64,
     offset: u64,
     carry: Vec<u8>,
@@ -294,16 +345,24 @@ impl CodexSessionBinding {
                 .join("sessions")
         });
         let resolved_cwd = normalize_path_key(&runtime.resolved_cwd);
-        let preferred = resolve_latest_codex_log(&sessions_root, &resolved_cwd);
+        let preferred = resolve_latest_codex_log(
+            &sessions_root,
+            &resolved_cwd,
+            runtime.bind_started_at_ms,
+            runtime.provider_session.as_ref(),
+            &prompt_fingerprint,
+        );
         let initial_scan_offset = preferred
-            .as_deref()
-            .and_then(|path| rewind_offset(path, LOG_REWIND_BYTES))
+            .as_ref()
+            .and_then(|candidate| rewind_offset(&candidate.path, LOG_REWIND_BYTES))
             .unwrap_or(0);
         Self {
             prompt_fingerprint,
             sessions_root,
             resolved_cwd,
-            active_log_path: preferred,
+            active_log_path: preferred.as_ref().map(|candidate| candidate.path.clone()),
+            provider_session: preferred.map(|candidate| candidate.provider_session),
+            bind_started_at_ms: runtime.bind_started_at_ms,
             initial_scan_offset,
             offset: 0,
             carry: Vec::new(),
@@ -321,11 +380,15 @@ impl CodexSessionBinding {
             self.health = SessionLogHealth::Pending;
             return SessionLogPollOutcome {
                 text: None,
+                delta: None,
                 source_path: None,
+                provider_session: self.provider_session.clone(),
                 health: self.health,
             };
         };
+        self.reset_if_truncated(&path);
 
+        let previous_text = self.latest_text.clone();
         match read_jsonl_lines(&path, self.offset_for_next_read(), &mut self.carry) {
             Ok(read) => {
                 self.offset = read.next_offset;
@@ -367,7 +430,9 @@ impl CodexSessionBinding {
 
         SessionLogPollOutcome {
             text: trimmed_option(&self.latest_text),
+            delta: diff_tail(&previous_text, &self.latest_text),
             source_path: self.active_log_path.clone(),
+            provider_session: self.provider_session.clone(),
             health: self.health,
         }
     }
@@ -378,6 +443,20 @@ impl CodexSessionBinding {
         } else {
             self.initial_scan_offset
         }
+    }
+
+    fn reset_if_truncated(&mut self, path: &Path) {
+        let size = path.metadata().ok().map(|meta| meta.len()).unwrap_or(self.offset);
+        if size >= self.offset {
+            return;
+        }
+        self.initial_scan_offset = 0;
+        self.offset = 0;
+        self.carry.clear();
+        self.initialized = false;
+        self.anchor_found = false;
+        self.latest_text.clear();
+        self.health = SessionLogHealth::Pending;
     }
 
     fn maybe_rescan(&mut self) {
@@ -394,17 +473,24 @@ impl CodexSessionBinding {
         }
         self.last_rescan_at_ms = now;
 
-        let latest = resolve_latest_codex_log(&self.sessions_root, &self.resolved_cwd);
+        let latest = resolve_latest_codex_log(
+            &self.sessions_root,
+            &self.resolved_cwd,
+            self.bind_started_at_ms,
+            self.provider_session.as_ref(),
+            &self.prompt_fingerprint,
+        );
         let should_switch = match (&self.active_log_path, latest.as_ref()) {
             (None, Some(_)) => true,
-            (Some(current), Some(candidate)) if !self.anchor_found => current != candidate,
+            (Some(current), Some(candidate)) if !self.anchor_found => current != &candidate.path,
             _ => false,
         };
         if should_switch {
-            self.active_log_path = latest.clone();
+            self.active_log_path = latest.as_ref().map(|candidate| candidate.path.clone());
+            self.provider_session = latest.as_ref().map(|candidate| candidate.provider_session.clone());
             self.initial_scan_offset = latest
-                .as_deref()
-                .and_then(|path| rewind_offset(path, LOG_REWIND_BYTES))
+                .as_ref()
+                .and_then(|candidate| rewind_offset(&candidate.path, LOG_REWIND_BYTES))
                 .unwrap_or(0);
             self.offset = 0;
             self.carry.clear();
@@ -427,6 +513,9 @@ fn read_jsonl_lines(
     let mut file = fs::File::open(path)?;
     let metadata = file.metadata()?;
     let size = metadata.len();
+    if offset > size {
+        carry.clear();
+    }
     let start = offset.min(size);
     file.seek(SeekFrom::Start(start))?;
 
@@ -624,26 +713,93 @@ fn extract_claude_content_text(content: &serde_json::Value) -> Option<String> {
     trimmed_option(&texts.join("\n"))
 }
 
-fn resolve_latest_codex_log(root: &Path, normalized_cwd: &str) -> Option<PathBuf> {
-    let mut latest = None;
-    let mut latest_mtime = -1_i128;
-    let entries = walk_jsonl_files(root);
-    for path in entries {
-        if extract_codex_log_cwd(&path).as_deref() != Some(normalized_cwd) {
+#[derive(Debug, Clone)]
+struct CodexSessionMeta {
+    session_id: Option<String>,
+    cwd: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CodexSessionCandidate {
+    path: PathBuf,
+    modified_at_ms: u64,
+    score: i64,
+    provider_session: SessionLogProviderSession,
+}
+
+fn resolve_latest_codex_log(
+    root: &Path,
+    normalized_cwd: &str,
+    bind_started_at_ms: Option<u64>,
+    hint: Option<&SessionLogProviderSession>,
+    prompt_fingerprint: &str,
+) -> Option<CodexSessionCandidate> {
+    let hinted_log_path = hint.and_then(|item| item.log_path.as_ref()).cloned();
+    let hinted_session_id = hint
+        .and_then(|item| item.provider_session_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let mut best: Option<CodexSessionCandidate> = None;
+    for path in walk_jsonl_files(root) {
+        let Some(meta) = extract_codex_session_meta(&path) else {
+            continue;
+        };
+        if meta.cwd.as_deref() != Some(normalized_cwd) {
             continue;
         }
-        let mtime = path
+        let modified_at_ms = path
             .metadata()
             .ok()
             .and_then(|meta| meta.modified().ok())
             .and_then(system_time_to_millis)
             .unwrap_or(0);
-        if mtime as i128 >= latest_mtime {
-            latest = Some(path);
-            latest_mtime = mtime as i128;
+        let mut score = modified_at_ms as i64;
+        let mut discovery_confidence = "mtime";
+
+        if hinted_log_path.as_deref() == Some(path.as_path()) {
+            score += 10_000_000;
+            discovery_confidence = "log_path";
+        }
+        if hinted_session_id.is_some_and(|value| meta.session_id.as_deref() == Some(value)) {
+            score += 8_000_000;
+            discovery_confidence = "session_id";
+        }
+        if let Some(bind_started_at_ms) = bind_started_at_ms {
+            let diff_ms = modified_at_ms.abs_diff(bind_started_at_ms);
+            score += 1_000_000_i64.saturating_sub((diff_ms / 10) as i64);
+            if diff_ms <= 120_000 {
+                discovery_confidence = "time_window";
+            }
+        }
+        if !prompt_fingerprint.is_empty() && codex_log_contains_prompt_anchor(&path, prompt_fingerprint)
+        {
+            score += 500_000;
+            discovery_confidence = "prompt_anchor";
+        }
+
+        let candidate = CodexSessionCandidate {
+            path: path.clone(),
+            modified_at_ms,
+            score,
+            provider_session: SessionLogProviderSession {
+                provider: SessionLogProvider::Codex,
+                provider_session_id: meta.session_id,
+                log_path: Some(path),
+                session_started_at_ms: Some(modified_at_ms),
+                discovery_confidence: Some(discovery_confidence.to_string()),
+            },
+        };
+        let replace = best.as_ref().is_none_or(|current| {
+            candidate.score > current.score
+                || (candidate.score == current.score
+                    && candidate.modified_at_ms >= current.modified_at_ms)
+        });
+        if replace {
+            best = Some(candidate);
         }
     }
-    latest
+    best
 }
 
 fn walk_jsonl_files(root: &Path) -> Vec<PathBuf> {
@@ -664,19 +820,43 @@ fn walk_jsonl_files(root: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn extract_codex_log_cwd(path: &Path) -> Option<String> {
+fn extract_codex_session_meta(path: &Path) -> Option<CodexSessionMeta> {
     let content = fs::read_to_string(path).ok()?;
     let first_line = content.lines().next()?;
     let entry = serde_json::from_str::<serde_json::Value>(first_line).ok()?;
     if entry.get("type")?.as_str()? != "session_meta" {
         return None;
     }
-    let cwd = entry
-        .get("payload")?
-        .get("cwd")?
-        .as_str()
-        .map(normalize_path_key)?;
-    Some(cwd)
+    let payload = entry.get("payload")?;
+    Some(CodexSessionMeta {
+        session_id: payload
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        cwd: payload
+            .get("cwd")?
+            .as_str()
+            .map(normalize_path_key),
+    })
+}
+
+fn codex_log_contains_prompt_anchor(path: &Path, prompt_fingerprint: &str) -> bool {
+    let Ok(content) = fs::read_to_string(path) else {
+        return false;
+    };
+    for line in content.lines() {
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if extract_codex_user_text(&entry)
+            .as_deref()
+            .is_some_and(|text| messages_match(text, prompt_fingerprint))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn extract_codex_user_text(entry: &serde_json::Value) -> Option<String> {
@@ -827,6 +1007,32 @@ fn merge_reply_text(existing: &str, candidate: &str) -> String {
     format!("{existing}\n{candidate}")
 }
 
+fn diff_tail(previous: &str, current: &str) -> Option<String> {
+    let previous = previous.trim_end();
+    let current = current.trim_end();
+    if current.is_empty() || current == previous {
+        return None;
+    }
+    if previous.is_empty() {
+        return Some(current.to_string());
+    }
+    if let Some(suffix) = current.strip_prefix(previous) {
+        return trimmed_option(suffix);
+    }
+
+    let previous_lines: Vec<&str> = previous.lines().collect();
+    let current_lines: Vec<&str> = current.lines().collect();
+    let max_overlap = previous_lines.len().min(current_lines.len());
+    for overlap in (1..=max_overlap).rev() {
+        if previous_lines[previous_lines.len() - overlap..] == current_lines[..overlap] {
+            let delta = current_lines[overlap..].join("\n");
+            return trimmed_option(&delta);
+        }
+    }
+
+    Some(current.to_string())
+}
+
 fn trimmed_option(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -892,6 +1098,8 @@ mod tests {
         let runtime = SessionLogRuntime {
             provider: SessionLogProvider::Claude,
             resolved_cwd: work_dir.clone(),
+            bind_started_at_ms: None,
+            provider_session: None,
         };
         let mut binding = bind_session_log_with_config(
             &runtime,
@@ -941,6 +1149,8 @@ mod tests {
         let runtime = SessionLogRuntime {
             provider: SessionLogProvider::Codex,
             resolved_cwd: work_dir.clone(),
+            bind_started_at_ms: None,
+            provider_session: None,
         };
         let mut binding = bind_session_log_with_config(
             &runtime,
@@ -958,5 +1168,71 @@ mod tests {
         assert_eq!(outcome.health, SessionLogHealth::Active);
         assert_eq!(outcome.text.as_deref(), Some("partial\nfinal answer"));
         assert_eq!(outcome.source_path.as_deref(), Some(session_path.as_path()));
+    }
+
+    #[test]
+    fn codex_binding_prefers_explicit_provider_session_id_over_latest_log() {
+        let root = temp_dir("codex-explicit");
+        let work_dir = PathBuf::from("/tmp/project-explicit");
+        let candidate_dir = root.join("2026/03/15");
+        fs::create_dir_all(&candidate_dir).expect("create sessions dir");
+
+        let older_path = candidate_dir.join("rollout-older.jsonl");
+        fs::write(
+            &older_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"session-older\",\"cwd\":\"{}\"}}}}\n\
+{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"hello world\"}}]}}}}\n\
+{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"agent_message\",\"message\":\"older commentary\"}}}}\n",
+                work_dir.display()
+            ),
+        )
+        .expect("write older log");
+        let newer_path = candidate_dir.join("rollout-newer.jsonl");
+        fs::write(
+            &newer_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"session-newer\",\"cwd\":\"{}\"}}}}\n\
+{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"something else\"}}]}}}}\n\
+{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"agent_message\",\"message\":\"newer commentary\"}}}}\n",
+                work_dir.display()
+            ),
+        )
+        .expect("write newer log");
+
+        let runtime = SessionLogRuntime {
+            provider: SessionLogProvider::Codex,
+            resolved_cwd: work_dir.clone(),
+            bind_started_at_ms: None,
+            provider_session: Some(SessionLogProviderSession {
+                provider: SessionLogProvider::Codex,
+                provider_session_id: Some("session-older".to_string()),
+                log_path: None,
+                session_started_at_ms: None,
+                discovery_confidence: None,
+            }),
+        };
+        let mut binding = bind_session_log_with_config(
+            &runtime,
+            &SessionLogRequest {
+                dispatched_text: "hello world".to_string(),
+            },
+            SessionLogConfig {
+                codex_sessions_root: Some(root.clone()),
+                ..SessionLogConfig::default()
+            },
+        )
+        .expect("bind session log");
+
+        let outcome = binding.poll();
+        assert_eq!(outcome.source_path.as_deref(), Some(older_path.as_path()));
+        assert_eq!(
+            outcome
+                .provider_session
+                .as_ref()
+                .and_then(|session| session.provider_session_id.as_deref()),
+            Some("session-older")
+        );
+        assert_eq!(outcome.text.as_deref(), Some("older commentary"));
     }
 }

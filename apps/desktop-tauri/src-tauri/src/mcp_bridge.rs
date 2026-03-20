@@ -604,6 +604,7 @@ fn dev_bootstrap_agents(
                 tool_kind,
                 resolved_cwd: Some(session.resolved_cwd.clone()),
                 submit_sequence: Some(submit_sequence.clone()),
+                provider_session: None,
                 online: true,
             });
 
@@ -614,6 +615,7 @@ fn dev_bootstrap_agents(
             "toolKind": tool_kind,
             "resolvedCwd": session.resolved_cwd,
             "submitSequence": submit_sequence.clone(),
+            "providerSession": serde_json::Value::Null,
         }));
     }
 

@@ -71,6 +71,8 @@
 3. **渲染结果优先于原始 buffer**：不再依赖 PTY chunk 拼接来决定外发内容。
 4. **标准化后再 diff**：直接读取 `xterm.buffer.active` 的屏幕行与光标状态，不对零散 DOM 节点、`innerText`、原始 xterm class 做业务判断。
 5. **低置信静默**：没有明确正文块时，不允许回退整屏文本。
+6. **provider session 显式绑定优先**：若 runtime 已知 `providerSessionId/logPath`，解析器必须优先使用，不得退回“同 cwd 最新文件”猜测。
+7. **重 I/O 不阻塞前端**：session log 的扫描、读取、重绑只能在后台 worker / blocking 段执行。
 
 ---
 
@@ -234,6 +236,28 @@ Candidate Block Extractor 的职责是从 diff 结果中找出“可能是最新
 2. 若 provider session log 已给出最终正文，则允许直接使用 session log 完成 finalize。
 3. 若 session log 不可用，则回退到 rendered-screen，再回退到 VT 文本。
 4. 允许记录调试样本，但不允许发送原始整屏作为兜底。
+
+### 4.6 Provider Session Binding
+Codex v1 必须支持 provider-specific session 绑定元数据：
+
+- `providerSessionId`
+- `logPath`
+- `sessionStartedAtMs`
+- `discoveryConfidence`
+
+Codex 发现优先级：
+
+1. 显式 `logPath`
+2. 显式 `providerSessionId`
+3. 同 `cwd` 且落在 reply bind 时间窗附近的 session
+4. 同 `cwd` 且命中当前 prompt anchor 的 session
+5. 同 `cwd` 最新活跃 session
+
+Codex transcript 规则：
+
+- assistant commentary 允许进入 transcript
+- developer/user/function-call-output 不进入 channel 正文
+- finalize 只发送相对最近 preview 的新增尾段；若无新增，则不重复发送
 
 ---
 

@@ -26,6 +26,7 @@ fn sample_runtime(
         tool_kind,
         resolved_cwd: resolved_cwd.map(str::to_string),
         submit_sequence: Some("\r".to_string()),
+        provider_session: None,
         online: true,
     }
 }

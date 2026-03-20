@@ -298,6 +298,20 @@ pub struct TaskDispatchProgressEvent {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentProviderSessionMetadata {
+    pub provider: AgentToolKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_started_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_confidence: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRuntimeRegistration {
@@ -313,6 +327,8 @@ pub struct AgentRuntimeRegistration {
     pub resolved_cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submit_sequence: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_session: Option<AgentProviderSessionMetadata>,
     #[serde(default = "default_true")]
     pub online: bool,
 }
@@ -444,9 +460,28 @@ impl TaskService {
             session_id = %registration.session_id,
             tool_kind = ?registration.tool_kind,
             resolved_cwd = ?registration.resolved_cwd,
+            provider_session = ?registration.provider_session,
             "registered agent runtime"
         );
         guard.runtimes.insert(key, registration);
+        true
+    }
+
+    pub fn update_runtime_provider_session(
+        &self,
+        workspace_id: &str,
+        agent_id: &str,
+        provider_session: Option<AgentProviderSessionMetadata>,
+    ) -> bool {
+        let key = runtime_key(workspace_id, agent_id);
+        let mut guard = match self.state.write() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+        let Some(runtime) = guard.runtimes.get_mut(&key) else {
+            return false;
+        };
+        runtime.provider_session = provider_session;
         true
     }
 

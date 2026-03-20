@@ -1,21 +1,7 @@
-# AGENTS.md
-
-本文件是 `GT Office` 仓库内的人机协作规范。
-
-## 0. AGENTS.md 在 Codex 中的作用（必须理解）
-
-1. `AGENTS.md` 是仓库级执行规则，约束 AI Agent 与人类开发者的工作方式、文档流程与交接标准。
-2. 作用范围是当前仓库（`/mnt/c/personal/vbCode`）内所有改动与会话。
-3. 目标是把“该怎么做”变成可执行清单，降低上下文歧义与 token 消耗。
-4. 若与平台安全规则冲突，以平台/系统规则为准；仓库内实现细节以本文为准。
-
 ## 1. 项目目标
-
 1. 构建跨平台（Windows/Linux/macOS）高性能 AI Coding 桌面工具。
-2. 核心能力：Workspace、文件管理、真终端、Git、多窗口并行、Tool Adapter、Change Feed。
-
+2. 核心能力：Workspace、文件管理、真终端、Git、多窗口并行、Tool Adapter、Change Feed、Channel。
 ## 2. 技术基线
-
 1. 框架：Tauri + Rust + WebUI（React/Svelte）。
 2. Rust：`tokio`、`portable-pty`、`notify`、`git2`、`tracing`。
 3. 前端：`xterm.js`、Tailwind、轻量状态管理（zustand/jotai）。
@@ -23,11 +9,10 @@
 5. 配置：默认配置 + 用户配置 + 工作区配置 + 会话覆盖（分层模型）。
 
 ## 3. 目录边界
-
-1. `docs/`：需求、架构、进度、交接、契约。
+1. `packages/`：共享类型与可复用组件。
 2. `apps/`：UI 与 Tauri 壳层。
 3. `crates/`：Rust 领域模块。
-4. `packages/`：共享类型与可复用组件。
+4. `docs/`：需求、架构、进度、交接、契约
 5. `tests/`：集成/E2E，测试文件必须独立于被测文件。
 
 禁止：

@@ -113,7 +113,7 @@ Station 约束（T-072）：
 | `task.dispatch_batch` | `workspaceId,sender,targets,title,markdown,attachments?` | `batchId,results[]` |
 | `channel.publish` | `workspaceId,channel,type,payload,idempotencyKey?` | `messageId,acceptedTargets,failedTargets` |
 | `changefeed.query` | `workspaceId,sessionId?,limit` | `events[]` |
-| `agent.runtime_register` | `workspaceId,agentId,stationId,sessionId,roleKey?` | `registered` |
+| `agent.runtime_register` | `workspaceId,agentId,stationId,sessionId,roleKey?,toolKind?,resolvedCwd?,submitSequence?,providerSession?` | `registered,providerSession?` |
 | `agent.runtime_unregister` | `workspaceId,agentId` | `unregistered` |
 
 MCP Bridge（T-171）：
@@ -144,6 +144,7 @@ MCP Bridge（T-171）：
 18. 若 GT Office 桌面端运行于 Windows、agent/MCP 运行于 WSL，public MCP tool 仍必须可用；runtime 与 directory 的候选选择必须优先命中“包含目标 workspace snapshot 的同一状态根”，避免目录来自一侧、发送却连到另一侧死端口。
 19. `channel.list_messages` / `gto_list_messages` 用于读取 sender 自己收到的 `status/handover` inbox；默认按“当前 agent”过滤。
 20. 纯终端打印但未经过 `channel.publish` 的文本，不属于 inbox，可见于目标 agent 本地 terminal，但不可被 sender 通过 `gto_list_messages` 拉取。
+21. `agent.runtime_register.providerSession` 为 provider 专属会话绑定元数据；当前用于 Codex/Claude session log 绑定，字段最少包含 `provider,providerSessionId?,logPath?,sessionStartedAtMs?,discoveryConfidence?`。
 
 ### 3.6 Settings / Keymap / AI Config
 
@@ -230,27 +231,30 @@ AI Config 约束（T-171）：
    - provider `session log`：Claude/Codex 的高置信最终正文。
    - 优先级：`session-log > rendered-screen-fallback > vt-fallback`。
 6. finalize 判定继续以 live terminal 状态为主；只要存在 active interaction prompt，就禁止 finalize。
-7. Telegram 交互按钮（inline keyboard）与正文分离，按钮回调需复用同一 reply session。
-8. Telegram callback payload 允许两种前缀：
+7. Codex session log 绑定优先级固定为：`providerSession.logPath > providerSession.providerSessionId > cwd + bind 时间窗 + prompt anchor > 同 cwd 最新活跃日志`。
+8. Codex session log 解析允许包含 assistant commentary；`finalize` 对 channel 只能发送相对最后一次 preview 的新增尾段，delta 为空时不得重复外发整段正文。
+9. session log 文件读取、扫描、重绑必须运行在后台 worker / blocking 段，不得阻塞前端交互线程。
+10. Telegram 交互按钮（inline keyboard）与正文分离，按钮回调需复用同一 reply session。
+11. Telegram callback payload 允许两种前缀：
    - `gto:<submit_text>`
    - `gto-key:up|down|enter|esc|tab`
-9. `channel_external.inbound` 遇到 `gto-key:*` 时必须向目标 terminal 写入对应 ANSI 控制序列，而不是把 payload 当普通文本派发。
-10. `channel_connector_account_upsert` 对 Feishu 需支持：
+12. `channel_external.inbound` 遇到 `gto-key:*` 时必须向目标 terminal 写入对应 ANSI 控制序列，而不是把 payload 当普通文本派发。
+13. `channel_connector_account_upsert` 对 Feishu 需支持：
    - `connectionMode=websocket|webhook`
    - `domain=feishu|lark`
    - `appId/appSecret/appSecretRef`
    - `verificationToken/verificationTokenRef`
    - `webhookPath/webhookHost/webhookPort`
-11. `channel_connector_health` 对 Feishu 需补充：
+14. `channel_connector_health` 对 Feishu 需补充：
    - `botName`
    - `botOpenId`
    - `domain`
    - `runtimeConnected`
    - `connectionMode`
    - `configuredWebhookUrl/runtimeWebhookUrl/webhookMatched`
-12. Feishu v1 不提供远程方向控件；若存在交互 prompt，只发送提示文本，不声明可远程选择。
-13. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
-14. `external/channel_outbound_result` payload 应补充 `channel?`，供用户侧消息流直接展示通道名；前端不得再从 `textPreview/detail` 文案反推 channel。
+15. Feishu v1 不提供远程方向控件；若存在交互 prompt，只发送提示文本，不声明可远程选择。
+16. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
+17. `external/channel_outbound_result` payload 应补充 `channel?`，供用户侧消息流直接展示通道名；前端不得再从 `textPreview/detail` 文案反推 channel。
 
 ## 4. Event 契约（V1）
 
