@@ -42,6 +42,7 @@ const EXTERNAL_REPLY_MAX_WAIT_MS: u64 = 15 * 60 * 1000;
 const EXTERNAL_REPLY_STREAM_THROTTLE_MS: u64 = 800; // 降低到800ms，更快的预览更新
 const EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS: usize = 16; // 降低到16个字符，更早开始发送
 const EXTERNAL_REPLY_MAX_TEXT_CHARS: usize = 3_800;
+const EXTERNAL_REPLY_APPEND_DEBUG_SOURCE: bool = true;
 const CHANNEL_STATE_FILE_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]
@@ -1544,17 +1545,23 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
         );
     }
     for candidate in candidates {
-        let chunks = split_text_for_channel(&candidate.text, EXTERNAL_REPLY_MAX_TEXT_CHARS);
+        let outbound_text = append_external_reply_debug_source(
+            &candidate.text,
+            candidate.phase,
+            candidate.body_source.relay_mode(),
+            candidate.body_source.confidence(),
+        );
+        let chunks = split_text_for_channel(&outbound_text, EXTERNAL_REPLY_MAX_TEXT_CHARS);
         if chunks.is_empty() {
             continue;
         }
-        let text_preview = summarize_external_text(&candidate.text, 160);
+        let text_preview = summarize_external_text(&outbound_text, 160);
         debug!(
             trace_id = %candidate.target.trace_id,
             session_id = %candidate.session_id,
             channel = %candidate.target.channel,
             phase = ?candidate.phase,
-            text_chars = candidate.text.chars().count(),
+            text_chars = outbound_text.chars().count(),
             chunk_count = chunks.len(),
             "delivering external reply candidate"
         );
@@ -1693,6 +1700,27 @@ fn summarize_external_text(text: &str, max_chars: usize) -> Option<String> {
         "{}...",
         trimmed.chars().take(max_chars).collect::<String>()
     ))
+}
+
+fn append_external_reply_debug_source(
+    text: &str,
+    phase: ExternalReplyDispatchPhase,
+    relay_mode: &str,
+    confidence: &str,
+) -> String {
+    if !EXTERNAL_REPLY_APPEND_DEBUG_SOURCE {
+        return text.to_string();
+    }
+    let phase = match phase {
+        ExternalReplyDispatchPhase::Preview => "preview",
+        ExternalReplyDispatchPhase::Finalize => "finalize",
+    };
+    let suffix = format!("\n\n[source={relay_mode} confidence={confidence} phase={phase}]");
+    if text.trim_end().ends_with(&suffix) {
+        text.to_string()
+    } else {
+        format!("{}{}", text.trim_end(), suffix)
+    }
 }
 
 fn build_external_content_preview(text: &str) -> Option<String> {

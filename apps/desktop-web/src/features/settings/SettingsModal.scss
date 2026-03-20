@@ -198,6 +198,14 @@
   }
 }
 
+.settings-tab-panel {
+  min-height: 100%;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
 /* Typography Base for sections */
 .settings-pane-section {
   h4 {

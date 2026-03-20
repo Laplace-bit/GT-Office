@@ -5,6 +5,49 @@
   flex-direction: column;
   gap: #{rem(32)};
   animation: fade-in 0.4s ease-out;
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: #{rem(16)};
+
+    h4 {
+      margin: 0 0 #{rem(8)};
+    }
+
+    p {
+      margin: 0;
+      max-width: #{rem(560)};
+      color: var(--vb-text-muted);
+      font-size: #{rem(13)};
+      line-height: 1.6;
+    }
+  }
+
+  &__refresh-state {
+    display: inline-flex;
+    align-items: center;
+    gap: #{rem(10)};
+    min-height: #{rem(36)};
+    padding: 0 #{rem(14)};
+    border-radius: #{rem(999)};
+    background: color-mix(in srgb, var(--vb-bg-tertiary) 92%, transparent);
+    border: #{rem(1)} solid color-mix(in srgb, var(--vb-border-subtle) 76%, transparent);
+    color: var(--vb-text-muted);
+    font-size: #{rem(12)};
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  &__refresh-dot {
+    width: #{rem(8)};
+    height: #{rem(8)};
+    border-radius: 50%;
+    background: var(--vb-accent);
+    box-shadow: 0 0 0 #{rem(4)} color-mix(in srgb, var(--vb-accent) 18%, transparent);
+    animation: ai-provider-pulse 1.2s ease-in-out infinite;
+  }
 }
 
 .ai-providers-grid {
@@ -13,16 +56,38 @@
   gap: #{rem(20)};
 }
 
-.ai-providers-loading {
+.ai-providers-feedback {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: #{rem(60)};
-  color: var(--vb-text-muted);
-  font-size: #{rem(14)};
+  min-height: #{rem(44)};
+  padding: #{rem(12)} #{rem(14)};
+  border-radius: #{rem(14)};
+  font-size: #{rem(13)};
+  line-height: 1.5;
+
+  &.is-error {
+    color: #b42318;
+    background: rgba(254, 226, 226, 0.72);
+    border: #{rem(1)} solid rgba(248, 113, 113, 0.32);
+  }
 }
 
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(#{rem(10)}); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ai-provider-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.72; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+@container (max-width: #{rem(48)}) {
+  .ai-providers-section__header {
+    flex-direction: column;
+  }
+
+  .ai-providers-section__refresh-state {
+    white-space: normal;
+  }
 }

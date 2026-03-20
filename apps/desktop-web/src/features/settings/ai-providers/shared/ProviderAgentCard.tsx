@@ -9,6 +9,7 @@ interface ProviderAgentCardProps {
   locale: Locale
   agent: AiAgentSnapshotCard
   selected: boolean
+  statusLoading: boolean
   installingCli: boolean
   uninstallingCli: boolean
   onSelect: () => void
@@ -47,6 +48,7 @@ export function ProviderAgentCard({
   locale,
   agent,
   selected,
+  statusLoading,
   installingCli,
   uninstallingCli,
   onSelect,
@@ -56,11 +58,13 @@ export function ProviderAgentCard({
   onConfigure,
   configureActions,
 }: ProviderAgentCardProps) {
-  const installCliDisabled = installingCli
-  const uninstallCliDisabled = uninstallingCli
-  const enhancementDisabled = !agent.installStatus.installed
-  const tone = resolveStatusTone(agent)
-  const label = resolveStatusLabel(locale, agent)
+  const installCliDisabled = statusLoading || installingCli
+  const uninstallCliDisabled = statusLoading || uninstallingCli
+  const enhancementDisabled = statusLoading || !agent.installStatus.installed
+  const tone = statusLoading ? 'muted' : resolveStatusTone(agent)
+  const label = statusLoading
+    ? t(locale, '正在检查本机环境', 'Checking local environment')
+    : resolveStatusLabel(locale, agent)
   const enabledEnhancementCount = resolveEnabledEnhancementCount(agent)
   const uninstallTitle =
     !agent.installStatus.uninstallAvailable && agent.installStatus.issues.length > 0
@@ -101,7 +105,12 @@ export function ProviderAgentCard({
       <div className="ai-provider-card__body">
         <p>{translateMaybeKey(locale, agent.subtitle)}</p>
         <div className="ai-provider-card__meta">
-          {agent.installStatus.installed ? (
+          {statusLoading ? (
+            <div className="meta-item is-loading">
+              <AppIcon name="activity" width={12} height={12} />
+              <span>{t(locale, '正在检查 CLI 与本地配置', 'Inspecting CLI and local configuration')}</span>
+            </div>
+          ) : agent.installStatus.installed ? (
             <div className="meta-item">
               <AppIcon name="terminal" width={12} height={12} />
               <span>{agent.installStatus.executable || 'Installed'}</span>
@@ -112,20 +121,27 @@ export function ProviderAgentCard({
               <span>{t(locale, 'aiConfig.card.noExecutable')}</span>
             </div>
           )}
-          {agent.installStatus.detectedBy.length > 0 && (
+          {!statusLoading && agent.installStatus.detectedBy.length > 0 && (
             <div className="meta-item">
               <AppIcon name="sparkles" width={12} height={12} />
               <span>{agent.installStatus.detectedBy.join(', ')}</span>
             </div>
           )}
-          <div className={`meta-item ${enabledEnhancementCount > 0 ? '' : 'warn'}`}>
-            <AppIcon name="sparkles" width={12} height={12} />
-            <span>
-              {enabledEnhancementCount > 0
-                ? t(locale, 'aiConfig.card.enhancementEnabled', { count: String(enabledEnhancementCount) })
-                : t(locale, 'aiConfig.card.enhancementEmpty')}
-            </span>
-          </div>
+          {statusLoading ? (
+            <div className="meta-item is-loading">
+              <AppIcon name="clock" width={12} height={12} />
+              <span>{t(locale, '增强服务状态稍后补齐', 'Enhancement status will be updated shortly')}</span>
+            </div>
+          ) : (
+            <div className={`meta-item ${enabledEnhancementCount > 0 ? '' : 'warn'}`}>
+              <AppIcon name="sparkles" width={12} height={12} />
+              <span>
+                {enabledEnhancementCount > 0
+                  ? t(locale, 'aiConfig.card.enhancementEnabled', { count: String(enabledEnhancementCount) })
+                  : t(locale, 'aiConfig.card.enhancementEmpty')}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

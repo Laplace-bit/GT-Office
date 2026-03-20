@@ -319,6 +319,13 @@ struct ExternalReplyRelaySession {
     permission_prompt_active: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct AiConfigSnapshotCache {
+    pub snapshot: vb_ai_config::AiConfigSnapshot,
+    pub workspace_root: String,
+    pub cached_at_ms: u64,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub workspace_service: InMemoryWorkspaceService,
@@ -332,6 +339,7 @@ pub struct AppState {
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
     mcp_directory_snapshots: Arc<Mutex<HashMap<String, Value>>>,
     ai_config_previews: Arc<Mutex<HashMap<String, StoredAiConfigPreview>>>,
+    ai_config_snapshot_cache: Arc<Mutex<HashMap<String, AiConfigSnapshotCache>>>,
 }
 
 impl Default for AppState {
@@ -354,6 +362,7 @@ impl Default for AppState {
             external_reply_sessions: Arc::new(Mutex::new(HashMap::new())),
             mcp_directory_snapshots: Arc::new(Mutex::new(HashMap::new())),
             ai_config_previews: Arc::new(Mutex::new(HashMap::new())),
+            ai_config_snapshot_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -543,6 +552,48 @@ impl AppState {
         self.settings_service
             .reset(scope, workspace_root.as_deref(), keys)
             .map_err(|error| error.to_string())
+    }
+
+    pub fn get_ai_config_snapshot_cache(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<AiConfigSnapshotCache>, String> {
+        let caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned".to_string()
+        })?;
+        Ok(caches.get(workspace_id).cloned())
+    }
+
+    pub fn set_ai_config_snapshot_cache(
+        &self,
+        workspace_id: &str,
+        workspace_root: &str,
+        snapshot: vb_ai_config::AiConfigSnapshot,
+    ) -> Result<(), String> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let mut caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned".to_string()
+        })?;
+        caches.insert(
+            workspace_id.to_string(),
+            AiConfigSnapshotCache {
+                snapshot,
+                workspace_root: workspace_root.to_string(),
+                cached_at_ms: now_ms,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn invalidate_ai_config_snapshot_cache(&self, workspace_id: &str) -> Result<(), String> {
+        let mut caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned".to_string()
+        })?;
+        caches.remove(workspace_id);
+        Ok(())
     }
 
     #[allow(dead_code)]

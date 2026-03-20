@@ -104,6 +104,17 @@
         background: rgba(212, 175, 55, 0.1);
       }
 
+      &.is-loading {
+        color: var(--vb-text);
+        background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-bg-tertiary));
+        border: rem(1) solid color-mix(in srgb, var(--vb-accent) 14%, transparent);
+
+        svg {
+          animation: ai-provider-card-spin 1.2s linear infinite;
+          opacity: 0.9;
+        }
+      }
+
       svg { opacity: 0.7; }
     }
   }
@@ -172,6 +183,11 @@
       padding: 0 rem(12);
     }
   }
+}
+
+@keyframes ai-provider-card-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @container (max-width: rem(22)) {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
 import { TaskDispatchPreferences } from './TaskDispatchPreferences'
 import { AiProvidersSection } from './ai-providers'
@@ -65,13 +65,18 @@ export function SettingsModal({
   onTaskQuickDispatchShortcutReset,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [visitedTabs, setVisitedTabs] = useState<SettingsTab[]>(['general'])
+
+  useEffect(() => {
+    setVisitedTabs((current) => (current.includes(activeTab) ? current : [...current, activeTab]))
+  }, [activeTab])
 
   if (!open) {
     return null
   }
 
-  const renderTabContent = () => {
-    switch (activeTab) {
+  const renderTabContent = (tab: SettingsTab) => {
+    switch (tab) {
       case 'general':
         return (
           <div className="settings-pane-section">
@@ -98,9 +103,9 @@ export function SettingsModal({
           <div className="settings-pane-section">
             <div className="settings-channels-list-wrapper">
               {workspaceId ? (
-                <ChannelManagerPane 
-                  locale={locale} 
-                  workspaceId={workspaceId} 
+                <ChannelManagerPane
+                  locale={locale}
+                  workspaceId={workspaceId}
                   variant="settings"
                   onEnterStudio={() => {
                     window.__GTO_OPEN_CHANNEL_STUDIO__?.()
@@ -175,7 +180,7 @@ export function SettingsModal({
               <AppIcon name="settings" aria-hidden="true" />
               {t(locale, 'settingsModal.nav.general')}
             </button>
-            <button 
+            <button
               className={`settings-nav-item ${activeTab === 'channels' ? 'active' : ''}`}
               onClick={() => setActiveTab('channels')}
             >
@@ -216,17 +221,26 @@ export function SettingsModal({
               {activeTab === 'ai' && t(locale, 'Agent 供应商', 'Agent Providers')}
               {activeTab === 'about' && t(locale, 'settingsModal.nav.about')}
             </h3>
-            <button 
-              type="button" 
-              className="settings-content-close" 
-              onClick={onClose} 
+            <button
+              type="button"
+              className="settings-content-close"
+              onClick={onClose}
               aria-label={t(locale, 'settingsModal.close')}
             >
               <AppIcon name="close" width={20} height={20} aria-hidden="true" />
             </button>
           </header>
           <div className="settings-content-body">
-            {renderTabContent()}
+            {visitedTabs.map((tab) => (
+              <section
+                key={tab}
+                className={`settings-tab-panel ${activeTab === tab ? 'is-active' : ''}`}
+                hidden={activeTab !== tab}
+                aria-hidden={activeTab !== tab}
+              >
+                {renderTabContent(tab)}
+              </section>
+            ))}
           </div>
         </div>
       </section>

@@ -104,7 +104,7 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
 }
 
 #[tauri::command]
-pub fn ai_config_read_snapshot(
+pub async fn ai_config_read_snapshot(
     workspace_id: String,
     allow: Option<String>,
     state: State<'_, AppState>,
@@ -112,10 +112,46 @@ pub fn ai_config_read_snapshot(
 ) -> Result<AiConfigReadSnapshotResponse, String> {
     ensure_workspace_exists(&state, &workspace_id)?;
     let workspace_root = state.workspace_root_path(&workspace_id)?;
-    let service = resolve_ai_config_service(&app, &state)?;
-    let snapshot = service
-        .read_snapshot(&workspace_id, &workspace_root)
-        .map_err(|error| error.to_string())?;
+
+    // Check cache first (5 second TTL)
+    if let Ok(Some(cached)) = state.get_ai_config_snapshot_cache(&workspace_id) {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let cache_age_ms = now_ms.saturating_sub(cached.cached_at_ms);
+
+        // Cache valid for 5 seconds, and workspace root must match
+        if cache_age_ms < 5000 && cached.workspace_root == workspace_root.to_string_lossy().to_string() {
+            tracing::debug!("AI config cache hit for workspace {}", workspace_id);
+            return Ok(AiConfigReadSnapshotResponse {
+                workspace_id,
+                allow: allow.unwrap_or_else(|| "strict".to_string()),
+                snapshot: cached.snapshot,
+                masking: vec!["apiKey".to_string(), "secretRef".to_string()],
+            });
+        }
+        tracing::debug!("AI config cache expired for workspace {} (age: {}ms)", workspace_id, cache_age_ms);
+    }
+
+    let workspace_root_for_read = workspace_root.clone();
+    let workspace_id_for_read = workspace_id.clone();
+    let app_for_read = app.clone();
+    let settings_service = state.settings_service.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        let service = AiConfigService::new(
+            settings_service,
+            resolve_ai_config_repository(&app_for_read)?,
+        );
+        service
+            .read_snapshot(&workspace_id_for_read, &workspace_root_for_read)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("AI_CONFIG_SNAPSHOT_TASK_FAILED: {error}"))??;
+
+    // Update cache
+    let _ = state.set_ai_config_snapshot_cache(&workspace_id, &workspace_root.to_string_lossy(), snapshot.clone());
 
     Ok(AiConfigReadSnapshotResponse {
         workspace_id,
@@ -174,6 +210,9 @@ pub fn ai_config_apply_patch(
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let service = resolve_ai_config_service(&app, &state)?;
 
+    // Invalidate cache before applying changes
+    let _ = state.invalidate_ai_config_snapshot_cache(&workspace_id);
+
     let response = match &preview {
         StoredAiConfigPreview::Claude(p) => {
             service.apply_claude_preview(&workspace_id, &workspace_root, &confirmed_by, p)
@@ -228,6 +267,9 @@ pub fn ai_config_switch_saved_claude_provider(
     ensure_workspace_exists(&state, &workspace_id)?;
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let service = resolve_ai_config_service(&app, &state)?;
+
+    // Invalidate cache before switching
+    let _ = state.invalidate_ai_config_snapshot_cache(&workspace_id);
 
     let response = service
         .switch_saved_claude_provider(

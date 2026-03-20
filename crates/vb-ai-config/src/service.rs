@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     ffi::OsStr,
     path::{Path, PathBuf},
+    thread,
     time::SystemTime,
 };
 
@@ -785,11 +786,42 @@ impl AiConfigService {
 
         let mut codex_guide = codex_light_guide();
         codex_guide.config = codex_config;
-        codex_guide.mcp_installed = check_mcp_installed(AiConfigAgent::Codex);
 
         let mut gemini_guide = gemini_light_guide();
         gemini_guide.config = gemini_config;
-        gemini_guide.mcp_installed = check_mcp_installed(AiConfigAgent::Gemini);
+        let (
+            claude_install_status,
+            codex_install_status,
+            gemini_install_status,
+            claude_mcp_installed,
+            codex_mcp_installed,
+            gemini_mcp_installed,
+        ) = thread::scope(|scope| {
+            let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
+            let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
+            let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
+            let claude_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Claude));
+            let codex_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Codex));
+            let gemini_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Gemini));
+
+            (
+                claude_install.join().unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
+                codex_install.join().unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
+                gemini_install.join().unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
+                claude_mcp
+                    .join()
+                    .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Claude)),
+                codex_mcp
+                    .join()
+                    .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Codex)),
+                gemini_mcp
+                    .join()
+                    .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Gemini)),
+            )
+        });
+
+        codex_guide.mcp_installed = codex_mcp_installed;
+        gemini_guide.mcp_installed = gemini_mcp_installed;
 
         Ok(AiConfigSnapshot {
             agents: vec![
@@ -797,8 +829,8 @@ impl AiConfigService {
                     agent: AiConfigAgent::Claude,
                     title: "aiConfig.agent.claude.title".to_string(),
                     subtitle: "aiConfig.agent.claude.subtitle".to_string(),
-                    install_status: map_install_status(AiConfigAgent::Claude),
-                    mcp_installed: check_mcp_installed(AiConfigAgent::Claude),
+                    install_status: claude_install_status,
+                    mcp_installed: claude_mcp_installed,
                     config_status: if claude_config.active_mode.is_some() {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {
@@ -810,7 +842,7 @@ impl AiConfigService {
                     agent: AiConfigAgent::Codex,
                     title: "aiConfig.agent.codex.title".to_string(),
                     subtitle: "aiConfig.agent.codex.subtitle".to_string(),
-                    install_status: map_install_status(AiConfigAgent::Codex),
+                    install_status: codex_install_status,
                     mcp_installed: codex_guide.mcp_installed,
                     config_status: if codex_guide.config.has_secret {
                         crate::models::AiAgentConfigStatus::Configured
@@ -823,7 +855,7 @@ impl AiConfigService {
                     agent: AiConfigAgent::Gemini,
                     title: "aiConfig.agent.gemini.title".to_string(),
                     subtitle: "aiConfig.agent.gemini.subtitle".to_string(),
-                    install_status: map_install_status(AiConfigAgent::Gemini),
+                    install_status: gemini_install_status,
                     mcp_installed: gemini_guide.mcp_installed,
                     config_status: if gemini_guide.config.has_secret {
                         crate::models::AiAgentConfigStatus::Configured

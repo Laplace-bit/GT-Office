@@ -11,13 +11,17 @@ use vb_tools::agent_installer::{
 use crate::process_utils::configure_std_command;
 
 #[tauri::command]
-pub fn agent_install_status(agent: AgentType) -> Result<AgentInstallStatus, String> {
-    Ok(AgentInstaller::install_status(agent))
+pub async fn agent_install_status(agent: AgentType) -> Result<AgentInstallStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(AgentInstaller::install_status(agent)))
+        .await
+        .map_err(|error| format!("AGENT_INSTALL_STATUS_TASK_FAILED: {error}"))?
 }
 
 #[tauri::command]
-pub fn agent_mcp_install_status(agent: AgentType) -> Result<bool, String> {
-    Ok(check_mcp_installed(agent))
+pub async fn agent_mcp_install_status(agent: AgentType) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(check_mcp_installed(agent)))
+        .await
+        .map_err(|error| format!("AGENT_MCP_STATUS_TASK_FAILED: {error}"))?
 }
 
 #[tauri::command]
