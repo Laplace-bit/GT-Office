@@ -6,6 +6,7 @@ import {
   CodeMirrorEditor,
   type CodeEditorCommandRequest,
 } from '@/components/editor'
+import { resolveFileVisual } from './file-visuals'
 import './FileEditorPane.scss'
 
 const LARGE_FILE_THRESHOLD_BYTES = 1024 * 1024
@@ -62,6 +63,9 @@ const FileTab = memo(function FileTab({
   onSelect: () => void
   onClose: (e: React.MouseEvent) => void
 }) {
+  const visual = resolveFileVisual(file.path, 'file')
+  const TabIcon = visual.icon
+
   return (
     <div
       className={`file-editor-tab ${isActive ? 'active' : ''}`}
@@ -69,8 +73,11 @@ const FileTab = memo(function FileTab({
       title={file.path}
     >
       <span className="file-editor-tab-name">
-        {file.isModified && <span className="file-editor-tab-modified">*</span>}
-        {getFileName(file.path)}
+        <span className={`file-editor-tab-icon file-editor-tab-icon--${visual.kind}`}>
+          <TabIcon className="vb-icon" aria-hidden="true" />
+        </span>
+        <span className="file-editor-tab-label">{getFileName(file.path)}</span>
+        {file.isModified && <span className="file-editor-tab-modified" />}
       </span>
       <button
         type="button"

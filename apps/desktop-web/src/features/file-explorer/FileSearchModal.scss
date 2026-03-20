@@ -106,33 +106,122 @@
 
 .file-search-result-btn {
   width: 100%;
-  padding: var(--vb-space-sm) var(--vb-space-lg);
+  padding: var(--vb-space-sm) var(--vb-space-md);
   border: var(--vb-border-width) solid transparent;
   background: color-mix(in srgb, var(--vb-surface-muted) 30%, transparent);
   border-radius: var(--vb-radius-md);
   text-align: left;
   display: flex;
-  flex-direction: column;
-  gap: var(--vb-space-2xs);
+  align-items: center;
+  gap: var(--vb-space-sm);
   transition: all 0.2s ease;
-  
-  strong {
-    font-size: #{rem(14)};
-    font-weight: 600;
-    color: var(--vb-text);
-  }
-  
-  span {
-    font-size: #{rem(11)};
-    color: var(--vb-text-muted);
-    font-family: var(--vb-font-mono);
-  }
   
   &:hover {
     background: color-mix(in srgb, var(--vb-accent) 10%, var(--vb-chip));
     border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
-    transform: translateX(#{rem(4)});
   }
+}
+
+.file-search-result-icon {
+  width: #{rem(20)};
+  height: #{rem(20)};
+  border-radius: #{rem(7)};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: var(--vb-hairline) solid color-mix(in srgb, var(--vb-border) 52%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 70%, transparent);
+  color: color-mix(in srgb, var(--vb-text-muted) 80%, var(--vb-text));
+
+  .vb-icon {
+    width: #{rem(14)};
+    height: #{rem(14)};
+  }
+}
+
+.file-search-result-icon--code {
+  color: #1d6fff;
+  background: color-mix(in srgb, #5ca0ff 22%, transparent);
+}
+
+.file-search-result-icon--document {
+  color: #2f7d32;
+  background: color-mix(in srgb, #59bc62 18%, transparent);
+}
+
+.file-search-result-icon--data {
+  color: #0f766e;
+  background: color-mix(in srgb, #14b8a6 20%, transparent);
+}
+
+.file-search-result-icon--image {
+  color: #9f2cc9;
+  background: color-mix(in srgb, #d946ef 20%, transparent);
+}
+
+.file-search-result-icon--video {
+  color: #7c3aed;
+  background: color-mix(in srgb, #8b5cf6 20%, transparent);
+}
+
+.file-search-result-icon--audio {
+  color: #db2777;
+  background: color-mix(in srgb, #f472b6 18%, transparent);
+}
+
+.file-search-result-icon--archive {
+  color: #ea580c;
+  background: color-mix(in srgb, #fb923c 20%, transparent);
+}
+
+.file-search-result-icon--config,
+.file-search-result-icon--lock {
+  color: #475569;
+  background: color-mix(in srgb, #94a3b8 24%, transparent);
+}
+
+.file-search-result-text {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: #{rem(2)};
+
+  strong {
+    font-size: #{rem(13)};
+    font-weight: 600;
+    color: var(--vb-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    font-size: #{rem(11)};
+    color: var(--vb-text-muted);
+    font-family: var(--vb-font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.file-search-result-badge {
+  flex: 0 0 auto;
+  min-width: #{rem(28)};
+  max-width: #{rem(44)};
+  padding: 0 var(--vb-space-xs);
+  border-radius: var(--vb-radius-full);
+  border: var(--vb-hairline) solid color-mix(in srgb, var(--vb-border) 56%, transparent);
+  background: color-mix(in srgb, var(--vb-chip) 74%, transparent);
+  color: var(--vb-text-muted);
+  font-family: var(--vb-font-mono);
+  font-size: #{rem(10)};
+  line-height: #{rem(16)};
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-align: center;
 }
 
 .file-search-empty {
@@ -158,6 +247,16 @@
   .file-search-modal {
     background: color-mix(in srgb, #1a1a1a 85%, transparent);
     border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .file-search-result-icon {
+    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.42) 100%, transparent);
+    background: color-mix(in srgb, rgba(30, 41, 59, 0.62) 100%, transparent);
+  }
+
+  .file-search-result-badge {
+    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.38) 100%, transparent);
+    background: color-mix(in srgb, rgba(30, 41, 59, 0.72) 100%, transparent);
   }
 }
 
@@ -188,5 +287,9 @@
 
   .file-search-result-btn {
     padding: var(--vb-space-xs) var(--vb-space-md);
+  }
+
+  .file-search-result-badge {
+    display: none;
   }
 }

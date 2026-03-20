@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { FsEntry, FsSearchMatch } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { resolveFileVisual } from './file-visuals'
 import './FileSearchModal.scss'
 
 interface FileSearchModalProps {
@@ -162,34 +163,58 @@ export function FileSearchModal({
           {workspaceId && query.trim() ? (
             <ul className="file-search-results">
               {mode === 'file'
-                ? fileMatches.map((entry) => (
-                    <li key={entry.path}>
-                      <button
-                        type="button"
-                        onClick={() => onSelectFile(entry.path)}
-                        title={entry.path}
-                        className="file-search-result-btn"
-                      >
-                        <strong>{entry.name}</strong>
-                        <span>{entry.path}</span>
-                      </button>
-                    </li>
-                  ))
-                : contentMatches.map((match) => (
-                    <li key={`${match.path}:${match.line}:${match.preview}`}>
-                      <button
-                        type="button"
-                        onClick={() => onSelectFile(match.path)}
-                        title={match.path}
-                        className="file-search-result-btn"
-                      >
-                        <strong>
-                          {match.path}:{match.line}
-                        </strong>
-                        <span>{match.preview}</span>
-                      </button>
-                    </li>
-                  ))}
+                ? fileMatches.map((entry) => {
+                    const visual = resolveFileVisual(entry.path, 'file')
+                    const EntryIcon = visual.icon
+                    return (
+                      <li key={entry.path}>
+                        <button
+                          type="button"
+                          onClick={() => onSelectFile(entry.path)}
+                          title={entry.path}
+                          className="file-search-result-btn"
+                        >
+                          <span className={`file-search-result-icon file-search-result-icon--${visual.kind}`}>
+                            <EntryIcon className="vb-icon" aria-hidden="true" />
+                          </span>
+                          <span className="file-search-result-text">
+                            <strong>{entry.name}</strong>
+                            <span>{entry.path}</span>
+                          </span>
+                          {visual.badge ? (
+                            <span className="file-search-result-badge">{visual.badge}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    )
+                  })
+                : contentMatches.map((match) => {
+                    const visual = resolveFileVisual(match.path, 'file')
+                    const MatchIcon = visual.icon
+                    return (
+                      <li key={`${match.path}:${match.line}:${match.preview}`}>
+                        <button
+                          type="button"
+                          onClick={() => onSelectFile(match.path)}
+                          title={match.path}
+                          className="file-search-result-btn"
+                        >
+                          <span className={`file-search-result-icon file-search-result-icon--${visual.kind}`}>
+                            <MatchIcon className="vb-icon" aria-hidden="true" />
+                          </span>
+                          <span className="file-search-result-text">
+                            <strong>
+                              {match.path}:{match.line}
+                            </strong>
+                            <span>{match.preview}</span>
+                          </span>
+                          {visual.badge ? (
+                            <span className="file-search-result-badge">{visual.badge}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    )
+                  })}
               {!loading && activeResults.length === 0 ? (
                 <li className="file-tree-search-empty">{t(locale, 'fileTree.searchNoResults')}</li>
               ) : null}

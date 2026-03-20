@@ -24,6 +24,7 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { FileSearchModal } from './FileSearchModal'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
+import { resolveFileVisual, type FileVisual } from './file-visuals'
 import { addNotification } from '../../stores/notification'
 import './FileTreePane.scss'
 
@@ -46,6 +47,7 @@ interface TreeRow {
   path: string
   name: string
   kind: 'dir' | 'file'
+  visual: FileVisual
   depth: number
   expanded: boolean
   loading: boolean
@@ -59,7 +61,7 @@ interface TreeContextMenuState {
 }
 
 const ROOT_DIR = '.'
-const ROW_HEIGHT = 30
+const ROW_HEIGHT = 34
 const OVERSCAN_ROWS = 80
 const CONTENT_MATCH_MAX_RENDER = 1200
 const PRE_RENDER_AHEAD_ROWS = 200
@@ -141,6 +143,7 @@ function buildRows(
       path: normalizedPath,
       name: entry.name,
       kind: entry.kind,
+      visual: resolveFileVisual(entry.name, entry.kind, Boolean(expanded[normalizedPath])),
       depth,
       expanded: Boolean(expanded[normalizedPath]),
       loading: Boolean(loading[normalizedPath]),
@@ -209,11 +212,15 @@ const TreeRowItem = memo(function TreeRowItem({
   onSelectFile,
   onContextMenu,
 }: TreeRowItemProps) {
+  const NodeIcon = row.visual.icon
+
   return (
     <div
       className={`tree-row tree-row-${row.kind} ${
         row.kind === 'file' && isSelected ? 'tree-row-selected' : ''
-      } ${isCut ? 'tree-row-cut' : ''} ${animateFromExpansion ? 'tree-row-expand-enter' : ''}`}
+      } tree-row-visual-${row.visual.kind} ${isCut ? 'tree-row-cut' : ''} ${
+        animateFromExpansion ? 'tree-row-expand-enter' : ''
+      }`}
       data-path={row.path}
       data-kind={row.kind}
       style={{
@@ -238,8 +245,10 @@ const TreeRowItem = memo(function TreeRowItem({
               aria-hidden="true"
             />
           </span>
-          <AppIcon name="folder-open" className="vb-icon vb-icon-tree-node" aria-hidden="true" />
-          <span>{row.name}</span>
+          <span className={`tree-node-icon tree-node-icon--${row.visual.kind}`} aria-hidden="true">
+            <NodeIcon className="vb-icon vb-icon-tree-node" />
+          </span>
+          <span className="tree-toggle-label">{row.name}</span>
           {row.loading ? (
             <span className="tree-loading">{loadingText}</span>
           ) : null}
@@ -253,8 +262,11 @@ const TreeRowItem = memo(function TreeRowItem({
           title={row.path}
         >
           <span className="tree-file">
-            <AppIcon name="file-text" className="vb-icon vb-icon-tree-node" aria-hidden="true" />
-            <span>{row.name}</span>
+            <span className={`tree-node-icon tree-node-icon--${row.visual.kind}`} aria-hidden="true">
+              <NodeIcon className="vb-icon vb-icon-tree-node" />
+            </span>
+            <span className="tree-file-name">{row.name}</span>
+            {row.visual.badge ? <span className="tree-file-badge">{row.visual.badge}</span> : null}
           </span>
         </button>
       )}
@@ -267,6 +279,9 @@ const TreeRowItem = memo(function TreeRowItem({
     prev.row.loading === next.row.loading &&
     prev.row.name === next.row.name &&
     prev.row.kind === next.row.kind &&
+    prev.row.visual.kind === next.row.visual.kind &&
+    prev.row.visual.badge === next.row.visual.badge &&
+    prev.row.visual.icon === next.row.visual.icon &&
     prev.row.depth === next.row.depth &&
     prev.isSelected === next.isSelected &&
     prev.isCut === next.isCut &&

@@ -76,19 +76,84 @@
 .file-editor-tab-name {
   display: inline-flex;
   align-items: center;
-  gap: var(--vb-space-xs);
+  gap: var(--vb-space-2xs);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.file-editor-tab-modified {
+  width: #{rem(4)};
+  height: #{rem(4)};
+  border-radius: 50%;
+  background: var(--vb-accent);
+  box-shadow: 0 0 #{rem(4)} color-mix(in srgb, var(--vb-accent) 75%, transparent);
+  flex: 0 0 auto;
+  margin-left: #{rem(1)};
+}
+
+.file-editor-tab-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.file-editor-tab-modified {
-  width: #{rem(5)};
-  height: #{rem(5)};
-  border-radius: 50%;
-  background: var(--vb-accent);
-  box-shadow: 0 0 #{rem(6)} var(--vb-accent);
+.file-editor-tab-icon {
+  width: #{rem(15)};
+  height: #{rem(15)};
+  border-radius: #{rem(5)};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  border: var(--vb-hairline) solid color-mix(in srgb, var(--vb-border) 52%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 74%, transparent);
+  color: color-mix(in srgb, var(--vb-text-muted) 78%, var(--vb-text));
+
+  .vb-icon {
+    width: #{rem(11)};
+    height: #{rem(11)};
+  }
+}
+
+.file-editor-tab-icon--code {
+  color: #1d6fff;
+  background: color-mix(in srgb, #5ca0ff 22%, transparent);
+}
+
+.file-editor-tab-icon--document {
+  color: #2f7d32;
+  background: color-mix(in srgb, #59bc62 18%, transparent);
+}
+
+.file-editor-tab-icon--data {
+  color: #0f766e;
+  background: color-mix(in srgb, #14b8a6 20%, transparent);
+}
+
+.file-editor-tab-icon--image {
+  color: #9f2cc9;
+  background: color-mix(in srgb, #d946ef 20%, transparent);
+}
+
+.file-editor-tab-icon--video {
+  color: #7c3aed;
+  background: color-mix(in srgb, #8b5cf6 20%, transparent);
+}
+
+.file-editor-tab-icon--audio {
+  color: #db2777;
+  background: color-mix(in srgb, #f472b6 18%, transparent);
+}
+
+.file-editor-tab-icon--archive {
+  color: #ea580c;
+  background: color-mix(in srgb, #fb923c 20%, transparent);
+}
+
+.file-editor-tab-icon--config,
+.file-editor-tab-icon--lock {
+  color: #475569;
+  background: color-mix(in srgb, #94a3b8 24%, transparent);
 }
 
 .file-editor-tab-close {
@@ -198,6 +263,13 @@
   font-size: #{rem(12)};
   font-style: italic;
   opacity: 0.3;
+}
+
+[data-theme='graphite-dark'] {
+  .file-editor-tab-icon {
+    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.42) 100%, transparent);
+    background: color-mix(in srgb, rgba(30, 41, 59, 0.62) 100%, transparent);
+  }
 }
 
 @container (max-width: 34rem) {
