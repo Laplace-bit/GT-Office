@@ -271,12 +271,7 @@
 
 .station-terminal-shell {
   flex: 1;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--vb-terminal-shell-bg) 84%, var(--vb-terminal-bg-top) 16%) 0%,
-      var(--vb-terminal-bg) 100%
-    );
+  background: rgba(0, 0, 0, 0.2);
   min-height: 0;
   position: relative;
   overflow: hidden;
@@ -300,8 +295,7 @@
       width: 100% !important;
       height: 100% !important;
       overflow: hidden;
-      background:
-        linear-gradient(180deg, var(--vb-terminal-bg-top) 0%, var(--vb-terminal-bg) 100%);
+      background: var(--vb-terminal-bg);
 
       .xterm-decoration-overview-ruler {
         display: none !important;
