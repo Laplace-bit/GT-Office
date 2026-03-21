@@ -428,6 +428,33 @@ where
         }
     }
 
+    fn list_untracked_paths(
+        &self,
+        root: &Path,
+        paths: &[String],
+    ) -> AbstractionResult<std::collections::HashSet<String>> {
+        if paths.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let mut owned_args = vec![
+            "ls-files".to_string(),
+            "--others".to_string(),
+            "--exclude-standard".to_string(),
+            "--".to_string(),
+        ];
+        owned_args.extend(paths.iter().cloned());
+        let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = self.run_git(root, &args, "GIT_DISCARD_FAILED")?;
+
+        Ok(output
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(ToOwned::to_owned)
+            .collect())
+    }
+
     fn status_with_system_git(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
         let output = self.run_git(
             root,
@@ -1072,18 +1099,31 @@ where
 
         let root = self.workspace_root(workspace_id)?;
 
-        let mut restore_args = vec![
-            "restore".to_string(),
-            "--worktree".to_string(),
-            "--".to_string(),
-        ];
-        restore_args.extend(paths.iter().cloned());
-        let restore_refs = restore_args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &restore_refs, "GIT_DISCARD_FAILED")?;
+        let untracked_paths = if include_untracked {
+            self.list_untracked_paths(&root, paths)?
+        } else {
+            std::collections::HashSet::new()
+        };
+        let tracked_paths = paths
+            .iter()
+            .filter(|path| !untracked_paths.contains(*path))
+            .cloned()
+            .collect::<Vec<_>>();
 
-        if include_untracked {
+        if !tracked_paths.is_empty() {
+            let mut restore_args = vec![
+                "restore".to_string(),
+                "--worktree".to_string(),
+                "--".to_string(),
+            ];
+            restore_args.extend(tracked_paths);
+            let restore_refs = restore_args.iter().map(String::as_str).collect::<Vec<_>>();
+            self.run_git(&root, &restore_refs, "GIT_DISCARD_FAILED")?;
+        }
+
+        if include_untracked && !untracked_paths.is_empty() {
             let mut clean_args = vec!["clean".to_string(), "-fd".to_string(), "--".to_string()];
-            clean_args.extend(paths.iter().cloned());
+            clean_args.extend(untracked_paths.iter().cloned());
             let clean_refs = clean_args.iter().map(String::as_str).collect::<Vec<_>>();
             self.run_git(&root, &clean_refs, "GIT_DISCARD_FAILED")?;
         }
@@ -1632,5 +1672,114 @@ fn configure_background_command(command: &mut Command) {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = command;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GitService;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        process::Command,
+    };
+    use uuid::Uuid;
+    use vb_abstractions::{
+        AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
+        WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
+    };
+
+    #[derive(Clone)]
+    struct TestWorkspaceService {
+        root: PathBuf,
+    }
+
+    impl WorkspaceService for TestWorkspaceService {
+        fn list(&self) -> AbstractionResult<Vec<WorkspaceSummary>> {
+            Ok(vec![])
+        }
+
+        fn open(&self, _path: &Path) -> AbstractionResult<WorkspaceSummary> {
+            Err(AbstractionError::Internal {
+                message: "not implemented in tests".to_string(),
+            })
+        }
+
+        fn close(&self, _workspace_id: &WorkspaceId) -> AbstractionResult<bool> {
+            Ok(false)
+        }
+
+        fn switch_active(&self, workspace_id: &WorkspaceId) -> AbstractionResult<WorkspaceId> {
+            Ok(workspace_id.clone())
+        }
+
+        fn get_context(&self, workspace_id: &WorkspaceId) -> AbstractionResult<WorkspaceContext> {
+            Ok(WorkspaceContext {
+                workspace_id: workspace_id.clone(),
+                root: self.root.display().to_string(),
+                permissions: WorkspacePermissions::default(),
+                terminal_default_cwd: TerminalCwdMode::WorkspaceRoot,
+            })
+        }
+
+        fn restore_session(
+            &self,
+            _workspace_id: &WorkspaceId,
+        ) -> AbstractionResult<WorkspaceSessionSnapshot> {
+            Ok(WorkspaceSessionSnapshot::default())
+        }
+    }
+
+    fn run_git(root: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .expect("git command should start");
+        assert!(status.success(), "git {:?} failed with {status}", args);
+    }
+
+    fn create_temp_repo() -> (WorkspaceId, PathBuf, GitService<TestWorkspaceService>) {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("vb-git-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("temp repo dir should be created");
+
+        run_git(&root, &["init"]);
+        run_git(&root, &["config", "user.name", "GT Office Test"]);
+        run_git(&root, &["config", "user.email", "test@example.com"]);
+
+        let tracked_path = root.join("tracked.txt");
+        fs::write(&tracked_path, "base\n").expect("tracked file should be written");
+        run_git(&root, &["add", "tracked.txt"]);
+        run_git(&root, &["commit", "-m", "init"]);
+
+        let workspace_service = TestWorkspaceService { root: root.clone() };
+        let service = GitService::new(workspace_service);
+        (workspace_id, root, service)
+    }
+
+    #[test]
+    fn discard_removes_untracked_files_without_breaking_tracked_restore() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(root.join("tracked.txt"), "changed\n").expect("tracked file should be updated");
+        fs::write(root.join("scratch.txt"), "draft\n").expect("untracked file should be created");
+
+        service
+            .discard(
+                &workspace_id,
+                &["tracked.txt".to_string(), "scratch.txt".to_string()],
+                true,
+            )
+            .expect("discard should succeed");
+
+        assert_eq!(
+            fs::read_to_string(root.join("tracked.txt")).expect("tracked file should exist"),
+            "base\n"
+        );
+        assert!(!root.join("scratch.txt").exists());
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
     }
 }

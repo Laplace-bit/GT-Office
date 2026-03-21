@@ -1,148 +1,184 @@
-## 1. 项目目标
-1. 构建跨平台（Windows/Linux/macOS）高性能 AI Coding 桌面工具。
-2. 核心能力：Workspace、文件管理、真终端、Git、多窗口并行、Tool Adapter、Change Feed、Channel。
-## 2. 技术基线
-1. 框架：Tauri + Rust + WebUI（React/Svelte）。
-2. Rust：`tokio`、`portable-pty`、`notify`、`git2`、`tracing`。
-3. 前端：`xterm.js`、Tailwind、轻量状态管理（zustand/jotai）。
-4. 数据：SQLite + `.gtoffice/config.json`。
-5. 配置：默认配置 + 用户配置 + 工作区配置 + 会话覆盖（分层模型）。
+# 项目目标
 
-## 3. 目录边界
-1. `packages/`：共享类型与可复用组件。
-2. `apps/`：UI 与 Tauri 壳层。
-3. `crates/`：Rust 领域模块。
-4. `docs/`：需求、架构、进度、交接、契约
-5. `tests/`：集成/E2E，测试文件必须独立于被测文件。
+构建一个跨平台 AI Agent 管理桌面应用，支持 macOS 和 Windows。核心能力围绕：
 
-禁止：
-1. 业务逻辑直接写进 Tauri 命令入口。
-2. UI 直接依赖系统能力实现。
-3. 跨模块随意引用破坏边界。
-  
-后端模块化（MUST）：
-1. `apps/desktop-tauri/src-tauri/src/commands/` 必须按前端 `apps/desktop-web/src/features/*` 对齐建目录。
-2. 新增 Tauri command 禁止直接放在 `commands/` 根目录；必须归入对应 feature 目录。
-3. `commands/` 仅负责命令入口绑定；feature 业务编排、runtime、helper 不得持续堆在 `mod.rs`。
-4. 无法映射前端 feature 的后端能力，仅允许放在独立基础设施模块，如 `security`、`system`、`agent`。
-5. `app_state.rs` 仅负责全局状态装配；单一 feature 的状态与流程必须下沉到对应 feature 模块。
-6. `crates/` 优先承载领域能力；已形成稳定闭环的 feature，必须评估是否建立对应后端子模块或 crate，禁止继续向横向公共模块无界追加代码。
-7. 测试文件不得散落在源码根目录；测试必须放入对应 feature 的 `tests/` 目录或 crate `tests/` 目录。
-8. 新增文件前必须先确认：它属于哪个 feature、属于入口/领域/基础设施哪一层、为什么不能复用现有目录。
+- workspace
+- files
+- terminal
+- Git
+- 多窗口协作
+- tool adapters
+- change feed
+- channels
 
-前端模块化（MUST）：
-1. `apps/desktop-web/src/features/` 必须作为前端业务模块唯一落点；新增业务 UI、hooks、model、controller 禁止直接放在 `src/` 根目录或 `shell/`。
-2. `shell/` 仅负责应用壳层编排、窗口框架、导航装配与平台集成；禁止继续承载具体 feature 实现。
-3. `components/` 仅放跨 feature 复用的纯展示/基础组件；一旦组件绑定单一业务语义，必须迁回对应 `features/*`。
-4. `features/<name>/` 内必须优先内聚该 feature 的 `components/hooks/model/style`，禁止把同一 feature 的实现拆散到多个无关目录。
-5. `styles/` 仅放 design tokens、foundations、utilities 与跨 feature 样式入口；feature 专属样式必须跟随 feature 组件落位。
-6. `stores/` 仅允许放跨 feature 的全局状态；单一 feature 状态禁止默认提升为全局 store。
-7. 新增前端文件前必须先确认：它属于哪个 feature、是否为通用复用、为什么不能并入现有 feature 目录。
+## 文档入口
 
-## 4. 开发流程（MUST）
+项目文档位于 `docs/`，按需读取，不默认全量阅读：
 
-1. 开发前确认 `docs/01` 与 `docs/02` 覆盖需求与架构。
-2. 功能编码前补齐 `docs/05`（User Story、主/异常流程、验收）。
-3. 联调前确认 `docs/06`（命令、事件、错误码）无歧义。
-4. 编码完成后更新 `docs/03` 任务状态。
-5. 会话结束前更新 `docs/04` 最近交接快照。
-6. 所有改动可追溯到任务 ID（如 `T-00x`）。
+- `docs/01_需求与产品设计.md`
+- `docs/02_系统架构与模块目录设计.md`
+- `docs/03_项目开发进度跟踪.md`
+- `docs/04_上下文交接文档.md`
+- `docs/05_高质量功能设计_核心工作流.md`
+- `docs/06_API与事件契约草案.md`
+- `docs/07_依赖选型与精简清单.md`
 
-## 5. 需求设计门槛（DoR）
+读取原则：
 
-每个功能点进入实现前必须满足：
-1. `FR` 与 `NFR` 明确且可验收。
-2. 至少 1 条 User Story（前置条件、主流程、异常流程）。
-3. 契约完整：命令入参/出参、事件 payload、错误码。
-4. 数据影响明确：表结构/配置字段/状态机变化。
-5. 验收用例至少 1 条正常流 + 1 条异常流。
+- 只读取当前任务直接相关的文档和代码
+- 用户提到具体文件、模块、流程、契约时，先读再判断
+- 规则冲突时，优先采用**与当前任务最相关、最具体**的文档内容
 
-## 6. 代码规范
+文档映射：
 
-Rust：
-1. 通过 `rustfmt` 与 `clippy`。
-2. 统一领域错误类型，避免 `unwrap()` 滥用。
-3. 关键链路必须有 `tracing`。
-4. 单文件持续膨胀时，优先拆分 feature 子模块，禁止默认继续向超大文件追加实现。
+- 需求相关：读 `docs/01`
+- 架构、模块边界、目录归属：读 `docs/02`
+- 开发进度、当前阶段：读 `docs/03`
+- 上下文交接、延续上轮工作：读 `docs/04`
+- 核心工作流：读 `docs/05`
+- API、事件、前后端契约：读 `docs/06`
+- 依赖增删、技术选型：读 `docs/07`
 
-Frontend：
-1. 组件按 feature 分层，避免全局状态泛滥。
-2. 大列表必须虚拟化。
-3. 主题、快捷键、可访问性默认可用。
-4. 多语言配置独立文件，禁止与业务代码耦合。
-5. 样式统一使用 SCSS，按组件拆分样式文件，禁止新增裸 CSS。
-6. 单文件或单目录持续膨胀时，优先拆分 feature 子模块，禁止默认继续向 `shell/`、全局 `components/`、全局 `stores/` 追加业务实现。
+## 默认工作方式
 
-## 7. 架构与安全规范
+- 以小步、可验证的方式推进
+- 一次会话优先解决一个清晰的子任务
+- 若任务过大，先切分为当前会话可完成的最小闭环
+- 默认直接行动，但不基于猜测行动
+- 不对未阅读的代码、文档或行为作判断
+- 修改前先明确：当前目标、第一步动作、成功标准
 
-1. 核心能力通过抽象接口暴露，禁止上层直连基础设施实现。
-2. 多工作区操作必须显式携带 `workspace_id`。
-3. 终端默认 `cwd = workspace.root`；自定义 cwd 必须做越界校验。
-4. Provider 必须可 mock，支持 workspace/terminal/git/settings 隔离测试。
-5. 默认命令只允许在 workspace 内执行。
-6. 密钥必须存系统凭据，不允许明文落盘。
-7. 高危命令/文件操作必须二次确认。
-8. AI 配置变更必须走“预览 -> 校验 -> 确认 -> 应用 -> 审计”。
+## 范围控制
 
-## 8. UI 规范
+- 只做当前请求所需的改动，以及完成该改动所必需的最小配套修改
+- 优先小 diff、定点修改、局部一致
+- 不顺手重构无关代码
+- 不为未来需求提前抽象
+- 能局部改就不要整片重写
+- 临时文件和辅助脚本若非正式产物，结束前删除
 
-1. 风格：简洁、高级、专业、秩序化，响应式与自适应。
-2. 统一设计令牌：色彩、间距、圆角、阴影、动效、字体层级。
-3. 动效低干扰、快反馈，不影响高频操作效率。
-4. 设置页/终端页/工作区页保持一致交互语义。
-5. 字体建议：UI 使用 `SF Pro` 风格，代码区使用高可读等宽字体。
+## 仓库边界
 
-## 9. Git 与依赖治理
+### 目录职责
 
-1. 分支命名：`feat/*`、`fix/*`、`refactor/*`、`docs/*`。
-2. Commit：Conventional Commits（`feat:`、`fix:`、`docs:`）。
-3. PR 必须包含：变更说明、风险、验证步骤。
-4. 依赖选型以 `docs/07_依赖选型与精简清单.md` 为准。
-5. 新增依赖必须说明用途/替代方案/影响范围，并更新 `docs/07`。
-6. 发现未使用或非白名单依赖，直接删除。
-7. 依赖变更后最小验证：`npm run typecheck`、`npm run build:web`、`cargo check --workspace`。
+- `packages/`：共享类型、通用能力、可复用基础组件
+- `apps/`：应用层，包括 UI 应用和 Tauri shell
+- `crates/`：稳定的 Rust 领域能力与基础设施
+- `docs/`：需求、架构、进度、交接、契约、依赖策略
+- `tests/`：不适合与源码混放的集成测试和 E2E 测试
 
-## 10. Agent 交接（MUST）
+### 禁止事项
 
-### 10.1 会话结束前
+- 不要在根目录散落临时或业务文件
+- 不要在 Tauri command 入口写业务逻辑
+- 不要让 UI 直接承载系统能力细节
+- 不要用便利导入破坏模块边界
 
-1. 更新 `docs/04_上下文交接文档.md`（仅保留“上一任 -> 下一任”的直接交接）。
-2. 更新 `docs/03_项目开发进度跟踪.md`（状态与变更记录）。
-3. 输出 `Next Agent Starter`，至少包含：
-   - 当前里程碑与本轮目标
-   - 已完成与未完成（含下一步第一动作）
-   - 改动文件清单
-   - 风险/阻塞与是否需要决策
-   - 验证命令与结果
-4. 未验证必须显式写明“未验证 + 原因”。
+## 后端规则
 
-### 10.2 新会话启动时
+- `apps/desktop-tauri/src-tauri/src/commands/` 必须与 `apps/desktop-web/src/features/*` 保持 feature 对齐
+- 新增 Tauri command 时，放到对应 feature 目录；`commands/` 根目录只做入口绑定
+- 运行时逻辑、编排、helper 放在 feature 模块或 `crates/` 中
+- 跨 feature 的基础设施只放在明确的 infra 模块中，例如 `security`、`system`、`agent`
+- `app_state.rs` 仅负责全局装配，不承载业务逻辑
+- 后端逻辑稳定后，优先沉淀为独立模块或 crate
+- Rust 测试放在 feature `tests/` 或 crate `tests/`，不要散落
 
-1. 常规开发按顺序读取：
-   - `docs/README.md`
-   - `docs/03_项目开发进度跟踪.md`
-   - `docs/04_上下文交接文档.md`
-   - `docs/05_高质量功能设计_核心工作流.md`
-   - `docs/06_API与事件契约草案.md`
-   - `AGENTS.md`
-2. 先复述“当前目标、第一执行动作、成功标准”，再改动代码。
-3. 若 `docs/04` 缺失关键信息，先补齐交接快照。
+## 前端规则
 
-## 11. Definition of Done（DoD）
+- `apps/desktop-web/src/features/` 是业务 UI、hooks、models、controllers 的主要归属
+- `shell/` 只负责应用外壳、窗口框架、导航组合、平台集成
+- `components/` 只放跨 feature 复用组件
+- feature 专属 UI、hooks、models、styles 应保留在 `features/<name>/`
+- `stores/` 只放真正跨 feature 的全局状态
+- `styles/` 只放 design tokens、基础层、工具类和跨 feature 样式入口
+- 多语言文本必须从组件中抽离，避免硬编码在 UI 内
 
-任务标记 `DONE` 前必须满足：
-1. 功能满足需求与验收标准。
-2. `docs/05` 与 `docs/06` 已同步（如流程/契约变化）。
-3. 关键路径有测试或可复现实验步骤。
-4. 文档已更新（至少 `docs/03`，必要时 `docs/01/02/04`）。
-5. 无阻塞性已知缺陷未记录。
-6. 未新增根目录散点文件，且前后端入口层目录仍与前端 feature 边界对齐。
+### 样式约束
 
-## 12. 文档优先级
+- 使用 SCSS，不新增原始 CSS 文件
+- 使用响应式单位，避免使用 `px`
+- 保持可访问性、主题能力、快捷键支持，以及大列表虚拟化能力
+- UI 实现遵循既有设计系统和交互规范，界面设计应该使用skill $ui-ux-pro-max ,保持苹果风格；
+- 主题需要支持深色和暗色模式，不自行发散
 
-1. `docs/01_需求与产品设计.md`
-2. `docs/05_高质量功能设计_核心工作流.md`
-3. `docs/06_API与事件契约草案.md`
-4. `docs/02_系统架构与模块目录设计.md`
-5. `AGENTS.md`
-6. 其他文档
+## 工程约束
+
+- Rust 代码必须通过 `rustfmt` 和 `clippy`
+- 非简单路径避免 `unwrap()`
+- 关键流程补充 `tracing`
+- provider / system 能力必须可 mock
+- 多工作区操作必须显式携带 `workspace_id`
+- terminal 默认 `cwd = workspace.root`
+- 自定义 `cwd` 必须位于 workspace 内
+- 默认命令只能在 workspace 内执行
+- secrets 必须使用系统凭证存储，不得明文落盘
+- 高风险命令或文件操作必须先确认
+- AI 配置变更遵循：`preview -> validate -> confirm -> apply -> audit`
+- 文件或目录膨胀时，按 feature 或模块拆分，不扩大全局桶
+
+## 依赖规则
+
+- 依赖策略以 `docs/07_依赖选型与精简清单.md` 为准
+- 新增依赖前，先在 `docs/07` 记录用途、备选方案和影响范围
+- 已有合适方案时，不为了便利新增依赖
+- 发现未使用依赖或不在白名单内的依赖时应清理
+
+## 验证规则
+
+- 每个有意义的改动都必须有验证路径
+- 执行能证明当前改动有效的最小验证
+- 不要静默跳过验证
+- 可接受验证方式包括：
+  - test
+  - typecheck
+  - build
+  - lint
+  - 可复现的手工验证
+  - `未验证 + 原因`
+
+依赖变更的最低验证：
+
+- `npm run typecheck`
+- `npm run build:tauri`
+- `cargo check --workspace`
+
+其他要求：
+
+- 不要因为“看起来对”就宣布完成
+- 不要为了过测试而硬编码或绕路
+
+## 文档更新
+
+- 若流程、契约、模块边界或依赖策略发生变化，必须同步更新对应文档
+- 在对话或注释中引用文档路径即可，不复制大段文档正文
+
+## 完成标准
+
+仅当以下适用项满足时，任务才算完成：
+
+- 改动已实现
+- 相关行为满足要求
+- 模块边界和目录职责未被破坏
+- 相关文档已同步
+- 已完成验证，或明确写出 `未验证 + 原因`
+- 已记录阻塞项、风险和后续问题
+
+部分完成不得标记为完成。
+
+## 会话收尾
+
+结束前必须更新：
+
+- `docs/03_项目开发进度跟踪.md`
+- `docs/04_上下文交接文档.md`
+
+交接内容至少包含：
+
+- 当前里程碑与本轮目标
+- 已完成 / 未完成
+- 下一步第一动作
+- 变更文件
+- 风险、阻塞、待决策事项
+- 验证命令与结果
+- 如适用：`未验证 + 原因`

@@ -40,6 +40,7 @@ import {
   Plus,
   RefreshCcw,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   Settings2,
@@ -88,6 +89,7 @@ export type AppIconName =
   | 'check'
   | 'x-mark'
   | 'undo'
+  | 'rotate-ccw'
   | 'git-branch'
   | 'git-commit'
   | 'git-merge'
@@ -143,6 +145,7 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   check: Check,
   'x-mark': X,
   undo: Undo2,
+  'rotate-ccw': RotateCcw,
   'git-branch': GitBranch,
   'git-commit': GitCommitHorizontal,
   'git-merge': GitMerge,

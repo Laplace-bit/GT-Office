@@ -185,7 +185,7 @@ const GitFileRow = memo(function GitFileRow({
               variant="success"
             />
             <GitIconButton
-              icon="trash"
+              icon="rotate-ccw"
               label={t(locale, 'git.action.discard')}
               onClick={() => onDiscard()}
               disabled={Boolean(actionLoading)}

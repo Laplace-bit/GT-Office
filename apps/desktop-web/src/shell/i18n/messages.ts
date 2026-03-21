@@ -793,6 +793,7 @@ export const messages = {
   'git.action.fetch': { 'zh-CN': 'Fetch', 'en-US': 'Fetch' },
   'git.action.pull': { 'zh-CN': 'Pull', 'en-US': 'Pull' },
   'git.action.push': { 'zh-CN': 'Push', 'en-US': 'Push' },
+  'git.action.cancel': { 'zh-CN': '取消', 'en-US': 'Cancel' },
   'git.action.stage': { 'zh-CN': '暂存', 'en-US': 'Stage' },
   'git.action.unstage': { 'zh-CN': '取消暂存', 'en-US': 'Unstage' },
   'git.action.discard': { 'zh-CN': '丢弃', 'en-US': 'Discard' },
@@ -808,6 +809,17 @@ export const messages = {
     'zh-CN': '确认丢弃文件改动？{path}',
     'en-US': 'Discard changes for {path}?',
   },
+  'git.confirm.discardEyebrow': { 'zh-CN': 'Git 文件操作', 'en-US': 'Git File Action' },
+  'git.confirm.discardTitle': { 'zh-CN': '丢弃这个文件的改动？', 'en-US': 'Discard changes for this file?' },
+  'git.confirm.discardTrackedBody': {
+    'zh-CN': '该文件会恢复到最近一次提交后的状态，当前未提交改动将被移除。',
+    'en-US': 'This file will be restored to its last committed state. Current uncommitted changes will be removed.',
+  },
+  'git.confirm.discardUntrackedBody': {
+    'zh-CN': '这是一个未跟踪文件。确认后会直接从工作区删除。',
+    'en-US': 'This is an untracked file. Confirming will remove it from the working tree.',
+  },
+  'git.confirm.discardPathLabel': { 'zh-CN': '目标文件', 'en-US': 'Target File' },
   'git.confirm.deleteBranch': {
     'zh-CN': '确认删除分支 {branch}？',
     'en-US': 'Delete branch {branch}?',

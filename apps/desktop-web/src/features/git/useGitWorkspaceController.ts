@@ -442,16 +442,13 @@ export function useGitWorkspaceController({
       if (!workspaceId || !isGitRepository || !path) {
         return
       }
-      if (!window.confirm(t(locale, 'git.confirm.discard', { path }))) {
-        return
-      }
       await runAction('discard', async () => {
         await desktopApi.gitDiscard(workspaceId, [path], includeUntracked)
         invalidateDiffCache()
         await refreshSummaryOnly()
       })
     },
-    [invalidateDiffCache, isGitRepository, locale, refreshSummaryOnly, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, refreshSummaryOnly, runAction, workspaceId],
   )
 
   const commit = useCallback(async () => {

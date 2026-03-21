@@ -625,6 +625,142 @@
   flex-shrink: 0;
 }
 
+.git-confirm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--vb-space-lg);
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--vb-accent) 10%, transparent) 0%, transparent 38%),
+    color-mix(in srgb, var(--vb-bg) 42%, transparent);
+  backdrop-filter: blur(#{rem(12)}) saturate(140%);
+  -webkit-backdrop-filter: blur(#{rem(12)}) saturate(140%);
+}
+
+.git-confirm-modal {
+  width: min(100%, #{rem(420)});
+  min-width: min(100%, #{rem(320)});
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, rgba(255, 255, 255, 0.08));
+  border-radius: #{rem(22)};
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface) 84%, rgba(255, 255, 255, 0.24)) 0%, color-mix(in srgb, var(--vb-surface) 92%, transparent) 100%);
+  box-shadow:
+    0 #{rem(28)} #{rem(64)} rgba(0, 0, 0, 0.22),
+    inset 0 #{rem(1)} 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(#{rem(28)}) saturate(150%);
+  -webkit-backdrop-filter: blur(#{rem(28)}) saturate(150%);
+  overflow: hidden;
+  animation: git-confirm-modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.git-confirm-modal__header,
+.git-confirm-modal__body,
+.git-confirm-modal__footer {
+  padding-inline: var(--vb-space-lg);
+}
+
+.git-confirm-modal__header {
+  padding-top: var(--vb-space-lg);
+}
+
+.git-confirm-modal__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-bottom: var(--vb-space-sm);
+  padding: #{rem(0.375)} #{rem(0.625)};
+  border-radius: 999rem;
+  background: color-mix(in srgb, var(--vb-error) 12%, transparent);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-error) 22%, transparent);
+  color: color-mix(in srgb, var(--vb-error) 88%, var(--vb-text));
+  font-size: var(--vb-git-font-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.git-confirm-modal__header h3 {
+  margin: 0;
+  font-size: #{rem(17)};
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--vb-text);
+}
+
+.git-confirm-modal__lead {
+  margin: var(--vb-space-sm) 0 0;
+  font-size: var(--vb-git-font-sm);
+  line-height: 1.6;
+  color: var(--vb-text-muted);
+}
+
+.git-confirm-modal__body {
+  padding-top: var(--vb-space-md);
+  padding-bottom: var(--vb-space-md);
+}
+
+.git-confirm-modal__path-card {
+  display: flex;
+  flex-direction: column;
+  gap: #{rem(0.375)};
+  padding: #{rem(0.875)} #{rem(1)};
+  border-radius: #{rem(16)};
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 70%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-panel) 94%, rgba(255, 255, 255, 0.08)) 0%, color-mix(in srgb, var(--vb-panel) 88%, transparent) 100%);
+  box-shadow: inset 0 #{rem(1)} 0 rgba(255, 255, 255, 0.06);
+}
+
+.git-confirm-modal__path-label {
+  font-size: var(--vb-git-font-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vb-text-subtle);
+}
+
+.git-confirm-modal__path-name {
+  font-size: var(--vb-git-font-md);
+  font-weight: 600;
+  color: var(--vb-text);
+  word-break: break-word;
+}
+
+.git-confirm-modal__path-value {
+  display: block;
+  margin: 0;
+  font-size: var(--vb-git-font-xs);
+  line-height: 1.5;
+  color: var(--vb-text-muted);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.git-confirm-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--vb-space-sm);
+  padding-top: var(--vb-space-sm);
+  padding-bottom: var(--vb-space-lg);
+  border-top: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 62%, transparent);
+}
+
+@keyframes git-confirm-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(#{rem(10)}) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* === Commit Form === */
 .git-commit-form {
   display: flex;
