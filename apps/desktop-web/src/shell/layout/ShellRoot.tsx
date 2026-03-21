@@ -79,7 +79,6 @@ import {
   type NavItemId,
 } from './navigation-model'
 import { ActivityRail } from './ActivityRail'
-import { AmbientBackgroundLighting } from './AmbientBackgroundLighting'
 import { LeftBusinessPane } from './LeftBusinessPane'
 import { StatusBar } from './StatusBar'
 import { TopControlBar } from './TopControlBar'
@@ -105,7 +104,6 @@ import {
   applyUiPreferences,
   loadUiPreferences,
   saveUiPreferences,
-  type AmbientLightingIntensity,
 } from '../state/ui-preferences'
 import { pickDirectory } from '../integration/directory-picker'
 import { NotificationList } from '../../components/notification/NotificationList'
@@ -764,37 +762,6 @@ function createStationEditInput(station: AgentStation): UpdateStationInput {
   }
 }
 
-function isAmbientLightingIntensity(value: unknown): value is AmbientLightingIntensity {
-  return value === 'low' || value === 'medium' || value === 'high'
-}
-
-function readAmbientLightingFromSettings(values: Record<string, unknown>): {
-  enabled: boolean | null
-  intensity: AmbientLightingIntensity | null
-} {
-  const ui = values.ui
-  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) {
-    return {
-      enabled: null,
-      intensity: null,
-    }
-  }
-  const ambientLighting = (ui as Record<string, unknown>).ambientLighting
-  if (!ambientLighting || typeof ambientLighting !== 'object' || Array.isArray(ambientLighting)) {
-    return {
-      enabled: null,
-      intensity: null,
-    }
-  }
-  const ambientLightingRecord = ambientLighting as Record<string, unknown>
-  const enabled = ambientLightingRecord.enabled
-  const intensity = ambientLightingRecord.intensity
-  return {
-    enabled: typeof enabled === 'boolean' ? enabled : null,
-    intensity: isAmbientLightingIntensity(intensity) ? intensity : null,
-  }
-}
-
 function gitSummaryFromUpdatedPayload(payload: GitUpdatedPayload): GitStatusResponse | null {
   if (!payload.available) {
     return null
@@ -1145,31 +1112,6 @@ export function ShellRoot() {
             prev === runtimeTaskQuickDispatchOpacity ? prev : runtimeTaskQuickDispatchOpacity,
           )
         }
-        const runtimeAmbientLighting = readAmbientLightingFromSettings(response.values)
-        if (runtimeAmbientLighting.enabled === null && runtimeAmbientLighting.intensity === null) {
-          return
-        }
-        setUiPreferences((prev) => {
-          const nextEnabled =
-            runtimeAmbientLighting.enabled === null
-              ? prev.ambientLightingEnabled
-              : runtimeAmbientLighting.enabled
-          const nextIntensity =
-            runtimeAmbientLighting.intensity === null
-              ? prev.ambientLightingIntensity
-              : runtimeAmbientLighting.intensity
-          if (
-            prev.ambientLightingEnabled === nextEnabled &&
-            prev.ambientLightingIntensity === nextIntensity
-          ) {
-            return prev
-          }
-          return {
-            ...prev,
-            ambientLightingEnabled: nextEnabled,
-            ambientLightingIntensity: nextIntensity,
-          }
-        })
       } catch {
         // Keep local preference when settings service is unavailable.
       }
@@ -1198,41 +1140,6 @@ export function ShellRoot() {
       }
     }
   }, [activeWorkspaceId])
-
-  const persistAmbientLightingPatch = useCallback((patch: Record<string, unknown>) => {
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
-
-    void desktopApi
-      .settingsUpdate('user', {
-        ui: {
-          ambientLighting: patch,
-        },
-      })
-      .catch(() => {
-        // Do not block UI interaction when settings persistence fails.
-      })
-  }, [])
-
-  const handleAmbientLightingChange = useCallback((enabled: boolean) => {
-    setUiPreferences((prev) => ({
-      ...prev,
-      ambientLightingEnabled: enabled,
-    }))
-    persistAmbientLightingPatch({ enabled })
-  }, [persistAmbientLightingPatch])
-
-  const handleAmbientLightingIntensityChange = useCallback(
-    (intensity: AmbientLightingIntensity) => {
-      setUiPreferences((prev) => ({
-        ...prev,
-        ambientLightingIntensity: intensity,
-      }))
-      persistAmbientLightingPatch({ intensity })
-    },
-    [persistAmbientLightingPatch],
-  )
 
   const persistShortcutBindings = useCallback((bindings: typeof shortcutBindings) => {
     if (!desktopApi.isTauriRuntime()) {
@@ -4627,10 +4534,6 @@ export function ShellRoot() {
         nativeWindowTopWindows ? 'shell-native-window-top-windows' : ''
       }`}
     >
-      <AmbientBackgroundLighting
-        enabled={uiPreferences.ambientLightingEnabled && !nativeWindowTopWindows}
-        intensity={uiPreferences.ambientLightingIntensity}
-      />
       <div ref={shellTopRef} className="shell-top-slot">
         <TopControlBar
           locale={locale}
@@ -4915,8 +4818,6 @@ export function ShellRoot() {
         uiFont={uiPreferences.uiFont}
         monoFont={uiPreferences.monoFont}
         uiFontSize={uiPreferences.uiFontSize}
-        ambientLightingEnabled={uiPreferences.ambientLightingEnabled}
-        ambientLightingIntensity={uiPreferences.ambientLightingIntensity}
         isMacOs={nativeWindowTopMacOs}
         taskQuickDispatchShortcut={shortcutBindings.taskQuickDispatch}
         defaultTaskQuickDispatchShortcut={defaultShortcutBindings.taskQuickDispatch}
@@ -4948,8 +4849,6 @@ export function ShellRoot() {
             uiFontSize: value,
           }))
         }
-        onAmbientLightingChange={handleAmbientLightingChange}
-        onAmbientLightingIntensityChange={handleAmbientLightingIntensityChange}
         onTaskQuickDispatchShortcutChange={handleTaskQuickDispatchShortcutChange}
         onTaskQuickDispatchShortcutReset={handleTaskQuickDispatchShortcutReset}
       />

@@ -3,7 +3,6 @@ import type { Locale, TranslationKey } from '../i18n/ui-locale'
 export type ThemeMode = 'graphite-light' | 'graphite-dark'
 export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
-export type AmbientLightingIntensity = 'low' | 'medium' | 'high'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
 
 export interface UiPreferences {
@@ -12,8 +11,6 @@ export interface UiPreferences {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
-  ambientLightingEnabled: boolean
-  ambientLightingIntensity: AmbientLightingIntensity
 }
 
 const STORAGE_KEY = 'gtoffice.ui.preferences.v1'
@@ -24,8 +21,6 @@ export const defaultUiPreferences: UiPreferences = {
   uiFont: 'sf-pro',
   monoFont: 'jetbrains-mono',
   uiFontSize: 'medium',
-  ambientLightingEnabled: true,
-  ambientLightingIntensity: 'medium',
 }
 
 export const themeOptions: Array<{ value: ThemeMode; labelKey: TranslationKey }> = [
@@ -92,16 +87,6 @@ export function loadUiPreferences(): UiPreferences {
         parsed.uiFontSize === 'large' || parsed.uiFontSize === 'xlarge'
           ? parsed.uiFontSize
           : defaultUiPreferences.uiFontSize,
-      ambientLightingEnabled:
-        typeof parsed.ambientLightingEnabled === 'boolean'
-          ? parsed.ambientLightingEnabled
-          : defaultUiPreferences.ambientLightingEnabled,
-      ambientLightingIntensity:
-        parsed.ambientLightingIntensity === 'low' ||
-        parsed.ambientLightingIntensity === 'medium' ||
-        parsed.ambientLightingIntensity === 'high'
-          ? parsed.ambientLightingIntensity
-          : defaultUiPreferences.ambientLightingIntensity,
     }
   } catch {
     return defaultUiPreferences
@@ -121,8 +106,6 @@ export function applyUiPreferences(preferences: UiPreferences): void {
   }
   const root = document.documentElement
   root.dataset.theme = preferences.themeMode
-  root.dataset.ambientLighting = preferences.ambientLightingEnabled ? 'on' : 'off'
-  root.dataset.ambientIntensity = preferences.ambientLightingIntensity
   root.style.setProperty('--vb-font-ui', uiFontCssMap[preferences.uiFont])
   root.style.setProperty('--vb-font-mono', monoFontCssMap[preferences.monoFont])
   root.style.setProperty('--vb-font-size-base', uiFontSizeCssMap[preferences.uiFontSize])

@@ -1,10 +1,9 @@
-import { localeOptions, t, type Locale, type TranslationKey } from '@shell/i18n/ui-locale'
+import { localeOptions, t, type Locale } from '@shell/i18n/ui-locale'
 import {
   monoFontOptions,
   themeOptions,
   uiFontOptions,
   uiFontSizeOptions,
-  type AmbientLightingIntensity,
   type MonoFont,
   type ThemeMode,
   type UiFont,
@@ -18,15 +17,11 @@ interface DisplayPreferencesProps {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
-  ambientLightingEnabled: boolean
-  ambientLightingIntensity: AmbientLightingIntensity
   onLocaleChange: (value: Locale) => void
   onThemeModeChange: (value: ThemeMode) => void
   onUiFontChange: (value: UiFont) => void
   onMonoFontChange: (value: MonoFont) => void
   onUiFontSizeChange: (value: UiFontSize) => void
-  onAmbientLightingChange: (enabled: boolean) => void
-  onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
 }
 
 export function DisplayPreferences({
@@ -35,22 +30,12 @@ export function DisplayPreferences({
   uiFont,
   monoFont,
   uiFontSize,
-  ambientLightingEnabled,
-  ambientLightingIntensity,
   onLocaleChange,
   onThemeModeChange,
   onUiFontChange,
   onMonoFontChange,
   onUiFontSizeChange,
-  onAmbientLightingChange,
-  onAmbientLightingIntensityChange,
 }: DisplayPreferencesProps) {
-  const ambientOptions: Array<{ value: AmbientLightingIntensity; key: TranslationKey }> = [
-    { value: 'low', key: 'displayPreferences.ambientIntensityLow' },
-    { value: 'medium', key: 'displayPreferences.ambientIntensityMedium' },
-    { value: 'high', key: 'displayPreferences.ambientIntensityHigh' },
-  ]
-
   return (
     <div className="display-preferences" aria-label={t(locale, 'displayPreferences.title')}>
       <div className="settings-group-title">{t(locale, 'displayPreferences.language')}</div>
@@ -152,52 +137,6 @@ export function DisplayPreferences({
         </div>
       </div>
 
-      <div className="settings-group-title">{t(locale, 'displayPreferences.ambientLighting')}</div>
-      <div className="settings-group">
-        <div className="settings-row">
-          <div className="settings-row-label">
-            <strong>{t(locale, 'displayPreferences.ambientLighting')}</strong>
-            <span>{t(locale, 'displayPreferences.ambientLightingHint')}</span>
-          </div>
-          <div className="settings-row-control">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={ambientLightingEnabled}
-              className={`display-preferences-switch ${ambientLightingEnabled ? 'on' : 'off'}`}
-              onClick={() => {
-                onAmbientLightingChange(!ambientLightingEnabled)
-              }}
-            >
-              <span className="display-preferences-switch-thumb" aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-        {ambientLightingEnabled && (
-          <div className="settings-row">
-            <div className="settings-row-label">
-              <strong>{t(locale, 'displayPreferences.ambientIntensity')}</strong>
-            </div>
-            <div className="settings-row-control">
-              <div className="display-preferences-segmented">
-                {ambientOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={ambientLightingIntensity === option.value ? 'active' : ''}
-                    aria-pressed={ambientLightingIntensity === option.value}
-                    onClick={() => {
-                      onAmbientLightingIntensityChange(option.value)
-                    }}
-                  >
-                    {t(locale, option.key)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

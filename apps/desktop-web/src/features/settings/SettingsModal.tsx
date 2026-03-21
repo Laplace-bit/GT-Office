@@ -5,7 +5,7 @@ import { AiProvidersSection } from './ai-providers'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
-import type { AmbientLightingIntensity, MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
+import type { MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
 import type { ShortcutBinding } from '@features/keybindings'
 import './SettingsModal.scss'
 
@@ -17,8 +17,6 @@ interface SettingsModalProps {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
-  ambientLightingEnabled: boolean
-  ambientLightingIntensity: AmbientLightingIntensity
   isMacOs: boolean
   taskQuickDispatchShortcut: ShortcutBinding
   defaultTaskQuickDispatchShortcut: ShortcutBinding
@@ -28,8 +26,6 @@ interface SettingsModalProps {
   onUiFontChange: (value: UiFont) => void
   onMonoFontChange: (value: MonoFont) => void
   onUiFontSizeChange: (value: UiFontSize) => void
-  onAmbientLightingChange: (enabled: boolean) => void
-  onAmbientLightingIntensityChange: (value: AmbientLightingIntensity) => void
   onTaskQuickDispatchShortcutChange: (binding: ShortcutBinding) => void
   onTaskQuickDispatchShortcutReset: () => void
 }
@@ -48,8 +44,6 @@ export function SettingsModal({
   uiFont,
   monoFont,
   uiFontSize,
-  ambientLightingEnabled,
-  ambientLightingIntensity,
   isMacOs,
   taskQuickDispatchShortcut,
   defaultTaskQuickDispatchShortcut,
@@ -59,8 +53,6 @@ export function SettingsModal({
   onUiFontChange,
   onMonoFontChange,
   onUiFontSizeChange,
-  onAmbientLightingChange,
-  onAmbientLightingIntensityChange,
   onTaskQuickDispatchShortcutChange,
   onTaskQuickDispatchShortcutReset,
 }: SettingsModalProps) {
@@ -86,15 +78,11 @@ export function SettingsModal({
               uiFont={uiFont}
               monoFont={monoFont}
               uiFontSize={uiFontSize}
-              ambientLightingEnabled={ambientLightingEnabled}
-              ambientLightingIntensity={ambientLightingIntensity}
               onLocaleChange={onLocaleChange}
               onThemeModeChange={onThemeModeChange}
               onUiFontChange={onUiFontChange}
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
-              onAmbientLightingChange={onAmbientLightingChange}
-              onAmbientLightingIntensityChange={onAmbientLightingIntensityChange}
             />
           </div>
         )

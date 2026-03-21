@@ -6,15 +6,6 @@ export const messages = {
   'displayPreferences.theme': { 'zh-CN': '主题', 'en-US': 'Theme' },
   'displayPreferences.uiFont': { 'zh-CN': '界面字体', 'en-US': 'UI Font' },
   'displayPreferences.monoFont': { 'zh-CN': '代码字体', 'en-US': 'Mono Font' },
-  'displayPreferences.ambientLighting': { 'zh-CN': '动态氛围灯', 'en-US': 'Ambient Lighting' },
-  'displayPreferences.ambientLightingHint': {
-    'zh-CN': '在区域间隙显示流动渐变光效',
-    'en-US': 'Show flowing gradient glow across layout seams',
-  },
-  'displayPreferences.ambientIntensity': { 'zh-CN': '氛围灯强度', 'en-US': 'Ambient Intensity' },
-  'displayPreferences.ambientIntensityLow': { 'zh-CN': '弱', 'en-US': 'Low' },
-  'displayPreferences.ambientIntensityMedium': { 'zh-CN': '中', 'en-US': 'Medium' },
-  'displayPreferences.ambientIntensityHigh': { 'zh-CN': '强', 'en-US': 'High' },
   'themeOption.graphiteLight': { 'zh-CN': '浅色石墨', 'en-US': 'Graphite Light' },
   'themeOption.graphiteDark': { 'zh-CN': '深色石墨', 'en-US': 'Graphite Dark' },
 
