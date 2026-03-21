@@ -233,7 +233,8 @@ fn dispatch_batch_includes_managed_mcp_reply_instruction_for_agent_sender() {
         .task_file_path
         .as_ref()
         .expect("task file path");
-    let task_markdown = fs::read_to_string(workspace_root.join(task_file_path)).expect("read task file");
+    let task_markdown =
+        fs::read_to_string(workspace_root.join(task_file_path)).expect("read task file");
 
     assert!(written_command.contains("gto_report_status"));
     assert!(written_command.contains("target_agent_ids"));

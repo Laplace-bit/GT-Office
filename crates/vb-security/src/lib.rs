@@ -67,11 +67,14 @@ impl SecretStore {
         {
             match os_store_secret(&self.service_name, &self.error_namespace, reference, value) {
                 Ok(()) => Ok(()),
-                Err(_) => memory_store_secret(&self.service_name, reference, value)
-                    .map_err(|message| SecurityError::StoreFailed {
-                        code: format!("{}_MEMORY_STORE_FAILED", self.error_namespace),
-                        message,
-                    }),
+                Err(_) => {
+                    memory_store_secret(&self.service_name, reference, value).map_err(|message| {
+                        SecurityError::StoreFailed {
+                            code: format!("{}_MEMORY_STORE_FAILED", self.error_namespace),
+                            message,
+                        }
+                    })
+                }
             }
         }
     }
@@ -119,10 +122,7 @@ fn memory_store_secret(service_name: &str, reference: &str, value: &str) -> Resu
     let mut guard = lock
         .write()
         .map_err(|_| "secret memory store lock poisoned".to_string())?;
-    guard.insert(
-        fallback_key(service_name, reference),
-        value.to_string(),
-    );
+    guard.insert(fallback_key(service_name, reference), value.to_string());
     Ok(())
 }
 
@@ -191,10 +191,11 @@ fn os_load_secret(
             message: error.to_string(),
         })?;
     if output.status.success() {
-        let secret = String::from_utf8(output.stdout).map_err(|error| SecurityError::LoadFailed {
-            code: format!("{}_LOAD_FAILED", error_namespace),
-            message: error.to_string(),
-        })?;
+        let secret =
+            String::from_utf8(output.stdout).map_err(|error| SecurityError::LoadFailed {
+                code: format!("{}_LOAD_FAILED", error_namespace),
+                message: error.to_string(),
+            })?;
         let secret = secret.trim().to_string();
         if secret.is_empty() {
             return Err(SecurityError::NotFound {
@@ -267,10 +268,11 @@ fn os_load_secret(
             message: error.to_string(),
         })?;
     if output.status.success() {
-        let secret = String::from_utf8(output.stdout).map_err(|error| SecurityError::LoadFailed {
-            code: format!("{}_LOAD_FAILED", error_namespace),
-            message: error.to_string(),
-        })?;
+        let secret =
+            String::from_utf8(output.stdout).map_err(|error| SecurityError::LoadFailed {
+                code: format!("{}_LOAD_FAILED", error_namespace),
+                message: error.to_string(),
+            })?;
         let secret = secret.trim().to_string();
         if secret.is_empty() {
             return Err(SecurityError::NotFound {

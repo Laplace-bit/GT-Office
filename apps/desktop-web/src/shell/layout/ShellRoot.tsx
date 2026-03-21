@@ -93,6 +93,7 @@ import {
   desktopApi,
   type FilesystemChangedPayload,
   type FsSearchFileMatch,
+  type GitUpdatedPayload,
   type GitStatusResponse,
   type RenderedScreenSnapshot,
   type TerminalMetaPayload,
@@ -791,6 +792,19 @@ function readAmbientLightingFromSettings(values: Record<string, unknown>): {
   return {
     enabled: typeof enabled === 'boolean' ? enabled : null,
     intensity: isAmbientLightingIntensity(intensity) ? intensity : null,
+  }
+}
+
+function gitSummaryFromUpdatedPayload(payload: GitUpdatedPayload): GitStatusResponse | null {
+  if (!payload.available) {
+    return null
+  }
+  return {
+    workspaceId: payload.workspaceId,
+    branch: payload.branch,
+    ahead: payload.ahead,
+    behind: payload.behind,
+    files: payload.files,
   }
 }
 
@@ -2235,7 +2249,11 @@ export function ShellRoot() {
         if (!activeWorkspaceId || payload.workspaceId !== activeWorkspaceId) {
           return
         }
-        scheduleRefreshGit(activeWorkspaceId)
+        if (!payload.available) {
+          setGitSummary(null)
+          return
+        }
+        setGitSummary(gitSummaryFromUpdatedPayload(payload))
       })
       .then((unlisten) => {
         cleanup = unlisten

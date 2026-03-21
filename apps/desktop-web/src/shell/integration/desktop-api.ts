@@ -680,8 +680,13 @@ export interface AgentInstallStatus {
 
 export interface GitUpdatedPayload {
   workspaceId: string
+  available: boolean
   branch: string
   dirty: boolean
+  ahead: number
+  behind: number
+  files: GitStatusFile[]
+  revision: number
 }
 
 export interface TaskDispatchSender {

@@ -235,11 +235,14 @@
 .git-pane__content {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* === Collapsible Section === */
@@ -252,8 +255,7 @@
 }
 
 .git-section--expanded {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
 .git-section--changes.git-section--expanded {
@@ -267,8 +269,8 @@
 }
 
 .git-section--expanded .git-section__content {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: auto;
 }
 
 .git-section--expanded .git-file-list,

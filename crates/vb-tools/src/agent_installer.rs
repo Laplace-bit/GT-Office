@@ -52,13 +52,8 @@ struct DetectionResult {
 
 #[derive(Debug, Clone)]
 pub enum AgentUninstallAction {
-    Command {
-        program: String,
-        args: Vec<String>,
-    },
-    RemovePaths {
-        paths: Vec<PathBuf>,
-    },
+    Command { program: String, args: Vec<String> },
+    RemovePaths { paths: Vec<PathBuf> },
 }
 
 pub struct AgentInstaller;
@@ -80,7 +75,9 @@ impl AgentInstaller {
         let mut issues = Vec::new();
 
         if requires_node && !node_ready {
-            issues.push("Node.js runtime not found in PATH or common installation directories.".to_string());
+            issues.push(
+                "Node.js runtime not found in PATH or common installation directories.".to_string(),
+            );
         }
         if requires_node && !npm_ready {
             issues.push("npm is not available, so GT Office cannot install or uninstall this CLI automatically yet.".to_string());
@@ -217,8 +214,7 @@ impl AgentInstaller {
     }
 
     pub fn check_npm_env() -> bool {
-        Self::find_executable("npm").executable.is_some()
-            || Self::command_succeeds("npm", &["-v"])
+        Self::find_executable("npm").executable.is_some() || Self::command_succeeds("npm", &["-v"])
     }
 
     fn command_succeeds(command_name: &str, args: &[&str]) -> bool {
@@ -311,7 +307,11 @@ impl AgentInstaller {
                 None,
             ));
             dirs.extend(Self::read_child_bin_dirs(
-                &home.join(".local").join("share").join("fnm").join("node-versions"),
+                &home
+                    .join(".local")
+                    .join("share")
+                    .join("fnm")
+                    .join("node-versions"),
                 Some(Path::new("installation").join("bin")),
             ));
             dirs.extend(Self::read_child_bin_dirs(
@@ -444,10 +444,10 @@ impl AgentInstaller {
     #[cfg(not(target_os = "windows"))]
     fn resolve_command_via_login_shell(command_name: &str) -> Option<PathBuf> {
         let mut shells = Vec::new();
-        if let Some(shell) = env::var_os("SHELL")
-            .map(PathBuf::from)
-            .and_then(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
-        {
+        if let Some(shell) = env::var_os("SHELL").map(PathBuf::from).and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        }) {
             shells.push(shell);
         }
         shells.extend(["bash".to_string(), "zsh".to_string(), "sh".to_string()]);

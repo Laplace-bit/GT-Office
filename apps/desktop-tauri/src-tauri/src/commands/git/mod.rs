@@ -1,5 +1,7 @@
+pub mod status_coordinator;
+
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use vb_abstractions::{GitStatusSummary, WorkspaceId};
 use vb_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
@@ -25,44 +27,6 @@ where
     tokio::task::spawn_blocking(move || task(app_state))
         .await
         .map_err(|error| format!("{op_name}: git worker join failed: {error}"))?
-}
-
-fn emit_git_updated(
-    app: &AppHandle,
-    workspace_id: &WorkspaceId,
-    branch: &str,
-    dirty: bool,
-) -> Result<(), String> {
-    app.emit(
-        "git/updated",
-        json!({
-            "workspaceId": workspace_id.as_str(),
-            "branch": branch,
-            "dirty": dirty,
-        }),
-    )
-    .map_err(|error| format!("GIT_EVENT_EMIT_FAILED: {error}"))
-}
-
-async fn emit_git_updated_from_service(
-    app: &AppHandle,
-    state: &State<'_, AppState>,
-    workspace_id: &WorkspaceId,
-) -> Result<(), String> {
-    let workspace_id_owned = workspace_id.clone();
-    let summary = run_git_blocking(state, "GIT_STATUS_FAILED", move |app_state| {
-        app_state
-            .git_service
-            .status(&workspace_id_owned)
-            .map_err(to_command_error)
-    })
-    .await?;
-    emit_git_updated(
-        app,
-        workspace_id,
-        &summary.branch,
-        !summary.files.is_empty(),
-    )
 }
 
 fn build_git_status_payload(workspace_id: &WorkspaceId, summary: &GitStatusSummary) -> Value {
@@ -211,7 +175,10 @@ pub async fn git_init(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "branch": branch,
@@ -287,7 +254,10 @@ pub async fn git_stage(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_stage_payload(&workspace_id, staged))
 }
 
@@ -307,7 +277,10 @@ pub async fn git_unstage(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_unstage_payload(&workspace_id, unstaged))
 }
 
@@ -329,7 +302,10 @@ pub async fn git_discard(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_discard_payload(&workspace_id, discarded))
 }
 
@@ -350,7 +326,10 @@ pub async fn git_commit(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_commit_payload(
         &workspace_id,
         &message,
@@ -443,7 +422,10 @@ pub async fn git_checkout(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "target": target,
@@ -535,7 +517,10 @@ pub async fn git_fetch(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_fetch_payload(&workspace_id, result))
 }
 
@@ -565,7 +550,10 @@ pub async fn git_pull(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_pull_payload(&workspace_id, result))
 }
 
@@ -598,7 +586,10 @@ pub async fn git_push(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(build_git_push_payload(&workspace_id, result))
 }
 
@@ -628,7 +619,10 @@ pub async fn git_stash_push(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "message": message,
@@ -655,7 +649,10 @@ pub async fn git_stash_pop(
             .map_err(to_command_error)
     })
     .await?;
-    emit_git_updated_from_service(&app, &state, &workspace_id).await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "stash": stash,

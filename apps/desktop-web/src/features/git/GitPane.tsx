@@ -30,6 +30,15 @@ function describeUnknownError(error: unknown): string {
   return 'unknown'
 }
 
+function getFileName(path: string): string {
+  const normalizedPath = path.trim().replace(/\/+$/, '')
+  if (!normalizedPath) {
+    return path
+  }
+  const lastSlashIndex = normalizedPath.lastIndexOf('/')
+  return lastSlashIndex >= 0 ? normalizedPath.slice(lastSlashIndex + 1) : normalizedPath
+}
+
 const MIN_CHANGES_SECTION_BASE_HEIGHT = 180
 
 // ============================================
@@ -135,6 +144,7 @@ const GitFileRow = memo(function GitFileRow({
   onDiscard,
   style,
 }: GitFileRowProps) {
+  const fileName = getFileName(file.path)
   return (
     <div
       className={`git-file-row ${isActive ? 'git-file-row--active' : ''}`}
@@ -145,13 +155,15 @@ const GitFileRow = memo(function GitFileRow({
         className="git-file-row__select"
         onClick={onSelect}
         onMouseEnter={onPreload}
+        title={file.path}
+        aria-label={file.path}
       >
         <span
           className={`git-file-row__status ${file.staged ? 'git-file-row__status--staged' : 'git-file-row__status--unstaged'}`}
         >
           {file.status || '—'}
         </span>
-        <span className="git-file-row__path">{file.path}</span>
+        <span className="git-file-row__path">{fileName}</span>
       </button>
       <div className="git-file-row__actions">
         {file.staged ? (

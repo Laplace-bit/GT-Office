@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use vb_settings::FilesystemWatcherSettings;
 
 const WATCH_EVENT_DEBOUNCE_MS: u64 = 64;
@@ -49,6 +49,7 @@ struct FilesystemChangedPayload {
 struct PendingWatchEvents {
     paths_by_kind: HashMap<&'static str, HashSet<String>>,
     errors: Vec<String>,
+    git_refresh_required: bool,
 }
 
 impl WorkspaceWatcherRegistry {
@@ -187,6 +188,9 @@ fn accumulate_watch_batch_message(
 ) {
     match message {
         WatchBatchMessage::Event(event) => {
+            if should_schedule_git_refresh(root, &event.paths, settings) {
+                pending.git_refresh_required = true;
+            }
             let Some(kind) = map_event_kind(&event.kind) else {
                 return;
             };
@@ -207,7 +211,10 @@ fn flush_pending_watch_events(
     workspace_id: &str,
     pending: &mut PendingWatchEvents,
 ) {
-    if pending.paths_by_kind.is_empty() && pending.errors.is_empty() {
+    if pending.paths_by_kind.is_empty()
+        && pending.errors.is_empty()
+        && !pending.git_refresh_required
+    {
         return;
     }
 
@@ -237,6 +244,14 @@ fn flush_pending_watch_events(
             ts_ms: now_ts_ms(),
         };
         let _ = app.emit("filesystem/changed", payload);
+    }
+
+    if pending.git_refresh_required {
+        let state = app.state::<crate::app_state::AppState>();
+        state
+            .git_status_coordinator
+            .schedule_refresh(app, state.inner(), workspace_id);
+        pending.git_refresh_required = false;
     }
 }
 
@@ -324,6 +339,31 @@ fn should_ignore_relative_path(path: &str, settings: &FilesystemWatcherSettings)
             .iter()
             .any(|candidate| candidate.eq_ignore_ascii_case(segment))
     })
+}
+
+fn should_schedule_git_refresh(
+    root: &Path,
+    paths: &[PathBuf],
+    settings: &FilesystemWatcherSettings,
+) -> bool {
+    paths.iter().any(|path| {
+        normalize_path(root, path.as_path())
+            .map(|relative| {
+                is_git_metadata_path_of_interest(&relative)
+                    || !should_ignore_relative_path(&relative, settings)
+            })
+            .unwrap_or(false)
+    })
+}
+
+fn is_git_metadata_path_of_interest(path: &str) -> bool {
+    let normalized = path.trim_start_matches("./");
+    matches!(
+        normalized,
+        ".git/HEAD" | ".git/index" | ".git/packed-refs" | ".git/MERGE_HEAD"
+    ) || normalized.starts_with(".git/refs/heads/")
+        || normalized.starts_with(".git/rebase-apply/")
+        || normalized.starts_with(".git/rebase-merge/")
 }
 
 #[cfg(test)]

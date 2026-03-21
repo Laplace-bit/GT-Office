@@ -1,9 +1,9 @@
 use super::{
     build_fs_delete_response, build_fs_list_dir_response, build_fs_move_response,
-    build_fs_read_file_response, build_fs_search_files_response, build_fs_search_text_response, build_fs_write_file_response,
-    ensure_copy_target_is_safe, ensure_directory_target_is_creatable, is_likely_binary, resolve_target_path,
-    sanitize_relative_path, search_file_matches, search_text_matches, FileSearchMatch, FileSystemEntry,
-    SearchMatch, SearchTicket,
+    build_fs_read_file_response, build_fs_search_files_response, build_fs_search_text_response,
+    build_fs_write_file_response, ensure_copy_target_is_safe, ensure_directory_target_is_creatable,
+    is_likely_binary, resolve_target_path, sanitize_relative_path, search_file_matches,
+    search_text_matches, FileSearchMatch, FileSystemEntry, SearchMatch, SearchTicket,
 };
 use std::{
     fs,
@@ -147,7 +147,8 @@ fn create_dir_allows_existing_directory_target() {
     let target = tmp.path.join("docs");
     fs::create_dir_all(&target).expect("create dir");
 
-    ensure_directory_target_is_creatable(&target, "docs").expect("existing directory should be allowed");
+    ensure_directory_target_is_creatable(&target, "docs")
+        .expect("existing directory should be allowed");
 }
 
 #[test]

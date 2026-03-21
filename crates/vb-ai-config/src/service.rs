@@ -805,9 +805,15 @@ impl AiConfigService {
             let gemini_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Gemini));
 
             (
-                claude_install.join().unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
-                codex_install.join().unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
-                gemini_install.join().unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
+                claude_install
+                    .join()
+                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
+                codex_install
+                    .join()
+                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
+                gemini_install
+                    .join()
+                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
                 claude_mcp
                     .join()
                     .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Claude)),

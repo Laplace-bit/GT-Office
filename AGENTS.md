@@ -19,7 +19,7 @@
 1. 业务逻辑直接写进 Tauri 命令入口。
 2. UI 直接依赖系统能力实现。
 3. 跨模块随意引用破坏边界。
-
+  
 后端模块化（MUST）：
 1. `apps/desktop-tauri/src-tauri/src/commands/` 必须按前端 `apps/desktop-web/src/features/*` 对齐建目录。
 2. 新增 Tauri command 禁止直接放在 `commands/` 根目录；必须归入对应 feature 目录。

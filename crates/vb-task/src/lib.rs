@@ -411,8 +411,12 @@ impl TaskService {
             Ok(guard) => guard,
             Err(_) => return Vec::new(),
         };
-        let target_agent_id = target_agent_id.map(str::trim).filter(|value| !value.is_empty());
-        let sender_agent_id = sender_agent_id.map(str::trim).filter(|value| !value.is_empty());
+        let target_agent_id = target_agent_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let sender_agent_id = sender_agent_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let task_id = task_id.map(str::trim).filter(|value| !value.is_empty());
         let limit = limit.max(1);
 
@@ -432,7 +436,9 @@ impl TaskService {
             })
             .filter(|message| {
                 task_id
-                    .map(|task_id| message.payload.get("taskId").and_then(Value::as_str) == Some(task_id))
+                    .map(|task_id| {
+                        message.payload.get("taskId").and_then(Value::as_str) == Some(task_id)
+                    })
                     .unwrap_or(true)
             })
             .cloned()
@@ -1392,7 +1398,11 @@ fn build_managed_agent_reply_instruction(
     ))
 }
 
-fn enrich_dispatch_markdown(markdown: &str, request: &TaskDispatchBatchRequest, task_id: &str) -> String {
+fn enrich_dispatch_markdown(
+    markdown: &str,
+    request: &TaskDispatchBatchRequest,
+    task_id: &str,
+) -> String {
     let mut sections = Vec::new();
     let body = markdown.trim();
     if !body.is_empty() {

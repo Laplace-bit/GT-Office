@@ -103,7 +103,7 @@ Station 约束（T-072）：
 
 约束：
 1. Git 命令必须显式传 `workspaceId`。
-2. 变更命令成功后触发 `git/updated`。
+2. 变更命令成功后必须触发一次 Git 状态协调刷新；`git/updated` 由协调器在状态真正变化后统一发出。
 
 ### 3.5 Task / Channel / MCP（核心协作链路）
 
@@ -269,7 +269,7 @@ AI Config 约束（T-171）：
 | `changefeed/append` | `eventId,workspaceId,source,paths[]` |
 | `workspace/updated` | `workspaceId,kind` |
 | `workspace/active_changed` | `workspaceId,previousWorkspaceId?` |
-| `git/updated` | `workspaceId,branch,dirty` |
+| `git/updated` | `workspaceId,available,branch,dirty,ahead,behind,files[],revision` |
 | `settings/updated` | `workspaceId?,scope,keys[],tsMs` |
 | `keymap/updated` | `scope,commands[]` |
 | `ai_config/changed` | `auditId,scope,changedKeys[]` |
@@ -409,3 +409,8 @@ AI Provider 配置补充（T-171）：
 6. Channel 幂等测试：重复消息不重复派发。
 7. Hook 熔断测试：达到阈值后返回 `HOOK_CIRCUIT_OPEN`。
 8. Cache 降级测试：缓存不可用时主流程可用。
+`git/updated` 约束：
+1. 事件来源既包括 Git 命令成功，也包括 watcher 驱动的工作区文件变更与 `.git` 关键元数据变更。
+2. 后端必须对同一 workspace 的刷新做去抖与 singleflight，禁止把每次 filesystem 事件都直接升级为一次全量 Git 状态读取。
+3. 只有 `branch/ahead/behind/files` 指纹发生变化时才允许发出事件。
+4. `available=false` 表示当前 workspace 不是 Git 仓库；前端必须稳定降级为空态。

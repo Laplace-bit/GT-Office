@@ -186,7 +186,11 @@ fn ensure_directory_target_is_creatable(target: &Path, display_path: &str) -> Re
     ))
 }
 
-fn ensure_copy_target_is_safe(source: &Path, target: &Path, source_is_dir: bool) -> Result<(), String> {
+fn ensure_copy_target_is_safe(
+    source: &Path,
+    target: &Path,
+    source_is_dir: bool,
+) -> Result<(), String> {
     if !source_is_dir {
         return Ok(());
     }
@@ -196,11 +200,7 @@ fn ensure_copy_target_is_safe(source: &Path, target: &Path, source_is_dir: bool)
     Ok(())
 }
 
-fn build_fs_show_in_folder_response(
-    workspace_id: &str,
-    path: &str,
-    opened: bool,
-) -> Value {
+fn build_fs_show_in_folder_response(workspace_id: &str, path: &str, opened: bool) -> Value {
     json!({
         "workspaceId": workspace_id,
         "path": path,
@@ -1064,15 +1064,18 @@ pub async fn fs_show_in_folder(
 ) -> Result<Value, String> {
     let root = resolve_workspace_root(&state, &workspace_id)?;
     let path_clone = path.clone();
-    
+
     run_fs_blocking("FS_SHOW_IN_FOLDER_FAILED", move || {
         let target = resolve_target_path(&root, path_clone.trim(), true, None)?;
-        
+
         let path_to_open = if target.is_dir() {
             target
         } else {
-            target.parent()
-                .ok_or_else(|| "FS_SHOW_IN_FOLDER_FAILED: file has no parent directory".to_string())?
+            target
+                .parent()
+                .ok_or_else(|| {
+                    "FS_SHOW_IN_FOLDER_FAILED: file has no parent directory".to_string()
+                })?
                 .to_path_buf()
         };
 

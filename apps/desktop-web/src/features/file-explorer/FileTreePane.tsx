@@ -242,6 +242,31 @@ function pickDominantGitStatus(
   return GIT_TONE_PRIORITY[incoming.tone] > GIT_TONE_PRIORITY[current.tone] ? incoming : current
 }
 
+function buildGitStatusesByPath(files: GitStatusFile[]): Record<string, GitStatusVisual> {
+  const next: Record<string, GitStatusVisual> = {}
+  for (const file of files) {
+    const normalizedPath = normalizeDirectoryPath(file.path)
+    if (!normalizedPath || normalizedPath === ROOT_DIR) {
+      continue
+    }
+    const normalizedStatus = normalizeGitFileStatus(file.status)
+    if (!normalizedStatus) {
+      continue
+    }
+    next[normalizedPath] = pickDominantGitStatus(next[normalizedPath], normalizedStatus)
+
+    let currentParent = parentDirectory(normalizedPath)
+    while (true) {
+      if (!currentParent || currentParent === ROOT_DIR) {
+        break
+      }
+      next[currentParent] = pickDominantGitStatus(next[currentParent], normalizedStatus)
+      currentParent = parentDirectory(currentParent)
+    }
+  }
+  return next
+}
+
 interface TreeRowItemProps {
   row: TreeRow
   virtualStart: number
@@ -434,7 +459,6 @@ export function FileTreePane({
   const lastScrollTsRef = useRef(0)
   const scrollDirectionRef = useRef<'forward' | 'backward'>('forward')
   const speedTierRafRef = useRef<number | null>(null)
-  const gitStatusRefreshTimerRef = useRef<number | null>(null)
   const trimmedSearchQuery = searchQuery.trim()
 
   const cancelActiveStreamSearch = useCallback(() => {
@@ -514,45 +538,13 @@ export function FileTreePane({
       if (workspaceIdRef.current !== requestWorkspaceId) {
         return
       }
-      const next: Record<string, GitStatusVisual> = {}
-      for (const file of summary.files as GitStatusFile[]) {
-        const normalizedPath = normalizeDirectoryPath(file.path)
-        if (!normalizedPath || normalizedPath === ROOT_DIR) {
-          continue
-        }
-        const normalizedStatus = normalizeGitFileStatus(file.status)
-        if (!normalizedStatus) {
-          continue
-        }
-        next[normalizedPath] = pickDominantGitStatus(next[normalizedPath], normalizedStatus)
-
-        // Bubble status up to parent directories so folder labels can reflect dirty state.
-        let currentParent = parentDirectory(normalizedPath)
-        while (true) {
-          if (!currentParent || currentParent === ROOT_DIR) {
-            break
-          }
-          next[currentParent] = pickDominantGitStatus(next[currentParent], normalizedStatus)
-          currentParent = parentDirectory(currentParent)
-        }
-      }
-      setGitStatusesByPath(next)
+      setGitStatusesByPath(buildGitStatusesByPath(summary.files as GitStatusFile[]))
     } catch {
       if (workspaceIdRef.current === requestWorkspaceId) {
         setGitStatusesByPath({})
       }
     }
   }, [workspaceId])
-
-  const scheduleGitStatusRefresh = useCallback(() => {
-    if (gitStatusRefreshTimerRef.current !== null) {
-      return
-    }
-    gitStatusRefreshTimerRef.current = window.setTimeout(() => {
-      gitStatusRefreshTimerRef.current = null
-      void refreshGitStatuses()
-    }, 180)
-  }, [refreshGitStatuses])
 
   const refreshRoot = useCallback(async () => {
     if (!workspaceId) {
@@ -1014,9 +1006,8 @@ export function FileTreePane({
         parentPaths.push(ROOT_DIR)
       }
       scheduleDirectoryReload(parentPaths)
-      scheduleGitStatusRefresh()
     },
-    [pruneDirectoryCache, scheduleDirectoryReload, scheduleGitStatusRefresh, workspaceId],
+    [pruneDirectoryCache, scheduleDirectoryReload, workspaceId],
   )
 
   useEffect(() => {
@@ -1082,7 +1073,11 @@ export function FileTreePane({
         if (!active || payload.workspaceId !== workspaceId) {
           return
         }
-        scheduleGitStatusRefresh()
+        if (!payload.available) {
+          setGitStatusesByPath({})
+          return
+        }
+        setGitStatusesByPath(buildGitStatusesByPath(payload.files))
       })
       .then((unlisten) => {
         if (!active) {
@@ -1104,7 +1099,7 @@ export function FileTreePane({
         cleanupGitUpdated()
       }
     }
-  }, [handleFilesystemChanged, locale, scheduleGitStatusRefresh, workspaceId])
+  }, [handleFilesystemChanged, locale, workspaceId])
 
   useEffect(() => {
     return () => {
@@ -1114,12 +1109,8 @@ export function FileTreePane({
       if (speedTierRafRef.current !== null) {
         window.cancelAnimationFrame(speedTierRafRef.current)
       }
-      if (gitStatusRefreshTimerRef.current !== null) {
-        window.clearTimeout(gitStatusRefreshTimerRef.current)
-      }
       refreshTimerRef.current = null
       speedTierRafRef.current = null
-      gitStatusRefreshTimerRef.current = null
     }
   }, [])
 
@@ -1127,10 +1118,6 @@ export function FileTreePane({
     if (refreshTimerRef.current !== null) {
       window.clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = null
-    }
-    if (gitStatusRefreshTimerRef.current !== null) {
-      window.clearTimeout(gitStatusRefreshTimerRef.current)
-      gitStatusRefreshTimerRef.current = null
     }
     pendingRefreshDirectoriesRef.current.clear()
   }, [workspaceId])

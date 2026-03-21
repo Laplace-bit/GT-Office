@@ -122,7 +122,9 @@ pub async fn ai_config_read_snapshot(
         let cache_age_ms = now_ms.saturating_sub(cached.cached_at_ms);
 
         // Cache valid for 5 seconds, and workspace root must match
-        if cache_age_ms < 5000 && cached.workspace_root == workspace_root.to_string_lossy().to_string() {
+        if cache_age_ms < 5000
+            && cached.workspace_root == workspace_root.to_string_lossy().to_string()
+        {
             tracing::debug!("AI config cache hit for workspace {}", workspace_id);
             return Ok(AiConfigReadSnapshotResponse {
                 workspace_id,
@@ -131,7 +133,11 @@ pub async fn ai_config_read_snapshot(
                 masking: vec!["apiKey".to_string(), "secretRef".to_string()],
             });
         }
-        tracing::debug!("AI config cache expired for workspace {} (age: {}ms)", workspace_id, cache_age_ms);
+        tracing::debug!(
+            "AI config cache expired for workspace {} (age: {}ms)",
+            workspace_id,
+            cache_age_ms
+        );
     }
 
     let workspace_root_for_read = workspace_root.clone();
@@ -151,7 +157,11 @@ pub async fn ai_config_read_snapshot(
     .map_err(|error| format!("AI_CONFIG_SNAPSHOT_TASK_FAILED: {error}"))??;
 
     // Update cache
-    let _ = state.set_ai_config_snapshot_cache(&workspace_id, &workspace_root.to_string_lossy(), snapshot.clone());
+    let _ = state.set_ai_config_snapshot_cache(
+        &workspace_id,
+        &workspace_root.to_string_lossy(),
+        snapshot.clone(),
+    );
 
     Ok(AiConfigReadSnapshotResponse {
         workspace_id,

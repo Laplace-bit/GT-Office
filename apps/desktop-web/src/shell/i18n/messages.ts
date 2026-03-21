@@ -780,6 +780,11 @@ export const messages = {
   },
   'git.branch.title': { 'zh-CN': '分支管理', 'en-US': 'Branch Management' },
   'git.branch.count': { 'zh-CN': '共 {count} 个', 'en-US': '{count} branches' },
+  'git.branch.currentLabel': { 'zh-CN': '当前分支', 'en-US': 'Current branch' },
+  'git.branch.switchSection': { 'zh-CN': '切换或清理', 'en-US': 'Switch or clean up' },
+  'git.branch.targetLabel': { 'zh-CN': '目标分支', 'en-US': 'Target branch' },
+  'git.branch.createSection': { 'zh-CN': '创建新分支', 'en-US': 'Create new branch' },
+  'git.branch.createLabel': { 'zh-CN': '新分支名称', 'en-US': 'New branch name' },
   'git.branch.createPlaceholder': {
     'zh-CN': '新分支名，例如 feat/git-pane',
     'en-US': 'New branch name, e.g. feat/git-pane',

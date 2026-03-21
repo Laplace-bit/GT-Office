@@ -18,6 +18,7 @@ use vb_task::{AgentProviderSessionMetadata, AgentToolKind, TaskService};
 use vb_terminal::PtyTerminalProvider;
 use vb_workspace::InMemoryWorkspaceService;
 
+use crate::commands::git::status_coordinator::GitStatusCoordinator;
 use crate::daemon_bridge::DaemonBridge;
 use crate::external_tool_profiles::ToolScreenProfile;
 use crate::filesystem_watcher::WorkspaceWatcherRegistry;
@@ -331,6 +332,7 @@ pub struct AppState {
     pub workspace_service: InMemoryWorkspaceService,
     pub terminal_provider: PtyTerminalProvider<InMemoryWorkspaceService, AllowAllPolicyEvaluator>,
     pub git_service: GitService<InMemoryWorkspaceService>,
+    pub git_status_coordinator: GitStatusCoordinator,
     pub settings_service: JsonSettingsService,
     pub task_service: TaskService,
     pub daemon_bridge: DaemonBridge,
@@ -354,6 +356,7 @@ impl Default for AppState {
             workspace_service,
             terminal_provider,
             git_service,
+            git_status_coordinator: GitStatusCoordinator::default(),
             settings_service,
             task_service,
             daemon_bridge: DaemonBridge::default(),
@@ -559,7 +562,8 @@ impl AppState {
         workspace_id: &str,
     ) -> Result<Option<AiConfigSnapshotCache>, String> {
         let caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
-            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned".to_string()
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned"
+                .to_string()
         })?;
         Ok(caches.get(workspace_id).cloned())
     }
@@ -575,7 +579,8 @@ impl AppState {
             .map(|duration| duration.as_millis() as u64)
             .unwrap_or(0);
         let mut caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
-            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned".to_string()
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned"
+                .to_string()
         })?;
         caches.insert(
             workspace_id.to_string(),
@@ -590,7 +595,8 @@ impl AppState {
 
     pub fn invalidate_ai_config_snapshot_cache(&self, workspace_id: &str) -> Result<(), String> {
         let mut caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
-            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned".to_string()
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned"
+                .to_string()
         })?;
         caches.remove(workspace_id);
         Ok(())
@@ -1685,7 +1691,10 @@ fn refresh_external_reply_session_log_binding(session: &mut ExternalReplyRelaySe
         provider,
         resolved_cwd: PathBuf::from(resolved_cwd),
         bind_started_at_ms: Some(session.bind_started_at_ms),
-        provider_session: session.provider_session.as_ref().map(provider_session_to_log),
+        provider_session: session
+            .provider_session
+            .as_ref()
+            .map(provider_session_to_log),
     };
     let request = SessionLogRequest {
         dispatched_text: dispatched_text.to_string(),
@@ -1696,9 +1705,7 @@ fn refresh_external_reply_session_log_binding(session: &mut ExternalReplyRelaySe
     }
 }
 
-fn provider_session_to_log(
-    metadata: &AgentProviderSessionMetadata,
-) -> SessionLogProviderSession {
+fn provider_session_to_log(metadata: &AgentProviderSessionMetadata) -> SessionLogProviderSession {
     SessionLogProviderSession {
         provider: session_log_provider_for_tool_kind(metadata.provider)
             .unwrap_or(SessionLogProvider::Codex),
@@ -1709,9 +1716,7 @@ fn provider_session_to_log(
     }
 }
 
-fn provider_session_from_log(
-    metadata: &SessionLogProviderSession,
-) -> AgentProviderSessionMetadata {
+fn provider_session_from_log(metadata: &SessionLogProviderSession) -> AgentProviderSessionMetadata {
     AgentProviderSessionMetadata {
         provider: match metadata.provider {
             SessionLogProvider::Claude => AgentToolKind::Claude,

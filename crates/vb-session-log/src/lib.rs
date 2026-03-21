@@ -259,7 +259,11 @@ impl ClaudeSessionBinding {
     }
 
     fn reset_if_truncated(&mut self, path: &Path) {
-        let size = path.metadata().ok().map(|meta| meta.len()).unwrap_or(self.offset);
+        let size = path
+            .metadata()
+            .ok()
+            .map(|meta| meta.len())
+            .unwrap_or(self.offset);
         if size >= self.offset {
             return;
         }
@@ -446,7 +450,11 @@ impl CodexSessionBinding {
     }
 
     fn reset_if_truncated(&mut self, path: &Path) {
-        let size = path.metadata().ok().map(|meta| meta.len()).unwrap_or(self.offset);
+        let size = path
+            .metadata()
+            .ok()
+            .map(|meta| meta.len())
+            .unwrap_or(self.offset);
         if size >= self.offset {
             return;
         }
@@ -487,7 +495,9 @@ impl CodexSessionBinding {
         };
         if should_switch {
             self.active_log_path = latest.as_ref().map(|candidate| candidate.path.clone());
-            self.provider_session = latest.as_ref().map(|candidate| candidate.provider_session.clone());
+            self.provider_session = latest
+                .as_ref()
+                .map(|candidate| candidate.provider_session.clone());
             self.initial_scan_offset = latest
                 .as_ref()
                 .and_then(|candidate| rewind_offset(&candidate.path, LOG_REWIND_BYTES))
@@ -772,7 +782,8 @@ fn resolve_latest_codex_log(
                 discovery_confidence = "time_window";
             }
         }
-        if !prompt_fingerprint.is_empty() && codex_log_contains_prompt_anchor(&path, prompt_fingerprint)
+        if !prompt_fingerprint.is_empty()
+            && codex_log_contains_prompt_anchor(&path, prompt_fingerprint)
         {
             score += 500_000;
             discovery_confidence = "prompt_anchor";
@@ -834,10 +845,7 @@ fn extract_codex_session_meta(path: &Path) -> Option<CodexSessionMeta> {
             .and_then(serde_json::Value::as_str)
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
-        cwd: payload
-            .get("cwd")?
-            .as_str()
-            .map(normalize_path_key),
+        cwd: payload.get("cwd")?.as_str().map(normalize_path_key),
     })
 }
 

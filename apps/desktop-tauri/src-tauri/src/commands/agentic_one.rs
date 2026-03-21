@@ -44,7 +44,11 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
     };
 
     let progress_event = format!("install-progress:{}", event_id);
-    emit_progress(&window, &progress_event, format!("🚀 Initiating {} deployment...", name));
+    emit_progress(
+        &window,
+        &progress_event,
+        format!("🚀 Initiating {} deployment...", name),
+    );
 
     let (cmd_name, args) = AgentInstaller::get_install_command(agent);
     let status = run_progress_command(&window, &progress_event, &cmd_name, &args)?;
@@ -123,7 +127,9 @@ pub async fn uninstall_agent(window: tauri::Window, agent: AgentType) -> Result<
         return Err(format!(
             "{name} uninstall completed, but GT Office still detects `{}` at {}.",
             AgentInstaller::executable_name(agent),
-            verified.executable.unwrap_or_else(|| "an unknown path".to_string())
+            verified
+                .executable
+                .unwrap_or_else(|| "an unknown path".to_string())
         ));
     }
 
@@ -182,7 +188,11 @@ pub async fn install_agent_mcp(window: tauri::Window, agent: AgentType) -> Resul
 }
 
 fn resolve_mcp_installer_path(window: &tauri::Window) -> PathBuf {
-    let resource_path = window.app_handle().path().resource_dir().unwrap_or_default();
+    let resource_path = window
+        .app_handle()
+        .path()
+        .resource_dir()
+        .unwrap_or_default();
     let installer_script = resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
     if installer_script.exists() {
         installer_script
@@ -208,7 +218,10 @@ fn check_mcp_installed(agent: AgentType) -> bool {
     };
 
     let paths = match agent {
-        AgentType::ClaudeCode => vec![home.join(".claude.json"), home.join(".claude").join("settings.json")],
+        AgentType::ClaudeCode => vec![
+            home.join(".claude.json"),
+            home.join(".claude").join("settings.json"),
+        ],
         AgentType::Codex => vec![home.join(".codex").join("config.toml")],
         AgentType::Gemini => vec![home.join(".gemini").join("settings.json")],
     };
@@ -257,7 +270,13 @@ fn ensure_global_shell_path_for_local_bin(window: &tauri::Window, progress_event
         let marker_end = "# <<< GT Office local-bin <<<";
         let export_line = "export PATH=\"$HOME/.local/bin:$PATH\"";
         let block = format!("\n{marker_start}\n{export_line}\n{marker_end}\n");
-        let rc_files = [".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile"];
+        let rc_files = [
+            ".zshrc",
+            ".zprofile",
+            ".bashrc",
+            ".bash_profile",
+            ".profile",
+        ];
         let mut updated = Vec::new();
 
         for rc_name in rc_files {
@@ -295,7 +314,11 @@ fn ensure_global_shell_path_for_local_bin(window: &tauri::Window, progress_event
                 emit_progress(
                     window,
                     progress_event,
-                    format!("⚠️ Failed to write PATH export into {}: {}", rc_path.display(), error),
+                    format!(
+                        "⚠️ Failed to write PATH export into {}: {}",
+                        rc_path.display(),
+                        error
+                    ),
                 );
                 continue;
             }

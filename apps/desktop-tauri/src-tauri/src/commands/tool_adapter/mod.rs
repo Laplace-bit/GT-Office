@@ -1490,9 +1490,11 @@ pub(crate) fn spawn_external_reply_flush_worker(app: AppHandle, state: AppState)
 
 async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> Result<(), String> {
     let state_for_logs = state.clone();
-    tauri::async_runtime::spawn_blocking(move || state_for_logs.refresh_external_reply_session_logs())
-        .await
-        .map_err(|error| format!("CHANNEL_REPLY_LOG_REFRESH_JOIN_FAILED: {error}"))??;
+    tauri::async_runtime::spawn_blocking(move || {
+        state_for_logs.refresh_external_reply_session_logs()
+    })
+    .await
+    .map_err(|error| format!("CHANNEL_REPLY_LOG_REFRESH_JOIN_FAILED: {error}"))??;
 
     let interaction_candidates = state.take_external_interaction_dispatch_candidates()?;
     for candidate in interaction_candidates {
