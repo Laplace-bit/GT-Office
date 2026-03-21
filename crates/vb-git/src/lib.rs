@@ -18,6 +18,22 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Maximum line length for word-level diff computation (performance optimization)
 const MAX_WORD_DIFF_LINE_LENGTH: usize = 500;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GitDiffMode {
+    Staged,
+    Unstaged,
+}
+
+impl GitDiffMode {
+    fn from_staged(staged: bool) -> Self {
+        if staged {
+            Self::Staged
+        } else {
+            Self::Unstaged
+        }
+    }
+}
+
 pub fn module_name() -> &'static str {
     "vb-git"
 }
@@ -603,14 +619,15 @@ where
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id, path = path))]
-    pub fn diff_file(&self, workspace_id: &WorkspaceId, path: &str) -> AbstractionResult<String> {
+    pub fn diff_file(
+        &self,
+        workspace_id: &WorkspaceId,
+        path: &str,
+        staged: bool,
+    ) -> AbstractionResult<String> {
         Self::validate_relative_repo_path(path)?;
         let root = self.workspace_root(workspace_id)?;
-        self.run_git(
-            &root,
-            &["diff", "--no-ext-diff", "--", path],
-            "GIT_DIFF_FAILED",
-        )
+        self.run_git_diff(&root, path, GitDiffMode::from_staged(staged))
     }
 
     /// High-performance structured diff using git2 library
@@ -620,27 +637,30 @@ where
         &self,
         workspace_id: &WorkspaceId,
         path: &str,
+        staged: bool,
     ) -> AbstractionResult<GitDiffStructured> {
         Self::validate_relative_repo_path(path)?;
         let root = self.workspace_root(workspace_id)?;
+        let diff_mode = GitDiffMode::from_staged(staged);
 
         // Try git2 first for performance, fallback to git command
-        match self.diff_file_with_git2(&root, path) {
+        match self.diff_file_with_git2(&root, path, diff_mode) {
             Ok(result) => Ok(result),
             Err(_) => {
                 // Fallback to git command and parse the output
-                let patch = self.run_git(
-                    &root,
-                    &["diff", "--no-ext-diff", "--", path],
-                    "GIT_DIFF_FAILED",
-                )?;
+                let patch = self.run_git_diff(&root, path, diff_mode)?;
                 Ok(self.parse_diff_patch(&patch, path))
             }
         }
     }
 
     /// Use git2 library for high-performance diff
-    fn diff_file_with_git2(&self, root: &Path, path: &str) -> AbstractionResult<GitDiffStructured> {
+    fn diff_file_with_git2(
+        &self,
+        root: &Path,
+        path: &str,
+        diff_mode: GitDiffMode,
+    ) -> AbstractionResult<GitDiffStructured> {
         let repo = Repository::discover(root).map_err(|err| AbstractionError::Internal {
             message: format!("GIT_DIFF_GIT2_FAILED: repository discovery failed: {err}"),
         })?;
@@ -658,15 +678,25 @@ where
         // Get diff options
         let mut diff_opts = git2::DiffOptions::new();
         diff_opts.pathspec(path);
-        diff_opts.include_untracked(true);
-        diff_opts.recurse_untracked_dirs(true);
+        if diff_mode == GitDiffMode::Unstaged {
+            diff_opts.include_untracked(true);
+            diff_opts.recurse_untracked_dirs(true);
+        }
         diff_opts.context_lines(3);
 
         // Get the diff
-        let diff = if let Some(ref tree) = head_tree {
-            repo.diff_tree_to_workdir_with_index(Some(tree), Some(&mut diff_opts))
+        let diff = if diff_mode == GitDiffMode::Staged {
+            let index = repo.index().map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_DIFF_GIT2_FAILED: failed to read index: {err}"),
+            })?;
+            if let Some(ref tree) = head_tree {
+                repo.diff_tree_to_index(Some(tree), Some(&index), Some(&mut diff_opts))
+            } else {
+                repo.diff_tree_to_index(None, Some(&index), Some(&mut diff_opts))
+            }
         } else {
-            repo.diff_tree_to_workdir_with_index(None, Some(&mut diff_opts))
+            let index = repo.index().ok();
+            repo.diff_index_to_workdir(index.as_ref(), Some(&mut diff_opts))
         }
         .map_err(|err| AbstractionError::Internal {
             message: format!("GIT_DIFF_GIT2_FAILED: diff creation failed: {err}"),
@@ -798,20 +828,30 @@ where
         // Enhance with word-level diff
         Self::enhance_hunks_with_word_diff(&mut result.hunks);
 
-        // If no structured diff available, get raw patch
         if result.hunks.is_empty() && !result.is_binary {
-            result.patch = self
-                .run_git(
-                    root,
-                    &["diff", "--no-ext-diff", "--", path],
-                    "GIT_DIFF_FAILED",
-                )
-                .unwrap_or_default();
-        } else {
-            result.patch = patch_content;
+            let patch = self.run_git_diff(root, path, diff_mode)?;
+            if patch.trim().is_empty() {
+                result.patch = patch;
+                return Ok(result);
+            }
+            return Ok(self.parse_diff_patch(&patch, path));
         }
 
+        result.patch = patch_content;
         Ok(result)
+    }
+
+    fn run_git_diff(
+        &self,
+        root: &Path,
+        path: &str,
+        diff_mode: GitDiffMode,
+    ) -> AbstractionResult<String> {
+        let args = match diff_mode {
+            GitDiffMode::Staged => vec!["diff", "--cached", "--no-ext-diff", "--", path],
+            GitDiffMode::Unstaged => vec!["diff", "--no-ext-diff", "--", path],
+        };
+        self.run_git(root, &args, "GIT_DIFF_FAILED")
     }
 
     /// Parse raw git diff patch into structured format
@@ -1779,6 +1819,31 @@ mod tests {
             "base\n"
         );
         assert!(!root.join("scratch.txt").exists());
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn diff_scopes_use_different_git_baselines_for_same_file() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(root.join("tracked.txt"), "staged\n").expect("tracked file should be updated");
+        run_git(&root, &["add", "tracked.txt"]);
+        fs::write(root.join("tracked.txt"), "staged\nworktree\n")
+            .expect("tracked file should include unstaged change");
+
+        let staged = service
+            .diff_file_structured(&workspace_id, "tracked.txt", true)
+            .expect("staged diff should succeed");
+        let unstaged = service
+            .diff_file_structured(&workspace_id, "tracked.txt", false)
+            .expect("unstaged diff should succeed");
+
+        assert_ne!(staged.patch, unstaged.patch);
+        assert!(staged.patch.contains("-base"));
+        assert!(staged.patch.contains("+staged"));
+        assert!(unstaged.patch.contains("+worktree"));
+        assert!(!unstaged.patch.contains("-base"));
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
     }

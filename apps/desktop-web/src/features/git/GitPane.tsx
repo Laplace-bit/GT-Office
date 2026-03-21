@@ -10,6 +10,7 @@ import {
 import {
   ROW_HEIGHT,
   OVERSCAN_ROWS,
+  type GitDiffScope,
   type GitWorkspaceController,
 } from './useGitWorkspaceController'
 import { DiffViewer } from './DiffViewer'
@@ -37,6 +38,38 @@ function getFileName(path: string): string {
   }
   const lastSlashIndex = normalizedPath.lastIndexOf('/')
   return lastSlashIndex >= 0 ? normalizedPath.slice(lastSlashIndex + 1) : normalizedPath
+}
+
+function hasStagedChanges(file: GitStatusFile): boolean {
+  if (file.status.startsWith('??')) {
+    return false
+  }
+  if (file.status.length >= 2) {
+    const indexStatus = file.status[0] ?? ' '
+    return indexStatus !== ' ' && indexStatus !== '?'
+  }
+  return file.staged
+}
+
+function hasUnstagedChanges(file: GitStatusFile): boolean {
+  if (file.status.startsWith('??')) {
+    return true
+  }
+  if (file.status.length >= 2) {
+    const worktreeStatus = file.status[1] ?? ' '
+    return worktreeStatus !== ' '
+  }
+  return !file.staged && file.status.trim().length > 0
+}
+
+function resolveDiffScope(file: GitStatusFile, filter: 'all' | 'staged' | 'unstaged'): GitDiffScope {
+  if (filter === 'staged') {
+    return 'staged'
+  }
+  if (filter === 'unstaged') {
+    return 'unstaged'
+  }
+  return hasUnstagedChanges(file) ? 'unstaged' : 'staged'
 }
 
 const MIN_CHANGES_SECTION_BASE_HEIGHT = 180
@@ -124,6 +157,7 @@ interface GitFileRowProps {
   isActive: boolean
   locale: 'zh-CN' | 'en-US'
   actionLoading: string | null
+  actionMode: 'staged' | 'unstaged' | 'mixed'
   onSelect: () => void
   onPreload: () => void
   onStage: () => void
@@ -137,6 +171,7 @@ const GitFileRow = memo(function GitFileRow({
   isActive,
   locale,
   actionLoading,
+  actionMode,
   onSelect,
   onPreload,
   onStage,
@@ -166,7 +201,7 @@ const GitFileRow = memo(function GitFileRow({
         <span className="git-file-row__path">{fileName}</span>
       </button>
       <div className="git-file-row__actions">
-        {file.staged ? (
+        {actionMode === 'staged' ? (
           <GitIconButton
             icon="undo"
             label={t(locale, 'git.action.unstage')}
@@ -174,6 +209,32 @@ const GitFileRow = memo(function GitFileRow({
             disabled={Boolean(actionLoading)}
             size="sm"
           />
+        ) : actionMode === 'mixed' ? (
+          <>
+            <GitIconButton
+              icon="check"
+              label={t(locale, 'git.action.stage')}
+              onClick={onStage}
+              disabled={Boolean(actionLoading)}
+              size="sm"
+              variant="success"
+            />
+            <GitIconButton
+              icon="undo"
+              label={t(locale, 'git.action.unstage')}
+              onClick={onUnstage}
+              disabled={Boolean(actionLoading)}
+              size="sm"
+            />
+            <GitIconButton
+              icon="rotate-ccw"
+              label={t(locale, 'git.action.discard')}
+              onClick={() => onDiscard()}
+              disabled={Boolean(actionLoading)}
+              size="sm"
+              variant="danger"
+            />
+          </>
         ) : (
           <>
             <GitIconButton
@@ -195,6 +256,59 @@ const GitFileRow = memo(function GitFileRow({
           </>
         )}
       </div>
+    </div>
+  )
+})
+
+interface GitDiscardConfirmDialogProps {
+  locale: 'zh-CN' | 'en-US'
+  path: string
+  loading: boolean
+  onClose: () => void
+  onConfirm: () => void
+}
+
+const GitDiscardConfirmDialog = memo(function GitDiscardConfirmDialog({
+  locale,
+  path,
+  loading,
+  onClose,
+  onConfirm,
+}: GitDiscardConfirmDialogProps) {
+  const fileName = getFileName(path)
+  return (
+    <div className="git-confirm-modal-overlay" onClick={loading ? undefined : onClose}>
+      <section
+        className="git-confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="git-discard-confirm-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="git-confirm-modal__header">
+          <span className="git-confirm-modal__eyebrow">{t(locale, 'git.confirm.discardEyebrow')}</span>
+          <h3 id="git-discard-confirm-title">{t(locale, 'git.confirm.discardTitle')}</h3>
+        </header>
+        <div className="git-confirm-modal__body">
+          <div className="git-confirm-modal__path-card" title={path}>
+            <strong className="git-confirm-modal__path-name">{fileName}</strong>
+          </div>
+        </div>
+        <footer className="git-confirm-modal__footer">
+          <button type="button" className="v-btn v-btn-secondary" onClick={onClose} disabled={loading}>
+            {t(locale, 'git.action.cancel')}
+          </button>
+          <button
+            type="button"
+            className="v-btn v-btn-danger git-confirm-modal__danger-btn"
+            onClick={onConfirm}
+            disabled={loading}
+          >
+            <span className="git-confirm-modal__danger-signal" aria-hidden="true" />
+            {t(locale, 'git.action.discard')}
+          </button>
+        </footer>
+      </section>
     </div>
   )
 })
@@ -256,6 +370,10 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     branches: true,
     stash: true,
   })
+  const [discardConfirmState, setDiscardConfirmState] = useState<{
+    path: string
+    includeUntracked: boolean
+  } | null>(null)
   const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
   const rootFontSizePx = useRootFontSizePx()
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -324,336 +442,397 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   }, [fileRowHeight, fileVirtualizer])
 
   // Memoized callbacks for file actions
-  const handleSelectPath = useCallback((path: string) => selectPath(path), [selectPath])
-  const handlePreloadDiff = useCallback((path: string) => preloadDiff(path), [preloadDiff])
+  const handleSelectPath = useCallback(
+    (path: string, scope: GitDiffScope) => selectPath(path, scope),
+    [selectPath],
+  )
+  const handlePreloadDiff = useCallback(
+    (path: string, scope: GitDiffScope) => preloadDiff(path, scope),
+    [preloadDiff],
+  )
   const handleStagePath = useCallback((path: string) => void stagePath(path), [stagePath])
   const handleUnstagePath = useCallback((path: string) => void unstagePath(path), [unstagePath])
   const handleDiscardPath = useCallback(
-    (path: string, isUntracked: boolean) => void discardPath(path, isUntracked),
-    [discardPath],
+    (path: string, isUntracked: boolean) =>
+      setDiscardConfirmState({
+        path,
+        includeUntracked: isUntracked,
+      }),
+    [],
   )
+  const closeDiscardConfirm = useCallback(() => {
+    if (actionLoading === 'discard') {
+      return
+    }
+    setDiscardConfirmState(null)
+  }, [actionLoading])
+  const confirmDiscardPath = useCallback(async () => {
+    if (!discardConfirmState) {
+      return
+    }
+    try {
+      await discardPath(discardConfirmState.path, discardConfirmState.includeUntracked)
+    } finally {
+      setDiscardConfirmState(null)
+    }
+  }, [discardConfirmState, discardPath])
 
   const totalFiles = summary?.files.length ?? 0
   const currentBranchEntry = branches.find((branch) => branch.current) ?? null
+  const showStageAllAction = filter !== 'staged'
+  const showUnstageAllAction = filter !== 'unstaged'
+  const discardConfirmModal = discardConfirmState ? (
+    <GitDiscardConfirmDialog
+      locale={locale}
+      path={discardConfirmState.path}
+      loading={actionLoading === 'discard'}
+      onClose={closeDiscardConfirm}
+      onConfirm={() => void confirmDiscardPath()}
+    />
+  ) : null
 
   if (!workspaceId) {
     return (
-      <section className="git-pane git-ops-pane">
-        <div className="git-pane__empty">
-          <AppIcon name="git" className="git-pane__empty-icon" />
-          <h2>{t(locale, 'pane.git.title')}</h2>
-          <p>{t(locale, 'git.workspaceRequired')}</p>
-        </div>
-      </section>
+      <>
+        <section className="git-pane git-ops-pane">
+          <div className="git-pane__empty">
+            <AppIcon name="git" className="git-pane__empty-icon" />
+            <h2>{t(locale, 'pane.git.title')}</h2>
+            <p>{t(locale, 'git.workspaceRequired')}</p>
+          </div>
+        </section>
+        {discardConfirmModal}
+      </>
     )
   }
 
   return (
-    <section className="git-pane git-ops-pane">
-      {/* Header */}
-      <header className="git-pane__header">
-        <div className="git-pane__header-left">
-          <AppIcon name="git-branch" className="git-pane__branch-icon" />
-          <div className="git-pane__branch-info">
-            <span className="git-pane__branch-name">{summary?.branch || (isGitRepository ? 'main' : '—')}</span>
-            <span className="git-pane__branch-status">
-              {summary ? (
-                <>
-                  <span className="git-pane__ahead">↑{summary.ahead}</span>
-                  <span className="git-pane__behind">↓{summary.behind}</span>
-                </>
-              ) : (
-                '—'
-              )}
-            </span>
+    <>
+      <section className="git-pane git-ops-pane">
+        {/* Header */}
+        <header className="git-pane__header">
+          <div className="git-pane__header-left">
+            <AppIcon name="git-branch" className="git-pane__branch-icon" />
+            <div className="git-pane__branch-info">
+              <span className="git-pane__branch-name">{summary?.branch || (isGitRepository ? 'main' : '—')}</span>
+              <span className="git-pane__branch-status">
+                {summary ? (
+                  <>
+                    <span className="git-pane__ahead">↑{summary.ahead}</span>
+                    <span className="git-pane__behind">↓{summary.behind}</span>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="git-pane__header-actions">
-          <GitIconButton icon="refresh" label={t(locale, 'fileTree.refresh')} onClick={() => void refreshAll()} disabled={Boolean(actionLoading)} />
-          <GitIconButton icon="cloud-download" label={t(locale, 'git.action.fetch')} onClick={() => void fetch()} disabled={!isGitRepository || Boolean(actionLoading)} />
-          <GitIconButton icon="arrow-down" label={t(locale, 'git.action.pull')} onClick={() => void pull()} disabled={!isGitRepository || Boolean(actionLoading)} />
-          <GitIconButton icon="arrow-up" label={t(locale, 'git.action.push')} onClick={() => void push()} disabled={!isGitRepository || Boolean(actionLoading)} />
-        </div>
-      </header>
+          <div className="git-pane__header-actions">
+            <GitIconButton icon="refresh" label={t(locale, 'fileTree.refresh')} onClick={() => void refreshAll()} disabled={Boolean(actionLoading)} />
+            <GitIconButton icon="cloud-download" label={t(locale, 'git.action.fetch')} onClick={() => void fetch()} disabled={!isGitRepository || Boolean(actionLoading)} />
+            <GitIconButton icon="arrow-down" label={t(locale, 'git.action.pull')} onClick={() => void pull()} disabled={!isGitRepository || Boolean(actionLoading)} />
+            <GitIconButton icon="arrow-up" label={t(locale, 'git.action.push')} onClick={() => void push()} disabled={!isGitRepository || Boolean(actionLoading)} />
+          </div>
+        </header>
 
-      {errorMessage ? <div className="git-pane__error">{errorMessage}</div> : null}
+        {errorMessage ? <div className="git-pane__error">{errorMessage}</div> : null}
 
-      {/* Scrollable content area */}
-      <div ref={contentRef} className="git-pane__content">
-        {/* Changes Section */}
-        <section
-          className={`git-section git-section--changes ${!collapsedSections.changes ? 'git-section--expanded' : ''}`}
-          style={
-            !collapsedSections.changes && changesSectionHeight
-              ? { height: actualPxToRem(changesSectionHeight, rootFontSizePx) }
-              : undefined
-          }
-        >
-          <GitSectionHeader
-            title={t(locale, 'git.files.title')}
-            count={totalFiles}
-            countLabel={t(locale, 'git.files.countLabel')}
-            collapsed={collapsedSections.changes}
-            onToggle={() => toggleSection('changes')}
-          />
-          {!collapsedSections.changes && (
-            <div className="git-section__content">
-              {/* Filter Chips */}
-              <div className="git-filter-bar">
-                <div className="git-filter-chips" role="group">
-                  {(['all', 'staged', 'unstaged'] as const).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      className={`git-filter-chip ${filter === f ? 'git-filter-chip--active' : ''}`}
-                      onClick={() => setFilter(f)}
-                    >
-                      {t(locale, `git.filter.${f}`)}
-                    </button>
-                  ))}
-                </div>
+        {/* Scrollable content area */}
+        <div ref={contentRef} className="git-pane__content">
+          {/* Changes Section */}
+          <section
+            className={`git-section git-section--changes ${!collapsedSections.changes ? 'git-section--expanded' : ''}`}
+            style={
+              !collapsedSections.changes && changesSectionHeight
+                ? { height: actualPxToRem(changesSectionHeight, rootFontSizePx) }
+                : undefined
+            }
+          >
+            <GitSectionHeader
+              title={t(locale, 'git.files.title')}
+              count={totalFiles}
+              countLabel={t(locale, 'git.files.countLabel')}
+              collapsed={collapsedSections.changes}
+              onToggle={() => toggleSection('changes')}
+            />
+            {!collapsedSections.changes && (
+              <div className="git-section__content">
+                {/* Filter Chips */}
+                <div className="git-filter-bar">
+                  <div className="git-filter-chips" role="group">
+                    {(['all', 'staged', 'unstaged'] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        className={`git-filter-chip ${filter === f ? 'git-filter-chip--active' : ''}`}
+                        onClick={() => setFilter(f)}
+                      >
+                        {t(locale, `git.filter.${f}`)}
+                      </button>
+                    ))}
+                  </div>
                 <div className="git-filter-actions">
-                  <GitIconButton
-                    icon="check"
-                    label={t(locale, 'git.action.stageAll')}
-                    onClick={() => void stageAll()}
-                    disabled={!isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)}
-                    variant="success"
-                    size="sm"
-                    title={t(locale, 'git.action.stageAll')}
-                  />
-                  <GitIconButton
-                    icon="x-mark"
-                    label={t(locale, 'git.action.unstageAll')}
-                    onClick={() => void unstageAll()}
-                    disabled={!isGitRepository || !hasStagedFiles || Boolean(actionLoading)}
-                    size="sm"
-                    title={t(locale, 'git.action.unstageAll')}
-                  />
-                </div>
-              </div>
-
-              {/* File List with Virtual Scrolling */}
-              <div ref={viewportRef} className="git-file-list">
-                <div
-                  className="git-file-list__inner"
-                  style={{ height: actualPxToRem(fileVirtualizer.getTotalSize(), rootFontSizePx) }}
-                >
-                  {fileVirtualizer.getVirtualItems().map((virtualItem) => {
-                    const file = visibleFiles[virtualItem.index]
-                    if (!file) return null
-                    const isActive = selectedPath === file.path
-                    const isUntracked = file.status.startsWith('??')
-                    return (
-                      <GitFileRow
-                        key={file.path}
-                        file={file}
-                        isActive={isActive}
-                        locale={locale}
-                        actionLoading={actionLoading}
-                        onSelect={() => handleSelectPath(file.path)}
-                        onPreload={() => handlePreloadDiff(file.path)}
-                        onStage={() => handleStagePath(file.path)}
-                        onUnstage={() => handleUnstagePath(file.path)}
-                        onDiscard={() => handleDiscardPath(file.path, isUntracked)}
-                        style={{ transform: `translateY(${actualPxToRem(virtualItem.start, rootFontSizePx)})` }}
+                    {showStageAllAction ? (
+                      <GitIconButton
+                        icon="check"
+                        label={t(locale, 'git.action.stageAll')}
+                        onClick={() => void stageAll()}
+                        disabled={!isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)}
+                        variant="success"
+                        size="sm"
+                        title={t(locale, 'git.action.stageAll')}
                       />
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Commit Section */}
-        <section className={`git-section ${!collapsedSections.commit ? 'git-section--expanded' : ''}`}>
-          <GitSectionHeader
-            title={t(locale, 'git.commit.title')}
-            collapsed={collapsedSections.commit}
-            onToggle={() => toggleSection('commit')}
-          />
-          {!collapsedSections.commit && (
-            <div className="git-section__content">
-              <div className="git-commit-form">
-                <input
-                  type="text"
-                  className="git-commit-form__input"
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  placeholder={t(locale, 'git.commit.placeholder')}
-                  disabled={!isGitRepository}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && hasStagedFiles && commitMessage.trim()) {
-                      e.preventDefault()
-                      void commit()
-                    }
-                  }}
-                />
-                <div className="git-commit-form__actions">
-                  <GitIconButton
-                    icon="git-commit"
-                    label={t(locale, 'git.action.commit')}
-                    onClick={() => void commit()}
-                    disabled={!isGitRepository || !hasStagedFiles || !commitMessage.trim() || Boolean(actionLoading)}
-                    variant="primary"
-                    showLabel
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Branch Section */}
-        <section className={`git-section ${!collapsedSections.branches ? 'git-section--expanded' : ''}`}>
-          <GitSectionHeader
-            title={t(locale, 'git.branch.title')}
-            count={branches.length}
-            collapsed={collapsedSections.branches}
-            onToggle={() => toggleSection('branches')}
-          />
-          {!collapsedSections.branches && (
-            <div className="git-section__content">
-              <div className="git-branch-panel">
-                <div className="git-branch-panel__current">
-                  <span className="git-branch-panel__label">{t(locale, 'git.branch.currentLabel')}</span>
-                  <div className="git-branch-panel__value-wrap">
-                    <code className="git-branch-panel__value">{currentBranchEntry?.name ?? '—'}</code>
-                    <span className="git-branch-panel__count">
-                      {t(locale, 'git.branch.count', { count: branches.length })}
-                    </span>
+                    ) : null}
+                    {showUnstageAllAction ? (
+                      <GitIconButton
+                        icon="x-mark"
+                        label={t(locale, 'git.action.unstageAll')}
+                        onClick={() => void unstageAll()}
+                        disabled={!isGitRepository || !hasStagedFiles || Boolean(actionLoading)}
+                        size="sm"
+                        title={t(locale, 'git.action.unstageAll')}
+                      />
+                    ) : null}
                   </div>
                 </div>
 
-                <div className="git-branch-grid">
-                  <section className="git-branch-card">
-                    <div className="git-branch-card__header">
-                      <strong className="git-branch-card__title">
-                        {t(locale, 'git.branch.switchSection')}
-                      </strong>
-                    </div>
-                    <label className="git-field">
-                      <span className="git-field__label">{t(locale, 'git.branch.targetLabel')}</span>
-                      <select
-                        className="git-branch-form__select"
-                        value={checkoutTarget}
-                        onChange={(e) => setCheckoutTarget(e.target.value)}
-                        disabled={!isGitRepository}
-                      >
-                        {branches.map((branch) => (
-                          <option key={branch.name} value={branch.name}>
-                            {branch.current ? `✓ ${branch.name}` : branch.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="git-branch-card__actions">
-                      <GitIconButton
-                        icon="git-merge"
-                        label={t(locale, 'git.action.checkout')}
-                        onClick={() => void checkout()}
-                        disabled={!isGitRepository || !checkoutTarget || Boolean(actionLoading)}
-                        showLabel
-                      />
-                      <GitIconButton
-                        icon="trash"
-                        label={t(locale, 'git.action.deleteBranch')}
-                        onClick={() => void deleteBranch()}
-                        disabled={!isGitRepository || !checkoutTarget || selectedBranchEntry?.current || Boolean(actionLoading)}
-                        variant="danger"
-                        showLabel
-                      />
-                    </div>
-                  </section>
-
-                  <section className="git-branch-card git-branch-card--primary">
-                    <div className="git-branch-card__header">
-                      <strong className="git-branch-card__title">
-                        {t(locale, 'git.branch.createSection')}
-                      </strong>
-                    </div>
-                    <label className="git-field">
-                      <span className="git-field__label">{t(locale, 'git.branch.createLabel')}</span>
-                      <input
-                        type="text"
-                        className="git-branch-form__input"
-                        value={newBranchName}
-                        onChange={(e) => setNewBranchName(e.target.value)}
-                        placeholder={t(locale, 'git.branch.createPlaceholder')}
-                        disabled={!isGitRepository}
-                      />
-                    </label>
-                    <div className="git-branch-card__actions">
-                      <GitIconButton
-                        icon="plus"
-                        label={t(locale, 'git.action.createBranch')}
-                        onClick={() => void createBranch()}
-                        disabled={!isGitRepository || !newBranchName.trim() || Boolean(actionLoading)}
-                        variant="primary"
-                        showLabel
-                      />
-                    </div>
-                  </section>
+                {/* File List with Virtual Scrolling */}
+                <div ref={viewportRef} className="git-file-list">
+                  <div
+                    className="git-file-list__inner"
+                    style={{ height: actualPxToRem(fileVirtualizer.getTotalSize(), rootFontSizePx) }}
+                  >
+                    {fileVirtualizer.getVirtualItems().map((virtualItem) => {
+                      const file = visibleFiles[virtualItem.index]
+                      if (!file) return null
+                      const isActive = selectedPath === file.path
+                      const fileHasStagedChanges = hasStagedChanges(file)
+                      const fileHasUnstagedChanges = hasUnstagedChanges(file)
+                      const isUntracked = file.status.startsWith('??')
+                      const diffScope = resolveDiffScope(file, filter)
+                      const actionMode =
+                        filter === 'staged'
+                          ? 'staged'
+                          : filter === 'unstaged'
+                            ? 'unstaged'
+                            : fileHasStagedChanges && fileHasUnstagedChanges
+                              ? 'mixed'
+                              : fileHasStagedChanges
+                                ? 'staged'
+                                : 'unstaged'
+                      return (
+                        <GitFileRow
+                          key={file.path}
+                          file={file}
+                          isActive={isActive}
+                          locale={locale}
+                          actionLoading={actionLoading}
+                          actionMode={actionMode}
+                          onSelect={() => handleSelectPath(file.path, diffScope)}
+                          onPreload={() => handlePreloadDiff(file.path, diffScope)}
+                          onStage={() => handleStagePath(file.path)}
+                          onUnstage={() => handleUnstagePath(file.path)}
+                          onDiscard={() => handleDiscardPath(file.path, isUntracked)}
+                          style={{ transform: `translateY(${actualPxToRem(virtualItem.start, rootFontSizePx)})` }}
+                        />
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
 
-        {/* Stash Section */}
-        <section className={`git-section ${!collapsedSections.stash ? 'git-section--expanded' : ''}`}>
-          <GitSectionHeader
-            title={t(locale, 'git.stash.title')}
-            count={stashEntries.length}
-            collapsed={collapsedSections.stash}
-            onToggle={() => toggleSection('stash')}
-          />
-          {!collapsedSections.stash && (
-            <div className="git-section__content">
-              <div className="git-stash-form">
-                <div className="git-stash-form__row">
+          {/* Commit Section */}
+          <section className={`git-section ${!collapsedSections.commit ? 'git-section--expanded' : ''}`}>
+            <GitSectionHeader
+              title={t(locale, 'git.commit.title')}
+              collapsed={collapsedSections.commit}
+              onToggle={() => toggleSection('commit')}
+            />
+            {!collapsedSections.commit && (
+              <div className="git-section__content">
+                <div className="git-commit-form">
                   <input
                     type="text"
-                    className="git-stash-form__input"
-                    value={stashMessage}
-                    onChange={(e) => setStashMessage(e.target.value)}
-                    placeholder={t(locale, 'git.stash.messagePlaceholder')}
+                    className="git-commit-form__input"
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    placeholder={t(locale, 'git.commit.placeholder')}
                     disabled={!isGitRepository}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && hasStagedFiles && commitMessage.trim()) {
+                        e.preventDefault()
+                        void commit()
+                      }
+                    }}
                   />
-                  <GitIconButton
-                    icon="archive"
-                    label={t(locale, 'git.action.stashPush')}
-                    onClick={() => void stashPush()}
-                    disabled={!isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)}
-                    showLabel
-                  />
+                  <div className="git-commit-form__actions">
+                    <GitIconButton
+                      icon="git-commit"
+                      label={t(locale, 'git.action.commit')}
+                      onClick={() => void commit()}
+                      disabled={!isGitRepository || !hasStagedFiles || !commitMessage.trim() || Boolean(actionLoading)}
+                      variant="primary"
+                      showLabel
+                    />
+                  </div>
                 </div>
               </div>
-              {stashEntries.length > 0 && (
-                <div className="git-stash-list">
-                  {stashEntries.slice(0, 5).map((entry) => (
-                    <div className="git-stash-item" key={entry.stash}>
-                      <div className="git-stash-item__info">
-                        <code className="git-stash-item__id">{entry.stash}</code>
-                        <span className="git-stash-item__summary">{entry.summary}</span>
-                      </div>
-                      <GitIconButton
-                        icon="arrow-down"
-                        label={t(locale, 'git.action.stashPop')}
-                        onClick={() => void stashPop(entry.stash)}
-                        disabled={!isGitRepository || Boolean(actionLoading)}
-                        size="sm"
-                      />
+            )}
+          </section>
+
+          {/* Branch Section */}
+          <section className={`git-section ${!collapsedSections.branches ? 'git-section--expanded' : ''}`}>
+            <GitSectionHeader
+              title={t(locale, 'git.branch.title')}
+              count={branches.length}
+              collapsed={collapsedSections.branches}
+              onToggle={() => toggleSection('branches')}
+            />
+            {!collapsedSections.branches && (
+              <div className="git-section__content">
+                <div className="git-branch-panel">
+                  <div className="git-branch-panel__current">
+                    <span className="git-branch-panel__label">{t(locale, 'git.branch.currentLabel')}</span>
+                    <div className="git-branch-panel__value-wrap">
+                      <code className="git-branch-panel__value">{currentBranchEntry?.name ?? '—'}</code>
+                      <span className="git-branch-panel__count">
+                        {t(locale, 'git.branch.count', { count: branches.length })}
+                      </span>
                     </div>
-                  ))}
+                  </div>
+
+                  <div className="git-branch-grid">
+                    <section className="git-branch-card">
+                      <div className="git-branch-card__header">
+                        <strong className="git-branch-card__title">
+                          {t(locale, 'git.branch.switchSection')}
+                        </strong>
+                      </div>
+                      <label className="git-field">
+                        <span className="git-field__label">{t(locale, 'git.branch.targetLabel')}</span>
+                        <select
+                          className="git-branch-form__select"
+                          value={checkoutTarget}
+                          onChange={(e) => setCheckoutTarget(e.target.value)}
+                          disabled={!isGitRepository}
+                        >
+                          {branches.map((branch) => (
+                            <option key={branch.name} value={branch.name}>
+                              {branch.current ? `✓ ${branch.name}` : branch.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="git-branch-card__actions">
+                        <GitIconButton
+                          icon="git-merge"
+                          label={t(locale, 'git.action.checkout')}
+                          onClick={() => void checkout()}
+                          disabled={!isGitRepository || !checkoutTarget || Boolean(actionLoading)}
+                          showLabel
+                        />
+                        <GitIconButton
+                          icon="trash"
+                          label={t(locale, 'git.action.deleteBranch')}
+                          onClick={() => void deleteBranch()}
+                          disabled={!isGitRepository || !checkoutTarget || selectedBranchEntry?.current || Boolean(actionLoading)}
+                          variant="danger"
+                          showLabel
+                        />
+                      </div>
+                    </section>
+
+                    <section className="git-branch-card git-branch-card--primary">
+                      <div className="git-branch-card__header">
+                        <strong className="git-branch-card__title">
+                          {t(locale, 'git.branch.createSection')}
+                        </strong>
+                      </div>
+                      <label className="git-field">
+                        <span className="git-field__label">{t(locale, 'git.branch.createLabel')}</span>
+                        <input
+                          type="text"
+                          className="git-branch-form__input"
+                          value={newBranchName}
+                          onChange={(e) => setNewBranchName(e.target.value)}
+                          placeholder={t(locale, 'git.branch.createPlaceholder')}
+                          disabled={!isGitRepository}
+                        />
+                      </label>
+                      <div className="git-branch-card__actions">
+                        <GitIconButton
+                          icon="plus"
+                          label={t(locale, 'git.action.createBranch')}
+                          onClick={() => void createBranch()}
+                          disabled={!isGitRepository || !newBranchName.trim() || Boolean(actionLoading)}
+                          variant="primary"
+                          showLabel
+                        />
+                      </div>
+                    </section>
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
-    </section>
+              </div>
+            )}
+          </section>
+
+          {/* Stash Section */}
+          <section className={`git-section ${!collapsedSections.stash ? 'git-section--expanded' : ''}`}>
+            <GitSectionHeader
+              title={t(locale, 'git.stash.title')}
+              count={stashEntries.length}
+              collapsed={collapsedSections.stash}
+              onToggle={() => toggleSection('stash')}
+            />
+            {!collapsedSections.stash && (
+              <div className="git-section__content">
+                <div className="git-stash-form">
+                  <div className="git-stash-form__row">
+                    <input
+                      type="text"
+                      className="git-stash-form__input"
+                      value={stashMessage}
+                      onChange={(e) => setStashMessage(e.target.value)}
+                      placeholder={t(locale, 'git.stash.messagePlaceholder')}
+                      disabled={!isGitRepository}
+                    />
+                    <GitIconButton
+                      icon="archive"
+                      label={t(locale, 'git.action.stashPush')}
+                      onClick={() => void stashPush()}
+                      disabled={!isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)}
+                      showLabel
+                    />
+                  </div>
+                </div>
+                {stashEntries.length > 0 && (
+                  <div className="git-stash-list">
+                    {stashEntries.slice(0, 5).map((entry) => (
+                      <div className="git-stash-item" key={entry.stash}>
+                        <div className="git-stash-item__info">
+                          <code className="git-stash-item__id">{entry.stash}</code>
+                          <span className="git-stash-item__summary">{entry.summary}</span>
+                        </div>
+                        <GitIconButton
+                          icon="arrow-down"
+                          label={t(locale, 'git.action.stashPop')}
+                          onClick={() => void stashPop(entry.stash)}
+                          disabled={!isGitRepository || Boolean(actionLoading)}
+                          size="sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      </section>
+      {discardConfirmModal}
+    </>
   )
 }
 

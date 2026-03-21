@@ -190,15 +190,17 @@ pub async fn git_init(
 pub async fn git_diff_file(
     workspace_id: String,
     path: String,
+    staged: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
     let workspace_id_owned = workspace_id.clone();
     let path_owned = path.clone();
+    let staged = staged.unwrap_or(false);
     let patch = run_git_blocking(&state, "GIT_DIFF_FAILED", move |app_state| {
         app_state
             .git_service
-            .diff_file(&workspace_id_owned, &path_owned)
+            .diff_file(&workspace_id_owned, &path_owned, staged)
             .map_err(to_command_error)
     })
     .await?;
@@ -211,15 +213,17 @@ pub async fn git_diff_file(
 pub async fn git_diff_file_structured(
     workspace_id: String,
     path: String,
+    staged: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = WorkspaceId::new(workspace_id);
     let workspace_id_owned = workspace_id.clone();
     let path_owned = path.clone();
+    let staged = staged.unwrap_or(false);
     let diff = run_git_blocking(&state, "GIT_DIFF_FAILED", move |app_state| {
         app_state
             .git_service
-            .diff_file_structured(&workspace_id_owned, &path_owned)
+            .diff_file_structured(&workspace_id_owned, &path_owned, staged)
             .map_err(to_command_error)
     })
     .await?;

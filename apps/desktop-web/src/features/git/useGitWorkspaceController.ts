@@ -15,6 +15,7 @@ import { isNotGitRepositoryError } from './git-error'
 // Types
 // ============================================
 export type GitFileFilter = 'all' | 'staged' | 'unstaged'
+export type GitDiffScope = 'staged' | 'unstaged'
 
 export interface UseGitWorkspaceControllerInput {
   locale: Locale
@@ -44,7 +45,7 @@ export interface GitWorkspaceController {
   filter: GitFileFilter
   setFilter: (filter: GitFileFilter) => void
   selectedPath: string | null
-  selectPath: (path: string) => void
+  selectPath: (path: string, scope?: GitDiffScope) => void
   diffLoading: boolean
   /** Structured diff data for high-performance rendering */
   structuredDiff: GitDiffStructuredResponse | null
@@ -55,7 +56,7 @@ export interface GitWorkspaceController {
   showDiffView: boolean
   setShowDiffView: (show: boolean) => void
   /** Preload diff for a path (hover preloading) */
-  preloadDiff: (path: string) => void
+  preloadDiff: (path: string, scope?: GitDiffScope) => void
   metaLoading: boolean
   actionLoading: string | null
   errorMessage: string | null
@@ -116,6 +117,38 @@ function describeUnknownError(error: unknown): string {
     return error.trim()
   }
   return 'unknown'
+}
+
+function hasStagedChanges(file: GitStatusFile): boolean {
+  if (file.status.startsWith('??')) {
+    return false
+  }
+  if (file.status.length >= 2) {
+    const indexStatus = file.status[0] ?? ' '
+    return indexStatus !== ' ' && indexStatus !== '?'
+  }
+  return file.staged
+}
+
+function hasUnstagedChanges(file: GitStatusFile): boolean {
+  if (file.status.startsWith('??')) {
+    return true
+  }
+  if (file.status.length >= 2) {
+    const worktreeStatus = file.status[1] ?? ' '
+    return worktreeStatus !== ' '
+  }
+  return !file.staged && file.status.trim().length > 0
+}
+
+function resolveDiffScope(file: GitStatusFile, filter: GitFileFilter): GitDiffScope {
+  if (filter === 'staged') {
+    return 'staged'
+  }
+  if (filter === 'unstaged') {
+    return 'unstaged'
+  }
+  return hasUnstagedChanges(file) ? 'unstaged' : 'staged'
 }
 
 export function formatGitTimestamp(value: string, locale: Locale): string {
@@ -192,6 +225,7 @@ export function useGitWorkspaceController({
 }: UseGitWorkspaceControllerInput): GitWorkspaceController {
   const [filter, setFilter] = useState<GitFileFilter>('all')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [selectedDiffScope, setSelectedDiffScope] = useState<GitDiffScope>('unstaged')
   const [, setDiffPatch] = useState('')
   const [diffLoading, setDiffLoading] = useState(false)
   const [metaLoading, setMetaLoading] = useState(false)
@@ -223,11 +257,11 @@ export function useGitWorkspaceController({
   const preloadTimerRef = useRef<number | null>(null)
 
   const stagedFiles = useMemo(
-    () => (summary?.files ?? []).filter((item) => item.staged),
+    () => (summary?.files ?? []).filter((item) => hasStagedChanges(item)),
     [summary?.files],
   )
   const unstagedFiles = useMemo(
-    () => (summary?.files ?? []).filter((item) => !item.staged),
+    () => (summary?.files ?? []).filter((item) => hasUnstagedChanges(item)),
     [summary?.files],
   )
   const visibleFiles = useMemo(() => {
@@ -650,7 +684,20 @@ export function useGitWorkspaceController({
       return
     }
     setSelectedPath(summary.files[0].path)
-  }, [selectedPath, summary])
+    setSelectedDiffScope(resolveDiffScope(summary.files[0], filter))
+  }, [filter, selectedPath, summary])
+
+  useEffect(() => {
+    if (!summary || !selectedPath) {
+      return
+    }
+    const selectedFile = summary.files.find((item) => item.path === selectedPath)
+    if (!selectedFile) {
+      return
+    }
+    const nextScope = resolveDiffScope(selectedFile, filter)
+    setSelectedDiffScope((current) => (current === nextScope ? current : nextScope))
+  }, [filter, selectedPath, summary])
 
   useEffect(() => {
     if (!workspaceId || !isGitRepository || !selectedPath) {
@@ -660,11 +707,12 @@ export function useGitWorkspaceController({
     }
 
     // Check cache first for instant loading
-    const cached = diffCacheRef.current.get(`${workspaceId}:${selectedPath}`)
+    const cacheKey = `${workspaceId}:${selectedPath}:${selectedDiffScope}`
+    const cached = diffCacheRef.current.get(cacheKey)
     if (cached) {
       // Move to end of map for LRU behavior
-      diffCacheRef.current.delete(`${workspaceId}:${selectedPath}`)
-      diffCacheRef.current.set(`${workspaceId}:${selectedPath}`, cached)
+      diffCacheRef.current.delete(cacheKey)
+      diffCacheRef.current.set(cacheKey, cached)
       setStructuredDiff(cached)
       setDiffPatch(cached.patch)
       setShowDiffView(true)
@@ -678,7 +726,7 @@ export function useGitWorkspaceController({
 
     // Use high-performance structured diff API
     void desktopApi
-      .gitDiffFileStructured(workspaceId, selectedPath)
+      .gitDiffFileStructured(workspaceId, selectedPath, selectedDiffScope === 'staged')
       .then((response) => {
         if (diffSeqRef.current !== seq) {
           return
@@ -691,7 +739,7 @@ export function useGitWorkspaceController({
           const firstKey = cache.keys().next().value
           if (firstKey) cache.delete(firstKey)
         }
-        cache.set(`${workspaceId}:${selectedPath}`, response)
+        cache.set(cacheKey, response)
 
         setStructuredDiff(response)
         setDiffPatch(response.patch)
@@ -709,14 +757,14 @@ export function useGitWorkspaceController({
           setDiffLoading(false)
         }
       })
-  }, [isGitRepository, selectedPath, summary?.files, workspaceId])
+  }, [isGitRepository, selectedDiffScope, selectedPath, summary?.files, workspaceId])
 
   // Preload diff for hover preview with debounce to avoid flooding background workers.
   const preloadDiff = useCallback(
-    (path: string) => {
+    (path: string, scope: GitDiffScope = 'unstaged') => {
       if (!workspaceId || !isGitRepository || !path) return
 
-      const cacheKey = `${workspaceId}:${path}`
+      const cacheKey = `${workspaceId}:${path}:${scope}`
       // Skip if already cached or pending
       if (diffCacheRef.current.has(cacheKey) || pendingPreloadsRef.current.has(cacheKey)) return
 
@@ -727,7 +775,7 @@ export function useGitWorkspaceController({
       preloadTimerRef.current = window.setTimeout(() => {
         pendingPreloadsRef.current.add(cacheKey)
         void desktopApi
-          .gitDiffFileStructured(workspaceId, path)
+          .gitDiffFileStructured(workspaceId, path, scope === 'staged')
           .then((response) => {
             const cache = diffCacheRef.current
             if (cache.size >= DIFF_CACHE_SIZE) {
@@ -745,6 +793,16 @@ export function useGitWorkspaceController({
       }, DIFF_PRELOAD_DELAY_MS)
     },
     [isGitRepository, workspaceId],
+  )
+
+  const selectPath = useCallback(
+    (path: string, scope?: GitDiffScope) => {
+      setSelectedPath(path)
+      if (scope) {
+        setSelectedDiffScope(scope)
+      }
+    },
+    [],
   )
 
   useEffect(() => {
@@ -768,7 +826,7 @@ export function useGitWorkspaceController({
     filter,
     setFilter,
     selectedPath,
-    selectPath: setSelectedPath,
+    selectPath,
     diffLoading,
     structuredDiff,
     diffViewMode,

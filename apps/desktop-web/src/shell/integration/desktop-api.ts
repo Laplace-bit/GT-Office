@@ -1238,12 +1238,16 @@ export const desktopApi = {
       initialBranch: initialBranch ?? null,
     })
   },
-  gitDiffFile(workspaceId: string, path: string) {
-    return invokeCommand<GitDiffResponse>('git_diff_file', { workspaceId, path })
+  gitDiffFile(workspaceId: string, path: string, staged?: boolean) {
+    return invokeCommand<GitDiffResponse>('git_diff_file', { workspaceId, path, staged: staged ?? false })
   },
   /** High-performance structured diff with parsed hunks */
-  gitDiffFileStructured(workspaceId: string, path: string) {
-    return invokeCommand<GitDiffStructuredResponse>('git_diff_file_structured', { workspaceId, path })
+  gitDiffFileStructured(workspaceId: string, path: string, staged?: boolean) {
+    return invokeCommand<GitDiffStructuredResponse>('git_diff_file_structured', {
+      workspaceId,
+      path,
+      staged: staged ?? false,
+    })
   },
   gitStage(workspaceId: string, paths: string[]) {
     return invokeCommand<GitCountResponse>('git_stage', { workspaceId, paths })
