@@ -247,6 +247,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     pull,
     push,
     refreshAll,
+    refreshSummary,
     preloadDiff,
   } = controller
 
@@ -258,6 +259,29 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
   const rootFontSizePx = useRootFontSizePx()
   const contentRef = useRef<HTMLDivElement | null>(null)
+  const filterRefreshInitializedRef = useRef(false)
+
+  useEffect(() => {
+    filterRefreshInitializedRef.current = false
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId) {
+      return
+    }
+    void refreshAll()
+  }, [refreshAll, workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId) {
+      return
+    }
+    if (!filterRefreshInitializedRef.current) {
+      filterRefreshInitializedRef.current = true
+      return
+    }
+    void refreshSummary()
+  }, [filter, refreshSummary, workspaceId])
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const fileRowHeight = scaleDesignPxToActualPx(ROW_HEIGHT, rootFontSizePx)
 

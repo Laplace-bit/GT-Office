@@ -98,6 +98,10 @@
   justify-content: flex-end;
 }
 
+.vb-top-action-tooltip-anchor {
+  display: inline-flex;
+}
+
 .vb-top-action-button {
   width: var(--vb-top-control-button-size);
   height: var(--vb-top-control-button-size);
@@ -125,31 +129,6 @@
   .vb-icon {
     width: #{rem(13)};
     height: #{rem(13)};
-  }
-
-  &::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    top: calc(100% + var(--vb-space-sm));
-    left: 50%;
-    transform: translateX(-50%) translateY(var(--vb-space-2xs));
-    padding: #{rem(5)} #{rem(10)};
-    background: var(--vb-surface-elevated);
-    color: var(--vb-text);
-    font-size: #{rem(11)};
-    border-radius: var(--vb-radius-xs);
-    border: var(--vb-border-width) solid var(--vb-border-strong);
-    box-shadow: var(--vb-shadow-md);
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.15s ease;
-    z-index: 1000;
-  }
-
-  &:hover::after {
-    opacity: 1;
-    visibility: visible;
-    transform: translateX(-50%) translateY(0);
   }
 }
 

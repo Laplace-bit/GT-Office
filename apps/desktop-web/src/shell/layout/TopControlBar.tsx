@@ -201,17 +201,18 @@ export function TopControlBar({
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
           {actionButtons.map((btn) => (
-            <button
-              key={btn.key}
-              type="button"
-              onClick={btn.action}
-              className="vb-top-action-button"
-              aria-label={btn.label}
-              data-tooltip={btn.label}
-              disabled={btn.disabled}
-            >
-              <AppIcon name={btn.icon} className="vb-icon vb-icon-top-action" aria-hidden="true" />
-            </button>
+            <span key={btn.key} className="vb-top-action-tooltip-anchor" title={btn.label}>
+              <button
+                type="button"
+                onClick={btn.action}
+                className="vb-top-action-button"
+                aria-label={btn.label}
+                title={btn.label}
+                disabled={btn.disabled}
+              >
+                <AppIcon name={btn.icon} className="vb-icon vb-icon-top-action" aria-hidden="true" />
+              </button>
+            </span>
           ))}
         </div>
         <div

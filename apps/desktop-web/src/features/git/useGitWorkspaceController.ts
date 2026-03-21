@@ -75,6 +75,7 @@ export interface GitWorkspaceController {
   stashEntries: GitStashEntry[]
   graphCommits: GitGraphCommitView[]
   refreshAll: () => Promise<void>
+  refreshSummary: () => Promise<void>
   stagePath: (path: string) => Promise<void>
   unstagePath: (path: string) => Promise<void>
   stageAll: () => Promise<void>
@@ -797,6 +798,7 @@ export function useGitWorkspaceController({
     stashEntries,
     graphCommits,
     refreshAll,
+    refreshSummary: refreshSummaryOnly,
     stagePath,
     unstagePath,
     stageAll,
