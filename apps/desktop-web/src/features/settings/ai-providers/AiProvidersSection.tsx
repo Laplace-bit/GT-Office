@@ -225,16 +225,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   return (
     <section className="ai-providers-section">
       <header className="ai-providers-section__header">
-        <div>
-          <h4>{t(locale, 'Agent 供应商', 'Agent Providers')}</h4>
-          <p>
-            {t(
-              locale,
-              '面板会先打开，CLI 与增强服务检测随后在后台补齐。',
-              'The panel opens first, then CLI and enhancement checks continue in the background.',
-            )}
-          </p>
-        </div>
         {(isInitialLoad || isRefreshing) && (
           <div className="ai-providers-section__refresh-state" aria-live="polite">
             <span className="ai-providers-section__refresh-dot" />
