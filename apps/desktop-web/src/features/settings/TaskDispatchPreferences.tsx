@@ -80,9 +80,6 @@ export function TaskDispatchPreferences({
 
   return (
     <div className="task-dispatch-preferences">
-      <div className="settings-group-title">
-        {t(locale, '快捷键', 'Keybindings')}
-      </div>
       <div className="settings-group">
         <div className="settings-row task-dispatch-preferences-row">
           <div className="settings-row-label">
@@ -90,8 +87,8 @@ export function TaskDispatchPreferences({
             <span>
               {t(
                 locale,
-                '默认使用 {shortcut}，可在任何界面拉起任务派发浮层。后续其他快捷键也会统一放在这里。',
-                'Defaults to {shortcut} and opens the dispatch overlay from anywhere. Future shortcuts will also live here.',
+                '默认使用 {shortcut}，可在任何界面拉起任务派发浮层。',
+                'Defaults to {shortcut} and opens the dispatch overlay from anywhere. ',
                 { shortcut: defaultShortcutLabel },
               )}
             </span>
@@ -118,20 +115,6 @@ export function TaskDispatchPreferences({
           </div>
         </div>
       </div>
-
-      <p className="task-dispatch-preferences-hint">
-        {recording
-          ? t(
-              locale,
-              '录制中：按下完整组合键完成设置，按 Esc 取消。',
-              'Recording: press the full combination to save, or Esc to cancel.',
-            )
-          : t(
-              locale,
-              '浮层内支持 `Mod+Enter` 直接发送任务，方便连续派发。',
-              'Inside the overlay, `Mod+Enter` sends immediately for faster dispatch.',
-            )}
-      </p>
     </div>
   )
 }
