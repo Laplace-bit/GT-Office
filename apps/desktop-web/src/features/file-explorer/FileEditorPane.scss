@@ -54,11 +54,12 @@
   }
   
   &.active {
-    background: color-mix(in srgb, var(--vb-surface) 95%, transparent);
+    background: color-mix(in srgb, var(--vb-accent) 10%, var(--vb-surface));
     backdrop-filter: blur(#{rem(8)});
-    border-color: color-mix(in srgb, var(--vb-border) 25%, transparent);
     color: var(--vb-accent);
     font-weight: 600;
+    box-shadow: 0 #{rem(6)} #{rem(16)} color-mix(in srgb, var(--vb-shadow) 10%, transparent);
+    transform: translateY(#{rem(-1)});
     
     &::after {
       content: '';
@@ -71,6 +72,11 @@
       z-index: 2;
     }
   }
+}
+
+.file-editor-tab.active .file-editor-tab-icon {
+  background: color-mix(in srgb, var(--vb-accent) 14%, var(--vb-surface));
+  box-shadow: inset 0 0 0 #{rem(1)} color-mix(in srgb, var(--vb-accent) 16%, transparent);
 }
 
 .file-editor-tab-name {

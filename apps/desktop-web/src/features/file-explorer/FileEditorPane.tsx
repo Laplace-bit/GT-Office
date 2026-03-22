@@ -55,11 +55,13 @@ function getFileName(path: string): string {
 const FileTab = memo(function FileTab({
   file,
   isActive,
+  tabRef,
   onSelect,
   onClose,
 }: {
   file: OpenedFile
   isActive: boolean
+  tabRef?: (node: HTMLDivElement | null) => void
   onSelect: () => void
   onClose: (e: React.MouseEvent) => void
 }) {
@@ -68,6 +70,7 @@ const FileTab = memo(function FileTab({
 
   return (
     <div
+      ref={tabRef}
       className={`file-editor-tab ${isActive ? 'active' : ''}`}
       onClick={onSelect}
       title={file.path}
@@ -121,6 +124,7 @@ export function FileEditorPane({
     error: null,
   })
   const tabsContainerRef = useRef<HTMLDivElement | null>(null)
+  const tabRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const onFileModifiedRef = useRef(onFileModified)
 
   useEffect(() => {
@@ -132,6 +136,7 @@ export function FileEditorPane({
   const isReadOnly = isLargeFile || !onSaveFile
   const visibleSaveState = saveFeedback.path === activeFilePath ? saveFeedback.state : 'idle'
   const visibleSaveError = saveFeedback.path === activeFilePath ? saveFeedback.error : null
+  const openFilePathsKey = openedFiles.map((file) => file.path).join('\u0000')
 
   // 初始化编辑内容缓存
   useEffect(() => {
@@ -281,6 +286,72 @@ export function FileEditorPane({
     }
   }, [])
 
+  const setTabRef = useCallback((path: string, node: HTMLDivElement | null) => {
+    if (node) {
+      tabRefs.current[path] = node
+      return
+    }
+    delete tabRefs.current[path]
+  }, [])
+
+  const scrollActiveTabIntoView = useCallback(() => {
+    if (!activeFilePath) {
+      return false
+    }
+
+    const container = tabsContainerRef.current
+    const activeTab = tabRefs.current[activeFilePath]
+    if (!container || !activeTab) {
+      return false
+    }
+
+    const containerRect = container.getBoundingClientRect()
+    const activeTabRect = activeTab.getBoundingClientRect()
+    const gap = 8
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    if (activeTabRect.left < containerRect.left) {
+      const delta = containerRect.left - activeTabRect.left + gap
+      container.scrollTo({
+        left: Math.max(0, container.scrollLeft - delta),
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      })
+      return true
+    }
+
+    if (activeTabRect.right > containerRect.right) {
+      const delta = activeTabRect.right - containerRect.right + gap
+      container.scrollTo({
+        left: container.scrollLeft + delta,
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      })
+      return true
+    }
+
+    return true
+  }, [activeFilePath])
+
+  useEffect(() => {
+    if (!activeFilePath) {
+      return
+    }
+
+    let attempt = 0
+    let frameId = 0
+
+    const settleScroll = () => {
+      const settled = scrollActiveTabIntoView()
+      if (settled || attempt >= 5) {
+        return
+      }
+      attempt += 1
+      frameId = window.requestAnimationFrame(settleScroll)
+    }
+
+    frameId = window.requestAnimationFrame(settleScroll)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [activeFilePath, openFilePathsKey, scrollActiveTabIntoView])
+
   const hasOpenedFiles = openedFiles.length > 0
   return (
     <section className="panel file-editor-pane">
@@ -296,6 +367,7 @@ export function FileEditorPane({
                 key={file.path}
                 file={file}
                 isActive={file.path === activeFilePath}
+                tabRef={(node) => setTabRef(file.path, node)}
                 onSelect={() => onSelectFile(file.path)}
                 onClose={(e) => handleCloseTab(e, file.path)}
               />
