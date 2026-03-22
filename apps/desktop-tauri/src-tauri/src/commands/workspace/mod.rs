@@ -1,3 +1,5 @@
+pub mod surface;
+
 use serde_json::{json, Value};
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State, Window};

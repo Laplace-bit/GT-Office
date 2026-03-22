@@ -139,13 +139,55 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  border-radius: #{rem(18)};
+  border-radius: #{rem(22)};
   background: var(--vb-glass-light);
   backdrop-filter: blur(#{rem(32)}) saturate(180%);
   -webkit-backdrop-filter: blur(#{rem(32)}) saturate(180%);
   border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-md);
   transition: background-color 0.3s ease;
+}
+
+.shell-main-view {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+
+  > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  &.is-backgrounded {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+.shell-feature-view {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+
+  > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
 }
 
 /* Subtle inner glow for main pane */

@@ -1,3 +1,10 @@
+import type { WorkbenchContainerSnapshot } from '@features/workspace-hub'
+import {
+  isWorkbenchLayoutMode,
+  normalizeWorkbenchCustomLayout,
+  type WorkbenchCustomLayout,
+} from '@features/workspace-hub/workbench-layout-model'
+
 const WORKSPACE_SESSION_SNAPSHOT_FILE_REL = '.gtoffice/session.snapshot.json'
 const WORKSPACE_SESSION_SNAPSHOT_VERSION = 1 as const
 
@@ -26,6 +33,7 @@ export interface WorkspaceSessionSnapshot {
   windows: WorkspaceSessionWindowSnapshot[]
   tabs: WorkspaceSessionTabSnapshot[]
   terminals: WorkspaceSessionTerminalSnapshot[]
+  workbenchContainers: WorkbenchContainerSnapshot[]
 }
 
 function normalizeRelativePath(input: string): string {
@@ -45,6 +53,7 @@ export function buildWorkspaceSessionSnapshot(input: {
   windows: WorkspaceSessionWindowSnapshot[]
   tabs: WorkspaceSessionTabSnapshot[]
   terminals: WorkspaceSessionTerminalSnapshot[]
+  workbenchContainers?: WorkbenchContainerSnapshot[]
 }): WorkspaceSessionSnapshot {
   return {
     version: WORKSPACE_SESSION_SNAPSHOT_VERSION,
@@ -66,6 +75,26 @@ export function buildWorkspaceSessionSnapshot(input: {
           : null,
       active: Boolean(item.active),
     })),
+    workbenchContainers: (input.workbenchContainers ?? []).map((item) => ({
+      id: item.id.trim(),
+      stationIds: item.stationIds.map((stationId) => stationId.trim()).filter(Boolean),
+      activeStationId: typeof item.activeStationId === 'string' && item.activeStationId.trim()
+        ? item.activeStationId.trim()
+        : null,
+      layoutMode: isWorkbenchLayoutMode(item.layoutMode) ? item.layoutMode : 'auto',
+      customLayout: normalizeWorkbenchCustomLayout(item.customLayout),
+      mode: item.mode,
+      resumeMode: item.resumeMode,
+      topmost: Boolean(item.topmost),
+      frame: item.frame
+        ? {
+            x: typeof item.frame.x === 'number' ? item.frame.x : undefined,
+            y: typeof item.frame.y === 'number' ? item.frame.y : undefined,
+            width: typeof item.frame.width === 'number' ? item.frame.width : undefined,
+            height: typeof item.frame.height === 'number' ? item.frame.height : undefined,
+          }
+        : null,
+    })),
   }
 }
 
@@ -84,6 +113,9 @@ export function parseWorkspaceSessionSnapshot(raw: string): WorkspaceSessionSnap
     const windows = Array.isArray(record.windows) ? record.windows : []
     const tabs = Array.isArray(record.tabs) ? record.tabs : []
     const terminals = Array.isArray(record.terminals) ? record.terminals : []
+    const workbenchContainers = Array.isArray(record.workbenchContainers)
+      ? record.workbenchContainers
+      : []
 
     const parsedWindows = windows
       .map((entry) => {
@@ -150,12 +182,77 @@ export function parseWorkspaceSessionSnapshot(raw: string): WorkspaceSessionSnap
       })
       .filter((entry): entry is WorkspaceSessionTerminalSnapshot => Boolean(entry))
 
+    const parsedWorkbenchContainers: WorkbenchContainerSnapshot[] = workbenchContainers
+      .map<WorkbenchContainerSnapshot | null>((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null
+        }
+        const value = entry as Record<string, unknown>
+        if (typeof value.id !== 'string' || !value.id.trim()) {
+          return null
+        }
+        const stationIds = Array.isArray(value.stationIds)
+          ? value.stationIds
+              .filter((stationId): stationId is string => typeof stationId === 'string')
+              .map((stationId) => stationId.trim())
+              .filter(Boolean)
+          : []
+        const mode =
+          value.mode === 'floating' || value.mode === 'detached' || value.mode === 'docked'
+            ? value.mode
+            : 'docked'
+        const resumeMode = value.resumeMode === 'floating' ? 'floating' : 'docked'
+        const activeStationId =
+          typeof value.activeStationId === 'string' && stationIds.includes(value.activeStationId.trim())
+            ? value.activeStationId.trim()
+            : null
+        const layoutMode = isWorkbenchLayoutMode(value.layoutMode) ? value.layoutMode : 'auto'
+        const customLayout = normalizeWorkbenchCustomLayout(
+          (value.customLayout as Partial<WorkbenchCustomLayout> | null | undefined) ?? null,
+        )
+        const frameValue = value.frame
+        const frame =
+          frameValue && typeof frameValue === 'object'
+            ? {
+                x:
+                  typeof (frameValue as Record<string, unknown>).x === 'number'
+                    ? ((frameValue as Record<string, unknown>).x as number)
+                    : undefined,
+                y:
+                  typeof (frameValue as Record<string, unknown>).y === 'number'
+                    ? ((frameValue as Record<string, unknown>).y as number)
+                    : undefined,
+                width:
+                  typeof (frameValue as Record<string, unknown>).width === 'number'
+                    ? ((frameValue as Record<string, unknown>).width as number)
+                    : undefined,
+                height:
+                  typeof (frameValue as Record<string, unknown>).height === 'number'
+                    ? ((frameValue as Record<string, unknown>).height as number)
+                    : undefined,
+              }
+            : null
+        return {
+          id: value.id.trim(),
+          stationIds,
+          activeStationId,
+          layoutMode,
+          customLayout,
+          mode,
+          resumeMode,
+          topmost: Boolean(value.topmost),
+          frame,
+        } satisfies WorkbenchContainerSnapshot
+      })
+      .filter((entry): entry is WorkbenchContainerSnapshot => entry !== null)
+
     return {
       version: WORKSPACE_SESSION_SNAPSHOT_VERSION,
       updatedAtMs: typeof record.updatedAtMs === 'number' ? record.updatedAtMs : Date.now(),
       windows: parsedWindows,
       tabs: parsedTabs,
       terminals: parsedTerminals,
+      workbenchContainers: parsedWorkbenchContainers,
     }
   } catch {
     return null

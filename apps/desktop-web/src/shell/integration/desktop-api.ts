@@ -346,6 +346,51 @@ export interface TerminalReportRenderedScreenResponse {
   accepted: boolean
 }
 
+export interface SurfaceDetachedStationPayload {
+  stationId: string
+  name: string
+  role: string
+  tool: string
+  agentWorkdirRel: string
+  roleWorkdirRel?: string | null
+  workspaceId: string
+  sessionId?: string | null
+}
+
+export interface SurfaceOpenDetachedWindowRequest {
+  workspaceId: string
+  containerId: string
+  title: string
+  activeStationId?: string | null
+  layoutMode?: 'auto' | 'focus' | 'custom'
+  customLayout?: {
+    columns: number
+    rows: number
+  }
+  topmost?: boolean
+  stations: SurfaceDetachedStationPayload[]
+}
+
+export interface SurfaceWindowStateResponse {
+  windowLabel: string
+  topmost: boolean
+  updated: boolean
+}
+
+export interface SurfaceOpenDetachedWindowResponse {
+  windowLabel: string
+  created: boolean
+}
+
+export interface SurfaceWindowClosedPayload {
+  windowLabel: string
+}
+
+export interface SurfaceWindowUpdatedPayload {
+  windowLabel: string
+  topmost: boolean
+}
+
 export interface FsEntry {
   path: string
   name: string
@@ -1553,6 +1598,27 @@ export const desktopApi = {
   installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent_mcp', { agent })
   },
+  surfaceOpenDetachedWindow(payload: SurfaceOpenDetachedWindowRequest) {
+    return invokeCommand<SurfaceOpenDetachedWindowResponse>('surface_open_detached_window', {
+      payload,
+    })
+  },
+  surfaceCloseWindow(windowLabel?: string | null) {
+    return invokeCommand<{ closed: boolean; windowLabel: string }>('surface_close_window', {
+      windowLabel: windowLabel ?? null,
+    })
+  },
+  surfaceSetWindowTopmost(windowLabel: string | null, topmost: boolean) {
+    return invokeCommand<SurfaceWindowStateResponse>('surface_set_window_topmost', {
+      windowLabel,
+      topmost,
+    })
+  },
+  surfaceStartWindowDragging(windowLabel?: string | null) {
+    return invokeCommand<{ started: boolean; windowLabel: string }>('surface_start_window_dragging', {
+      windowLabel: windowLabel ?? null,
+    })
+  },
   terminalWrite(sessionId: string, input: string) {
     return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write', {
       sessionId,
@@ -2125,6 +2191,28 @@ export const desktopApi = {
     )
     return () => {
       unlisten()
+    }
+  },
+  async subscribeSurfaceEvents(handlers: {
+    onWindowClosed?: (payload: SurfaceWindowClosedPayload) => void
+    onWindowUpdated?: (payload: SurfaceWindowUpdatedPayload) => void
+  }): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlistenClosed = await eventApi.listen<SurfaceWindowClosedPayload>(
+      'surface/window_closed',
+      (event) => handlers.onWindowClosed?.(event.payload),
+    )
+    const unlistenUpdated = await eventApi.listen<SurfaceWindowUpdatedPayload>(
+      'surface/window_updated',
+      (event) => handlers.onWindowUpdated?.(event.payload),
+    )
+    return () => {
+      unlistenClosed()
+      unlistenUpdated()
     }
   },
 }

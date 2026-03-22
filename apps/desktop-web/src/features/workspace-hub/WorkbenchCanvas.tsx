@@ -1,54 +1,102 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
-import { Grid2x2, LayoutPanelLeft, type LucideIcon } from 'lucide-react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { AgentStation } from './station-model'
+import { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
+import { WorkbenchUtilityActions } from './WorkbenchUtilityActions'
+import {
+  findContainerByStationId,
+  sortFloatingContainers,
+  WORKBENCH_FLOATING_MAX_HEIGHT,
+  WORKBENCH_FLOATING_MAX_WIDTH,
+  WORKBENCH_FLOATING_MAX_X,
+  WORKBENCH_FLOATING_MAX_Y,
+  WORKBENCH_FLOATING_MIN_HEIGHT,
+  WORKBENCH_FLOATING_MIN_WIDTH,
+  WORKBENCH_FLOATING_MIN_X,
+  WORKBENCH_FLOATING_MIN_Y,
+  type WorkbenchContainer as WorkbenchContainerModel,
+  type WorkbenchContainerFrame,
+} from './workbench-container-model'
+import type { WorkbenchCustomLayout, WorkbenchLayoutMode } from './workbench-layout-model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import type { StationTerminalSinkBindingHandler } from '@features/terminal'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
-import { StationCard } from './StationCard'
-import { AppIcon } from '@shell/ui/icons'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
+import type { WorkbenchStationRuntime } from './TerminalStationPane'
 import './WorkbenchCanvas.scss'
 
-interface StationTerminalRuntime {
-  sessionId: string | null
-  unreadCount: number
+interface FloatingCanvasStyle extends CSSProperties {
+  '--floating-layer-z'?: string
 }
 
-export type WorkbenchLayoutMode = 'auto' | 'focus' | 'custom'
-
-export interface WorkbenchCustomLayout {
-  columns: number
-  rows: number
+interface DockGridStyle extends CSSProperties {
+  '--workbench-container-columns'?: string
+  '--workbench-container-rows'?: string
 }
 
-interface WorkbenchLayoutPresetDefinition {
-  id: WorkbenchLayoutMode
-  labelKey: 'workbench.layoutPreset.auto' | 'workbench.layoutPreset.focus' | 'workbench.layoutPreset.custom'
-  icon?: LucideIcon
+type FloatingResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+type FloatingInteractionState =
+  | {
+      kind: 'drag'
+      containerId: string
+      rect: DOMRect
+      startX: number
+      startY: number
+      frame: WorkbenchContainerFrame
+    }
+  | {
+      kind: 'resize'
+      containerId: string
+      direction: FloatingResizeDirection
+      rect: DOMRect
+      startX: number
+      startY: number
+      frame: WorkbenchContainerFrame
+    }
+
+interface StationPointerDragState {
+  stationId: string
+  sourceContainerId: string
+  startX: number
+  startY: number
+  active: boolean
 }
 
 interface WorkbenchCanvasProps {
   locale: Locale
   appearanceVersion: string
+  showStage?: boolean
+  showFloatingPortal?: boolean
+  floatingVisibility?: 'all' | 'topmost' | 'non_topmost'
   stations: AgentStation[]
+  containers: WorkbenchContainerModel[]
   activeStationId: string
-  terminalByStation: Record<string, StationTerminalRuntime>
+  terminalByStation: Record<string, WorkbenchStationRuntime>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
-  onSelectStation: (stationId: string) => void
+  onSelectStation: (containerId: string, stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
-  layoutMode: WorkbenchLayoutMode
-  customLayout: WorkbenchCustomLayout
-  onLayoutModeChange: (mode: WorkbenchLayoutMode) => void
-  onCustomLayoutChange: (layout: WorkbenchCustomLayout) => void
+  onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
+  onCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void
+  onFloatContainer: (containerId: string) => void
+  onDockContainer: (containerId: string) => void
+  onDetachContainer: (containerId: string) => void
+  onToggleContainerTopmost: (containerId: string) => void
+  onCreateContainer: () => void
+  onDeleteContainer: (containerId: string) => void
+  onMoveStationToContainer: (stationId: string, targetContainerId: string) => void
+  onMoveFloatingContainer: (containerId: string, input: { x: number; y: number }) => void
+  onResizeFloatingContainer: (containerId: string, frame: WorkbenchContainerFrame) => void
+  onFocusFloatingContainer: (containerId: string) => void
+  onReclaimDetachedContainer: (containerId: string) => void
   scrollToStationId?: string | null
   onScrollToStationHandled?: (stationId: string) => void
   onOpenStationManage: () => void
@@ -56,81 +104,156 @@ interface WorkbenchCanvasProps {
   onRemoveStation: (stationId: string) => void
 }
 
-const GRID_GAP_PX = 12
-const STATION_CARD_MIN_WIDTH_PX = 280
-const STATION_ROW_MIN_HEIGHT_PX = 260
-const STATION_ROW_ESTIMATE_HEIGHT_PX = 396
-const STATION_ROW_OVERSCAN = 2
-const STATION_VIRTUALIZE_THRESHOLD = 18
-const CUSTOM_LAYOUT_MIN = 1
-const CUSTOM_LAYOUT_MAX = 8
+const STATION_DRAG_MIME = 'application/x-gto-workbench-station'
+const STATION_DRAG_FALLBACK_MIME = 'text/plain'
+const FLOATING_RESIZE_DIRECTIONS: readonly FloatingResizeDirection[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
+const FLOATING_EDGE_GUTTER_PX = 12
 
-const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
-  { id: 'auto', labelKey: 'workbench.layoutPreset.auto' },
-  { id: 'focus', labelKey: 'workbench.layoutPreset.focus', icon: LayoutPanelLeft },
-  { id: 'custom', labelKey: 'workbench.layoutPreset.custom', icon: Grid2x2 },
-]
-
-function clampCustomLayoutValue(value: number): number {
-  return Math.max(CUSTOM_LAYOUT_MIN, Math.min(CUSTOM_LAYOUT_MAX, Math.round(value)))
+function clampFrameValue(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 
-function normalizeCustomLayout(layout: WorkbenchCustomLayout): WorkbenchCustomLayout {
+function resolveFloatingEdgeGutter(rect: DOMRect): { x: number; y: number } {
   return {
-    columns: clampCustomLayoutValue(layout.columns),
-    rows: clampCustomLayoutValue(layout.rows),
+    x: Math.min(FLOATING_EDGE_GUTTER_PX / Math.max(1, rect.width), 0.5),
+    y: Math.min(FLOATING_EDGE_GUTTER_PX / Math.max(1, rect.height), 0.5),
   }
 }
 
-interface WorkbenchGridStyle extends CSSProperties {
-  '--station-grid-columns'?: string
-  '--station-grid-rows'?: string
-  '--station-row-height'?: string
-}
-
-interface FocusRailItemProps {
-  locale: Locale
-  station: AgentStation
-  unreadCount: number
-  onSelectStation: (stationId: string) => void
-}
-
-function FocusRailItem({ locale, station, unreadCount, onSelectStation }: FocusRailItemProps) {
-  const unreadLabel = unreadCount > 99 ? '99+' : unreadCount > 0 ? String(unreadCount) : null
-
-  return (
-    <button
-      type="button"
-      className="focus-rail-item"
-      onClick={() => onSelectStation(station.id)}
-      aria-label={t(locale, 'workbench.activeWindow')}
-      title={station.name}
-    >
-      <div className="focus-rail-item-header">
-        <div className="focus-rail-item-title">
-          <strong>{station.name}</strong>
-          <span>{station.tool}</span>
-        </div>
-        {unreadLabel ? <span className="focus-rail-item-unread">{unreadLabel}</span> : null}
-      </div>
-      <p className="focus-rail-item-path">{station.agentWorkdirRel}</p>
-    </button>
-  )
-}
-
-function chunkStations(stations: AgentStation[], columns: number): AgentStation[][] {
-  const rows: AgentStation[][] = []
-  const safeColumns = Math.max(1, columns)
-  for (let index = 0; index < stations.length; index += safeColumns) {
-    rows.push(stations.slice(index, index + safeColumns))
+function clampFloatingFramePosition(
+  frame: WorkbenchContainerFrame,
+  rect: DOMRect,
+  input: { x: number; y: number },
+): { x: number; y: number } {
+  const gutter = resolveFloatingEdgeGutter(rect)
+  return {
+    x: clampFrameValue(
+      input.x,
+      WORKBENCH_FLOATING_MIN_X,
+      Math.max(WORKBENCH_FLOATING_MIN_X, WORKBENCH_FLOATING_MAX_X - gutter.x - frame.width),
+    ),
+    y: clampFrameValue(
+      input.y,
+      WORKBENCH_FLOATING_MIN_Y,
+      Math.max(WORKBENCH_FLOATING_MIN_Y, WORKBENCH_FLOATING_MAX_Y - gutter.y - frame.height),
+    ),
   }
-  return rows
+}
+
+function resizeFloatingFrame(
+  frame: WorkbenchContainerFrame,
+  direction: FloatingResizeDirection,
+  deltaX: number,
+  deltaY: number,
+  rect: DOMRect,
+): WorkbenchContainerFrame {
+  const gutter = resolveFloatingEdgeGutter(rect)
+  const maxRight = WORKBENCH_FLOATING_MAX_X - gutter.x
+  const maxBottom = WORKBENCH_FLOATING_MAX_Y - gutter.y
+  let left = frame.x
+  let top = frame.y
+  let right = frame.x + frame.width
+  let bottom = frame.y + frame.height
+
+  if (direction.includes('e')) {
+    right = clampFrameValue(
+      right + deltaX,
+      left + WORKBENCH_FLOATING_MIN_WIDTH,
+      Math.min(maxRight, left + WORKBENCH_FLOATING_MAX_WIDTH),
+    )
+  }
+  if (direction.includes('w')) {
+    left = clampFrameValue(
+      left + deltaX,
+      Math.max(WORKBENCH_FLOATING_MIN_X, right - WORKBENCH_FLOATING_MAX_WIDTH),
+      right - WORKBENCH_FLOATING_MIN_WIDTH,
+    )
+  }
+  if (direction.includes('s')) {
+    bottom = clampFrameValue(
+      bottom + deltaY,
+      top + WORKBENCH_FLOATING_MIN_HEIGHT,
+      Math.min(maxBottom, top + WORKBENCH_FLOATING_MAX_HEIGHT),
+    )
+  }
+  if (direction.includes('n')) {
+    top = clampFrameValue(
+      top + deltaY,
+      Math.max(WORKBENCH_FLOATING_MIN_Y, bottom - WORKBENCH_FLOATING_MAX_HEIGHT),
+      bottom - WORKBENCH_FLOATING_MIN_HEIGHT,
+    )
+  }
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  }
+}
+
+function parseDraggedStation(event: ReactDragEvent<HTMLElement>): { stationId: string; sourceContainerId: string } | null {
+  for (const mimeType of [STATION_DRAG_MIME, STATION_DRAG_FALLBACK_MIME]) {
+    const raw = event.dataTransfer.getData(mimeType)
+    if (!raw) {
+      continue
+    }
+    try {
+      const parsed = JSON.parse(raw) as { stationId?: string; sourceContainerId?: string }
+      if (!parsed.stationId || !parsed.sourceContainerId) {
+        continue
+      }
+      return {
+        stationId: parsed.stationId,
+        sourceContainerId: parsed.sourceContainerId,
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+function buildFloatingCanvasStyle(
+  container: WorkbenchContainerModel,
+  _surfaceRect: DOMRect | null,
+  zIndex: number,
+): FloatingCanvasStyle {
+  const fallbackWidth = window.innerWidth
+  const fallbackHeight = window.innerHeight
+  const frame = container.frame ?? { x: 0.08, y: 0.08, width: 0.44, height: 0.52 }
+  return {
+    left: `${fallbackWidth * frame.x}px`,
+    top: `${fallbackHeight * frame.y}px`,
+    width: `${fallbackWidth * frame.width}px`,
+    height: `${fallbackHeight * frame.height}px`,
+    '--floating-layer-z': String(zIndex),
+  }
+}
+
+function resolveFloatingInteractionRect(_surfaceRect: DOMRect | null): DOMRect {
+  return new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+}
+
+function resolveContainerIdAtPoint(clientX: number, clientY: number): string | null {
+  if (typeof document === 'undefined') {
+    return null
+  }
+  const target = document.elementFromPoint(clientX, clientY)
+  if (!(target instanceof HTMLElement)) {
+    return null
+  }
+  return target.closest<HTMLElement>('[data-container-id]')?.dataset.containerId ?? null
 }
 
 function WorkbenchCanvasView({
   locale,
   appearanceVersion,
+  showStage = true,
+  showFloatingPortal = true,
+  floatingVisibility = 'all',
   stations,
+  containers,
   activeStationId,
   terminalByStation,
   taskSignalByStationId,
@@ -142,533 +265,421 @@ function WorkbenchCanvasView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
-  layoutMode,
-  customLayout,
   onLayoutModeChange,
   onCustomLayoutChange,
+  onFloatContainer,
+  onDockContainer,
+  onDetachContainer,
+  onToggleContainerTopmost,
+  onCreateContainer,
+  onDeleteContainer,
+  onMoveStationToContainer,
+  onMoveFloatingContainer,
+  onResizeFloatingContainer,
+  onFocusFloatingContainer,
+  onReclaimDetachedContainer,
   scrollToStationId = null,
   onScrollToStationHandled,
   onOpenStationManage,
   onOpenStationSearch,
   onRemoveStation,
 }: WorkbenchCanvasProps) {
-  const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
-  const gridRef = useRef<HTMLDivElement | null>(null)
-  const [gridWidth, setGridWidth] = useState(0)
-  const [gridHeight, setGridHeight] = useState(0)
-  const normalizedCustomLayout = useMemo(() => normalizeCustomLayout(customLayout), [customLayout])
-  const fullscreenStationId = useMemo(() => {
-    if (!fullscreenStationIdRaw) {
-      return null
-    }
-    return stations.some((station) => station.id === fullscreenStationIdRaw)
-      ? fullscreenStationIdRaw
-      : null
-  }, [fullscreenStationIdRaw, stations])
-  const fixedLayoutRequested = layoutMode === 'custom'
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const dockGridRef = useRef<HTMLDivElement | null>(null)
+  const floatingInteractionRef = useRef<FloatingInteractionState | null>(null)
+  const stationPointerDragRef = useRef<StationPointerDragState | null>(null)
+  const [surfaceRect, setSurfaceRect] = useState<DOMRect | null>(null)
+  const [dragTargetContainerId, setDragTargetContainerId] = useState<string | null>(null)
+  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations])
+  const dockedContainers = useMemo(() => containers.filter((container) => container.mode === 'docked'), [containers])
+  const floatingContainers = useMemo(
+    () =>
+      sortFloatingContainers(
+        containers.filter(
+          (container) =>
+            container.mode === 'floating' &&
+            (floatingVisibility === 'all' ||
+              (floatingVisibility === 'topmost' && container.topmost) ||
+              (floatingVisibility === 'non_topmost' && !container.topmost)),
+        ),
+      ),
+    [containers, floatingVisibility],
+  )
+  const utilityHostContainerId = useMemo(
+    () => dockedContainers[0]?.id ?? floatingContainers[0]?.id ?? null,
+    [dockedContainers, floatingContainers],
+  )
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setFullscreenStationIdRaw(null)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [])
-
-  const active = useMemo(
-    () => stations.find((station) => station.id === activeStationId) ?? stations[0],
-    [activeStationId, stations],
-  )
-  const fullscreenStation = useMemo(
-    () => (fullscreenStationId ? stations.find((station) => station.id === fullscreenStationId) ?? null : null),
-    [fullscreenStationId, stations],
-  )
-  const handleEnterFullscreen = useCallback(
-    (stationId: string) => {
-      onSelectStation(stationId)
-      setFullscreenStationIdRaw(stationId)
-    },
-    [onSelectStation],
-  )
-  const handleExitFullscreen = useCallback(() => {
-    setFullscreenStationIdRaw(null)
-  }, [])
-  const shouldVirtualize = !fullscreenStationId && stations.length >= STATION_VIRTUALIZE_THRESHOLD
-  const shouldObserveGridSize = shouldVirtualize || (fixedLayoutRequested && !fullscreenStationId)
-
-  useEffect(() => {
-    const element = gridRef.current
-    if (!element || !shouldObserveGridSize) {
+    if (!showStage) {
+      setSurfaceRect(null)
       return
     }
-    const updateSize = () => {
-      setGridWidth(element.clientWidth)
-      setGridHeight(element.clientHeight)
+    const element = surfaceRef.current
+    if (!element) {
+      return
     }
-    updateSize()
-    const observer = new ResizeObserver(updateSize)
+    const updateRect = () => {
+      setSurfaceRect(element.getBoundingClientRect())
+    }
+    updateRect()
+    const observer = new ResizeObserver(updateRect)
     observer.observe(element)
+    window.addEventListener('resize', updateRect)
     return () => {
       observer.disconnect()
+      window.removeEventListener('resize', updateRect)
     }
-  }, [shouldObserveGridSize, stations.length])
+  }, [showStage])
 
-  const maxColumnsByWidth = useMemo(() => {
-    if (gridWidth <= 0) {
-      return 1
-    }
-    return Math.max(1, Math.floor((gridWidth + GRID_GAP_PX) / (STATION_CARD_MIN_WIDTH_PX + GRID_GAP_PX)))
-  }, [gridWidth])
-
-  const fixedColumns = useMemo(() => {
-    if (!fixedLayoutRequested) {
-      return null
-    }
-    return Math.max(1, Math.min(normalizedCustomLayout.columns, maxColumnsByWidth))
-  }, [fixedLayoutRequested, maxColumnsByWidth, normalizedCustomLayout.columns])
-  const fixedRows = fixedLayoutRequested ? normalizedCustomLayout.rows : null
-  const hasFixedLayout = !fullscreenStationId && fixedColumns !== null && fixedRows !== null
-
-  const columns = useMemo(() => {
-    if (hasFixedLayout && fixedColumns !== null) {
-      return fixedColumns
-    }
-    if (!shouldVirtualize) {
-      return 1
-    }
-    if (gridWidth <= 0) {
-      return 1
-    }
-    return Math.max(1, Math.floor((gridWidth + GRID_GAP_PX) / (STATION_CARD_MIN_WIDTH_PX + GRID_GAP_PX)))
-  }, [fixedColumns, gridWidth, hasFixedLayout, shouldVirtualize])
-
-  const rowEstimateHeight = useMemo(() => {
-    if (!hasFixedLayout || !fixedRows) {
-      return STATION_ROW_ESTIMATE_HEIGHT_PX
-    }
-    if (gridHeight <= 0) {
-      return STATION_ROW_ESTIMATE_HEIGHT_PX
-    }
-    const totalGap = GRID_GAP_PX * Math.max(0, fixedRows - 1)
-    const availableHeight = gridHeight - totalGap
-    if (availableHeight <= 0) {
-      return STATION_ROW_MIN_HEIGHT_PX
-    }
-    return Math.max(STATION_ROW_MIN_HEIGHT_PX, Math.floor(availableHeight / fixedRows))
-  }, [fixedRows, gridHeight, hasFixedLayout])
-
-  const virtualRows = useMemo(
-    () => (shouldVirtualize ? chunkStations(stations, columns) : []),
-    [columns, shouldVirtualize, stations],
-  )
-
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const rowVirtualizer = useVirtualizer({
-    count: shouldVirtualize ? virtualRows.length : 0,
-    getScrollElement: () => gridRef.current,
-    estimateSize: () => rowEstimateHeight,
-    overscan: STATION_ROW_OVERSCAN,
-    isScrollingResetDelay: 120,
-    useScrollendEvent: true,
-    useAnimationFrameWithResizeObserver: true,
-    useFlushSync: false,
-    enabled: shouldVirtualize,
-  })
-
-  const gridStyle = useMemo<WorkbenchGridStyle | undefined>(() => {
-    if (stations.length === 0) return undefined
-
-    const count = stations.length
-    let cols = 1
-    let rows = 1
-
-    if (layoutMode === 'focus') {
-      return undefined // Focus mode handles its own layout
-    }
-
-    if (layoutMode === 'auto') {
-      cols = Math.ceil(Math.sqrt(count))
-      rows = Math.ceil(count / cols)
-    } else {
-      cols = normalizedCustomLayout.columns
-      rows = normalizedCustomLayout.rows
-    }
-
-    return {
-      '--station-grid-columns': String(cols),
-      '--station-grid-rows': String(rows),
-      '--station-row-height': `${100 / rows}%`,
-    }
-  }, [layoutMode, normalizedCustomLayout.columns, normalizedCustomLayout.rows, stations.length])
-
-  const updateCustomLayoutDimension = useCallback(
-    (dimension: keyof WorkbenchCustomLayout, nextValue: number) => {
-      const nextLayout = normalizeCustomLayout({
-        ...normalizedCustomLayout,
-        [dimension]: nextValue,
-      })
-      onCustomLayoutChange(nextLayout)
-      if (layoutMode !== 'custom') {
-        onLayoutModeChange('custom')
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const stationDrag = stationPointerDragRef.current
+      if (stationDrag) {
+        if (!stationDrag.active) {
+          const deltaX = Math.abs(event.clientX - stationDrag.startX)
+          const deltaY = Math.abs(event.clientY - stationDrag.startY)
+          if (deltaX >= 4 || deltaY >= 4) {
+            stationDrag.active = true
+          }
+        }
+        if (stationDrag.active) {
+          const nextTargetContainerId = resolveContainerIdAtPoint(event.clientX, event.clientY)
+          setDragTargetContainerId(
+            nextTargetContainerId && nextTargetContainerId !== stationDrag.sourceContainerId
+              ? nextTargetContainerId
+              : null,
+          )
+        }
       }
-    },
-    [layoutMode, normalizedCustomLayout, onCustomLayoutChange, onLayoutModeChange],
-  )
 
-  const scrollStationCardIntoView = useCallback((stationId: string) => {
-    const container = gridRef.current
+      const interaction = floatingInteractionRef.current
+      if (!interaction) {
+        return
+      }
+      const dx = (event.clientX - interaction.startX) / Math.max(1, interaction.rect.width)
+      const dy = (event.clientY - interaction.startY) / Math.max(1, interaction.rect.height)
+      if (interaction.kind === 'drag') {
+        onMoveFloatingContainer(
+          interaction.containerId,
+          clampFloatingFramePosition(interaction.frame, interaction.rect, {
+            x: interaction.frame.x + dx,
+            y: interaction.frame.y + dy,
+          }),
+        )
+        return
+      }
+      onResizeFloatingContainer(
+        interaction.containerId,
+        resizeFloatingFrame(interaction.frame, interaction.direction, dx, dy, interaction.rect),
+      )
+    }
+    const clearDrag = (event?: PointerEvent) => {
+      const stationDrag = stationPointerDragRef.current
+      if (stationDrag?.active && event) {
+        const targetContainerId = resolveContainerIdAtPoint(event.clientX, event.clientY)
+        if (targetContainerId && targetContainerId !== stationDrag.sourceContainerId) {
+          onMoveStationToContainer(stationDrag.stationId, targetContainerId)
+          onSelectStation(targetContainerId, stationDrag.stationId)
+        }
+      }
+      stationPointerDragRef.current = null
+      setDragTargetContainerId(null)
+      floatingInteractionRef.current = null
+    }
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', clearDrag)
+    window.addEventListener('pointercancel', clearDrag)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', clearDrag)
+      window.removeEventListener('pointercancel', clearDrag)
+    }
+  }, [onMoveFloatingContainer, onMoveStationToContainer, onResizeFloatingContainer, onSelectStation])
+
+  useEffect(() => {
+    if (!scrollToStationId) {
+      return
+    }
+    const container = findContainerByStationId(containers, scrollToStationId)
     if (!container) {
-      return false
-    }
-    const target = Array.from(
-      container.querySelectorAll<HTMLElement>('.station-window[data-station-id]'),
-    ).find((card) => card.dataset.stationId === stationId)
-    if (!target) {
-      return false
-    }
-    target.scrollIntoView({
-      block: 'center',
-      inline: 'nearest',
-      behavior: 'smooth',
-    })
-    return true
-  }, [])
-
-  const settleScrollToStation = useCallback(
-    (stationId: string, maxAttempts = 8) => {
-      if (scrollStationCardIntoView(stationId)) {
-        onScrollToStationHandled?.(stationId)
-        return
-      }
-      if (maxAttempts <= 0) {
-        onScrollToStationHandled?.(stationId)
-        return
-      }
-      window.requestAnimationFrame(() => {
-        settleScrollToStation(stationId, maxAttempts - 1)
-      })
-    },
-    [onScrollToStationHandled, scrollStationCardIntoView],
-  )
-
-  useEffect(() => {
-    if (scrollToStationId && fullscreenStationIdRaw) {
-      setFullscreenStationIdRaw(null)
-    }
-  }, [fullscreenStationIdRaw, scrollToStationId])
-
-  useEffect(() => {
-    if (!scrollToStationId || fullscreenStationId) {
-      return
-    }
-    if (shouldVirtualize && !hasFixedLayout && gridWidth <= 0) {
-      return
-    }
-    const targetIndex = stations.findIndex((station) => station.id === scrollToStationId)
-    if (targetIndex < 0) {
       onScrollToStationHandled?.(scrollToStationId)
       return
     }
-    if (shouldVirtualize) {
-      const targetRow = Math.floor(targetIndex / Math.max(1, columns))
-      rowVirtualizer.scrollToIndex(targetRow, {
-        align: 'center',
-      })
+    if (container.mode === 'detached') {
+      onReclaimDetachedContainer(container.id)
+    }
+    onSelectStation(container.id, scrollToStationId)
+    if (container.mode === 'docked') {
       window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          settleScrollToStation(scrollToStationId)
-        })
+        const target = dockGridRef.current?.querySelector<HTMLElement>(`[data-container-id="${container.id}"]`)
+        target?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
       })
       return
     }
-    settleScrollToStation(scrollToStationId)
-  }, [
-    columns,
-    fullscreenStationId,
-    rowVirtualizer,
-    scrollToStationId,
-    settleScrollToStation,
-    gridWidth,
-    hasFixedLayout,
-    shouldVirtualize,
-    stations,
-  ])
+    onScrollToStationHandled?.(scrollToStationId)
+  }, [containers, onReclaimDetachedContainer, onScrollToStationHandled, onSelectStation, scrollToStationId])
+
+  const handleStationDragStart = useCallback(
+    (event: ReactDragEvent<HTMLElement>, stationId: string, sourceContainerId: string) => {
+      const payload = JSON.stringify({
+        stationId,
+        sourceContainerId,
+      })
+      event.dataTransfer.effectAllowed = 'move'
+      // WKWebView may drop custom MIME payloads during DOM drag-and-drop, so keep a text fallback.
+      event.dataTransfer.setData(STATION_DRAG_FALLBACK_MIME, payload)
+      event.dataTransfer.setData(STATION_DRAG_MIME, payload)
+    },
+    [],
+  )
+
+  const handleContainerDrop = useCallback(
+    (event: ReactDragEvent<HTMLElement>, targetContainerId: string) => {
+      const dragged = parseDraggedStation(event)
+      setDragTargetContainerId(null)
+      if (!dragged || dragged.sourceContainerId === targetContainerId) {
+        return
+      }
+      onMoveStationToContainer(dragged.stationId, targetContainerId)
+      onSelectStation(targetContainerId, dragged.stationId)
+    },
+    [onMoveStationToContainer, onSelectStation],
+  )
+
+  const handleFloatingDragStart = useCallback(
+    (containerId: string, event: ReactPointerEvent<HTMLElement>) => {
+      const container = containers.find((item) => item.id === containerId)
+      if (!container?.frame) {
+        return
+      }
+      const rect = resolveFloatingInteractionRect(surfaceRect)
+      event.preventDefault()
+      onFocusFloatingContainer(containerId)
+      floatingInteractionRef.current = {
+        kind: 'drag',
+        containerId,
+        rect,
+        startX: event.clientX,
+        startY: event.clientY,
+        frame: container.frame,
+      }
+    },
+    [containers, onFocusFloatingContainer, surfaceRect],
+  )
+
+  const handleStationPointerDragStart = useCallback(
+    (stationId: string, sourceContainerId: string, event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      stationPointerDragRef.current = {
+        stationId,
+        sourceContainerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+      }
+      setDragTargetContainerId(null)
+    },
+    [],
+  )
+
+  const handleFloatingResizeStart = useCallback(
+    (containerId: string, direction: FloatingResizeDirection, event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) {
+        return
+      }
+      const container = containers.find((item) => item.id === containerId)
+      if (!container?.frame) {
+        return
+      }
+      const rect = resolveFloatingInteractionRect(surfaceRect)
+      event.preventDefault()
+      event.stopPropagation()
+      onFocusFloatingContainer(containerId)
+      floatingInteractionRef.current = {
+        kind: 'resize',
+        containerId,
+        direction,
+        rect,
+        startX: event.clientX,
+        startY: event.clientY,
+        frame: container.frame,
+      }
+    },
+    [containers, onFocusFloatingContainer, surfaceRect],
+  )
+
+  const floatingEntries = useMemo(
+    () =>
+      floatingContainers.map((container, index) => ({
+        container,
+        stations: container.stationIds
+          .map((stationId) => stationById.get(stationId))
+          .filter((station): station is AgentStation => Boolean(station)),
+        style: buildFloatingCanvasStyle(container, surfaceRect, 1200 + index + (container.topmost ? 1400 : 0)),
+      })),
+    [floatingContainers, stationById, surfaceRect],
+  )
+
+  const dockGridStyle = useMemo<DockGridStyle | undefined>(() => {
+    const count = dockedContainers.length
+    if (count <= 0) {
+      return undefined
+    }
+    const surfaceWidth = surfaceRect?.width ?? 0
+    const forceSingleColumn = surfaceWidth > 0 && surfaceWidth < 980
+    const columns = forceSingleColumn ? 1 : Math.max(1, Math.min(count, Math.ceil(Math.sqrt(count))))
+    const rows = Math.max(1, Math.ceil(count / columns))
+    return {
+      '--workbench-container-columns': String(columns),
+      '--workbench-container-rows': String(rows),
+    }
+  }, [dockedContainers.length, surfaceRect])
 
   return (
-    <section className="panel workbench-canvas">
-      <header className="canvas-header">
-        <div className="canvas-header-actions" role="group" aria-label={t(locale, 'workbench.activeWindow')}>
-          <p className="canvas-header-pill">
-            <span>{t(locale, 'workbench.activeWindow')}</span>
-            <strong>{active ? active.name : '-'}</strong>
-          </p>
-          <p className="canvas-header-pill">
-            <strong>{t(locale, 'workbench.stationCount', { count: stations.length })}</strong>
-          </p>
-          <div className="canvas-layout-preset-group" role="group" aria-label={t(locale, 'workbench.layoutPreset')}>
-            {WORKBENCH_LAYOUT_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`canvas-layout-preset-btn ${preset.id === layoutMode ? 'active' : ''}`}
-                aria-label={t(locale, preset.labelKey)}
-                title={t(locale, preset.labelKey)}
-                onClick={() => onLayoutModeChange(preset.id)}
-              >
-                {preset.icon ? (
-                  <preset.icon className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
-                ) : (
-                  <span className="canvas-layout-preset-auto" aria-hidden="true">
-                    A
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          {layoutMode === 'custom' ? (
-            <div className="canvas-layout-custom-controls" role="group" aria-label={t(locale, 'workbench.layoutCustom')}>
-              <label className="canvas-layout-custom-field">
-                <span>{t(locale, 'workbench.layoutColumns')}</span>
-                <input
-                  type="number"
-                  min={CUSTOM_LAYOUT_MIN}
-                  max={CUSTOM_LAYOUT_MAX}
-                  value={normalizedCustomLayout.columns}
-                  className="vb-input canvas-layout-custom-input"
-                  onChange={(event) => updateCustomLayoutDimension('columns', Number(event.target.value))}
-                />
-              </label>
-              <label className="canvas-layout-custom-field">
-                <span>{t(locale, 'workbench.layoutRows')}</span>
-                <input
-                  type="number"
-                  min={CUSTOM_LAYOUT_MIN}
-                  max={CUSTOM_LAYOUT_MAX}
-                  value={normalizedCustomLayout.rows}
-                  className="vb-input canvas-layout-custom-input"
-                  onChange={(event) => updateCustomLayoutDimension('rows', Number(event.target.value))}
-                />
-              </label>
-            </div>
-          ) : null}
-          <button
-            type="button"
-            className="canvas-header-icon-button"
-            onClick={onOpenStationSearch}
-            aria-label={t(locale, 'station.filter.search')}
-            title={t(locale, 'station.filter.search')}
-          >
-            <AppIcon name="search" className="vb-icon vb-icon-overview" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="canvas-header-icon-button canvas-header-add"
-            onClick={onOpenStationManage}
-            aria-label={t(locale, 'workbench.addStation')}
-            title={t(locale, 'workbench.addStation')}
-          >
-            <AppIcon name="plus" className="vb-icon vb-icon-overview" aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-
-      {stations.length > 0 ? (
-        fullscreenStation ? (
-          <div
-            className="station-grid fullscreen-mode fullscreen-focus"
-            role="list"
-            aria-label={t(locale, 'workbench.ariaLabel')}
-            data-station-count={1}
-            data-layout-mode="auto"
-            data-layout-preset={layoutMode}
-          >
-            <StationCard
-              key={fullscreenStation.id}
-              locale={locale}
-              appearanceVersion={appearanceVersion}
-              station={fullscreenStation}
-              active={fullscreenStation.id === activeStationId}
-              runtime={terminalByStation[fullscreenStation.id]}
-              taskSignal={taskSignalByStationId[fullscreenStation.id]}
-              channelBotBindings={channelBotBindingsByStationId[fullscreenStation.id]}
-              isFullscreen
-              isFullscreenMode
-              onSelectStation={onSelectStation}
-              onLaunchStationTerminal={onLaunchStationTerminal}
-              onLaunchCliAgent={onLaunchCliAgent}
-              onSendInputData={onSendInputData}
-              onResizeTerminal={onResizeTerminal}
-              onBindTerminalSink={onBindTerminalSink}
-              onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-              onRemoveStation={onRemoveStation}
-              onEnterFullscreen={handleEnterFullscreen}
-              onExitFullscreen={handleExitFullscreen}
-            />
-          </div>
-        ) : layoutMode === 'focus' ? (
-          <div
-            className="station-grid focus-mode"
-            role="list"
-            aria-label={t(locale, 'workbench.ariaLabel')}
-            data-layout-preset="focus"
-          >
-            <div className="focus-main">
-              <div className="focus-main-stage">
-                {stations.map((station) => {
-                  const isActive = station.id === activeStationId
-                  return (
-                    <StationCard
-                      key={station.id}
-                      locale={locale}
-                      appearanceVersion={appearanceVersion}
-                      station={station}
-                      active={isActive}
-                      runtime={terminalByStation[station.id]}
-                      taskSignal={taskSignalByStationId[station.id]}
-                      channelBotBindings={channelBotBindingsByStationId[station.id]}
-                      isFullscreen={false}
-                      isFullscreenMode={false}
-                      isFocusHidden={!isActive}
-                      onSelectStation={onSelectStation}
-                      onLaunchStationTerminal={onLaunchStationTerminal}
-                      onLaunchCliAgent={onLaunchCliAgent}
-                      onSendInputData={onSendInputData}
-                      onResizeTerminal={onResizeTerminal}
-                      onBindTerminalSink={onBindTerminalSink}
-                      onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-                      onRemoveStation={onRemoveStation}
-                      onEnterFullscreen={handleEnterFullscreen}
-                      onExitFullscreen={handleExitFullscreen}
-                    />
-                  )
-                })}
-              </div>
-            </div>
-            {stations.length > 1 && (
-              <div className="focus-ring">
-                {stations
-                  .filter((s) => s.id !== activeStationId)
-                  .map((station) => (
-                    <FocusRailItem
-                      key={station.id}
-                      locale={locale}
-                      station={station}
-                      unreadCount={terminalByStation[station.id]?.unreadCount ?? 0}
-                      onSelectStation={onSelectStation}
-                    />
-                  ))}
-              </div>
-            )}
-          </div>
-        ) : shouldVirtualize ? (
-          <div
-            ref={gridRef}
-            className="station-grid station-grid-virtual"
-            role="list"
-            aria-label={t(locale, 'workbench.ariaLabel')}
-            data-station-count={stations.length}
-            data-layout-mode={hasFixedLayout ? 'fixed' : 'auto'}
-            data-layout-preset={layoutMode}
-            data-scrolling={rowVirtualizer.isScrolling ? 'true' : 'false'}
-            style={gridStyle}
-          >
-            <div
-              className="station-grid-virtual-inner"
-              style={{
-                height: `${rowVirtualizer.getTotalSize()}px`,
-              }}
-            >
-              {rowVirtualizer.getVirtualItems().map((rowItem) => {
-                const rowStations = virtualRows[rowItem.index] ?? []
+    <>
+      {showStage ? (
+        <section className="workbench-stage">
+          <div ref={surfaceRef} className="workbench-stage-surface">
+            <div ref={dockGridRef} className="workbench-stage-grid" style={dockGridStyle}>
+              {dockedContainers.map((container, index) => {
+                const containerStations = container.stationIds
+                  .map((stationId) => stationById.get(stationId))
+                  .filter((station): station is AgentStation => Boolean(station))
                 return (
-                  <div
-                    key={rowItem.key}
-                    data-index={rowItem.index}
-                    className="station-grid-virtual-row"
-                    style={{
-                      transform: `translate3d(0, ${rowItem.start}px, 0)`,
-                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                  <WorkbenchCanvasPanel
+                    key={container.id}
+                    locale={locale}
+                    appearanceVersion={appearanceVersion}
+                    container={container}
+                    containerIndex={index}
+                    stations={containerStations}
+                    activeGlobalStationId={activeStationId}
+                    terminalByStation={terminalByStation}
+                    taskSignalByStationId={taskSignalByStationId}
+                    channelBotBindingsByStationId={channelBotBindingsByStationId}
+                    dropActive={dragTargetContainerId === container.id}
+                    scrollToStationId={scrollToStationId && container.stationIds.includes(scrollToStationId) ? scrollToStationId : null}
+                    onScrollToStationHandled={onScrollToStationHandled}
+                    onSelectStation={onSelectStation}
+                    onLaunchStationTerminal={onLaunchStationTerminal}
+                    onLaunchCliAgent={onLaunchCliAgent}
+                    onSendInputData={onSendInputData}
+                    onResizeTerminal={onResizeTerminal}
+                    onBindTerminalSink={onBindTerminalSink}
+                    onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                    onRemoveStation={onRemoveStation}
+                    onLayoutModeChange={onLayoutModeChange}
+                    onCustomLayoutChange={onCustomLayoutChange}
+                    onFloatContainer={onFloatContainer}
+                    onDockContainer={onDockContainer}
+                    onDetachContainer={onDetachContainer}
+                    onToggleContainerTopmost={onToggleContainerTopmost}
+                    onDeleteContainer={onDeleteContainer}
+                    showUtilityBar={container.id === utilityHostContainerId}
+                    onCreateContainer={onCreateContainer}
+                    onStationDragStart={handleStationDragStart}
+                    onStationDragPointerStart={handleStationPointerDragStart}
+                    onStationDragEnd={() => setDragTargetContainerId(null)}
+                    onStationDragHover={setDragTargetContainerId}
+                    onStationDrop={(event, targetContainerId) => {
+                      handleContainerDrop(event, targetContainerId)
                     }}
-                  >
-                    {rowStations.map((station) => (
-                      <StationCard
-                        key={station.id}
-                        locale={locale}
-                        appearanceVersion={appearanceVersion}
-                        station={station}
-                        active={station.id === activeStationId}
-                        runtime={terminalByStation[station.id]}
-                        taskSignal={taskSignalByStationId[station.id]}
-                        channelBotBindings={channelBotBindingsByStationId[station.id]}
-                        isFullscreen={false}
-                        isFullscreenMode={false}
-                        onSelectStation={onSelectStation}
-                        onLaunchStationTerminal={onLaunchStationTerminal}
-                        onLaunchCliAgent={onLaunchCliAgent}
-                        onSendInputData={onSendInputData}
-                        onResizeTerminal={onResizeTerminal}
-                        onBindTerminalSink={onBindTerminalSink}
-                        onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-                        onRemoveStation={onRemoveStation}
-                        onEnterFullscreen={handleEnterFullscreen}
-                        onExitFullscreen={handleExitFullscreen}
-                      />
-                    ))}
-                  </div>
+                    onOpenStationManage={onOpenStationManage}
+                  />
                 )
               })}
+
+              {dockedContainers.length === 0 && floatingContainers.length === 0 ? (
+                <div className="workbench-stage-empty">
+                  <strong>{t(locale, 'workbench.emptyContainersTitle')}</strong>
+                  <p>{t(locale, 'workbench.emptyContainersDetail')}</p>
+                  <WorkbenchUtilityActions
+                    locale={locale}
+                    onOpenStationSearch={onOpenStationSearch}
+                    onOpenStationManage={onOpenStationManage}
+                    onCreateContainer={onCreateContainer}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
-        ) : (
-          <div
-            className="station-grid"
-            role="list"
-            aria-label={t(locale, 'workbench.ariaLabel')}
-            data-station-count={stations.length}
-            data-layout-mode={hasFixedLayout ? 'fixed' : 'auto'}
-            data-layout-preset={layoutMode}
-            style={gridStyle}
-          >
-            {stations.map((station) => (
-              <StationCard
-                key={station.id}
-                locale={locale}
-                appearanceVersion={appearanceVersion}
-                station={station}
-                active={station.id === activeStationId}
-                runtime={terminalByStation[station.id]}
-                taskSignal={taskSignalByStationId[station.id]}
-                channelBotBindings={channelBotBindingsByStationId[station.id]}
-                isFullscreen={false}
-                isFullscreenMode={false}
-                onSelectStation={onSelectStation}
-                onLaunchStationTerminal={onLaunchStationTerminal}
-                onLaunchCliAgent={onLaunchCliAgent}
-                onSendInputData={onSendInputData}
-                onResizeTerminal={onResizeTerminal}
-                onBindTerminalSink={onBindTerminalSink}
-                onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-                onRemoveStation={onRemoveStation}
-                onEnterFullscreen={handleEnterFullscreen}
-                onExitFullscreen={handleExitFullscreen}
-              />
-            ))}
-          </div>
-        )
-      ) : (
-        <div className="station-grid-empty">
-          <p>{t(locale, 'workbench.emptyStations')}</p>
-          <button type="button" className="canvas-header-icon-button canvas-header-add" onClick={onOpenStationManage}>
-            <AppIcon name="plus" className="vb-icon vb-icon-overview" aria-hidden="true" />
-          </button>
-        </div>
-      )}
-    </section>
+        </section>
+      ) : null}
+
+      {showFloatingPortal && (showStage ? Boolean(surfaceRect) : true) && typeof document !== 'undefined'
+        ? createPortal(
+            <div className="workbench-floating-portal">
+              {floatingEntries.map(({ container, stations: containerStations, style }, index) => (
+                <div
+                  key={container.id}
+                  className="workbench-floating-shell"
+                  style={style}
+                  onPointerDown={() => {
+                    onFocusFloatingContainer(container.id)
+                  }}
+                >
+                  <WorkbenchCanvasPanel
+                    locale={locale}
+                    appearanceVersion={appearanceVersion}
+                    container={container}
+                    containerIndex={dockedContainers.length + index}
+                    stations={containerStations}
+                    activeGlobalStationId={activeStationId}
+                    terminalByStation={terminalByStation}
+                    taskSignalByStationId={taskSignalByStationId}
+                    channelBotBindingsByStationId={channelBotBindingsByStationId}
+                    dropActive={dragTargetContainerId === container.id}
+                    onSelectStation={onSelectStation}
+                    onLaunchStationTerminal={onLaunchStationTerminal}
+                    onLaunchCliAgent={onLaunchCliAgent}
+                    onSendInputData={onSendInputData}
+                    onResizeTerminal={onResizeTerminal}
+                    onBindTerminalSink={onBindTerminalSink}
+                    onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                    onRemoveStation={onRemoveStation}
+                    onLayoutModeChange={onLayoutModeChange}
+                    onCustomLayoutChange={onCustomLayoutChange}
+                    onFloatContainer={onFloatContainer}
+                    onDockContainer={onDockContainer}
+                    onDetachContainer={onDetachContainer}
+                    onToggleContainerTopmost={onToggleContainerTopmost}
+                    onDeleteContainer={onDeleteContainer}
+                    showUtilityBar={container.id === utilityHostContainerId}
+                    onCreateContainer={onCreateContainer}
+                    onBeginFloatingDrag={handleFloatingDragStart}
+                    onStationDragStart={handleStationDragStart}
+                    onStationDragPointerStart={handleStationPointerDragStart}
+                    onStationDragEnd={() => setDragTargetContainerId(null)}
+                    onStationDragHover={setDragTargetContainerId}
+                    onStationDrop={(event, targetContainerId) => {
+                      handleContainerDrop(event, targetContainerId)
+                    }}
+                    onOpenStationManage={onOpenStationManage}
+                  />
+                  {FLOATING_RESIZE_DIRECTIONS.map((direction) => (
+                    <div
+                      key={direction}
+                      className={['workbench-floating-resize-handle', `dir-${direction}`].join(' ')}
+                      onPointerDown={(event) => {
+                        handleFloatingResizeStart(container.id, direction, event)
+                      }}
+                      aria-hidden="true"
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   )
 }
 
 export const WorkbenchCanvas = memo(WorkbenchCanvasView)
+export type { WorkbenchCustomLayout, WorkbenchLayoutMode } from './workbench-layout-model'

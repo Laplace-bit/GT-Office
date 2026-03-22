@@ -137,8 +137,19 @@ function readRootFontSizePx(): number {
   return value
 }
 
-function resolveTerminalFontSize(): number {
-  return Math.max(10, Math.round(readRootFontSizePx() - 1))
+function resolveTerminalFontSize(host?: HTMLElement | null): number {
+  const baseSize = Math.max(10, Math.round(readRootFontSizePx() - 1))
+  if (!host) {
+    return baseSize
+  }
+  const { clientWidth, clientHeight } = host
+  if (clientWidth <= 320 || clientHeight <= 220) {
+    return Math.max(10, baseSize - 2)
+  }
+  if (clientWidth <= 420 || clientHeight <= 300) {
+    return Math.max(10, baseSize - 1)
+  }
+  return baseSize
 }
 
 function getTerminalTheme(): ITheme {
@@ -243,8 +254,9 @@ function StationXtermTerminalView({
     if (!terminal) {
       return
     }
+    const host = hostRef.current
     terminal.options.fontFamily = readCssVar('--vb-font-mono')
-    terminal.options.fontSize = resolveTerminalFontSize()
+    terminal.options.fontSize = resolveTerminalFontSize(host)
     terminal.options.theme = getTerminalTheme()
     terminal.options.overviewRuler = { width: TERMINAL_OVERVIEW_RULER_WIDTH }
     terminal.options.cursorStyle = 'bar'
@@ -343,7 +355,7 @@ function StationXtermTerminalView({
           cursorStyle: 'bar',
           cursorWidth: 2,
           fontFamily: readCssVar('--vb-font-mono'),
-          fontSize: resolveTerminalFontSize(),
+          fontSize: resolveTerminalFontSize(host),
           fontWeight: '500',
           fontWeightBold: '700',
           scrollback: 4000,
@@ -450,11 +462,17 @@ function StationXtermTerminalView({
           }
         }
         const flushRenderedScreenSnapshot = () => {
+          if (!onRenderedScreenSnapshotRef.current) {
+            return
+          }
           if (reportFrameId !== null) {
             window.cancelAnimationFrame(reportFrameId)
           }
           reportFrameId = window.requestAnimationFrame(() => {
             reportFrameId = null
+            if (!onRenderedScreenSnapshotRef.current) {
+              return
+            }
             const snapshot = captureRenderedScreenSnapshot()
             if (!snapshot) {
               return
@@ -477,6 +495,9 @@ function StationXtermTerminalView({
           })
         }
         const scheduleRenderedScreenSnapshot = () => {
+          if (!onRenderedScreenSnapshotRef.current) {
+            return
+          }
           const now = Date.now()
           const elapsed = now - lastReportAtMs
           const delay = elapsed >= RENDERED_SCREEN_REPORT_THROTTLE_MS
@@ -510,6 +531,10 @@ function StationXtermTerminalView({
             return false
           }
           try {
+            const nextFontSize = resolveTerminalFontSize(host)
+            if (terminal.options.fontSize !== nextFontSize) {
+              terminal.options.fontSize = nextFontSize
+            }
             fitAddon.fit()
           } catch {
             return false

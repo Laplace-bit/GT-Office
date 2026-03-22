@@ -14,6 +14,7 @@
   transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
   box-shadow: 0 0 0 rem(1) var(--vb-border-subtle), var(--vb-shadow-sm);
   z-index: 1;
+  isolation: isolate;
   contain: layout;
   container-type: inline-size;
   height: 100%;
@@ -63,11 +64,13 @@
 }
 
 .station-window-header {
-  padding: rem(6) rem(10);
+  position: relative;
+  z-index: 4;
+  padding: rem(5) rem(8);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: rem(12);
+  gap: rem(8);
   background: var(--vb-glass-lighter);
   border-bottom: rem(1) solid var(--vb-border-subtle);
 }
@@ -77,17 +80,27 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: rem(4);
+  gap: rem(2);
+
+  &.station-window-drag-source {
+    cursor: grab;
+    touch-action: none;
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
 }
 
 .station-window-title-row {
   display: flex;
   align-items: center;
-  gap: rem(8);
+  gap: rem(6);
   min-width: 0;
+  flex-wrap: nowrap;
 
   h3 {
-    font-size: rem(14);
+    font-size: rem(13);
     font-weight: 700;
     color: var(--vb-text);
     margin: 0;
@@ -117,24 +130,29 @@
 }
 
 .station-window-role-label {
-  font-size: rem(11);
+  font-size: rem(10);
   font-weight: 600;
   color: var(--vb-accent);
-  opacity: 0.9;
+  opacity: 0.82;
   white-space: nowrap;
   letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 .station-window-title-subline {
   display: flex;
   align-items: center;
-  gap: rem(6);
+  gap: rem(4);
   min-width: 0;
   flex-wrap: wrap;
+  row-gap: rem(3);
 }
 
 .station-window-meta-text {
-  font-size: rem(10.5);
+  flex: 1 1 rem(12);
+  min-width: 0;
+  max-width: 100%;
+  font-size: rem(10);
   color: var(--vb-text-muted);
   font-weight: 500;
   margin: 0;
@@ -144,17 +162,33 @@
   font-family: var(--vb-font-mono);
 }
 
+.station-window-tool-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: rem(16);
+  max-width: 100%;
+  padding: 0 rem(6);
+  border-radius: rem(999);
+  border: rem(1) solid var(--vb-border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--vb-text-muted);
+  font-size: rem(9);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
 .station-window-status-pill {
   display: inline-flex;
   align-items: center;
   gap: rem(5);
-  min-height: rem(18);
-  padding: 0 rem(7);
+  min-height: rem(16);
+  padding: 0 rem(6);
   border-radius: rem(999);
   border: rem(1) solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.05);
   color: var(--vb-text-muted);
-  font-size: rem(9.5);
+  font-size: rem(9);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -162,6 +196,8 @@
 }
 
 .station-window-status-pill.live {
+  min-width: rem(16);
+  justify-content: center;
   color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
   border-color: color-mix(in srgb, var(--vb-success) 28%, rgba(255, 255, 255, 0.08));
   background: color-mix(in srgb, var(--vb-success) 10%, rgba(255, 255, 255, 0.05));
@@ -187,19 +223,21 @@
   gap: rem(4);
   min-width: 0;
   flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .station-header-bot-chip {
   display: inline-flex;
   align-items: center;
-  min-height: rem(18);
+  min-height: rem(16);
   padding: 0 rem(6);
   border-radius: rem(999);
   border: rem(1) solid var(--vb-border-subtle);
   background: rgba(255, 255, 255, 0.06);
   color: var(--vb-text-muted);
-  font-size: rem(9.5);
+  font-size: rem(9);
   font-weight: 600;
+  max-width: 100%;
 }
 
 .station-header-bot-chip-muted {
@@ -209,12 +247,21 @@
 .station-window-header-actions {
   display: flex;
   align-items: center;
-  gap: rem(4);
+  gap: rem(2);
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  max-width: 100%;
 }
 
 .station-icon-button {
-  width: rem(28);
-  height: rem(28);
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  font: inherit;
+  width: rem(26);
+  height: rem(26);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -243,6 +290,14 @@
   }
 }
 
+.station-drag-handle {
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
 .station-icon-tooltip {
   position: fixed;
   z-index: 9999;
@@ -259,10 +314,10 @@
 }
 
 .station-unread-badge {
-  padding: rem(2) rem(6);
+  padding: rem(1.5) rem(6);
   background: var(--vb-error);
   color: white;
-  font-size: rem(10);
+  font-size: rem(9.5);
   font-weight: 700;
   border-radius: rem(999);
   min-width: rem(18);
@@ -529,6 +584,90 @@
   }
 }
 
+.station-window.station-window-compact {
+  .station-window-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: rem(8);
+    padding: rem(6) rem(8);
+  }
+
+  .station-window-title-wrap {
+    width: 100%;
+    gap: rem(3);
+  }
+
+  .station-window-title-row {
+    gap: rem(5);
+
+    h3 {
+      white-space: normal;
+      display: -webkit-box;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      overflow-wrap: anywhere;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .station-window-title-subline {
+    gap: rem(4);
+  }
+
+  .station-window-meta-text {
+    flex-basis: auto;
+    min-width: min(100%, rem(8));
+    white-space: normal;
+    display: -webkit-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.45;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .station-window-role-label {
+    font-size: rem(9.5);
+  }
+
+  .station-window-header-actions {
+    margin-left: auto;
+  }
+
+  .station-unread-badge {
+    order: 2;
+    margin-left: 0;
+  }
+
+  .station-terminal-shell {
+    .station-terminal-host {
+      :where(.xterm, .terminal) {
+        .xterm-screen {
+          padding: rem(2) rem(5);
+        }
+
+        .xterm-scrollable-element > .scrollbar.vertical {
+          top: rem(2);
+          bottom: rem(2);
+        }
+      }
+    }
+  }
+
+  .station-terminal-idle-state {
+    gap: rem(14);
+    padding: rem(14);
+  }
+
+  .station-terminal-idle-copy p {
+    max-width: none;
+    overflow-wrap: anywhere;
+  }
+}
+
 @keyframes bubble-slide-in {
   from {
     opacity: 0;
@@ -547,10 +686,18 @@
     flex-wrap: wrap;
   }
 
+  .station-window-title-row {
+    align-items: flex-start;
+  }
+
+  .station-window-role-label {
+    display: none;
+  }
+
   .station-window-header-actions {
     width: 100%;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
   .station-window-title-row,

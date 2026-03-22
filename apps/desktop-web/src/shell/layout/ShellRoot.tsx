@@ -48,14 +48,26 @@ import {
   resolveConnectorAccounts,
 } from '@features/tool-adapter'
 import {
+  DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
+  createDefaultFloatingFrame,
   createDefaultStations,
+  createInitialWorkbenchContainers,
+  DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY,
+  isWorkbenchLayoutMode,
   mapAgentProfileToStation,
+  normalizeWorkbenchContainerFrame,
+  readDetachedTerminalRuntimeSyncPayload,
+  reconcileWorkbenchContainers,
+  restoreWorkbenchContainers,
+  serializeWorkbenchContainers,
   StationManageModal,
   StationSearchModal,
   WorkbenchCanvas,
   type AgentStation,
   type CreateStationInput,
   type UpdateStationInput,
+  type WorkbenchContainerModel,
+  type WorkbenchContainerSnapshot,
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
@@ -95,6 +107,7 @@ import {
   type GitUpdatedPayload,
   type GitStatusResponse,
   type RenderedScreenSnapshot,
+  type SurfaceDetachedStationPayload,
   type TerminalMetaPayload,
   type TerminalOutputPayload,
   type TerminalStatePayload,
@@ -125,7 +138,6 @@ const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
 const TASK_DISPATCH_HISTORY_LIMIT = 40
 const TASK_DRAFT_PERSIST_DEBOUNCE_MS = 360
 const SHELL_LAYOUT_STORAGE_KEY = 'gtoffice.shell.layout.v2'
-const DEFAULT_CANVAS_CUSTOM_LAYOUT: WorkbenchCustomLayout = { columns: 2, rows: 2 }
 const CANVAS_LAYOUT_MIN = 1
 const CANVAS_LAYOUT_MAX = 8
 const WORKSPACE_MEMORY_STORAGE_KEY = 'gtoffice.shell.lastWorkspace.v1'
@@ -141,6 +153,33 @@ const LEFT_PANE_WIDTH_MIN = 210
 const LEFT_PANE_WIDTH_MAX = 390
 const LEFT_PANE_WIDTH_DEFAULT = 270
 const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
+
+function buildDefaultWorkbenchContainerId(): string {
+  return 'canvas-main'
+}
+
+function buildFloatingContainerId(seed: number): string {
+  return `container-${seed.toString(36)}`
+}
+
+function buildWorkbenchContainerTitle(
+  container: WorkbenchContainerModel,
+  stations: AgentStation[],
+): string {
+  const activeStation =
+    (container.activeStationId
+      ? stations.find((station) => station.id === container.activeStationId) ?? null
+      : null) ??
+    stations.find((station) => container.stationIds.includes(station.id)) ??
+    null
+  if (!activeStation) {
+    return 'GT Office Surface'
+  }
+  if (container.stationIds.length <= 1) {
+    return activeStation.name
+  }
+  return `${activeStation.name} +${container.stationIds.length - 1}`
+}
 
 function normalizeStationToolKind(
   tool: string | null | undefined,
@@ -354,13 +393,9 @@ function clampCanvasLayoutValue(value: number): number {
 
 function normalizeCanvasCustomLayout(layout: Partial<WorkbenchCustomLayout> | null | undefined): WorkbenchCustomLayout {
   return {
-    columns: clampCanvasLayoutValue(layout?.columns ?? DEFAULT_CANVAS_CUSTOM_LAYOUT.columns),
-    rows: clampCanvasLayoutValue(layout?.rows ?? DEFAULT_CANVAS_CUSTOM_LAYOUT.rows),
+    columns: clampCanvasLayoutValue(layout?.columns ?? DEFAULT_WORKBENCH_CUSTOM_LAYOUT.columns),
+    rows: clampCanvasLayoutValue(layout?.rows ?? DEFAULT_WORKBENCH_CUSTOM_LAYOUT.rows),
   }
-}
-
-function isWorkbenchLayoutMode(value: unknown): value is WorkbenchLayoutMode {
-  return value === 'auto' || value === 'focus' || value === 'custom'
 }
 
 function mapLegacyLayoutPreset(
@@ -368,9 +403,9 @@ function mapLegacyLayoutPreset(
 ): { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } | null {
   switch (preset) {
     case 'auto':
-      return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+      return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
     case 'focus':
-      return { mode: 'focus', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+      return { mode: 'focus', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
     case '1*1':
       return { mode: 'custom', customLayout: { columns: 1, rows: 1 } }
     case '1*2':
@@ -390,12 +425,12 @@ function mapLegacyLayoutPreset(
 
 function loadCanvasLayoutPreference(): { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } {
   if (typeof window === 'undefined') {
-    return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+    return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
   }
   try {
     const raw = window.localStorage.getItem(SHELL_LAYOUT_STORAGE_KEY)
     if (!raw) {
-      return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+      return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
     }
     const parsed = JSON.parse(raw) as {
       canvasLayoutMode?: WorkbenchLayoutMode
@@ -415,9 +450,9 @@ function loadCanvasLayoutPreference(): { mode: WorkbenchLayoutMode; customLayout
         customLayout: normalizeCanvasCustomLayout(legacy.customLayout),
       }
     }
-    return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+    return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
   } catch {
-    return { mode: 'auto', customLayout: DEFAULT_CANVAS_CUSTOM_LAYOUT }
+    return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
   }
 }
 
@@ -798,6 +833,7 @@ function readTaskQuickDispatchOpacityFromSettings(values: Record<string, unknown
 export function ShellRoot() {
   const initialStations = useMemo(() => createDefaultStations(), [])
   const stationCounterRef = useRef(nextStationNumber(initialStations))
+  const workbenchContainerCounterRef = useRef(initialStations.length + 1)
   const tauriRuntime = desktopApi.isTauriRuntime()
   const nativeWindowTop = tauriRuntime
   const nativeWindowTopMacOs = tauriRuntime && isMacOsPlatform()
@@ -828,6 +864,9 @@ export function ShellRoot() {
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
   const [activeStationId, setActiveStationId] = useState(initialStations[0]?.id ?? '')
+  const [workbenchContainers, setWorkbenchContainers] = useState<WorkbenchContainerModel[]>(() =>
+    createInitialWorkbenchContainers(initialStations, buildDefaultWorkbenchContainerId, initialCanvasLayout),
+  )
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(() =>
     createInitialTaskDraft(initialStations, initialStations[0]?.id ?? ''),
   )
@@ -901,6 +940,7 @@ export function ShellRoot() {
   )
   const stationTerminalsRef = useRef(stationTerminals)
   const stationsRef = useRef(stations)
+  const workbenchContainersRef = useRef(workbenchContainers)
   const sessionStationRef = useRef<Record<string, string>>({})
   const terminalSessionSeqRef = useRef<Record<string, number>>({})
   const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
@@ -952,6 +992,8 @@ export function ShellRoot() {
   const workspaceSessionHydratingRef = useRef(false)
   const workspaceSessionRestoreSeqRef = useRef(0)
   const workspaceSessionRestoreTabTimersRef = useRef<number[]>([])
+  const pendingWorkbenchContainerSnapshotsRef = useRef<WorkbenchContainerSnapshot[] | null>(null)
+  const detachedWindowOpenInFlightRef = useRef<Record<string, boolean>>({})
   const stationUnreadDeltaRef = useRef<Record<string, number>>({})
   const stationUnreadFlushTimerRef = useRef<number | null>(null)
   const stationTaskSignalTimerRef = useRef<Record<string, number | null>>({})
@@ -967,6 +1009,7 @@ export function ShellRoot() {
   >({})
   const tabSessionSnapshotRef = useRef<Array<{ path: string; active: boolean }>>([])
   const terminalSessionSnapshotRef = useRef<WorkspaceSessionTerminalSnapshot[]>([])
+  const workbenchContainerSnapshotRef = useRef<WorkbenchContainerSnapshot[]>([])
   const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
 
   useEffect(() => {
@@ -1001,6 +1044,10 @@ export function ShellRoot() {
   useEffect(() => {
     stationsRef.current = stations
   }, [stations])
+
+  useEffect(() => {
+    workbenchContainersRef.current = workbenchContainers
+  }, [workbenchContainers])
 
   useEffect(() => {
     if (!pendingScrollStationId) {
@@ -1073,6 +1120,14 @@ export function ShellRoot() {
         Object.entries(registeredAgentRuntimeRef.current).forEach(([agentId, runtime]) => {
           void desktopApi.agentRuntimeUnregister(runtime.workspaceId, agentId).catch(() => {
             // Best-effort runtime cleanup during shell teardown.
+          })
+        })
+        workbenchContainersRef.current.forEach((container) => {
+          if (!container.detachedWindowLabel) {
+            return
+          }
+          void desktopApi.surfaceCloseWindow(container.detachedWindowLabel).catch(() => {
+            // Detached surfaces are best-effort on shell teardown.
           })
         })
       }
@@ -2535,6 +2590,16 @@ export function ShellRoot() {
   ])
 
   useEffect(() => {
+    if (desktopApi.isTauriRuntime()) {
+      workbenchContainersRef.current.forEach((container) => {
+        if (!container.detachedWindowLabel) {
+          return
+        }
+        void desktopApi.surfaceCloseWindow(container.detachedWindowLabel).catch(() => {
+          // Best-effort cleanup while switching workspaces.
+        })
+      })
+    }
     setStationTerminals(createInitialStationTerminals(stationsRef.current))
     sessionStationRef.current = {}
     terminalSessionSeqRef.current = {}
@@ -2572,6 +2637,14 @@ export function ShellRoot() {
     setExternalChannelEvents([])
     externalChannelEventSeqRef.current = 0
     externalTraceContextRef.current = {}
+    pendingWorkbenchContainerSnapshotsRef.current = null
+    detachedWindowOpenInFlightRef.current = {}
+    setWorkbenchContainers(
+      createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId, {
+        mode: canvasLayoutMode,
+        customLayout: canvasCustomLayout,
+      }),
+    )
     Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
       clearStationTaskSignalTimer(stationId)
     })
@@ -2649,6 +2722,51 @@ export function ShellRoot() {
       setActiveStationId(stations[0]?.id ?? '')
     }
   }, [activeStationId, clearStationTaskSignalTimer, stations])
+
+  useEffect(() => {
+    setWorkbenchContainers((prev) => {
+      const pendingSnapshots = pendingWorkbenchContainerSnapshotsRef.current
+      if (pendingSnapshots) {
+        pendingWorkbenchContainerSnapshotsRef.current = null
+        return restoreWorkbenchContainers(
+          pendingSnapshots,
+          stations,
+          buildDefaultWorkbenchContainerId,
+          {
+            mode: canvasLayoutMode,
+            customLayout: canvasCustomLayout,
+          },
+        )
+      }
+      return reconcileWorkbenchContainers(prev, stations, buildDefaultWorkbenchContainerId, {
+        mode: canvasLayoutMode,
+        customLayout: canvasCustomLayout,
+      })
+    })
+  }, [canvasCustomLayout, canvasLayoutMode, stations])
+
+  useEffect(() => {
+    if (!activeStationId) {
+      return
+    }
+    setWorkbenchContainers((prev) => {
+      const targetIndex = prev.findIndex((container) => container.stationIds.includes(activeStationId))
+      if (targetIndex < 0) {
+        return prev
+      }
+      const target = prev[targetIndex]
+      if (target.activeStationId === activeStationId) {
+        return prev
+      }
+      const next = [...prev]
+      next[targetIndex] = {
+        ...target,
+        activeStationId,
+        lastActiveAtMs: Date.now(),
+      }
+      return next
+    })
+  }, [activeStationId])
 
   useEffect(() => {
     if (!activeWorkspaceId) {
@@ -3701,20 +3819,340 @@ export function ShellRoot() {
     ],
   )
 
-  const canvasStations = useMemo(() => {
-    if (activeNavId === 'stations') {
-      return filteredStations
+  const createNextWorkbenchContainerId = useCallback(() => {
+    const existingIds = new Set(workbenchContainersRef.current.map((container) => container.id))
+    let seed = workbenchContainerCounterRef.current
+    let nextId = buildFloatingContainerId(seed)
+    while (existingIds.has(nextId)) {
+      seed += 1
+      nextId = buildFloatingContainerId(seed)
     }
-    return stations
-  }, [activeNavId, filteredStations, stations])
+    workbenchContainerCounterRef.current = seed + 1
+    return nextId
+  }, [])
 
   const terminalSessionCount = useMemo(
     () => Object.values(stationTerminals).filter((runtime) => runtime.sessionId).length,
     [stationTerminals],
   )
 
-  const handleCanvasSelectStation = useCallback((stationId: string) => {
+  const handleCanvasSelectStation = useCallback((containerId: string, stationId: string) => {
     setActiveStationId(stationId)
+    setWorkbenchContainers((prev) =>
+      prev.map((container) =>
+        container.id === containerId
+          ? {
+              ...container,
+              activeStationId: stationId,
+              lastActiveAtMs: Date.now(),
+            }
+          : container,
+      ),
+    )
+  }, [])
+
+  const createWorkbenchContainer = useCallback(() => {
+    const nextId = createNextWorkbenchContainerId()
+    setWorkbenchContainers((prev) => [
+      ...prev,
+      {
+        id: nextId,
+        stationIds: [],
+        activeStationId: null,
+        layoutMode: canvasLayoutMode,
+        customLayout: canvasCustomLayout,
+        mode: 'docked',
+        resumeMode: 'docked',
+        topmost: false,
+        frame: null,
+        detachedWindowLabel: null,
+        lastActiveAtMs: Date.now(),
+      } satisfies WorkbenchContainerModel,
+    ])
+  }, [canvasCustomLayout, canvasLayoutMode, createNextWorkbenchContainerId])
+
+  const deleteWorkbenchContainer = useCallback(
+    (containerId: string) => {
+      const currentContainer =
+        workbenchContainersRef.current.find((container) => container.id === containerId) ?? null
+      if (!currentContainer || currentContainer.stationIds.length > 0) {
+        return
+      }
+      delete detachedWindowOpenInFlightRef.current[containerId]
+      if (tauriRuntime && currentContainer.detachedWindowLabel) {
+        void desktopApi.surfaceCloseWindow(currentContainer.detachedWindowLabel).catch(() => {
+          // The state is already removed locally; closing the native window is best-effort.
+        })
+      }
+      setWorkbenchContainers((prev) => prev.filter((container) => container.id !== containerId))
+    },
+    [tauriRuntime],
+  )
+
+  const floatWorkbenchContainer = useCallback((containerId: string) => {
+    setWorkbenchContainers((prev) => {
+      const floatingIndex = prev.filter((container) => container.mode === 'floating').length
+      let changed = false
+      const next = prev.map((container) => {
+        if (container.id !== containerId) {
+          return container
+        }
+        changed = true
+        return {
+          ...container,
+          mode: 'floating',
+          resumeMode: 'floating',
+          topmost: true,
+          frame:
+            normalizeWorkbenchContainerFrame(container.frame) ??
+            createDefaultFloatingFrame(floatingIndex),
+          detachedWindowLabel: null,
+          lastActiveAtMs: Date.now(),
+        } satisfies WorkbenchContainerModel
+      })
+      return changed ? next : prev
+    })
+  }, [])
+
+  const dockWorkbenchContainer = useCallback((containerId: string) => {
+    setWorkbenchContainers((prev) => {
+      let changed = false
+      const next = prev.map((container) => {
+        if (container.id !== containerId) {
+          return container
+        }
+        changed = true
+        return {
+          ...container,
+          mode: 'docked',
+          resumeMode: 'docked',
+          topmost: false,
+          frame: null,
+          detachedWindowLabel: null,
+          lastActiveAtMs: Date.now(),
+        } satisfies WorkbenchContainerModel
+      })
+      return changed ? next : prev
+    })
+  }, [])
+
+  const toggleWorkbenchContainerTopmost = useCallback(
+    (containerId: string) => {
+      const currentContainer =
+        workbenchContainersRef.current.find((container) => container.id === containerId) ?? null
+      if (!currentContainer || (currentContainer.mode !== 'floating' && currentContainer.mode !== 'detached')) {
+        return
+      }
+      const nextTopmost = !currentContainer.topmost
+      setWorkbenchContainers((prev) =>
+        prev.map((container) =>
+          container.id === containerId
+            ? {
+                ...container,
+                topmost: nextTopmost,
+                lastActiveAtMs: Date.now(),
+              }
+            : container,
+        ),
+      )
+      if (
+        tauriRuntime &&
+        currentContainer.mode === 'detached' &&
+        currentContainer.detachedWindowLabel
+      ) {
+        void desktopApi
+          .surfaceSetWindowTopmost(currentContainer.detachedWindowLabel, nextTopmost)
+          .then((response) => {
+            setWorkbenchContainers((prev) =>
+              prev.map((container) =>
+                container.id === containerId
+                  ? {
+                      ...container,
+                      topmost: response.topmost,
+                    }
+                  : container,
+              ),
+            )
+          })
+          .catch(() => {
+            setWorkbenchContainers((prev) =>
+              prev.map((container) =>
+                container.id === containerId
+                  ? {
+                      ...container,
+                      topmost: currentContainer.topmost,
+                    }
+                  : container,
+              ),
+            )
+          })
+      }
+    },
+    [tauriRuntime],
+  )
+
+  const detachWorkbenchContainer = useCallback(
+    (containerId: string) => {
+      if (!tauriRuntime) {
+        return
+      }
+      setWorkbenchContainers((prev) => {
+        const floatingIndex = prev.filter((container) => container.mode === 'floating').length
+        let changed = false
+        const next = prev.map((container) => {
+          if (container.id !== containerId) {
+            return container
+          }
+          changed = true
+          return {
+            ...container,
+            mode: 'detached',
+            resumeMode:
+              container.mode === 'floating'
+                ? 'floating'
+                : container.resumeMode === 'floating'
+                  ? 'floating'
+                  : 'docked',
+            frame:
+              normalizeWorkbenchContainerFrame(container.frame) ??
+              createDefaultFloatingFrame(floatingIndex),
+            detachedWindowLabel: null,
+            lastActiveAtMs: Date.now(),
+          } satisfies WorkbenchContainerModel
+        })
+        return changed ? next : prev
+      })
+    },
+    [tauriRuntime],
+  )
+
+  const reclaimDetachedContainer = useCallback(
+    (containerId: string) => {
+      const currentContainer =
+        workbenchContainersRef.current.find((container) => container.id === containerId) ?? null
+      if (!currentContainer) {
+        return
+      }
+      if (tauriRuntime && currentContainer.detachedWindowLabel) {
+        void desktopApi.surfaceCloseWindow(currentContainer.detachedWindowLabel).catch(() => {
+          // Window-close event will retry container recovery when possible.
+        })
+      }
+      if (currentContainer.activeStationId) {
+        setActiveStationId(currentContainer.activeStationId)
+      }
+      setWorkbenchContainers((prev) => {
+        const floatingIndex = prev.filter((container) => container.mode === 'floating').length
+        let changed = false
+        const next = prev.map((container) => {
+          if (container.id !== containerId) {
+            return container
+          }
+          changed = true
+          const restoreMode = container.resumeMode === 'floating' ? 'floating' : 'docked'
+          return {
+            ...container,
+            mode: restoreMode,
+            topmost: restoreMode === 'floating' ? true : false,
+            frame:
+              restoreMode === 'floating'
+                ? normalizeWorkbenchContainerFrame(container.frame) ??
+                  createDefaultFloatingFrame(floatingIndex)
+                : null,
+            detachedWindowLabel: null,
+            lastActiveAtMs: Date.now(),
+          } satisfies WorkbenchContainerModel
+        })
+        return changed ? next : prev
+      })
+    },
+    [tauriRuntime],
+  )
+
+  const moveStationToWorkbenchContainer = useCallback(
+    (stationId: string, targetContainerId: string) => {
+      setActiveStationId(stationId)
+      setWorkbenchContainers((prev) => {
+        const sourceIndex = prev.findIndex((container) => container.stationIds.includes(stationId))
+        const targetIndex = prev.findIndex((container) => container.id === targetContainerId)
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+          return prev
+        }
+        const source = prev[sourceIndex]
+        const target = prev[targetIndex]
+        if (target.stationIds.includes(stationId)) {
+          return prev
+        }
+        const now = Date.now()
+        const next = [...prev]
+        const remainingStationIds = source.stationIds.filter((id) => id !== stationId)
+        next[sourceIndex] = {
+          ...source,
+          stationIds: remainingStationIds,
+          activeStationId:
+            source.activeStationId === stationId ? remainingStationIds[0] ?? null : source.activeStationId,
+        }
+        next[targetIndex] = {
+          ...target,
+          stationIds: [...target.stationIds, stationId],
+          activeStationId: stationId,
+          lastActiveAtMs: now,
+        }
+        return next
+      })
+    },
+    [],
+  )
+
+  const moveFloatingWorkbenchContainer = useCallback((containerId: string, input: { x: number; y: number }) => {
+    setWorkbenchContainers((prev) =>
+      prev.map((container) => {
+        if (container.id !== containerId || container.mode !== 'floating') {
+          return container
+        }
+        return {
+          ...container,
+          frame:
+            normalizeWorkbenchContainerFrame({
+              ...(container.frame ?? createDefaultFloatingFrame(0)),
+              x: input.x,
+              y: input.y,
+            }) ?? createDefaultFloatingFrame(0),
+          lastActiveAtMs: Date.now(),
+        }
+      }),
+    )
+  }, [])
+
+  const resizeFloatingWorkbenchContainer = useCallback(
+    (containerId: string, frame: { x: number; y: number; width: number; height: number }) => {
+      setWorkbenchContainers((prev) =>
+        prev.map((container) => {
+          if (container.id !== containerId || container.mode !== 'floating') {
+            return container
+          }
+          return {
+            ...container,
+            frame: normalizeWorkbenchContainerFrame(frame) ?? createDefaultFloatingFrame(0),
+            lastActiveAtMs: Date.now(),
+          }
+        }),
+      )
+    },
+    [],
+  )
+
+  const focusFloatingWorkbenchContainer = useCallback((containerId: string) => {
+    setWorkbenchContainers((prev) =>
+      prev.map((container) =>
+        container.id === containerId && container.mode === 'floating'
+          ? {
+              ...container,
+              lastActiveAtMs: Date.now(),
+            }
+          : container,
+      ),
+    )
   }, [])
 
   const handleCanvasLaunchStationTerminal = useCallback(
@@ -3740,12 +4178,35 @@ export function ShellRoot() {
     setIsStationSearchOpen(true)
   }, [])
 
-  const handleCanvasLayoutModeChange = useCallback((mode: WorkbenchLayoutMode) => {
+  const handleCanvasLayoutModeChange = useCallback((containerId: string, mode: WorkbenchLayoutMode) => {
     setCanvasLayoutMode(mode)
+    setWorkbenchContainers((prev) =>
+      prev.map((container) =>
+        container.id === containerId
+          ? {
+              ...container,
+              layoutMode: mode,
+            }
+          : container,
+      ),
+    )
   }, [])
 
-  const handleCanvasCustomLayoutChange = useCallback((layout: WorkbenchCustomLayout) => {
-    setCanvasCustomLayout(normalizeCanvasCustomLayout(layout))
+  const handleCanvasCustomLayoutChange = useCallback((containerId: string, layout: WorkbenchCustomLayout) => {
+    const normalized = normalizeCanvasCustomLayout(layout)
+    setCanvasLayoutMode('custom')
+    setCanvasCustomLayout(normalized)
+    setWorkbenchContainers((prev) =>
+      prev.map((container) =>
+        container.id === containerId
+          ? {
+              ...container,
+              layoutMode: 'custom',
+              customLayout: normalized,
+            }
+          : container,
+      ),
+    )
   }, [])
 
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
@@ -3910,6 +4371,16 @@ export function ShellRoot() {
     [terminalSessionSnapshotEntries],
   )
 
+  const workbenchContainerSnapshotEntries = useMemo(
+    () => serializeWorkbenchContainers(workbenchContainers),
+    [workbenchContainers],
+  )
+
+  const workbenchContainerSnapshotSignature = useMemo(
+    () => JSON.stringify(workbenchContainerSnapshotEntries),
+    [workbenchContainerSnapshotEntries],
+  )
+
   useEffect(() => {
     tabSessionSnapshotRef.current = tabSessionSnapshotEntries
   }, [tabSessionSnapshotEntries])
@@ -3917,6 +4388,10 @@ export function ShellRoot() {
   useEffect(() => {
     terminalSessionSnapshotRef.current = terminalSessionSnapshotEntries
   }, [terminalSessionSnapshotEntries])
+
+  useEffect(() => {
+    workbenchContainerSnapshotRef.current = workbenchContainerSnapshotEntries
+  }, [workbenchContainerSnapshotEntries])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -3946,17 +4421,46 @@ export function ShellRoot() {
           return
         }
 
-        const restored = parseWorkspaceSessionSnapshot(
-          JSON.stringify({
-            version: 1,
-            updatedAtMs: Date.now(),
-            windows: response.windows,
-            tabs: response.tabs,
-            terminals: response.terminals,
-          }),
-        )
+        let rawSnapshot: string | null = null
+        try {
+          const file = await desktopApi.fsReadFile(workspaceId, workspaceSessionFilePath)
+          if (file.previewable) {
+            rawSnapshot = file.content
+          }
+        } catch {
+          rawSnapshot = null
+        }
+
+        const restored =
+          (rawSnapshot ? parseWorkspaceSessionSnapshot(rawSnapshot) : null) ??
+          parseWorkspaceSessionSnapshot(
+            JSON.stringify({
+              version: 1,
+              updatedAtMs: Date.now(),
+              windows: response.windows,
+              tabs: response.tabs,
+              terminals: response.terminals,
+              workbenchContainers: [],
+            }),
+          )
         if (!restored) {
           return
+        }
+
+        pendingWorkbenchContainerSnapshotsRef.current = restored.workbenchContainers
+        if (stationsRef.current.length > 0) {
+          pendingWorkbenchContainerSnapshotsRef.current = null
+          setWorkbenchContainers(
+            restoreWorkbenchContainers(
+              restored.workbenchContainers,
+              stationsRef.current,
+              buildDefaultWorkbenchContainerId,
+              {
+                mode: canvasLayoutMode,
+                customLayout: canvasCustomLayout,
+              },
+            ),
+          )
         }
 
         const activeNav = restored.windows[0]?.activeNavId
@@ -3980,8 +4484,9 @@ export function ShellRoot() {
           await loadFileContentRef.current(activeTabPath, 'full')
         }
 
+        const stationIdSet = new Set(stationsRef.current.map((station) => station.id))
         const restorableTerminals = restored.terminals
-          .filter((terminal) => stationsRef.current.some((station) => station.id === terminal.stationId))
+          .filter((terminal) => stationIdSet.has(terminal.stationId))
           .sort((left, right) => Number(right.active) - Number(left.active))
           .slice(0, WORKSPACE_SESSION_MAX_RESTORE_TERMINALS)
 
@@ -4058,7 +4563,45 @@ export function ShellRoot() {
         workspaceSessionHydratingRef.current = false
       }
     }
-  }, [activeWorkspaceId, ensureTerminalSessionVisible, setStationTerminalState])
+  }, [
+    activeWorkspaceId,
+    canvasCustomLayout,
+    canvasLayoutMode,
+    ensureTerminalSessionVisible,
+    setStationTerminalState,
+    workspaceSessionFilePath,
+  ])
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY) {
+        return
+      }
+      const payload = readDetachedTerminalRuntimeSyncPayload(event.newValue)
+      if (!payload || payload.workspaceId !== activeWorkspaceIdRef.current) {
+        return
+      }
+      sessionStationRef.current[payload.sessionId] = payload.stationId
+      terminalSessionSeqRef.current[payload.sessionId] = terminalSessionSeqRef.current[payload.sessionId] ?? 0
+      terminalOutputQueueRef.current[payload.sessionId] =
+        terminalOutputQueueRef.current[payload.sessionId] ?? Promise.resolve()
+      delete stationTerminalRestoreStateRef.current[payload.stationId]
+      ensureTerminalSessionVisible(payload.sessionId)
+      setStationTerminalState(payload.stationId, {
+        sessionId: payload.sessionId,
+        stateRaw: payload.stateRaw,
+        unreadCount: 0,
+        shell: payload.shell,
+        cwdMode: payload.cwdMode,
+        resolvedCwd: payload.resolvedCwd,
+      })
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [ensureTerminalSessionVisible, setStationTerminalState])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -4083,6 +4626,7 @@ export function ShellRoot() {
         windows: [{ activeNavId }],
         tabs: tabSessionSnapshotRef.current,
         terminals: terminalSessionSnapshotRef.current,
+        workbenchContainers: workbenchContainerSnapshotRef.current,
       })
       const serialized = serializeWorkspaceSessionSnapshot(snapshot)
       void desktopApi.fsWriteFile(workspaceId, workspaceSessionFilePath, serialized).catch(() => {
@@ -4102,9 +4646,169 @@ export function ShellRoot() {
     activeNavId,
     activeWorkspaceId,
     tabSessionSnapshotSignature,
+    workbenchContainerSnapshotSignature,
     terminalSessionSnapshotSignature,
     workspaceSessionFilePath,
   ])
+
+  useEffect(() => {
+    if (!tauriRuntime) {
+      return
+    }
+
+    let disposed = false
+    let cleanup = () => {}
+
+    void desktopApi
+      .subscribeSurfaceEvents({
+        onWindowClosed: (payload) => {
+          setWorkbenchContainers((prev) => {
+            const targetIndex = prev.findIndex(
+              (container) => container.detachedWindowLabel === payload.windowLabel,
+            )
+            if (targetIndex < 0) {
+              return prev
+            }
+            const floatingIndex = prev.filter((container) => container.mode === 'floating').length
+            const target = prev[targetIndex]
+            const restoreMode = target.resumeMode === 'floating' ? 'floating' : 'docked'
+            const next = [...prev]
+            next[targetIndex] = {
+              ...target,
+              mode: restoreMode,
+              topmost: restoreMode === 'floating' ? true : false,
+              frame:
+                restoreMode === 'floating'
+                  ? normalizeWorkbenchContainerFrame(target.frame) ??
+                    createDefaultFloatingFrame(floatingIndex)
+                  : null,
+              detachedWindowLabel: null,
+              lastActiveAtMs: Date.now(),
+            }
+            return next
+          })
+        },
+        onWindowUpdated: (payload) => {
+          setWorkbenchContainers((prev) =>
+            prev.map((container) =>
+              container.detachedWindowLabel === payload.windowLabel
+                ? {
+                    ...container,
+                    topmost: payload.topmost,
+                  }
+                : container,
+            ),
+          )
+        },
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+          return
+        }
+        cleanup = unlisten
+      })
+
+    return () => {
+      disposed = true
+      cleanup()
+    }
+  }, [tauriRuntime])
+
+  useEffect(() => {
+    if (!tauriRuntime || !activeWorkspaceId) {
+      return
+    }
+
+    workbenchContainers.forEach((container) => {
+      if (
+        container.mode !== 'detached' ||
+        container.detachedWindowLabel ||
+        detachedWindowOpenInFlightRef.current[container.id]
+      ) {
+        return
+      }
+      const surfaceStations = container.stationIds
+        .map<SurfaceDetachedStationPayload | null>((stationId) => {
+          const station = stations.find((item) => item.id === stationId)
+          if (!station) {
+            return null
+          }
+          return {
+            stationId: station.id,
+            name: station.name,
+            role: station.role,
+            tool: station.tool,
+            agentWorkdirRel: station.agentWorkdirRel,
+            roleWorkdirRel: station.roleWorkdirRel,
+            workspaceId: activeWorkspaceId,
+            sessionId: stationTerminals[station.id]?.sessionId ?? null,
+          }
+        })
+        .filter((station): station is SurfaceDetachedStationPayload => station !== null)
+
+      if (surfaceStations.length === 0) {
+        return
+      }
+
+      detachedWindowOpenInFlightRef.current[container.id] = true
+      void desktopApi
+        .surfaceOpenDetachedWindow({
+          workspaceId: activeWorkspaceId,
+          containerId: container.id,
+          title: buildWorkbenchContainerTitle(container, stations),
+          activeStationId: container.activeStationId,
+          layoutMode: container.layoutMode,
+          customLayout: container.customLayout,
+          topmost: container.topmost,
+          stations: surfaceStations,
+        })
+        .then((response) => {
+          if (activeWorkspaceIdRef.current !== activeWorkspaceId) {
+            return
+          }
+          setWorkbenchContainers((prev) =>
+            prev.map((item) =>
+              item.id === container.id
+                ? {
+                    ...item,
+                    detachedWindowLabel: response.windowLabel,
+                    lastActiveAtMs: Date.now(),
+                  }
+                : item,
+            ),
+          )
+        })
+        .catch(() => {
+          if (activeWorkspaceIdRef.current !== activeWorkspaceId) {
+            return
+          }
+          setWorkbenchContainers((prev) => {
+            const floatingIndex = prev.filter((item) => item.mode === 'floating').length
+            return prev.map((item) => {
+              if (item.id !== container.id) {
+                return item
+              }
+              const restoreMode = item.resumeMode === 'floating' ? 'floating' : 'docked'
+              return {
+                ...item,
+                mode: restoreMode,
+                topmost: restoreMode === 'floating' ? true : false,
+                frame:
+                  restoreMode === 'floating'
+                    ? normalizeWorkbenchContainerFrame(item.frame) ??
+                      createDefaultFloatingFrame(floatingIndex)
+                    : null,
+                detachedWindowLabel: null,
+              }
+            })
+          })
+        })
+        .finally(() => {
+          delete detachedWindowOpenInFlightRef.current[container.id]
+        })
+    })
+  }, [activeWorkspaceId, stationTerminals, stations, tauriRuntime, workbenchContainers])
 
   const saveFileContent = useCallback(
     async (filePath: string, content: string): Promise<boolean> => {
@@ -4527,6 +5231,12 @@ export function ShellRoot() {
     [leftPaneWidth],
   )
 
+  const showWorkbenchCanvas = activeNavId !== 'files' && activeNavId !== 'git'
+  const hasGlobalTopmostWorkbench = useMemo(
+    () => workbenchContainers.some((container) => container.mode === 'floating' && container.topmost),
+    [workbenchContainers],
+  )
+
   return (
     <div
       ref={shellContainerRef}
@@ -4723,60 +5433,120 @@ export function ShellRoot() {
         ) : null}
 
         <div ref={shellMainPaneRef} className="shell-pane-shell shell-main-pane">
+          {showWorkbenchCanvas ? (
+            <div className="shell-main-view">
+              <WorkbenchCanvas
+                locale={locale}
+                appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
+                showStage
+                showFloatingPortal
+                floatingVisibility="non_topmost"
+                stations={stations}
+                containers={workbenchContainers}
+                activeStationId={activeStationId}
+                terminalByStation={stationTerminals}
+                taskSignalByStationId={stationTaskSignals}
+                channelBotBindingsByStationId={channelBotBindingsByStationId}
+                onSelectStation={handleCanvasSelectStation}
+                onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
+                onLaunchCliAgent={handleCanvasLaunchCliAgent}
+                onSendInputData={handleStationTerminalInput}
+                onResizeTerminal={resizeStationTerminal}
+                onBindTerminalSink={bindStationTerminalSink}
+                onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
+                onLayoutModeChange={handleCanvasLayoutModeChange}
+                onCustomLayoutChange={handleCanvasCustomLayoutChange}
+                onFloatContainer={floatWorkbenchContainer}
+                onDockContainer={dockWorkbenchContainer}
+                onDetachContainer={detachWorkbenchContainer}
+                onToggleContainerTopmost={toggleWorkbenchContainerTopmost}
+                onCreateContainer={createWorkbenchContainer}
+                onDeleteContainer={deleteWorkbenchContainer}
+                onReclaimDetachedContainer={reclaimDetachedContainer}
+                onMoveStationToContainer={moveStationToWorkbenchContainer}
+                onMoveFloatingContainer={moveFloatingWorkbenchContainer}
+                onResizeFloatingContainer={resizeFloatingWorkbenchContainer}
+                onFocusFloatingContainer={focusFloatingWorkbenchContainer}
+                scrollToStationId={pendingScrollStationId}
+                onScrollToStationHandled={handleCanvasScrollToStationHandled}
+                onOpenStationManage={handleCanvasOpenStationManage}
+                onOpenStationSearch={handleCanvasOpenStationSearch}
+                onRemoveStation={handleCanvasRemoveStation}
+              />
+            </div>
+          ) : null}
+
           {activeNavId === 'files' ? (
-            <FileEditorPane
-              locale={locale}
-              workspaceId={activeWorkspaceId}
-              openedFiles={openedFiles}
-              activeFilePath={activeFilePath}
-              loading={fileReadLoading}
-              errorMessage={fileReadError}
-              noticeMessage={filePreviewNotice}
-              canRenderContent={fileCanRenderText}
-              onSelectFile={selectFile}
-              onCloseFile={closeFile}
-              onSaveFile={saveFileContent}
-              onFileModified={handleFileModified}
-              editorCommandRequest={fileEditorCommandRequest}
-            />
+            <div className="shell-feature-view">
+              <FileEditorPane
+                locale={locale}
+                workspaceId={activeWorkspaceId}
+                openedFiles={openedFiles}
+                activeFilePath={activeFilePath}
+                loading={fileReadLoading}
+                errorMessage={fileReadError}
+                noticeMessage={filePreviewNotice}
+                canRenderContent={fileCanRenderText}
+                onSelectFile={selectFile}
+                onCloseFile={closeFile}
+                onSaveFile={saveFileContent}
+                onFileModified={handleFileModified}
+                editorCommandRequest={fileEditorCommandRequest}
+              />
+            </div>
           ) : activeNavId === 'git' ? (
-            <GitHistoryPane
-              controller={gitController}
-              onOpenInEditor={(filePath) => {
-                setActiveNavId('files')
-                void loadFileContent(filePath, 'full')
-              }}
-            />
-          ) : (
-            <WorkbenchCanvas
-              locale={locale}
-              appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
-              stations={canvasStations}
-              activeStationId={activeStationId}
-              terminalByStation={stationTerminals}
-              taskSignalByStationId={stationTaskSignals}
-              channelBotBindingsByStationId={channelBotBindingsByStationId}
-              onSelectStation={handleCanvasSelectStation}
-              onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
-              onLaunchCliAgent={handleCanvasLaunchCliAgent}
-              onSendInputData={handleStationTerminalInput}
-              onResizeTerminal={resizeStationTerminal}
-              onBindTerminalSink={bindStationTerminalSink}
-              onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
-              layoutMode={canvasLayoutMode}
-              customLayout={canvasCustomLayout}
-              onLayoutModeChange={handleCanvasLayoutModeChange}
-              onCustomLayoutChange={handleCanvasCustomLayoutChange}
-              scrollToStationId={pendingScrollStationId}
-              onScrollToStationHandled={handleCanvasScrollToStationHandled}
-              onOpenStationManage={handleCanvasOpenStationManage}
-              onOpenStationSearch={handleCanvasOpenStationSearch}
-              onRemoveStation={handleCanvasRemoveStation}
-            />
-          )}
+            <div className="shell-feature-view">
+              <GitHistoryPane
+                controller={gitController}
+                onOpenInEditor={(filePath) => {
+                  setActiveNavId('files')
+                  void loadFileContent(filePath, 'full')
+                }}
+              />
+            </div>
+          ) : null}
         </div>
 
       </main>
+
+      {hasGlobalTopmostWorkbench ? (
+        <WorkbenchCanvas
+          locale={locale}
+          appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
+          showStage={false}
+          showFloatingPortal
+          floatingVisibility="topmost"
+          stations={stations}
+          containers={workbenchContainers}
+          activeStationId={activeStationId}
+          terminalByStation={stationTerminals}
+          taskSignalByStationId={stationTaskSignals}
+          channelBotBindingsByStationId={channelBotBindingsByStationId}
+          onSelectStation={handleCanvasSelectStation}
+          onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
+          onLaunchCliAgent={handleCanvasLaunchCliAgent}
+          onSendInputData={handleStationTerminalInput}
+          onResizeTerminal={resizeStationTerminal}
+          onBindTerminalSink={bindStationTerminalSink}
+          onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
+          onLayoutModeChange={handleCanvasLayoutModeChange}
+          onCustomLayoutChange={handleCanvasCustomLayoutChange}
+          onFloatContainer={floatWorkbenchContainer}
+          onDockContainer={dockWorkbenchContainer}
+          onDetachContainer={detachWorkbenchContainer}
+          onToggleContainerTopmost={toggleWorkbenchContainerTopmost}
+          onCreateContainer={createWorkbenchContainer}
+          onDeleteContainer={deleteWorkbenchContainer}
+          onReclaimDetachedContainer={reclaimDetachedContainer}
+          onMoveStationToContainer={moveStationToWorkbenchContainer}
+          onMoveFloatingContainer={moveFloatingWorkbenchContainer}
+          onResizeFloatingContainer={resizeFloatingWorkbenchContainer}
+          onFocusFloatingContainer={focusFloatingWorkbenchContainer}
+          onOpenStationManage={handleCanvasOpenStationManage}
+          onOpenStationSearch={handleCanvasOpenStationSearch}
+          onRemoveStation={handleCanvasRemoveStation}
+        />
+      ) : null}
 
       <div ref={shellStatusRef} className="relative z-10">
         <StatusBar

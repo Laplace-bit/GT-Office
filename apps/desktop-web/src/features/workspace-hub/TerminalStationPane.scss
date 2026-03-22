@@ -1,0 +1,432 @@
+@use "../../styles/tokens/responsive" as *;
+
+.terminal-station-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  border-radius: 1rem;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: inline-size;
+}
+
+.terminal-station-pane-meta {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.875rem 1.05rem;
+  border: 0;
+  border-bottom: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 84%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 92%, transparent), transparent),
+    color-mix(in srgb, var(--vb-surface) 72%, transparent);
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      inset 0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      inset 0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
+}
+
+.terminal-station-pane-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.terminal-station-pane-meta-row-secondary {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.terminal-station-pane-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+
+  strong {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--vb-text);
+    letter-spacing: -0.01em;
+  }
+
+  span {
+    flex-shrink: 0;
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--vb-accent) 84%, white 16%);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+.terminal-station-pane-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 1.2rem;
+  padding: 0 0.42rem;
+  border-radius: 999rem;
+  border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 92%, transparent);
+  background: color-mix(in srgb, var(--vb-glass-light) 76%, transparent);
+  color: var(--vb-text-muted);
+  font-size: 0.625rem;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &.live {
+    color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
+    border-color: color-mix(in srgb, var(--vb-success) 26%, transparent);
+    background: color-mix(in srgb, var(--vb-success) 10%, transparent);
+  }
+
+  &.idle {
+    color: color-mix(in srgb, var(--vb-warning) 82%, white 18%);
+    border-color: color-mix(in srgb, var(--vb-warning) 26%, transparent);
+    background: color-mix(in srgb, var(--vb-warning) 10%, transparent);
+  }
+
+  &.muted {
+    opacity: 0.88;
+  }
+}
+
+.terminal-station-pane-chip-path {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.terminal-station-pane-unread {
+  flex-shrink: 0;
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0.125rem 0.45rem;
+  border-radius: 999rem;
+  background: color-mix(in srgb, var(--vb-accent) 90%, white 10%);
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.terminal-station-pane :where(.station-terminal-shell) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  border-top: 0.0625rem solid color-mix(in srgb, var(--vb-terminal-border) 88%, transparent);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow:
+    inset 0 0.0625rem 0 rgba(255, 255, 255, 0.06),
+    inset 0 -0.0625rem 0 color-mix(in srgb, var(--vb-terminal-shell-shadow) 24%, transparent);
+}
+
+.terminal-station-pane :where(.station-terminal-host) {
+  width: 100% !important;
+  height: 100% !important;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.terminal-station-pane :where(.xterm, .terminal) {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden;
+  background: var(--vb-terminal-bg);
+
+  .xterm-decoration-overview-ruler {
+    display: none !important;
+    width: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  .xterm-viewport {
+    width: 100% !important;
+    height: 100% !important;
+    overflow-x: hidden !important;
+    scrollbar-width: none !important;
+
+    &::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+  }
+
+  .xterm-screen {
+    position: relative;
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0.1875rem 0.4375rem;
+    box-sizing: border-box;
+  }
+
+  .xterm-rows {
+    position: relative;
+    z-index: 2;
+  }
+
+  .xterm-selection {
+    position: relative;
+    z-index: 7 !important;
+  }
+
+  .xterm-selection div,
+  [class*='xterm-dom-renderer-owner'] .xterm-selection div {
+    background-color: var(--vb-terminal-selection-inactive) !important;
+    border-radius: 0.25rem;
+  }
+
+  .xterm-rows span::selection,
+  [class*='xterm-dom-renderer-owner'] .xterm-rows span::selection {
+    background: var(--vb-terminal-selection-strong);
+    color: var(--vb-terminal-selection-text);
+  }
+
+  .xterm-scrollable-element {
+    width: 100% !important;
+    height: 100% !important;
+
+    > .scrollbar.vertical {
+      width: var(--vb-terminal-scrollbar-size) !important;
+      top: 0.25rem;
+      right: 0.0625rem;
+      bottom: 0.25rem;
+      border: 0 !important;
+      border-radius: 999rem;
+      outline: none;
+      background: transparent !important;
+      box-shadow: none !important;
+      opacity: 0.76;
+      transition:
+        opacity 180ms var(--vb-ease-smooth),
+        background-color 180ms var(--vb-ease-smooth);
+    }
+
+    > .visible.scrollbar.vertical {
+      opacity: 0.92;
+    }
+
+    > .invisible.scrollbar.vertical {
+      opacity: 0;
+    }
+
+    > .scrollbar.vertical > .slider {
+      border-radius: 999rem;
+      border: 0 !important;
+      box-shadow: none !important;
+    }
+
+    > .scrollbar.horizontal,
+    > .shadow,
+    > .shadow.left,
+    > .shadow.top-left-corner,
+    > .shadow.top.left {
+      display: none !important;
+      height: 0 !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      box-shadow: none !important;
+    }
+  }
+}
+
+.terminal-station-pane :where(.station-terminal-shell:focus-within) .xterm-selection div,
+.terminal-station-pane
+  :where(.station-terminal-shell:focus-within)
+  [class*='xterm-dom-renderer-owner']
+  .xterm-selection
+  div {
+  background-color: var(--vb-terminal-selection-strong) !important;
+}
+
+.terminal-station-pane :where(.station-terminal-shell:focus-within) .xterm-scrollable-element > .scrollbar.vertical {
+  opacity: 1;
+}
+
+.terminal-station-pane-idle-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1.125rem;
+  padding: 1.125rem;
+  min-height: 0;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--vb-accent) 16%, transparent), transparent 52%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent), transparent 100%);
+}
+
+.terminal-station-pane-idle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  strong {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--vb-text);
+  }
+
+  p {
+    margin: 0;
+    max-width: 46ch;
+    font-size: 0.7813rem;
+    line-height: 1.55;
+    color: var(--vb-text-muted);
+  }
+}
+
+.terminal-station-pane-idle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.terminal-station-pane-idle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0 0.875rem;
+  border-radius: 0.75rem;
+  border: 0.0625rem solid var(--vb-border-subtle);
+  background: var(--vb-surface);
+  color: var(--vb-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 180ms var(--vb-ease-smooth),
+    border-color 180ms var(--vb-ease-smooth),
+    box-shadow 180ms var(--vb-ease-smooth),
+    background 180ms var(--vb-ease-smooth);
+
+  &:hover {
+    transform: translateY(-0.0625rem);
+    border-color: var(--vb-border-strong);
+    box-shadow: var(--vb-shadow-sm);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
+
+  &.primary {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--vb-accent) 90%, black 10%);
+    color: white;
+  }
+}
+
+.terminal-station-pane-task-bubble {
+  position: absolute;
+  top: 0.875rem;
+  right: 0.875rem;
+  z-index: 2;
+  max-width: 80%;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.875rem;
+  border: 0.0625rem solid var(--vb-border-strong);
+  background: var(--vb-surface-elevated);
+  box-shadow: var(--vb-shadow-lg);
+
+  strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--vb-accent);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--vb-text);
+    line-height: 1.4;
+  }
+
+  span {
+    display: block;
+    margin-top: 0.375rem;
+    font-size: 0.625rem;
+    color: var(--vb-text-muted);
+    font-family: var(--vb-font-mono);
+  }
+}
+
+@container (max-width: 28rem) {
+  .terminal-station-pane-meta {
+    padding: 0.75rem 0.875rem;
+  }
+
+  .terminal-station-pane-meta-row,
+  .terminal-station-pane-idle-actions {
+    flex-wrap: wrap;
+  }
+
+  .terminal-station-pane-title {
+    align-items: flex-start;
+
+    strong {
+      white-space: normal;
+      display: -webkit-box;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      overflow-wrap: anywhere;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .terminal-station-pane-chip-path {
+    white-space: normal;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .terminal-station-pane-idle-copy p {
+    max-width: none;
+    overflow-wrap: anywhere;
+  }
+
+  .terminal-station-pane-idle-button {
+    width: 100%;
+  }
+}

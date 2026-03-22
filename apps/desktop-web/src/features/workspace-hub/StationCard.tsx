@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { FocusEvent, MouseEvent, ReactNode } from 'react'
+import type { DragEvent, FocusEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { GripHorizontal } from 'lucide-react'
 import type { AgentStation, StationRole } from './station-model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
@@ -52,10 +53,24 @@ interface StationIconButtonProps {
   className?: string
   ariaLabel: string
   onClick: (event: MouseEvent<HTMLButtonElement>) => void
+  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  draggable?: boolean
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragEnd?: (event: DragEvent<HTMLButtonElement>) => void
   children: ReactNode
 }
 
-function StationIconButton({ tooltip, className, ariaLabel, onClick, children }: StationIconButtonProps) {
+function StationIconButton({
+  tooltip,
+  className,
+  ariaLabel,
+  onClick,
+  onPointerDown,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
+  children,
+}: StationIconButtonProps) {
   const tooltipId = useId()
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const [tooltipOpen, setTooltipOpen] = useState(false)
@@ -134,6 +149,10 @@ function StationIconButton({ tooltip, className, ariaLabel, onClick, children }:
         aria-label={ariaLabel}
         aria-describedby={tooltipOpen ? tooltipId : undefined}
         onClick={onClick}
+        onPointerDown={onPointerDown}
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onFocus={handleFocus}
@@ -185,10 +204,14 @@ interface StationCardProps {
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
-  onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
+  draggable?: boolean
+  onStationDragStart?: (event: DragEvent<HTMLButtonElement>, stationId: string) => void
+  onStationDragPointerStart?: (event: ReactPointerEvent<HTMLElement>, stationId: string) => void
+  onStationDragEnd?: () => void
 }
 
 function buildTaskAckLine(locale: Locale, nonce: number): string {
@@ -204,10 +227,6 @@ function buildTaskAckLine(locale: Locale, nonce: number): string {
   ]
   const list = locale === 'zh-CN' ? zh : en
   return list[Math.abs(nonce) % list.length]
-}
-
-function sessionStateLabel(locale: Locale, hasTerminalSession: boolean): string {
-  return hasTerminalSession ? t(locale, '实时会话', 'Live session') : t(locale, '待启动', 'Ready')
 }
 
 function StationCardView({
@@ -229,9 +248,10 @@ function StationCardView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
-  onRemoveStation,
   onEnterFullscreen,
   onExitFullscreen,
+  draggable = false,
+  onStationDragPointerStart,
 }: StationCardProps) {
   const rootRef = useRef<HTMLElement | null>(null)
   const terminalSinkRef = useRef<StationTerminalSink | null>(null)
@@ -341,12 +361,14 @@ function StationCardView({
     runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
   const hasTerminalSession = Boolean(runtime?.sessionId)
   const channelBindingSummaries = channelBotBindings ?? []
-  const visibleChannelBindingSummaries = channelBindingSummaries.slice(0, 2)
+  const visibleChannelBindingSummaries = channelBindingSummaries.slice(0, 1)
   const hiddenChannelBindingCount = Math.max(
     0,
     channelBindingSummaries.length - visibleChannelBindingSummaries.length,
   )
-  const sessionLabel = sessionStateLabel(locale, hasTerminalSession)
+  const sessionLabel = hasTerminalSession
+    ? t(locale, '实时会话', 'Live session')
+    : t(locale, '待启动', 'Ready')
   const requestTerminalFocus = useCallback(() => {
     pendingTerminalFocusRef.current = true
     terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
@@ -451,20 +473,38 @@ function StationCardView({
       ) : null}
 
       <header className="station-window-header">
-        <div className="station-window-title-wrap">
+        <div
+          className={['station-window-title-wrap', draggable ? 'station-window-drag-source' : ''].join(' ')}
+          onPointerDown={
+            draggable && onStationDragPointerStart
+              ? (event) => {
+                  const target = event.target as HTMLElement
+                  if (target.closest('button') || target.closest('input') || target.closest('label')) {
+                    return
+                  }
+                  onStationDragPointerStart(event, station.id)
+                }
+              : undefined
+          }
+        >
           <div className="station-window-title-row">
-            <h3>{station.name}</h3>
-            <span className="station-window-title-dot" aria-hidden="true" />
+            <h3 title={station.name}>{station.name}</h3>
             <p className="station-window-role-label">{roleLabel(locale, station.role)}</p>
           </div>
           <div className="station-window-title-subline">
-            <p className="station-window-meta-text">{station.agentWorkdirRel}</p>
-            <span className="station-window-title-dot-small" aria-hidden="true" />
-            <p className="station-window-meta-text">{station.tool}</p>
-            <span className="station-window-title-dot-small" aria-hidden="true" />
-            <span className={['station-window-status-pill', hasTerminalSession ? 'live' : 'idle'].join(' ')}>
+            <p className="station-window-meta-text" title={station.agentWorkdirRel}>
+              {station.agentWorkdirRel}
+            </p>
+            <span className="station-window-tool-pill" title={station.tool}>
+              {station.tool}
+            </span>
+            <span
+              className={['station-window-status-pill', hasTerminalSession ? 'live' : 'idle'].join(' ')}
+              title={sessionLabel}
+              aria-label={sessionLabel}
+            >
               <span className="station-window-status-pill-dot" aria-hidden="true" />
-              {sessionLabel}
+              {hasTerminalSession ? <span className="vb-sr-only">{sessionLabel}</span> : sessionLabel}
             </span>
             {visibleChannelBindingSummaries.length > 0 ? (
               <div className="station-header-bot-chips" aria-label={t(locale, 'station.channelBindings.aria')}>
@@ -499,6 +539,27 @@ function StationCardView({
           </span>
         ) : null}
         <div className="station-window-header-actions">
+          {draggable ? (
+            <StationIconButton
+              className="station-drag-handle"
+              tooltip={t(locale, 'workbench.dragStation')}
+              ariaLabel={t(locale, 'workbench.dragStation')}
+              onPointerDown={
+                onStationDragPointerStart
+                  ? (event) => {
+                      event.stopPropagation()
+                      onStationDragPointerStart(event, station.id)
+                    }
+                  : undefined
+              }
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+            >
+              <GripHorizontal className="vb-icon vb-icon-station-button" aria-hidden="true" strokeWidth={1.75} />
+            </StationIconButton>
+          ) : null}
           <StationIconButton
             className="station-launch-terminal-btn"
             tooltip={t(locale, 'workbench.launchTerminal')}
@@ -523,12 +584,11 @@ function StationCardView({
             <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
           </StationIconButton>
           <StationIconButton
-            className="station-fullscreen-toggle"
-            tooltip={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
-            ariaLabel={isFullscreen ? t(locale, 'workbench.exitFullscreen') : t(locale, 'workbench.fullscreen')}
+            className="station-fullscreen-btn"
+            tooltip={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
+            ariaLabel={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
             onClick={(event) => {
               event.stopPropagation()
-              activateStationAndFocusTerminal()
               if (isFullscreen) {
                 onExitFullscreen()
                 return
@@ -541,18 +601,6 @@ function StationCardView({
               className="vb-icon vb-icon-station-button"
               aria-hidden="true"
             />
-          </StationIconButton>
-          <StationIconButton
-            className="station-remove-btn"
-            tooltip={t(locale, 'workbench.removeStation')}
-            ariaLabel={t(locale, 'workbench.removeStation')}
-            onClick={(event) => {
-              event.stopPropagation()
-              activateStationAndFocusTerminal()
-              onRemoveStation(station.id)
-            }}
-          >
-            <AppIcon name="close" className="vb-icon vb-icon-station-button" aria-hidden="true" />
           </StationIconButton>
         </div>
       </header>
@@ -665,6 +713,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&
     prev.isFocusHidden === next.isFocusHidden &&
+    prev.draggable === next.draggable &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&

@@ -1,0 +1,263 @@
+import { memo, useMemo } from 'react'
+import type { AgentStation, StationRole } from './station-model'
+import type { StationTaskSignal } from '@features/task-center'
+import type { Locale } from '@shell/i18n/ui-locale'
+import { t } from '@shell/i18n/ui-locale'
+import { AppIcon } from '@shell/ui/icons'
+import {
+  StationXtermTerminal,
+  type StationTerminalSinkBindingHandler,
+} from '@features/terminal'
+import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
+import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import './TerminalStationPane.scss'
+
+export interface WorkbenchStationRuntime {
+  sessionId: string | null
+  unreadCount: number
+  stateRaw?: string
+  shell?: string | null
+  cwdMode?: 'workspace_root' | 'custom'
+  resolvedCwd?: string | null
+}
+
+type PaneLaunchMode = 'workspace' | 'detached-readonly'
+
+const roleKeyMap: Record<
+  StationRole,
+  | 'station.role.manager'
+  | 'station.role.product'
+  | 'station.role.build'
+  | 'station.role.quality_release'
+> = {
+  manager: 'station.role.manager',
+  product: 'station.role.product',
+  build: 'station.role.build',
+  quality_release: 'station.role.quality_release',
+}
+
+function roleLabel(locale: Locale, role: StationRole): string {
+  return t(locale, roleKeyMap[role])
+}
+
+function stationChannelLabel(locale: Locale, channel: string): string {
+  if (channel === 'telegram') {
+    return 'Telegram'
+  }
+  if (channel === 'feishu') {
+    return t(locale, '飞书', 'Feishu')
+  }
+  return channel
+}
+
+function buildTaskAckLine(locale: Locale, nonce: number): string {
+  const zh = [
+    '任务收到，终端已进入执行状态。',
+    '收到，本工作站开始处理当前任务。',
+    '已锁定任务，准备进入编码流程。',
+  ]
+  const en = [
+    'Task received. Terminal is primed for execution.',
+    'Acknowledged. This station is processing the task.',
+    'Locked in. Entering the coding flow now.',
+  ]
+  const list = locale === 'zh-CN' ? zh : en
+  return list[Math.abs(nonce) % list.length]
+}
+
+function sessionStateLabel(locale: Locale, hasTerminalSession: boolean): string {
+  return hasTerminalSession ? t(locale, '实时会话', 'Live session') : t(locale, '待启动', 'Ready')
+}
+
+interface TerminalStationPaneProps {
+  locale: Locale
+  appearanceVersion: string
+  station: AgentStation
+  runtime?: WorkbenchStationRuntime
+  taskSignal?: StationTaskSignal
+  channelBotBindings?: StationChannelBotBindingSummary[]
+  active: boolean
+  launchMode?: PaneLaunchMode
+  onSelectStation: (stationId: string) => void
+  onLaunchStationTerminal: (stationId: string) => void
+  onLaunchCliAgent: (stationId: string) => void
+  onSendInputData: (stationId: string, data: string) => void
+  onResizeTerminal: (stationId: string, cols: number, rows: number) => void
+  onBindTerminalSink: StationTerminalSinkBindingHandler
+  onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onReturnToWorkspace?: () => void
+}
+
+function TerminalStationPaneView({
+  locale,
+  appearanceVersion,
+  station,
+  runtime,
+  taskSignal,
+  channelBotBindings,
+  active,
+  launchMode = 'workspace',
+  onSelectStation,
+  onLaunchStationTerminal,
+  onLaunchCliAgent,
+  onSendInputData,
+  onResizeTerminal,
+  onBindTerminalSink,
+  onRenderedScreenSnapshot,
+  onReturnToWorkspace,
+}: TerminalStationPaneProps) {
+  const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
+  const hasTerminalSession = Boolean(runtime?.sessionId)
+  const unreadLabel =
+    runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
+  const visibleChannelBindingSummaries = (channelBotBindings ?? []).slice(0, 2)
+  const hiddenChannelBindingCount = Math.max(0, (channelBotBindings ?? []).length - visibleChannelBindingSummaries.length)
+  const sessionLabel = sessionStateLabel(locale, hasTerminalSession)
+  const detachedReadonly = launchMode === 'detached-readonly'
+  const idleCopy = useMemo(() => {
+    if (!detachedReadonly) {
+      return {
+        title: t(locale, '终端尚未启动', 'Terminal idle'),
+        detail: t(
+          locale,
+          '先启动终端会话，再进入 CLI 或执行任务派发。',
+          'Launch the terminal session before opening a CLI agent or dispatching tasks.',
+        ),
+      }
+    }
+    return {
+      title: t(locale, '需要在主工作台启动会话', 'Launch from the workspace first'),
+      detail: t(
+        locale,
+        '独立窗口只接管已有会话。返回主工作台启动终端后，再将容器分离出来。',
+        'Detached windows only take over live sessions. Return to the workspace, launch the terminal, then detach it.',
+      ),
+    }
+  }, [detachedReadonly, locale])
+
+  return (
+    <section className={['terminal-station-pane', active ? 'active' : ''].join(' ')}>
+      {taskSignal ? (
+        <div key={taskSignal.nonce} className="terminal-station-pane-task-bubble" role="status" aria-live="polite">
+          <strong>{locale === 'zh-CN' ? '任务收到啦' : 'Task received'}</strong>
+          <p>{taskBubbleLine}</p>
+          <span>{taskSignal.taskId}</span>
+        </div>
+      ) : null}
+
+      <div
+        role="button"
+        tabIndex={0}
+        className="terminal-station-pane-meta"
+        onClick={() => onSelectStation(station.id)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') {
+            return
+          }
+          event.preventDefault()
+          onSelectStation(station.id)
+        }}
+      >
+        <div className="terminal-station-pane-meta-row">
+          <div className="terminal-station-pane-title">
+            <strong>{station.name}</strong>
+            <span>{roleLabel(locale, station.role)}</span>
+          </div>
+          {unreadLabel ? (
+            <span
+              className="terminal-station-pane-unread"
+              aria-label={t(locale, '未读终端活动', 'Unread terminal activity')}
+            >
+              {unreadLabel}
+            </span>
+          ) : null}
+        </div>
+        <div className="terminal-station-pane-meta-row terminal-station-pane-meta-row-secondary">
+          <span
+            className="terminal-station-pane-chip terminal-station-pane-chip-path"
+            title={station.agentWorkdirRel}
+          >
+            {station.agentWorkdirRel}
+          </span>
+          <span className="terminal-station-pane-chip" title={station.tool}>
+            {station.tool}
+          </span>
+          <span className={['terminal-station-pane-chip', hasTerminalSession ? 'live' : 'idle'].join(' ')}>
+            {sessionLabel}
+          </span>
+          {visibleChannelBindingSummaries.map((summary) => (
+            <span
+              key={`${station.id}:${summary.channel}:${summary.accountId}`}
+              className="terminal-station-pane-chip muted"
+              title={t(locale, 'station.channelBindings.botRoute', {
+                channel: stationChannelLabel(locale, summary.channel),
+                accountId: summary.accountId,
+                count: summary.routeCount,
+              })}
+            >
+              {summary.accountId}
+            </span>
+          ))}
+          {hiddenChannelBindingCount > 0 ? (
+            <span className="terminal-station-pane-chip muted">
+              {t(locale, 'station.channelBindings.more', { count: hiddenChannelBindingCount })}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {hasTerminalSession ? (
+        <StationXtermTerminal
+          stationId={station.id}
+          sessionId={runtime?.sessionId ?? null}
+          appearanceVersion={appearanceVersion}
+          onActivateStation={() => onSelectStation(station.id)}
+          onData={onSendInputData}
+          onResize={onResizeTerminal}
+          onBindSink={onBindTerminalSink}
+          onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+        />
+      ) : (
+        <div className="terminal-station-pane-idle-state">
+          <div className="terminal-station-pane-idle-copy">
+            <strong>{idleCopy.title}</strong>
+            <p>{idleCopy.detail}</p>
+          </div>
+          <div className="terminal-station-pane-idle-actions">
+            {detachedReadonly ? (
+              <button
+                type="button"
+                className="terminal-station-pane-idle-button primary"
+                onClick={onReturnToWorkspace}
+              >
+                <AppIcon name="fullscreen-exit" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+                <span>{t(locale, 'workbench.returnToWorkspace')}</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="terminal-station-pane-idle-button primary"
+                  onClick={() => onLaunchStationTerminal(station.id)}
+                >
+                  <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+                  <span>{t(locale, 'workbench.launchTerminal')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="terminal-station-pane-idle-button"
+                  onClick={() => onLaunchCliAgent(station.id)}
+                >
+                  <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+                  <span>{t(locale, 'workbench.launchCliAgent')}</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+export const TerminalStationPane = memo(TerminalStationPaneView)
