@@ -243,6 +243,59 @@ pub async fn git_diff_file_structured(
 }
 
 #[tauri::command]
+pub async fn git_diff_file_expansion(
+    workspace_id: String,
+    path: String,
+    old_path: Option<String>,
+    staged: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let path_owned = path.clone();
+    let old_path_owned = old_path.clone();
+    let staged = staged.unwrap_or(false);
+    let expanded = run_git_blocking(&state, "GIT_DIFF_EXPANSION_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .diff_file_expansion(
+                &workspace_id_owned,
+                &path_owned,
+                old_path_owned.as_deref(),
+                staged,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    let full_diff = if let Some(full_diff) = expanded.full_diff {
+        json!({
+            "workspaceId": workspace_id.as_str(),
+            "path": full_diff.path,
+            "isBinary": full_diff.is_binary,
+            "isNew": full_diff.is_new,
+            "isDeleted": full_diff.is_deleted,
+            "isRenamed": full_diff.is_renamed,
+            "oldPath": full_diff.old_path,
+            "additions": full_diff.additions,
+            "deletions": full_diff.deletions,
+            "hunks": full_diff.hunks,
+            "patch": full_diff.patch,
+        })
+    } else {
+        Value::Null
+    };
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "path": expanded.path,
+        "oldPath": expanded.old_path,
+        "isBinary": expanded.is_binary,
+        "oldExists": expanded.old_exists,
+        "newExists": expanded.new_exists,
+        "fullDiff": full_diff,
+    }))
+}
+
+#[tauri::command]
 pub async fn git_stage(
     workspace_id: String,
     paths: Vec<String>,

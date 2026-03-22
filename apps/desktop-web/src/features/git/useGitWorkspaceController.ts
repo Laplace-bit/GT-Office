@@ -45,6 +45,7 @@ export interface GitWorkspaceController {
   filter: GitFileFilter
   setFilter: (filter: GitFileFilter) => void
   selectedPath: string | null
+  selectedDiffScope: GitDiffScope
   selectPath: (path: string, scope?: GitDiffScope) => void
   diffLoading: boolean
   /** Structured diff data for high-performance rendering */
@@ -826,6 +827,7 @@ export function useGitWorkspaceController({
     filter,
     setFilter,
     selectedPath,
+    selectedDiffScope,
     selectPath,
     diffLoading,
     structuredDiff,

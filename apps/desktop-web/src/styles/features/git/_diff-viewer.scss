@@ -112,6 +112,12 @@
   border-color: color-mix(in srgb, var(--vb-border) 70%, transparent);
 }
 
+.diff-viewer__badge--expanded {
+  color: var(--vb-accent);
+  background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--vb-accent) 26%, transparent);
+}
+
 .diff-viewer__meta {
   display: flex;
   align-items: center;
@@ -161,6 +167,11 @@
     color 120ms var(--vb-ease-out);
 }
 
+.diff-viewer__mode-chip:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .diff-viewer__mode-chip:hover {
   color: var(--vb-text);
   background: color-mix(in srgb, var(--vb-hover-overlay) 82%, transparent);
@@ -171,6 +182,141 @@
   color: var(--vb-accent);
   background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--vb-accent) 28%, transparent);
+}
+
+.diff-viewer__mode-chip--action {
+  gap: var(--vb-space-2xs);
+}
+
+.diff-viewer__chip-icon {
+  width: #{rem(14)};
+  height: #{rem(14)};
+  flex-shrink: 0;
+}
+
+.diff-viewer__expanded {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vb-space-sm);
+  padding: var(--vb-space-sm) #{rem(14)} #{rem(14)};
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vb-surface) 92%, transparent) 0%,
+      color-mix(in srgb, var(--vb-surface) 84%, var(--vb-bg) 16%) 100%
+    );
+}
+
+.diff-viewer__expanded-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vb-space-sm);
+  flex-wrap: wrap;
+}
+
+.diff-viewer__expanded-title {
+  font-size: var(--vb-git-diff-font-xs);
+  font-weight: 600;
+  color: var(--vb-text);
+}
+
+.diff-viewer__expanded-scope {
+  padding: #{rem(2)} var(--vb-space-xs);
+  border-radius: var(--vb-radius-full);
+  background: color-mix(in srgb, var(--vb-chip) 22%, transparent);
+  color: var(--vb-text-muted);
+  font-size: var(--vb-git-diff-font-2xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.diff-viewer__full-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vb-space-sm);
+  min-height: #{rem(72)};
+  padding: var(--vb-space-md);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  border-radius: var(--vb-radius-md);
+  background: color-mix(in srgb, var(--vb-input-bg) 18%, transparent);
+  color: var(--vb-text-muted);
+  text-align: center;
+}
+
+.diff-viewer__full-feedback--error {
+  color: var(--vb-error);
+}
+
+.diff-viewer__full-feedback-icon {
+  width: #{rem(18)};
+  height: #{rem(18)};
+  flex-shrink: 0;
+}
+
+.diff-viewer__compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--vb-space-sm);
+}
+
+.diff-viewer__full-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  border-radius: var(--vb-radius-md);
+  background: color-mix(in srgb, var(--vb-input-bg) 18%, transparent);
+}
+
+.diff-viewer__full-side-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vb-space-sm);
+  padding: var(--vb-space-xs) var(--vb-space-sm);
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 70%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 86%, transparent);
+  font-size: var(--vb-git-diff-font-2xs);
+  color: var(--vb-text-muted);
+}
+
+.diff-viewer__full-side-header strong {
+  color: var(--vb-text);
+}
+
+.diff-viewer__full-side-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-viewer__full-body {
+  min-height: 0;
+}
+
+.diff-viewer__full-editor {
+  height: #{rem(320)};
+  background: color-mix(in srgb, var(--vb-input-bg) 22%, transparent);
+}
+
+.diff-viewer__full-editor .codemirror-editor-container {
+  height: 100%;
+}
+
+.diff-viewer__full-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: #{rem(96)};
+  padding: var(--vb-space-lg);
+  color: var(--vb-text-muted);
+  font-size: var(--vb-git-diff-font-sm);
+  text-align: center;
 }
 
 .diff-viewer__loading,
@@ -471,6 +617,10 @@
 
   .diff-viewer__mode-chip {
     flex: 1 1 auto;
+  }
+
+  .diff-viewer__compare {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .simple-diff__hunk-header {

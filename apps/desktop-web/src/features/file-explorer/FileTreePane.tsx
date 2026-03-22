@@ -111,6 +111,24 @@ function leafName(path: string): string {
   return normalized.slice(index + 1)
 }
 
+function collectAncestorDirectories(path: string): string[] {
+  const normalized = normalizeDirectoryPath(path)
+  if (normalized === ROOT_DIR) {
+    return [ROOT_DIR]
+  }
+
+  const directories: string[] = []
+  let current = parentDirectory(normalized)
+  while (true) {
+    directories.unshift(current)
+    if (current === ROOT_DIR) {
+      break
+    }
+    current = parentDirectory(current)
+  }
+  return directories
+}
+
 function describeUnknownError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim()
@@ -459,6 +477,7 @@ export function FileTreePane({
   const lastScrollTsRef = useRef(0)
   const scrollDirectionRef = useRef<'forward' | 'backward'>('forward')
   const speedTierRafRef = useRef<number | null>(null)
+  const lastAutoRevealPathRef = useRef<string | null>(null)
   const trimmedSearchQuery = searchQuery.trim()
 
   const cancelActiveStreamSearch = useCallback(() => {
@@ -608,6 +627,39 @@ export function FileTreePane({
   useEffect(() => {
     loadedDirectoriesRef.current = loadedDirectories
   }, [loadedDirectories])
+
+  useEffect(() => {
+    if (!workspaceId || !selectedFilePath) {
+      lastAutoRevealPathRef.current = null
+      return
+    }
+
+    const normalizedPath = normalizeDirectoryPath(selectedFilePath)
+    if (!normalizedPath || normalizedPath === ROOT_DIR) {
+      return
+    }
+
+    let cancelled = false
+    const ancestorDirectories = collectAncestorDirectories(normalizedPath)
+
+    void (async () => {
+      for (const directory of ancestorDirectories) {
+        if (cancelled) {
+          return
+        }
+        setExpandedDirectories((prev) =>
+          prev[directory] ? prev : { ...prev, [directory]: true },
+        )
+        if (!loadedDirectoriesRef.current[directory]) {
+          await loadDirectory(directory)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadDirectory, selectedFilePath, workspaceId])
 
   useEffect(() => {
     if (!recentExpandedPath) {
@@ -887,6 +939,26 @@ export function FileTreePane({
     const expandedRow = rows.find((row) => row.path === recentExpandedPath && row.kind === 'dir')
     return expandedRow?.depth ?? -1
   }, [recentExpandedPath, rows])
+
+  useEffect(() => {
+    if (!workspaceId || !selectedFilePath) {
+      lastAutoRevealPathRef.current = null
+      return
+    }
+
+    const normalizedPath = normalizeDirectoryPath(selectedFilePath)
+    const rowIndex = rows.findIndex((row) => row.kind === 'file' && row.path === normalizedPath)
+    if (rowIndex < 0) {
+      return
+    }
+
+    const revealKey = `${workspaceId}:${normalizedPath}`
+    if (lastAutoRevealPathRef.current === revealKey) {
+      return
+    }
+    lastAutoRevealPathRef.current = revealKey
+    rowVirtualizer.scrollToIndex(rowIndex, { align: 'center' })
+  }, [rowVirtualizer, rows, selectedFilePath, workspaceId])
 
   const pruneDirectoryCache = useCallback((path: string) => {
     const normalized = normalizeDirectoryPath(path)

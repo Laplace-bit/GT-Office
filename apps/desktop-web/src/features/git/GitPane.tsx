@@ -5,6 +5,7 @@ import { AppIcon, type AppIconName } from '@shell/ui/icons'
 import {
   desktopApi,
   type GitCommitDetailResponse,
+  type GitDiffExpansionResponse,
   type GitStatusFile,
 } from '@shell/integration/desktop-api'
 import {
@@ -842,9 +843,10 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
 // ============================================
 interface GitHistoryPaneProps {
   controller: GitWorkspaceController
+  onOpenInEditor?: (path: string) => void
 }
 
-export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
+export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPaneProps) {
   const {
     locale,
     workspaceId,
@@ -858,6 +860,7 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
     setShowDiffView,
     logEntries,
     selectedPath,
+    selectedDiffScope,
     historyLoading,
     hasMoreHistory,
     loadOlderHistory,
@@ -870,12 +873,20 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
     useState<GitCommitDetailResponse | null>(null)
   const [commitDetailLoading, setCommitDetailLoading] = useState(false)
   const [commitDetailError, setCommitDetailError] = useState<string | null>(null)
+  const [fullFileExpanded, setFullFileExpanded] = useState(false)
+  const [expandedDiffFile, setExpandedDiffFile] = useState<GitDiffExpansionResponse | null>(null)
+  const [expandedDiffFileLoading, setExpandedDiffFileLoading] = useState(false)
+  const [expandedDiffFileError, setExpandedDiffFileError] = useState<string | null>(null)
   const commitDetailCacheRef = useRef<Map<string, GitCommitDetailResponse>>(new Map())
+  const expandedDiffFileCacheRef = useRef<Map<string, GitDiffExpansionResponse>>(new Map())
   const commitDetailSeqRef = useRef(0)
+  const expandedDiffFileSeqRef = useRef(0)
   const diffSwitchDisabled = !isGitRepository || (!selectedPath && !showDiffView)
   const currentViewLabel = showDiffView
     ? t(locale, 'git.history.view.diff')
     : t(locale, 'git.history.view.latest')
+  const selectedOldPath = structuredDiff?.oldPath ?? null
+  const openInEditorDisabled = !selectedPath || structuredDiff?.isDeleted || !onOpenInEditor
 
   const handleToggleView = useCallback(() => {
     if (diffSwitchDisabled) {
@@ -884,14 +895,94 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
     setShowDiffView(!showDiffView)
   }, [diffSwitchDisabled, setShowDiffView, showDiffView])
 
+  const handleToggleFullFile = useCallback(() => {
+    if (!selectedPath) {
+      return
+    }
+    setFullFileExpanded((prev) => !prev)
+  }, [selectedPath])
+
+  const handleOpenInEditor = useCallback(() => {
+    if (!selectedPath || openInEditorDisabled) {
+      return
+    }
+    onOpenInEditor?.(selectedPath)
+  }, [onOpenInEditor, openInEditorDisabled, selectedPath])
+
   useEffect(() => {
     setSelectedCommit(null)
     setSelectedCommitDetail(null)
     setCommitDetailLoading(false)
     setCommitDetailError(null)
+    setFullFileExpanded(false)
+    setExpandedDiffFile(null)
+    setExpandedDiffFileLoading(false)
+    setExpandedDiffFileError(null)
     commitDetailCacheRef.current.clear()
+    expandedDiffFileCacheRef.current.clear()
     commitDetailSeqRef.current += 1
+    expandedDiffFileSeqRef.current += 1
   }, [workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId || !selectedPath || !showDiffView || !fullFileExpanded) {
+      if (!selectedPath) {
+        setExpandedDiffFile(null)
+      }
+      setExpandedDiffFileLoading(false)
+      setExpandedDiffFileError(null)
+      return
+    }
+
+    const cacheKey = `${workspaceId}:${selectedPath}:${selectedDiffScope}:${selectedOldPath ?? ''}`
+    const cached = expandedDiffFileCacheRef.current.get(cacheKey)
+    if (cached) {
+      setExpandedDiffFile(cached)
+      setExpandedDiffFileError(null)
+      setExpandedDiffFileLoading(false)
+      return
+    }
+
+    const seq = expandedDiffFileSeqRef.current + 1
+    expandedDiffFileSeqRef.current = seq
+    setExpandedDiffFile(null)
+    setExpandedDiffFileLoading(true)
+    setExpandedDiffFileError(null)
+
+    void desktopApi
+      .gitDiffFileExpansion(workspaceId, selectedPath, selectedOldPath, selectedDiffScope === 'staged')
+      .then((response) => {
+        if (expandedDiffFileSeqRef.current !== seq) {
+          return
+        }
+        expandedDiffFileCacheRef.current.set(cacheKey, response)
+        setExpandedDiffFile(response)
+      })
+      .catch((error) => {
+        if (expandedDiffFileSeqRef.current !== seq) {
+          return
+        }
+        setExpandedDiffFile(null)
+        setExpandedDiffFileError(
+          t(locale, 'git.diff.expandLoadFailed', {
+            detail: describeUnknownError(error),
+          }),
+        )
+      })
+      .finally(() => {
+        if (expandedDiffFileSeqRef.current === seq) {
+          setExpandedDiffFileLoading(false)
+        }
+      })
+  }, [
+    fullFileExpanded,
+    locale,
+    selectedDiffScope,
+    selectedOldPath,
+    selectedPath,
+    showDiffView,
+    workspaceId,
+  ])
 
   const handleSelectCommit = useCallback(
     (hash: string) => {
@@ -1025,8 +1116,16 @@ export function GitHistoryPane({ controller }: GitHistoryPaneProps) {
             mode={diffViewMode}
             loading={diffLoading}
             path={selectedPath}
+            diffScope={selectedDiffScope}
             locale={locale}
             onModeChange={setDiffViewMode}
+            fullFileExpanded={fullFileExpanded}
+            fullFile={expandedDiffFile}
+            fullFileLoading={expandedDiffFileLoading}
+            fullFileError={expandedDiffFileError}
+            onToggleFullFile={handleToggleFullFile}
+            onOpenInEditor={handleOpenInEditor}
+            openInEditorDisabled={openInEditorDisabled}
           />
         ) : (
           <GitGraphView

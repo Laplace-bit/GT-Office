@@ -160,6 +160,7 @@ pub fn run() {
             git::git_init,
             git::git_diff_file,
             git::git_diff_file_structured,
+            git::git_diff_file_expansion,
             git::git_stage,
             git::git_unstage,
             git::git_discard,

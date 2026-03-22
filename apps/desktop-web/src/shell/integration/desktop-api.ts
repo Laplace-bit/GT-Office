@@ -118,6 +118,16 @@ export interface GitDiffStructuredResponse {
   patch: string
 }
 
+export interface GitDiffExpansionResponse {
+  workspaceId: string
+  path: string
+  oldPath: string | null
+  isBinary: boolean
+  oldExists: boolean
+  newExists: boolean
+  fullDiff: GitDiffStructuredResponse | null
+}
+
 export interface GitCountResponse {
   workspaceId: string
   staged?: number
@@ -1246,6 +1256,14 @@ export const desktopApi = {
     return invokeCommand<GitDiffStructuredResponse>('git_diff_file_structured', {
       workspaceId,
       path,
+      staged: staged ?? false,
+    })
+  },
+  gitDiffFileExpansion(workspaceId: string, path: string, oldPath?: string | null, staged?: boolean) {
+    return invokeCommand<GitDiffExpansionResponse>('git_diff_file_expansion', {
+      workspaceId,
+      path,
+      oldPath: oldPath ?? null,
       staged: staged ?? false,
     })
   },

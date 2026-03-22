@@ -190,6 +190,29 @@ pub struct GitDiffStructured {
     pub patch: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitExpandedCompare {
+    /// File path in the current workspace / index snapshot
+    pub path: String,
+    /// Previous path for renames when available
+    pub old_path: Option<String>,
+    /// Whether either side is binary and cannot be rendered as text
+    pub is_binary: bool,
+    /// Whether the left/before side exists for the selected baseline
+    pub old_exists: bool,
+    /// Whether the right/after side exists for the selected baseline
+    pub new_exists: bool,
+    /// Full diff with unchanged context lines included
+    pub full_diff: Option<GitDiffStructured>,
+}
+
+enum GitSnapshotContent {
+    Missing,
+    Text(String),
+    Binary,
+}
+
 #[derive(Clone)]
 pub struct GitService<W>
 where
@@ -654,6 +677,73 @@ where
         }
     }
 
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, path = path))]
+    pub fn diff_file_expansion(
+        &self,
+        workspace_id: &WorkspaceId,
+        path: &str,
+        old_path: Option<&str>,
+        staged: bool,
+    ) -> AbstractionResult<GitExpandedCompare> {
+        Self::validate_relative_repo_path(path)?;
+        if let Some(previous_path) = old_path {
+            Self::validate_relative_repo_path(previous_path)?;
+        }
+
+        let root = self.workspace_root(workspace_id)?;
+        let repo = Repository::discover(&root).map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_DIFF_EXPANSION_FAILED: repository discovery failed: {err}"),
+        })?;
+
+        let previous_path = old_path.unwrap_or(path);
+        let before_snapshot = if staged {
+            Self::read_head_snapshot(&repo, previous_path)?
+        } else {
+            Self::read_index_snapshot(&repo, previous_path)?
+        };
+        let after_snapshot = if staged {
+            Self::read_index_snapshot(&repo, path)?
+        } else {
+            Self::read_worktree_snapshot(&root, path)?
+        };
+
+        let is_binary = matches!(before_snapshot, GitSnapshotContent::Binary)
+            || matches!(after_snapshot, GitSnapshotContent::Binary);
+        let old_exists = !matches!(before_snapshot, GitSnapshotContent::Missing);
+        let new_exists = !matches!(after_snapshot, GitSnapshotContent::Missing);
+        let full_diff = if is_binary {
+            None
+        } else {
+            let before_text = match &before_snapshot {
+                GitSnapshotContent::Text(content) => content.as_str(),
+                GitSnapshotContent::Missing => "",
+                GitSnapshotContent::Binary => "",
+            };
+            let after_text = match &after_snapshot {
+                GitSnapshotContent::Text(content) => content.as_str(),
+                GitSnapshotContent::Missing => "",
+                GitSnapshotContent::Binary => "",
+            };
+            Some(Self::build_full_structured_diff(
+                path,
+                old_path.map(|value| value.to_string()),
+                before_text,
+                after_text,
+                old_exists,
+                new_exists,
+            ))
+        };
+
+        Ok(GitExpandedCompare {
+            path: path.to_string(),
+            old_path: old_path.map(ToOwned::to_owned),
+            is_binary,
+            old_exists,
+            new_exists,
+            full_diff,
+        })
+    }
+
     /// Use git2 library for high-performance diff
     fn diff_file_with_git2(
         &self,
@@ -852,6 +942,190 @@ where
             GitDiffMode::Unstaged => vec!["diff", "--no-ext-diff", "--", path],
         };
         self.run_git(root, &args, "GIT_DIFF_FAILED")
+    }
+
+    fn read_head_snapshot(repo: &Repository, path: &str) -> AbstractionResult<GitSnapshotContent> {
+        let head = match repo.head() {
+            Ok(head) => head,
+            Err(_) => return Ok(GitSnapshotContent::Missing),
+        };
+        let tree = match head.peel_to_tree() {
+            Ok(tree) => tree,
+            Err(_) => return Ok(GitSnapshotContent::Missing),
+        };
+        let entry = match tree.get_path(Path::new(path)) {
+            Ok(entry) => entry,
+            Err(_) => return Ok(GitSnapshotContent::Missing),
+        };
+        let object = entry
+            .to_object(repo)
+            .map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_DIFF_EXPANSION_FAILED: failed to resolve HEAD object: {err}"),
+            })?;
+        let blob = object
+            .peel_to_blob()
+            .map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_DIFF_EXPANSION_FAILED: failed to read HEAD blob: {err}"),
+            })?;
+        Self::decode_blob_snapshot(&blob)
+    }
+
+    fn read_index_snapshot(repo: &Repository, path: &str) -> AbstractionResult<GitSnapshotContent> {
+        let index = repo.index().map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_DIFF_EXPANSION_FAILED: failed to read index: {err}"),
+        })?;
+        let Some(entry) = index.get_path(Path::new(path), 0) else {
+            return Ok(GitSnapshotContent::Missing);
+        };
+        let blob = repo
+            .find_blob(entry.id)
+            .map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_DIFF_EXPANSION_FAILED: failed to read index blob: {err}"),
+            })?;
+        Self::decode_blob_snapshot(&blob)
+    }
+
+    fn read_worktree_snapshot(root: &Path, path: &str) -> AbstractionResult<GitSnapshotContent> {
+        let full_path = root.join(path);
+        let bytes = match std::fs::read(&full_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(GitSnapshotContent::Missing);
+            }
+            Err(error) => {
+                return Err(AbstractionError::Internal {
+                    message: format!(
+                        "GIT_DIFF_EXPANSION_FAILED: failed to read worktree file '{}': {error}",
+                        full_path.display()
+                    ),
+                });
+            }
+        };
+        Self::decode_bytes_snapshot(&bytes)
+    }
+
+    fn decode_blob_snapshot(blob: &git2::Blob<'_>) -> AbstractionResult<GitSnapshotContent> {
+        if blob.is_binary() {
+            return Ok(GitSnapshotContent::Binary);
+        }
+        Self::decode_bytes_snapshot(blob.content())
+    }
+
+    fn decode_bytes_snapshot(bytes: &[u8]) -> AbstractionResult<GitSnapshotContent> {
+        match std::str::from_utf8(bytes) {
+            Ok(content) => Ok(GitSnapshotContent::Text(content.to_string())),
+            Err(_) => Ok(GitSnapshotContent::Binary),
+        }
+    }
+
+    fn build_full_structured_diff(
+        path: &str,
+        old_path: Option<String>,
+        before_text: &str,
+        after_text: &str,
+        old_exists: bool,
+        new_exists: bool,
+    ) -> GitDiffStructured {
+        let before_line_count = before_text.lines().count() as u32;
+        let after_line_count = after_text.lines().count() as u32;
+        let mut additions = 0u32;
+        let mut deletions = 0u32;
+        let mut old_line = if old_exists { 1 } else { 0 };
+        let mut new_line = if new_exists { 1 } else { 0 };
+        let mut lines = Vec::new();
+        let diff = TextDiff::from_lines(before_text, after_text);
+
+        for change in diff.iter_all_changes() {
+            let content = change
+                .value()
+                .trim_end_matches(|c| c == '\r' || c == '\n')
+                .to_string();
+            match change.tag() {
+                ChangeTag::Equal => {
+                    lines.push(GitDiffLine {
+                        kind: "ctx".to_string(),
+                        content,
+                        old_line: Some(old_line),
+                        new_line: Some(new_line),
+                        segments: None,
+                    });
+                    old_line += 1;
+                    new_line += 1;
+                }
+                ChangeTag::Delete => {
+                    deletions += 1;
+                    lines.push(GitDiffLine {
+                        kind: "del".to_string(),
+                        content,
+                        old_line: Some(old_line),
+                        new_line: None,
+                        segments: None,
+                    });
+                    old_line += 1;
+                }
+                ChangeTag::Insert => {
+                    additions += 1;
+                    lines.push(GitDiffLine {
+                        kind: "add".to_string(),
+                        content,
+                        old_line: None,
+                        new_line: Some(new_line),
+                        segments: None,
+                    });
+                    new_line += 1;
+                }
+            }
+        }
+
+        let mut result = GitDiffStructured {
+            path: path.to_string(),
+            is_binary: false,
+            is_new: !old_exists && new_exists,
+            is_deleted: old_exists && !new_exists,
+            is_renamed: old_path.is_some(),
+            old_path,
+            additions,
+            deletions,
+            hunks: Vec::new(),
+            patch: String::new(),
+        };
+
+        if additions == 0 && deletions == 0 {
+            return result;
+        }
+
+        result.hunks.push(GitDiffHunk {
+            header: format!(
+                "@@ -{},{} +{},{} @@",
+                if old_exists && before_line_count > 0 {
+                    1
+                } else {
+                    0
+                },
+                before_line_count,
+                if new_exists && after_line_count > 0 {
+                    1
+                } else {
+                    0
+                },
+                after_line_count
+            ),
+            old_start: if old_exists && before_line_count > 0 {
+                1
+            } else {
+                0
+            },
+            old_lines: before_line_count,
+            new_start: if new_exists && after_line_count > 0 {
+                1
+            } else {
+                0
+            },
+            new_lines: after_line_count,
+            lines,
+        });
+        Self::enhance_hunks_with_word_diff(&mut result.hunks);
+        result
     }
 
     /// Parse raw git diff patch into structured format
@@ -1844,6 +2118,51 @@ mod tests {
         assert!(staged.patch.contains("+staged"));
         assert!(unstaged.patch.contains("+worktree"));
         assert!(!unstaged.patch.contains("-base"));
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn expanded_compare_uses_scope_aligned_full_file_snapshots() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(root.join("tracked.txt"), "staged\n").expect("tracked file should be updated");
+        run_git(&root, &["add", "tracked.txt"]);
+        fs::write(root.join("tracked.txt"), "staged\nworktree\n")
+            .expect("tracked file should include unstaged change");
+
+        let staged = service
+            .diff_file_expansion(&workspace_id, "tracked.txt", None, true)
+            .expect("staged compare should succeed");
+        let unstaged = service
+            .diff_file_expansion(&workspace_id, "tracked.txt", None, false)
+            .expect("unstaged compare should succeed");
+
+        let staged_lines = &staged
+            .full_diff
+            .as_ref()
+            .expect("staged full diff should exist")
+            .hunks[0]
+            .lines;
+        let unstaged_lines = &unstaged
+            .full_diff
+            .as_ref()
+            .expect("unstaged full diff should exist")
+            .hunks[0]
+            .lines;
+
+        assert!(staged_lines
+            .iter()
+            .any(|line| line.kind == "del" && line.content == "base"));
+        assert!(staged_lines
+            .iter()
+            .any(|line| line.kind == "add" && line.content == "staged"));
+        assert!(unstaged_lines
+            .iter()
+            .any(|line| line.kind == "ctx" && line.content == "staged"));
+        assert!(unstaged_lines
+            .iter()
+            .any(|line| line.kind == "add" && line.content == "worktree"));
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
     }

@@ -4740,7 +4740,13 @@ export function ShellRoot() {
               editorCommandRequest={fileEditorCommandRequest}
             />
           ) : activeNavId === 'git' ? (
-            <GitHistoryPane controller={gitController} />
+            <GitHistoryPane
+              controller={gitController}
+              onOpenInEditor={(filePath) => {
+                setActiveNavId('files')
+                void loadFileContent(filePath, 'full')
+              }}
+            />
           ) : (
             <WorkbenchCanvas
               locale={locale}

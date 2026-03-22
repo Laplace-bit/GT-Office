@@ -13,7 +13,12 @@ import { memo, useRef } from 'react'
 import '@git-diff-view/react/styles/diff-view.css'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
-import type { GitDiffStructuredResponse, DiffSegment } from '@shell/integration/desktop-api'
+import type {
+  DiffSegment,
+  GitDiffExpansionResponse,
+  GitDiffStructuredResponse,
+} from '@shell/integration/desktop-api'
+import type { GitDiffScope } from './useGitWorkspaceController'
 
 // ============================================
 // Types
@@ -28,10 +33,26 @@ export interface DiffViewerProps {
   loading: boolean
   /** File path being viewed */
   path: string | null
+  /** Current diff scope */
+  diffScope: GitDiffScope
   /** Locale for i18n */
   locale: 'zh-CN' | 'en-US'
   /** Callback when mode changes */
   onModeChange: (mode: 'split' | 'unified') => void
+  /** Whether full file comparison is expanded */
+  fullFileExpanded: boolean
+  /** Expanded full file compare payload */
+  fullFile: GitDiffExpansionResponse | null
+  /** Expanded full file loading state */
+  fullFileLoading: boolean
+  /** Expanded full file loading error */
+  fullFileError: string | null
+  /** Toggle full file comparison */
+  onToggleFullFile: () => void
+  /** Open current file in editor */
+  onOpenInEditor: () => void
+  /** Whether editor open action is disabled */
+  openInEditorDisabled: boolean
 }
 
 // ============================================
@@ -231,19 +252,34 @@ export const DiffViewer = memo(function DiffViewer({
   mode,
   loading,
   path,
+  diffScope,
   locale,
   onModeChange,
+  fullFileExpanded,
+  fullFile,
+  fullFileLoading,
+  fullFileError,
+  onToggleFullFile,
+  onOpenInEditor,
+  openInEditorDisabled,
 }: DiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const expandButtonLabel = t(
+    locale,
+    fullFileExpanded ? 'git.diff.expand.collapse' : 'git.diff.expand.open',
+  )
+  const activeDiff = fullFileExpanded ? fullFile?.fullDiff ?? null : diff
+  const activePath = activeDiff?.path ?? path
+  const loadingLabel = fullFileExpanded ? t(locale, 'git.diff.expand.loading') : t(locale, 'git.diff.loading')
 
   // Render binary file message
-  if (diff?.isBinary) {
+  if (diff?.isBinary || (fullFileExpanded && fullFile?.isBinary)) {
     return (
       <div className="diff-viewer">
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{path}</span>
+            <span>{activePath}</span>
             <span className="diff-viewer__badge diff-viewer__badge--binary">Binary</span>
           </div>
         </header>
@@ -256,31 +292,48 @@ export const DiffViewer = memo(function DiffViewer({
   }
 
   // Render loading state
-  if (loading) {
+  if (loading || (fullFileExpanded && fullFileLoading)) {
     return (
       <div className="diff-viewer">
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{path}</span>
+            <span>{activePath}</span>
           </div>
         </header>
         <div className="diff-viewer__loading">
           <div className="diff-viewer__spinner" />
-          <span>{t(locale, 'git.diff.loading')}</span>
+          <span>{loadingLabel}</span>
         </div>
       </div>
     )
   }
 
   // Render empty state
-  if (!diff || diff.hunks.length === 0) {
+  if (fullFileExpanded && fullFileError) {
     return (
       <div className="diff-viewer">
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{path ?? t(locale, 'git.diff.none')}</span>
+            <span>{activePath ?? t(locale, 'git.diff.none')}</span>
+          </div>
+        </header>
+        <div className="diff-viewer__empty">
+          <AppIcon name="info" className="diff-viewer__empty-icon" />
+          <p>{fullFileError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!activeDiff || activeDiff.hunks.length === 0) {
+    return (
+      <div className="diff-viewer">
+        <header className="diff-viewer__header">
+          <div className="diff-viewer__path">
+            <AppIcon name="file-text" className="diff-viewer__path-icon" />
+            <span>{activePath ?? t(locale, 'git.diff.none')}</span>
           </div>
         </header>
         <div className="diff-viewer__empty">
@@ -297,17 +350,44 @@ export const DiffViewer = memo(function DiffViewer({
       <header className="diff-viewer__header">
         <div className="diff-viewer__path">
           <AppIcon name="file-text" className="diff-viewer__path-icon" />
-          <span>{diff.path}</span>
-          {diff.isNew && <span className="diff-viewer__badge diff-viewer__badge--new">New</span>}
-          {diff.isDeleted && <span className="diff-viewer__badge diff-viewer__badge--deleted">Deleted</span>}
-          {diff.isRenamed && (
-            <span className="diff-viewer__badge diff-viewer__badge--renamed">← {diff.oldPath}</span>
+          <span>{activeDiff.path}</span>
+          {activeDiff.isNew && <span className="diff-viewer__badge diff-viewer__badge--new">New</span>}
+          {activeDiff.isDeleted && <span className="diff-viewer__badge diff-viewer__badge--deleted">Deleted</span>}
+          {activeDiff.isRenamed && (
+            <span className="diff-viewer__badge diff-viewer__badge--renamed">← {activeDiff.oldPath}</span>
+          )}
+          {fullFileExpanded && (
+            <span className="diff-viewer__badge diff-viewer__badge--expanded">
+              {diffScope === 'staged'
+                ? t(locale, 'git.diff.expand.scope.staged')
+                : t(locale, 'git.diff.expand.scope.unstaged')}
+            </span>
           )}
         </div>
         <div className="diff-viewer__meta">
-          <span className="diff-viewer__stat diff-viewer__stat--add">+{diff.additions}</span>
-          <span className="diff-viewer__stat diff-viewer__stat--del">-{diff.deletions}</span>
+          <span className="diff-viewer__stat diff-viewer__stat--add">+{activeDiff.additions}</span>
+          <span className="diff-viewer__stat diff-viewer__stat--del">-{activeDiff.deletions}</span>
           <span className="diff-viewer__separator">|</span>
+          <button
+            type="button"
+            className="diff-viewer__mode-chip"
+            onClick={onOpenInEditor}
+            disabled={openInEditorDisabled}
+            title={t(locale, 'git.diff.openInEditor')}
+          >
+            <span>{t(locale, 'git.diff.openInEditor')}</span>
+          </button>
+          <button
+            type="button"
+            className={`diff-viewer__mode-chip ${
+              fullFileExpanded ? 'diff-viewer__mode-chip--active' : ''
+            }`}
+            onClick={onToggleFullFile}
+            disabled={!path}
+            title={expandButtonLabel}
+          >
+            <span>{expandButtonLabel}</span>
+          </button>
           <button
             type="button"
             className={`diff-viewer__mode-chip ${mode === 'split' ? 'diff-viewer__mode-chip--active' : ''}`}
@@ -329,7 +409,7 @@ export const DiffViewer = memo(function DiffViewer({
 
       {/* Diff Body */}
       <div ref={containerRef} className="diff-viewer__body" data-mode={mode}>
-        <SimpleDiffView diff={diff} mode={mode} />
+        <SimpleDiffView diff={activeDiff} mode={mode} />
       </div>
     </div>
   )
