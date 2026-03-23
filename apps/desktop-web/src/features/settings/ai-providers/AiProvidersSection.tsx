@@ -200,7 +200,10 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     setInstallingMcpAgent(agent)
     setActionError(null)
     try {
-      await desktopApi.installAgentMcp(agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini')
+      await desktopApi.installAgentMcp(
+        agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini',
+        workspaceId,
+      )
       await handleReload({ background: true })
     } catch (err) {
       console.error('Failed to install MCP bridge', err)

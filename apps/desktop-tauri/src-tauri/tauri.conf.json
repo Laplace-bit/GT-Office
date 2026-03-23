@@ -38,6 +38,12 @@
     "externalBin": [
       "binaries/gto-agent-mcp-sidecar"
     ],
+    "resources": [
+      "../../../tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs",
+      "../../../tools/gto-agent-mcp/bin/gto-agent-mcp.mjs",
+      "../../../tools/gto-agent-mcp/src/installer.mjs",
+      "../../../tools/gto-agent-mcp/package.json"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

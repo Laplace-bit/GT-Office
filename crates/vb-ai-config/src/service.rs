@@ -33,6 +33,7 @@ use crate::{
 
 const AI_SECRET_SERVICE: &str = "gtoffice.ai-config";
 const AI_SECRET_NAMESPACE: &str = "AI_CONFIG_SECRET";
+const GTO_AGENT_BRIDGE_SERVER_ID: &str = "gto-agent-bridge";
 
 #[derive(Debug, Error)]
 pub enum AiConfigError {
@@ -789,6 +790,7 @@ impl AiConfigService {
 
         let mut gemini_guide = gemini_light_guide();
         gemini_guide.config = gemini_config;
+        let workspace_root_for_mcp = workspace_root.to_path_buf();
         let (
             claude_install_status,
             codex_install_status,
@@ -800,7 +802,8 @@ impl AiConfigService {
             let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
             let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
             let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
-            let claude_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Claude));
+            let claude_mcp =
+                scope.spawn(|| claude_mcp_installed_for_workspace(&workspace_root_for_mcp));
             let codex_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Codex));
             let gemini_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Gemini));
 
@@ -816,7 +819,7 @@ impl AiConfigService {
                     .unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
                 claude_mcp
                     .join()
-                    .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Claude)),
+                    .unwrap_or_else(|_| claude_mcp_installed_for_workspace(workspace_root)),
                 codex_mcp
                     .join()
                     .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Codex)),
@@ -1750,37 +1753,213 @@ fn user_home_dir() -> Option<PathBuf> {
     )
 }
 
+pub fn claude_mcp_installed_for_workspace(workspace_root: &Path) -> bool {
+    let home = match user_home_dir() {
+        Some(path) => path,
+        None => return false,
+    };
+    claude_mcp_installed_for_workspace_at_home(&home, workspace_root)
+}
+
+fn claude_mcp_installed_for_workspace_at_home(home: &Path, workspace_root: &Path) -> bool {
+    let claude_json_path = home.join(".claude.json");
+    let Ok(root) = read_json_object_file(&claude_json_path) else {
+        return false;
+    };
+    let workspace_key = workspace_root.to_string_lossy();
+    root.get("projects")
+        .and_then(Value::as_object)
+        .and_then(|projects| projects.get(workspace_key.as_ref()))
+        .and_then(Value::as_object)
+        .and_then(|project| project.get("mcpServers"))
+        .and_then(Value::as_object)
+        .is_some_and(|servers| servers.contains_key(GTO_AGENT_BRIDGE_SERVER_ID))
+}
+
 fn check_mcp_installed(agent: AiConfigAgent) -> bool {
     let home = match user_home_dir() {
         Some(path) => path,
         None => return false,
     };
 
-    let (path1, path2) = match agent {
-        AiConfigAgent::Claude => (
+    let paths = match agent {
+        AiConfigAgent::Claude => vec![
             home.join(".claude.json"),
             home.join(".claude").join("settings.json"),
-        ),
-        AiConfigAgent::Codex => (
-            home.join(".codex").join("config.toml"),
-            home.join(".codex").join("config.toml"),
-        ),
-        AiConfigAgent::Gemini => (
-            home.join(".gemini").join("settings.json"),
-            home.join(".gemini").join("settings.json"),
-        ),
+        ],
+        AiConfigAgent::Codex => vec![home.join(".codex").join("config.toml")],
+        AiConfigAgent::Gemini => vec![home.join(".gemini").join("settings.json")],
     };
 
-    let check = |p: &std::path::Path| {
-        if !p.exists() {
-            return false;
-        }
-        std::fs::read_to_string(p)
-            .map(|c| c.contains("gto-agent-bridge"))
-            .unwrap_or(false)
-    };
+    paths.iter().any(|path| file_contains_bridge_marker(path))
+}
 
-    check(&path1) || check(&path2)
+fn file_contains_bridge_marker(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    std::fs::read_to_string(path)
+        .map(|content| content.contains(GTO_AGENT_BRIDGE_SERVER_ID))
+        .unwrap_or(false)
+}
+
+fn workspace_scoped_mcp_installed(agent: AiConfigAgent, workspace_root: Option<&Path>) -> bool {
+    match agent {
+        AiConfigAgent::Claude => workspace_root.is_some_and(claude_mcp_installed_for_workspace),
+        AiConfigAgent::Codex | AiConfigAgent::Gemini => check_mcp_installed(agent),
+    }
+}
+
+fn agent_type_to_config_agent(agent: vb_tools::agent_installer::AgentType) -> AiConfigAgent {
+    match agent {
+        vb_tools::agent_installer::AgentType::ClaudeCode => AiConfigAgent::Claude,
+        vb_tools::agent_installer::AgentType::Codex => AiConfigAgent::Codex,
+        vb_tools::agent_installer::AgentType::Gemini => AiConfigAgent::Gemini,
+    }
+}
+
+pub fn agent_mcp_installed_for_workspace(
+    agent: vb_tools::agent_installer::AgentType,
+    workspace_root: Option<&Path>,
+) -> bool {
+    workspace_scoped_mcp_installed(agent_type_to_config_agent(agent), workspace_root)
+}
+
+#[cfg(test)]
+fn write_json_file(path: &Path, value: &Value) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
+}
+
+#[cfg(test)]
+fn write_text_file(path: &Path, value: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, value).unwrap();
+}
+
+#[cfg(test)]
+fn create_test_home(dir: &Path) -> PathBuf {
+    let home = dir.join("mock-home");
+    std::fs::create_dir_all(&home).unwrap();
+    home
+}
+
+#[cfg(test)]
+fn create_workspace(dir: &Path, name: &str) -> PathBuf {
+    let workspace = dir.join(name);
+    std::fs::create_dir_all(&workspace).unwrap();
+    workspace
+}
+
+#[cfg(test)]
+fn write_codex_marker(home: &Path) {
+    write_text_file(&home.join(".codex").join("config.toml"), GTO_AGENT_BRIDGE_SERVER_ID);
+}
+
+#[cfg(test)]
+fn write_gemini_marker(home: &Path) {
+    write_text_file(
+        &home.join(".gemini").join("settings.json"),
+        GTO_AGENT_BRIDGE_SERVER_ID,
+    );
+}
+
+#[cfg(test)]
+fn write_claude_workspace_config(home: &Path, workspace_root: &Path) {
+    write_json_file(
+        &home.join(".claude.json"),
+        &json!({
+            "projects": {
+                workspace_root.to_string_lossy().to_string(): {
+                    "mcpServers": {
+                        GTO_AGENT_BRIDGE_SERVER_ID: {
+                            "type": "stdio",
+                            "command": "npx"
+                        }
+                    }
+                }
+            },
+            "mcpServers": {
+                GTO_AGENT_BRIDGE_SERVER_ID: {
+                    "type": "stdio",
+                    "command": "npx"
+                }
+            }
+        }),
+    );
+}
+
+#[cfg(test)]
+fn write_claude_workspace_configs(home: &Path, workspace_roots: &[&Path]) {
+    let projects = workspace_roots
+        .iter()
+        .map(|workspace_root| {
+            (
+                workspace_root.to_string_lossy().to_string(),
+                json!({
+                    "mcpServers": {
+                        GTO_AGENT_BRIDGE_SERVER_ID: {
+                            "type": "stdio",
+                            "command": "npx"
+                        }
+                    }
+                }),
+            )
+        })
+        .collect::<serde_json::Map<String, Value>>();
+    write_json_file(
+        &home.join(".claude.json"),
+        &Value::Object(serde_json::Map::from_iter([
+            ("projects".to_string(), Value::Object(projects)),
+            (
+                "mcpServers".to_string(),
+                json!({
+                    GTO_AGENT_BRIDGE_SERVER_ID: {
+                        "type": "stdio",
+                        "command": "npx"
+                    }
+                }),
+            ),
+        ])),
+    );
+}
+
+#[cfg(test)]
+fn write_claude_top_level_marker_only(home: &Path) {
+    write_json_file(
+        &home.join(".claude.json"),
+        &json!({
+            "mcpServers": {
+                GTO_AGENT_BRIDGE_SERVER_ID: {
+                    "type": "stdio",
+                    "command": "npx"
+                }
+            }
+        }),
+    );
+}
+
+#[cfg(test)]
+fn write_invalid_claude_json(home: &Path) {
+    write_text_file(&home.join(".claude.json"), "{invalid json");
+}
+
+#[cfg(test)]
+fn claude_status_for_home(home: &Path, workspace_root: &Path) -> bool {
+    claude_mcp_installed_for_workspace_at_home(home, workspace_root)
+}
+
+#[cfg(test)]
+fn agent_status_result(agent: AiConfigAgent, home: &Path, workspace_root: Option<&Path>) -> bool {
+    match agent {
+        AiConfigAgent::Claude => workspace_root.is_some_and(|root| claude_status_for_home(home, root)),
+        AiConfigAgent::Codex => file_contains_bridge_marker(&home.join(".codex").join("config.toml")),
+        AiConfigAgent::Gemini => file_contains_bridge_marker(&home.join(".gemini").join("settings.json")),
+    }
 }
 
 fn now_ms() -> u64 {
@@ -2585,5 +2764,83 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved, PathBuf::from("/home/dev"));
+    }
+
+    #[test]
+    fn claude_workspace_mcp_status_is_true_for_current_workspace_entry() {
+        let dir = temp_dir("claude-workspace-mcp");
+        let home = create_test_home(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-a");
+
+        write_claude_workspace_config(&home, &workspace_root);
+
+        assert!(claude_status_for_home(&home, &workspace_root));
+        assert!(agent_status_result(
+            AiConfigAgent::Claude,
+            &home,
+            Some(&workspace_root)
+        ));
+    }
+
+    #[test]
+    fn claude_workspace_mcp_status_is_false_for_other_workspace_entry() {
+        let dir = temp_dir("claude-other-workspace-mcp");
+        let home = create_test_home(&dir);
+        let workspace_a = create_workspace(&dir, "workspace-a");
+        let workspace_b = create_workspace(&dir, "workspace-b");
+
+        write_claude_workspace_configs(&home, &[&workspace_a]);
+
+        assert!(claude_status_for_home(&home, &workspace_a));
+        assert!(!claude_status_for_home(&home, &workspace_b));
+        assert!(!agent_status_result(
+            AiConfigAgent::Claude,
+            &home,
+            Some(&workspace_b)
+        ));
+    }
+
+    #[test]
+    fn claude_workspace_mcp_status_ignores_top_level_marker_only() {
+        let dir = temp_dir("claude-top-level-only");
+        let home = create_test_home(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-a");
+
+        write_claude_top_level_marker_only(&home);
+
+        assert!(!claude_status_for_home(&home, &workspace_root));
+        assert!(!agent_status_result(
+            AiConfigAgent::Claude,
+            &home,
+            Some(&workspace_root)
+        ));
+    }
+
+    #[test]
+    fn claude_workspace_mcp_status_is_false_for_invalid_json() {
+        let dir = temp_dir("claude-invalid-json");
+        let home = create_test_home(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-a");
+
+        write_invalid_claude_json(&home);
+
+        assert!(!claude_status_for_home(&home, &workspace_root));
+        assert!(!agent_status_result(
+            AiConfigAgent::Claude,
+            &home,
+            Some(&workspace_root)
+        ));
+    }
+
+    #[test]
+    fn codex_and_gemini_status_still_use_global_marker_files() {
+        let dir = temp_dir("light-agents-global-marker");
+        let home = create_test_home(&dir);
+
+        write_codex_marker(&home);
+        write_gemini_marker(&home);
+
+        assert!(agent_status_result(AiConfigAgent::Codex, &home, None));
+        assert!(agent_status_result(AiConfigAgent::Gemini, &home, None));
     }
 }

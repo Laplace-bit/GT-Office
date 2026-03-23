@@ -12,7 +12,10 @@ pub use models::{
     LightAgentDraftInput, LightAgentGuide, LightAgentNormalizedDraft, StoredAiConfigPreview,
     StoredClaudePreview, StoredLightAgentPreview,
 };
-pub use service::{AiConfigError, AiConfigResult, AiConfigService};
+pub use service::{
+    agent_mcp_installed_for_workspace, claude_mcp_installed_for_workspace, AiConfigError,
+    AiConfigResult, AiConfigService,
+};
 
 pub fn module_name() -> &'static str {
     "vb-ai-config"

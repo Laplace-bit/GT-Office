@@ -1728,8 +1728,8 @@ export const desktopApi = {
   agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
-  agentMcpInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
-    return invokeCommand<boolean>('agent_mcp_install_status', { agent })
+  agentMcpInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId?: string) {
+    return invokeCommand<boolean>('agent_mcp_install_status', { agent, workspaceId })
   },
   installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent', { agent })
@@ -1737,8 +1737,8 @@ export const desktopApi = {
   uninstallAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('uninstall_agent', { agent })
   },
-  installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
-    return invokeCommand<void>('install_agent_mcp', { agent })
+  installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
+    return invokeCommand<void>('install_agent_mcp', { agent, workspaceId })
   },
   surfaceOpenDetachedWindow(payload: SurfaceOpenDetachedWindowRequest) {
     return invokeCommand<SurfaceOpenDetachedWindowResponse>('surface_open_detached_window', {
