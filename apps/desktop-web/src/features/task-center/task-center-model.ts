@@ -16,11 +16,12 @@ export interface TaskDispatchRecord {
   batchId: string
   taskId: string
   title: string
+  markdown: string
   targetStationId: string
   targetStationName: string
   createdAtMs: number
   status: TaskDispatchStatus
-  taskFilePath: string
+  taskFilePath?: string | null
   detail?: string
 }
 
@@ -132,17 +133,19 @@ export function buildDispatchRecord(input: {
   batchId: string
   taskId: string
   title: string
+  markdown: string
   targetStationId: string
   targetStationName: string
   createdAtMs: number
   status: TaskDispatchStatus
-  taskFilePath: string
+  taskFilePath?: string | null
   detail?: string
 }): TaskDispatchRecord {
   return {
     batchId: input.batchId,
     taskId: input.taskId,
     title: input.title,
+    markdown: input.markdown,
     targetStationId: input.targetStationId,
     targetStationName: input.targetStationName,
     createdAtMs: input.createdAtMs,
@@ -150,6 +153,11 @@ export function buildDispatchRecord(input: {
     taskFilePath: input.taskFilePath,
     detail: input.detail,
   }
+}
+
+export function buildTaskDispatchCommand(taskId: string, taskFilePath: string): string {
+  const escaped = taskFilePath.replace(/'/g, `'\\''`)
+  return `echo '[vb-task] assigned ${taskId} from ${escaped}'`
 }
 
 export function pushTaskDispatchHistory(
@@ -168,11 +176,6 @@ export function replaceTaskDispatchRecord(
   return previous.map((record) =>
     record.taskId === taskId ? { ...record, ...patch } : record,
   )
-}
-
-export function buildTaskDispatchCommand(taskId: string, taskFilePath: string): string {
-  const escaped = taskFilePath.replace(/'/g, `'\\''`)
-  return `echo '[vb-task] assigned ${taskId} from ${escaped}'`
 }
 
 export function buildMarkdownSnippet(snippet: TaskMarkdownSnippet): string {
@@ -214,8 +217,7 @@ function isTaskDispatchRecord(value: unknown): value is TaskDispatchRecord {
     typeof record.targetStationId === 'string' &&
     typeof record.targetStationName === 'string' &&
     typeof record.createdAtMs === 'number' &&
-    typeof record.status === 'string' &&
-    typeof record.taskFilePath === 'string'
+    typeof record.status === 'string'
   )
 }
 
@@ -279,6 +281,8 @@ export function parseTaskCenterWorkspaceSnapshot(
     const dispatchHistory = dispatchHistoryRaw.map((item) => ({
       ...item,
       batchId: typeof item.batchId === 'string' ? item.batchId : item.taskId,
+      markdown: typeof item.markdown === 'string' ? item.markdown : '',
+      taskFilePath: typeof item.taskFilePath === 'string' ? item.taskFilePath : null,
     }))
 
     return {

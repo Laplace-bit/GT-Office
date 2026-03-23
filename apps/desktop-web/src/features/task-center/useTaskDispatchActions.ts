@@ -9,7 +9,6 @@ import {
   pushTaskDispatchHistory,
   replaceTaskDispatchRecord,
   resolveValidTaskTargets,
-  type StationTaskSignal,
   type TaskCenterNotice,
   type TaskDispatchRecord,
   type TaskDraftState,
@@ -48,18 +47,17 @@ interface UseTaskDispatchActionsInput {
       taskFilePath?: string | null
     }>
   }>
-  onVerifyTaskFileReadable: (input: {
+  onVerifyTaskFileReadable?: (input: {
     workspaceId: string
     taskFilePath: string
   }) => Promise<void>
-  onDeliverTaskToStation: (input: {
+  onDeliverTaskToStation?: (input: {
     station: AgentStation
     taskId: string
     taskFilePath: string
     title: string
-    setStationTaskSignals: Dispatch<SetStateAction<Record<string, StationTaskSignal>>>
   }) => Promise<void>
-  setStationTaskSignals: Dispatch<SetStateAction<Record<string, StationTaskSignal>>>
+  setStationTaskSignals?: Dispatch<SetStateAction<Record<string, unknown>>>
   describeError: (error: unknown) => string
   taskDispatchHistoryLimit: number
 }
@@ -86,9 +84,9 @@ export function useTaskDispatchActions({
   setTaskNotice,
   onEnsureTaskTargetRuntime,
   onDispatchTaskBatch,
-  onVerifyTaskFileReadable,
-  onDeliverTaskToStation,
-  setStationTaskSignals,
+  onVerifyTaskFileReadable: _onVerifyTaskFileReadable,
+  onDeliverTaskToStation: _onDeliverTaskToStation,
+  setStationTaskSignals: _setStationTaskSignals,
   describeError,
   taskDispatchHistoryLimit,
 }: UseTaskDispatchActionsInput): TaskDispatchActions {
@@ -182,11 +180,12 @@ export function useTaskDispatchActions({
               batchId: response.batchId,
               taskId: result.taskId,
               title: normalizedTitle,
+              markdown: taskDraft.markdown,
               targetStationId: result.targetAgentId,
               targetStationName: station?.name ?? result.targetAgentId,
               createdAtMs,
               status: result.status,
-              taskFilePath: result.taskFilePath ?? '',
+              taskFilePath: result.taskFilePath,
               detail: result.detail ?? undefined,
             }),
             taskDispatchHistoryLimit,
@@ -282,29 +281,45 @@ export function useTaskDispatchActions({
       )
 
       try {
-        await onVerifyTaskFileReadable({
+        await onEnsureTaskTargetRuntime({
           workspaceId: activeWorkspaceId,
-          taskFilePath: targetRecord.taskFilePath,
+          targetStationId: targetStation.id,
         })
-        await onDeliverTaskToStation({
-          station: targetStation,
-          taskId: targetRecord.taskId,
-          taskFilePath: targetRecord.taskFilePath,
+        const response = await onDispatchTaskBatch({
+          workspaceId: activeWorkspaceId,
           title: targetRecord.title,
-          setStationTaskSignals,
+          markdown: targetRecord.markdown,
+          targetStationIds: [targetStation.id],
         })
+        const result = response.results[0]
+        if (!result) {
+          throw new Error('TASK_DISPATCH_EMPTY_RESULT')
+        }
         setTaskDispatchHistory((prev) =>
           replaceTaskDispatchRecord(prev, taskId, {
-            status: 'sent',
-            detail: undefined,
+            batchId: response.batchId,
+            taskId: result.taskId,
+            markdown: targetRecord.markdown,
+            status: result.status,
+            detail: result.detail ?? undefined,
+            taskFilePath: result.taskFilePath,
           }),
         )
-        setTaskNotice({
-          kind: 'success',
-          message: t(locale, 'taskCenter.notice.retrySuccess', {
-            taskId: targetRecord.taskId,
-          }),
-        })
+        if (result.status === 'sent') {
+          setTaskNotice({
+            kind: 'success',
+            message: t(locale, 'taskCenter.notice.retrySuccess', {
+              taskId: result.taskId,
+            }),
+          })
+        } else {
+          setTaskNotice({
+            kind: 'error',
+            message: t(locale, 'taskCenter.notice.retryFailed', {
+              detail: result.detail ?? 'TASK_DISPATCH_FAILED',
+            }),
+          })
+        }
       } catch (error) {
         const detail = describeError(error)
         setTaskDispatchHistory((prev) =>
@@ -327,12 +342,11 @@ export function useTaskDispatchActions({
       activeWorkspaceId,
       describeError,
       locale,
-      onDeliverTaskToStation,
-      onVerifyTaskFileReadable,
+      onDispatchTaskBatch,
+      onEnsureTaskTargetRuntime,
       setTaskDispatchHistory,
       setTaskNotice,
       setTaskRetryingTaskId,
-      setStationTaskSignals,
       stationsRef,
       taskDispatchHistory,
       taskRetryingTaskId,

@@ -45,12 +45,12 @@ interface MentionRange {
   query: string
 }
 
-function formatTimestamp(value: number): string {
-  const date = new Date(value)
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  const second = String(date.getSeconds()).padStart(2, '0')
-  return `${hour}:${minute}:${second}`
+interface MentionPopoverStyle {
+  top: number
+  left: number
+  width: number
+  maxHeight: number
+  placement: 'top' | 'bottom'
 }
 
 function resolveMentionRange(value: string, cursor: number): MentionRange | null {
@@ -90,18 +90,81 @@ function toRem(value: number): string {
   return `${value / getRootFontSize()}rem`
 }
 
+function resolveTextareaCaretViewportPosition(textarea: HTMLTextAreaElement, cursor: number) {
+  const mirror = document.createElement('div')
+  const marker = document.createElement('span')
+  const style = window.getComputedStyle(textarea)
+  const rect = textarea.getBoundingClientRect()
+
+  const propertiesToCopy = [
+    'boxSizing',
+    'width',
+    'height',
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft',
+    'borderTopWidth',
+    'borderRightWidth',
+    'borderBottomWidth',
+    'borderLeftWidth',
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'fontStyle',
+    'letterSpacing',
+    'lineHeight',
+    'textTransform',
+    'textIndent',
+    'tabSize',
+  ] as const
+
+  mirror.style.position = 'fixed'
+  mirror.style.top = '0'
+  mirror.style.left = '0'
+  mirror.style.visibility = 'hidden'
+  mirror.style.pointerEvents = 'none'
+  mirror.style.whiteSpace = 'pre-wrap'
+  mirror.style.wordBreak = 'break-word'
+  mirror.style.overflowWrap = 'break-word'
+  mirror.style.overflow = 'hidden'
+
+  propertiesToCopy.forEach((property) => {
+    mirror.style[property] = style[property]
+  })
+
+  mirror.textContent = textarea.value.slice(0, cursor)
+  marker.textContent = '\u200b'
+  mirror.appendChild(marker)
+  document.body.appendChild(mirror)
+
+  const markerRect = marker.getBoundingClientRect()
+  const fallbackLineHeight = Number.parseFloat(style.lineHeight) || 20
+  const top = rect.top + (markerRect.top - mirror.getBoundingClientRect().top) - textarea.scrollTop
+  const left = rect.left + (markerRect.left - mirror.getBoundingClientRect().left) - textarea.scrollLeft
+
+  document.body.removeChild(mirror)
+
+  return {
+    top,
+    left,
+    lineHeight: fallbackLineHeight,
+    textareaRect: rect,
+  }
+}
+
 function TaskCenterPaneView({
   locale,
   stations,
   draft,
   sending,
-  draftSavedAtMs,
+  draftSavedAtMs: _draftSavedAtMs,
   notice,
   mentionCandidates,
   mentionLoading,
   mentionError,
   onDraftChange,
-  onInsertSnippet,
+  onInsertSnippet: _onInsertSnippet,
   onSendTask,
   onSearchMentionFiles,
   onClearMentionSearch,
@@ -115,6 +178,7 @@ function TaskCenterPaneView({
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
   const mentionQueryRef = useRef('')
   const [mentionRange, setMentionRange] = useState<MentionRange | null>(null)
+  const [mentionPopoverStyle, setMentionPopoverStyle] = useState<MentionPopoverStyle | null>(null)
   const [activeMentionIndex, setActiveMentionIndex] = useState(0)
   const [targetPickerOpen, setTargetPickerOpen] = useState(false)
   const [targetFilter, setTargetFilter] = useState('')
@@ -208,6 +272,63 @@ function TaskCenterPaneView({
     observer.observe(textarea)
     return () => observer.disconnect()
   }, [draft.markdown])
+
+  useEffect(() => {
+    if (!mentionRange) {
+      setMentionPopoverStyle(null)
+      return
+    }
+
+    const updateMentionPopoverPosition = () => {
+      const textarea = textareaRef.current
+      if (!textarea) {
+        return
+      }
+
+      const viewportPadding = 16
+      const preferredWidth = Math.min(textarea.getBoundingClientRect().width, 420)
+      const minWidth = 260
+      const { top, left, lineHeight, textareaRect } = resolveTextareaCaretViewportPosition(
+        textarea,
+        mentionRange.end,
+      )
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      const width = Math.min(
+        Math.max(minWidth, preferredWidth),
+        Math.max(minWidth, viewportWidth - viewportPadding * 2),
+      )
+      const anchoredLeft = Math.min(
+        Math.max(viewportPadding, left),
+        Math.max(viewportPadding, viewportWidth - width - viewportPadding),
+      )
+      const desiredTop = top + lineHeight + 10
+      const spaceBelow = viewportHeight - desiredTop - viewportPadding
+      const spaceAbove = top - viewportPadding - 10
+      const placement = spaceBelow >= 180 || spaceBelow >= spaceAbove ? 'bottom' : 'top'
+      const maxHeight = Math.max(120, Math.min(240, placement === 'bottom' ? spaceBelow : spaceAbove))
+      const anchoredTop =
+        placement === 'bottom'
+          ? Math.min(desiredTop, viewportHeight - maxHeight - viewportPadding)
+          : Math.max(viewportPadding, top - maxHeight - 10)
+
+      setMentionPopoverStyle({
+        top: Math.max(viewportPadding, anchoredTop),
+        left: Math.max(viewportPadding, anchoredLeft),
+        width: Math.max(minWidth, Math.min(width, textareaRect.width)),
+        maxHeight,
+        placement,
+      })
+    }
+
+    updateMentionPopoverPosition()
+    window.addEventListener('resize', updateMentionPopoverPosition)
+    window.addEventListener('scroll', updateMentionPopoverPosition, true)
+    return () => {
+      window.removeEventListener('resize', updateMentionPopoverPosition)
+      window.removeEventListener('scroll', updateMentionPopoverPosition, true)
+    }
+  }, [mentionRange, draft.markdown])
 
   const syncMentionState = (value: string, cursor: number) => {
     const nextRange = resolveMentionRange(value, cursor)
@@ -401,30 +522,6 @@ function TaskCenterPaneView({
           <strong>{t(locale, 'taskCenter.editorLabel')}</strong>
         </header>
 
-        <section className="task-center-markdown-toolbar">
-          <button
-            type="button"
-            className="task-center-toolbar-btn"
-            onClick={() => onInsertSnippet('heading')}
-          >
-            {t(locale, 'taskCenter.template.heading')}
-          </button>
-          <button
-            type="button"
-            className="task-center-toolbar-btn"
-            onClick={() => onInsertSnippet('code')}
-          >
-            {t(locale, 'taskCenter.template.code')}
-          </button>
-          <button
-            type="button"
-            className="task-center-toolbar-btn"
-            onClick={() => onInsertSnippet('checklist')}
-          >
-            {t(locale, 'taskCenter.template.checklist')}
-          </button>
-        </section>
-
         <div className="task-center-editor-input-wrap">
           <textarea
             ref={textareaRef}
@@ -473,8 +570,45 @@ function TaskCenterPaneView({
             }}
           />
 
-          {mentionRange ? (
-            <div className="task-center-mention-popover" role="listbox">
+        </div>
+
+        <div className="task-center-editor-footer">
+          {sendShortcutHint ? (
+            <span className="task-center-send-shortcut-hint">{sendShortcutHint}</span>
+          ) : null}
+          <button
+            type="button"
+            className="task-center-inline-send primary"
+            onClick={onSendTask}
+            disabled={sending || stations.length === 0}
+          >
+            <AppIcon name="sparkles" className="vb-icon" />
+            <span>
+              {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <section className="task-center-send-row">
+        {notice ? (
+          <p className={`task-center-notice ${notice.kind}`}>{notice.message}</p>
+        ) : null}
+      </section>
+      {mentionRange && mentionPopoverStyle && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className={`task-center-mention-popover task-center-mention-popover--${mentionPopoverStyle.placement}`}
+              role="listbox"
+              style={
+                {
+                  '--task-center-mention-top': toRem(mentionPopoverStyle.top),
+                  '--task-center-mention-left': toRem(mentionPopoverStyle.left),
+                  '--task-center-mention-width': toRem(mentionPopoverStyle.width),
+                  '--task-center-mention-max-height': toRem(mentionPopoverStyle.maxHeight),
+                } as CSSProperties
+              }
+            >
               {mentionLoading ? (
                 <p className="task-center-mention-empty">{t(locale, 'taskCenter.mentionSearching')}</p>
               ) : mentionError ? (
@@ -500,40 +634,10 @@ function TaskCenterPaneView({
                   ))}
                 </ul>
               )}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="task-center-editor-footer">
-          {sendShortcutHint ? (
-            <span className="task-center-send-shortcut-hint">{sendShortcutHint}</span>
-          ) : null}
-          <button
-            type="button"
-            className="task-center-inline-send primary"
-            onClick={onSendTask}
-            disabled={sending || stations.length === 0}
-          >
-            <AppIcon name="sparkles" className="vb-icon" />
-            <span>
-              {sending ? t(locale, 'taskCenter.sending') : t(locale, 'taskCenter.sendTask')}
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section className="task-center-send-row">
-        {draftSavedAtMs ? (
-          <p className="task-center-draft-saved">
-            {t(locale, 'taskCenter.draftSavedAt', {
-              time: formatTimestamp(draftSavedAtMs),
-            })}
-          </p>
-        ) : null}
-        {notice ? (
-          <p className={`task-center-notice ${notice.kind}`}>{notice.message}</p>
-        ) : null}
-      </section>
+            </div>,
+            document.body,
+          )
+        : null}
     </aside>
   )
 }

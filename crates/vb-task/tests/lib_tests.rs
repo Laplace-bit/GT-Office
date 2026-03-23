@@ -229,24 +229,18 @@ fn dispatch_batch_includes_managed_mcp_reply_instruction_for_agent_sender() {
         },
     );
 
-    let task_file_path = outcome.response.results[0]
-        .task_file_path
-        .as_ref()
-        .expect("task file path");
-    let task_markdown =
-        fs::read_to_string(workspace_root.join(task_file_path)).expect("read task file");
-
     assert!(written_command.contains("gto_report_status"));
     assert!(written_command.contains("target_agent_ids"));
     assert!(written_command.contains("manager"));
-    assert!(task_markdown.contains("GT Office MCP Reply"));
-    assert!(task_markdown.contains("task_id:"));
+    assert!(written_command.contains("GT Office MCP Reply"));
+    assert_eq!(outcome.response.results[0].task_file_path, None);
+    assert!(!workspace_root.join(".gtoffice/tasks").exists());
 
     let _ = fs::remove_dir_all(workspace_root);
 }
 
 #[test]
-fn dispatch_batch_writes_files_and_emits_events() {
+fn dispatch_batch_sends_raw_markdown_and_emits_events() {
     let service = TaskService::default();
     service.register_runtime(AgentRuntimeRegistration {
         workspace_id: "ws-1".to_string(),
@@ -261,6 +255,7 @@ fn dispatch_batch_writes_files_and_emits_events() {
         online: true,
     });
     let workspace_root = new_workspace_root();
+    let mut written_command = String::new();
 
     let outcome = service.dispatch_batch(
         &TaskDispatchBatchRequest {
@@ -276,8 +271,9 @@ fn dispatch_batch_writes_files_and_emits_events() {
             submit_sequences: HashMap::new(),
         },
         &workspace_root,
-        |session_id, _command, _submit_sequence| {
+        |session_id, command, _submit_sequence| {
             assert_eq!(session_id, "ts-1");
+            written_command = command.to_string();
             Ok(())
         },
     );
@@ -286,13 +282,9 @@ fn dispatch_batch_writes_files_and_emits_events() {
     assert_eq!(outcome.response.results[0].status, TaskDispatchStatus::Sent);
     assert_eq!(outcome.message_events.len(), 1);
     assert_eq!(outcome.ack_events.len(), 1);
-
-    let task_file_path = outcome.response.results[0]
-        .task_file_path
-        .as_ref()
-        .expect("task file path");
-    let abs_path = workspace_root.join(task_file_path);
-    assert!(abs_path.exists());
+    assert_eq!(written_command, "- [ ] do it");
+    assert_eq!(outcome.response.results[0].task_file_path, None);
+    assert!(!workspace_root.join(".gtoffice/tasks").exists());
 
     let _ = fs::remove_dir_all(workspace_root);
 }

@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -892,14 +891,13 @@ impl TaskService {
     pub fn dispatch_batch<F>(
         &self,
         request: &TaskDispatchBatchRequest,
-        workspace_root: &Path,
+        _workspace_root: &Path,
         mut write_terminal: F,
     ) -> TaskDispatchBatchOutcome
     where
         F: FnMut(&str, &str, &str) -> Result<(), String>,
     {
         let batch_id = self.next_id("batch");
-        let created_at_ms = now_ms();
         let title = sanitize_title(&request.title);
         let sender = request.sender.clone();
         let mut results = Vec::new();
@@ -939,36 +937,6 @@ impl TaskService {
                 continue;
             };
 
-            let write_outcome = write_task_bundle(
-                workspace_root,
-                &task_id,
-                &title,
-                request,
-                &target_agent_id,
-                created_at_ms,
-            );
-            let (task_file_path, _manifest_path) = match write_outcome {
-                Ok(paths) => paths,
-                Err(error) => {
-                    results.push(TaskDispatchTargetResult {
-                        target_agent_id: target_agent_id.clone(),
-                        task_id: task_id.clone(),
-                        status: TaskDispatchStatus::Failed,
-                        detail: Some(error.clone()),
-                        task_file_path: None,
-                    });
-                    progress_events.push(TaskDispatchProgressEvent {
-                        batch_id: batch_id.clone(),
-                        workspace_id: request.workspace_id.clone(),
-                        target_agent_id,
-                        task_id,
-                        status: TaskDispatchProgressStatus::Failed,
-                        detail: Some(error),
-                    });
-                    continue;
-                }
-            };
-
             let message_id = self.next_id("msg");
             let channel_id = display_channel_id(&ChannelKind::Direct, &target_agent_id, None);
             let seq = self.next_channel_seq(&channel_id);
@@ -976,7 +944,7 @@ impl TaskService {
                 "batchId": batch_id,
                 "taskId": task_id,
                 "title": title,
-                "taskFilePath": task_file_path,
+                "taskFilePath": Value::Null,
                 "attachments": request.attachments,
                 "sender": {
                     "type": match sender.sender_type {
@@ -988,11 +956,8 @@ impl TaskService {
             });
 
             let submit_sequence = resolve_submit_sequence(request, &target_agent_id, &runtime);
-            let command = build_task_dispatch_command(
-                &enrich_dispatch_markdown(&request.markdown, request, &task_id),
-                &task_id,
-                &task_file_path,
-            );
+            let command =
+                build_task_dispatch_command(&enrich_dispatch_markdown(&request.markdown, request, &task_id));
             if let Err(error) = write_terminal(&runtime.session_id, &command, &submit_sequence) {
                 warn!(
                     workspace_id = %request.workspace_id,
@@ -1014,7 +979,7 @@ impl TaskService {
                     task_id: task_id.clone(),
                     status: TaskDispatchStatus::Failed,
                     detail: Some(error.clone()),
-                    task_file_path: Some(task_file_path.clone()),
+                    task_file_path: None,
                 });
                 progress_events.push(TaskDispatchProgressEvent {
                     batch_id: batch_id.clone(),
@@ -1051,7 +1016,7 @@ impl TaskService {
                 task_id: task_id.clone(),
                 status: TaskDispatchStatus::Sent,
                 detail: None,
-                task_file_path: Some(task_file_path),
+                task_file_path: None,
             });
             progress_events.push(TaskDispatchProgressEvent {
                 batch_id: batch_id.clone(),
@@ -1367,13 +1332,8 @@ fn resolve_submit_sequence(
         .unwrap_or_else(|| "\r".to_string())
 }
 
-fn build_task_dispatch_command(markdown: &str, task_id: &str, task_file_path: &str) -> String {
-    let command = markdown.trim();
-    if !command.is_empty() {
-        return command.to_string();
-    }
-    let escaped = task_file_path.replace('\'', "'\\''");
-    format!("echo '[vb-task] assigned {task_id} from {escaped}'")
+fn build_task_dispatch_command(markdown: &str) -> String {
+    markdown.trim().to_string()
 }
 
 fn build_managed_agent_reply_instruction(
@@ -1412,75 +1372,6 @@ fn enrich_dispatch_markdown(
         sections.push(reply_instruction.trim().to_string());
     }
     sections.join("\n\n")
-}
-
-fn write_task_bundle(
-    workspace_root: &Path,
-    task_id: &str,
-    title: &str,
-    request: &TaskDispatchBatchRequest,
-    target_agent_id: &str,
-    created_at_ms: u64,
-) -> Result<(String, String), String> {
-    let task_file_path = format!(".gtoffice/tasks/{task_id}/task.md");
-    let manifest_path = format!(".gtoffice/tasks/{task_id}/manifest.json");
-    let task_dir = workspace_root.join(".gtoffice").join("tasks").join(task_id);
-
-    fs::create_dir_all(&task_dir)
-        .map_err(|error| format!("TASK_PERSIST_FAILED: create task dir failed: {error}"))?;
-
-    let attachment_section = if request.attachments.is_empty() {
-        "- 无附件".to_string()
-    } else {
-        request
-            .attachments
-            .iter()
-            .map(|attachment| {
-                let reference = if attachment.category == "image" {
-                    format!("![{}]({})", attachment.name, attachment.path)
-                } else {
-                    format!("[{}]({})", attachment.name, attachment.path)
-                };
-                format!("- {reference} ({})", attachment.category)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
-    let enriched_markdown = enrich_dispatch_markdown(&request.markdown, request, task_id);
-    let markdown_body = if enriched_markdown.trim().is_empty() {
-        "(empty)".to_string()
-    } else {
-        enriched_markdown.trim().to_string()
-    };
-
-    let markdown = format!(
-        "# {title}\n\n## 元信息\n\n- task_id: {task_id}\n- created_at_ms: {created_at_ms}\n- target_agent_id: {target_agent_id}\n- target_workspace_id: {}\n\n## 任务内容\n\n{markdown_body}\n\n## 附件\n\n{attachment_section}\n",
-        request.workspace_id
-    );
-
-    let manifest = json!({
-        "taskId": task_id,
-        "title": title,
-        "createdAtMs": created_at_ms,
-        "target": {
-            "agentId": target_agent_id,
-            "workspaceId": request.workspace_id,
-        },
-        "attachments": request.attachments,
-        "taskFilePath": task_file_path,
-    });
-
-    fs::write(task_dir.join("task.md"), markdown)
-        .map_err(|error| format!("TASK_PERSIST_FAILED: write task.md failed: {error}"))?;
-    fs::write(
-        task_dir.join("manifest.json"),
-        serde_json::to_vec_pretty(&manifest)
-            .map_err(|error| format!("TASK_PERSIST_FAILED: serialize manifest failed: {error}"))?,
-    )
-    .map_err(|error| format!("TASK_PERSIST_FAILED: write manifest.json failed: {error}"))?;
-
-    Ok((task_file_path, manifest_path))
 }
 
 pub fn module_name() -> &'static str {
