@@ -6,11 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from 'react'
-import { FileEditorPane, FileTreePane, type OpenedFile } from '@features/file-explorer'
 import {
-  GitHistoryPane,
-  GitOperationsPane,
-  isNotGitRepositoryError,
   useGitWorkspaceController,
 } from '@features/git'
 import {
@@ -24,8 +20,6 @@ import {
 } from '@features/keybindings'
 import {
   DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
-  GlobalTaskDispatchOverlay,
-  TaskCenterPane,
   areTaskTargetsEqual,
   buildTaskCenterDraftFilePath,
   buildTaskDispatchCommand,
@@ -39,35 +33,24 @@ import {
   type TaskDispatchRecord,
   type TaskDraftState,
 } from '@features/task-center'
-import { SettingsModal } from '@features/settings'
 import type { StationTerminalSink, StationTerminalSinkBindingHandler } from '@features/terminal'
 import {
   buildStationChannelBotBindingMap,
-  ChannelStudio,
-  CommunicationChannelsPane,
   resolveConnectorAccounts,
 } from '@features/tool-adapter'
 import {
   appendDetachedTerminalOutput,
   createEmptyWorkbenchStationRuntime,
-  DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
   DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
   DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
   createDefaultFloatingFrame,
   createDefaultStations,
   createInitialWorkbenchContainers,
-  isWorkbenchLayoutMode,
-  mapAgentProfileToStation,
   normalizeWorkbenchContainerFrame,
   reconcileWorkbenchContainers,
   restoreWorkbenchContainers,
-  serializeWorkbenchContainers,
-  StationManageModal,
-  StationSearchModal,
   stripDetachedTerminalRuntimeProjectionPatch,
-  WorkbenchCanvas,
   type AgentStation,
-  type CreateStationInput,
   type DetachedTerminalRuntimeProjectionPatch,
   type UpdateStationInput,
   type WorkbenchContainerModel,
@@ -77,8 +60,6 @@ import {
 } from '@features/workspace-hub'
 import {
   buildAgentWorkspaceMarkerPath,
-  buildRoleWorkdirRel,
-  buildStationWorkdirs,
   buildWorkspaceSessionFilePath,
   buildWorkspaceSessionSnapshot,
   defaultStationOverviewState,
@@ -86,7 +67,6 @@ import {
   parseWorkspaceSessionSnapshot,
   resolveAgentWorkdirAbs,
   serializeWorkspaceSessionSnapshot,
-  StationOverviewPane,
   type WorkspaceSessionTerminalSnapshot,
 } from '@features/workspace'
 import {
@@ -94,22 +74,13 @@ import {
   getPaneModels,
   type NavItemId,
 } from './navigation-model'
-import { ActivityRail } from './ActivityRail'
-import { LeftBusinessPane } from './LeftBusinessPane'
-import { StatusBar } from './StatusBar'
-import { TopControlBar } from './TopControlBar'
 import {
   type ChannelMessagePayload,
   type ExternalChannelInboundPayload,
   type ExternalChannelOutboundResultPayload,
-  type AgentRole,
   type AgentRuntimeRegisterRequest,
   type ChannelRouteBinding,
   desktopApi,
-  type FilesystemChangedPayload,
-  type FsSearchFileMatch,
-  type GitUpdatedPayload,
-  type GitStatusResponse,
   type RenderedScreenSnapshot,
   type DetachedTerminalBridgeMessage,
   type DetachedTerminalHydrateSnapshotMessage,
@@ -130,733 +101,64 @@ import {
   saveUiPreferences,
 } from '../state/ui-preferences'
 import { pickDirectory } from '../integration/directory-picker'
-import { NotificationList } from '../../components/notification/NotificationList'
+import {
+  EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT,
+  EXTERNAL_CHANNEL_STATUS_POLL_MS,
+  SHELL_LAYOUT_STORAGE_KEY,
+  STATION_INPUT_FLUSH_MS,
+  STATION_INPUT_MAX_BUFFER_BYTES,
+  STATION_TASK_SIGNAL_VISIBLE_MS,
+  STATION_TASK_SUBMIT_MAX_RETRY_FRAMES,
+  TASK_DISPATCH_HISTORY_LIMIT,
+  TASK_DRAFT_PERSIST_DEBOUNCE_MS,
+  TELEGRAM_DEBUG_TOAST_VISIBLE_MS,
+  WORKSPACE_SESSION_MAX_RESTORE_TABS,
+  WORKSPACE_SESSION_MAX_RESTORE_TERMINALS,
+  WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS,
+  buildDefaultWorkbenchContainerId,
+  buildExternalConversationKey,
+  buildExternalEndpointKey,
+  buildStationLaunchCommand,
+  buildWorkbenchContainerTitle,
+  clampLeftPaneWidth,
+  createInitialStationTerminals,
+  createStationEditInput,
+  describeError,
+  getStationIdleBanner,
+  isCodeEditorKeyboardTarget,
+  isEditableKeyboardTarget,
+  isLinuxPlatform,
+  isMacOsPlatform,
+  isNavItemId,
+  loadCanvasLayoutPreference,
+  loadLeftPaneWidthPreference,
+  nextStationNumber,
+  normalizeExternalChannel,
+  normalizeFsPath,
+  normalizeStationToolKind,
+  normalizeSubmitSequence,
+  readNumber,
+  readRecord,
+  readString,
+  readTaskQuickDispatchOpacityFromSettings,
+  shouldFlushStationInputImmediately,
+  shouldPreventDesktopBrowserShortcut,
+  summarizeExternalChannelText,
+  toRelativePathIfInside,
+  type DetachedProjectionTarget,
+  type ExternalChannelEventItem,
+  type ExternalTraceContext,
+  type StationTerminalRuntime,
+  type TelegramInboundDebugToast,
+} from './ShellRoot.shared'
+import { ShellRootView } from './ShellRootView'
+import { useShellFileController } from './useShellFileController'
+import { useShellStationController } from './useShellStationController'
+import { useShellTaskMentionController } from './useShellTaskMentionController'
+import { useShellWorkbenchController } from './useShellWorkbenchController'
+import { useShellWorkspaceController } from './useShellWorkspaceController'
 
 import './ShellRoot.scss'
-
-type FileReadMode = 'full'
-type StationTerminalRuntime = {
-  sessionId: string | null
-  stateRaw: string
-  unreadCount: number
-  shell: string | null
-  cwdMode: 'workspace_root' | 'custom'
-  resolvedCwd: string | null
-}
-type DetachedProjectionTarget = {
-  containerId: string
-  windowLabel: string
-}
-const STATION_INPUT_FLUSH_MS = 12
-const STATION_INPUT_MAX_BUFFER_BYTES = 65536
-const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
-const TASK_DISPATCH_HISTORY_LIMIT = 40
-const TASK_DRAFT_PERSIST_DEBOUNCE_MS = 360
-const SHELL_LAYOUT_STORAGE_KEY = 'gtoffice.shell.layout.v2'
-const CANVAS_LAYOUT_MIN = 1
-const CANVAS_LAYOUT_MAX = 8
-const WORKSPACE_MEMORY_STORAGE_KEY = 'gtoffice.shell.lastWorkspace.v1'
-const WORKSPACE_AUTO_OPEN_DEBOUNCE_MS = 420
-const WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS = 560
-const WORKSPACE_SESSION_MAX_RESTORE_TABS = 8
-const WORKSPACE_SESSION_MAX_RESTORE_TERMINALS = 6
-const STATION_TASK_SIGNAL_VISIBLE_MS = 3200
-const EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT = 36
-const EXTERNAL_CHANNEL_STATUS_POLL_MS = 15000
-const TELEGRAM_DEBUG_TOAST_VISIBLE_MS = 6000
-const LEFT_PANE_WIDTH_MIN = 210
-const LEFT_PANE_WIDTH_MAX = 390
-const LEFT_PANE_WIDTH_DEFAULT = 270
-const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
-
-function buildDefaultWorkbenchContainerId(): string {
-  return 'canvas-main'
-}
-
-function buildFloatingContainerId(seed: number): string {
-  return `container-${seed.toString(36)}`
-}
-
-function buildWorkbenchContainerTitle(
-  container: WorkbenchContainerModel,
-  stations: AgentStation[],
-): string {
-  const activeStation =
-    (container.activeStationId
-      ? stations.find((station) => station.id === container.activeStationId) ?? null
-      : null) ??
-    stations.find((station) => container.stationIds.includes(station.id)) ??
-    null
-  if (!activeStation) {
-    return 'GT Office Surface'
-  }
-  if (container.stationIds.length <= 1) {
-    return activeStation.name
-  }
-  return `${activeStation.name} +${container.stationIds.length - 1}`
-}
-
-function normalizeStationToolKind(
-  tool: string | null | undefined,
-): NonNullable<AgentRuntimeRegisterRequest['toolKind']> {
-  const normalized = tool?.trim().toLowerCase() ?? ''
-  if (normalized.includes('claude')) {
-    return 'claude'
-  }
-  if (normalized.includes('codex')) {
-    return 'codex'
-  }
-  if (normalized.includes('gemini')) {
-    return 'gemini'
-  }
-  if (normalized.includes('shell')) {
-    return 'shell'
-  }
-  return 'unknown'
-}
-
-function buildStationLaunchCommand(station: AgentStation): string | null {
-  switch (normalizeStationToolKind(station.tool)) {
-    case 'claude':
-      return 'claude\n'
-    case 'codex':
-      return 'codex\n'
-    case 'gemini':
-      return 'gemini\n'
-    default:
-      return null
-  }
-}
-
-function isDigitsOnly(value: string): boolean {
-  return value.length > 0 && /^\d+$/.test(value)
-}
-
-function summarizeExternalChannelText(
-  value: string | null | undefined,
-  maxChars = 160,
-): string | null {
-  const normalized = (value ?? '').replace(/\s+/g, ' ').trim()
-  if (!normalized) {
-    return null
-  }
-  if (normalized.length <= maxChars) {
-    return normalized
-  }
-  return `${normalized.slice(0, maxChars)}...`
-}
-
-function normalizeExternalChannel(value: string | null | undefined): string {
-  const normalized = value?.trim().toLowerCase()
-  if (!normalized) {
-    return 'external'
-  }
-  return normalized
-}
-
-function buildExternalEndpointKey(input: {
-  channel?: string | null
-  accountId?: string | null
-  peerKind?: string | null
-  peerId?: string | null
-}): string {
-  const channel = normalizeExternalChannel(input.channel)
-  const accountId = input.accountId?.trim() || 'default'
-  const peerKind = input.peerKind?.trim() || 'direct'
-  const peerId = input.peerId?.trim() || 'unknown-peer'
-  return `${channel}::${accountId}::${peerKind}::${peerId}`
-}
-
-function buildExternalConversationKey(endpointKey: string, targetAgentId?: string | null): string {
-  const target = targetAgentId?.trim()
-  if (!target) {
-    return `${endpointKey}::pending`
-  }
-  return `${endpointKey}::target::${target}`
-}
-
-function isCsiUEnterSequence(raw: string): boolean {
-  if (!raw.startsWith('\x1b[13;') || !raw.endsWith('u')) {
-    return false
-  }
-  return isDigitsOnly(raw.slice('\x1b[13;'.length, -1))
-}
-
-function isCsiTildeEnterSequence(raw: string): boolean {
-  if (raw === '\x1b[13~') {
-    return true
-  }
-  if (!raw.startsWith('\x1b[13;') || !raw.endsWith('~')) {
-    return false
-  }
-  return isDigitsOnly(raw.slice('\x1b[13;'.length, -1))
-}
-
-function isModifyOtherKeysEnterSequence(raw: string): boolean {
-  if (!raw.startsWith('\x1b[27;13;') || !raw.endsWith('~')) {
-    return false
-  }
-  return isDigitsOnly(raw.slice('\x1b[27;13;'.length, -1))
-}
-
-function normalizeSubmitSequence(raw: string): string | null {
-  if (raw === '\r' || raw === '\n' || raw === '\r\n') {
-    return '\r'
-  }
-  if (raw === '\x1bOM') {
-    return raw
-  }
-  if (isCsiUEnterSequence(raw) || isCsiTildeEnterSequence(raw) || isModifyOtherKeysEnterSequence(raw)) {
-    return raw
-  }
-  return null
-}
-
-function shouldFlushStationInputImmediately(input: string): boolean {
-  if (!input) {
-    return false
-  }
-  if (input.includes('\n') || input.includes('\r')) {
-    return true
-  }
-  if (input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES) {
-    return true
-  }
-  return /[\x00-\x1f\x7f]/.test(input) || input.includes('\x1b')
-}
-
-type ExternalChannelEventItem = {
-  id: string
-  tsMs: number
-  kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'outbound' | 'error'
-  primary: string
-  channel?: string
-  status?: 'received' | 'sent' | 'failed'
-  secondary?: string
-  detail?: string
-  mergeKey?: string
-  traceId?: string
-  accountId?: string
-  peerKind?: 'direct' | 'group'
-  peerId?: string
-  senderId?: string
-  targetAgentId?: string
-  endpointKey?: string
-  conversationKey?: string
-}
-
-type ExternalTraceContext = {
-  channel: string
-  accountId: string
-  peerKind: 'direct' | 'group'
-  peerId: string
-  senderId: string
-  endpointKey: string
-  targetAgentId?: string
-}
-
-type TelegramInboundDebugToast = {
-  nonce: number
-  receivedAtMs: number
-  accountId: string
-  senderId: string
-  senderName?: string | null
-  peerId: string
-  messageId: string
-  text: string
-}
-
-const NAV_ITEM_ID_SET = new Set<NavItemId>([
-  'stations',
-  'tasks',
-  'files',
-  'git',
-  'hooks',
-  'channels',
-  'policy',
-  'settings',
-])
-
-type FileEditorCommandRequest = {
-  type: 'find' | 'replace' | 'findNext' | 'findPrevious'
-  nonce: number
-}
-
-function isNavItemId(value: string): value is NavItemId {
-  return NAV_ITEM_ID_SET.has(value as NavItemId)
-}
-
-function clampLeftPaneWidth(width: number): number {
-  return Math.max(LEFT_PANE_WIDTH_MIN, Math.min(LEFT_PANE_WIDTH_MAX, Math.round(width)))
-}
-
-function isEditableKeyboardTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-  if (target.isContentEditable) {
-    return true
-  }
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-    return true
-  }
-  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
-}
-
-function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
-}
-
-function shouldPreventDesktopBrowserShortcut(event: KeyboardEvent): boolean {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) {
-    return false
-  }
-  const key = event.key.toLowerCase()
-  return key === 'r' || key === '+' || key === '=' || key === '-' || key === '0'
-}
-
-function clampCanvasLayoutValue(value: number): number {
-  return Math.max(CANVAS_LAYOUT_MIN, Math.min(CANVAS_LAYOUT_MAX, Math.round(value)))
-}
-
-function normalizeCanvasCustomLayout(layout: Partial<WorkbenchCustomLayout> | null | undefined): WorkbenchCustomLayout {
-  return {
-    columns: clampCanvasLayoutValue(layout?.columns ?? DEFAULT_WORKBENCH_CUSTOM_LAYOUT.columns),
-    rows: clampCanvasLayoutValue(layout?.rows ?? DEFAULT_WORKBENCH_CUSTOM_LAYOUT.rows),
-  }
-}
-
-function mapLegacyLayoutPreset(
-  preset: unknown,
-): { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } | null {
-  switch (preset) {
-    case 'auto':
-      return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
-    case 'focus':
-      return { mode: 'focus', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
-    case '1*1':
-      return { mode: 'custom', customLayout: { columns: 1, rows: 1 } }
-    case '1*2':
-      return { mode: 'custom', customLayout: { columns: 1, rows: 2 } }
-    case '2*1':
-      return { mode: 'custom', customLayout: { columns: 2, rows: 1 } }
-    case '2*2':
-      return { mode: 'custom', customLayout: { columns: 2, rows: 2 } }
-    case '3*2':
-      return { mode: 'custom', customLayout: { columns: 3, rows: 2 } }
-    case '4*2':
-      return { mode: 'custom', customLayout: { columns: 4, rows: 2 } }
-    default:
-      return null
-  }
-}
-
-function loadCanvasLayoutPreference(): { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } {
-  if (typeof window === 'undefined') {
-    return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
-  }
-  try {
-    const raw = window.localStorage.getItem(SHELL_LAYOUT_STORAGE_KEY)
-    if (!raw) {
-      return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
-    }
-    const parsed = JSON.parse(raw) as {
-      canvasLayoutMode?: WorkbenchLayoutMode
-      canvasCustomLayout?: WorkbenchCustomLayout
-      canvasLayoutPreset?: string
-    }
-    if (isWorkbenchLayoutMode(parsed.canvasLayoutMode)) {
-      return {
-        mode: parsed.canvasLayoutMode,
-        customLayout: normalizeCanvasCustomLayout(parsed.canvasCustomLayout),
-      }
-    }
-    const legacy = mapLegacyLayoutPreset(parsed.canvasLayoutPreset)
-    if (legacy) {
-      return {
-        mode: legacy.mode,
-        customLayout: normalizeCanvasCustomLayout(legacy.customLayout),
-      }
-    }
-    return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
-  } catch {
-    return { mode: 'auto', customLayout: DEFAULT_WORKBENCH_CUSTOM_LAYOUT }
-  }
-}
-
-function loadLeftPaneWidthPreference(): number {
-  if (typeof window === 'undefined') {
-    return LEFT_PANE_WIDTH_DEFAULT
-  }
-  try {
-    const raw = window.localStorage.getItem(SHELL_LAYOUT_STORAGE_KEY)
-    if (!raw) {
-      return LEFT_PANE_WIDTH_DEFAULT
-    }
-    const parsed = JSON.parse(raw) as { leftPaneWidth?: number }
-    if (typeof parsed.leftPaneWidth !== 'number') {
-      return LEFT_PANE_WIDTH_DEFAULT
-    }
-    return clampLeftPaneWidth(parsed.leftPaneWidth)
-  } catch {
-    return LEFT_PANE_WIDTH_DEFAULT
-  }
-}
-
-function loadRememberedWorkspacePath(): string | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_MEMORY_STORAGE_KEY)
-    if (!raw) {
-      return null
-    }
-    const parsed = JSON.parse(raw) as { path?: string | null }
-    if (parsed && typeof parsed.path === 'string' && parsed.path.trim()) {
-      return parsed.path
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return null
-}
-
-function rememberWorkspacePath(input: { path: string; workspaceId?: string | null; name?: string | null }) {
-  if (typeof window === 'undefined') {
-    return
-  }
-  const normalized = normalizeFsPath(input.path)
-  if (!normalized) {
-    return
-  }
-  try {
-    window.localStorage.setItem(
-      WORKSPACE_MEMORY_STORAGE_KEY,
-      JSON.stringify({
-        path: normalized,
-        workspaceId: input.workspaceId ?? null,
-        name: input.name ?? null,
-        updatedAt: Date.now(),
-      }),
-    )
-  } catch {
-    // best effort only
-  }
-}
-
-function createInitialStationTerminals(
-  stations: AgentStation[],
-): Record<string, StationTerminalRuntime> {
-  return stations.reduce<Record<string, StationTerminalRuntime>>((acc, station) => {
-    acc[station.id] = {
-      sessionId: null,
-      stateRaw: 'idle',
-      unreadCount: 0,
-      shell: null,
-      cwdMode: 'workspace_root',
-      resolvedCwd: null,
-    }
-    return acc
-  }, {})
-}
-
-function getStationIdleBanner(station: AgentStation | undefined): string {
-  if (!station) {
-    return ''
-  }
-  return `$ station: ${station.name}
-$ role: ${station.role}
-$ role_dir: ${station.roleWorkdirRel}
-$ agent_dir: ${station.agentWorkdirRel}
-$ tool: ${station.tool}
-`
-}
-
-function describeError(error: unknown): string {
-  if (typeof error === 'string') {
-    const trimmed = error.trim()
-    return trimmed || 'unknown'
-  }
-  if (error instanceof Error) {
-    const trimmed = error.message.trim()
-    if (trimmed) {
-      return trimmed
-    }
-  }
-  if (error && typeof error === 'object') {
-    const record = error as Record<string, unknown>
-    for (const key of ['message', 'detail', 'error']) {
-      const value = record[key]
-      if (typeof value === 'string' && value.trim()) {
-        return value.trim()
-      }
-    }
-    try {
-      const serialized = JSON.stringify(error)
-      if (serialized && serialized !== '{}') {
-        return serialized
-      }
-    } catch {
-      // no-op: keep fallback below.
-    }
-  }
-  return 'unknown'
-}
-
-function readRecord(input: unknown): Record<string, unknown> | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return null
-  }
-  return input as Record<string, unknown>
-}
-
-function readString(input: unknown): string | null {
-  if (typeof input !== 'string') {
-    return null
-  }
-  const trimmed = input.trim()
-  return trimmed ? trimmed : null
-}
-
-function readNumber(input: unknown): number | null {
-  if (typeof input === 'number' && Number.isFinite(input)) {
-    return input
-  }
-  if (typeof input === 'string') {
-    const parsed = Number(input)
-    if (Number.isFinite(parsed)) {
-      return parsed
-    }
-  }
-  return null
-}
-
-function isMacOsPlatform(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false
-  }
-  return /mac/i.test(`${navigator.platform} ${navigator.userAgent}`)
-}
-
-function isLinuxPlatform(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false
-  }
-  return /linux/i.test(`${navigator.platform} ${navigator.userAgent}`)
-}
-
-function remapSelectedPathAfterMove(
-  selectedPath: string | null,
-  fromPath: string,
-  toPath: string,
-): string | null {
-  if (!selectedPath) {
-    return null
-  }
-  if (selectedPath === fromPath) {
-    return toPath
-  }
-  const prefix = `${fromPath}/`
-  if (selectedPath.startsWith(prefix)) {
-    return `${toPath}${selectedPath.slice(fromPath.length)}`
-  }
-  return selectedPath
-}
-
-function normalizeFsPath(path: string): string {
-  const withForwardSlash = path
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/\/\?\//, '')
-    .replace(/^\/\/\.\//, '')
-  const isUncLike = withForwardSlash.startsWith('//')
-  const collapsed = withForwardSlash.replace(/\/+/g, '/')
-  const normalized = isUncLike ? `/${collapsed}` : collapsed
-  if (!normalized) {
-    return ''
-  }
-  if (/^[A-Za-z]:\/$/.test(normalized)) {
-    return normalized
-  }
-  return normalized.replace(/\/$/, '')
-}
-
-function parseDriveStylePath(path: string): { drive: string; rest: string } | null {
-  const normalized = normalizeFsPath(path)
-  if (!normalized) {
-    return null
-  }
-  const windows = normalized.match(/^([A-Za-z]):(?:\/(.*))?$/)
-  if (windows) {
-    return {
-      drive: windows[1].toLowerCase(),
-      rest: windows[2] ?? '',
-    }
-  }
-  const wslMount = normalized.match(/^\/mnt\/([A-Za-z])(?:\/(.*))?$/i)
-  if (wslMount) {
-    return {
-      drive: wslMount[1].toLowerCase(),
-      rest: wslMount[2] ?? '',
-    }
-  }
-  return null
-}
-
-function normalizeRelativeFsPath(path: string): string {
-  return path.trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/$/, '')
-}
-
-function normalizeStationWorkdirInput(path: string): string | null {
-  const normalized = path
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/\/\?\//, '')
-    .replace(/^\/\/\.\//, '')
-    .replace(/\/+/g, '/')
-  if (!normalized) {
-    return ''
-  }
-  if (normalized === '.' || normalized === './') {
-    return '.'
-  }
-  if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
-    return null
-  }
-  const segments = normalized
-    .replace(/^\/+/, '')
-    .replace(/\/$/, '')
-    .split('/')
-    .filter((segment) => segment && segment !== '.')
-  if (segments.some((segment) => segment === '..' || segment.includes(':'))) {
-    return null
-  }
-  return segments.join('/') || '.'
-}
-
-function toRelativePathIfInside(selectedAbsPath: string, workspaceRoot: string): string | null {
-  const selected = normalizeFsPath(selectedAbsPath)
-  const root = normalizeFsPath(workspaceRoot)
-  if (!selected || !root) {
-    return null
-  }
-  const selectedDrivePath = parseDriveStylePath(selected)
-  const rootDrivePath = parseDriveStylePath(root)
-  if (
-    selectedDrivePath &&
-    rootDrivePath &&
-    selectedDrivePath.drive === rootDrivePath.drive
-  ) {
-    const selectedRest = normalizeRelativeFsPath(selectedDrivePath.rest)
-    const rootRest = normalizeRelativeFsPath(rootDrivePath.rest)
-    const selectedRestLower = selectedRest.toLowerCase()
-    const rootRestLower = rootRest.toLowerCase()
-    if (selectedRestLower === rootRestLower) {
-      return '.'
-    }
-    if (!rootRestLower) {
-      return selectedRest || '.'
-    }
-    const prefix = `${rootRestLower}/`
-    if (selectedRestLower.startsWith(prefix)) {
-      return selectedRest.slice(rootRest.length + 1)
-    }
-    return null
-  }
-  const selectedForCompare = selected.toLowerCase()
-  const rootForCompare = root.toLowerCase()
-  if (selectedForCompare === rootForCompare) {
-    return '.'
-  }
-  const prefix = `${rootForCompare}/`
-  if (!selectedForCompare.startsWith(prefix)) {
-    return null
-  }
-  return selected.slice(root.length + 1)
-}
-
-function nextStationNumber(stations: AgentStation[]): number {
-  const max = stations.reduce((acc, station) => {
-    const matched = station.id.match(/(\d+)$/)
-    if (!matched) {
-      return acc
-    }
-    const parsed = Number.parseInt(matched[1], 10)
-    return Number.isNaN(parsed) ? acc : Math.max(acc, parsed)
-  }, 0)
-  return max + 1
-}
-
-function createStationFromNumber(
-  number: number,
-  workspaceId?: string | null,
-  input?: Partial<CreateStationInput>,
-): AgentStation {
-  const suffix = String(number).padStart(2, '0')
-  const id = `agent-${suffix}`
-  const role = input?.role ?? 'product'
-  const normalizedWorkdir = normalizeStationWorkdirInput(input?.workdir ?? '')
-  const hasCustomWorkdir = typeof normalizedWorkdir === 'string' && normalizedWorkdir.length > 0
-  const workdir = hasCustomWorkdir
-    ? normalizedWorkdir
-    : buildStationWorkdirs(role, id).agentWorkdirRel
-  return {
-    id,
-    name: input?.name?.trim() ? input.name.trim() : `角色-${suffix}`,
-    role,
-    roleWorkdirRel: buildRoleWorkdirRel(role),
-    agentWorkdirRel: workdir,
-    customWorkdir: hasCustomWorkdir,
-    tool: input?.tool?.trim() ? input.tool.trim() : 'codex cli',
-    terminalSessionId: `ts_${String(number).padStart(3, '0')}`,
-    state: 'idle',
-    workspaceId: workspaceId ?? 'ws_gtoffice',
-  }
-}
-
-function createStationEditInput(station: AgentStation): UpdateStationInput {
-  return {
-    id: station.id,
-    name: station.name,
-    role: station.role,
-    tool: station.tool,
-    workdir: station.agentWorkdirRel,
-  }
-}
-
-function gitSummaryFromUpdatedPayload(payload: GitUpdatedPayload): GitStatusResponse | null {
-  if (!payload.available) {
-    return null
-  }
-  return {
-    workspaceId: payload.workspaceId,
-    branch: payload.branch,
-    ahead: payload.ahead,
-    behind: payload.behind,
-    files: payload.files,
-  }
-}
-
-function readTaskQuickDispatchOpacityFromSettings(values: Record<string, unknown>): number | null {
-  const ui = values.ui
-  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) {
-    return null
-  }
-  const taskQuickDispatch = (ui as Record<string, unknown>).taskQuickDispatch
-  if (
-    !taskQuickDispatch ||
-    typeof taskQuickDispatch !== 'object' ||
-    Array.isArray(taskQuickDispatch)
-  ) {
-    return null
-  }
-  const opacity = (taskQuickDispatch as Record<string, unknown>).opacity
-  if (typeof opacity !== 'number') {
-    return null
-  }
-  return normalizeTaskQuickDispatchOpacity(opacity)
-}
 
 export function ShellRoot() {
   const initialStations = useMemo(() => createDefaultStations(), [])
@@ -881,15 +183,12 @@ export function ShellRoot() {
   const [isChannelStudioOpen, setIsChannelStudioOpen] = useState(false)
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [editingStation, setEditingStation] = useState<UpdateStationInput | null>(null)
-  const [agentRoles, setAgentRoles] = useState<AgentRole[]>([])
-  const [stationSavePending, setStationSavePending] = useState(false)
   const [stationDeletePendingId, setStationDeletePendingId] = useState<string | null>(null)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
   const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
   const [canvasLayoutMode, setCanvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
   const [canvasCustomLayout, setCanvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
-  const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
   const [activeStationId, setActiveStationId] = useState(initialStations[0]?.id ?? '')
   const [workbenchContainers, setWorkbenchContainers] = useState<WorkbenchContainerModel[]>(() =>
@@ -903,9 +202,6 @@ export function ShellRoot() {
   const [taskRetryingTaskId, setTaskRetryingTaskId] = useState<string | null>(null)
   const [taskDraftSavedAtMs, setTaskDraftSavedAtMs] = useState<number | null>(null)
   const [taskNotice, setTaskNotice] = useState<TaskCenterNotice | null>(null)
-  const [taskMentionCandidates, setTaskMentionCandidates] = useState<FsSearchFileMatch[]>([])
-  const [taskMentionLoading, setTaskMentionLoading] = useState(false)
-  const [taskMentionError, setTaskMentionError] = useState<string | null>(null)
   const [externalChannelStatus, setExternalChannelStatus] = useState<{
     loading: boolean
     running: boolean
@@ -943,32 +239,14 @@ export function ShellRoot() {
   )
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
-  const [workspacePathInput, setWorkspacePathInput] = useState(
-    () => loadRememberedWorkspacePath() ?? '',
-  )
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
-  const [activeWorkspaceName, setActiveWorkspaceName] = useState<string | null>(null)
-  const [activeWorkspaceRoot, setActiveWorkspaceRoot] = useState<string | null>(null)
-  const [connectionState, setConnectionState] = useState<{
-    code:
-      | 'checking'
-      | 'web-preview'
-      | 'tauri-connected'
-      | 'workspace-read-failed'
-      | 'git-read-failed'
-      | 'input-required'
-      | 'not-tauri'
-      | 'open-failed'
-      | 'bound'
-    detail?: string
-  }>(() => (desktopApi.isTauriRuntime() ? { code: 'checking' } : { code: 'web-preview' }))
-  const [gitSummary, setGitSummary] = useState<GitStatusResponse | null>(null)
   const [stationTerminals, setStationTerminals] = useState<Record<string, StationTerminalRuntime>>(
     () => createInitialStationTerminals(initialStations),
   )
   const stationTerminalsRef = useRef(stationTerminals)
-  const stationsRef = useRef(stations)
+  const stationsRef = useRef(initialStations)
   const workbenchContainersRef = useRef(workbenchContainers)
+  const canvasLayoutModeRef = useRef(canvasLayoutMode)
+  const canvasCustomLayoutRef = useRef(canvasCustomLayout)
   const detachedProjectionSeqRef = useRef<Record<string, number>>({})
   const detachedProjectionDispatchQueueRef = useRef<Record<string, Promise<void>>>({})
   const sessionStationRef = useRef<Record<string, string>>({})
@@ -995,29 +273,7 @@ export function ShellRoot() {
   const shellMainPaneRef = useRef<HTMLDivElement | null>(null)
   const windowResizeSyncTimerRef = useRef<number | null>(null)
   const localeRef = useRef(uiPreferences.locale)
-  const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([])
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
-  const [filePreviewNotice, setFilePreviewNotice] = useState<string | null>(null)
-  const [fileCanRenderText, setFileCanRenderText] = useState(false)
-  const [fileReadMode, setFileReadMode] = useState<FileReadMode>('full')
-  const [fileReadLoading, setFileReadLoading] = useState(false)
-  const [fileReadError, setFileReadError] = useState<string | null>(null)
-  const [fileSearchRequest, setFileSearchRequest] = useState<{
-    mode: 'file' | 'content'
-    nonce: number
-  } | null>(null)
-  const [fileEditorCommandRequest, setFileEditorCommandRequest] = useState<FileEditorCommandRequest | null>(null)
-  const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode) => Promise<void>>(
-    async () => {},
-  )
-  const openedFilesRef = useRef<OpenedFile[]>([])
-  const activeFilePathRef = useRef<string | null>(null)
-  const fileReadModeRef = useRef<FileReadMode>('full')
-  const fileReadSeqRef = useRef(0)
   const activeWorkspaceIdRef = useRef<string | null>(null)
-  const gitRefreshTimerRef = useRef<number | null>(null)
-  const workspaceOpenInFlightRef = useRef(false)
-  const workspaceAutoOpenTimerRef = useRef<number | null>(null)
   const workspaceSessionPersistTimerRef = useRef<number | null>(null)
   const workspaceSessionHydratingRef = useRef(false)
   const workspaceSessionRestoreSeqRef = useRef(0)
@@ -1028,9 +284,6 @@ export function ShellRoot() {
   const stationUnreadFlushTimerRef = useRef<number | null>(null)
   const stationTaskSignalTimerRef = useRef<Record<string, number | null>>({})
   const stationTaskSignalNonceRef = useRef<Record<string, number>>({})
-  const taskMentionSearchSeqRef = useRef(0)
-  const taskMentionSearchTimerRef = useRef<number | null>(null)
-  const taskMentionLastQueryRef = useRef('')
   const externalChannelEventSeqRef = useRef(0)
   const externalTraceContextRef = useRef<Record<string, ExternalTraceContext>>({})
   const telegramDebugToastTimerRef = useRef<number | null>(null)
@@ -1040,7 +293,6 @@ export function ShellRoot() {
   const tabSessionSnapshotRef = useRef<Array<{ path: string; active: boolean }>>([])
   const terminalSessionSnapshotRef = useRef<WorkspaceSessionTerminalSnapshot[]>([])
   const workbenchContainerSnapshotRef = useRef<WorkbenchContainerSnapshot[]>([])
-  const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
 
   useEffect(() => {
     window.__GTO_OPEN_CHANNEL_STUDIO__ = () => {
@@ -1053,6 +305,76 @@ export function ShellRoot() {
   }, [])
 
   const locale = uiPreferences.locale
+  const {
+    workspacePathInput,
+    setWorkspacePathInput,
+    activeWorkspaceId,
+    activeWorkspaceRoot,
+    setActiveWorkspaceRoot,
+    connectionState,
+    gitSummary,
+    refreshGit,
+    openWorkspaceAtPath,
+  } = useShellWorkspaceController()
+  const {
+    stations,
+    setStations,
+    agentRoles,
+    stationSavePending,
+    loadStationsFromDatabase,
+    addStation,
+    updateStation,
+  } = useShellStationController({
+    initialStations,
+    activeWorkspaceId,
+    localeRef,
+    stationCounterRef,
+    stationTerminalOutputCacheRef,
+    setStationTerminals,
+    setActiveStationId,
+    setIsStationManageOpen,
+    setEditingStation,
+  })
+  const {
+    openedFiles,
+    setOpenedFiles,
+    activeFilePath,
+    setActiveFilePath,
+    filePreviewNotice,
+    fileCanRenderText,
+    fileReadLoading,
+    fileReadError,
+    fileSearchRequest,
+    fileEditorCommandRequest,
+    tabSessionSnapshotEntries,
+    tabSessionSnapshotSignature,
+    loadFileContent,
+    loadFileContentRef,
+    saveFileContent,
+    createFileInWorkspace,
+    closeFile,
+    selectFile,
+    handleFileModified,
+    deletePathInWorkspace,
+    movePathInWorkspace,
+    requestFileSearch,
+    consumeFileSearchRequest,
+    requestFileEditorCommand,
+    resetFileState,
+  } = useShellFileController({
+    activeWorkspaceId,
+    locale,
+  })
+  const {
+    taskMentionCandidates,
+    taskMentionLoading,
+    taskMentionError,
+    clearTaskMentionSearch,
+    searchTaskMentionFiles,
+  } = useShellTaskMentionController({
+    activeWorkspaceId,
+    localeRef,
+  })
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
   const stationNameMap = useMemo(
@@ -1080,6 +402,14 @@ export function ShellRoot() {
   }, [workbenchContainers])
 
   useEffect(() => {
+    canvasLayoutModeRef.current = canvasLayoutMode
+  }, [canvasLayoutMode])
+
+  useEffect(() => {
+    canvasCustomLayoutRef.current = canvasCustomLayout
+  }, [canvasCustomLayout])
+
+  useEffect(() => {
     if (!pendingScrollStationId) {
       return
     }
@@ -1096,24 +426,9 @@ export function ShellRoot() {
   useEffect(() => {
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId])
-  useEffect(() => {
-    openedFilesRef.current = openedFiles
-  }, [openedFiles])
-  useEffect(() => {
-    activeFilePathRef.current = activeFilePath
-  }, [activeFilePath])
-  useEffect(() => {
-    fileReadModeRef.current = fileReadMode
-  }, [fileReadMode])
 
   useEffect(() => {
     return () => {
-      const gitTimerId = gitRefreshTimerRef.current
-      if (typeof gitTimerId === 'number') {
-        window.clearTimeout(gitTimerId)
-      }
-      gitRefreshTimerRef.current = null
-
       const persistTimerId = workspaceSessionPersistTimerRef.current
       if (typeof persistTimerId === 'number') {
         window.clearTimeout(persistTimerId)
@@ -1131,14 +446,6 @@ export function ShellRoot() {
       }
       stationUnreadFlushTimerRef.current = null
       stationUnreadDeltaRef.current = {}
-
-      const mentionTimerId = taskMentionSearchTimerRef.current
-      if (typeof mentionTimerId === 'number') {
-        window.clearTimeout(mentionTimerId)
-      }
-      taskMentionSearchTimerRef.current = null
-      taskMentionSearchSeqRef.current += 1
-      taskMentionLastQueryRef.current = ''
 
       const telegramToastTimerId = telegramDebugToastTimerRef.current
       if (typeof telegramToastTimerId === 'number') {
@@ -1224,7 +531,7 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [activeWorkspaceId])
+  }, [activeWorkspaceId, setStations])
 
   const persistShortcutBindings = useCallback((bindings: typeof shortcutBindings) => {
     if (!desktopApi.isTauriRuntime()) {
@@ -2107,272 +1414,12 @@ export function ShellRoot() {
     [],
   )
 
-  const refreshGit = useMemo(
-    () => async (workspaceId: string | null) => {
-      if (!workspaceId) {
-        setGitSummary(null)
-        return
-      }
-
-      try {
-        const summary = await desktopApi.gitStatus(workspaceId)
-        setGitSummary(summary)
-      } catch (error) {
-        setGitSummary(null)
-        if (isNotGitRepositoryError(error)) {
-          return
-        }
-        setConnectionState({
-          code: 'git-read-failed',
-          detail: describeError(error),
-        })
-      }
-    },
-    [],
-  )
-
   const gitController = useGitWorkspaceController({
     locale,
     workspaceId: activeWorkspaceId,
     summary: gitSummary,
     onRefreshSummary: refreshGit,
   })
-
-  const scheduleRefreshGit = useCallback(
-    (workspaceId: string | null) => {
-      const timerId = gitRefreshTimerRef.current
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-      gitRefreshTimerRef.current = window.setTimeout(() => {
-        void refreshGit(workspaceId)
-      }, 96)
-    },
-    [refreshGit],
-  )
-
-  // Use refs to avoid circular dependency in useEffect chains
-  const activeWorkspaceNameRef = useRef(activeWorkspaceName)
-  const activeWorkspaceRootRef = useRef(activeWorkspaceRoot)
-  useEffect(() => {
-    activeWorkspaceNameRef.current = activeWorkspaceName
-  }, [activeWorkspaceName])
-  useEffect(() => {
-    activeWorkspaceRootRef.current = activeWorkspaceRoot
-  }, [activeWorkspaceRoot])
-
-  const openWorkspaceAtPath = useCallback(
-    async (path: string, reason: 'manual' | 'restore' | 'picker' | 'debounce' = 'manual') => {
-      const normalized = normalizeFsPath(path)
-      if (!normalized) {
-        setConnectionState({ code: 'input-required' })
-        return
-      }
-
-      if (!desktopApi.isTauriRuntime()) {
-        setConnectionState({ code: 'not-tauri' })
-        return
-      }
-
-      if (workspaceOpenInFlightRef.current) {
-        return
-      }
-
-      const currentRoot = activeWorkspaceRootRef.current
-      const activeRootNormalized = currentRoot ? normalizeFsPath(currentRoot) : null
-      if (activeRootNormalized && normalized === activeRootNormalized) {
-        rememberWorkspacePath({
-          path: normalized,
-          workspaceId: activeWorkspaceIdRef.current,
-          name: activeWorkspaceNameRef.current,
-        })
-        lastAutoOpenedPathRef.current = normalized
-        return
-      }
-
-      workspaceOpenInFlightRef.current = true
-      setConnectionState({ code: 'checking', detail: reason })
-
-      try {
-        const opened = await desktopApi.workspaceOpen(normalized)
-        setActiveWorkspaceId(opened.workspaceId)
-        setActiveWorkspaceName(opened.name)
-        setActiveWorkspaceRoot(opened.root)
-        setWorkspacePathInput(opened.root)
-        rememberWorkspacePath({
-          path: opened.root,
-          workspaceId: opened.workspaceId,
-          name: opened.name,
-        })
-        lastAutoOpenedPathRef.current = opened.root
-        setConnectionState({ code: 'bound', detail: opened.root })
-        void refreshGit(opened.workspaceId)
-      } catch (error) {
-        setConnectionState({
-          code: 'open-failed',
-          detail: describeError(error),
-        })
-      } finally {
-        workspaceOpenInFlightRef.current = false
-      }
-    },
-    [refreshGit],
-  )
-
-  // Bootstrap effect - runs only once on mount
-  const bootstrapRanRef = useRef(false)
-  useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
-    // Prevent double execution in React StrictMode
-    if (bootstrapRanRef.current) {
-      return
-    }
-    bootstrapRanRef.current = true
-
-    const bootstrapWorkspace = async () => {
-      setConnectionState({ code: 'tauri-connected' })
-      const response = await desktopApi.workspaceGetWindowActive()
-      if (response.workspaceId) {
-        let workspaceRoot: string | null = null
-        try {
-          const context = await desktopApi.workspaceGetContext(response.workspaceId)
-          workspaceRoot = context.root
-        } catch {
-          workspaceRoot = null
-        }
-        setActiveWorkspaceId(response.workspaceId)
-        setActiveWorkspaceName(response.workspaceId)
-        setActiveWorkspaceRoot(workspaceRoot)
-        if (workspaceRoot) {
-          setWorkspacePathInput(workspaceRoot)
-          rememberWorkspacePath({
-            path: workspaceRoot,
-            workspaceId: response.workspaceId,
-            name: response.workspaceId,
-          })
-          lastAutoOpenedPathRef.current = workspaceRoot
-          setConnectionState({ code: 'bound', detail: workspaceRoot })
-        }
-        void refreshGit(response.workspaceId)
-        return
-      }
-
-      const remembered = loadRememberedWorkspacePath()
-      if (remembered) {
-        setWorkspacePathInput(remembered)
-        await openWorkspaceAtPath(remembered, 'restore')
-        return
-      }
-      setConnectionState({ code: 'input-required' })
-    }
-
-    void bootstrapWorkspace()
-      .catch((error) => {
-        setConnectionState({
-          code: 'workspace-read-failed',
-          detail: describeError(error),
-        })
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Store openWorkspaceAtPath in a ref to avoid dependency issues
-  const openWorkspaceAtPathRef = useRef(openWorkspaceAtPath)
-  useEffect(() => {
-    openWorkspaceAtPathRef.current = openWorkspaceAtPath
-  }, [openWorkspaceAtPath])
-
-  // Auto-open workspace when path input changes (debounced)
-  useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
-    const normalized = normalizeFsPath(workspacePathInput)
-    const currentRoot = activeWorkspaceRootRef.current
-    const activeRootNormalized = currentRoot ? normalizeFsPath(currentRoot) : null
-    if (!normalized || normalized === activeRootNormalized || normalized === lastAutoOpenedPathRef.current) {
-      return
-    }
-    const timerId = window.setTimeout(() => {
-      workspaceAutoOpenTimerRef.current = null
-      lastAutoOpenedPathRef.current = normalized
-      void openWorkspaceAtPathRef.current(normalized, 'debounce')
-    }, WORKSPACE_AUTO_OPEN_DEBOUNCE_MS)
-    workspaceAutoOpenTimerRef.current = timerId
-    return () => {
-      const pending = workspaceAutoOpenTimerRef.current
-      if (typeof pending === 'number') {
-        window.clearTimeout(pending)
-      }
-      workspaceAutoOpenTimerRef.current = null
-    }
-  }, [workspacePathInput])
-
-  useEffect(() => {
-    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
-      return
-    }
-    if (activeWorkspaceRootRef.current) {
-      return
-    }
-    let cancelled = false
-    void desktopApi
-      .workspaceGetContext(activeWorkspaceId)
-      .then((context) => {
-        if (cancelled) {
-          return
-        }
-        setActiveWorkspaceRoot(context.root)
-      })
-      .catch(() => {
-        if (cancelled) {
-          return
-        }
-        setActiveWorkspaceRoot(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspaceId])
-
-  useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
-    let disposed = false
-    let cleanup: (() => void) | null = null
-    void desktopApi
-      .subscribeGitUpdated((payload) => {
-        if (disposed) {
-          return
-        }
-        const activeWorkspaceId = activeWorkspaceIdRef.current
-        if (!activeWorkspaceId || payload.workspaceId !== activeWorkspaceId) {
-          return
-        }
-        if (!payload.available) {
-          setGitSummary(null)
-          return
-        }
-        setGitSummary(gitSummaryFromUpdatedPayload(payload))
-      })
-      .then((unlisten) => {
-        cleanup = unlisten
-      })
-    return () => {
-      disposed = true
-      if (cleanup) {
-        cleanup()
-      }
-      const timerId = gitRefreshTimerRef.current
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-      gitRefreshTimerRef.current = null
-    }
-  }, [scheduleRefreshGit])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -2765,13 +1812,7 @@ export function ShellRoot() {
     Object.entries(stationTerminalSinkRef.current).forEach(([stationId, sink]) => {
       sink.reset(stationTerminalOutputCacheRef.current[stationId])
     })
-    setOpenedFiles([])
-    setActiveFilePath(null)
-    setFilePreviewNotice(null)
-    setFileCanRenderText(false)
-    setFileReadMode('full')
-    setFileReadLoading(false)
-    setFileReadError(null)
+    resetFileState()
     setTaskDispatchHistory([])
     setTaskSending(false)
     setTaskRetryingTaskId(null)
@@ -2784,8 +1825,8 @@ export function ShellRoot() {
     detachedWindowOpenInFlightRef.current = {}
     setWorkbenchContainers(
       createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId, {
-        mode: canvasLayoutMode,
-        customLayout: canvasCustomLayout,
+        mode: canvasLayoutModeRef.current,
+        customLayout: canvasCustomLayoutRef.current,
       }),
     )
     Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
@@ -2795,8 +1836,7 @@ export function ShellRoot() {
     stationTaskSignalNonceRef.current = {}
     setStationTaskSignals({})
     setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
-    fileReadSeqRef.current += 1
-  }, [activeWorkspaceId, clearStationTaskSignalTimer])
+  }, [activeWorkspaceId, clearStationTaskSignalTimer, resetFileState])
 
   useEffect(() => {
     const stationIdSet = new Set(stations.map((station) => station.id))
@@ -2922,7 +1962,7 @@ export function ShellRoot() {
           : { ...station, workspaceId: activeWorkspaceId },
       ),
     )
-  }, [activeWorkspaceId])
+  }, [activeWorkspaceId, setStations])
 
   useEffect(() => {
     if (!activeStationId) {
@@ -3050,7 +2090,7 @@ export function ShellRoot() {
       setWorkspacePathInput(normalized)
       await openWorkspaceAtPath(normalized, 'picker')
     },
-    [activeWorkspaceRoot, openWorkspaceAtPath, workspacePathInput],
+    [activeWorkspaceRoot, openWorkspaceAtPath, setWorkspacePathInput, workspacePathInput],
   )
 
   const handlePickStationWorkdir = useMemo(
@@ -3090,7 +2130,7 @@ export function ShellRoot() {
       }
       return relative
     },
-    [activeWorkspaceId, activeWorkspaceRoot, locale, workspacePathInput],
+    [activeWorkspaceId, activeWorkspaceRoot, locale, setActiveWorkspaceRoot, workspacePathInput],
   )
 
   const connectionLabel = useMemo(() => {
@@ -3139,7 +2179,7 @@ export function ShellRoot() {
         return null
       }
     },
-    [activeWorkspaceRoot],
+    [activeWorkspaceRoot, setActiveWorkspaceRoot],
   )
 
   const ensureStationTerminalSession = useMemo(
@@ -3770,226 +2810,6 @@ export function ShellRoot() {
     taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
   })
 
-  const clearTaskMentionSearch = useCallback(() => {
-    if (typeof taskMentionSearchTimerRef.current === 'number') {
-      window.clearTimeout(taskMentionSearchTimerRef.current)
-    }
-      taskMentionSearchTimerRef.current = null
-      taskMentionSearchSeqRef.current += 1
-      taskMentionLastQueryRef.current = ''
-      setTaskMentionCandidates([])
-      setTaskMentionLoading(false)
-      setTaskMentionError(null)
-  }, [])
-
-  const searchTaskMentionFiles = useCallback(
-    (rawQuery: string) => {
-      const query = rawQuery.trim()
-      if (!query || !activeWorkspaceId || !desktopApi.isTauriRuntime()) {
-        clearTaskMentionSearch()
-        return
-      }
-      if (query === taskMentionLastQueryRef.current) {
-        return
-      }
-      taskMentionLastQueryRef.current = query
-
-      if (typeof taskMentionSearchTimerRef.current === 'number') {
-        window.clearTimeout(taskMentionSearchTimerRef.current)
-      }
-      const requestSeq = taskMentionSearchSeqRef.current + 1
-      taskMentionSearchSeqRef.current = requestSeq
-      setTaskMentionLoading(true)
-      setTaskMentionError(null)
-
-      taskMentionSearchTimerRef.current = window.setTimeout(() => {
-        void desktopApi
-          .fsSearchFiles(activeWorkspaceId, query, 80)
-          .then((response) => {
-            if (taskMentionSearchSeqRef.current !== requestSeq) {
-              return
-            }
-            setTaskMentionCandidates(response.matches.slice(0, 10))
-            setTaskMentionError(null)
-          })
-          .catch((error) => {
-            if (taskMentionSearchSeqRef.current !== requestSeq) {
-              return
-            }
-            setTaskMentionCandidates([])
-            setTaskMentionError(
-              t(localeRef.current, 'taskCenter.mentionSearchFailed', {
-                detail: describeError(error),
-              }),
-            )
-          })
-          .finally(() => {
-            if (taskMentionSearchSeqRef.current !== requestSeq) {
-              return
-            }
-            setTaskMentionLoading(false)
-          })
-      }, 64)
-    },
-    [activeWorkspaceId, clearTaskMentionSearch],
-  )
-
-  useEffect(() => {
-    clearTaskMentionSearch()
-  }, [activeWorkspaceId, clearTaskMentionSearch])
-
-  const loadStationsFromDatabase = useCallback(
-    async (workspaceId: string) => {
-      const [roleResponse, agentResponse] = await Promise.all([
-        desktopApi.agentRoleList(workspaceId),
-        desktopApi.agentList(workspaceId),
-      ])
-      const activeRoles = roleResponse.roles.filter((role) => role.status !== 'disabled')
-      const roleMap = new Map(activeRoles.map((role) => [role.id, role]))
-      setAgentRoles(activeRoles)
-      setStations(
-        agentResponse.agents
-          .map((agent) => mapAgentProfileToStation(agent, roleMap))
-          .filter((station): station is AgentStation => station !== null),
-      )
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
-      setAgentRoles([])
-      return
-    }
-    if (!activeWorkspaceId) {
-      setAgentRoles([])
-      setStations([])
-      return
-    }
-    void loadStationsFromDatabase(activeWorkspaceId).catch((error) => {
-      console.error('failed to load agents', error)
-    })
-  }, [activeWorkspaceId, loadStationsFromDatabase])
-
-  const addStation = useMemo(
-    () => async (input: CreateStationInput) => {
-      if (normalizeStationWorkdirInput(input.workdir) === null) {
-        window.alert(
-          localeRef.current === 'zh-CN'
-            ? '工作目录必须是工作区内的相对路径，不支持绝对路径或 .. 越界。'
-            : 'Work directory must be a workspace-relative path without absolute path or "..".',
-        )
-        return
-      }
-      if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
-        const matchedRole = agentRoles.find((role) => role.roleKey === input.role)
-        if (!matchedRole) {
-          window.alert(
-            localeRef.current === 'zh-CN'
-              ? '未找到可用角色定义，请先检查数据库角色配置。'
-              : 'No matching role definition was found in the database.',
-          )
-          return
-        }
-        setStationSavePending(true)
-        try {
-          await desktopApi.agentCreate({
-            workspaceId: activeWorkspaceId,
-            name: input.name,
-            roleId: matchedRole.id,
-            tool: input.tool,
-            workdir: input.workdir,
-            customWorkdir: true,
-            state: 'ready',
-          })
-          await loadStationsFromDatabase(activeWorkspaceId)
-          setIsStationManageOpen(false)
-        } finally {
-          setStationSavePending(false)
-        }
-        return
-      }
-      const number = stationCounterRef.current
-      stationCounterRef.current += 1
-      const station = createStationFromNumber(number, activeWorkspaceId, input)
-      setStations((prev) => [...prev, station])
-      setStationTerminals((prev) => ({
-        ...prev,
-        [station.id]: {
-          sessionId: null,
-          stateRaw: 'idle',
-          unreadCount: 0,
-          shell: null,
-          cwdMode: 'workspace_root',
-          resolvedCwd: null,
-        },
-      }))
-      stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
-      setActiveStationId(station.id)
-    },
-    [activeWorkspaceId, agentRoles, loadStationsFromDatabase],
-  )
-
-  const updateStation = useMemo(
-    () => async (stationId: string, input: CreateStationInput) => {
-      if (normalizeStationWorkdirInput(input.workdir) === null) {
-        window.alert(
-          localeRef.current === 'zh-CN'
-            ? '工作目录必须是工作区内的相对路径，不支持绝对路径或 .. 越界。'
-            : 'Work directory must be a workspace-relative path without absolute path or "..".',
-        )
-        return
-      }
-      if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
-        const matchedRole = agentRoles.find((role) => role.roleKey === input.role)
-        if (!matchedRole) {
-          window.alert(
-            localeRef.current === 'zh-CN'
-              ? '未找到可用角色定义，请先检查数据库角色配置。'
-              : 'No matching role definition was found in the database.',
-          )
-          return
-        }
-        setStationSavePending(true)
-        try {
-          await desktopApi.agentUpdate({
-            workspaceId: activeWorkspaceId,
-            agentId: stationId,
-            name: input.name,
-            roleId: matchedRole.id,
-            tool: input.tool,
-            workdir: input.workdir,
-            customWorkdir: true,
-            state: 'ready',
-          })
-          await loadStationsFromDatabase(activeWorkspaceId)
-          setIsStationManageOpen(false)
-          setEditingStation(null)
-        } finally {
-          setStationSavePending(false)
-        }
-        return
-      }
-      setStations((prev) =>
-        prev.map((s) => {
-          if (s.id !== stationId) return s
-          return {
-            ...s,
-            name: input.name,
-            role: input.role,
-            tool: input.tool,
-            agentWorkdirRel: input.workdir,
-            roleWorkdirRel: buildRoleWorkdirRel(input.role),
-            customWorkdir: true,
-          }
-        }),
-      )
-      setIsStationManageOpen(false)
-      setEditingStation(null)
-    },
-    [activeWorkspaceId, agentRoles, loadStationsFromDatabase],
-  )
-
   const removeStation = useMemo(
     () => async (stationId: string) => {
       const runtime = stationTerminalsRef.current[stationId]
@@ -4105,358 +2925,51 @@ export function ShellRoot() {
       clearStationTaskSignalTimer,
       loadStationsFromDatabase,
       locale,
+      setStations,
       setStationTerminalState,
     ],
   )
 
-  const createNextWorkbenchContainerId = useCallback(() => {
-    const existingIds = new Set(workbenchContainersRef.current.map((container) => container.id))
-    let seed = workbenchContainerCounterRef.current
-    let nextId = buildFloatingContainerId(seed)
-    while (existingIds.has(nextId)) {
-      seed += 1
-      nextId = buildFloatingContainerId(seed)
-    }
-    workbenchContainerCounterRef.current = seed + 1
-    return nextId
-  }, [])
+  const {
+    workbenchContainerSnapshotEntries,
+    workbenchContainerSnapshotSignature,
+    handleCanvasSelectStation,
+    createWorkbenchContainer,
+    deleteWorkbenchContainer,
+    floatWorkbenchContainer,
+    dockWorkbenchContainer,
+    toggleWorkbenchContainerTopmost,
+    detachWorkbenchContainer,
+    reclaimDetachedContainer,
+    moveStationToWorkbenchContainer,
+    moveFloatingWorkbenchContainer,
+    resizeFloatingWorkbenchContainer,
+    focusFloatingWorkbenchContainer,
+    handleCanvasLaunchStationTerminal,
+    handleCanvasLaunchCliAgent,
+    handleCanvasLayoutModeChange,
+    handleCanvasCustomLayoutChange,
+    handleCanvasRemoveStation,
+  } = useShellWorkbenchController({
+    workbenchContainers,
+    setWorkbenchContainers,
+    workbenchContainersRef,
+    workbenchContainerCounterRef,
+    detachedWindowOpenInFlightRef,
+    tauriRuntime,
+    canvasLayoutMode,
+    setCanvasLayoutMode,
+    canvasCustomLayout,
+    setCanvasCustomLayout,
+    setActiveStationId,
+    launchStationTerminal,
+    launchStationCliAgent,
+    removeStation,
+  })
 
   const terminalSessionCount = useMemo(
     () => Object.values(stationTerminals).filter((runtime) => runtime.sessionId).length,
     [stationTerminals],
-  )
-
-  const handleCanvasSelectStation = useCallback((containerId: string, stationId: string) => {
-    setActiveStationId(stationId)
-    setWorkbenchContainers((prev) =>
-      prev.map((container) =>
-        container.id === containerId
-          ? {
-              ...container,
-              activeStationId: stationId,
-              lastActiveAtMs: Date.now(),
-            }
-          : container,
-      ),
-    )
-  }, [])
-
-  const createWorkbenchContainer = useCallback(() => {
-    const nextId = createNextWorkbenchContainerId()
-    setWorkbenchContainers((prev) => [
-      ...prev,
-      {
-        id: nextId,
-        stationIds: [],
-        activeStationId: null,
-        layoutMode: canvasLayoutMode,
-        customLayout: canvasCustomLayout,
-        mode: 'docked',
-        resumeMode: 'docked',
-        topmost: false,
-        frame: null,
-        detachedWindowLabel: null,
-        lastActiveAtMs: Date.now(),
-      } satisfies WorkbenchContainerModel,
-    ])
-  }, [canvasCustomLayout, canvasLayoutMode, createNextWorkbenchContainerId])
-
-  const deleteWorkbenchContainer = useCallback(
-    (containerId: string) => {
-      const currentContainer =
-        workbenchContainersRef.current.find((container) => container.id === containerId) ?? null
-      if (!currentContainer || currentContainer.stationIds.length > 0) {
-        return
-      }
-      delete detachedWindowOpenInFlightRef.current[containerId]
-      if (tauriRuntime && currentContainer.detachedWindowLabel) {
-        void desktopApi.surfaceCloseWindow(currentContainer.detachedWindowLabel).catch(() => {
-          // The state is already removed locally; closing the native window is best-effort.
-        })
-      }
-      setWorkbenchContainers((prev) => prev.filter((container) => container.id !== containerId))
-    },
-    [tauriRuntime],
-  )
-
-  const floatWorkbenchContainer = useCallback((containerId: string) => {
-    setWorkbenchContainers((prev) => {
-      const floatingIndex = prev.filter((container) => container.mode === 'floating').length
-      let changed = false
-      const next = prev.map((container) => {
-        if (container.id !== containerId) {
-          return container
-        }
-        changed = true
-        return {
-          ...container,
-          mode: 'floating',
-          resumeMode: 'floating',
-          topmost: true,
-          frame:
-            normalizeWorkbenchContainerFrame(container.frame) ??
-            createDefaultFloatingFrame(floatingIndex),
-          detachedWindowLabel: null,
-          lastActiveAtMs: Date.now(),
-        } satisfies WorkbenchContainerModel
-      })
-      return changed ? next : prev
-    })
-  }, [])
-
-  const dockWorkbenchContainer = useCallback((containerId: string) => {
-    setWorkbenchContainers((prev) => {
-      let changed = false
-      const next = prev.map((container) => {
-        if (container.id !== containerId) {
-          return container
-        }
-        changed = true
-        return {
-          ...container,
-          mode: 'docked',
-          resumeMode: 'docked',
-          topmost: false,
-          frame: null,
-          detachedWindowLabel: null,
-          lastActiveAtMs: Date.now(),
-        } satisfies WorkbenchContainerModel
-      })
-      return changed ? next : prev
-    })
-  }, [])
-
-  const toggleWorkbenchContainerTopmost = useCallback(
-    (containerId: string) => {
-      const currentContainer =
-        workbenchContainersRef.current.find((container) => container.id === containerId) ?? null
-      if (!currentContainer || (currentContainer.mode !== 'floating' && currentContainer.mode !== 'detached')) {
-        return
-      }
-      const nextTopmost = !currentContainer.topmost
-      setWorkbenchContainers((prev) =>
-        prev.map((container) =>
-          container.id === containerId
-            ? {
-                ...container,
-                topmost: nextTopmost,
-                lastActiveAtMs: Date.now(),
-              }
-            : container,
-        ),
-      )
-      if (
-        tauriRuntime &&
-        currentContainer.mode === 'detached' &&
-        currentContainer.detachedWindowLabel
-      ) {
-        void desktopApi
-          .surfaceSetWindowTopmost(currentContainer.detachedWindowLabel, nextTopmost)
-          .then((response) => {
-            setWorkbenchContainers((prev) =>
-              prev.map((container) =>
-                container.id === containerId
-                  ? {
-                      ...container,
-                      topmost: response.topmost,
-                    }
-                  : container,
-              ),
-            )
-          })
-          .catch(() => {
-            setWorkbenchContainers((prev) =>
-              prev.map((container) =>
-                container.id === containerId
-                  ? {
-                      ...container,
-                      topmost: currentContainer.topmost,
-                    }
-                  : container,
-              ),
-            )
-          })
-      }
-    },
-    [tauriRuntime],
-  )
-
-  const detachWorkbenchContainer = useCallback(
-    (containerId: string) => {
-      if (!tauriRuntime) {
-        return
-      }
-      setWorkbenchContainers((prev) => {
-        const floatingIndex = prev.filter((container) => container.mode === 'floating').length
-        let changed = false
-        const next = prev.map((container) => {
-          if (container.id !== containerId) {
-            return container
-          }
-          changed = true
-          return {
-            ...container,
-            mode: 'detached',
-            resumeMode:
-              container.mode === 'floating'
-                ? 'floating'
-                : container.resumeMode === 'floating'
-                  ? 'floating'
-                  : 'docked',
-            frame:
-              normalizeWorkbenchContainerFrame(container.frame) ??
-              createDefaultFloatingFrame(floatingIndex),
-            detachedWindowLabel: null,
-            lastActiveAtMs: Date.now(),
-          } satisfies WorkbenchContainerModel
-        })
-        return changed ? next : prev
-      })
-    },
-    [tauriRuntime],
-  )
-
-  const reclaimDetachedContainer = useCallback(
-    (containerId: string) => {
-      const currentContainer =
-        workbenchContainersRef.current.find((container) => container.id === containerId) ?? null
-      if (!currentContainer) {
-        return
-      }
-      if (tauriRuntime && currentContainer.detachedWindowLabel) {
-        void desktopApi.surfaceCloseWindow(currentContainer.detachedWindowLabel).catch(() => {
-          // Window-close event will retry container recovery when possible.
-        })
-      }
-      if (currentContainer.activeStationId) {
-        setActiveStationId(currentContainer.activeStationId)
-      }
-      setWorkbenchContainers((prev) => {
-        const floatingIndex = prev.filter((container) => container.mode === 'floating').length
-        let changed = false
-        const next = prev.map((container) => {
-          if (container.id !== containerId) {
-            return container
-          }
-          changed = true
-          const restoreMode = container.resumeMode === 'floating' ? 'floating' : 'docked'
-          return {
-            ...container,
-            mode: restoreMode,
-            topmost: restoreMode === 'floating' ? true : false,
-            frame:
-              restoreMode === 'floating'
-                ? normalizeWorkbenchContainerFrame(container.frame) ??
-                  createDefaultFloatingFrame(floatingIndex)
-                : null,
-            detachedWindowLabel: null,
-            lastActiveAtMs: Date.now(),
-          } satisfies WorkbenchContainerModel
-        })
-        return changed ? next : prev
-      })
-    },
-    [tauriRuntime],
-  )
-
-  const moveStationToWorkbenchContainer = useCallback(
-    (stationId: string, targetContainerId: string) => {
-      setActiveStationId(stationId)
-      setWorkbenchContainers((prev) => {
-        const sourceIndex = prev.findIndex((container) => container.stationIds.includes(stationId))
-        const targetIndex = prev.findIndex((container) => container.id === targetContainerId)
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
-          return prev
-        }
-        const source = prev[sourceIndex]
-        const target = prev[targetIndex]
-        if (target.stationIds.includes(stationId)) {
-          return prev
-        }
-        const now = Date.now()
-        const next = [...prev]
-        const remainingStationIds = source.stationIds.filter((id) => id !== stationId)
-        next[sourceIndex] = {
-          ...source,
-          stationIds: remainingStationIds,
-          activeStationId:
-            source.activeStationId === stationId ? remainingStationIds[0] ?? null : source.activeStationId,
-        }
-        next[targetIndex] = {
-          ...target,
-          stationIds: [...target.stationIds, stationId],
-          activeStationId: stationId,
-          lastActiveAtMs: now,
-        }
-        return next
-      })
-    },
-    [],
-  )
-
-  const moveFloatingWorkbenchContainer = useCallback((containerId: string, input: { x: number; y: number }) => {
-    setWorkbenchContainers((prev) =>
-      prev.map((container) => {
-        if (container.id !== containerId || container.mode !== 'floating') {
-          return container
-        }
-        return {
-          ...container,
-          frame:
-            normalizeWorkbenchContainerFrame({
-              ...(container.frame ?? createDefaultFloatingFrame(0)),
-              x: input.x,
-              y: input.y,
-            }) ?? createDefaultFloatingFrame(0),
-          lastActiveAtMs: Date.now(),
-        }
-      }),
-    )
-  }, [])
-
-  const resizeFloatingWorkbenchContainer = useCallback(
-    (containerId: string, frame: { x: number; y: number; width: number; height: number }) => {
-      setWorkbenchContainers((prev) =>
-        prev.map((container) => {
-          if (container.id !== containerId || container.mode !== 'floating') {
-            return container
-          }
-          return {
-            ...container,
-            frame: normalizeWorkbenchContainerFrame(frame) ?? createDefaultFloatingFrame(0),
-            lastActiveAtMs: Date.now(),
-          }
-        }),
-      )
-    },
-    [],
-  )
-
-  const focusFloatingWorkbenchContainer = useCallback((containerId: string) => {
-    setWorkbenchContainers((prev) =>
-      prev.map((container) =>
-        container.id === containerId && container.mode === 'floating'
-          ? {
-              ...container,
-              lastActiveAtMs: Date.now(),
-            }
-          : container,
-      ),
-    )
-  }, [])
-
-  const handleCanvasLaunchStationTerminal = useCallback(
-    (stationId: string) => {
-      void launchStationTerminal(stationId)
-    },
-    [launchStationTerminal],
-  )
-
-  const handleCanvasLaunchCliAgent = useCallback(
-    (stationId: string) => {
-      void launchStationCliAgent(stationId)
-    },
-    [launchStationCliAgent],
   )
 
   const handleCanvasOpenStationManage = useCallback(() => {
@@ -4468,166 +2981,9 @@ export function ShellRoot() {
     setIsStationSearchOpen(true)
   }, [])
 
-  const handleCanvasLayoutModeChange = useCallback((containerId: string, mode: WorkbenchLayoutMode) => {
-    setCanvasLayoutMode(mode)
-    setWorkbenchContainers((prev) =>
-      prev.map((container) =>
-        container.id === containerId
-          ? {
-              ...container,
-              layoutMode: mode,
-            }
-          : container,
-      ),
-    )
-  }, [])
-
-  const handleCanvasCustomLayoutChange = useCallback((containerId: string, layout: WorkbenchCustomLayout) => {
-    const normalized = normalizeCanvasCustomLayout(layout)
-    setCanvasLayoutMode('custom')
-    setCanvasCustomLayout(normalized)
-    setWorkbenchContainers((prev) =>
-      prev.map((container) =>
-        container.id === containerId
-          ? {
-              ...container,
-              layoutMode: 'custom',
-              customLayout: normalized,
-            }
-          : container,
-      ),
-    )
-  }, [])
-
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
     setPendingScrollStationId((prev) => (prev === stationId ? null : prev))
   }, [])
-
-  const handleCanvasRemoveStation = useCallback(
-    (stationId: string) => {
-      void removeStation(stationId)
-    },
-    [removeStation],
-  )
-  const loadFileContent = useMemo(
-    () => async (filePath: string, mode: FileReadMode = 'full') => {
-      if (!activeWorkspaceId) {
-        setFileReadError(t(locale, 'fileContent.bindWorkspace'))
-        return
-      }
-
-      const existingFile = openedFilesRef.current.find((file) => file.path === filePath)
-      if (existingFile?.hydrated) {
-        setActiveFilePath(filePath)
-        setFileCanRenderText(true)
-        setFilePreviewNotice(null)
-        setFileReadError(null)
-        return
-      }
-
-      setActiveFilePath(filePath)
-      setFileReadLoading(true)
-      setFileReadError(null)
-      setFilePreviewNotice(null)
-      const currentSeq = fileReadSeqRef.current + 1
-      fileReadSeqRef.current = currentSeq
-
-      try {
-        const response =
-          mode === 'full'
-            ? await desktopApi.fsReadFileFull(activeWorkspaceId, filePath)
-            : await desktopApi.fsReadFile(activeWorkspaceId, filePath)
-        if (fileReadSeqRef.current !== currentSeq) {
-          return
-        }
-
-        setFileReadMode(mode)
-        if (!response.previewable) {
-          setFileCanRenderText(false)
-          setFilePreviewNotice(
-            t(locale, 'file.previewBinary', {
-              size: response.sizeBytes,
-            }),
-          )
-          return
-        }
-
-        setFileCanRenderText(true)
-        setOpenedFiles((prev) => {
-          const exists = prev.some((file) => file.path === filePath)
-          if (exists) {
-            return prev.map((file) =>
-              file.path === filePath
-                ? {
-                    ...file,
-                    content: response.content,
-                    size: response.sizeBytes,
-                    hydrated: true,
-                  }
-                : file,
-            )
-          }
-          return [
-            ...prev,
-            {
-              path: filePath,
-              content: response.content,
-              size: response.sizeBytes,
-              isModified: false,
-              hydrated: true,
-            },
-          ]
-        })
-        if (response.truncated) {
-          setFilePreviewNotice(
-            t(locale, mode === 'full' ? 'file.previewStillTruncated' : 'file.previewTruncated', {
-              preview: response.previewBytes,
-              size: response.sizeBytes,
-            }),
-          )
-        } else {
-          setFilePreviewNotice(null)
-        }
-      } catch (error) {
-        if (fileReadSeqRef.current !== currentSeq) {
-          return
-        }
-        setFilePreviewNotice(null)
-        setFileCanRenderText(false)
-        setFileReadError(
-          t(locale, 'file.readError', {
-            detail: describeError(error),
-          }),
-        )
-      } finally {
-        if (fileReadSeqRef.current === currentSeq) {
-          setFileReadLoading(false)
-        }
-      }
-    },
-    [activeWorkspaceId, locale],
-  )
-
-  useEffect(() => {
-    loadFileContentRef.current = loadFileContent
-  }, [loadFileContent])
-
-  const tabSessionSnapshotEntries = useMemo(
-    () =>
-      openedFiles.map((file) => ({
-        path: file.path,
-        active: file.path === activeFilePath,
-      })),
-    [activeFilePath, openedFiles],
-  )
-
-  const tabSessionSnapshotSignature = useMemo(
-    () =>
-      tabSessionSnapshotEntries
-        .map((entry) => `${entry.path}:${entry.active ? '1' : '0'}`)
-        .join('|'),
-    [tabSessionSnapshotEntries],
-  )
 
   const terminalSessionSnapshotEntries = useMemo(
     () =>
@@ -4659,16 +3015,6 @@ export function ShellRoot() {
         )
         .join('|'),
     [terminalSessionSnapshotEntries],
-  )
-
-  const workbenchContainerSnapshotEntries = useMemo(
-    () => serializeWorkbenchContainers(workbenchContainers),
-    [workbenchContainers],
-  )
-
-  const workbenchContainerSnapshotSignature = useMemo(
-    () => JSON.stringify(workbenchContainerSnapshotEntries),
-    [workbenchContainerSnapshotEntries],
   )
 
   useEffect(() => {
@@ -4858,6 +3204,9 @@ export function ShellRoot() {
     canvasCustomLayout,
     canvasLayoutMode,
     ensureTerminalSessionVisible,
+    loadFileContentRef,
+    setActiveFilePath,
+    setOpenedFiles,
     setStationTerminalState,
     workspaceSessionFilePath,
   ])
@@ -5081,228 +3430,6 @@ export function ShellRoot() {
     })
   }, [activeWorkspaceId, stationTerminals, stations, tauriRuntime, workbenchContainers])
 
-  const saveFileContent = useCallback(
-    async (filePath: string, content: string): Promise<boolean> => {
-      if (!activeWorkspaceId) {
-        return false
-      }
-
-      try {
-        await desktopApi.fsWriteFile(activeWorkspaceId, filePath, content)
-        // 更新已打开文件的内容
-        setOpenedFiles((prev) =>
-          prev.map((f) =>
-            f.path === filePath ? { ...f, content, isModified: false, hydrated: true } : f
-          )
-        )
-        return true
-      } catch (error) {
-        setFileReadError(
-          t(locale, 'fileContent.saveFailed', {
-            detail: describeError(error),
-          }),
-        )
-        return false
-      }
-    },
-    [activeWorkspaceId, locale],
-  )
-
-  const createFileInWorkspace = useMemo(
-    () => async (filePath: string) => {
-      if (!activeWorkspaceId) {
-        setFileReadError(t(locale, 'fileContent.bindWorkspace'))
-        return false
-      }
-
-      try {
-        await desktopApi.fsWriteFile(activeWorkspaceId, filePath, '')
-        await loadFileContent(filePath, 'full')
-        return true
-      } catch (error) {
-        setFileReadError(
-          t(locale, 'file.createFailed', {
-            detail: describeError(error),
-          }),
-        )
-        return false
-      }
-    },
-    [activeWorkspaceId, loadFileContent, locale],
-  )
-
-  // 关闭文件 tab
-  const closeFile = useCallback(
-    (filePath: string) => {
-      setOpenedFiles((prev) => {
-        const newFiles = prev.filter((f) => f.path !== filePath)
-        // 如果关闭的是当前活动文件，切换到其他文件
-        if (activeFilePath === filePath) {
-          const closedIndex = prev.findIndex((f) => f.path === filePath)
-          const nextFile = newFiles[Math.min(closedIndex, newFiles.length - 1)]
-          setActiveFilePath(nextFile?.path ?? null)
-        }
-        return newFiles
-      })
-    },
-    [activeFilePath],
-  )
-
-  // 选择文件 tab
-  const selectFile = useCallback(
-    (filePath: string) => {
-      const existing = openedFilesRef.current.find((file) => file.path === filePath)
-      if (existing && !existing.hydrated) {
-        void loadFileContent(filePath, 'full')
-        return
-      }
-      setActiveFilePath(filePath)
-      setFileReadError(null)
-    },
-    [loadFileContent],
-  )
-
-  // 文件修改状态变化
-  const handleFileModified = useCallback((filePath: string, isModified: boolean) => {
-    setOpenedFiles((prev) =>
-      prev.map((f) => (f.path === filePath ? { ...f, isModified } : f))
-    )
-  }, [])
-
-  const deletePathInWorkspace = useMemo(
-    () => async (path: string) => {
-      if (!activeWorkspaceId) {
-        setFileReadError(t(locale, 'fileContent.bindWorkspace'))
-        return false
-      }
-
-      try {
-        await desktopApi.fsDelete(activeWorkspaceId, path)
-        // 关闭被删除的文件
-        setOpenedFiles((prev) => {
-          const newFiles = prev.filter((f) => f.path !== path && !f.path.startsWith(`${path}/`))
-          if (activeFilePath && (activeFilePath === path || activeFilePath.startsWith(`${path}/`))) {
-            const nextFile = newFiles[0]
-            setActiveFilePath(nextFile?.path ?? null)
-          }
-          return newFiles
-        })
-        setFilePreviewNotice(null)
-        setFileCanRenderText(openedFiles.length > 1)
-        setFileReadMode('full')
-        setFileReadError(null)
-        setFileReadLoading(false)
-        return true
-      } catch (error) {
-        setFileReadError(
-          t(locale, 'file.deleteFailed', {
-            detail: describeError(error),
-          }),
-        )
-        return false
-      }
-    },
-    [activeFilePath, activeWorkspaceId, locale, openedFiles.length],
-  )
-
-  const movePathInWorkspace = useMemo(
-    () => async (fromPath: string, toPath: string) => {
-      if (!activeWorkspaceId) {
-        setFileReadError(t(locale, 'fileContent.bindWorkspace'))
-        return false
-      }
-
-      try {
-        const response = await desktopApi.fsMove(activeWorkspaceId, fromPath, toPath)
-        if (!response.moved) {
-          return true
-        }
-        // 更新已打开文件的路径
-        const remapped = remapSelectedPathAfterMove(activeFilePath, fromPath, toPath)
-        if (remapped && remapped !== activeFilePath) {
-          setOpenedFiles((prev) =>
-            prev.map((f) => {
-              const newPath = remapSelectedPathAfterMove(f.path, fromPath, toPath)
-              return newPath && newPath !== f.path ? { ...f, path: newPath } : f
-            })
-          )
-          setActiveFilePath(remapped)
-        }
-        return true
-      } catch (error) {
-        setFileReadError(
-          t(locale, 'file.moveFailed', {
-            detail: describeError(error),
-          }),
-        )
-        return false
-      }
-    },
-    [activeFilePath, activeWorkspaceId, locale],
-  )
-
-  useEffect(() => {
-    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
-      return
-    }
-
-    let active = true
-    let cleanup: (() => void) | null = null
-    const handleFilesystemChanged = (payload: FilesystemChangedPayload) => {
-      if (!active || payload.workspaceId !== activeWorkspaceId) {
-        return
-      }
-      const changedPaths = payload.paths.map((path) => path.replace(/^\.\/+/, ''))
-      const currentOpenedFiles = openedFilesRef.current
-      if (currentOpenedFiles.length === 0) {
-        return
-      }
-
-      if (payload.kind === 'removed') {
-        // 关闭被删除的文件
-        const removedPaths = new Set(changedPaths)
-        setOpenedFiles((prev) => {
-          const newFiles = prev.filter((f) => !removedPaths.has(f.path))
-          const activeFilePath = activeFilePathRef.current
-          if (activeFilePath && removedPaths.has(activeFilePath)) {
-            const nextFile = newFiles[0]
-            setActiveFilePath(nextFile?.path ?? null)
-          }
-          return newFiles
-        })
-        return
-      }
-      if (
-        payload.kind === 'modified' ||
-        payload.kind === 'created' ||
-        payload.kind === 'renamed' ||
-        payload.kind === 'other'
-      ) {
-        // 重新加载已修改的已打开文件
-        for (const file of currentOpenedFiles) {
-          if (changedPaths.includes(file.path) && file.hydrated && !file.isModified) {
-            void loadFileContent(file.path, fileReadModeRef.current)
-          }
-        }
-      }
-    }
-
-    void desktopApi.subscribeFilesystemEvents(handleFilesystemChanged).then((unlisten) => {
-      if (!active) {
-        unlisten()
-        return
-      }
-      cleanup = unlisten
-    })
-
-    return () => {
-      active = false
-      if (cleanup) {
-        cleanup()
-      }
-    }
-  }, [activeWorkspaceId, loadFileContent])
-
   const handleSelectNav = useCallback(
     (id: NavItemId) => {
       const isSameTab = id === activeNavId
@@ -5322,18 +3449,15 @@ export function ShellRoot() {
   const triggerFileSearch = useCallback((mode: 'file' | 'content') => {
     setActiveNavId('files')
     setLeftPaneVisible(true)
-    setFileSearchRequest((prev) => ({
-      mode,
-      nonce: (prev?.nonce ?? 0) + 1,
-    }))
-  }, [])
+    requestFileSearch(mode)
+  }, [requestFileSearch])
 
-  const triggerFileEditorCommand = useCallback((type: FileEditorCommandRequest['type']) => {
-    setFileEditorCommandRequest((prev) => ({
-      type,
-      nonce: (prev?.nonce ?? 0) + 1,
-    }))
-  }, [])
+  const triggerFileEditorCommand = useCallback(
+    (type: 'find' | 'replace' | 'findNext' | 'findPrevious') => {
+      requestFileEditorCommand(type)
+    },
+    [requestFileEditorCommand],
+  )
 
   const closeTaskQuickDispatch = useCallback(() => {
     setIsTaskQuickDispatchOpen(false)
@@ -5502,452 +3626,348 @@ export function ShellRoot() {
     [leftPaneWidth],
   )
 
+  const dismissTelegramDebugToast = useCallback(() => {
+    const timerId = telegramDebugToastTimerRef.current
+    if (typeof timerId === 'number') {
+      window.clearTimeout(timerId)
+    }
+    telegramDebugToastTimerRef.current = null
+    setTelegramDebugToast(null)
+  }, [])
+
+  const handleOpenSettings = useCallback(() => {
+    setIsChannelStudioOpen(false)
+    setIsSettingsOpen(true)
+  }, [])
+
+  const handleTaskSend = useCallback(() => {
+    void dispatchTaskToAgent()
+  }, [dispatchTaskToAgent])
+
+  const handleRetryDispatchTask = useCallback(
+    (taskId: string) => {
+      void retryTaskDispatch(taskId)
+    },
+    [retryTaskDispatch],
+  )
+
+  const handleRefreshExternalChannelStatus = useCallback(() => {
+    void refreshExternalChannelStatus()
+  }, [refreshExternalChannelStatus])
+
+  const handleFileTreeSearchRequestConsumed = useCallback((nonce: number) => {
+    consumeFileSearchRequest(nonce)
+  }, [consumeFileSearchRequest])
+
+  const handleFileTreeSelectFile = useCallback(
+    (filePath: string) => {
+      void loadFileContent(filePath, 'full')
+    },
+    [loadFileContent],
+  )
+
+  const handleStationOverviewViewChange = useCallback((patch: Partial<typeof stationOverviewState>) => {
+    setStationOverviewState((prev) => ({ ...prev, ...patch }))
+  }, [])
+
+  const handleStationOverviewSelectStation = useCallback((stationId: string) => {
+    setActiveStationId(stationId)
+  }, [])
+
+  const handleStationOverviewEditStation = useCallback((station: AgentStation) => {
+    setEditingStation(createStationEditInput(station))
+    setIsStationManageOpen(true)
+  }, [])
+
+  const handleGitHistoryOpenInEditor = useCallback(
+    (filePath: string) => {
+      setActiveNavId('files')
+      void loadFileContent(filePath, 'full')
+    },
+    [loadFileContent],
+  )
+
+  const handleStationSearchSelectStation = useCallback((stationId: string) => {
+    setActiveNavId('stations')
+    setActiveStationId(stationId)
+    setPendingScrollStationId(stationId)
+  }, [])
+
   const showWorkbenchCanvas = activeNavId !== 'files' && activeNavId !== 'git'
   const hasGlobalTopmostWorkbench = useMemo(
     () => workbenchContainers.some((container) => container.mode === 'floating' && container.topmost),
     [workbenchContainers],
   )
 
+  const taskComposerBaseProps = {
+    locale,
+    stations,
+    draft: taskDraft,
+    sending: taskSending,
+    draftSavedAtMs: taskDraftSavedAtMs,
+    notice: taskNotice,
+    mentionCandidates: taskMentionCandidates,
+    mentionLoading: taskMentionLoading,
+    mentionError: taskMentionError,
+    onDraftChange: updateTaskDraft,
+    onInsertSnippet: insertTaskSnippet,
+    onSendTask: handleTaskSend,
+    onSearchMentionFiles: searchTaskMentionFiles,
+    onClearMentionSearch: clearTaskMentionSearch,
+  }
+
+  const workbenchCanvasBaseProps = {
+    locale,
+    appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`,
+    showFloatingPortal: true as const,
+    stations,
+    containers: workbenchContainers,
+    activeStationId,
+    terminalByStation: stationTerminals,
+    taskSignalByStationId: stationTaskSignals,
+    channelBotBindingsByStationId,
+    onSelectStation: handleCanvasSelectStation,
+    onLaunchStationTerminal: handleCanvasLaunchStationTerminal,
+    onLaunchCliAgent: handleCanvasLaunchCliAgent,
+    onSendInputData: handleStationTerminalInput,
+    onResizeTerminal: resizeStationTerminal,
+    onBindTerminalSink: bindStationTerminalSink,
+    onRenderedScreenSnapshot: reportRenderedScreenSnapshot,
+    onLayoutModeChange: handleCanvasLayoutModeChange,
+    onCustomLayoutChange: handleCanvasCustomLayoutChange,
+    onFloatContainer: floatWorkbenchContainer,
+    onDockContainer: dockWorkbenchContainer,
+    onDetachContainer: detachWorkbenchContainer,
+    onToggleContainerTopmost: toggleWorkbenchContainerTopmost,
+    onCreateContainer: createWorkbenchContainer,
+    onDeleteContainer: deleteWorkbenchContainer,
+    onReclaimDetachedContainer: reclaimDetachedContainer,
+    onMoveStationToContainer: moveStationToWorkbenchContainer,
+    onMoveFloatingContainer: moveFloatingWorkbenchContainer,
+    onResizeFloatingContainer: resizeFloatingWorkbenchContainer,
+    onFocusFloatingContainer: focusFloatingWorkbenchContainer,
+    onOpenStationManage: handleCanvasOpenStationManage,
+    onOpenStationSearch: handleCanvasOpenStationSearch,
+    onRemoveStation: handleCanvasRemoveStation,
+  }
+
   return (
-    <div
-      ref={shellContainerRef}
-      className={`agent-shell ${
-        nativeWindowTopWindows ? 'shell-native-window-top-windows' : ''
-      }`}
-    >
-      <div ref={shellTopRef} className="shell-top-slot">
-        <TopControlBar
-          locale={locale}
-          workspacePath={workspacePathInput}
-          connectionLabel={connectionLabel}
-          nativeWindowTop={nativeWindowTop}
-          nativeWindowTopMacOs={nativeWindowTopMacOs}
-          nativeWindowTopLinux={nativeWindowTopLinux}
-          windowMaximized={windowMaximized}
-          onPickWorkspaceDirectory={() => {
-            void handlePickWorkspaceDirectory()
-          }}
-          onOpenSettings={() => {
-            setIsChannelStudioOpen(false)
-            setIsSettingsOpen(true)
-          }}
-          onWindowMinimize={handleWindowMinimize}
-          onWindowToggleMaximize={handleWindowToggleMaximize}
-          onWindowClose={handleWindowClose}
-        />
-        {telegramDebugToast ? (
-          <section className="telegram-debug-toast" role="status" aria-live="polite">
-            <header className="telegram-debug-toast-header">
-              <strong>{t(locale, 'channel.telegram.debugToast.title')}</strong>
-              <button
-                type="button"
-                onClick={() => {
-                  const timerId = telegramDebugToastTimerRef.current
-                  if (typeof timerId === 'number') {
-                    window.clearTimeout(timerId)
-                  }
-                  telegramDebugToastTimerRef.current = null
-                  setTelegramDebugToast(null)
-                }}
-                aria-label={t(locale, 'channel.telegram.debugToast.dismiss')}
-              >
-                ×
-              </button>
-            </header>
-            <p>
-              {t(locale, 'channel.telegram.debugToast.sender', {
-                sender: telegramDebugToast.senderName || telegramDebugToast.senderId,
-              })}
-            </p>
-            <p>
-              {t(locale, 'channel.telegram.debugToast.peer', {
-                peer: telegramDebugToast.peerId,
-              })}
-            </p>
-            <p>
-              {t(locale, 'channel.telegram.debugToast.message', {
-                message: telegramDebugToast.messageId,
-              })}
-            </p>
-            <p>
-              {t(locale, 'channel.telegram.debugToast.content', {
-                content: telegramDebugToast.text || t(locale, 'channel.telegram.debugToast.empty'),
-              })}
-            </p>
-            <p>
-              {t(locale, 'channel.telegram.debugToast.account', {
-                account: telegramDebugToast.accountId,
-              })}
-            </p>
-            <p className="telegram-debug-toast-time">
-              {new Date(telegramDebugToast.receivedAtMs).toLocaleTimeString(
-                locale === 'zh-CN' ? 'zh-CN' : 'en-US',
-                { hour12: false },
-              )}
-            </p>
-          </section>
-        ) : null}
-      </div>
-
-      <main ref={shellMainRef} className="shell-main-layout relative z-10" style={shellMainStyle}>
-        <div ref={shellRailRef} className="shell-rail-slot">
-          <ActivityRail
-            items={navItems}
-            activeId={activeNavId}
-            onSelect={handleSelectNav}
-            locale={locale}
-          />
-        </div>
-
-        {leftPaneVisible ? (
-          <div
-            ref={shellLeftPaneRef}
-            className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''}`}
-          >
-            {activeNavId === 'files' ? (
-              <FileTreePane
-                locale={locale}
-                workspaceId={activeWorkspaceId}
-                selectedFilePath={activeFilePath}
-                searchRequest={fileSearchRequest}
-                onSearchRequestConsumed={(nonce) => {
-                  setFileSearchRequest((prev) => {
-                    if (!prev || prev.nonce !== nonce) {
-                      return prev
-                    }
-                    return null
-                  })
-                }}
-                onSelectFile={(filePath) => {
-                  void loadFileContent(filePath, 'full')
-                }}
-                onCreateFile={createFileInWorkspace}
-                onDeletePath={deletePathInWorkspace}
-                onMovePath={movePathInWorkspace}
-              />
-            ) : activeNavId === 'tasks' ? (
-              <div className="task-center-scroll-host">
-                <TaskCenterPane
-                  locale={locale}
-                  stations={stations}
-                  draft={taskDraft}
-                  sending={taskSending}
-                  draftSavedAtMs={taskDraftSavedAtMs}
-                  notice={taskNotice}
-                  mentionCandidates={taskMentionCandidates}
-                  mentionLoading={taskMentionLoading}
-                  mentionError={taskMentionError}
-                  onDraftChange={updateTaskDraft}
-                  onInsertSnippet={insertTaskSnippet}
-                  onSendTask={() => {
-                    void dispatchTaskToAgent()
-                  }}
-                  onSearchMentionFiles={searchTaskMentionFiles}
-                  onClearMentionSearch={clearTaskMentionSearch}
-                />
-              </div>
-            ) : activeNavId === 'stations' ? (
-              <StationOverviewPane
-                locale={locale}
-                stations={stations}
-                activeStationId={activeStationId}
-                runtimeStateByStationId={runtimeStateByStationId}
-                view={stationOverviewState}
-                onViewChange={(patch) => {
-                  setStationOverviewState((prev) => ({ ...prev, ...patch }))
-                }}
-                onSelectStation={(stationId) => {
-                  setActiveStationId(stationId)
-                }}
-                onEditStation={(station) => {
-                  setEditingStation(createStationEditInput(station))
-                  setIsStationManageOpen(true)
-                }}
-              />
-            ) : activeNavId === 'git' ? (
-              <GitOperationsPane controller={gitController} />
-            ) : activeNavId === 'channels' ? (
-              <CommunicationChannelsPane
-                locale={locale}
-                agentNameMap={stationNameMap}
-                dispatchHistory={taskDispatchHistory}
-                retryingTaskId={taskRetryingTaskId}
-                externalStatus={externalChannelStatus}
-                externalEvents={externalChannelEvents}
-                onRetryDispatchTask={(taskId) => {
-                  void retryTaskDispatch(taskId)
-                }}
-                onRefreshExternalStatus={() => {
-                  void refreshExternalChannelStatus()
-                }}
-              />
-            ) : (
-              <LeftBusinessPane model={activePaneModel} />
-            )}
-          </div>
-        ) : null}
-
-        {leftPaneVisible ? (
-          <div
-            ref={shellResizerRef}
-            className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''}`}
-            role="separator"
-            aria-label="Resize left panel"
-            aria-orientation="vertical"
-            aria-valuemin={LEFT_PANE_WIDTH_MIN}
-            aria-valuemax={LEFT_PANE_WIDTH_MAX}
-            aria-valuenow={leftPaneWidth}
-            tabIndex={0}
-            onPointerDown={handleLeftPaneResizePointerDown}
-            onKeyDown={handleLeftPaneResizeKeyDown}
-          />
-        ) : null}
-
-        <div ref={shellMainPaneRef} className="shell-pane-shell shell-main-pane">
-          {showWorkbenchCanvas ? (
-            <div className="shell-main-view">
-              <WorkbenchCanvas
-                locale={locale}
-                appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
-                showStage
-                showFloatingPortal
-                floatingVisibility="non_topmost"
-                stations={stations}
-                containers={workbenchContainers}
-                activeStationId={activeStationId}
-                terminalByStation={stationTerminals}
-                taskSignalByStationId={stationTaskSignals}
-                channelBotBindingsByStationId={channelBotBindingsByStationId}
-                onSelectStation={handleCanvasSelectStation}
-                onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
-                onLaunchCliAgent={handleCanvasLaunchCliAgent}
-                onSendInputData={handleStationTerminalInput}
-                onResizeTerminal={resizeStationTerminal}
-                onBindTerminalSink={bindStationTerminalSink}
-                onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
-                onLayoutModeChange={handleCanvasLayoutModeChange}
-                onCustomLayoutChange={handleCanvasCustomLayoutChange}
-                onFloatContainer={floatWorkbenchContainer}
-                onDockContainer={dockWorkbenchContainer}
-                onDetachContainer={detachWorkbenchContainer}
-                onToggleContainerTopmost={toggleWorkbenchContainerTopmost}
-                onCreateContainer={createWorkbenchContainer}
-                onDeleteContainer={deleteWorkbenchContainer}
-                onReclaimDetachedContainer={reclaimDetachedContainer}
-                onMoveStationToContainer={moveStationToWorkbenchContainer}
-                onMoveFloatingContainer={moveFloatingWorkbenchContainer}
-                onResizeFloatingContainer={resizeFloatingWorkbenchContainer}
-                onFocusFloatingContainer={focusFloatingWorkbenchContainer}
-                scrollToStationId={pendingScrollStationId}
-                onScrollToStationHandled={handleCanvasScrollToStationHandled}
-                onOpenStationManage={handleCanvasOpenStationManage}
-                onOpenStationSearch={handleCanvasOpenStationSearch}
-                onRemoveStation={handleCanvasRemoveStation}
-              />
-            </div>
-          ) : null}
-
-          {activeNavId === 'files' ? (
-            <div className="shell-feature-view">
-              <FileEditorPane
-                locale={locale}
-                workspaceId={activeWorkspaceId}
-                openedFiles={openedFiles}
-                activeFilePath={activeFilePath}
-                loading={fileReadLoading}
-                errorMessage={fileReadError}
-                noticeMessage={filePreviewNotice}
-                canRenderContent={fileCanRenderText}
-                onSelectFile={selectFile}
-                onCloseFile={closeFile}
-                onSaveFile={saveFileContent}
-                onFileModified={handleFileModified}
-                editorCommandRequest={fileEditorCommandRequest}
-              />
-            </div>
-          ) : activeNavId === 'git' ? (
-            <div className="shell-feature-view">
-              <GitHistoryPane
-                controller={gitController}
-                onOpenInEditor={(filePath) => {
-                  setActiveNavId('files')
-                  void loadFileContent(filePath, 'full')
-                }}
-              />
-            </div>
-          ) : null}
-        </div>
-
-      </main>
-
-      {hasGlobalTopmostWorkbench ? (
-        <WorkbenchCanvas
-          locale={locale}
-          appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
-          showStage={false}
-          showFloatingPortal
-          floatingVisibility="topmost"
-          stations={stations}
-          containers={workbenchContainers}
-          activeStationId={activeStationId}
-          terminalByStation={stationTerminals}
-          taskSignalByStationId={stationTaskSignals}
-          channelBotBindingsByStationId={channelBotBindingsByStationId}
-          onSelectStation={handleCanvasSelectStation}
-          onLaunchStationTerminal={handleCanvasLaunchStationTerminal}
-          onLaunchCliAgent={handleCanvasLaunchCliAgent}
-          onSendInputData={handleStationTerminalInput}
-          onResizeTerminal={resizeStationTerminal}
-          onBindTerminalSink={bindStationTerminalSink}
-          onRenderedScreenSnapshot={reportRenderedScreenSnapshot}
-          onLayoutModeChange={handleCanvasLayoutModeChange}
-          onCustomLayoutChange={handleCanvasCustomLayoutChange}
-          onFloatContainer={floatWorkbenchContainer}
-          onDockContainer={dockWorkbenchContainer}
-          onDetachContainer={detachWorkbenchContainer}
-          onToggleContainerTopmost={toggleWorkbenchContainerTopmost}
-          onCreateContainer={createWorkbenchContainer}
-          onDeleteContainer={deleteWorkbenchContainer}
-          onReclaimDetachedContainer={reclaimDetachedContainer}
-          onMoveStationToContainer={moveStationToWorkbenchContainer}
-          onMoveFloatingContainer={moveFloatingWorkbenchContainer}
-          onResizeFloatingContainer={resizeFloatingWorkbenchContainer}
-          onFocusFloatingContainer={focusFloatingWorkbenchContainer}
-          onOpenStationManage={handleCanvasOpenStationManage}
-          onOpenStationSearch={handleCanvasOpenStationSearch}
-          onRemoveStation={handleCanvasRemoveStation}
-        />
-      ) : null}
-
-      <div ref={shellStatusRef} className="relative z-10">
-        <StatusBar
-          locale={locale}
-          gitBranch={gitSummary?.branch ?? '-'}
-          gitBranches={gitController.branches}
-          gitChangedFiles={gitSummary?.files.length ?? 0}
-          onCheckoutBranch={gitController.checkoutTo}
-          checkoutLoading={gitController.actionLoading === 'checkout'}
-          agentOnline={6}
-          agentTotal={8}
-          terminalSessions={terminalSessionCount}
-        />
-      </div>
-
-      <GlobalTaskDispatchOverlay
-        open={isTaskQuickDispatchOpen}
-        locale={locale}
-        stations={stations}
-        draft={taskDraft}
-        sending={taskSending}
-        draftSavedAtMs={taskDraftSavedAtMs}
-        notice={taskNotice}
-        mentionCandidates={taskMentionCandidates}
-        mentionLoading={taskMentionLoading}
-        mentionError={taskMentionError}
-        shortcutLabel={formatShortcutBinding(shortcutBindings.taskQuickDispatch, nativeWindowTopMacOs)}
-        opacity={taskQuickDispatchOpacity}
-        onClose={closeTaskQuickDispatch}
-        onOpacityChange={handleTaskQuickDispatchOpacityChange}
-        onDraftChange={updateTaskDraft}
-        onInsertSnippet={insertTaskSnippet}
-        onSendTask={() => {
-          void dispatchTaskToAgent()
-        }}
-        onSearchMentionFiles={searchTaskMentionFiles}
-        onClearMentionSearch={clearTaskMentionSearch}
-      />
-
-      <SettingsModal
-        open={isSettingsOpen}
-        locale={locale}
-        workspaceId={activeWorkspaceId}
-        themeMode={uiPreferences.themeMode}
-        uiFont={uiPreferences.uiFont}
-        monoFont={uiPreferences.monoFont}
-        uiFontSize={uiPreferences.uiFontSize}
-        isMacOs={nativeWindowTopMacOs}
-        taskQuickDispatchShortcut={shortcutBindings.taskQuickDispatch}
-        defaultTaskQuickDispatchShortcut={defaultShortcutBindings.taskQuickDispatch}
-        onClose={() => {
+    <ShellRootView
+      shellContainerRef={shellContainerRef}
+      shellTopRef={shellTopRef}
+      shellMainRef={shellMainRef}
+      shellStatusRef={shellStatusRef}
+      shellRailRef={shellRailRef}
+      shellLeftPaneRef={shellLeftPaneRef}
+      shellResizerRef={shellResizerRef}
+      shellMainPaneRef={shellMainPaneRef}
+      nativeWindowTopWindows={nativeWindowTopWindows}
+      locale={locale}
+      topControlBarProps={{
+        locale,
+        workspacePath: workspacePathInput,
+        connectionLabel,
+        nativeWindowTop,
+        nativeWindowTopMacOs,
+        nativeWindowTopLinux,
+        windowMaximized,
+        onPickWorkspaceDirectory: () => {
+          void handlePickWorkspaceDirectory()
+        },
+        onOpenSettings: handleOpenSettings,
+        onWindowMinimize: handleWindowMinimize,
+        onWindowToggleMaximize: handleWindowToggleMaximize,
+        onWindowClose: handleWindowClose,
+      }}
+      telegramDebugToast={telegramDebugToast}
+      onDismissTelegramDebugToast={dismissTelegramDebugToast}
+      shellMainStyle={shellMainStyle}
+      activityRailProps={{
+        items: navItems,
+        activeId: activeNavId,
+        onSelect: handleSelectNav,
+        locale,
+      }}
+      activeNavId={activeNavId}
+      leftPaneVisible={leftPaneVisible}
+      leftPaneResizing={leftPaneResizing}
+      leftPaneWidth={leftPaneWidth}
+      onLeftPaneResizePointerDown={handleLeftPaneResizePointerDown}
+      onLeftPaneResizeKeyDown={handleLeftPaneResizeKeyDown}
+      fileTreePaneProps={{
+        locale,
+        workspaceId: activeWorkspaceId,
+        selectedFilePath: activeFilePath,
+        searchRequest: fileSearchRequest,
+        onSearchRequestConsumed: handleFileTreeSearchRequestConsumed,
+        onSelectFile: handleFileTreeSelectFile,
+        onCreateFile: createFileInWorkspace,
+        onDeletePath: deletePathInWorkspace,
+        onMovePath: movePathInWorkspace,
+      }}
+      taskCenterPaneProps={taskComposerBaseProps}
+      stationOverviewPaneProps={{
+        locale,
+        stations,
+        activeStationId,
+        runtimeStateByStationId,
+        view: stationOverviewState,
+        onViewChange: handleStationOverviewViewChange,
+        onSelectStation: handleStationOverviewSelectStation,
+        onEditStation: handleStationOverviewEditStation,
+      }}
+      gitOperationsPaneProps={{
+        controller: gitController,
+      }}
+      communicationChannelsPaneProps={{
+        locale,
+        agentNameMap: stationNameMap,
+        dispatchHistory: taskDispatchHistory,
+        retryingTaskId: taskRetryingTaskId,
+        externalStatus: externalChannelStatus,
+        externalEvents: externalChannelEvents,
+        onRetryDispatchTask: handleRetryDispatchTask,
+        onRefreshExternalStatus: handleRefreshExternalChannelStatus,
+      }}
+      activePaneModel={activePaneModel}
+      showWorkbenchCanvas={showWorkbenchCanvas}
+      workbenchCanvasProps={{
+        ...workbenchCanvasBaseProps,
+        showStage: true,
+        floatingVisibility: 'non_topmost',
+        scrollToStationId: pendingScrollStationId,
+        onScrollToStationHandled: handleCanvasScrollToStationHandled,
+      }}
+      fileEditorPaneProps={{
+        locale,
+        workspaceId: activeWorkspaceId,
+        openedFiles,
+        activeFilePath,
+        loading: fileReadLoading,
+        errorMessage: fileReadError,
+        noticeMessage: filePreviewNotice,
+        canRenderContent: fileCanRenderText,
+        onSelectFile: selectFile,
+        onCloseFile: closeFile,
+        onSaveFile: saveFileContent,
+        onFileModified: handleFileModified,
+        editorCommandRequest: fileEditorCommandRequest,
+      }}
+      gitHistoryPaneProps={{
+        controller: gitController,
+        onOpenInEditor: handleGitHistoryOpenInEditor,
+      }}
+      topmostWorkbenchCanvasProps={
+        hasGlobalTopmostWorkbench
+          ? {
+              ...workbenchCanvasBaseProps,
+              showStage: false,
+              floatingVisibility: 'topmost',
+            }
+          : null
+      }
+      statusBarProps={{
+        locale,
+        gitBranch: gitSummary?.branch ?? '-',
+        gitBranches: gitController.branches,
+        gitChangedFiles: gitSummary?.files.length ?? 0,
+        onCheckoutBranch: gitController.checkoutTo,
+        checkoutLoading: gitController.actionLoading === 'checkout',
+        agentOnline: 6,
+        agentTotal: 8,
+        terminalSessions: terminalSessionCount,
+      }}
+      globalTaskDispatchOverlayProps={{
+        ...taskComposerBaseProps,
+        open: isTaskQuickDispatchOpen,
+        shortcutLabel: formatShortcutBinding(
+          shortcutBindings.taskQuickDispatch,
+          nativeWindowTopMacOs,
+        ),
+        opacity: taskQuickDispatchOpacity,
+        onClose: closeTaskQuickDispatch,
+        onOpacityChange: handleTaskQuickDispatchOpacityChange,
+      }}
+      settingsModalProps={{
+        open: isSettingsOpen,
+        locale,
+        workspaceId: activeWorkspaceId,
+        themeMode: uiPreferences.themeMode,
+        uiFont: uiPreferences.uiFont,
+        monoFont: uiPreferences.monoFont,
+        uiFontSize: uiPreferences.uiFontSize,
+        isMacOs: nativeWindowTopMacOs,
+        taskQuickDispatchShortcut: shortcutBindings.taskQuickDispatch,
+        defaultTaskQuickDispatchShortcut: defaultShortcutBindings.taskQuickDispatch,
+        onClose: () => {
           setIsSettingsOpen(false)
-        }}
-        onLocaleChange={(value) => setUiPreferences((prev) => ({ ...prev, locale: value }))}
-        onThemeModeChange={(value) =>
+        },
+        onLocaleChange: (value) => setUiPreferences((prev) => ({ ...prev, locale: value })),
+        onThemeModeChange: (value) =>
           setUiPreferences((prev) => ({
             ...prev,
             themeMode: value,
-          }))
-        }
-        onUiFontChange={(value) =>
+          })),
+        onUiFontChange: (value) =>
           setUiPreferences((prev) => ({
             ...prev,
             uiFont: value,
-          }))
-        }
-        onMonoFontChange={(value) =>
+          })),
+        onMonoFontChange: (value) =>
           setUiPreferences((prev) => ({
             ...prev,
             monoFont: value,
-          }))
-        }
-        onUiFontSizeChange={(value) =>
+          })),
+        onUiFontSizeChange: (value) =>
           setUiPreferences((prev) => ({
             ...prev,
             uiFontSize: value,
-          }))
-        }
-        onTaskQuickDispatchShortcutChange={handleTaskQuickDispatchShortcutChange}
-        onTaskQuickDispatchShortcutReset={handleTaskQuickDispatchShortcutReset}
-      />
-<StationManageModal
-        open={isStationManageOpen}
-        locale={locale}
-        roles={agentRoles}
-        editingStation={editingStation}
-        saving={stationSavePending}
-        deleting={stationDeletePendingId === editingStation?.id}
-        onClose={() => {
+          })),
+        onTaskQuickDispatchShortcutChange: handleTaskQuickDispatchShortcutChange,
+        onTaskQuickDispatchShortcutReset: handleTaskQuickDispatchShortcutReset,
+      }}
+      stationManageModalProps={{
+        open: isStationManageOpen,
+        locale,
+        roles: agentRoles,
+        editingStation,
+        saving: stationSavePending,
+        deleting: stationDeletePendingId === editingStation?.id,
+        onClose: () => {
           setIsStationManageOpen(false)
           setEditingStation(null)
-        }}
-        onPickWorkdir={handlePickStationWorkdir}
-        onSubmit={(input) => {
+        },
+        onPickWorkdir: handlePickStationWorkdir,
+        onSubmit: (input) => {
           if (editingStation) {
             void updateStation(editingStation.id, input)
           } else {
             void addStation(input)
           }
-        }}
-        onDelete={(stationId) => removeStation(stationId)}
-      />
-      <ChannelStudio
-        open={isChannelStudioOpen}
-        locale={locale}
-        workspaceId={activeWorkspaceId}
-        onClose={() => {
+        },
+        onDelete: (stationId) => removeStation(stationId),
+      }}
+      channelStudioProps={{
+        open: isChannelStudioOpen,
+        locale,
+        workspaceId: activeWorkspaceId,
+        onClose: () => {
           setIsChannelStudioOpen(false)
-        }}
-      />
-
-      <StationSearchModal
-        open={isStationSearchOpen}
-        locale={locale}
-        query={stationOverviewState.query}
-        stations={filteredStations}
-        onClose={() => {
+        },
+      }}
+      stationSearchModalProps={{
+        open: isStationSearchOpen,
+        locale,
+        query: stationOverviewState.query,
+        stations: filteredStations,
+        onClose: () => {
           setIsStationSearchOpen(false)
-        }}
-        onQueryChange={(value) => {
+        },
+        onQueryChange: (value) => {
           setStationOverviewState((prev) => ({ ...prev, query: value }))
-        }}
-        onSelectStation={(stationId) => {
-          setActiveNavId('stations')
-          setActiveStationId(stationId)
-          setPendingScrollStationId(stationId)
-        }}
-      />
-
-      <NotificationList />
-    </div>
+        },
+        onSelectStation: handleStationSearchSelectStation,
+      }}
+    />
   )
 }
