@@ -177,38 +177,73 @@
 }
 
 .git-pane__notice {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--vb-space-sm);
-  padding: #{rem(7)} #{rem(14)};
-  border-bottom: var(--vb-border-width) solid var(--vb-border);
-  font-size: var(--vb-git-font-xs);
-  line-height: 1.45;
-  color: color-mix(in srgb, var(--vb-warning) 78%, var(--vb-text));
-  background: color-mix(in srgb, var(--vb-warning) 10%, var(--vb-surface));
+  gap: #{rem(8)};
+  margin: #{rem(10)} #{rem(12)} 0;
+  padding: #{rem(5)} #{rem(7)} #{rem(5)} #{rem(9)};
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-warning) 18%, var(--vb-border-subtle));
+  border-radius: var(--vb-radius-full);
+  font-size: var(--vb-git-font-2xs);
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--vb-warning) 42%, var(--vb-text));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vb-warning) 7%, var(--vb-surface-muted)),
+      color-mix(in srgb, var(--vb-warning) 4%, var(--vb-surface))
+    );
+  box-shadow: inset 0 0 0 #{rem(0.5)} color-mix(in srgb, #fff 16%, transparent);
+  max-width: calc(100% - #{rem(24)});
+}
+
+.git-pane__notice-dot {
+  width: #{rem(6)};
+  height: #{rem(6)};
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--vb-warning) 82%, #fff);
+  box-shadow: 0 0 0 #{rem(3)} color-mix(in srgb, var(--vb-warning) 14%, transparent);
+  flex-shrink: 0;
 }
 
 .git-pane__notice-message {
   min-width: 0;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .git-pane__notice-dismiss {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: #{rem(24)};
-  height: #{rem(24)};
+  width: #{rem(18)};
+  height: #{rem(18)};
   border: none;
-  border-radius: var(--vb-radius-sm);
-  background: transparent;
-  color: inherit;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--vb-warning) 8%, transparent);
+  color: color-mix(in srgb, var(--vb-warning) 40%, var(--vb-text-muted));
   flex-shrink: 0;
-  transition: background-color 160ms var(--vb-ease-out);
+  transition:
+    background-color 160ms var(--vb-ease-out),
+    color 160ms var(--vb-ease-out),
+    transform 160ms var(--vb-ease-out);
+}
+
+.git-pane__notice-dismiss .vb-icon {
+  width: #{rem(11)};
+  height: #{rem(11)};
+  stroke-width: 2.2;
 }
 
 .git-pane__notice-dismiss:hover {
-  background: color-mix(in srgb, var(--vb-warning) 14%, transparent);
+  background: color-mix(in srgb, var(--vb-warning) 16%, transparent);
+  color: color-mix(in srgb, var(--vb-warning) 70%, var(--vb-text));
+  transform: scale(1.04);
+}
+
+.git-pane__notice-dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 #{rem(2)} color-mix(in srgb, var(--vb-warning) 22%, transparent);
 }
 
 .git-history-switch {

@@ -327,6 +327,7 @@ const GitNoticeBanner = memo(function GitNoticeBanner({
 }: GitNoticeBannerProps) {
   return (
     <div className="git-pane__notice" role="status" aria-live="polite">
+      <span className="git-pane__notice-dot" aria-hidden="true" />
       <span className="git-pane__notice-message">{message}</span>
       <button
         type="button"
