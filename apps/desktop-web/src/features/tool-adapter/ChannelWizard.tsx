@@ -9,9 +9,10 @@ import {
   type ExternalAccessPolicyMode,
 } from '@shell/integration/desktop-api'
 import { FeishuConnectorWizard } from './feishu'
+import { WechatConnectorWizard } from './wechat/WechatConnectorWizard'
 import { normalizeChannelAccountId, parseChannelBindingTarget } from './channel-bot-binding-model'
 
-type ConnectorChannel = 'feishu' | 'telegram'
+type ConnectorChannel = 'feishu' | 'telegram' | 'wechat'
 type TelegramTargetBindingType = 'role' | 'agent'
 
 interface ChannelWizardProps {
@@ -109,6 +110,15 @@ function ChannelChooser({
             <span className="channel-wizard-channel-eyebrow">Feishu</span>
             <strong>{t(locale, '分步引导式接入', 'Guided step-by-step onboarding')}</strong>
             <p>{t(locale, '包含开放平台配置说明、连接测试与 callback 校验。', 'Includes Open Platform guidance, connection testing, and callback validation.')}</p>
+          </button>
+          <button
+            type="button"
+            className="channel-wizard-channel-option wechat"
+            onClick={() => onSelect('wechat')}
+          >
+            <span className="channel-wizard-channel-eyebrow">WeChat</span>
+            <strong>{t(locale, '扫码绑定 + 私聊投递', 'QR bind + direct message routing')}</strong>
+            <p>{t(locale, '先在桌面端扫码绑定微信，再把个人会话稳定路由到目标 Agent。', 'Bind WeChat with a desktop QR flow, then route direct messages into the target Agent.')}</p>
           </button>
         </div>
       </div>
@@ -529,6 +539,21 @@ export function ChannelWizard(props: ChannelWizardProps) {
   if (selectedChannel === 'feishu') {
     return (
       <FeishuConnectorWizard
+        locale={props.locale}
+        workspaceId={props.workspaceId}
+        onClose={props.onClose}
+        onSuccess={props.onSuccess}
+        editingBinding={props.editingBinding}
+        roles={props.roles}
+        agents={props.agents}
+        connectorAccounts={props.connectorAccounts}
+      />
+    )
+  }
+
+  if (selectedChannel === 'wechat') {
+    return (
+      <WechatConnectorWizard
         locale={props.locale}
         workspaceId={props.workspaceId}
         onClose={props.onClose}

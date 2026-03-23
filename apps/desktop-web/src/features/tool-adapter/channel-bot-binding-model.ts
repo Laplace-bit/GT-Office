@@ -40,10 +40,13 @@ function compareChannelOrder(channel: string): number {
   if (normalized === 'telegram') {
     return 0
   }
-  if (normalized === 'feishu') {
+  if (normalized === 'wechat') {
     return 1
   }
-  return 2
+  if (normalized === 'feishu') {
+    return 2
+  }
+  return 3
 }
 
 function compareChannelName(a: string, b: string): number {

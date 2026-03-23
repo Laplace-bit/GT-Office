@@ -391,6 +391,112 @@ export interface SurfaceWindowUpdatedPayload {
   topmost: boolean
 }
 
+export interface DetachedTerminalSurfaceRuntime {
+  sessionId: string | null
+  unreadCount: number
+  stateRaw?: string
+  shell?: string | null
+  cwdMode?: 'workspace_root' | 'custom'
+  resolvedCwd?: string | null
+}
+
+export interface DetachedTerminalHydrateRequestMessage {
+  kind: 'detached_terminal_hydrate_request'
+  workspaceId: string
+  containerId: string
+}
+
+export interface DetachedTerminalHydrateSnapshotMessage {
+  kind: 'detached_terminal_hydrate_snapshot'
+  workspaceId: string
+  containerId: string
+  activeStationId: string | null
+  runtimes: Record<string, DetachedTerminalSurfaceRuntime>
+  outputs: Record<string, string>
+  projectionSeqByStation: Record<string, number>
+}
+
+export interface DetachedTerminalEnsureSessionMessage {
+  kind: 'detached_terminal_ensure_session'
+  workspaceId: string
+  containerId: string
+  stationId: string
+}
+
+export interface DetachedTerminalWriteInputMessage {
+  kind: 'detached_terminal_write_input'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  input: string
+}
+
+export interface DetachedTerminalResizeMessage {
+  kind: 'detached_terminal_resize'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  cols: number
+  rows: number
+}
+
+export interface DetachedTerminalActivateStationMessage {
+  kind: 'detached_terminal_activate_station'
+  workspaceId: string
+  containerId: string
+  stationId: string
+}
+
+export interface DetachedTerminalOutputAppendMessage {
+  kind: 'detached_terminal_output_append'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  chunk: string
+  projectionSeq: number
+  unreadDelta?: number
+}
+
+export interface DetachedTerminalOutputResetMessage {
+  kind: 'detached_terminal_output_reset'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  content: string
+  projectionSeq: number
+}
+
+export interface DetachedTerminalRuntimeUpdatedMessage {
+  kind: 'detached_terminal_runtime_updated'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  runtimePatch: Partial<DetachedTerminalSurfaceRuntime>
+  projectionSeq: number
+}
+
+export type DetachedTerminalBridgeMessage =
+  | DetachedTerminalHydrateRequestMessage
+  | DetachedTerminalHydrateSnapshotMessage
+  | DetachedTerminalEnsureSessionMessage
+  | DetachedTerminalWriteInputMessage
+  | DetachedTerminalResizeMessage
+  | DetachedTerminalActivateStationMessage
+  | DetachedTerminalOutputAppendMessage
+  | DetachedTerminalOutputResetMessage
+  | DetachedTerminalRuntimeUpdatedMessage
+
+export interface SurfaceBridgeEventPayload<TPayload = DetachedTerminalBridgeMessage> {
+  sourceWindowLabel: string
+  targetWindowLabel: string
+  payload: TPayload
+}
+
+export interface SurfaceBridgePostResponse {
+  accepted: boolean
+  targetWindowLabel: string
+}
+
 export interface FsEntry {
   path: string
   name: string
@@ -997,19 +1103,24 @@ export interface ChannelConnectorAccount {
   mode: string
   connectionMode?: string | null
   domain?: string | null
+  baseUrl?: string | null
   webhookPath?: string | null
   webhookHost?: string | null
   webhookPort?: number | null
   botTokenRef?: string | null
+  tokenRef?: string | null
   webhookSecretRef?: string | null
   appId?: string | null
   appSecretRef?: string | null
   verificationTokenRef?: string | null
   hasBotToken?: boolean
+  hasToken?: boolean
   hasWebhookSecret?: boolean
   hasAppSecret?: boolean
   hasVerificationToken?: boolean
   updatedAtMs: number
+  lastBoundAtMs?: number | null
+  lastSyncAtMs?: number | null
 }
 
 export interface ChannelConnectorAccountUpsertRequest {
@@ -1049,15 +1160,30 @@ export interface ChannelConnectorHealthResponse {
     mode: string
     connectionMode?: string | null
     domain?: string | null
+    baseUrl?: string | null
     botUsername?: string | null
     botName?: string | null
+    botDisplayName?: string | null
     botOpenId?: string | null
     runtimeConnected?: boolean | null
+    lastSyncAtMs?: number | null
     configuredWebhookUrl?: string | null
     runtimeWebhookUrl?: string | null
     webhookMatched?: boolean | null
     checkedAtMs: number
   }
+}
+
+export interface WechatAuthSession {
+  authSessionId: string
+  accountId: string
+  status: string
+  checkedAtMs: number
+  qrCodeId?: string | null
+  qrCodeSvgDataUrl?: string | null
+  expiresAtMs?: number | null
+  detail?: string | null
+  boundAccountId?: string | null
 }
 
 export interface ChannelConnectorWebhookSyncResponse {
@@ -1619,6 +1745,12 @@ export const desktopApi = {
       windowLabel: windowLabel ?? null,
     })
   },
+  surfaceBridgePost(targetWindowLabel: string, payload: DetachedTerminalBridgeMessage) {
+    return invokeCommand<SurfaceBridgePostResponse>('surface_bridge_post', {
+      targetWindowLabel,
+      payload,
+    })
+  },
   terminalWrite(sessionId: string, input: string) {
     return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write', {
       sessionId,
@@ -1764,6 +1896,36 @@ export const desktopApi = {
         accountId: accountId ?? null,
       },
     })
+  },
+  channelConnectorWechatAuthStart(accountId?: string | null) {
+    return invokeCommand<{ channel: string; session: WechatAuthSession }>(
+      'channel_connector_wechat_auth_start',
+      {
+        request: {
+          accountId: accountId ?? null,
+        },
+      },
+    )
+  },
+  channelConnectorWechatAuthStatus(authSessionId: string) {
+    return invokeCommand<{ channel: string; session: WechatAuthSession }>(
+      'channel_connector_wechat_auth_status',
+      {
+        request: {
+          authSessionId,
+        },
+      },
+    )
+  },
+  channelConnectorWechatAuthCancel(authSessionId: string) {
+    return invokeCommand<{ channel: string; session: WechatAuthSession }>(
+      'channel_connector_wechat_auth_cancel',
+      {
+        request: {
+          authSessionId,
+        },
+      },
+    )
   },
   channelConnectorWebhookSync(
     channel: string,
@@ -2196,12 +2358,15 @@ export const desktopApi = {
   async subscribeSurfaceEvents(handlers: {
     onWindowClosed?: (payload: SurfaceWindowClosedPayload) => void
     onWindowUpdated?: (payload: SurfaceWindowUpdatedPayload) => void
+    onBridge?: (payload: SurfaceBridgeEventPayload) => void
   }): Promise<() => void> {
     if (!isTauriRuntime()) {
       return () => {}
     }
 
     const eventApi = await import('@tauri-apps/api/event')
+    const webviewWindowApi = await import('@tauri-apps/api/webviewWindow')
+    const currentWebviewWindow = webviewWindowApi.getCurrentWebviewWindow()
     const unlistenClosed = await eventApi.listen<SurfaceWindowClosedPayload>(
       'surface/window_closed',
       (event) => handlers.onWindowClosed?.(event.payload),
@@ -2210,9 +2375,13 @@ export const desktopApi = {
       'surface/window_updated',
       (event) => handlers.onWindowUpdated?.(event.payload),
     )
+    const unlistenBridge = await currentWebviewWindow.listen<SurfaceBridgeEventPayload>('surface/bridge', (event) =>
+      handlers.onBridge?.(event.payload),
+    )
     return () => {
       unlistenClosed()
       unlistenUpdated()
+      unlistenBridge()
     }
   },
 }

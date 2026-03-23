@@ -6,7 +6,7 @@ use crate::{
         ExternalInteractionDispatchCandidate, ExternalInteractionDispatchPhase,
         ExternalReplyDispatchPhase, ExternalReplyRelayTarget, ExternalTerminalKey,
     },
-    connectors::{feishu, telegram},
+    connectors::{feishu, telegram, wechat},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +27,7 @@ pub struct ChannelReplyDeliveryResult {
 pub enum ChannelSinkKind {
     Telegram,
     Feishu,
+    Wechat,
     Unsupported,
 }
 
@@ -36,6 +37,8 @@ impl ChannelSinkKind {
             Self::Telegram
         } else if channel.trim().eq_ignore_ascii_case("feishu") {
             Self::Feishu
+        } else if channel.trim().eq_ignore_ascii_case("wechat") {
+            Self::Wechat
         } else {
             Self::Unsupported
         }
@@ -45,6 +48,7 @@ impl ChannelSinkKind {
         match self {
             Self::Telegram => "telegram",
             Self::Feishu => "feishu",
+            Self::Wechat => "wechat",
             Self::Unsupported => "unsupported",
         }
     }
@@ -57,6 +61,11 @@ impl ChannelSinkKind {
                 max_text_chars: 3_800,
             },
             Self::Feishu => ChannelSinkCapabilities {
+                supports_preview_edit: false,
+                supports_interaction_prompt: false,
+                max_text_chars: 3_800,
+            },
+            Self::Wechat => ChannelSinkCapabilities {
                 supports_preview_edit: false,
                 supports_interaction_prompt: false,
                 max_text_chars: 3_800,
@@ -77,6 +86,10 @@ pub async fn deliver_interaction_prompt(
     match ChannelSinkKind::from_channel(&candidate.target.channel) {
         ChannelSinkKind::Telegram => deliver_telegram_interaction_prompt(app, candidate).await,
         ChannelSinkKind::Feishu => deliver_feishu_interaction_prompt(app, candidate).await,
+        ChannelSinkKind::Wechat => Err(
+            "CHANNEL_REPLY_INTERACTION_UNSUPPORTED: wechat does not support interactive prompts"
+                .to_string(),
+        ),
         ChannelSinkKind::Unsupported => Err(format!(
             "CHANNEL_REPLY_INTERACTION_UNSUPPORTED: channel {} does not support interactive prompts",
             candidate.target.channel
@@ -109,6 +122,9 @@ pub async fn deliver_reply_text(
         }
         ChannelSinkKind::Feishu => {
             deliver_feishu_reply_text(app, target, phase, primary_text, text_chunks).await
+        }
+        ChannelSinkKind::Wechat => {
+            deliver_wechat_reply_text(app, target, phase, primary_text, text_chunks).await
         }
         ChannelSinkKind::Unsupported => Err(format!(
             "CHANNEL_REPLY_SEND_UNSUPPORTED: channel {} outbound is unsupported",
@@ -314,6 +330,40 @@ async fn deliver_feishu_reply_text(
             Some(&target.account_id),
             &target.peer_id,
             extra_chunk,
+            Some(&target.inbound_message_id),
+        )
+        .await?;
+    }
+
+    Ok(ChannelReplyDeliveryResult {
+        message_id: send_result.message_id,
+        delivered_at_ms: send_result.delivered_at_ms,
+        continuation_chunks: text_chunks.len().saturating_sub(1),
+    })
+}
+
+async fn deliver_wechat_reply_text(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    _phase: ExternalReplyDispatchPhase,
+    primary_text: &str,
+    text_chunks: &[String],
+) -> Result<ChannelReplyDeliveryResult, String> {
+    let send_result = wechat::send_text_reply(
+        app,
+        Some(&target.account_id),
+        &target.peer_id,
+        primary_text,
+        Some(&target.inbound_message_id),
+    )
+    .await?;
+
+    for chunk in text_chunks.iter().skip(1) {
+        wechat::send_text_reply(
+            app,
+            Some(&target.account_id),
+            &target.peer_id,
+            chunk,
             Some(&target.inbound_message_id),
         )
         .await?;

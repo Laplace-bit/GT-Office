@@ -32,7 +32,7 @@ use crate::{
     },
     channel_sinks,
     commands::task_center::write_terminal_with_submit,
-    connectors::{feishu, telegram},
+    connectors::{feishu, telegram, wechat},
     process_utils::configure_tokio_command,
 };
 
@@ -147,6 +147,25 @@ pub struct ChannelConnectorWebhookSyncRequest {
     pub webhook_url: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorWechatAuthStartRequest {
+    #[serde(default)]
+    pub account_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorWechatAuthStatusRequest {
+    pub auth_session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorWechatAuthCancelRequest {
+    pub auth_session_id: String,
+}
+
 const ROLE_TARGET_PREFIX: &str = "role:";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +267,12 @@ async fn resolve_binding_bot_name(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+    }
+    if channel.as_str() == "wechat" {
+        let snapshot = wechat::health_check(app, binding.account_id.as_deref())
+            .await
+            .ok()?;
+        return snapshot.bot_display_name;
     }
     None
 }
@@ -363,8 +388,120 @@ fn persist_allow_entry(
     write_channel_state_file(app, &state_file)
 }
 
+fn migrate_legacy_wechat_access_policies(
+    state_file: &mut PersistedChannelStateFile,
+    uninitialized_accounts: &HashSet<String>,
+) -> Vec<String> {
+    if uninitialized_accounts.is_empty() {
+        return Vec::new();
+    }
+
+    let routed_accounts: HashSet<String> = state_file
+        .route_bindings
+        .iter()
+        .filter(|record| record.binding.channel.trim().eq_ignore_ascii_case("wechat"))
+        .map(|record| {
+            normalize_account_id(record.binding.account_id.as_deref()).to_ascii_lowercase()
+        })
+        .collect();
+
+    let mut initialized_accounts = Vec::new();
+    for account_id in uninitialized_accounts {
+        let account_key = account_id.trim().to_ascii_lowercase();
+        if !routed_accounts.contains(&account_key) {
+            continue;
+        }
+
+        if let Some(existing) = state_file.access_policies.iter_mut().find(|entry| {
+            entry.channel.trim().eq_ignore_ascii_case("wechat")
+                && entry.account_id.trim().eq_ignore_ascii_case(&account_key)
+        }) {
+            if existing.mode == ExternalAccessPolicyMode::Pairing {
+                existing.mode = ExternalAccessPolicyMode::Open;
+            }
+        } else {
+            state_file
+                .access_policies
+                .push(PersistedChannelAccessPolicy {
+                    channel: "wechat".to_string(),
+                    account_id: account_key.clone(),
+                    mode: ExternalAccessPolicyMode::Open,
+                });
+        }
+        initialized_accounts.push(account_key);
+    }
+
+    initialized_accounts.sort();
+    initialized_accounts.dedup();
+    initialized_accounts
+}
+
+fn ensure_legacy_wechat_access_policy_initialized(
+    app: &AppHandle,
+    state: &AppState,
+    account_id: &str,
+) -> Result<(), String> {
+    let needs_migration = wechat::list_accounts_with_uninitialized_policy(app)?
+        .into_iter()
+        .any(|candidate| candidate.trim().eq_ignore_ascii_case(account_id));
+    if !needs_migration {
+        return Ok(());
+    }
+
+    let mut state_file = read_channel_state_file(app)?;
+    let migrated_accounts = migrate_legacy_wechat_access_policies(
+        &mut state_file,
+        &HashSet::from([account_id.trim().to_ascii_lowercase()]),
+    );
+    if migrated_accounts.is_empty() {
+        return Ok(());
+    }
+
+    write_channel_state_file(app, &state_file)?;
+    for migrated_account_id in &migrated_accounts {
+        let mode = state_file
+            .access_policies
+            .iter()
+            .find(|entry| {
+                entry.channel.trim().eq_ignore_ascii_case("wechat")
+                    && entry
+                        .account_id
+                        .trim()
+                        .eq_ignore_ascii_case(migrated_account_id)
+            })
+            .map(|entry| entry.mode)
+            .unwrap_or(ExternalAccessPolicyMode::Open);
+        state
+            .task_service
+            .set_external_access_policy("wechat", migrated_account_id, mode);
+        wechat::mark_access_policy_initialized(app, migrated_account_id)?;
+    }
+    debug!(
+        accounts = ?migrated_accounts,
+        "migrated legacy wechat access policies during runtime"
+    );
+    Ok(())
+}
+
 pub fn restore_persisted_channel_state(app: &AppHandle, state: &AppState) -> Result<(), String> {
-    let state_file = read_channel_state_file(app)?;
+    let mut state_file = read_channel_state_file(app)?;
+    let uninitialized_wechat_accounts: HashSet<String> =
+        wechat::list_accounts_with_uninitialized_policy(app)?
+            .into_iter()
+            .map(|account_id| account_id.to_ascii_lowercase())
+            .collect();
+    let migrated_wechat_accounts =
+        migrate_legacy_wechat_access_policies(&mut state_file, &uninitialized_wechat_accounts);
+    if !migrated_wechat_accounts.is_empty() {
+        write_channel_state_file(app, &state_file)?;
+        for account_id in &migrated_wechat_accounts {
+            wechat::mark_access_policy_initialized(app, account_id)?;
+        }
+        debug!(
+            accounts = ?migrated_wechat_accounts,
+            "migrated legacy wechat access policies to open"
+        );
+    }
     for record in state_file.route_bindings {
         let mut binding = record.binding;
         if state.workspace_root_path(&binding.workspace_id).is_err() {
@@ -855,6 +992,15 @@ async fn deliver_external_reply_text(
             }
         },
         "feishu" => feishu::send_text_reply(
+            app,
+            Some(&target.account_id),
+            &target.peer_id,
+            &text,
+            Some(&target.inbound_message_id),
+        )
+        .await
+        .map(|snapshot| (snapshot.message_id, snapshot.delivered_at_ms)),
+        "wechat" => wechat::send_text_reply(
             app,
             Some(&target.account_id),
             &target.peer_id,
@@ -1747,7 +1893,7 @@ fn build_external_content_preview(text: &str) -> Option<String> {
 fn channel_supports_external_reply(channel: &str) -> bool {
     matches!(
         channel.trim().to_ascii_lowercase().as_str(),
-        "telegram" | "feishu"
+        "telegram" | "feishu" | "wechat"
     )
 }
 
@@ -2202,6 +2348,10 @@ pub(crate) fn process_external_inbound_message(
         return Ok(response);
     };
 
+    if message.channel.trim().eq_ignore_ascii_case("wechat") {
+        ensure_legacy_wechat_access_policy_initialized(app, state, &account_id)?;
+    }
+
     let policy = state
         .task_service
         .get_external_access_policy(&message.channel, &account_id);
@@ -2594,6 +2744,24 @@ pub fn channel_connector_account_upsert(
                 "account": account,
             }))
         }
+        "wechat" => {
+            let account = wechat::upsert_account(
+                &app,
+                wechat::types::WechatAccountUpsertInput {
+                    account_id: request.account_id,
+                    enabled: request.enabled,
+                    token: request.bot_token,
+                    token_ref: request.bot_token_ref,
+                    base_url: None,
+                },
+            )?;
+            wechat::reconcile(&app, state.inner());
+            Ok(json!({
+                "updated": true,
+                "channel": channel,
+                "account": account,
+            }))
+        }
         _ => Err(format!(
             "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
             request.channel
@@ -2617,6 +2785,13 @@ pub fn channel_connector_account_list(
         }
         "feishu" => {
             let accounts = feishu::list_accounts(&app)?;
+            Ok(json!({
+                "channel": channel,
+                "accounts": accounts,
+            }))
+        }
+        "wechat" => {
+            let accounts = wechat::list_accounts(&app)?;
             Ok(json!({
                 "channel": channel,
                 "accounts": accounts,
@@ -2653,6 +2828,14 @@ pub async fn channel_connector_health(
                 .map(|runtime| runtime.feishu_webhook);
             let snapshot =
                 feishu::health_check(&app, request.account_id.as_deref(), runtime_webhook).await?;
+            let _ = app.emit("external/channel_connector_health_changed", &snapshot);
+            Ok(json!({
+                "channel": channel,
+                "health": snapshot,
+            }))
+        }
+        "wechat" => {
+            let snapshot = wechat::health_check(&app, request.account_id.as_deref()).await?;
             let _ = app.emit("external/channel_connector_health_changed", &snapshot);
             Ok(json!({
                 "channel": channel,
@@ -2713,6 +2896,10 @@ pub async fn channel_connector_webhook_sync(
                 "result": snapshot,
             }))
         }
+        "wechat" => Err(
+            "CHANNEL_CONNECTOR_UNSUPPORTED: wechat uses polling and does not support webhook sync"
+                .to_string(),
+        ),
         _ => Err(format!(
             "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
             request.channel
@@ -2727,6 +2914,7 @@ pub fn channel_adapter_status(state: State<'_, AppState>, app: AppHandle) -> Res
     let snapshot = state.task_service.doctor_external_snapshot();
     let telegram_accounts = telegram::list_accounts(&app).unwrap_or_default();
     let feishu_accounts = feishu::list_accounts(&app).unwrap_or_default();
+    let wechat_accounts = wechat::list_accounts(&app).unwrap_or_default();
     Ok(json!({
         "running": running,
         "adapters": [
@@ -2741,10 +2929,54 @@ pub fn channel_adapter_status(state: State<'_, AppState>, app: AppHandle) -> Res
                 "mode": "webhook",
                 "enabled": running,
                 "accounts": telegram_accounts
+            },
+            {
+                "id": "wechat",
+                "mode": "polling",
+                "enabled": true,
+                "accounts": wechat_accounts
             }
         ],
         "runtime": runtime,
         "snapshot": snapshot,
+    }))
+}
+
+#[tauri::command]
+pub async fn channel_connector_wechat_auth_start(
+    request: ChannelConnectorWechatAuthStartRequest,
+) -> Result<Value, String> {
+    let snapshot = wechat::auth::start_auth(request.account_id.as_deref()).await?;
+    Ok(json!({
+        "channel": "wechat",
+        "session": snapshot,
+    }))
+}
+
+#[tauri::command]
+pub async fn channel_connector_wechat_auth_status(
+    request: ChannelConnectorWechatAuthStatusRequest,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let snapshot = wechat::auth::auth_status(&app, request.auth_session_id.as_str()).await?;
+    if snapshot.status == "confirmed" {
+        wechat::reconcile(&app, state.inner());
+    }
+    Ok(json!({
+        "channel": "wechat",
+        "session": snapshot,
+    }))
+}
+
+#[tauri::command]
+pub fn channel_connector_wechat_auth_cancel(
+    request: ChannelConnectorWechatAuthCancelRequest,
+) -> Result<Value, String> {
+    let snapshot = wechat::auth::cancel_auth(request.auth_session_id.as_str())?;
+    Ok(json!({
+        "channel": "wechat",
+        "session": snapshot,
     }))
 }
 
@@ -2838,6 +3070,9 @@ pub fn channel_access_policy_set(
     );
     state.task_service.clear_external_idempotency_cache();
     persist_access_policy(&app, &request.channel, &account_id, request.mode)?;
+    if request.channel.trim().eq_ignore_ascii_case("wechat") {
+        wechat::mark_access_policy_initialized(&app, &account_id)?;
+    }
     Ok(json!({
         "updated": true,
         "channel": request.channel,

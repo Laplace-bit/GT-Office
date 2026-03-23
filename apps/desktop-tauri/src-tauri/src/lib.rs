@@ -49,6 +49,7 @@ pub fn run() {
             channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
             connectors::feishu::websocket::spawn_supervisor(app_handle.clone(), state.inner().clone());
             connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
+            connectors::wechat::spawn_polling_supervisor(app_handle.clone(), state.inner().clone());
             tool_adapter::spawn_external_reply_flush_worker(
                 app_handle.clone(),
                 state.inner().clone(),
@@ -128,6 +129,7 @@ pub fn run() {
             workspace::surface::surface_close_window,
             workspace::surface::surface_set_window_topmost,
             workspace::surface::surface_start_window_dragging,
+            workspace::surface::surface_bridge_post,
             agent::agent_department_list,
             agent::agent_role_list,
             agent::agent_list,
@@ -193,6 +195,9 @@ pub fn run() {
             tool_adapter::channel_connector_account_list,
             tool_adapter::channel_connector_health,
             tool_adapter::channel_connector_webhook_sync,
+            tool_adapter::channel_connector_wechat_auth_start,
+            tool_adapter::channel_connector_wechat_auth_status,
+            tool_adapter::channel_connector_wechat_auth_cancel,
             tool_adapter::channel_binding_upsert,
             tool_adapter::channel_binding_list,
             tool_adapter::channel_binding_delete,

@@ -99,6 +99,7 @@ export type AppIconName =
   | 'sync'
   | 'telegram'
   | 'feishu'
+  | 'wechat'
   | 'activity'
   | 'pencil'
   | 'user-pen'
@@ -155,6 +156,7 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   sync: RefreshCcw,
   telegram: Send,
   feishu: MessageCircle,
+  wechat: MessageCircle,
   activity: Activity,
   pencil: Pencil,
   'user-pen': UserPen,

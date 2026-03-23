@@ -220,6 +220,9 @@ AI Config 约束（T-171）：
 | `channel_connector_account_upsert/list` | 对应字段 | `updated/accounts` |
 | `channel_connector_health` | `channel,accountId?` | `ok,status,webhookMatched` |
 | `channel_connector_webhook_sync` | `channel,accountId?,webhookUrl?` | `ok,webhookUrl,detail` |
+| `channel_connector_wechat_auth_start` | `accountId?` | `session{authSessionId,status,qrCodeSvgDataUrl,...}` |
+| `channel_connector_wechat_auth_status` | `authSessionId` | `session{status,boundAccountId?,detail,...}` |
+| `channel_connector_wechat_auth_cancel` | `authSessionId` | `session{status=cancelled,...}` |
 
 语义约束（关键）：
 1. `channel + accountId` 标识一个 bot 实例；UI 按 `channel -> bot -> route` 展示。
@@ -255,6 +258,10 @@ AI Config 约束（T-171）：
 15. Feishu v1 不提供远程方向控件；若存在交互 prompt，只发送提示文本，不声明可远程选择。
 16. `channel_connector_webhook_sync` 对 Feishu 是“生成 + 校验 callback URL”，不是像 Telegram `setWebhook` 那样的远端写回动作。
 17. `external/channel_outbound_result` payload 应补充 `channel?`，供用户侧消息流直接展示通道名；前端不得再从 `textPreview/detail` 文案反推 channel。
+18. `channel_connector_account_upsert` 对 WeChat 允许保存 `enabled/tokenRef/baseUrl`；token 明文只能通过二维码绑定流程进入系统凭据库，不得落盘。
+19. `channel_connector_wechat_auth_start/status/cancel` 仅用于 WeChat 二维码绑定会话；状态至少包含 `awaiting_scan/scanned/confirmed/expired/cancelled`。
+20. `channel_connector_health` 对 WeChat 需补充 `runtimeConnected/lastSyncAtMs/botDisplayName?`；当 token 失效时返回 `status=auth_failed`。
+21. WeChat v1 入站固定为 `peerKind=direct`，不支持 group；出站必须依赖最近一次入站缓存的 `context_token`，缺失时返回 `CHANNEL_CONNECTOR_CONTEXT_MISSING`。
 
 ## 4. Event 契约（V1）
 

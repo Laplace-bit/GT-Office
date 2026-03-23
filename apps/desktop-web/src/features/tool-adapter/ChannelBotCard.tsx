@@ -48,7 +48,14 @@ export function ChannelBotCard({
   healthCheckingKey,
   loading,
 }: ChannelBotCardProps) {
-  const channelLabel = group.channel === 'telegram' ? 'Telegram' : group.channel === 'feishu' ? 'Feishu' : group.channel
+  const channelLabel =
+    group.channel === 'telegram'
+      ? 'Telegram'
+      : group.channel === 'feishu'
+      ? 'Feishu'
+      : group.channel === 'wechat'
+      ? 'WeChat'
+      : group.channel
 
   const getTargetLabel = (target: { type: string; value: string }) => {
     if (target.type === 'role') {
@@ -67,6 +74,8 @@ export function ChannelBotCard({
           <div className={`channel-bot-icon ${group.channel}`}>
             {group.channel === 'telegram' ? (
               <AppIcon name="telegram" className="vb-icon" />
+            ) : group.channel === 'wechat' ? (
+              <AppIcon name="wechat" className="vb-icon" />
             ) : group.channel === 'feishu' ? (
               <AppIcon name="feishu" className="vb-icon" />
             ) : (

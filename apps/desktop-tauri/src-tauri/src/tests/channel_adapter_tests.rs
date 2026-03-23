@@ -1,11 +1,12 @@
 use super::{
     align_route_with_resolved_workspace, channel_supports_external_reply, codex_event_text,
-    find_command_in_dir, normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
-    runtime_supports_structured_relay, split_text_for_channel, AgentRuntimeRegistration,
-    AgentToolKind,
+    find_command_in_dir, migrate_legacy_wechat_access_policies, normalize_executable_path,
+    nvm_bin_dirs, resolve_cli_candidate, runtime_supports_structured_relay, split_text_for_channel,
+    AgentRuntimeRegistration, AgentToolKind, PersistedChannelAccessPolicy,
+    PersistedChannelStateFile, PersistedRouteBindingRecord,
 };
-use std::fs;
 use std::path::PathBuf;
+use std::{collections::HashSet, fs};
 use uuid::Uuid;
 use vb_task::{
     ChannelRouteBinding, ExternalInboundMessage, ExternalPeerKind, ExternalRouteResolution,
@@ -181,10 +182,76 @@ fn split_text_for_channel_falls_back_to_hard_split_when_no_newline() {
 }
 
 #[test]
-fn channel_supports_external_reply_includes_feishu_and_telegram() {
+fn channel_supports_external_reply_includes_feishu_telegram_and_wechat() {
     assert!(channel_supports_external_reply("telegram"));
     assert!(channel_supports_external_reply("feishu"));
+    assert!(channel_supports_external_reply("wechat"));
     assert!(!channel_supports_external_reply("slack"));
+}
+
+#[test]
+fn migrate_legacy_wechat_access_policies_promotes_pairing_to_open_once() {
+    let mut state_file = PersistedChannelStateFile {
+        route_bindings: vec![
+            PersistedRouteBindingRecord {
+                binding: ChannelRouteBinding {
+                    workspace_id: "ws-1".to_string(),
+                    channel: "wechat".to_string(),
+                    account_id: Some("default".to_string()),
+                    peer_kind: Some(ExternalPeerKind::Direct),
+                    peer_pattern: None,
+                    target_agent_id: "role:manager".to_string(),
+                    priority: 100,
+                    created_at_ms: None,
+                    bot_name: None,
+                },
+                workspace_root: None,
+            },
+            PersistedRouteBindingRecord {
+                binding: ChannelRouteBinding {
+                    workspace_id: "ws-2".to_string(),
+                    channel: "telegram".to_string(),
+                    account_id: Some("default".to_string()),
+                    peer_kind: Some(ExternalPeerKind::Direct),
+                    peer_pattern: None,
+                    target_agent_id: "role:ops".to_string(),
+                    priority: 100,
+                    created_at_ms: None,
+                    bot_name: None,
+                },
+                workspace_root: None,
+            },
+        ],
+        access_policies: vec![
+            PersistedChannelAccessPolicy {
+                channel: "wechat".to_string(),
+                account_id: "default".to_string(),
+                mode: vb_task::ExternalAccessPolicyMode::Pairing,
+            },
+            PersistedChannelAccessPolicy {
+                channel: "telegram".to_string(),
+                account_id: "default".to_string(),
+                mode: vb_task::ExternalAccessPolicyMode::Pairing,
+            },
+        ],
+        ..PersistedChannelStateFile::default()
+    };
+
+    let migrated = migrate_legacy_wechat_access_policies(
+        &mut state_file,
+        &HashSet::from(["default".to_string()]),
+    );
+
+    assert_eq!(migrated, vec!["default".to_string()]);
+    assert_eq!(state_file.access_policies.len(), 2);
+    assert_eq!(
+        state_file.access_policies[0].mode,
+        vb_task::ExternalAccessPolicyMode::Open
+    );
+    assert_eq!(
+        state_file.access_policies[1].mode,
+        vb_task::ExternalAccessPolicyMode::Pairing
+    );
 }
 
 #[test]
