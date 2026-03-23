@@ -9,7 +9,6 @@ export type NavItemId =
   | 'hooks'
   | 'channels'
   | 'policy'
-  | 'settings'
 
 export interface NavItem {
   id: NavItemId
@@ -25,14 +24,11 @@ export interface PaneModel {
 
 export function getNavItems(locale: Locale): NavItem[] {
   return [
-    { id: 'stations', label: t(locale, 'nav.stations'), short: t(locale, 'nav.stationsShort') },
-    { id: 'tasks', label: t(locale, 'nav.tasks'), short: t(locale, 'nav.tasksShort') },
     { id: 'files', label: t(locale, 'nav.files'), short: t(locale, 'nav.filesShort') },
     { id: 'git', label: t(locale, 'nav.git'), short: 'Git' },
-    { id: 'hooks', label: t(locale, 'nav.hooks'), short: t(locale, 'nav.hooksShort') },
+    { id: 'tasks', label: t(locale, 'nav.tasks'), short: t(locale, 'nav.tasksShort') },
     { id: 'channels', label: t(locale, 'nav.channels'), short: t(locale, 'nav.channelsShort') },
-    { id: 'policy', label: t(locale, 'nav.policy'), short: t(locale, 'nav.policyShort') },
-    { id: 'settings', label: t(locale, 'nav.settings'), short: t(locale, 'nav.settingsShort') },
+    { id: 'stations', label: t(locale, 'nav.stations'), short: t(locale, 'nav.stationsShort') },
   ]
 }
 
@@ -81,16 +77,6 @@ export function getPaneModels(locale: Locale): Record<NavItemId, PaneModel> {
       title: t(locale, 'pane.policy.title'),
       subtitle: t(locale, 'pane.policy.subtitle'),
       items: ['ALLOW: terminal.exec', 'DENY: fs.write(outside workspace)', 'ALLOW: settings.read'],
-    },
-    settings: {
-      title: t(locale, 'pane.settings.title'),
-      subtitle: t(locale, 'pane.settings.subtitle'),
-      items: [
-        t(locale, 'pane.settings.theme'),
-        t(locale, 'pane.settings.keymap'),
-        t(locale, 'pane.settings.aiAllowlist'),
-        'Tool Profiles',
-      ],
     },
   }
 }

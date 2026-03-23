@@ -3434,9 +3434,6 @@ export function ShellRoot() {
     (id: NavItemId) => {
       const isSameTab = id === activeNavId
       setActiveNavId(id)
-      if (id === 'settings') {
-        setIsSettingsOpen(true)
-      }
       if (isSameTab) {
         setLeftPaneVisible((prev) => !prev)
       } else {

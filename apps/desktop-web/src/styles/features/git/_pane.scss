@@ -176,6 +176,41 @@
   background: color-mix(in srgb, var(--vb-error) 8%, var(--vb-surface));
 }
 
+.git-pane__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vb-space-sm);
+  padding: #{rem(7)} #{rem(14)};
+  border-bottom: var(--vb-border-width) solid var(--vb-border);
+  font-size: var(--vb-git-font-xs);
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--vb-warning) 78%, var(--vb-text));
+  background: color-mix(in srgb, var(--vb-warning) 10%, var(--vb-surface));
+}
+
+.git-pane__notice-message {
+  min-width: 0;
+}
+
+.git-pane__notice-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: #{rem(24)};
+  height: #{rem(24)};
+  border: none;
+  border-radius: var(--vb-radius-sm);
+  background: transparent;
+  color: inherit;
+  flex-shrink: 0;
+  transition: background-color 160ms var(--vb-ease-out);
+}
+
+.git-pane__notice-dismiss:hover {
+  background: color-mix(in srgb, var(--vb-warning) 14%, transparent);
+}
+
 .git-history-switch {
   border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border-strong) 72%, transparent);
   border-radius: var(--vb-radius-full);

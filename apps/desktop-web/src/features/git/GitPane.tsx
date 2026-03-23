@@ -314,6 +314,33 @@ const GitDiscardConfirmDialog = memo(function GitDiscardConfirmDialog({
   )
 })
 
+interface GitNoticeBannerProps {
+  locale: 'zh-CN' | 'en-US'
+  message: string
+  onDismiss: () => void
+}
+
+const GitNoticeBanner = memo(function GitNoticeBanner({
+  locale,
+  message,
+  onDismiss,
+}: GitNoticeBannerProps) {
+  return (
+    <div className="git-pane__notice" role="status" aria-live="polite">
+      <span className="git-pane__notice-message">{message}</span>
+      <button
+        type="button"
+        className="git-pane__notice-dismiss"
+        onClick={onDismiss}
+        aria-label={t(locale, 'settingsModal.close')}
+        title={t(locale, 'settingsModal.close')}
+      >
+        <AppIcon name="x-mark" />
+      </button>
+    </div>
+  )
+})
+
 // ============================================
 // Git Operations Pane Component
 // ============================================
@@ -336,6 +363,8 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     hasUnstagedFiles,
     actionLoading,
     errorMessage,
+    repositoryNotice,
+    dismissRepositoryNotice,
     commitMessage,
     setCommitMessage,
     stashMessage,
@@ -536,6 +565,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
           </div>
         </header>
 
+        {repositoryNotice ? (
+          <GitNoticeBanner
+            locale={locale}
+            message={repositoryNotice}
+            onDismiss={dismissRepositoryNotice}
+          />
+        ) : null}
         {errorMessage ? <div className="git-pane__error">{errorMessage}</div> : null}
 
         {/* Scrollable content area */}

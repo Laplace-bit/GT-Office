@@ -278,7 +278,6 @@ const NAV_ITEM_ID_SET = new Set<NavItemId>([
   'hooks',
   'channels',
   'policy',
-  'settings',
 ])
 
 export function isNavItemId(value: string): value is NavItemId {

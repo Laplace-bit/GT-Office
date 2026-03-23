@@ -61,6 +61,8 @@ export interface GitWorkspaceController {
   metaLoading: boolean
   actionLoading: string | null
   errorMessage: string | null
+  repositoryNotice: string | null
+  dismissRepositoryNotice: () => void
   commitMessage: string
   setCommitMessage: (message: string) => void
   stashMessage: string
@@ -233,6 +235,7 @@ export function useGitWorkspaceController({
   const [isGitRepository, setIsGitRepository] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [repositoryNotice, setRepositoryNotice] = useState<string | null>(null)
   const [commitMessage, setCommitMessage] = useState('')
   const [newBranchName, setNewBranchName] = useState('')
   const [checkoutTarget, setCheckoutTarget] = useState<string>('')
@@ -324,6 +327,7 @@ export function useGitWorkspaceController({
       setHasMoreHistory(false)
       setHistorySkip(0)
       setIsGitRepository(true)
+      setRepositoryNotice(null)
       return
     }
     setMetaLoading(true)
@@ -341,6 +345,7 @@ export function useGitWorkspaceController({
       setCheckoutTarget((prev) => prev || currentBranch)
       await fetchHistoryPage(0, 'replace')
       setIsGitRepository(true)
+      setRepositoryNotice(null)
       setErrorMessage(null)
     } catch (error) {
       if (isNotGitRepositoryError(error)) {
@@ -351,10 +356,12 @@ export function useGitWorkspaceController({
         setHistorySkip(0)
         setCheckoutTarget('')
         setIsGitRepository(false)
-        setErrorMessage(t(locale, 'git.info.notRepository'))
+        setRepositoryNotice(t(locale, 'git.info.notRepository'))
+        setErrorMessage(null)
         return
       }
       setIsGitRepository(true)
+      setRepositoryNotice(null)
       setErrorMessage(t(locale, 'git.error.metaLoad', { detail: describeUnknownError(error) }))
     } finally {
       setMetaLoading(false)
@@ -401,12 +408,15 @@ export function useGitWorkspaceController({
       setActionLoading(actionKey)
       try {
         await runner()
+        setRepositoryNotice(null)
         setErrorMessage(null)
       } catch (error) {
         if (isNotGitRepositoryError(error)) {
           setIsGitRepository(false)
-          setErrorMessage(t(locale, 'git.info.notRepository'))
+          setRepositoryNotice(t(locale, 'git.info.notRepository'))
+          setErrorMessage(null)
         } else {
+          setRepositoryNotice(null)
           setErrorMessage(describeUnknownError(error))
         }
       } finally {
@@ -663,6 +673,7 @@ export function useGitWorkspaceController({
     setHistorySkip(0)
     setHasMoreHistory(false)
     setIsGitRepository(true)
+    setRepositoryNotice(null)
     setStructuredDiff(null)
     setShowDiffView(false)
     invalidateDiffCache()
@@ -814,6 +825,10 @@ export function useGitWorkspaceController({
     }
   }, [])
 
+  const dismissRepositoryNotice = useCallback(() => {
+    setRepositoryNotice(null)
+  }, [])
+
   return {
     locale,
     workspaceId,
@@ -839,6 +854,8 @@ export function useGitWorkspaceController({
     metaLoading,
     actionLoading,
     errorMessage,
+    repositoryNotice,
+    dismissRepositoryNotice,
     commitMessage,
     setCommitMessage,
     stashMessage,
