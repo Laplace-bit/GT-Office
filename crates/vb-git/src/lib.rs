@@ -471,6 +471,7 @@ where
         &self,
         root: &Path,
         paths: &[String],
+        error_code: &str,
     ) -> AbstractionResult<std::collections::HashSet<String>> {
         if paths.is_empty() {
             return Ok(std::collections::HashSet::new());
@@ -484,7 +485,7 @@ where
         ];
         owned_args.extend(paths.iter().cloned());
         let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
-        let output = self.run_git(root, &args, "GIT_DISCARD_FAILED")?;
+        let output = self.run_git(root, &args, error_code)?;
 
         Ok(output
             .lines()
@@ -856,7 +857,7 @@ where
                 );
 
                 // Check if we need to start a new hunk
-                let is_new_hunk = current_hunk.as_ref().map_or(true, |h| h.header != header);
+                let is_new_hunk = current_hunk.as_ref().is_none_or(|h| h.header != header);
 
                 if is_new_hunk {
                     // Save previous hunk
@@ -937,11 +938,67 @@ where
         path: &str,
         diff_mode: GitDiffMode,
     ) -> AbstractionResult<String> {
+        // `git diff -- <path>` does not emit a patch for untracked worktree files until they are
+        // added to the index. Synthesize a `/dev/null -> file` patch so the diff viewer can render
+        // new files before staging.
+        if diff_mode == GitDiffMode::Unstaged {
+            if let Some(patch) = self.build_untracked_worktree_patch(root, path)? {
+                return Ok(patch);
+            }
+        }
+
         let args = match diff_mode {
             GitDiffMode::Staged => vec!["diff", "--cached", "--no-ext-diff", "--", path],
             GitDiffMode::Unstaged => vec!["diff", "--no-ext-diff", "--", path],
         };
         self.run_git(root, &args, "GIT_DIFF_FAILED")
+    }
+
+    fn build_untracked_worktree_patch(
+        &self,
+        root: &Path,
+        path: &str,
+    ) -> AbstractionResult<Option<String>> {
+        let requested_paths = vec![path.to_string()];
+        let untracked_paths =
+            self.list_untracked_paths(root, &requested_paths, "GIT_DIFF_FAILED")?;
+        if !untracked_paths.contains(path) {
+            return Ok(None);
+        }
+
+        let patch = match Self::read_worktree_snapshot(root, path)? {
+            GitSnapshotContent::Missing => return Ok(None),
+            GitSnapshotContent::Binary => Self::build_new_file_binary_patch(path),
+            GitSnapshotContent::Text(content) => Self::build_new_file_text_patch(path, &content),
+        };
+        Ok(Some(patch))
+    }
+
+    fn build_new_file_text_patch(path: &str, content: &str) -> String {
+        let mut patch = format!(
+            "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n"
+        );
+        let line_count = content.lines().count();
+        if line_count == 0 {
+            return patch;
+        }
+
+        patch.push_str(&format!("@@ -0,0 +1,{line_count} @@\n"));
+        for line in content.lines() {
+            patch.push('+');
+            patch.push_str(line);
+            patch.push('\n');
+        }
+        if !content.ends_with('\n') && !content.ends_with('\r') {
+            patch.push_str("\\ No newline at end of file\n");
+        }
+        patch
+    }
+
+    fn build_new_file_binary_patch(path: &str) -> String {
+        format!(
+            "diff --git a/{path} b/{path}\nnew file mode 100644\nBinary files /dev/null and b/{path} differ\n"
+        )
     }
 
     fn read_head_snapshot(repo: &Repository, path: &str) -> AbstractionResult<GitSnapshotContent> {
@@ -1036,10 +1093,7 @@ where
         let diff = TextDiff::from_lines(before_text, after_text);
 
         for change in diff.iter_all_changes() {
-            let content = change
-                .value()
-                .trim_end_matches(|c| c == '\r' || c == '\n')
-                .to_string();
+            let content = change.value().trim_end_matches(['\r', '\n']).to_string();
             match change.tag() {
                 ChangeTag::Equal => {
                     lines.push(GitDiffLine {
@@ -1414,7 +1468,7 @@ where
         let root = self.workspace_root(workspace_id)?;
 
         let untracked_paths = if include_untracked {
-            self.list_untracked_paths(&root, paths)?
+            self.list_untracked_paths(&root, paths, "GIT_DISCARD_FAILED")?
         } else {
             std::collections::HashSet::new()
         };
@@ -2163,6 +2217,40 @@ mod tests {
         assert!(unstaged_lines
             .iter()
             .any(|line| line.kind == "add" && line.content == "worktree"));
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn unstaged_untracked_jsx_file_returns_new_file_diff_before_staging() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(
+            root.join("Widget.jsx"),
+            "export function Widget() {\n  return <div>hello</div>\n}\n",
+        )
+        .expect("jsx file should be written");
+
+        let raw_patch = service
+            .diff_file(&workspace_id, "Widget.jsx", false)
+            .expect("unstaged raw diff should succeed");
+        let structured = service
+            .diff_file_structured(&workspace_id, "Widget.jsx", false)
+            .expect("unstaged structured diff should succeed");
+
+        assert!(raw_patch.contains("new file mode 100644"));
+        assert!(raw_patch.contains("--- /dev/null"));
+        assert!(raw_patch.contains("+++ b/Widget.jsx"));
+        assert!(raw_patch.contains("+export function Widget() {"));
+        assert!(structured.is_new);
+        assert!(!structured.is_binary);
+        assert_eq!(structured.additions, 3);
+        assert_eq!(structured.deletions, 0);
+        assert_eq!(structured.hunks.len(), 1);
+        assert!(structured.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == "add" && line.content == "  return <div>hello</div>"));
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
     }
