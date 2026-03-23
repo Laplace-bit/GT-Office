@@ -298,20 +298,6 @@
   }
 }
 
-.station-icon-tooltip {
-  position: fixed;
-  z-index: 9999;
-  transform: translate(-50%, calc(-100% - rem(2)));
-  padding: rem(6) rem(10);
-  border-radius: rem(10);
-  border: rem(1) solid rgba(255, 255, 255, 0.08);
-  background: rgba(12, 12, 14, 0.94);
-  color: #f8fafc;
-  font-size: rem(11);
-  font-weight: 600;
-  box-shadow: 0 rem(14) rem(28) rgba(0, 0, 0, 0.24);
-  pointer-events: none;
-}
 
 .station-unread-badge {
   padding: rem(1.5) rem(6);

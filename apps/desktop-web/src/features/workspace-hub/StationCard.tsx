@@ -1,6 +1,5 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { DragEvent, FocusEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { GripHorizontal } from 'lucide-react'
 import type { AgentStation, StationRole } from './station-model'
 import type { StationTaskSignal } from '@features/task-center'
@@ -19,7 +18,6 @@ import './StationCard.scss'
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
-const STATION_TOOLTIP_OFFSET_PX = 6
 
 const roleKeyMap: Record<
   StationRole,
@@ -71,112 +69,20 @@ function StationIconButton({
   onDragEnd,
   children,
 }: StationIconButtonProps) {
-  const tooltipId = useId()
-  const buttonRef = useRef<HTMLButtonElement | null>(null)
-  const [tooltipOpen, setTooltipOpen] = useState(false)
-  const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null)
-
-  const updateTooltipPosition = useCallback(() => {
-    const button = buttonRef.current
-    if (!button) {
-      return
-    }
-    const rect = button.getBoundingClientRect()
-    setTooltipPosition({
-      top: rect.top - STATION_TOOLTIP_OFFSET_PX,
-      left: rect.left + rect.width / 2,
-    })
-  }, [])
-
-  useLayoutEffect(() => {
-    if (!tooltipOpen) {
-      return
-    }
-    updateTooltipPosition()
-  }, [tooltipOpen, updateTooltipPosition, tooltip])
-
-  useEffect(() => {
-    if (!tooltipOpen) {
-      return
-    }
-    let frameId: number | null = null
-    const scheduleUpdate = () => {
-      if (frameId !== null) {
-        return
-      }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null
-        updateTooltipPosition()
-      })
-    }
-    const handleScroll = () => scheduleUpdate()
-    window.addEventListener('scroll', handleScroll, true)
-    window.addEventListener('resize', handleScroll)
-    return () => {
-      window.removeEventListener('scroll', handleScroll, true)
-      window.removeEventListener('resize', handleScroll)
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId)
-      }
-    }
-  }, [tooltipOpen, updateTooltipPosition])
-
-  const handleMouseEnter = () => {
-    setTooltipOpen(true)
-  }
-
-  const handleMouseLeave = () => {
-    setTooltipOpen(false)
-  }
-
-  const handleFocus = (event: FocusEvent<HTMLButtonElement>) => {
-    if (!event.currentTarget.matches(':focus-visible')) {
-      return
-    }
-    setTooltipOpen(true)
-  }
-
-  const handleBlur = () => {
-    setTooltipOpen(false)
-  }
-
   return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        className={['station-icon-button', className].filter(Boolean).join(' ')}
-        aria-label={ariaLabel}
-        aria-describedby={tooltipOpen ? tooltipId : undefined}
-        onClick={onClick}
-        onPointerDown={onPointerDown}
-        draggable={draggable}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-      >
-        {children}
-      </button>
-      {tooltipOpen && tooltipPosition
-        ? createPortal(
-            <div
-              id={tooltipId}
-              role="tooltip"
-              className="station-icon-tooltip"
-              style={{
-                top: tooltipPosition.top,
-                left: tooltipPosition.left,
-              }}
-            >
-              {tooltip}
-            </div>,
-            document.body,
-          )
-        : null}
-    </>
+    <button
+      type="button"
+      className={['station-icon-button', className].filter(Boolean).join(' ')}
+      aria-label={ariaLabel}
+      title={tooltip}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+    >
+      {children}
+    </button>
   )
 }
 
