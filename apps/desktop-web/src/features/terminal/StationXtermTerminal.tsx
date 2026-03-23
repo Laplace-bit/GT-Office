@@ -248,6 +248,8 @@ function StationXtermTerminalView({
   const screenRevisionRef = useRef(0)
   const lastSnapshotSignatureRef = useRef('')
   const appearanceSyncFrameRef = useRef<number | null>(null)
+  const focusTerminalRequestRef = useRef<(() => void) | null>(null)
+  const focusRetryFrameRef = useRef<number | null>(null)
 
   const syncTerminalAppearance = useCallback(() => {
     const terminal = terminalRef.current
@@ -311,10 +313,17 @@ function StationXtermTerminalView({
     return () => {
       const frameId = appearanceSyncFrameRef.current
       if (frameId === null) {
-        return
+        focusTerminalRequestRef.current = null
+      } else {
+        appearanceSyncFrameRef.current = null
+        window.cancelAnimationFrame(frameId)
       }
-      appearanceSyncFrameRef.current = null
-      window.cancelAnimationFrame(frameId)
+      const focusFrameId = focusRetryFrameRef.current
+      if (focusFrameId !== null) {
+        focusRetryFrameRef.current = null
+        window.cancelAnimationFrame(focusFrameId)
+      }
+      focusTerminalRequestRef.current = null
     }
   }, [])
 
@@ -377,6 +386,52 @@ function StationXtermTerminalView({
         terminalRef.current = terminal
         fitAddonRef.current = fitAddon
         scheduleTerminalAppearanceSync()
+
+        const cancelScheduledTerminalFocus = () => {
+          const frameId = focusRetryFrameRef.current
+          if (frameId === null) {
+            return
+          }
+          focusRetryFrameRef.current = null
+          window.cancelAnimationFrame(frameId)
+        }
+        const terminalHasDomFocus = () => {
+          const textarea = terminal.textarea
+          if (textarea && textarea.ownerDocument.activeElement === textarea) {
+            return true
+          }
+          return host.matches(':focus-within')
+        }
+        const requestTerminalFocus = (retryFrames = 8) => {
+          cancelScheduledTerminalFocus()
+          let remainingFrames = Math.max(0, retryFrames)
+          const attemptFocus = () => {
+            if (!active) {
+              return
+            }
+            try {
+              terminal.focus()
+            } catch {
+              return
+            }
+            scheduleRefresh()
+            if (terminalHasDomFocus()) {
+              return
+            }
+            if (remainingFrames <= 0) {
+              return
+            }
+            remainingFrames -= 1
+            focusRetryFrameRef.current = window.requestAnimationFrame(() => {
+              focusRetryFrameRef.current = null
+              attemptFocus()
+            })
+          }
+          attemptFocus()
+        }
+        focusTerminalRequestRef.current = () => {
+          requestTerminalFocus()
+        }
 
         const refreshTerminal = () => {
           terminal.refresh(0, Math.max(0, terminal.rows - 1))
@@ -695,8 +750,7 @@ function StationXtermTerminalView({
             })
           },
           focus: () => {
-            terminal.focus()
-            scheduleRefresh()
+            requestTerminalFocus()
           },
           submit: () => submitFromXterm(),
         }
@@ -737,6 +791,11 @@ function StationXtermTerminalView({
       if (serializeFrameId !== null) {
         window.cancelAnimationFrame(serializeFrameId)
       }
+      if (focusRetryFrameRef.current !== null) {
+        window.cancelAnimationFrame(focusRetryFrameRef.current)
+        focusRetryFrameRef.current = null
+      }
+      focusTerminalRequestRef.current = null
       terminalRef.current?.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
@@ -761,15 +820,8 @@ function StationXtermTerminalView({
           return
         }
         // Activate/focus on pointer down so first click lands in terminal input reliably.
-        const shellElement = event.currentTarget
         onActivateStation()
-        terminalRef.current?.focus()
-        queueMicrotask(() => {
-          if (shellElement.matches(':focus-within')) {
-            return
-          }
-          terminalRef.current?.focus()
-        })
+        focusTerminalRequestRef.current?.()
       }}
       onClick={(event) => {
         // Stop bubbling so card body click does not override terminal-first interaction.
@@ -838,7 +890,7 @@ function StationXtermTerminalView({
         if (event.target !== event.currentTarget) {
           return
         }
-        terminalRef.current?.focus()
+        focusTerminalRequestRef.current?.()
       }}
     >
       <div ref={hostRef} className="station-terminal-host" />

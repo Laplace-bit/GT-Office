@@ -1,6 +1,6 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window};
 use uuid::Uuid;
 
@@ -249,5 +249,35 @@ pub fn surface_start_window_dragging(
     Ok(json!({
         "windowLabel": target_label,
         "started": true,
+    }))
+}
+
+#[tauri::command]
+pub fn surface_bridge_post(
+    target_window_label: String,
+    payload: Value,
+    window: Window,
+) -> Result<serde_json::Value, String> {
+    let target_label = target_window_label.trim();
+    if target_label.is_empty() {
+        return Err("SURFACE_INVALID_PARAMS: targetWindowLabel is required".to_string());
+    }
+    let app: tauri::AppHandle = window.app_handle().clone();
+    app.get_webview_window(target_label).ok_or_else(|| {
+        format!("SURFACE_WINDOW_NOT_FOUND: window '{target_label}' is unavailable")
+    })?;
+    app.emit_to(
+        target_label,
+        "surface/bridge",
+        json!({
+            "sourceWindowLabel": window.label(),
+            "targetWindowLabel": target_label,
+            "payload": payload,
+        }),
+    )
+    .map_err(|error| format!("SURFACE_BRIDGE_EMIT_FAILED: {error}"))?;
+    Ok(json!({
+        "accepted": true,
+        "targetWindowLabel": target_label,
     }))
 }

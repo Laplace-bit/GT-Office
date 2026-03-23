@@ -1,11 +1,19 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
-import { DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY } from './detached-window-sync'
 import type { AgentStation, StationRole } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
-import { normalizeWorkbenchCustomLayout, type WorkbenchCustomLayout, type WorkbenchLayoutMode } from './workbench-layout-model'
+import {
+  normalizeWorkbenchCustomLayout,
+  type WorkbenchCustomLayout,
+  type WorkbenchLayoutMode,
+} from './workbench-layout-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
-import { resolveAgentWorkdirAbs } from '@features/workspace'
+import {
+  DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
+  appendDetachedTerminalOutput,
+  createEmptyWorkbenchStationRuntime,
+  normalizeDetachedTerminalRuntime,
+} from './detached-terminal-bridge'
 import type { Locale } from '@shell/i18n/ui-locale'
 import {
   applyUiPreferences,
@@ -14,19 +22,21 @@ import {
 } from '@shell/state/ui-preferences'
 import {
   desktopApi,
+  type DetachedTerminalBridgeMessage,
+  type DetachedTerminalHydrateSnapshotMessage,
+  type SurfaceBridgeEventPayload,
   type SurfaceDetachedStationPayload,
   type SurfaceWindowUpdatedPayload,
-  type TerminalMetaPayload,
-  type TerminalOutputPayload,
-  type TerminalStatePayload,
 } from '@shell/integration/desktop-api'
+import type {
+  StationTerminalSink,
+  StationTerminalSinkBindingMeta,
+} from '@features/terminal'
 import './DetachedWorkbenchWindow.scss'
 
 const STATION_INPUT_FLUSH_MS = 4
 const STATION_INPUT_MAX_BUFFER_BYTES = 65536
 const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
-const TERMINAL_OUTPUT_CACHE_MAX_CHARS = 50000
-const TERMINAL_WRITE_READBACK_DELAY_MS = 28
 
 export interface DetachedWorkbenchWindowPayload {
   windowLabel: string
@@ -38,16 +48,6 @@ export interface DetachedWorkbenchWindowPayload {
   customLayout?: WorkbenchCustomLayout
   topmost: boolean
   stations: SurfaceDetachedStationPayload[]
-}
-
-function decodeBase64Chunk(base64Chunk: string): string {
-  try {
-    const binary = window.atob(base64Chunk)
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-    return new TextDecoder().decode(bytes)
-  } catch {
-    return ''
-  }
 }
 
 function toStationRole(value: string): StationRole {
@@ -76,17 +76,15 @@ function buildInitialRuntimeMap(
   stations: SurfaceDetachedStationPayload[],
 ): Record<string, WorkbenchStationRuntime> {
   return stations.reduce<Record<string, WorkbenchStationRuntime>>((acc, station) => {
-    acc[station.stationId] = {
+    acc[station.stationId] = normalizeDetachedTerminalRuntime({
       sessionId: station.sessionId?.trim() ?? null,
-      unreadCount: 0,
       stateRaw: station.sessionId ? 'running' : 'idle',
-      shell: null,
-      cwdMode: 'workspace_root',
-      resolvedCwd: null,
-    }
+    })
     return acc
   }, {})
 }
+
+const DETACHED_LOG_PREFIX = '[detached-terminal]'
 
 function buildDetachedContainer(payload: DetachedWorkbenchWindowPayload): WorkbenchContainerModel {
   return {
@@ -142,44 +140,33 @@ interface StationTerminalRestoreState {
   rows: number
 }
 
-function appendTerminalOutputChunk(previous: string | undefined, chunk: string): string {
-  const merged = `${previous ?? ''}${chunk}`
-  return merged.length > TERMINAL_OUTPUT_CACHE_MAX_CHARS
-    ? merged.slice(merged.length - TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-    : merged
-}
-
 function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWindowPayload }) {
   const initialPreferences = useMemo(loadUiPreferences, [])
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(initialPreferences)
   const stations = useMemo(() => payload.stations.map(mapDetachedStation), [payload.stations])
   const stationsRef = useRef(stations)
   const [container, setContainer] = useState<WorkbenchContainerModel>(() => buildDetachedContainer(payload))
-  const [activeStationId, setActiveStationId] = useState(payload.activeStationId ?? payload.stations[0]?.stationId ?? '')
-  const [stationRuntimes, setStationRuntimes] = useState<Record<string, WorkbenchStationRuntime>>(() =>
-    buildInitialRuntimeMap(payload.stations),
+  const [activeStationId, setActiveStationId] = useState(
+    payload.activeStationId ?? payload.stations[0]?.stationId ?? '',
   )
+  const activeStationIdRef = useRef(activeStationId)
+  const [stationRuntimes, setStationRuntimes] = useState<Record<string, WorkbenchStationRuntime>>(() => {
+    const runtimes = buildInitialRuntimeMap(payload.stations)
+    console.log(DETACHED_LOG_PREFIX, 'init runtimes', JSON.stringify(Object.entries(runtimes).map(([k, v]) => [k.slice(0, 8), v.sessionId?.slice(0, 8) ?? null])))
+    return runtimes
+  })
   const stationRuntimesRef = useRef(stationRuntimes)
-  const sessionStationRef = useRef<Record<string, string>>(
-    payload.stations.reduce<Record<string, string>>((acc, station) => {
-      if (station.sessionId) {
-        acc[station.sessionId] = station.stationId
-      }
-      return acc
-    }, {}),
-  )
-  const terminalSeqRef = useRef<Record<string, number>>({})
-  const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
-  const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
-  const sinkByStationRef = useRef<Record<string, import('@features/terminal').StationTerminalSink | null>>({})
+  const sinkByStationRef = useRef<Record<string, StationTerminalSink | null>>({})
   const stationTerminalRestoreStateRef = useRef<Record<string, StationTerminalRestoreState>>({})
   const outputCacheRef = useRef<Record<string, string>>({})
-  const workspaceRootRef = useRef<string | null>(null)
+  const projectionSeqRef = useRef<Record<string, number>>({})
+  const hydrateInFlightRef = useRef(false)
+  const ensureSessionInFlightRef = useRef<Record<string, boolean>>({})
+  const pendingFocusStationRef = useRef<Record<string, boolean>>({})
+  const pendingLaunchCommandRef = useRef<Record<string, string | null>>({})
   const inputQueueRef = useRef<Record<string, string>>({})
   const inputSendingRef = useRef<Record<string, boolean>>({})
   const inputFlushTimerRef = useRef<Record<string, number | null>>({})
-  const inputReadbackTimerRef = useRef<Record<string, number | null>>({})
-  const inputReadbackInFlightRef = useRef<Record<string, boolean>>({})
 
   useEffect(() => {
     stationsRef.current = stations
@@ -188,6 +175,10 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   useEffect(() => {
     stationRuntimesRef.current = stationRuntimes
   }, [stationRuntimes])
+
+  useEffect(() => {
+    activeStationIdRef.current = activeStationId
+  }, [activeStationId])
 
   useEffect(() => {
     applyUiPreferences(uiPreferences)
@@ -206,16 +197,15 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     }
   }, [])
 
+  const postBridgeMessage = useCallback(
+    async (message: DetachedTerminalBridgeMessage) =>
+      desktopApi.surfaceBridgePost(DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL, message),
+    [],
+  )
+
   const setStationRuntime = useCallback((stationId: string, patch: Partial<WorkbenchStationRuntime>) => {
     setStationRuntimes((prev) => {
-      const current = prev[stationId] ?? {
-        sessionId: null,
-        unreadCount: 0,
-        stateRaw: 'idle',
-        shell: null,
-        cwdMode: 'workspace_root',
-        resolvedCwd: null,
-      }
+      const current = prev[stationId] ?? createEmptyWorkbenchStationRuntime()
       return {
         ...prev,
         [stationId]: {
@@ -231,10 +221,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       return
     }
     setStationRuntimes((prev) => {
-      const runtime = prev[stationId]
-      if (!runtime) {
-        return prev
-      }
+      const runtime = prev[stationId] ?? createEmptyWorkbenchStationRuntime()
       const nextUnreadCount = Math.min(999, runtime.unreadCount + delta)
       if (nextUnreadCount === runtime.unreadCount) {
         return prev
@@ -249,346 +236,62 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     })
   }, [])
 
-  const appendStationTerminalOutput = useCallback((stationId: string, chunk: string) => {
-    if (!chunk) {
-      return
-    }
-    outputCacheRef.current[stationId] = appendTerminalOutputChunk(outputCacheRef.current[stationId], chunk)
-    sinkByStationRef.current[stationId]?.write(chunk)
-  }, [])
-
-  const resetStationTerminalOutput = useCallback((stationId: string, content = '') => {
-    const nextContent =
-      content.length > TERMINAL_OUTPUT_CACHE_MAX_CHARS
-        ? content.slice(content.length - TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-        : content
-    outputCacheRef.current[stationId] = nextContent
-    sinkByStationRef.current[stationId]?.reset(nextContent)
-  }, [])
-
-  const ensureTerminalSessionVisible = useCallback((sessionId: string) => {
-    if (terminalSessionVisibilityRef.current[sessionId]) {
-      return
-    }
-    void desktopApi
-      .terminalSetVisibility(sessionId, true)
-      .then(() => {
-        terminalSessionVisibilityRef.current[sessionId] = true
-      })
-      .catch(() => {})
-  }, [])
-
-  const resolveWorkspaceRoot = useCallback(async (): Promise<string | null> => {
-    if (workspaceRootRef.current) {
-      return workspaceRootRef.current
-    }
-    try {
-      const context = await desktopApi.workspaceGetContext(payload.workspaceId)
-      workspaceRootRef.current = context.root
-      return context.root
-    } catch {
-      return null
-    }
-  }, [payload.workspaceId])
-
-  const syncStationTerminalReadback = useCallback(
-    async (stationId: string, sessionId: string) => {
-      if (inputReadbackInFlightRef.current[stationId]) {
-        return
-      }
-      inputReadbackInFlightRef.current[stationId] = true
-      try {
-        const seq = terminalSeqRef.current[sessionId] ?? 0
-        const delta = await desktopApi
-          .terminalReadDelta(sessionId, seq, TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-          .catch(() => null)
-        if (delta && !delta.gap && !delta.truncated) {
-          if (delta.toSeq > seq) {
-            const text = decodeBase64Chunk(delta.chunk)
-            if (text) {
-              appendStationTerminalOutput(stationId, text)
-            }
-            terminalSeqRef.current[sessionId] = delta.toSeq
-          }
-          return
-        }
-
-        const snapshot = await desktopApi
-          .terminalReadSnapshot(sessionId, TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-          .catch(() => null)
-        if (!snapshot) {
-          return
-        }
-        if (snapshot.currentSeq <= seq && Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId)) {
-          return
-        }
-        resetStationTerminalOutput(stationId, decodeBase64Chunk(snapshot.chunk))
-        terminalSeqRef.current[sessionId] = snapshot.currentSeq
-      } finally {
-        inputReadbackInFlightRef.current[stationId] = false
-      }
-    },
-    [appendStationTerminalOutput, resetStationTerminalOutput],
-  )
-
-  const scheduleStationTerminalReadback = useCallback(
-    (stationId: string, sessionId: string) => {
-      const existingTimerId = inputReadbackTimerRef.current[stationId]
-      if (typeof existingTimerId === 'number') {
-        window.clearTimeout(existingTimerId)
-      }
-      inputReadbackTimerRef.current[stationId] = window.setTimeout(() => {
-        inputReadbackTimerRef.current[stationId] = null
-        void syncStationTerminalReadback(stationId, sessionId)
-      }, TERMINAL_WRITE_READBACK_DELAY_MS)
-    },
-    [syncStationTerminalReadback],
-  )
-
-  useEffect(() => {
-    const desiredVisibility: Record<string, boolean> = {}
-    Object.values(stationRuntimes).forEach((runtime) => {
-      if (!runtime.sessionId) {
-        return
-      }
-      desiredVisibility[runtime.sessionId] = true
-    })
-    Object.keys(desiredVisibility).forEach((sessionId) => {
-      if (terminalSessionVisibilityRef.current[sessionId]) {
-        return
-      }
-      ensureTerminalSessionVisible(sessionId)
-    })
-    Object.keys(terminalSessionVisibilityRef.current).forEach((sessionId) => {
-      if (desiredVisibility[sessionId] !== undefined) {
-        return
-      }
-      delete terminalSessionVisibilityRef.current[sessionId]
-    })
-  }, [ensureTerminalSessionVisible, stationRuntimes])
-
-  useEffect(() => {
-    if (!activeStationId) {
-      return
-    }
+  const clearStationUnread = useCallback((stationId: string) => {
     setStationRuntimes((prev) => {
-      const runtime = prev[activeStationId]
+      const runtime = prev[stationId]
       if (!runtime || runtime.unreadCount === 0) {
         return prev
       }
       return {
         ...prev,
-        [activeStationId]: {
+        [stationId]: {
           ...runtime,
           unreadCount: 0,
         },
       }
     })
-  }, [activeStationId])
+  }, [])
 
-  useEffect(() => {
-    let disposed = false
-    let cleanup = () => {}
-    void desktopApi
-      .subscribeTerminalEvents({
-        onOutput: (eventPayload: TerminalOutputPayload) => {
-          const previous = terminalOutputQueueRef.current[eventPayload.sessionId] ?? Promise.resolve()
-          terminalOutputQueueRef.current[eventPayload.sessionId] = previous
-            .catch(() => undefined)
-            .then(async () => {
-              if (disposed) {
-                return
-              }
-              const stationId = sessionStationRef.current[eventPayload.sessionId]
-              if (!stationId) {
-                return
-              }
-              const unread = stationId !== activeStationId
-              const seq = terminalSeqRef.current[eventPayload.sessionId] ?? 0
-              if (eventPayload.seq <= seq) {
-                return
-              }
-              if (eventPayload.seq === seq + 1) {
-                const text = decodeBase64Chunk(eventPayload.chunk)
-                if (text) {
-                  appendStationTerminalOutput(stationId, text)
-                }
-                terminalSeqRef.current[eventPayload.sessionId] = eventPayload.seq
-                if (unread) {
-                  incrementStationUnread(stationId, 1)
-                }
-                return
-              }
-
-              const delta = await desktopApi
-                .terminalReadDelta(eventPayload.sessionId, seq, TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-                .catch(() => null)
-              if (
-                delta &&
-                !delta.gap &&
-                !delta.truncated &&
-                delta.fromSeq === seq + 1 &&
-                delta.toSeq >= eventPayload.seq
-              ) {
-                const text = decodeBase64Chunk(delta.chunk)
-                if (text) {
-                  appendStationTerminalOutput(stationId, text)
-                }
-                terminalSeqRef.current[eventPayload.sessionId] = delta.toSeq
-                if (unread) {
-                  incrementStationUnread(stationId, 1)
-                }
-                return
-              }
-
-              const snapshot = await desktopApi
-                .terminalReadSnapshot(eventPayload.sessionId, TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-                .catch(() => null)
-              if (!snapshot) {
-                return
-              }
-              resetStationTerminalOutput(stationId, decodeBase64Chunk(snapshot.chunk))
-              terminalSeqRef.current[eventPayload.sessionId] = snapshot.currentSeq
-              if (unread) {
-                incrementStationUnread(stationId, 1)
-              }
-            })
-        },
-        onStateChanged: (eventPayload: TerminalStatePayload) => {
-          const stationId = sessionStationRef.current[eventPayload.sessionId]
-          if (!stationId) {
-            return
-          }
-          setStationRuntime(stationId, {
-            sessionId: eventPayload.sessionId,
-            stateRaw: eventPayload.to,
-          })
-          appendStationTerminalOutput(stationId, `\n[terminal:${eventPayload.to}]\n`)
-          if (
-            eventPayload.to === 'exited' ||
-            eventPayload.to === 'killed' ||
-            eventPayload.to === 'failed'
-          ) {
-            delete terminalSeqRef.current[eventPayload.sessionId]
-            delete terminalOutputQueueRef.current[eventPayload.sessionId]
-            delete terminalSessionVisibilityRef.current[eventPayload.sessionId]
-          }
-        },
-        onMeta: (eventPayload: TerminalMetaPayload) => {
-          const stationId = sessionStationRef.current[eventPayload.sessionId]
-          if (!stationId) {
-            return
-          }
-          const tail = decodeBase64Chunk(eventPayload.tailChunk)
-          if (tail) {
-            appendStationTerminalOutput(stationId, tail)
-          }
-          if (stationId !== activeStationId) {
-            incrementStationUnread(stationId, Math.max(1, Math.min(99, eventPayload.unreadChunks || 1)))
-          }
-        },
-      })
-      .then((unlisten) => {
-        if (disposed) {
-          unlisten()
-          return
-        }
-        cleanup = unlisten
-      })
-    return () => {
-      disposed = true
-      cleanup()
+  const appendStationTerminalOutput = useCallback((stationId: string, chunk: string) => {
+    if (!chunk) {
+      return
     }
-  }, [
-    activeStationId,
-    appendStationTerminalOutput,
-    incrementStationUnread,
-    resetStationTerminalOutput,
-    setStationRuntime,
-  ])
+    outputCacheRef.current[stationId] = appendDetachedTerminalOutput(outputCacheRef.current[stationId], chunk)
+    sinkByStationRef.current[stationId]?.write(chunk)
+  }, [])
 
-  useEffect(() => {
-    let disposed = false
-    let cleanup = () => {}
-    void desktopApi
-      .subscribeSurfaceEvents({
-        onWindowUpdated: (eventPayload: SurfaceWindowUpdatedPayload) => {
-          if (eventPayload.windowLabel !== payload.windowLabel) {
-            return
-          }
-          setContainer((prev) => ({
-            ...prev,
-            topmost: eventPayload.topmost,
-          }))
-        },
-      })
-      .then((unlisten) => {
-        if (disposed) {
-          unlisten()
-          return
-        }
-        cleanup = unlisten
-      })
-    return () => {
-      disposed = true
-      cleanup()
+  const resetStationTerminalOutput = useCallback((stationId: string, content = '') => {
+    outputCacheRef.current[stationId] = content
+    sinkByStationRef.current[stationId]?.reset(content)
+  }, [])
+
+  const requestHydrate = useCallback(() => {
+    if (hydrateInFlightRef.current) {
+      return
     }
-  }, [payload.windowLabel])
+    hydrateInFlightRef.current = true
+    console.log(DETACHED_LOG_PREFIX, 'requestHydrate sending')
+    void postBridgeMessage({
+      kind: 'detached_terminal_hydrate_request',
+      workspaceId: payload.workspaceId,
+      containerId: payload.containerId,
+    }).catch((err) => {
+      console.error(DETACHED_LOG_PREFIX, 'requestHydrate failed', err)
+      hydrateInFlightRef.current = false
+    })
+  }, [payload.containerId, payload.workspaceId, postBridgeMessage])
 
-  const bindSink = useCallback(
-    (
-      stationId: string,
-      sink: import('@features/terminal').StationTerminalSink | null,
-      meta?: import('@features/terminal').StationTerminalSinkBindingMeta,
-    ) => {
-      if (!sink) {
-        if (meta?.sourceSink && sinkByStationRef.current[stationId] !== meta.sourceSink) {
-          return
-        }
-        if (meta?.restoreState) {
-          stationTerminalRestoreStateRef.current[stationId] = {
-            content: meta.restoreState,
-            cols: meta.restoreCols ?? 0,
-            rows: meta.restoreRows ?? 0,
-          }
-        }
-        delete sinkByStationRef.current[stationId]
-        return
-      }
-
-      sinkByStationRef.current[stationId] = sink
-
-      const restoreState = stationTerminalRestoreStateRef.current[stationId]
-      if (restoreState) {
-        sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
-        return
-      }
-
-      if (Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId)) {
-        sink.reset(outputCacheRef.current[stationId] ?? '')
-        return
-      }
-
-      const sessionId = stationRuntimesRef.current[stationId]?.sessionId
-      if (!sessionId) {
-        return
-      }
-
-      void desktopApi
-        .terminalReadSnapshot(sessionId, TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-        .then((snapshot) => {
-          if (stationRuntimesRef.current[stationId]?.sessionId !== sessionId) {
-            return
-          }
-          const content = decodeBase64Chunk(snapshot.chunk)
-          outputCacheRef.current[stationId] = content
-          terminalSeqRef.current[sessionId] = snapshot.currentSeq
-          sinkByStationRef.current[stationId]?.reset(content)
-        })
-        .catch(() => {})
-    },
-    [],
-  )
+  const flushPendingStationFocus = useCallback((stationId: string) => {
+    if (!pendingFocusStationRef.current[stationId]) {
+      return
+    }
+    const sink = sinkByStationRef.current[stationId]
+    if (!sink) {
+      return
+    }
+    sink.focus()
+    delete pendingFocusStationRef.current[stationId]
+  }, [])
 
   const sendInput = useMemo(() => {
     const clearFlushTimer = (stationId: string) => {
@@ -608,15 +311,18 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       if (!queuedInput) {
         return
       }
-      const sessionId = stationRuntimesRef.current[stationId]?.sessionId
-      if (!sessionId) {
-        return
-      }
       inputQueueRef.current[stationId] = ''
       inputSendingRef.current[stationId] = true
       try {
-        await desktopApi.terminalWrite(sessionId, queuedInput)
-        scheduleStationTerminalReadback(stationId, sessionId)
+        await postBridgeMessage({
+          kind: 'detached_terminal_write_input',
+          workspaceId: payload.workspaceId,
+          containerId: payload.containerId,
+          stationId,
+          input: queuedInput,
+        })
+      } catch {
+        requestHydrate()
       } finally {
         inputSendingRef.current[stationId] = false
         if (inputQueueRef.current[stationId]) {
@@ -655,7 +361,19 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         void flushInput(stationId)
       }, STATION_INPUT_FLUSH_MS)
     }
-  }, [scheduleStationTerminalReadback])
+  }, [payload.containerId, payload.workspaceId, postBridgeMessage, requestHydrate])
+
+  const flushPendingLaunchCommand = useCallback(
+    (stationId: string) => {
+      const command = pendingLaunchCommandRef.current[stationId]
+      if (!command || !stationRuntimesRef.current[stationId]?.sessionId) {
+        return
+      }
+      delete pendingLaunchCommandRef.current[stationId]
+      sendInput(stationId, command)
+    },
+    [sendInput],
+  )
 
   const ensureStationTerminalSession = useCallback(
     async (stationId: string): Promise<string | null> => {
@@ -663,109 +381,321 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       if (existing) {
         return existing
       }
-      const station = stationsRef.current.find((entry) => entry.id === stationId)
-      if (!station) {
+      if (ensureSessionInFlightRef.current[stationId]) {
         return null
       }
+      ensureSessionInFlightRef.current[stationId] = true
       try {
-        const workspaceRoot = await resolveWorkspaceRoot()
-        if (!workspaceRoot) {
-          return null
-        }
-        const session = await desktopApi.terminalCreate(payload.workspaceId, {
-          cwdMode: 'custom',
-          cwd: resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel),
-          env: {
-            GTO_WORKSPACE_ID: payload.workspaceId,
-            GTO_AGENT_ID: station.id,
-            GTO_ROLE_KEY: station.role,
-            GTO_STATION_ID: station.id,
-          },
-          agentToolKind: normalizeStationToolKind(station.tool),
+        await postBridgeMessage({
+          kind: 'detached_terminal_ensure_session',
+          workspaceId: payload.workspaceId,
+          containerId: payload.containerId,
+          stationId,
         })
-        sessionStationRef.current[session.sessionId] = stationId
-        terminalSeqRef.current[session.sessionId] = 0
-        terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
-        delete stationTerminalRestoreStateRef.current[stationId]
-        ensureTerminalSessionVisible(session.sessionId)
-        setStationRuntimes((prev) => ({
-          ...prev,
-          [stationId]: {
-            ...(prev[stationId] ?? {
-              unreadCount: 0,
-            }),
-            sessionId: session.sessionId,
-            stateRaw: 'running',
-            shell: session.shell,
-            cwdMode: session.cwdMode,
-            resolvedCwd: session.resolvedCwd,
-            unreadCount: 0,
-          },
-        }))
-        window.localStorage.setItem(
-          DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY,
-          JSON.stringify({
-            workspaceId: payload.workspaceId,
-            stationId,
-            sessionId: session.sessionId,
-            shell: session.shell,
-            cwdMode: session.cwdMode,
-            resolvedCwd: session.resolvedCwd,
-            stateRaw: 'running',
-            tsMs: Date.now(),
-          }),
-        )
-        return session.sessionId
       } catch {
-        return null
+        delete ensureSessionInFlightRef.current[stationId]
+      }
+      return null
+    },
+    [payload.containerId, payload.workspaceId, postBridgeMessage],
+  )
+
+  const applyHydrateSnapshot = useCallback(
+    (message: DetachedTerminalHydrateSnapshotMessage) => {
+      hydrateInFlightRef.current = false
+      console.log(DETACHED_LOG_PREFIX, 'applyHydrateSnapshot received', {
+        runtimeKeys: Object.keys(message.runtimes),
+        outputKeys: Object.keys(message.outputs),
+        outputLengths: Object.fromEntries(Object.entries(message.outputs).map(([k, v]) => [k.slice(0, 8), v?.length ?? 0])),
+        activeStationId: message.activeStationId?.slice(0, 8),
+      })
+      const nextRuntimes = stationsRef.current.reduce<Record<string, WorkbenchStationRuntime>>((acc, station) => {
+        acc[station.id] = normalizeDetachedTerminalRuntime(message.runtimes[station.id])
+        return acc
+      }, {})
+      const nextOutputs = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
+        acc[station.id] = message.outputs[station.id] ?? outputCacheRef.current[station.id] ?? ''
+        return acc
+      }, {})
+      stationsRef.current.forEach((station) => {
+        projectionSeqRef.current[station.id] = message.projectionSeqByStation[station.id] ?? 0
+        if (nextRuntimes[station.id]?.sessionId) {
+          delete ensureSessionInFlightRef.current[station.id]
+        }
+      })
+      outputCacheRef.current = nextOutputs
+      setStationRuntimes(nextRuntimes)
+      const nextActiveStationId =
+        (message.activeStationId && nextRuntimes[message.activeStationId] ? message.activeStationId : null) ??
+        activeStationIdRef.current ??
+        stationsRef.current[0]?.id ??
+        ''
+      setActiveStationId(nextActiveStationId)
+      setContainer((prev) => ({
+        ...prev,
+        activeStationId: nextActiveStationId || prev.activeStationId,
+      }))
+      Object.entries(sinkByStationRef.current).forEach(([stationId, sink]) => {
+        if (!sink) {
+          return
+        }
+        console.log(DETACHED_LOG_PREFIX, 'hydrate sink.reset', stationId.slice(0, 8), 'len=', (nextOutputs[stationId] ?? '').length)
+        sink.reset(nextOutputs[stationId] ?? '')
+        flushPendingStationFocus(stationId)
+      })
+      stationsRef.current.forEach((station) => {
+        flushPendingLaunchCommand(station.id)
+        flushPendingStationFocus(station.id)
+      })
+    },
+    [flushPendingLaunchCommand, flushPendingStationFocus],
+  )
+
+  const applyProjectionSeq = useCallback(
+    (stationId: string, projectionSeq: number): boolean => {
+      const currentSeq = projectionSeqRef.current[stationId] ?? 0
+      if (projectionSeq <= currentSeq) {
+        return false
+      }
+      if (currentSeq !== 0 && projectionSeq !== currentSeq + 1) {
+        requestHydrate()
+        return false
+      }
+      if (currentSeq === 0 && projectionSeq > 1) {
+        requestHydrate()
+        return false
+      }
+      projectionSeqRef.current[stationId] = projectionSeq
+      return true
+    },
+    [requestHydrate],
+  )
+
+  const selectStation = useCallback(
+    (stationId: string) => {
+      setActiveStationId(stationId)
+      setContainer((prev) => ({
+        ...prev,
+        activeStationId: stationId,
+      }))
+      clearStationUnread(stationId)
+      void postBridgeMessage({
+        kind: 'detached_terminal_activate_station',
+        workspaceId: payload.workspaceId,
+        containerId: payload.containerId,
+        stationId,
+      }).catch(() => {})
+    },
+    [clearStationUnread, payload.containerId, payload.workspaceId, postBridgeMessage],
+  )
+
+  const handleSurfaceBridge = useCallback(
+    (event: SurfaceBridgeEventPayload<DetachedTerminalBridgeMessage>) => {
+      if (event.targetWindowLabel !== payload.windowLabel) {
+        console.log(DETACHED_LOG_PREFIX, 'bridge msg filtered: wrong target', event.targetWindowLabel, '!=', payload.windowLabel)
+        return
+      }
+      if (event.sourceWindowLabel !== DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL) {
+        console.log(DETACHED_LOG_PREFIX, 'bridge msg filtered: wrong source', event.sourceWindowLabel)
+        return
+      }
+      const message = event.payload
+      if (message.workspaceId !== payload.workspaceId || message.containerId !== payload.containerId) {
+        console.log(DETACHED_LOG_PREFIX, 'bridge msg filtered: wrong workspace/container')
+        return
+      }
+      console.log(DETACHED_LOG_PREFIX, 'bridge msg received', message.kind)
+      switch (message.kind) {
+        case 'detached_terminal_hydrate_snapshot':
+          applyHydrateSnapshot(message)
+          return
+        case 'detached_terminal_output_append':
+          if (!applyProjectionSeq(message.stationId, message.projectionSeq)) {
+            return
+          }
+          appendStationTerminalOutput(message.stationId, message.chunk)
+          if (message.stationId !== activeStationIdRef.current) {
+            incrementStationUnread(message.stationId, Math.max(1, message.unreadDelta ?? 1))
+          }
+          return
+        case 'detached_terminal_output_reset':
+          if (!applyProjectionSeq(message.stationId, message.projectionSeq)) {
+            return
+          }
+          resetStationTerminalOutput(message.stationId, message.content)
+          return
+        case 'detached_terminal_runtime_updated':
+          if (!applyProjectionSeq(message.stationId, message.projectionSeq)) {
+            return
+          }
+          if (message.runtimePatch.sessionId) {
+            delete ensureSessionInFlightRef.current[message.stationId]
+          }
+          setStationRuntime(message.stationId, message.runtimePatch)
+          queueMicrotask(() => {
+            flushPendingLaunchCommand(message.stationId)
+            flushPendingStationFocus(message.stationId)
+          })
+          return
+        default:
+          return
       }
     },
-    [ensureTerminalSessionVisible, payload.workspaceId, resolveWorkspaceRoot],
+    [
+      appendStationTerminalOutput,
+      applyHydrateSnapshot,
+      applyProjectionSeq,
+      flushPendingLaunchCommand,
+      flushPendingStationFocus,
+      incrementStationUnread,
+      payload.containerId,
+      payload.workspaceId,
+      payload.windowLabel,
+      resetStationTerminalOutput,
+      setStationRuntime,
+    ],
+  )
+
+  useEffect(() => {
+    if (!activeStationId) {
+      return
+    }
+    clearStationUnread(activeStationId)
+  }, [activeStationId, clearStationUnread])
+
+  useEffect(() => {
+    let disposed = false
+    let cleanup = () => {}
+    void desktopApi
+      .subscribeSurfaceEvents({
+        onWindowUpdated: (eventPayload: SurfaceWindowUpdatedPayload) => {
+          if (eventPayload.windowLabel !== payload.windowLabel) {
+            return
+          }
+          setContainer((prev) => ({
+            ...prev,
+            topmost: eventPayload.topmost,
+          }))
+        },
+        onBridge: (eventPayload) => {
+          if (disposed) {
+            return
+          }
+          handleSurfaceBridge(eventPayload)
+        },
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+          return
+        }
+        cleanup = unlisten
+        console.log(DETACHED_LOG_PREFIX, 'subscribeSurfaceEvents ready, calling requestHydrate')
+        requestHydrate()
+      })
+    return () => {
+      disposed = true
+      cleanup()
+    }
+  }, [handleSurfaceBridge, payload.windowLabel, requestHydrate])
+
+  const bindSink = useCallback(
+    (
+      stationId: string,
+      sink: StationTerminalSink | null,
+      meta?: StationTerminalSinkBindingMeta,
+    ) => {
+      if (!sink) {
+        if (meta?.sourceSink && sinkByStationRef.current[stationId] !== meta.sourceSink) {
+          return
+        }
+        if (meta?.restoreState) {
+          stationTerminalRestoreStateRef.current[stationId] = {
+            content: meta.restoreState,
+            cols: meta.restoreCols ?? 0,
+            rows: meta.restoreRows ?? 0,
+          }
+        }
+        delete sinkByStationRef.current[stationId]
+        return
+      }
+
+      sinkByStationRef.current[stationId] = sink
+      console.log(DETACHED_LOG_PREFIX, 'bindSink', stationId.slice(0, 8), 'hasRestoreState=', !!stationTerminalRestoreStateRef.current[stationId], 'hasCachedOutput=', Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId), 'sessionId=', stationRuntimesRef.current[stationId]?.sessionId?.slice(0, 8) ?? null)
+
+      const restoreState = stationTerminalRestoreStateRef.current[stationId]
+      if (restoreState) {
+        sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
+        flushPendingStationFocus(stationId)
+        return
+      }
+
+      if (Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId)) {
+        sink.reset(outputCacheRef.current[stationId] ?? '')
+        flushPendingStationFocus(stationId)
+        return
+      }
+
+      sink.reset('')
+      if (stationRuntimesRef.current[stationId]?.sessionId) {
+        requestHydrate()
+      }
+      flushPendingStationFocus(stationId)
+    },
+    [flushPendingStationFocus, requestHydrate],
   )
 
   const launchStationTerminal = useCallback(
     async (stationId: string) => {
+      selectStation(stationId)
+      pendingFocusStationRef.current[stationId] = true
       const sessionId = await ensureStationTerminalSession(stationId)
-      if (!sessionId) {
-        return
+      if (sessionId) {
+        flushPendingStationFocus(stationId)
       }
-      sinkByStationRef.current[stationId]?.focus()
     },
-    [ensureStationTerminalSession],
+    [ensureStationTerminalSession, flushPendingStationFocus, selectStation],
   )
 
   const launchStationCliAgent = useCallback(
     async (stationId: string) => {
-      const sessionId = await ensureStationTerminalSession(stationId)
-      if (!sessionId) {
-        return
-      }
+      selectStation(stationId)
+      pendingFocusStationRef.current[stationId] = true
       const station = stationsRef.current.find((entry) => entry.id === stationId)
       const launchCommand = station ? buildStationLaunchCommand(station) : null
+      const sessionId = await ensureStationTerminalSession(stationId)
       if (launchCommand) {
-        sendInput(stationId, launchCommand)
+        if (sessionId || stationRuntimesRef.current[stationId]?.sessionId) {
+          sendInput(stationId, launchCommand)
+        } else {
+          pendingLaunchCommandRef.current[stationId] = launchCommand
+        }
       }
-      sinkByStationRef.current[stationId]?.focus()
+      if (sessionId) {
+        flushPendingStationFocus(stationId)
+      }
     },
-    [ensureStationTerminalSession, sendInput],
+    [ensureStationTerminalSession, flushPendingStationFocus, selectStation, sendInput],
   )
 
-  const handleResize = useCallback((stationId: string, cols: number, rows: number) => {
-    const sessionId = stationRuntimesRef.current[stationId]?.sessionId
-    if (!sessionId) {
-      return
-    }
-    void desktopApi.terminalResize(sessionId, cols, rows).catch(() => {})
-  }, [])
+  const handleResize = useCallback(
+    (stationId: string, cols: number, rows: number) => {
+      void postBridgeMessage({
+        kind: 'detached_terminal_resize',
+        workspaceId: payload.workspaceId,
+        containerId: payload.containerId,
+        stationId,
+        cols,
+        rows,
+      }).catch(() => {})
+    },
+    [payload.containerId, payload.workspaceId, postBridgeMessage],
+  )
 
   useEffect(() => {
+    const flushTimerMap = inputFlushTimerRef.current
     return () => {
-      Object.values(inputFlushTimerRef.current).forEach((timerId) => {
-        if (typeof timerId === 'number') {
-          window.clearTimeout(timerId)
-        }
-      })
-      Object.values(inputReadbackTimerRef.current).forEach((timerId) => {
+      Object.values(flushTimerMap).forEach((timerId) => {
         if (typeof timerId === 'number') {
           window.clearTimeout(timerId)
         }
@@ -787,11 +717,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           taskSignalByStationId={{}}
           detachedReadonly
           onSelectStation={(_, stationId) => {
-            setActiveStationId(stationId)
-            setContainer((prev) => ({
-              ...prev,
-              activeStationId: stationId,
-            }))
+            selectStation(stationId)
           }}
           onLaunchStationTerminal={(stationId) => {
             void launchStationTerminal(stationId)

@@ -48,23 +48,27 @@ import {
   resolveConnectorAccounts,
 } from '@features/tool-adapter'
 import {
+  appendDetachedTerminalOutput,
+  createEmptyWorkbenchStationRuntime,
   DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
+  DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
+  DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
   createDefaultFloatingFrame,
   createDefaultStations,
   createInitialWorkbenchContainers,
-  DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY,
   isWorkbenchLayoutMode,
   mapAgentProfileToStation,
   normalizeWorkbenchContainerFrame,
-  readDetachedTerminalRuntimeSyncPayload,
   reconcileWorkbenchContainers,
   restoreWorkbenchContainers,
   serializeWorkbenchContainers,
   StationManageModal,
   StationSearchModal,
+  stripDetachedTerminalRuntimeProjectionPatch,
   WorkbenchCanvas,
   type AgentStation,
   type CreateStationInput,
+  type DetachedTerminalRuntimeProjectionPatch,
   type UpdateStationInput,
   type WorkbenchContainerModel,
   type WorkbenchContainerSnapshot,
@@ -107,7 +111,13 @@ import {
   type GitUpdatedPayload,
   type GitStatusResponse,
   type RenderedScreenSnapshot,
+  type DetachedTerminalBridgeMessage,
+  type DetachedTerminalHydrateSnapshotMessage,
+  type DetachedTerminalOutputAppendMessage,
+  type DetachedTerminalOutputResetMessage,
+  type DetachedTerminalRuntimeUpdatedMessage,
   type SurfaceDetachedStationPayload,
+  type SurfaceBridgeEventPayload,
   type TerminalMetaPayload,
   type TerminalOutputPayload,
   type TerminalStatePayload,
@@ -131,6 +141,10 @@ type StationTerminalRuntime = {
   shell: string | null
   cwdMode: 'workspace_root' | 'custom'
   resolvedCwd: string | null
+}
+type DetachedProjectionTarget = {
+  containerId: string
+  windowLabel: string
 }
 const STATION_INPUT_FLUSH_MS = 4
 const STATION_INPUT_MAX_BUFFER_BYTES = 65536
@@ -941,6 +955,8 @@ export function ShellRoot() {
   const stationTerminalsRef = useRef(stationTerminals)
   const stationsRef = useRef(stations)
   const workbenchContainersRef = useRef(workbenchContainers)
+  const detachedProjectionSeqRef = useRef<Record<string, number>>({})
+  const detachedProjectionDispatchQueueRef = useRef<Record<string, Promise<void>>>({})
   const sessionStationRef = useRef<Record<string, string>>({})
   const terminalSessionSeqRef = useRef<Record<string, number>>({})
   const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
@@ -1495,30 +1511,138 @@ export function ShellRoot() {
     [externalChannelStatus.bindings, stations],
   )
 
-  const appendStationTerminalOutput = useMemo(
-    () => (stationId: string, chunk: string) => {
-      const previous = stationTerminalOutputCacheRef.current[stationId] ?? ''
-      const merged = `${previous}${chunk}`
-      stationTerminalOutputCacheRef.current[stationId] =
-        merged.length > 50000 ? merged.slice(merged.length - 50000) : merged
-      stationTerminalSinkRef.current[stationId]?.write(chunk)
+  const findDetachedProjectionTargetsByStationId = useCallback((stationId: string): DetachedProjectionTarget[] => {
+    if (!stationId) {
+      return []
+    }
+    return workbenchContainersRef.current.reduce<DetachedProjectionTarget[]>((acc, container) => {
+      if (
+        container.mode !== 'detached' ||
+        !container.detachedWindowLabel ||
+        !container.stationIds.includes(stationId)
+      ) {
+        return acc
+      }
+      acc.push({
+        containerId: container.id,
+        windowLabel: container.detachedWindowLabel,
+      })
+      return acc
+    }, [])
+  }, [])
+
+  const queueDetachedProjectionMessage = useCallback(
+    (windowLabel: string, payload: DetachedTerminalBridgeMessage) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const previous = detachedProjectionDispatchQueueRef.current[windowLabel] ?? Promise.resolve()
+      detachedProjectionDispatchQueueRef.current[windowLabel] = previous
+        .catch(() => undefined)
+        .then(async () => {
+          await desktopApi.surfaceBridgePost(windowLabel, payload)
+        })
+        .catch(() => undefined)
     },
     [],
+  )
+
+  const nextDetachedProjectionSeq = useCallback((windowLabel: string, stationId: string) => {
+    const seqKey = `${windowLabel}:${stationId}`
+    const nextSeq = (detachedProjectionSeqRef.current[seqKey] ?? 0) + 1
+    detachedProjectionSeqRef.current[seqKey] = nextSeq
+    return nextSeq
+  }, [])
+
+  const publishDetachedRuntimePatch = useCallback(
+    (stationId: string, runtimePatch: DetachedTerminalRuntimeProjectionPatch) => {
+      if (!runtimePatch || Object.keys(runtimePatch).length === 0) {
+        return
+      }
+      findDetachedProjectionTargetsByStationId(stationId).forEach(({ containerId, windowLabel }) => {
+        const message: DetachedTerminalRuntimeUpdatedMessage = {
+          kind: 'detached_terminal_runtime_updated',
+          workspaceId: activeWorkspaceIdRef.current ?? '',
+          containerId,
+          stationId,
+          runtimePatch,
+          projectionSeq: nextDetachedProjectionSeq(windowLabel, stationId),
+        }
+        queueDetachedProjectionMessage(windowLabel, message)
+      })
+    },
+    [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
+  )
+
+  const publishDetachedOutputAppend = useCallback(
+    (stationId: string, chunk: string) => {
+      if (!chunk) {
+        return
+      }
+      findDetachedProjectionTargetsByStationId(stationId).forEach(({ containerId, windowLabel }) => {
+        const message: DetachedTerminalOutputAppendMessage = {
+          kind: 'detached_terminal_output_append',
+          workspaceId: activeWorkspaceIdRef.current ?? '',
+          containerId,
+          stationId,
+          chunk,
+          projectionSeq: nextDetachedProjectionSeq(windowLabel, stationId),
+          unreadDelta: 1,
+        }
+        queueDetachedProjectionMessage(windowLabel, message)
+      })
+    },
+    [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
+  )
+
+  const publishDetachedOutputReset = useCallback(
+    (stationId: string, content: string) => {
+      findDetachedProjectionTargetsByStationId(stationId).forEach(({ containerId, windowLabel }) => {
+        const message: DetachedTerminalOutputResetMessage = {
+          kind: 'detached_terminal_output_reset',
+          workspaceId: activeWorkspaceIdRef.current ?? '',
+          containerId,
+          stationId,
+          content,
+          projectionSeq: nextDetachedProjectionSeq(windowLabel, stationId),
+        }
+        queueDetachedProjectionMessage(windowLabel, message)
+      })
+    },
+    [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
+  )
+
+  const appendStationTerminalOutput = useMemo(
+    () => (stationId: string, chunk: string) => {
+      stationTerminalOutputCacheRef.current[stationId] = appendDetachedTerminalOutput(
+        stationTerminalOutputCacheRef.current[stationId],
+        chunk,
+      )
+      stationTerminalSinkRef.current[stationId]?.write(chunk)
+      publishDetachedOutputAppend(stationId, chunk)
+    },
+    [publishDetachedOutputAppend],
   )
 
   const resetStationTerminalOutput = useMemo(
     () => (stationId: string, content?: string) => {
       const station = stationsRef.current.find((item) => item.id === stationId)
       const fallback = getStationIdleBanner(station)
-      const nextContent = content ?? fallback
+      const nextContentRaw = content ?? fallback
+      const nextContent =
+        nextContentRaw.length > DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS
+          ? nextContentRaw.slice(nextContentRaw.length - DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS)
+          : nextContentRaw
       stationTerminalOutputCacheRef.current[stationId] = nextContent
       stationTerminalSinkRef.current[stationId]?.reset(nextContent)
+      publishDetachedOutputReset(stationId, nextContent)
     },
-    [],
+    [publishDetachedOutputReset],
   )
 
   const setStationTerminalState = useMemo(
     () => (stationId: string, patch: Partial<StationTerminalRuntime>) => {
+      const projectionPatch = stripDetachedTerminalRuntimeProjectionPatch(patch)
       setStationTerminals((prev) => {
         const current = prev[stationId] ?? {
           sessionId: null,
@@ -1541,8 +1665,11 @@ export function ShellRoot() {
           ...next,
         }
       })
+      if (projectionPatch) {
+        publishDetachedRuntimePatch(stationId, projectionPatch)
+      }
     },
-    [],
+    [publishDetachedRuntimePatch],
   )
 
   const clearStationUnread = useMemo(
@@ -2602,6 +2729,8 @@ export function ShellRoot() {
     }
     setStationTerminals(createInitialStationTerminals(stationsRef.current))
     sessionStationRef.current = {}
+    detachedProjectionSeqRef.current = {}
+    detachedProjectionDispatchQueueRef.current = {}
     terminalSessionSeqRef.current = {}
     terminalOutputQueueRef.current = {}
     terminalSessionVisibilityRef.current = {}
@@ -3296,6 +3425,143 @@ export function ShellRoot() {
       })
     },
     [],
+  )
+
+  const resolveDetachedBridgeContainer = useCallback(
+    (sourceWindowLabel: string, containerId: string, stationId?: string | null) => {
+      const container =
+        workbenchContainersRef.current.find((candidate) => candidate.id === containerId && candidate.mode === 'detached') ??
+        null
+      if (!container) {
+        return null
+      }
+      if (container.detachedWindowLabel && container.detachedWindowLabel !== sourceWindowLabel) {
+        return null
+      }
+      if (stationId && !container.stationIds.includes(stationId)) {
+        return null
+      }
+      return container
+    },
+    [],
+  )
+
+  const buildDetachedHydrateSnapshotMessage = useCallback(
+    (targetWindowLabel: string, containerId: string): DetachedTerminalHydrateSnapshotMessage | null => {
+      const container =
+        workbenchContainersRef.current.find((candidate) => candidate.id === containerId && candidate.mode === 'detached') ??
+        null
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!container || !workspaceId) {
+        return null
+      }
+      const runtimes = container.stationIds.reduce<Record<string, StationTerminalRuntime>>((acc, stationId) => {
+        acc[stationId] = {
+          ...createEmptyWorkbenchStationRuntime(),
+          ...(stationTerminalsRef.current[stationId] ?? {}),
+        }
+        return acc
+      }, {})
+      const outputs = container.stationIds.reduce<Record<string, string>>((acc, stationId) => {
+        const station = stationsRef.current.find((entry) => entry.id === stationId)
+        acc[stationId] = stationTerminalOutputCacheRef.current[stationId] ?? getStationIdleBanner(station)
+        return acc
+      }, {})
+      const projectionSeqByStation = container.stationIds.reduce<Record<string, number>>((acc, stationId) => {
+        acc[stationId] = detachedProjectionSeqRef.current[`${targetWindowLabel}:${stationId}`] ?? 0
+        return acc
+      }, {})
+      return {
+        kind: 'detached_terminal_hydrate_snapshot',
+        workspaceId,
+        containerId: container.id,
+        activeStationId: container.activeStationId ?? container.stationIds[0] ?? null,
+        runtimes,
+        outputs,
+        projectionSeqByStation,
+      }
+    },
+    [],
+  )
+
+  const handleDetachedSurfaceBridgeMessage = useCallback(
+    (event: SurfaceBridgeEventPayload<DetachedTerminalBridgeMessage>) => {
+      const message = event.payload
+      const sourceWindowLabel = event.sourceWindowLabel
+      const activeWorkspaceId = activeWorkspaceIdRef.current
+      if (!activeWorkspaceId) {
+        return
+      }
+      if (message.workspaceId !== activeWorkspaceId) {
+        return
+      }
+      switch (message.kind) {
+        case 'detached_terminal_hydrate_request': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId)
+          if (!container) {
+            return
+          }
+          const snapshot = buildDetachedHydrateSnapshotMessage(sourceWindowLabel, container.id)
+          if (!snapshot) {
+            return
+          }
+          queueDetachedProjectionMessage(sourceWindowLabel, snapshot)
+          return
+        }
+        case 'detached_terminal_ensure_session': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          void ensureStationTerminalSession(message.stationId)
+          return
+        }
+        case 'detached_terminal_write_input': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          handleStationTerminalInput(message.stationId, message.input)
+          return
+        }
+        case 'detached_terminal_resize': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          resizeStationTerminal(message.stationId, message.cols, message.rows)
+          return
+        }
+        case 'detached_terminal_activate_station': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          setWorkbenchContainers((prev) =>
+            prev.map((candidate) =>
+              candidate.id === container.id
+                ? {
+                    ...candidate,
+                    activeStationId: message.stationId,
+                    lastActiveAtMs: Date.now(),
+                  }
+                : candidate,
+            ),
+          )
+          return
+        }
+        default:
+          return
+      }
+    },
+    [
+      buildDetachedHydrateSnapshotMessage,
+      ensureStationTerminalSession,
+      handleStationTerminalInput,
+      queueDetachedProjectionMessage,
+      resizeStationTerminal,
+      resolveDetachedBridgeContainer,
+    ],
   )
 
   const reportRenderedScreenSnapshot = useMemo(
@@ -4573,37 +4839,6 @@ export function ShellRoot() {
   ])
 
   useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY) {
-        return
-      }
-      const payload = readDetachedTerminalRuntimeSyncPayload(event.newValue)
-      if (!payload || payload.workspaceId !== activeWorkspaceIdRef.current) {
-        return
-      }
-      sessionStationRef.current[payload.sessionId] = payload.stationId
-      terminalSessionSeqRef.current[payload.sessionId] = terminalSessionSeqRef.current[payload.sessionId] ?? 0
-      terminalOutputQueueRef.current[payload.sessionId] =
-        terminalOutputQueueRef.current[payload.sessionId] ?? Promise.resolve()
-      delete stationTerminalRestoreStateRef.current[payload.stationId]
-      ensureTerminalSessionVisible(payload.sessionId)
-      setStationTerminalState(payload.stationId, {
-        sessionId: payload.sessionId,
-        stateRaw: payload.stateRaw,
-        unreadCount: 0,
-        shell: payload.shell,
-        cwdMode: payload.cwdMode,
-        resolvedCwd: payload.resolvedCwd,
-      })
-    }
-
-    window.addEventListener('storage', handleStorage)
-    return () => {
-      window.removeEventListener('storage', handleStorage)
-    }
-  }, [ensureTerminalSessionVisible, setStationTerminalState])
-
-  useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
       return
     }
@@ -4662,6 +4897,12 @@ export function ShellRoot() {
     void desktopApi
       .subscribeSurfaceEvents({
         onWindowClosed: (payload) => {
+          delete detachedProjectionDispatchQueueRef.current[payload.windowLabel]
+          Object.keys(detachedProjectionSeqRef.current).forEach((key) => {
+            if (key.startsWith(`${payload.windowLabel}:`)) {
+              delete detachedProjectionSeqRef.current[key]
+            }
+          })
           setWorkbenchContainers((prev) => {
             const targetIndex = prev.findIndex(
               (container) => container.detachedWindowLabel === payload.windowLabel,
@@ -4700,6 +4941,12 @@ export function ShellRoot() {
             ),
           )
         },
+        onBridge: (payload) => {
+          if (payload.targetWindowLabel !== DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL) {
+            return
+          }
+          handleDetachedSurfaceBridgeMessage(payload)
+        },
       })
       .then((unlisten) => {
         if (disposed) {
@@ -4713,7 +4960,7 @@ export function ShellRoot() {
       disposed = true
       cleanup()
     }
-  }, [tauriRuntime])
+  }, [handleDetachedSurfaceBridgeMessage, tauriRuntime])
 
   useEffect(() => {
     if (!tauriRuntime || !activeWorkspaceId) {

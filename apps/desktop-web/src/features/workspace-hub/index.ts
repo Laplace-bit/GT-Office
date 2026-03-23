@@ -33,9 +33,13 @@ export {
   serializeWorkbenchContainers,
 } from './workbench-container-model'
 export {
-  DETACHED_TERMINAL_RUNTIME_SYNC_STORAGE_KEY,
-  readDetachedTerminalRuntimeSyncPayload,
-} from './detached-window-sync'
+  DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
+  DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
+  appendDetachedTerminalOutput,
+  createEmptyWorkbenchStationRuntime,
+  normalizeDetachedTerminalRuntime,
+  stripDetachedTerminalRuntimeProjectionPatch,
+} from './detached-terminal-bridge'
 export type {
   WorkbenchContainer as WorkbenchContainerModel,
   WorkbenchContainerFrame,
@@ -43,5 +47,5 @@ export type {
   WorkbenchContainerResumeMode,
   WorkbenchContainerSnapshot,
 } from './workbench-container-model'
-export type { DetachedTerminalRuntimeSyncPayload } from './detached-window-sync'
+export type { DetachedTerminalRuntimeProjectionPatch } from './detached-terminal-bridge'
 export * from './station-model'
