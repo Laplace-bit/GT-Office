@@ -117,7 +117,7 @@
 .shell-left-pane {
   width: var(--shell-left-pane-width, #{rem(270)});
   min-width: var(--vb-platform-pane-min-width);
-  max-width: #{rem(420)};
+  max-width: 70%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -132,8 +132,18 @@
   z-index: 5;
 }
 
-.shell-main-pane {
+.shell-main-content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--vb-space-2xs);
+  overflow: hidden;
+}
+
+.shell-main-pane {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -146,6 +156,50 @@
   border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-md);
   transition: background-color 0.3s ease;
+}
+
+.shell-right-pane {
+  flex: 0 0 var(--shell-right-pane-width, #{rem(360)});
+  width: var(--shell-right-pane-width, #{rem(360)});
+  min-width: #{rem(280)};
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  border-radius: #{rem(22)};
+  background: var(--vb-glass-light);
+  backdrop-filter: blur(#{rem(32)}) saturate(180%);
+  -webkit-backdrop-filter: blur(#{rem(32)}) saturate(180%);
+  border: var(--vb-border-width) solid var(--vb-border-subtle);
+  box-shadow: var(--vb-shadow-md);
+  transition: background-color 0.3s ease;
+
+  > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+  }
+}
+
+.shell-right-pane-resizer {
+  margin-left: calc(var(--vb-space-xs) / -2);
+  margin-right: calc(var(--vb-space-xs) / -2);
+}
+
+.shell-main-content > .shell-right-pane-resizer {
+  flex: 0 0 var(--vb-space-xs);
+}
+
+.shell-right-pane::before,
+.shell-main-pane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-accent) 5%, transparent), transparent 30%);
+  opacity: 0.15;
+  z-index: 1;
 }
 
 .shell-main-view {
@@ -188,18 +242,6 @@
     min-width: 0;
     min-height: 0;
   }
-}
-
-/* Subtle inner glow for main pane */
-.shell-main-pane::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--vb-accent) 5%, transparent), transparent 30%);
-  opacity: 0.15;
-  z-index: 1;
 }
 
 .shell-column-resizer {

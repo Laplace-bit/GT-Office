@@ -22,7 +22,6 @@ import {
   DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
   areTaskTargetsEqual,
   buildTaskCenterDraftFilePath,
-  buildTaskDispatchCommand,
   createInitialTaskDraft,
   normalizeTaskQuickDispatchOpacity,
   resolveValidTaskTargets,
@@ -121,6 +120,9 @@ import {
   buildStationLaunchCommand,
   buildWorkbenchContainerTitle,
   clampLeftPaneWidth,
+  clampRightPaneWidth,
+  LEFT_PANE_WIDTH_MAX,
+  RIGHT_PANE_WIDTH_MAX,
   createInitialStationTerminals,
   createStationEditInput,
   describeError,
@@ -132,11 +134,14 @@ import {
   isNavItemId,
   loadCanvasLayoutPreference,
   loadLeftPaneWidthPreference,
+  loadRightPaneWidthPreference,
   nextStationNumber,
   normalizeExternalChannel,
   normalizeFsPath,
   normalizeStationToolKind,
   normalizeSubmitSequence,
+  resolveLeftPaneWidthMax,
+  resolveRightPaneWidthMax,
   readNumber,
   readRecord,
   readString,
@@ -175,9 +180,14 @@ export function ShellRoot() {
     DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
   )
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
+  const [rightPaneWidth, setRightPaneWidth] = useState(loadRightPaneWidthPreference)
   const [leftPaneResizing, setLeftPaneResizing] = useState(false)
+  const [rightPaneResizing, setRightPaneResizing] = useState(false)
+  const [leftPaneWidthMax, setLeftPaneWidthMax] = useState(LEFT_PANE_WIDTH_MAX)
+  const [rightPaneWidthMax, setRightPaneWidthMax] = useState(RIGHT_PANE_WIDTH_MAX)
   const [leftPaneVisible, setLeftPaneVisible] = useState(true)
   const [activeNavId, setActiveNavId] = useState<NavItemId>('stations')
+  const [pinnedWorkbenchContainerId, setPinnedWorkbenchContainerId] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isTaskQuickDispatchOpen, setIsTaskQuickDispatchOpen] = useState(false)
   const [isChannelStudioOpen, setIsChannelStudioOpen] = useState(false)
@@ -263,6 +273,9 @@ export function ShellRoot() {
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
     null,
   )
+  const rightPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
+    null,
+  )
   const shellContainerRef = useRef<HTMLDivElement | null>(null)
   const shellTopRef = useRef<HTMLDivElement | null>(null)
   const shellMainRef = useRef<HTMLElement | null>(null)
@@ -272,6 +285,24 @@ export function ShellRoot() {
   const shellResizerRef = useRef<HTMLDivElement | null>(null)
   const shellMainPaneRef = useRef<HTMLDivElement | null>(null)
   const windowResizeSyncTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const updatePaneWidthBounds = () => {
+      const containerWidth = shellMainRef.current?.clientWidth ?? window.innerWidth
+      const nextLeftMax = resolveLeftPaneWidthMax(containerWidth)
+      const nextRightMax = resolveRightPaneWidthMax(containerWidth)
+      setLeftPaneWidthMax(nextLeftMax)
+      setRightPaneWidthMax(nextRightMax)
+      setLeftPaneWidth((prev) => clampLeftPaneWidth(prev, nextLeftMax))
+      setRightPaneWidth((prev) => clampRightPaneWidth(prev, nextRightMax))
+    }
+
+    updatePaneWidthBounds()
+    window.addEventListener('resize', updatePaneWidthBounds)
+    return () => {
+      window.removeEventListener('resize', updatePaneWidthBounds)
+    }
+  }, [])
   const localeRef = useRef(uiPreferences.locale)
   const activeWorkspaceIdRef = useRef<string | null>(null)
   const workspaceSessionPersistTimerRef = useRef<number | null>(null)
@@ -399,6 +430,19 @@ export function ShellRoot() {
 
   useEffect(() => {
     workbenchContainersRef.current = workbenchContainers
+  }, [workbenchContainers])
+
+  useEffect(() => {
+    setPinnedWorkbenchContainerId((prev) => {
+      if (!prev) {
+        return prev
+      }
+      const pinnedContainer = workbenchContainers.find((container) => container.id === prev) ?? null
+      if (pinnedContainer?.mode === 'docked') {
+        return prev
+      }
+      return null
+    })
   }, [workbenchContainers])
 
   useEffect(() => {
@@ -620,11 +664,12 @@ export function ShellRoot() {
       SHELL_LAYOUT_STORAGE_KEY,
       JSON.stringify({
         leftPaneWidth,
+        rightPaneWidth,
         canvasLayoutMode,
         canvasCustomLayout,
       }),
     )
-  }, [canvasCustomLayout, canvasLayoutMode, leftPaneWidth])
+  }, [canvasCustomLayout, canvasLayoutMode, leftPaneWidth, rightPaneWidth])
 
   const syncWindowFrameState = useCallback(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -1823,6 +1868,7 @@ export function ShellRoot() {
     externalTraceContextRef.current = {}
     pendingWorkbenchContainerSnapshotsRef.current = null
     detachedWindowOpenInFlightRef.current = {}
+    setPinnedWorkbenchContainerId(null)
     setWorkbenchContainers(
       createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId, {
         mode: canvasLayoutModeRef.current,
@@ -2439,25 +2485,6 @@ export function ShellRoot() {
     [sendStationTerminalInput],
   )
 
-  const writeStationTerminalCommand = useCallback(
-    async (stationId: string, command: string) => {
-      if (!desktopApi.isTauriRuntime()) {
-        appendStationTerminalOutput(stationId, t(locale, 'system.webPreviewNoInput'))
-        return false
-      }
-      let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      if (!sessionId) {
-        sessionId = await ensureStationTerminalSession(stationId)
-      }
-      if (!sessionId) {
-        return false
-      }
-      await desktopApi.terminalWrite(sessionId, command)
-      return true
-    },
-    [appendStationTerminalOutput, ensureStationTerminalSession, locale],
-  )
-
   const resizeStationTerminal = useMemo(
     () => (stationId: string, cols: number, rows: number) => {
       if (!desktopApi.isTauriRuntime()) {
@@ -2729,60 +2756,6 @@ export function ShellRoot() {
     [submitStationTerminal],
   )
 
-  const verifyTaskFileReadable = useCallback(
-    async (input: { workspaceId: string; taskFilePath: string }) => {
-      await desktopApi.fsReadFile(input.workspaceId, input.taskFilePath)
-    },
-    [],
-  )
-
-  const deliverTaskToStation = useCallback(
-    async (input: {
-      station: AgentStation
-      taskId: string
-      taskFilePath: string
-      title: string
-    }) => {
-      const { station, taskId, taskFilePath, title } = input
-      const sessionId = await ensureStationTerminalSession(station.id)
-      if (!sessionId) {
-        throw new Error('TARGET_AGENT_SESSION_UNAVAILABLE')
-      }
-      appendStationTerminalOutput(
-        station.id,
-        t(locale, 'system.taskDispatched', {
-          taskId,
-          path: taskFilePath,
-        }),
-      )
-      const accepted = await writeStationTerminalCommand(
-        station.id,
-        buildTaskDispatchCommand(taskId, taskFilePath),
-      )
-      if (!accepted) {
-        throw new Error('TARGET_AGENT_SESSION_UNAVAILABLE')
-      }
-      const submitted = await submitStationTerminal(station.id)
-      if (!submitted) {
-        throw new Error('XTERM_SUBMIT_FAILED')
-      }
-      emitStationTaskSignal({
-        stationId: station.id,
-        taskId,
-        title,
-        receivedAtMs: Date.now(),
-      })
-    },
-    [
-      appendStationTerminalOutput,
-      emitStationTaskSignal,
-      ensureStationTerminalSession,
-      locale,
-      submitStationTerminal,
-      writeStationTerminalCommand,
-    ],
-  )
-
   const {
     updateTaskDraft,
     insertTaskSnippet,
@@ -2803,9 +2776,6 @@ export function ShellRoot() {
     setTaskNotice,
     onEnsureTaskTargetRuntime: ensureTaskTargetRuntime,
     onDispatchTaskBatch: dispatchTaskBatch,
-    onVerifyTaskFileReadable: verifyTaskFileReadable,
-    onDeliverTaskToStation: deliverTaskToStation,
-    setStationTaskSignals,
     describeError,
     taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
   })
@@ -2972,6 +2942,10 @@ export function ShellRoot() {
     [stationTerminals],
   )
 
+  const togglePinnedWorkbenchContainer = useCallback((containerId: string) => {
+    setPinnedWorkbenchContainerId((prev) => (prev === containerId ? null : containerId))
+  }, [])
+
   const handleCanvasOpenStationManage = useCallback(() => {
     setEditingStation(null)
     setIsStationManageOpen(true)
@@ -3104,6 +3078,20 @@ export function ShellRoot() {
           setActiveNavId(activeNav)
         }
 
+        const restoredPinnedWorkbenchContainerId = restored.windows[0]?.pinnedWorkbenchContainerId
+        if (
+          typeof restoredPinnedWorkbenchContainerId === 'string' &&
+          restoredPinnedWorkbenchContainerId.trim() &&
+          restored.workbenchContainers.some(
+            (container) =>
+              container.id === restoredPinnedWorkbenchContainerId && container.mode === 'docked',
+          )
+        ) {
+          setPinnedWorkbenchContainerId(restoredPinnedWorkbenchContainerId)
+        } else {
+          setPinnedWorkbenchContainerId(null)
+        }
+
         const tabsToRestore = restored.tabs.slice(0, WORKSPACE_SESSION_MAX_RESTORE_TABS)
         const activeTabPath = tabsToRestore.find((tab) => tab.active)?.path ?? tabsToRestore[0]?.path ?? null
         setOpenedFiles(
@@ -3231,7 +3219,7 @@ export function ShellRoot() {
       }
       const snapshot = buildWorkspaceSessionSnapshot({
         updatedAtMs: Date.now(),
-        windows: [{ activeNavId }],
+        windows: [{ activeNavId, pinnedWorkbenchContainerId }],
         tabs: tabSessionSnapshotRef.current,
         terminals: terminalSessionSnapshotRef.current,
         workbenchContainers: workbenchContainerSnapshotRef.current,
@@ -3253,6 +3241,7 @@ export function ShellRoot() {
   }, [
     activeNavId,
     activeWorkspaceId,
+    pinnedWorkbenchContainerId,
     tabSessionSnapshotSignature,
     workbenchContainerSnapshotSignature,
     terminalSessionSnapshotSignature,
@@ -3584,7 +3573,7 @@ export function ShellRoot() {
           return
         }
         const delta = moveEvent.clientX - leftPaneResizeRef.current.startX
-        setLeftPaneWidth(clampLeftPaneWidth(leftPaneResizeRef.current.startWidth + delta))
+        setLeftPaneWidth(clampLeftPaneWidth(leftPaneResizeRef.current.startWidth + delta, leftPaneWidthMax))
       }
 
       const handlePointerUp = (upEvent: PointerEvent) => {
@@ -3599,28 +3588,102 @@ export function ShellRoot() {
       window.addEventListener('pointerup', handlePointerUp)
       window.addEventListener('pointercancel', handlePointerCancel)
     },
-    [leftPaneWidth],
+    [leftPaneWidth, leftPaneWidthMax],
   )
 
   const handleLeftPaneResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const step = event.shiftKey ? 12 : 6
     if (event.key === 'ArrowLeft') {
       event.preventDefault()
-      setLeftPaneWidth((prev) => clampLeftPaneWidth(prev - step))
+      setLeftPaneWidth((prev) => clampLeftPaneWidth(prev - step, leftPaneWidthMax))
       return
     }
     if (event.key === 'ArrowRight') {
       event.preventDefault()
-      setLeftPaneWidth((prev) => clampLeftPaneWidth(prev + step))
+      setLeftPaneWidth((prev) => clampLeftPaneWidth(prev + step, leftPaneWidthMax))
     }
-  }, [])
+  }, [leftPaneWidthMax])
+
+  const handleRightPaneResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      const pointerId = event.pointerId
+      rightPaneResizeRef.current = {
+        pointerId,
+        startX: event.clientX,
+        startWidth: rightPaneWidth,
+      }
+      setRightPaneResizing(true)
+
+      const dragHandle = event.currentTarget
+      dragHandle.setPointerCapture(pointerId)
+
+      const previousBodyCursor = document.body.style.cursor
+      const previousBodyUserSelect = document.body.style.userSelect
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+
+      const finishResize = (releasedPointerId: number) => {
+        if (rightPaneResizeRef.current?.pointerId !== releasedPointerId) {
+          return
+        }
+        rightPaneResizeRef.current = null
+        setRightPaneResizing(false)
+        document.body.style.cursor = previousBodyCursor
+        document.body.style.userSelect = previousBodyUserSelect
+        if (dragHandle.hasPointerCapture(releasedPointerId)) {
+          dragHandle.releasePointerCapture(releasedPointerId)
+        }
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+        window.removeEventListener('pointercancel', handlePointerCancel)
+      }
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        if (rightPaneResizeRef.current?.pointerId !== moveEvent.pointerId) {
+          return
+        }
+        const delta = rightPaneResizeRef.current.startX - moveEvent.clientX
+        setRightPaneWidth(clampRightPaneWidth(rightPaneResizeRef.current.startWidth + delta, rightPaneWidthMax))
+      }
+
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        finishResize(upEvent.pointerId)
+      }
+
+      const handlePointerCancel = (cancelEvent: PointerEvent) => {
+        finishResize(cancelEvent.pointerId)
+      }
+
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp)
+      window.addEventListener('pointercancel', handlePointerCancel)
+    },
+    [rightPaneWidth, rightPaneWidthMax],
+  )
+
+  const handleRightPaneResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 12 : 6
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      setRightPaneWidth((prev) => clampRightPaneWidth(prev + step, rightPaneWidthMax))
+      return
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      setRightPaneWidth((prev) => clampRightPaneWidth(prev - step, rightPaneWidthMax))
+    }
+  }, [rightPaneWidthMax])
 
   const shellMainStyle = useMemo(
     () =>
       ({
         '--shell-left-pane-width': `${leftPaneWidth}px`,
+        '--shell-right-pane-width': `${rightPaneWidth}px`,
       }) as CSSProperties,
-    [leftPaneWidth],
+    [leftPaneWidth, rightPaneWidth],
   )
 
   const dismissTelegramDebugToast = useCallback(() => {
@@ -3690,7 +3753,25 @@ export function ShellRoot() {
     setPendingScrollStationId(stationId)
   }, [])
 
+  const pinnedWorkbenchContainer = useMemo(
+    () =>
+      pinnedWorkbenchContainerId
+        ? workbenchContainers.find((container) => container.id === pinnedWorkbenchContainerId) ?? null
+        : null,
+    [pinnedWorkbenchContainerId, workbenchContainers],
+  )
+  const unpinnedWorkbenchContainers = useMemo(
+    () =>
+      pinnedWorkbenchContainer
+        ? workbenchContainers.filter((container) => container.id !== pinnedWorkbenchContainer.id)
+        : workbenchContainers,
+    [pinnedWorkbenchContainer, workbenchContainers],
+  )
   const showWorkbenchCanvas = activeNavId !== 'files' && activeNavId !== 'git'
+  const showPinnedWorkbenchPane =
+    Boolean(pinnedWorkbenchContainer) &&
+    (activeNavId === 'files' || activeNavId === 'git' || unpinnedWorkbenchContainers.length > 0)
+  const projectedWorkbenchContainers = showPinnedWorkbenchPane ? unpinnedWorkbenchContainers : workbenchContainers
   const hasGlobalTopmostWorkbench = useMemo(
     () => workbenchContainers.some((container) => container.mode === 'floating' && container.topmost),
     [workbenchContainers],
@@ -3718,11 +3799,12 @@ export function ShellRoot() {
     appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`,
     showFloatingPortal: true as const,
     stations,
-    containers: workbenchContainers,
     activeStationId,
     terminalByStation: stationTerminals,
     taskSignalByStationId: stationTaskSignals,
     channelBotBindingsByStationId,
+    pinnedWorkbenchContainerId,
+    onTogglePinnedWorkbenchContainer: togglePinnedWorkbenchContainer,
     onSelectStation: handleCanvasSelectStation,
     onLaunchStationTerminal: handleCanvasLaunchStationTerminal,
     onLaunchCliAgent: handleCanvasLaunchCliAgent,
@@ -3747,6 +3829,35 @@ export function ShellRoot() {
     onOpenStationSearch: handleCanvasOpenStationSearch,
     onRemoveStation: handleCanvasRemoveStation,
   }
+
+  const pinnedWorkbenchCanvasProps = showPinnedWorkbenchPane && pinnedWorkbenchContainer
+    ? {
+        ...workbenchCanvasBaseProps,
+        containers: [pinnedWorkbenchContainer],
+        pinnedWorkbenchContainerId,
+        showStage: true,
+        showFloatingPortal: false,
+        floatingVisibility: 'non_topmost' as const,
+      }
+    : null
+
+  const mainWorkbenchCanvasProps = {
+    ...workbenchCanvasBaseProps,
+    containers: projectedWorkbenchContainers,
+    showStage: true,
+    floatingVisibility: 'non_topmost' as const,
+    scrollToStationId: pendingScrollStationId,
+    onScrollToStationHandled: handleCanvasScrollToStationHandled,
+  }
+
+  const topmostWorkbenchCanvasProps = hasGlobalTopmostWorkbench
+    ? {
+        ...workbenchCanvasBaseProps,
+        containers: workbenchContainers,
+        showStage: false,
+        floatingVisibility: 'topmost' as const,
+      }
+    : null
 
   return (
     <ShellRootView
@@ -3788,9 +3899,15 @@ export function ShellRoot() {
       activeNavId={activeNavId}
       leftPaneVisible={leftPaneVisible}
       leftPaneResizing={leftPaneResizing}
+      rightPaneResizing={rightPaneResizing}
       leftPaneWidth={leftPaneWidth}
+      leftPaneWidthMax={leftPaneWidthMax}
+      rightPaneWidth={rightPaneWidth}
+      rightPaneWidthMax={rightPaneWidthMax}
       onLeftPaneResizePointerDown={handleLeftPaneResizePointerDown}
       onLeftPaneResizeKeyDown={handleLeftPaneResizeKeyDown}
+      onRightPaneResizePointerDown={handleRightPaneResizePointerDown}
+      onRightPaneResizeKeyDown={handleRightPaneResizeKeyDown}
       fileTreePaneProps={{
         locale,
         workspaceId: activeWorkspaceId,
@@ -3828,13 +3945,8 @@ export function ShellRoot() {
       }}
       activePaneModel={activePaneModel}
       showWorkbenchCanvas={showWorkbenchCanvas}
-      workbenchCanvasProps={{
-        ...workbenchCanvasBaseProps,
-        showStage: true,
-        floatingVisibility: 'non_topmost',
-        scrollToStationId: pendingScrollStationId,
-        onScrollToStationHandled: handleCanvasScrollToStationHandled,
-      }}
+      workbenchCanvasProps={mainWorkbenchCanvasProps}
+      pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasProps}
       fileEditorPaneProps={{
         locale,
         workspaceId: activeWorkspaceId,
@@ -3854,15 +3966,7 @@ export function ShellRoot() {
         controller: gitController,
         onOpenInEditor: handleGitHistoryOpenInEditor,
       }}
-      topmostWorkbenchCanvasProps={
-        hasGlobalTopmostWorkbench
-          ? {
-              ...workbenchCanvasBaseProps,
-              showStage: false,
-              floatingVisibility: 'topmost',
-            }
-          : null
-      }
+      topmostWorkbenchCanvasProps={topmostWorkbenchCanvasProps}
       statusBarProps={{
         locale,
         gitBranch: gitSummary?.branch ?? '-',

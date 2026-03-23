@@ -12,6 +12,7 @@ type TerminalCwdMode = 'workspace_root' | 'custom'
 
 export interface WorkspaceSessionWindowSnapshot {
   activeNavId: string
+  pinnedWorkbenchContainerId: string | null
 }
 
 export interface WorkspaceSessionTabSnapshot {
@@ -60,6 +61,10 @@ export function buildWorkspaceSessionSnapshot(input: {
     updatedAtMs: Number.isFinite(input.updatedAtMs) ? input.updatedAtMs : Date.now(),
     windows: input.windows.map((item) => ({
       activeNavId: item.activeNavId,
+      pinnedWorkbenchContainerId:
+        typeof item.pinnedWorkbenchContainerId === 'string' && item.pinnedWorkbenchContainerId.trim()
+          ? item.pinnedWorkbenchContainerId.trim()
+          : null,
     })),
     tabs: input.tabs.map((item) => ({
       path: normalizeRelativePath(item.path),
@@ -128,6 +133,10 @@ export function parseWorkspaceSessionSnapshot(raw: string): WorkspaceSessionSnap
         }
         return {
           activeNavId: value.activeNavId.trim(),
+          pinnedWorkbenchContainerId:
+            typeof value.pinnedWorkbenchContainerId === 'string' && value.pinnedWorkbenchContainerId.trim()
+              ? value.pinnedWorkbenchContainerId.trim()
+              : null,
         } satisfies WorkspaceSessionWindowSnapshot
       })
       .filter((entry): entry is WorkspaceSessionWindowSnapshot => Boolean(entry))

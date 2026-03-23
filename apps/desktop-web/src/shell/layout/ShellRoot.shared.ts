@@ -75,8 +75,10 @@ export type TelegramInboundDebugToast = {
 }
 
 export type FileEditorCommandRequest = {
-  type: 'find' | 'replace' | 'findNext' | 'findPrevious'
+  type: 'find' | 'replace' | 'findNext' | 'findPrevious' | 'gotoLine'
   nonce: number
+  line?: number
+  targetPath?: string | null
 }
 
 export const STATION_INPUT_FLUSH_MS = 12
@@ -97,8 +99,11 @@ export const EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT = 36
 export const EXTERNAL_CHANNEL_STATUS_POLL_MS = 15000
 export const TELEGRAM_DEBUG_TOAST_VISIBLE_MS = 6000
 export const LEFT_PANE_WIDTH_MIN = 210
-export const LEFT_PANE_WIDTH_MAX = 390
+export const LEFT_PANE_WIDTH_MAX = 1200
 export const LEFT_PANE_WIDTH_DEFAULT = 270
+export const RIGHT_PANE_WIDTH_MIN = 280
+export const RIGHT_PANE_WIDTH_MAX = 1600
+export const RIGHT_PANE_WIDTH_DEFAULT = 360
 export const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
 
 export function buildDefaultWorkbenchContainerId(): string {
@@ -284,8 +289,20 @@ export function isNavItemId(value: string): value is NavItemId {
   return NAV_ITEM_ID_SET.has(value as NavItemId)
 }
 
-export function clampLeftPaneWidth(width: number): number {
-  return Math.max(LEFT_PANE_WIDTH_MIN, Math.min(LEFT_PANE_WIDTH_MAX, Math.round(width)))
+export function clampLeftPaneWidth(width: number, maxWidth = LEFT_PANE_WIDTH_MAX): number {
+  return Math.max(LEFT_PANE_WIDTH_MIN, Math.min(maxWidth, Math.round(width)))
+}
+
+export function resolveLeftPaneWidthMax(containerWidth: number): number {
+  return Math.max(LEFT_PANE_WIDTH_MIN, Math.round(containerWidth * 0.7))
+}
+
+export function clampRightPaneWidth(width: number, maxWidth = RIGHT_PANE_WIDTH_MAX): number {
+  return Math.max(RIGHT_PANE_WIDTH_MIN, Math.min(maxWidth, Math.round(width)))
+}
+
+export function resolveRightPaneWidthMax(containerWidth: number): number {
+  return Math.max(RIGHT_PANE_WIDTH_MIN, Math.round(containerWidth * 0.75))
 }
 
 export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
@@ -407,6 +424,25 @@ export function loadLeftPaneWidthPreference(): number {
     return clampLeftPaneWidth(parsed.leftPaneWidth)
   } catch {
     return LEFT_PANE_WIDTH_DEFAULT
+  }
+}
+
+export function loadRightPaneWidthPreference(): number {
+  if (typeof window === 'undefined') {
+    return RIGHT_PANE_WIDTH_DEFAULT
+  }
+  try {
+    const raw = window.localStorage.getItem(SHELL_LAYOUT_STORAGE_KEY)
+    if (!raw) {
+      return RIGHT_PANE_WIDTH_DEFAULT
+    }
+    const parsed = JSON.parse(raw) as { rightPaneWidth?: number }
+    if (typeof parsed.rightPaneWidth !== 'number') {
+      return RIGHT_PANE_WIDTH_DEFAULT
+    }
+    return clampRightPaneWidth(parsed.rightPaneWidth)
+  } catch {
+    return RIGHT_PANE_WIDTH_DEFAULT
   }
 }
 

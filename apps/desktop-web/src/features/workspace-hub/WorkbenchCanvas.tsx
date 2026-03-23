@@ -77,6 +77,8 @@ interface WorkbenchCanvasProps {
   terminalByStation: Record<string, WorkbenchStationRuntime>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
+  pinnedWorkbenchContainerId?: string | null
+  onTogglePinnedWorkbenchContainer?: (containerId: string) => void
   onSelectStation: (containerId: string, stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
@@ -258,6 +260,8 @@ function WorkbenchCanvasView({
   terminalByStation,
   taskSignalByStationId,
   channelBotBindingsByStationId = {},
+  pinnedWorkbenchContainerId = null,
+  onTogglePinnedWorkbenchContainer,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -305,10 +309,12 @@ function WorkbenchCanvasView({
       ),
     [containers, floatingVisibility],
   )
-  const utilityHostContainerId = useMemo(
-    () => dockedContainers[0]?.id ?? floatingContainers[0]?.id ?? null,
-    [dockedContainers, floatingContainers],
-  )
+  const utilityHostContainerId = useMemo(() => {
+    const activeDockedContainer = activeStationId
+      ? findContainerByStationId(dockedContainers, activeStationId)
+      : null
+    return activeDockedContainer?.id ?? dockedContainers[0]?.id ?? floatingContainers[0]?.id ?? null
+  }, [activeStationId, dockedContainers, floatingContainers])
 
   useEffect(() => {
     if (!showStage) {
@@ -581,6 +587,8 @@ function WorkbenchCanvasView({
                     onToggleContainerTopmost={onToggleContainerTopmost}
                     onDeleteContainer={onDeleteContainer}
                     showUtilityBar={container.id === utilityHostContainerId}
+                    pinned={pinnedWorkbenchContainerId === container.id}
+                    onTogglePinnedWorkbenchContainer={onTogglePinnedWorkbenchContainer}
                     onCreateContainer={onCreateContainer}
                     onStationDragStart={handleStationDragStart}
                     onStationDragPointerStart={handleStationPointerDragStart}
@@ -650,6 +658,8 @@ function WorkbenchCanvasView({
                     onToggleContainerTopmost={onToggleContainerTopmost}
                     onDeleteContainer={onDeleteContainer}
                     showUtilityBar={container.id === utilityHostContainerId}
+                    pinned={pinnedWorkbenchContainerId === container.id}
+                    onTogglePinnedWorkbenchContainer={onTogglePinnedWorkbenchContainer}
                     onCreateContainer={onCreateContainer}
                     onBeginFloatingDrag={handleFloatingDragStart}
                     onStationDragStart={handleStationDragStart}

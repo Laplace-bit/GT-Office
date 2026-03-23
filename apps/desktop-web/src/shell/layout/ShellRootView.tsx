@@ -14,7 +14,11 @@ import { StationManageModal, StationSearchModal, WorkbenchCanvas } from '@featur
 import { StationOverviewPane } from '@features/workspace'
 import { NotificationList } from '../../components/notification/NotificationList'
 import { t, type Locale } from '../i18n/ui-locale'
-import { LEFT_PANE_WIDTH_MAX, LEFT_PANE_WIDTH_MIN, type TelegramInboundDebugToast } from './ShellRoot.shared'
+import {
+  LEFT_PANE_WIDTH_MIN,
+  RIGHT_PANE_WIDTH_MIN,
+  type TelegramInboundDebugToast,
+} from './ShellRoot.shared'
 import { ActivityRail } from './ActivityRail'
 import { LeftBusinessPane } from './LeftBusinessPane'
 import { StatusBar } from './StatusBar'
@@ -40,9 +44,15 @@ interface ShellRootViewProps {
   activeNavId: NavItemId
   leftPaneVisible: boolean
   leftPaneResizing: boolean
+  rightPaneResizing: boolean
   leftPaneWidth: number
+  leftPaneWidthMax: number
+  rightPaneWidth: number
+  rightPaneWidthMax: number
   onLeftPaneResizePointerDown: PointerEventHandler<HTMLDivElement>
   onLeftPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
+  onRightPaneResizePointerDown: PointerEventHandler<HTMLDivElement>
+  onRightPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
   fileTreePaneProps: ComponentProps<typeof FileTreePane>
   taskCenterPaneProps: ComponentProps<typeof TaskCenterPane>
   stationOverviewPaneProps: ComponentProps<typeof StationOverviewPane>
@@ -51,6 +61,7 @@ interface ShellRootViewProps {
   activePaneModel: PaneModel
   showWorkbenchCanvas: boolean
   workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
+  pinnedWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
   fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
   topmostWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
@@ -171,23 +182,234 @@ function ShellMainPaneContent({
   fileEditorPaneProps,
   gitHistoryPaneProps,
 }: ShellMainPaneContentProps) {
+  if (showWorkbenchCanvas) {
+    return (
+      <div className="shell-main-view">
+        <WorkbenchCanvas {...workbenchCanvasProps} />
+      </div>
+    )
+  }
+
+  if (activeNavId === 'files') {
+    return (
+      <div className="shell-feature-view">
+        <FileEditorPane {...fileEditorPaneProps} />
+      </div>
+    )
+  }
+
+  if (activeNavId === 'git') {
+    return (
+      <div className="shell-feature-view">
+        <GitHistoryPane {...gitHistoryPaneProps} />
+      </div>
+    )
+  }
+
+  return <div className="shell-feature-view" />
+}
+
+interface ShellWorkspaceContentProps {
+  activeNavId: NavItemId
+  showWorkbenchCanvas: boolean
+  workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
+  fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
+  gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
+}
+
+function ShellWorkspaceContent({
+  activeNavId,
+  showWorkbenchCanvas,
+  workbenchCanvasProps,
+  fileEditorPaneProps,
+  gitHistoryPaneProps,
+}: ShellWorkspaceContentProps) {
+  return (
+    <div className="shell-pane-shell shell-main-pane">
+      <ShellMainPaneContent
+        activeNavId={activeNavId}
+        showWorkbenchCanvas={showWorkbenchCanvas}
+        workbenchCanvasProps={workbenchCanvasProps}
+        fileEditorPaneProps={fileEditorPaneProps}
+        gitHistoryPaneProps={gitHistoryPaneProps}
+      />
+    </div>
+  )
+}
+
+interface ShellMainAreaProps {
+  shellMainPaneRef: RefObject<HTMLDivElement | null>
+  activeNavId: NavItemId
+  showWorkbenchCanvas: boolean
+  workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
+  pinnedWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
+  rightPaneResizing: boolean
+  rightPaneWidth: number
+  rightPaneWidthMax: number
+  onRightPaneResizePointerDown: PointerEventHandler<HTMLDivElement>
+  onRightPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
+  fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
+  gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
+}
+
+function ShellMainArea({
+  shellMainPaneRef,
+  activeNavId,
+  showWorkbenchCanvas,
+  workbenchCanvasProps,
+  pinnedWorkbenchCanvasProps,
+  rightPaneResizing,
+  rightPaneWidth,
+  rightPaneWidthMax,
+  onRightPaneResizePointerDown,
+  onRightPaneResizeKeyDown,
+  fileEditorPaneProps,
+  gitHistoryPaneProps,
+}: ShellMainAreaProps) {
+  return (
+    <div ref={shellMainPaneRef} className="shell-main-content">
+      <ShellWorkspaceContent
+        activeNavId={activeNavId}
+        showWorkbenchCanvas={showWorkbenchCanvas}
+        workbenchCanvasProps={workbenchCanvasProps}
+        fileEditorPaneProps={fileEditorPaneProps}
+        gitHistoryPaneProps={gitHistoryPaneProps}
+      />
+      {pinnedWorkbenchCanvasProps ? (
+        <div
+          className={`shell-column-resizer shell-right-pane-resizer ${rightPaneResizing ? 'active' : ''}`}
+          role="separator"
+          aria-label="Resize right panel"
+          aria-orientation="vertical"
+          aria-valuemin={RIGHT_PANE_WIDTH_MIN}
+          aria-valuemax={rightPaneWidthMax}
+          aria-valuenow={rightPaneWidth}
+          tabIndex={0}
+          onPointerDown={onRightPaneResizePointerDown}
+          onKeyDown={onRightPaneResizeKeyDown}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+interface ShellMainLayoutProps {
+  shellRailRef: RefObject<HTMLDivElement | null>
+  shellLeftPaneRef: RefObject<HTMLDivElement | null>
+  shellResizerRef: RefObject<HTMLDivElement | null>
+  shellMainPaneRef: RefObject<HTMLDivElement | null>
+  activityRailProps: ComponentProps<typeof ActivityRail>
+  activeNavId: NavItemId
+  leftPaneVisible: boolean
+  leftPaneResizing: boolean
+  rightPaneResizing: boolean
+  leftPaneWidth: number
+  leftPaneWidthMax: number
+  rightPaneWidth: number
+  rightPaneWidthMax: number
+  onLeftPaneResizePointerDown: PointerEventHandler<HTMLDivElement>
+  onLeftPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
+  onRightPaneResizePointerDown: PointerEventHandler<HTMLDivElement>
+  onRightPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
+  fileTreePaneProps: ComponentProps<typeof FileTreePane>
+  taskCenterPaneProps: ComponentProps<typeof TaskCenterPane>
+  stationOverviewPaneProps: ComponentProps<typeof StationOverviewPane>
+  gitOperationsPaneProps: ComponentProps<typeof GitOperationsPane>
+  communicationChannelsPaneProps: ComponentProps<typeof CommunicationChannelsPane>
+  activePaneModel: PaneModel
+  showWorkbenchCanvas: boolean
+  workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
+  pinnedWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
+  fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
+  gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
+}
+
+function ShellMainLayout({
+  shellRailRef,
+  shellLeftPaneRef,
+  shellResizerRef,
+  shellMainPaneRef,
+  activityRailProps,
+  activeNavId,
+  leftPaneVisible,
+  leftPaneResizing,
+  rightPaneResizing,
+  leftPaneWidth,
+  leftPaneWidthMax,
+  rightPaneWidth,
+  rightPaneWidthMax,
+  onLeftPaneResizePointerDown,
+  onLeftPaneResizeKeyDown,
+  onRightPaneResizePointerDown,
+  onRightPaneResizeKeyDown,
+  fileTreePaneProps,
+  taskCenterPaneProps,
+  stationOverviewPaneProps,
+  gitOperationsPaneProps,
+  communicationChannelsPaneProps,
+  activePaneModel,
+  showWorkbenchCanvas,
+  workbenchCanvasProps,
+  pinnedWorkbenchCanvasProps,
+  fileEditorPaneProps,
+  gitHistoryPaneProps,
+}: ShellMainLayoutProps) {
   return (
     <>
-      {showWorkbenchCanvas ? (
-        <div className="shell-main-view">
-          <WorkbenchCanvas {...workbenchCanvasProps} />
+      <div ref={shellRailRef} className="shell-rail-slot">
+        <ActivityRail {...activityRailProps} />
+      </div>
+
+      {leftPaneVisible ? (
+        <div
+          ref={shellLeftPaneRef}
+          className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''}`}
+        >
+          <ShellLeftPaneContent
+            activeNavId={activeNavId}
+            fileTreePaneProps={fileTreePaneProps}
+            taskCenterPaneProps={taskCenterPaneProps}
+            stationOverviewPaneProps={stationOverviewPaneProps}
+            gitOperationsPaneProps={gitOperationsPaneProps}
+            communicationChannelsPaneProps={communicationChannelsPaneProps}
+            activePaneModel={activePaneModel}
+          />
         </div>
       ) : null}
 
-      {activeNavId === 'files' ? (
-        <div className="shell-feature-view">
-          <FileEditorPane {...fileEditorPaneProps} />
-        </div>
+      {leftPaneVisible ? (
+        <div
+          ref={shellResizerRef}
+          className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''}`}
+          role="separator"
+          aria-label="Resize left panel"
+          aria-orientation="vertical"
+          aria-valuemin={LEFT_PANE_WIDTH_MIN}
+          aria-valuemax={leftPaneWidthMax}
+          aria-valuenow={leftPaneWidth}
+          tabIndex={0}
+          onPointerDown={onLeftPaneResizePointerDown}
+          onKeyDown={onLeftPaneResizeKeyDown}
+        />
       ) : null}
 
-      {activeNavId === 'git' ? (
-        <div className="shell-feature-view">
-          <GitHistoryPane {...gitHistoryPaneProps} />
+      <ShellMainArea
+        shellMainPaneRef={shellMainPaneRef}
+        activeNavId={activeNavId}
+        showWorkbenchCanvas={showWorkbenchCanvas}
+        workbenchCanvasProps={workbenchCanvasProps}
+        pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasProps}
+        rightPaneResizing={rightPaneResizing}
+        rightPaneWidth={rightPaneWidth}
+        rightPaneWidthMax={rightPaneWidthMax}
+        onRightPaneResizePointerDown={onRightPaneResizePointerDown}
+        onRightPaneResizeKeyDown={onRightPaneResizeKeyDown}
+        fileEditorPaneProps={fileEditorPaneProps}
+        gitHistoryPaneProps={gitHistoryPaneProps}
+      />
+      {pinnedWorkbenchCanvasProps ? (
+        <div className="shell-pane-shell shell-right-pane">
+          <WorkbenchCanvas {...pinnedWorkbenchCanvasProps} />
         </div>
       ) : null}
     </>
@@ -240,9 +462,15 @@ export function ShellRootView({
   activeNavId,
   leftPaneVisible,
   leftPaneResizing,
+  rightPaneResizing,
   leftPaneWidth,
+  leftPaneWidthMax,
+  rightPaneWidth,
+  rightPaneWidthMax,
   onLeftPaneResizePointerDown,
   onLeftPaneResizeKeyDown,
+  onRightPaneResizePointerDown,
+  onRightPaneResizeKeyDown,
   fileTreePaneProps,
   taskCenterPaneProps,
   stationOverviewPaneProps,
@@ -251,6 +479,7 @@ export function ShellRootView({
   activePaneModel,
   showWorkbenchCanvas,
   workbenchCanvasProps,
+  pinnedWorkbenchCanvasProps,
   fileEditorPaneProps,
   gitHistoryPaneProps,
   topmostWorkbenchCanvasProps,
@@ -280,52 +509,36 @@ export function ShellRootView({
       </div>
 
       <main ref={shellMainRef} className="shell-main-layout relative z-10" style={shellMainStyle}>
-        <div ref={shellRailRef} className="shell-rail-slot">
-          <ActivityRail {...activityRailProps} />
-        </div>
-
-        {leftPaneVisible ? (
-          <div
-            ref={shellLeftPaneRef}
-            className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''}`}
-          >
-            <ShellLeftPaneContent
-              activeNavId={activeNavId}
-              fileTreePaneProps={fileTreePaneProps}
-              taskCenterPaneProps={taskCenterPaneProps}
-              stationOverviewPaneProps={stationOverviewPaneProps}
-              gitOperationsPaneProps={gitOperationsPaneProps}
-              communicationChannelsPaneProps={communicationChannelsPaneProps}
-              activePaneModel={activePaneModel}
-            />
-          </div>
-        ) : null}
-
-        {leftPaneVisible ? (
-          <div
-            ref={shellResizerRef}
-            className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''}`}
-            role="separator"
-            aria-label="Resize left panel"
-            aria-orientation="vertical"
-            aria-valuemin={LEFT_PANE_WIDTH_MIN}
-            aria-valuemax={LEFT_PANE_WIDTH_MAX}
-            aria-valuenow={leftPaneWidth}
-            tabIndex={0}
-            onPointerDown={onLeftPaneResizePointerDown}
-            onKeyDown={onLeftPaneResizeKeyDown}
-          />
-        ) : null}
-
-        <div ref={shellMainPaneRef} className="shell-pane-shell shell-main-pane">
-          <ShellMainPaneContent
-            activeNavId={activeNavId}
-            showWorkbenchCanvas={showWorkbenchCanvas}
-            workbenchCanvasProps={workbenchCanvasProps}
-            fileEditorPaneProps={fileEditorPaneProps}
-            gitHistoryPaneProps={gitHistoryPaneProps}
-          />
-        </div>
+        <ShellMainLayout
+          shellRailRef={shellRailRef}
+          shellLeftPaneRef={shellLeftPaneRef}
+          shellResizerRef={shellResizerRef}
+          shellMainPaneRef={shellMainPaneRef}
+          activityRailProps={activityRailProps}
+          activeNavId={activeNavId}
+          leftPaneVisible={leftPaneVisible}
+          leftPaneResizing={leftPaneResizing}
+          rightPaneResizing={rightPaneResizing}
+          leftPaneWidth={leftPaneWidth}
+          leftPaneWidthMax={leftPaneWidthMax}
+          rightPaneWidth={rightPaneWidth}
+          rightPaneWidthMax={rightPaneWidthMax}
+          onLeftPaneResizePointerDown={onLeftPaneResizePointerDown}
+          onLeftPaneResizeKeyDown={onLeftPaneResizeKeyDown}
+          onRightPaneResizePointerDown={onRightPaneResizePointerDown}
+          onRightPaneResizeKeyDown={onRightPaneResizeKeyDown}
+          fileTreePaneProps={fileTreePaneProps}
+          taskCenterPaneProps={taskCenterPaneProps}
+          stationOverviewPaneProps={stationOverviewPaneProps}
+          gitOperationsPaneProps={gitOperationsPaneProps}
+          communicationChannelsPaneProps={communicationChannelsPaneProps}
+          activePaneModel={activePaneModel}
+          showWorkbenchCanvas={showWorkbenchCanvas}
+          workbenchCanvasProps={workbenchCanvasProps}
+          pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasProps}
+          fileEditorPaneProps={fileEditorPaneProps}
+          gitHistoryPaneProps={gitHistoryPaneProps}
+        />
       </main>
 
       {topmostWorkbenchCanvasProps ? <WorkbenchCanvas {...topmostWorkbenchCanvasProps} /> : null}

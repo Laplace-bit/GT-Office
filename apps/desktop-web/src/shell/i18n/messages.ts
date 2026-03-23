@@ -28,6 +28,8 @@ export const messages = {
   'workbench.layoutRows': { 'zh-CN': '行', 'en-US': 'Rows' },
   'workbench.addStation': { 'zh-CN': '新增角色', 'en-US': 'Add Role' },
   'workbench.addContainer': { 'zh-CN': '新建容器', 'en-US': 'New Container' },
+  'workbench.pinRightDock': { 'zh-CN': '常驻右侧', 'en-US': 'Pin Right Dock' },
+  'workbench.unpinRightDock': { 'zh-CN': '取消常驻', 'en-US': 'Unpin Right Dock' },
   'workbench.removeContainer': { 'zh-CN': '删除容器', 'en-US': 'Delete Container' },
   'workbench.removeStation': { 'zh-CN': '删除角色', 'en-US': 'Delete Role' },
   'workbench.dragStation': { 'zh-CN': '拖动到其他容器', 'en-US': 'Drag to Another Container' },

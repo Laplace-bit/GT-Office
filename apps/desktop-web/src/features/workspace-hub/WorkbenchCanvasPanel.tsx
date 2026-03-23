@@ -78,6 +78,8 @@ interface WorkbenchCanvasPanelProps {
   onReturnToWorkspace?: () => void
   onOpenStationManage?: () => void
   onOpenStationSearch?: () => void
+  pinned?: boolean
+  onTogglePinnedWorkbenchContainer?: (containerId: string) => void
 }
 
 const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
@@ -184,6 +186,8 @@ function WorkbenchCanvasPanelView({
   onReturnToWorkspace,
   onOpenStationManage,
   onOpenStationSearch,
+  pinned = false,
+  onTogglePinnedWorkbenchContainer,
 }: WorkbenchCanvasPanelProps) {
   const gridRef = useRef<HTMLDivElement | null>(null)
   const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
@@ -531,6 +535,15 @@ function WorkbenchCanvasPanelView({
                 variant="header"
                 onOpenStationSearch={onOpenStationSearch}
                 onOpenStationManage={onOpenStationManage}
+                pinned={pinned}
+                pinDisabled={container.mode !== 'docked'}
+                onTogglePinnedWorkbenchContainer={
+                  onTogglePinnedWorkbenchContainer
+                    ? () => {
+                        onTogglePinnedWorkbenchContainer(container.id)
+                      }
+                    : undefined
+                }
                 onCreateContainer={onCreateContainer}
               />
             ) : null}
