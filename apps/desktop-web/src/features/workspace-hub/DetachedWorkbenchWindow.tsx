@@ -35,9 +35,22 @@ import type {
 } from '@features/terminal'
 import './DetachedWorkbenchWindow.scss'
 
-const STATION_INPUT_FLUSH_MS = 4
+const STATION_INPUT_FLUSH_MS = 12
 const STATION_INPUT_MAX_BUFFER_BYTES = 65536
 const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
+
+function shouldFlushStationInputImmediately(input: string): boolean {
+  if (!input) {
+    return false
+  }
+  if (input.includes('\n') || input.includes('\r')) {
+    return true
+  }
+  if (input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES) {
+    return true
+  }
+  return /[\x00-\x1f\x7f]/.test(input) || input.includes('\x1b')
+}
 
 export interface DetachedWorkbenchWindowPayload {
   windowLabel: string
@@ -345,15 +358,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           ? merged.slice(merged.length - STATION_INPUT_MAX_BUFFER_BYTES)
           : merged
       clearFlushTimer(stationId)
-      if (
-        input.includes('\n') ||
-        input.includes('\r') ||
-        input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES
-      ) {
-        void flushInput(stationId)
-        return
-      }
-      if (!previous && !inputSendingRef.current[stationId]) {
+      if (shouldFlushStationInputImmediately(input)) {
         void flushInput(stationId)
         return
       }

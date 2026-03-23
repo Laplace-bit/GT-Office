@@ -686,27 +686,6 @@ function areStationChannelBindingsEqual(
 }
 
 function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps): boolean {
-  // 核心优化：如果该组件既不是之前的 active，也不是现在的 active，
-  // 且其他核心属性（ID, 状态, 任务）没变，则跳过渲染。
-  const isActiveChanged = prev.active !== next.active
-  const isStationIdChanged = prev.station.id !== next.station.id
-  
-  if (!isActiveChanged && !isStationIdChanged && 
-      prev.appearanceVersion === next.appearanceVersion &&
-      prev.isFullscreen === next.isFullscreen &&
-      prev.isMiniature === next.isMiniature &&
-      prev.isFocusHidden === next.isFocusHidden &&
-      (prev.runtime?.sessionId === next.runtime?.sessionId) &&
-      (prev.runtime?.unreadCount === next.runtime?.unreadCount) &&
-      (prev.taskSignal?.nonce === next.taskSignal?.nonce)
-  ) {
-    // 只有在 active 状态发生变化时，才允许重新渲染（为了处理高亮边框）
-    // 或者当它是 active 窗口时，需要响应可能的内部状态更新
-    if (!prev.active && !next.active) {
-      return true // 两者都不是 active，且核心数据没变，跳过
-    }
-  }
-
   return (
     prev.locale === next.locale &&
     prev.appearanceVersion === next.appearanceVersion &&
@@ -717,6 +696,20 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isMiniature === next.isMiniature &&
     prev.isFocusHidden === next.isFocusHidden &&
     prev.draggable === next.draggable &&
+    prev.onSelectStation === next.onSelectStation &&
+    prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&
+    prev.onLaunchCliAgent === next.onLaunchCliAgent &&
+    prev.onSendInputData === next.onSendInputData &&
+    prev.onResizeTerminal === next.onResizeTerminal &&
+    prev.onBindTerminalSink === next.onBindTerminalSink &&
+    prev.onRenderedScreenSnapshot === next.onRenderedScreenSnapshot &&
+    prev.onRestoreStateCaptured === next.onRestoreStateCaptured &&
+    prev.onRemoveStation === next.onRemoveStation &&
+    prev.onEnterFullscreen === next.onEnterFullscreen &&
+    prev.onExitFullscreen === next.onExitFullscreen &&
+    prev.onStationDragStart === next.onStationDragStart &&
+    prev.onStationDragPointerStart === next.onStationDragPointerStart &&
+    prev.onStationDragEnd === next.onStationDragEnd &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&

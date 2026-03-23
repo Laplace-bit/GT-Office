@@ -147,7 +147,7 @@ type DetachedProjectionTarget = {
   containerId: string
   windowLabel: string
 }
-const STATION_INPUT_FLUSH_MS = 4
+const STATION_INPUT_FLUSH_MS = 12
 const STATION_INPUT_MAX_BUFFER_BYTES = 65536
 const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
 const TASK_DISPATCH_HISTORY_LIMIT = 40
@@ -310,6 +310,19 @@ function normalizeSubmitSequence(raw: string): string | null {
     return raw
   }
   return null
+}
+
+function shouldFlushStationInputImmediately(input: string): boolean {
+  if (!input) {
+    return false
+  }
+  if (input.includes('\n') || input.includes('\r')) {
+    return true
+  }
+  if (input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES) {
+    return true
+  }
+  return /[\x00-\x1f\x7f]/.test(input) || input.includes('\x1b')
 }
 
 type ExternalChannelEventItem = {
@@ -3325,13 +3338,7 @@ export function ShellRoot() {
             : merged
 
         clearFlushTimer(stationId)
-        const hasLineBreak = input.includes('\n') || input.includes('\r')
-        if (hasLineBreak || input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES) {
-          void flushStationInput(stationId)
-          return
-        }
-        if (!previous && !stationTerminalInputSendingRef.current[stationId]) {
-          // Keep single-keystroke echo responsive while still batching burst traffic.
+        if (shouldFlushStationInputImmediately(input)) {
           void flushStationInput(stationId)
           return
         }
