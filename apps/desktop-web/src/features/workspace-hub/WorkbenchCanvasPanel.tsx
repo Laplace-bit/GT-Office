@@ -20,7 +20,7 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { StationTerminalSinkBindingHandler } from '@features/terminal'
-import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import type { RenderedScreenSnapshot, StationTerminalRestoreStatePayload } from '@shell/integration/desktop-api'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 import { WorkbenchUtilityActions } from './WorkbenchUtilityActions'
@@ -57,6 +57,7 @@ interface WorkbenchCanvasPanelProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onRestoreStateCaptured?: (stationId: string, state: StationTerminalRestoreStatePayload) => void
   onRemoveStation: (stationId: string) => void
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
   onCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void
@@ -162,6 +163,7 @@ function WorkbenchCanvasPanelView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onRestoreStateCaptured,
   onRemoveStation,
   onLayoutModeChange,
   onCustomLayoutChange,
@@ -356,6 +358,7 @@ function WorkbenchCanvasPanelView({
         onResizeTerminal={onResizeTerminal}
         onBindTerminalSink={onBindTerminalSink}
         onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+        onRestoreStateCaptured={onRestoreStateCaptured}
         onRemoveStation={onRemoveStation}
         onEnterFullscreen={handleEnterFullscreen}
         onExitFullscreen={handleExitFullscreen}
@@ -376,6 +379,7 @@ function WorkbenchCanvasPanelView({
       onLaunchStationTerminal,
       onRemoveStation,
       onRenderedScreenSnapshot,
+      onRestoreStateCaptured,
       onResizeTerminal,
       onSendInputData,
       onStationDragStart,

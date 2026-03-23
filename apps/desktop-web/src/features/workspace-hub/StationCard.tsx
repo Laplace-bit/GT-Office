@@ -13,7 +13,7 @@ import {
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
-import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import type { RenderedScreenSnapshot, StationTerminalRestoreStatePayload } from '@shell/integration/desktop-api'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
@@ -205,6 +205,7 @@ interface StationCardProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onRestoreStateCaptured?: (stationId: string, state: StationTerminalRestoreStatePayload) => void
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
@@ -248,6 +249,7 @@ function StationCardView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onRestoreStateCaptured,
   onEnterFullscreen,
   onExitFullscreen,
   draggable = false,
@@ -614,6 +616,7 @@ function StationCardView({
           onResize={onResizeTerminal}
           onBindSink={handleBindSink}
           onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+          onRestoreStateCaptured={onRestoreStateCaptured}
         />
       ) : (
         <div className="station-terminal-idle-state">

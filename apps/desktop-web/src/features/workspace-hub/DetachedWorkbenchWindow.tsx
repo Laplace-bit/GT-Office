@@ -27,6 +27,7 @@ import {
   type SurfaceBridgeEventPayload,
   type SurfaceDetachedStationPayload,
   type SurfaceWindowUpdatedPayload,
+  type StationTerminalRestoreStatePayload,
 } from '@shell/integration/desktop-api'
 import type {
   StationTerminalSink,
@@ -435,12 +436,19 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         ...prev,
         activeStationId: nextActiveStationId || prev.activeStationId,
       }))
+      stationTerminalRestoreStateRef.current = message.restoreStates ? { ...message.restoreStates } : {}
       Object.entries(sinkByStationRef.current).forEach(([stationId, sink]) => {
         if (!sink) {
           return
         }
-        console.log(DETACHED_LOG_PREFIX, 'hydrate sink.reset', stationId.slice(0, 8), 'len=', (nextOutputs[stationId] ?? '').length)
-        sink.reset(nextOutputs[stationId] ?? '')
+        const restoreState = message.restoreStates?.[stationId]
+        if (restoreState) {
+          console.log(DETACHED_LOG_PREFIX, 'hydrate sink.restore', stationId.slice(0, 8))
+          sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
+        } else {
+          console.log(DETACHED_LOG_PREFIX, 'hydrate sink.reset', stationId.slice(0, 8), 'len=', (nextOutputs[stationId] ?? '').length)
+          sink.reset(nextOutputs[stationId] ?? '')
+        }
         flushPendingStationFocus(stationId)
       })
       stationsRef.current.forEach((station) => {
@@ -692,6 +700,20 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     [payload.containerId, payload.workspaceId, postBridgeMessage],
   )
 
+  const handleRestoreStateCaptured = useCallback(
+    (stationId: string, state: StationTerminalRestoreStatePayload) => {
+      stationTerminalRestoreStateRef.current[stationId] = state
+      void postBridgeMessage({
+        kind: 'detached_terminal_restore_state',
+        workspaceId: payload.workspaceId,
+        containerId: payload.containerId,
+        stationId,
+        state,
+      }).catch(() => {})
+    },
+    [payload.containerId, payload.workspaceId, postBridgeMessage],
+  )
+
   useEffect(() => {
     const flushTimerMap = inputFlushTimerRef.current
     return () => {
@@ -729,6 +751,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           onResizeTerminal={handleResize}
           onBindTerminalSink={bindSink}
           onRenderedScreenSnapshot={undefined}
+          onRestoreStateCaptured={handleRestoreStateCaptured}
           onRemoveStation={() => {}}
           onLayoutModeChange={(containerId, mode) => {
             setContainer((prev) => (prev.id === containerId ? { ...prev, layoutMode: mode } : prev))

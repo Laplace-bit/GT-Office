@@ -116,6 +116,7 @@ import {
   type DetachedTerminalOutputAppendMessage,
   type DetachedTerminalOutputResetMessage,
   type DetachedTerminalRuntimeUpdatedMessage,
+  type StationTerminalRestoreStatePayload,
   type SurfaceDetachedStationPayload,
   type SurfaceBridgeEventPayload,
   type TerminalMetaPayload,
@@ -3471,6 +3472,13 @@ export function ShellRoot() {
         acc[stationId] = detachedProjectionSeqRef.current[`${targetWindowLabel}:${stationId}`] ?? 0
         return acc
       }, {})
+      const restoreStates = container.stationIds.reduce<Record<string, StationTerminalRestoreStatePayload>>((acc, stationId) => {
+        const state = stationTerminalRestoreStateRef.current[stationId]
+        if (state) {
+          acc[stationId] = state
+        }
+        return acc
+      }, {})
       return {
         kind: 'detached_terminal_hydrate_snapshot',
         workspaceId,
@@ -3479,6 +3487,7 @@ export function ShellRoot() {
         runtimes,
         outputs,
         projectionSeqByStation,
+        restoreStates,
       }
     },
     [],
@@ -3548,6 +3557,14 @@ export function ShellRoot() {
                 : candidate,
             ),
           )
+          return
+        }
+        case 'detached_terminal_restore_state': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          stationTerminalRestoreStateRef.current[message.stationId] = message.state
           return
         }
         default:

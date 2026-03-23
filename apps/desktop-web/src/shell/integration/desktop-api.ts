@@ -391,6 +391,12 @@ export interface SurfaceWindowUpdatedPayload {
   topmost: boolean
 }
 
+export interface StationTerminalRestoreStatePayload {
+  content: string
+  cols: number
+  rows: number
+}
+
 export interface DetachedTerminalSurfaceRuntime {
   sessionId: string | null
   unreadCount: number
@@ -414,6 +420,7 @@ export interface DetachedTerminalHydrateSnapshotMessage {
   runtimes: Record<string, DetachedTerminalSurfaceRuntime>
   outputs: Record<string, string>
   projectionSeqByStation: Record<string, number>
+  restoreStates?: Record<string, StationTerminalRestoreStatePayload>
 }
 
 export interface DetachedTerminalEnsureSessionMessage {
@@ -466,6 +473,14 @@ export interface DetachedTerminalOutputResetMessage {
   projectionSeq: number
 }
 
+export interface DetachedTerminalRestoreStateMessage {
+  kind: 'detached_terminal_restore_state'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  state: StationTerminalRestoreStatePayload
+}
+
 export interface DetachedTerminalRuntimeUpdatedMessage {
   kind: 'detached_terminal_runtime_updated'
   workspaceId: string
@@ -485,6 +500,7 @@ export type DetachedTerminalBridgeMessage =
   | DetachedTerminalOutputAppendMessage
   | DetachedTerminalOutputResetMessage
   | DetachedTerminalRuntimeUpdatedMessage
+  | DetachedTerminalRestoreStateMessage
 
 export interface SurfaceBridgeEventPayload<TPayload = DetachedTerminalBridgeMessage> {
   sourceWindowLabel: string

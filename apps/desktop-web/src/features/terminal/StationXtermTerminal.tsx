@@ -33,6 +33,7 @@ interface StationXtermTerminalProps {
   onResize: (stationId: string, cols: number, rows: number) => void
   onBindSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onRestoreStateCaptured?: (stationId: string, state: { content: string; cols: number; rows: number }) => void
 }
 
 const DOM_DELTA_LINE = 1
@@ -237,6 +238,7 @@ function StationXtermTerminalView({
   onResize,
   onBindSink,
   onRenderedScreenSnapshot,
+  onRestoreStateCaptured,
 }: StationXtermTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
@@ -245,6 +247,7 @@ function StationXtermTerminalView({
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
   const onRenderedScreenSnapshotRef = useRef(onRenderedScreenSnapshot)
+  const onRestoreStateCapturedRef = useRef(onRestoreStateCaptured)
   const screenRevisionRef = useRef(0)
   const lastSnapshotSignatureRef = useRef('')
   const appearanceSyncFrameRef = useRef<number | null>(null)
@@ -295,6 +298,10 @@ function StationXtermTerminalView({
   useEffect(() => {
     onRenderedScreenSnapshotRef.current = onRenderedScreenSnapshot
   }, [onRenderedScreenSnapshot])
+
+  useEffect(() => {
+    onRestoreStateCapturedRef.current = onRestoreStateCaptured
+  }, [onRestoreStateCaptured])
 
   useEffect(() => {
     screenRevisionRef.current = 0
@@ -454,6 +461,11 @@ function StationXtermTerminalView({
             })
             serializedRestoreCols = terminal.cols
             serializedRestoreRows = terminal.rows
+            onRestoreStateCapturedRef.current?.(stationId, {
+              content: serializedRestoreState,
+              cols: serializedRestoreCols,
+              rows: serializedRestoreRows,
+            })
           } catch {
             // No-op: serialization should not break terminal lifecycle.
           }
