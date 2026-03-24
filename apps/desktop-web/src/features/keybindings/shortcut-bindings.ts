@@ -60,6 +60,15 @@ const FALLBACK_EDITOR_REPLACE: ShortcutBinding = {
   shift: false,
 }
 
+const FALLBACK_EDITOR_REPLACE_MAC: ShortcutBinding = {
+  key: 'f',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: true,
+  shift: false,
+}
+
 const FALLBACK_TASK_QUICK_DISPATCH: ShortcutBinding = {
   key: 'k',
   mod: true,
@@ -220,25 +229,35 @@ function parseOverrideBindings(values: Record<string, unknown>): Partial<Shortcu
   return parsed
 }
 
-export const defaultShortcutBindings: ShortcutBindings = {
-  openFileSearch: parseOrFallback('Mod+P', FALLBACK_OPEN_FILE_SEARCH),
-  openContentSearch: parseOrFallback('Mod+Shift+F', FALLBACK_OPEN_CONTENT_SEARCH),
-  editorFind: parseOrFallback('Mod+F', FALLBACK_EDITOR_FIND),
-  editorReplace: parseOrFallback('Mod+H', FALLBACK_EDITOR_REPLACE),
-  taskQuickDispatch: parseOrFallback('Mod+Shift+K', FALLBACK_TASK_QUICK_DISPATCH),
+export function getDefaultShortcutBindings(isMacOs: boolean): ShortcutBindings {
+  return {
+    openFileSearch: parseOrFallback('Mod+P', FALLBACK_OPEN_FILE_SEARCH),
+    openContentSearch: parseOrFallback('Mod+Shift+F', FALLBACK_OPEN_CONTENT_SEARCH),
+    editorFind: parseOrFallback('Mod+F', FALLBACK_EDITOR_FIND),
+    editorReplace: isMacOs
+      ? parseOrFallback('Mod+Alt+F', FALLBACK_EDITOR_REPLACE_MAC)
+      : parseOrFallback('Mod+H', FALLBACK_EDITOR_REPLACE),
+    taskQuickDispatch: parseOrFallback('Mod+Shift+K', FALLBACK_TASK_QUICK_DISPATCH),
+  }
 }
 
-export function resolveShortcutBindingsFromSettings(values: Record<string, unknown>): ShortcutBindings {
+export const defaultShortcutBindings: ShortcutBindings = getDefaultShortcutBindings(false)
+
+export function resolveShortcutBindingsFromSettings(
+  values: Record<string, unknown>,
+  isMacOs = false,
+): ShortcutBindings {
+  const platformDefaults = getDefaultShortcutBindings(isMacOs)
   const overrides = parseOverrideBindings(values)
   return {
-    openFileSearch: cloneShortcutBinding(overrides.openFileSearch ?? defaultShortcutBindings.openFileSearch),
+    openFileSearch: cloneShortcutBinding(overrides.openFileSearch ?? platformDefaults.openFileSearch),
     openContentSearch: cloneShortcutBinding(
-      overrides.openContentSearch ?? defaultShortcutBindings.openContentSearch,
+      overrides.openContentSearch ?? platformDefaults.openContentSearch,
     ),
-    editorFind: cloneShortcutBinding(overrides.editorFind ?? defaultShortcutBindings.editorFind),
-    editorReplace: cloneShortcutBinding(overrides.editorReplace ?? defaultShortcutBindings.editorReplace),
+    editorFind: cloneShortcutBinding(overrides.editorFind ?? platformDefaults.editorFind),
+    editorReplace: cloneShortcutBinding(overrides.editorReplace ?? platformDefaults.editorReplace),
     taskQuickDispatch: cloneShortcutBinding(
-      overrides.taskQuickDispatch ?? defaultShortcutBindings.taskQuickDispatch,
+      overrides.taskQuickDispatch ?? platformDefaults.taskQuickDispatch,
     ),
   }
 }
@@ -330,6 +349,54 @@ export function formatShortcutBinding(binding: ShortcutBinding, isMacOs: boolean
     tokens.push('Shift')
   }
   tokens.push(formatKeyLabel(binding.key))
+  return tokens.join('+')
+}
+
+function formatMenuAcceleratorKey(key: string): string {
+  switch (key) {
+    case ' ':
+      return 'Space'
+    case 'escape':
+      return 'Esc'
+    case 'enter':
+      return 'Enter'
+    case 'delete':
+      return 'Delete'
+    case 'backspace':
+      return 'Backspace'
+    case 'tab':
+      return 'Tab'
+    case 'arrowup':
+      return 'Up'
+    case 'arrowdown':
+      return 'Down'
+    case 'arrowleft':
+      return 'Left'
+    case 'arrowright':
+      return 'Right'
+    default:
+      return key.length === 1 ? key.toUpperCase() : formatKeyLabel(key)
+  }
+}
+
+export function formatNativeMenuAccelerator(binding: ShortcutBinding, isMacOs: boolean): string {
+  const tokens: string[] = []
+  if (binding.mod) {
+    tokens.push(isMacOs ? 'Cmd' : 'CmdOrCtrl')
+  }
+  if (binding.ctrl) {
+    tokens.push('Ctrl')
+  }
+  if (binding.meta) {
+    tokens.push(isMacOs ? 'Cmd' : 'Super')
+  }
+  if (binding.alt) {
+    tokens.push(isMacOs ? 'Option' : 'Alt')
+  }
+  if (binding.shift) {
+    tokens.push('Shift')
+  }
+  tokens.push(formatMenuAcceleratorKey(binding.key))
   return tokens.join('+')
 }
 

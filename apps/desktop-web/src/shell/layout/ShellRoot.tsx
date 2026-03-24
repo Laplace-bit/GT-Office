@@ -12,7 +12,8 @@ import {
 import {
   formatShortcutBinding,
   areShortcutBindingsEqual,
-  defaultShortcutBindings,
+  formatNativeMenuAccelerator,
+  getDefaultShortcutBindings,
   matchesShortcutEvent,
   resolveShortcutBindingsFromSettings,
   shortcutBindingToKeystroke,
@@ -174,8 +175,12 @@ export function ShellRoot() {
   const nativeWindowTopMacOs = tauriRuntime && isMacOsPlatform()
   const nativeWindowTopLinux = tauriRuntime && !nativeWindowTopMacOs && isLinuxPlatform()
   const nativeWindowTopWindows = nativeWindowTop && !nativeWindowTopMacOs && !nativeWindowTopLinux
+  const platformDefaultShortcutBindings = useMemo(
+    () => getDefaultShortcutBindings(nativeWindowTopMacOs),
+    [nativeWindowTopMacOs],
+  )
   const [uiPreferences, setUiPreferences] = useState(loadUiPreferences)
-  const [shortcutBindings, setShortcutBindings] = useState(() => defaultShortcutBindings)
+  const [shortcutBindings, setShortcutBindings] = useState(() => platformDefaultShortcutBindings)
   const [taskQuickDispatchOpacity, setTaskQuickDispatchOpacity] = useState(
     DEFAULT_TASK_QUICK_DISPATCH_OPACITY,
   )
@@ -318,6 +323,16 @@ export function ShellRoot() {
   const externalChannelEventSeqRef = useRef(0)
   const externalTraceContextRef = useRef<Record<string, ExternalTraceContext>>({})
   const telegramDebugToastTimerRef = useRef<number | null>(null)
+  const pendingSearchRequestFrameRef = useRef<number | null>(null)
+  const pendingFileEditorCommandFrameRef = useRef<number | null>(null)
+  const macOsNativeMenuInstallSeqRef = useRef(0)
+  const leftPaneVisibleRef = useRef(leftPaneVisible)
+  const shortcutBindingsRef = useRef(shortcutBindings)
+  const nativeWindowTopMacOsRef = useRef(nativeWindowTopMacOs)
+  const triggerFileSearchRef = useRef<(mode?: 'file' | 'content') => void>(() => {})
+  const triggerFileEditorCommandRef = useRef<
+    (type: 'find' | 'replace' | 'findNext' | 'findPrevious') => void
+  >(() => {})
   const registeredAgentRuntimeRef = useRef<
     Record<string, { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }>
   >({})
@@ -331,6 +346,14 @@ export function ShellRoot() {
       setIsChannelStudioOpen(true)
     }
     return () => {
+      if (pendingSearchRequestFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingSearchRequestFrameRef.current)
+        pendingSearchRequestFrameRef.current = null
+      }
+      if (pendingFileEditorCommandFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingFileEditorCommandFrameRef.current)
+        pendingFileEditorCommandFrameRef.current = null
+      }
       delete window.__GTO_OPEN_CHANNEL_STUDIO__
     }
   }, [])
@@ -536,10 +559,67 @@ export function ShellRoot() {
         if (disposed) {
           return
         }
-        const runtimeShortcuts = resolveShortcutBindingsFromSettings(response.values)
-        setShortcutBindings((prev) =>
-          areShortcutBindingsEqual(prev, runtimeShortcuts) ? prev : runtimeShortcuts,
+        const runtimeShortcuts = resolveShortcutBindingsFromSettings(
+          response.values,
+          nativeWindowTopMacOs,
         )
+        const normalizedRuntimeShortcuts =
+          nativeWindowTopMacOs &&
+          shortcutBindingToKeystroke(runtimeShortcuts.editorReplace) ===
+            shortcutBindingToKeystroke(getDefaultShortcutBindings(false).editorReplace)
+            ? {
+                ...runtimeShortcuts,
+                editorReplace: platformDefaultShortcutBindings.editorReplace,
+              }
+            : runtimeShortcuts
+        setShortcutBindings((prev) =>
+          areShortcutBindingsEqual(prev, normalizedRuntimeShortcuts)
+            ? prev
+            : normalizedRuntimeShortcuts,
+        )
+        if (
+          nativeWindowTopMacOs &&
+          !areShortcutBindingsEqual(runtimeShortcuts, normalizedRuntimeShortcuts)
+        ) {
+          void desktopApi
+            .settingsUpdate('user', {
+              keybindings: {
+                overrides: [
+                  {
+                    command: 'shell.search.open_file',
+                    keystroke: shortcutBindingToKeystroke(
+                      normalizedRuntimeShortcuts.openFileSearch,
+                    ),
+                  },
+                  {
+                    command: 'shell.search.open_content',
+                    keystroke: shortcutBindingToKeystroke(
+                      normalizedRuntimeShortcuts.openContentSearch,
+                    ),
+                  },
+                  {
+                    command: 'shell.editor.find',
+                    keystroke: shortcutBindingToKeystroke(normalizedRuntimeShortcuts.editorFind),
+                  },
+                  {
+                    command: 'shell.editor.replace',
+                    keystroke: shortcutBindingToKeystroke(
+                      normalizedRuntimeShortcuts.editorReplace,
+                    ),
+                  },
+                  {
+                    command: 'task.center.quick_dispatch',
+                    keystroke: shortcutBindingToKeystroke(
+                      normalizedRuntimeShortcuts.taskQuickDispatch,
+                    ),
+                  },
+                ],
+              },
+            })
+            .catch(() => {
+              // Keep normalized runtime shortcuts in memory even if migration persistence fails.
+            })
+        }
         const runtimeTaskQuickDispatchOpacity = readTaskQuickDispatchOpacityFromSettings(
           response.values,
         )
@@ -575,7 +655,12 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [activeWorkspaceId, setStations])
+  }, [
+    activeWorkspaceId,
+    nativeWindowTopMacOs,
+    platformDefaultShortcutBindings.editorReplace,
+    setStations,
+  ])
 
   const persistShortcutBindings = useCallback((bindings: typeof shortcutBindings) => {
     if (!desktopApi.isTauriRuntime()) {
@@ -629,12 +714,12 @@ export function ShellRoot() {
     setShortcutBindings((prev) => {
       const next = {
         ...prev,
-        taskQuickDispatch: defaultShortcutBindings.taskQuickDispatch,
+        taskQuickDispatch: platformDefaultShortcutBindings.taskQuickDispatch,
       }
       persistShortcutBindings(next)
       return next
     })
-  }, [persistShortcutBindings])
+  }, [persistShortcutBindings, platformDefaultShortcutBindings.taskQuickDispatch])
 
   const handleTaskQuickDispatchOpacityChange = useCallback((value: number) => {
     const nextOpacity = normalizeTaskQuickDispatchOpacity(value)
@@ -3432,10 +3517,19 @@ export function ShellRoot() {
     [activeNavId],
   )
 
-  const triggerFileSearch = useCallback((mode: 'file' | 'content') => {
-    setActiveNavId('files')
+  const triggerFileSearch = useCallback((mode?: 'file' | 'content') => {
+    const shouldReplayAfterPaneMount = !leftPaneVisibleRef.current
     setLeftPaneVisible(true)
     requestFileSearch(mode)
+    if (shouldReplayAfterPaneMount && typeof window !== 'undefined') {
+      if (pendingSearchRequestFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingSearchRequestFrameRef.current)
+      }
+      pendingSearchRequestFrameRef.current = window.requestAnimationFrame(() => {
+        pendingSearchRequestFrameRef.current = null
+        requestFileSearch(mode)
+      })
+    }
   }, [requestFileSearch])
 
   const triggerFileEditorCommand = useCallback(
@@ -3445,69 +3539,205 @@ export function ShellRoot() {
     [requestFileEditorCommand],
   )
 
+  useEffect(() => {
+    leftPaneVisibleRef.current = leftPaneVisible
+  }, [leftPaneVisible])
+
+  useEffect(() => {
+    shortcutBindingsRef.current = shortcutBindings
+  }, [shortcutBindings])
+
+  useEffect(() => {
+    nativeWindowTopMacOsRef.current = nativeWindowTopMacOs
+  }, [nativeWindowTopMacOs])
+
+  useEffect(() => {
+    triggerFileSearchRef.current = triggerFileSearch
+  }, [triggerFileSearch])
+
+  useEffect(() => {
+    triggerFileEditorCommandRef.current = triggerFileEditorCommand
+  }, [triggerFileEditorCommand])
+
+  const shouldRouteFileEditorShortcut = useCallback((target: EventTarget | null) => {
+    if (isEditableKeyboardTarget(target) && !isCodeEditorKeyboardTarget(target)) {
+      return false
+    }
+    return activeNavId === 'files' && Boolean(activeFilePath)
+  }, [activeFilePath, activeNavId])
+
+  const shouldRouteFileEditorShortcutRef = useRef(shouldRouteFileEditorShortcut)
+
+  useEffect(() => {
+    shouldRouteFileEditorShortcutRef.current = shouldRouteFileEditorShortcut
+  }, [shouldRouteFileEditorShortcut])
+
+  const isShortcutRepeat = useCallback((event: KeyboardEvent) => event.repeat, [])
+
   const closeTaskQuickDispatch = useCallback(() => {
     setIsTaskQuickDispatchOpen(false)
   }, [])
+
+  useEffect(() => {
+    if (!nativeWindowTopMacOs || !desktopApi.isTauriRuntime()) {
+      return
+    }
+
+    let disposed = false
+    const installSeq = macOsNativeMenuInstallSeqRef.current + 1
+    macOsNativeMenuInstallSeqRef.current = installSeq
+
+    const installNativeShortcutMenu = async () => {
+      try {
+        const { Menu, Submenu } = await import('@tauri-apps/api/menu')
+        if (disposed || installSeq !== macOsNativeMenuInstallSeqRef.current) {
+          return
+        }
+
+        const searchMenu = await Submenu.new({
+          text: t(locale, '工作区搜索', 'Search'),
+          items: [
+            {
+              id: 'shell.search.open_file',
+              text: t(locale, '文件搜索', 'Quick Open'),
+              accelerator: formatNativeMenuAccelerator(shortcutBindings.openFileSearch, true),
+              action: () => {
+                triggerFileSearch('file')
+              },
+            },
+            {
+              id: 'shell.search.open_content',
+              text: t(locale, '内容搜索', 'Search In Files'),
+              accelerator: formatNativeMenuAccelerator(shortcutBindings.openContentSearch, true),
+              action: () => {
+                triggerFileSearch('content')
+              },
+            },
+          ],
+        })
+        const editMenu = await Submenu.new({
+          text: t(locale, '编辑', 'Edit'),
+          items: [
+            { item: 'Undo' },
+            { item: 'Redo' },
+            { item: 'Separator' },
+            { item: 'Cut' },
+            { item: 'Copy' },
+            { item: 'Paste' },
+            { item: 'SelectAll' },
+          ],
+        })
+        const windowMenu = await Submenu.new({
+          text: t(locale, '窗口', 'Window'),
+          items: [{ item: 'Minimize' }, { item: 'Maximize' }, { item: 'Fullscreen' }],
+        })
+        const appMenu = await Submenu.new({
+          text: 'GT Office',
+          items: [
+            { item: { About: { name: 'GT Office' } } },
+            { item: 'Services' },
+            { item: 'Separator' },
+            { item: 'Hide' },
+            { item: 'HideOthers' },
+            { item: 'ShowAll' },
+            { item: 'Separator' },
+            { item: 'Quit' },
+          ],
+        })
+
+        const nextMenu = await Menu.new({
+          items: [appMenu, searchMenu, editMenu, windowMenu],
+        })
+        if (disposed || installSeq !== macOsNativeMenuInstallSeqRef.current) {
+          void nextMenu.close().catch(() => {
+            // Ignore stale menu disposal failures.
+          })
+          return
+        }
+
+        const previousMenu = await nextMenu.setAsAppMenu()
+        void windowMenu.setAsWindowsMenuForNSApp().catch(() => {
+          // The app menu still works even if the dedicated Window menu hint fails.
+        })
+        if (previousMenu) {
+          void previousMenu.close().catch(() => {
+            // Ignore old menu cleanup failures.
+          })
+        }
+      } catch {
+        // Ignore native menu installation failures and keep DOM shortcuts active.
+      }
+    }
+
+    void installNativeShortcutMenu()
+
+    return () => {
+      disposed = true
+    }
+  }, [locale, nativeWindowTopMacOs, shortcutBindings.openContentSearch, shortcutBindings.openFileSearch, triggerFileSearch])
 
   useEffect(() => {
     const onGlobalShortcut = (event: KeyboardEvent) => {
       if (document.body.dataset.gtoShortcutRecording === 'true') {
         return
       }
-      const editableTarget = isEditableKeyboardTarget(event.target)
-      const codeEditorTarget = isCodeEditorKeyboardTarget(event.target)
 
-      if (matchesShortcutEvent(event, shortcutBindings.taskQuickDispatch, nativeWindowTopMacOs)) {
+      const bindings = shortcutBindingsRef.current
+      const isMacOs = nativeWindowTopMacOsRef.current
+
+      if (matchesShortcutEvent(event, bindings.taskQuickDispatch, isMacOs)) {
+        if (isShortcutRepeat(event)) {
+          return
+        }
         event.preventDefault()
         event.stopPropagation()
         setIsTaskQuickDispatchOpen((prev) => !prev)
         return
       }
 
-      if (matchesShortcutEvent(event, shortcutBindings.openContentSearch, nativeWindowTopMacOs)) {
-        event.preventDefault()
-        event.stopPropagation()
-        triggerFileSearch('content')
-        return
-      }
-
-      if (matchesShortcutEvent(event, shortcutBindings.editorFind, nativeWindowTopMacOs)) {
-        if (codeEditorTarget) {
-          return
-        }
-        if (editableTarget) {
-          return
-        }
-        if (activeNavId === 'files' && activeFilePath) {
-          event.preventDefault()
-          event.stopPropagation()
-          triggerFileEditorCommand('find')
+      if (matchesShortcutEvent(event, bindings.openContentSearch, isMacOs)) {
+        if (isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
         event.stopPropagation()
+        triggerFileSearchRef.current('content')
         return
       }
 
-      if (matchesShortcutEvent(event, shortcutBindings.editorReplace, nativeWindowTopMacOs)) {
-        if (codeEditorTarget) {
+      if (matchesShortcutEvent(event, bindings.editorFind, isMacOs)) {
+        if (!shouldRouteFileEditorShortcutRef.current(event.target)) {
           return
         }
-        if (editableTarget) {
+        if (isShortcutRepeat(event)) {
           return
         }
-        if (activeNavId === 'files' && activeFilePath) {
-          event.preventDefault()
-          event.stopPropagation()
-          triggerFileEditorCommand('replace')
-        }
-        return
-      }
-
-      if (matchesShortcutEvent(event, shortcutBindings.openFileSearch, nativeWindowTopMacOs)) {
         event.preventDefault()
         event.stopPropagation()
-        triggerFileSearch('file')
+        triggerFileEditorCommandRef.current('find')
+        return
+      }
+
+      if (matchesShortcutEvent(event, bindings.editorReplace, isMacOs)) {
+        if (!shouldRouteFileEditorShortcutRef.current(event.target)) {
+          return
+        }
+        if (isShortcutRepeat(event)) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        triggerFileEditorCommandRef.current('replace')
+        return
+      }
+
+      if (matchesShortcutEvent(event, bindings.openFileSearch, isMacOs)) {
+        if (isShortcutRepeat(event)) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        triggerFileSearchRef.current('file')
         return
       }
 
@@ -3522,14 +3752,7 @@ export function ShellRoot() {
     return () => {
       window.removeEventListener('keydown', onGlobalShortcut, { capture: true })
     }
-  }, [
-    activeFilePath,
-    activeNavId,
-    nativeWindowTopMacOs,
-    shortcutBindings,
-    triggerFileEditorCommand,
-    triggerFileSearch,
-  ])
+  }, [isShortcutRepeat])
 
   const handleLeftPaneResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -3720,10 +3943,23 @@ export function ShellRoot() {
   }, [consumeFileSearchRequest])
 
   const handleFileTreeSelectFile = useCallback(
-    (filePath: string) => {
-      void loadFileContent(filePath, 'full')
+    (filePath: string, line?: number) => {
+      void (async () => {
+        setActiveNavId('files')
+        setLeftPaneVisible(true)
+        await loadFileContent(filePath, 'full')
+        if (typeof line === 'number' && Number.isFinite(line)) {
+          if (pendingFileEditorCommandFrameRef.current !== null) {
+            window.cancelAnimationFrame(pendingFileEditorCommandFrameRef.current)
+          }
+          pendingFileEditorCommandFrameRef.current = window.requestAnimationFrame(() => {
+            pendingFileEditorCommandFrameRef.current = null
+            requestFileEditorCommand('gotoLine', { line, targetPath: filePath })
+          })
+        }
+      })()
     },
-    [loadFileContent],
+    [loadFileContent, requestFileEditorCommand],
   )
 
   const handleStationOverviewViewChange = useCallback((patch: Partial<typeof stationOverviewState>) => {
@@ -3999,7 +4235,7 @@ export function ShellRoot() {
         uiFontSize: uiPreferences.uiFontSize,
         isMacOs: nativeWindowTopMacOs,
         taskQuickDispatchShortcut: shortcutBindings.taskQuickDispatch,
-        defaultTaskQuickDispatchShortcut: defaultShortcutBindings.taskQuickDispatch,
+        defaultTaskQuickDispatchShortcut: platformDefaultShortcutBindings.taskQuickDispatch,
         onClose: () => {
           setIsSettingsOpen(false)
         },
