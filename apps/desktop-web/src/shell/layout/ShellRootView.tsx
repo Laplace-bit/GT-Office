@@ -145,26 +145,36 @@ function ShellLeftPaneContent({
   communicationChannelsPaneProps,
   activePaneModel,
 }: ShellLeftPaneContentProps) {
-  if (activeNavId === 'files') {
-    return <FileTreePane {...fileTreePaneProps} />
-  }
-  if (activeNavId === 'tasks') {
-    return (
-      <div className="task-center-scroll-host">
-        <TaskCenterPane {...taskCenterPaneProps} />
+  const showFileTree = activeNavId === 'files'
+
+  const secondaryPane = (() => {
+    if (activeNavId === 'tasks') {
+      return (
+        <div className="task-center-scroll-host">
+          <TaskCenterPane {...taskCenterPaneProps} />
+        </div>
+      )
+    }
+    if (activeNavId === 'stations') {
+      return <StationOverviewPane {...stationOverviewPaneProps} />
+    }
+    if (activeNavId === 'git') {
+      return <GitOperationsPane {...gitOperationsPaneProps} />
+    }
+    if (activeNavId === 'channels') {
+      return <CommunicationChannelsPane {...communicationChannelsPaneProps} />
+    }
+    return <LeftBusinessPane model={activePaneModel} />
+  })()
+
+  return (
+    <>
+      <div style={showFileTree ? undefined : { display: 'none' }} aria-hidden={!showFileTree}>
+        <FileTreePane {...fileTreePaneProps} />
       </div>
-    )
-  }
-  if (activeNavId === 'stations') {
-    return <StationOverviewPane {...stationOverviewPaneProps} />
-  }
-  if (activeNavId === 'git') {
-    return <GitOperationsPane {...gitOperationsPaneProps} />
-  }
-  if (activeNavId === 'channels') {
-    return <CommunicationChannelsPane {...communicationChannelsPaneProps} />
-  }
-  return <LeftBusinessPane model={activePaneModel} />
+      {showFileTree ? null : secondaryPane}
+    </>
+  )
 }
 
 interface ShellMainPaneContentProps {

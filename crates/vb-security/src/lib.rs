@@ -4,7 +4,9 @@ use std::{
     sync::{OnceLock, RwLock},
 };
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
+use std::process::Command;
+#[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 #[cfg(target_os = "windows")]
 use std::{ffi::c_void, ptr, slice};

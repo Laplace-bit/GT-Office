@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 use vb_ai_config::{
     AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
-    LightAgentDraftInput, StoredAiConfigPreview,
+    CodexDraftInput, GeminiDraftInput, StoredAiConfigPreview,
 };
 use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
 use vb_task::AgentToolKind;
@@ -193,10 +193,15 @@ pub fn ai_config_preview_patch(
                 .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
             service.preview_claude_patch(&workspace_id, &workspace_root, &scope, draft)
         }
-        AiConfigAgent::Codex | AiConfigAgent::Gemini => {
-            let draft: LightAgentDraftInput = serde_json::from_value(draft)
+        AiConfigAgent::Codex => {
+            let draft: CodexDraftInput = serde_json::from_value(draft)
                 .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
-            service.preview_light_agent_patch(&workspace_id, &workspace_root, agent_type, draft)
+            service.preview_codex_patch(&workspace_id, &workspace_root, draft)
+        }
+        AiConfigAgent::Gemini => {
+            let draft: GeminiDraftInput = serde_json::from_value(draft)
+                .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
+            service.preview_gemini_patch(&workspace_id, &workspace_root, draft)
         }
     }
     .map_err(|error| error.to_string())?;
@@ -227,17 +232,19 @@ pub fn ai_config_apply_patch(
         StoredAiConfigPreview::Claude(p) => {
             service.apply_claude_preview(&workspace_id, &workspace_root, &confirmed_by, p)
         }
-        StoredAiConfigPreview::Codex(p) | StoredAiConfigPreview::Gemini(p) => {
-            service.apply_light_agent_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+        StoredAiConfigPreview::Codex(p) => {
+            service.apply_codex_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+        }
+        StoredAiConfigPreview::Gemini(p) => {
+            service.apply_gemini_preview(&workspace_id, &workspace_root, &confirmed_by, p)
         }
     }
     .map_err(|error| error.to_string())?;
 
     let changed_keys = match &preview {
         StoredAiConfigPreview::Claude(p) => p.changed_keys.clone(),
-        StoredAiConfigPreview::Codex(p) | StoredAiConfigPreview::Gemini(p) => {
-            p.changed_keys.clone()
-        }
+        StoredAiConfigPreview::Codex(p) => p.changed_keys.clone(),
+        StoredAiConfigPreview::Gemini(p) => p.changed_keys.clone(),
     };
 
     let _ = app.emit(

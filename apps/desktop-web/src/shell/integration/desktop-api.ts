@@ -761,27 +761,96 @@ export interface ClaudeSnapshot {
   canApplyOfficialMode: boolean
 }
 
-export interface LightAgentConfigSnapshot {
-  hasSecret: boolean
-  secretRef: string | null
-  updatedAtMs: number | null
+export type CodexProviderMode = 'official' | 'preset' | 'custom'
+
+export type GeminiProviderMode = 'official' | 'preset' | 'custom'
+
+export type GeminiAuthMode = 'oauth' | 'api_key'
+
+export interface CodexProviderPreset {
+  providerId: string
+  name: string
+  category: string
+  description: string
+  websiteUrl: string
+  apiKeyUrl: string
+  billingUrl: string
+  recommendedModel: string
+  endpoint?: string | null
+  configTemplate: string
+  requiresApiKey: boolean
+  setupSteps: string[]
 }
 
-export interface LightAgentGuide {
+export interface GeminiProviderPreset {
+  providerId: string
+  name: string
+  category: string
+  description: string
+  websiteUrl: string
+  apiKeyUrl: string
+  billingUrl: string
+  recommendedModel: string
+  endpoint?: string | null
+  authMode: GeminiAuthMode
+  selectedType: string
+  requiresApiKey: boolean
+  setupSteps: string[]
+  extraEnv?: Record<string, string>
+}
+
+export interface CodexConfigSnapshot {
+  activeMode?: CodexProviderMode | null
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  configToml?: string | null
+  secretRef?: string | null
+  hasSecret: boolean
+  updatedAtMs?: number | null
+}
+
+export interface GeminiConfigSnapshot {
+  activeMode?: GeminiProviderMode | null
+  authMode?: GeminiAuthMode | null
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  selectedType?: string | null
+  secretRef?: string | null
+  hasSecret: boolean
+  updatedAtMs?: number | null
+}
+
+export interface CodexSnapshot {
   title: string
   summary: string
   configPath?: string | null
   docsUrl: string
   tips: string[]
-  config: LightAgentConfigSnapshot
+  presets: CodexProviderPreset[]
+  config: CodexConfigSnapshot
+  mcpInstalled: boolean
+}
+
+export interface GeminiSnapshot {
+  title: string
+  summary: string
+  configPath?: string | null
+  docsUrl: string
+  tips: string[]
+  presets: GeminiProviderPreset[]
+  config: GeminiConfigSnapshot
   mcpInstalled: boolean
 }
 
 export interface AiConfigSnapshot {
   agents: AiAgentSnapshotCard[]
   claude: ClaudeSnapshot
-  codex: LightAgentGuide
-  gemini: LightAgentGuide
+  codex: CodexSnapshot
+  gemini: GeminiSnapshot
 }
 
 export interface AiConfigReadSnapshotResponse {
@@ -802,8 +871,25 @@ export interface ClaudeDraftInput {
   apiKey?: string | null
 }
 
-export interface LightAgentDraftInput {
+export interface CodexDraftInput {
+  mode: CodexProviderMode
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
   apiKey?: string | null
+  configToml?: string | null
+}
+
+export interface GeminiDraftInput {
+  mode: GeminiProviderMode
+  authMode?: GeminiAuthMode | null
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  apiKey?: string | null
+  selectedType?: string | null
 }
 
 export interface ClaudeNormalizedDraft {
@@ -815,6 +901,56 @@ export interface ClaudeNormalizedDraft {
   authScheme?: ClaudeAuthScheme | null
   secretRef?: string | null
   hasSecret: boolean
+}
+
+export interface CodexNormalizedDraft {
+  mode: CodexProviderMode
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  configToml?: string | null
+  secretRef?: string | null
+  hasSecret: boolean
+}
+
+export interface GeminiNormalizedDraft {
+  mode: GeminiProviderMode
+  authMode: GeminiAuthMode
+  providerId?: string | null
+  providerName?: string | null
+  baseUrl?: string | null
+  model?: string | null
+  selectedType: string
+  secretRef?: string | null
+  hasSecret: boolean
+}
+
+export type AiConfigDraftInput = ClaudeDraftInput | CodexDraftInput | GeminiDraftInput
+
+export type AiConfigNormalizedDraft =
+  | { claude: ClaudeNormalizedDraft }
+  | { codex: CodexNormalizedDraft }
+  | { gemini: GeminiNormalizedDraft }
+
+export type AnyAiConfigNormalizedDraft =
+  | ClaudeNormalizedDraft
+  | CodexNormalizedDraft
+  | GeminiNormalizedDraft
+
+export function unwrapAiConfigNormalizedDraft(
+  draft: AiConfigNormalizedDraft,
+):
+  | { agent: 'claude'; draft: ClaudeNormalizedDraft }
+  | { agent: 'codex'; draft: CodexNormalizedDraft }
+  | { agent: 'gemini'; draft: GeminiNormalizedDraft } {
+  if ('claude' in draft) {
+    return { agent: 'claude', draft: draft.claude }
+  }
+  if ('codex' in draft) {
+    return { agent: 'codex', draft: draft.codex }
+  }
+  return { agent: 'gemini', draft: draft.gemini }
 }
 
 export interface AiConfigMaskedChange {
@@ -831,7 +967,7 @@ export interface AiConfigPreviewResponse {
   agent: AiConfigAgent
   previewId: string
   allowed: boolean
-  normalizedDraft: ClaudeNormalizedDraft
+  normalizedDraft: AiConfigNormalizedDraft
   maskedDiff: AiConfigMaskedChange[]
   changedKeys: string[]
   secretRefs: string[]
@@ -1702,7 +1838,7 @@ export const desktopApi = {
     workspaceId: string,
     agent: AiConfigAgent,
     scope: 'workspace',
-    draft: ClaudeDraftInput | LightAgentDraftInput,
+    draft: AiConfigDraftInput,
   ) {
     return invokeCommand<AiConfigPreviewResponse>('ai_config_preview_patch', {
       workspaceId,

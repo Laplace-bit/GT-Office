@@ -15,3 +15,4 @@ vb-security = { path = "../vb-security" }
 vb-settings = { path = "../vb-settings" }
 vb-storage = { path = "../vb-storage" }
 vb-tools = { path = "../vb-tools" }
+toml = "0.8"

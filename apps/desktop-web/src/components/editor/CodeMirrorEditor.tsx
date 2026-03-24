@@ -63,10 +63,12 @@ export interface CodeMirrorEditorProps {
 }
 
 type LanguageId = 'javascript' | 'typescript' | 'python' | 'rust' | 'json' | 'markdown' | 'css' | 'html' | 'plain'
-export type CodeEditorCommandType = 'find' | 'replace' | 'findNext' | 'findPrevious'
+export type CodeEditorCommandType = 'find' | 'replace' | 'findNext' | 'findPrevious' | 'gotoLine'
 export interface CodeEditorCommandRequest {
   type: CodeEditorCommandType
   nonce: number
+  line?: number
+  targetPath?: string | null
 }
 
 function detectLanguage(filePath: string | null): LanguageId {
@@ -357,6 +359,9 @@ export function CodeMirrorEditor({
     if (!view || !commandRequest) {
       return
     }
+    if (commandRequest.targetPath && commandRequest.targetPath !== filePath) {
+      return
+    }
     if (commandRequest.nonce <= commandNonceRef.current) {
       return
     }
@@ -380,6 +385,22 @@ export function CodeMirrorEditor({
       case 'findPrevious': {
         if (!findPrevious(view)) {
           openFindPanel(view)
+        }
+        break
+      }
+      case 'gotoLine': {
+        gotoLine(view)
+        if (typeof commandRequest.line === 'number' && Number.isFinite(commandRequest.line)) {
+          const panel = view.dom.querySelector('.cm-panel.cm-gotoLine')
+          const input = panel?.querySelector('input')
+          if (input instanceof HTMLInputElement) {
+            input.value = String(Math.max(1, Math.trunc(commandRequest.line)))
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            window.requestAnimationFrame(() => {
+              const form = input.closest('form')
+              form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+            })
+          }
         }
         break
       }

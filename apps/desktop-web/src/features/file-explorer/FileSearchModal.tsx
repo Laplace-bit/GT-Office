@@ -20,7 +20,7 @@ interface FileSearchModalProps {
   onClose: () => void
   onModeChange: (mode: 'file' | 'content') => void
   onQueryChange: (query: string) => void
-  onSelectFile: (path: string) => void
+  onSelectFile: (path: string, line?: number) => void
   onSubmit: () => void
 }
 
@@ -195,7 +195,7 @@ export function FileSearchModal({
                       <li key={`${match.path}:${match.line}:${match.preview}`}>
                         <button
                           type="button"
-                          onClick={() => onSelectFile(match.path)}
+                          onClick={() => onSelectFile(match.path, match.line)}
                           title={match.path}
                           className="file-search-result-btn"
                         >

@@ -34,12 +34,12 @@ interface FileTreePaneProps {
   locale: Locale
   workspaceId: string | null
   selectedFilePath: string | null
-  onSelectFile: (filePath: string) => void
+  onSelectFile: (filePath: string, line?: number) => void
   onCreateFile: (filePath: string) => Promise<boolean>
   onDeletePath: (path: string) => Promise<boolean>
   onMovePath: (fromPath: string, toPath: string) => Promise<boolean>
   searchRequest?: {
-    mode: 'file' | 'content'
+    mode?: 'file' | 'content'
     nonce: number
   } | null
   onSearchRequestConsumed?: (nonce: number) => void
@@ -75,8 +75,25 @@ const SPEED_FAST_PX_PER_SEC = 1800
 const SPEED_MEDIUM_EXTRA_ROWS = 400
 const SPEED_FAST_EXTRA_ROWS = 800
 const SEARCH_DEBOUNCE_MS = 48
+const SEARCH_MODE_STORAGE_KEY = 'gtoffice.fileTree.searchMode.v1'
 const INITIAL_EXPANDED: Record<string, boolean> = {
   [ROOT_DIR]: true,
+}
+type SearchMode = 'file' | 'content'
+
+function readPersistedSearchMode(): SearchMode {
+  if (typeof window === 'undefined') {
+    return 'file'
+  }
+  const stored = window.localStorage.getItem(SEARCH_MODE_STORAGE_KEY)
+  return stored === 'content' ? 'content' : 'file'
+}
+
+function persistSearchMode(mode: SearchMode) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.localStorage.setItem(SEARCH_MODE_STORAGE_KEY, mode)
 }
 
 function normalizeDirectoryPath(path: string): string {
@@ -458,7 +475,8 @@ export function FileTreePane({
   const [hasInteractedScroll, setHasInteractedScroll] = useState(false)
   const [scrollSpeedTier, setScrollSpeedTier] = useState<'idle' | 'medium' | 'fast'>('idle')
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
-  const [searchMode, setSearchMode] = useState<'file' | 'content'>('file')
+  const [preferredSearchMode, setPreferredSearchMode] = useState<SearchMode>(() => readPersistedSearchMode())
+  const [searchMode, setSearchMode] = useState<SearchMode>(() => readPersistedSearchMode())
   const [searchQuery, setSearchQuery] = useState('')
   const [contentMatches, setContentMatches] = useState<FsSearchMatch[]>([])
   const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
@@ -492,6 +510,22 @@ export function FileTreePane({
     void desktopApi.fsSearchStreamCancel(activeSearchId).catch(() => {
       // ignore cancellation races
     })
+  }, [])
+
+  const openSearchModal = useCallback((mode?: SearchMode) => {
+    const nextMode = mode ?? preferredSearchMode
+    setSearchMode(nextMode)
+    if (mode) {
+      setPreferredSearchMode(nextMode)
+      persistSearchMode(nextMode)
+    }
+    setIsSearchModalOpen(true)
+  }, [preferredSearchMode])
+
+  const handleSearchModeChange = useCallback((mode: SearchMode) => {
+    setSearchMode(mode)
+    setPreferredSearchMode(mode)
+    persistSearchMode(mode)
   }, [])
 
   const loadDirectory = useCallback(
@@ -683,10 +717,9 @@ export function FileTreePane({
       return
     }
     lastProcessedNonceRef.current = searchRequest.nonce
-    setSearchMode(searchRequest.mode)
-    setIsSearchModalOpen(true)
+    openSearchModal(searchRequest.mode)
     onSearchRequestConsumed?.(searchRequest.nonce)
-  }, [onSearchRequestConsumed, searchRequest])
+  }, [onSearchRequestConsumed, openSearchModal, searchRequest])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -1339,7 +1372,7 @@ export function FileTreePane({
     }
     const first = contentMatches[0]
     if (first) {
-      onSelectFile(first.path)
+      onSelectFile(first.path, first.line)
       setIsSearchModalOpen(false)
     }
   }, [contentMatches, fileMatches, onSelectFile, searchMode])
@@ -1526,8 +1559,7 @@ export function FileTreePane({
             aria-label={t(locale, 'fileTree.openSearch')}
             title={t(locale, 'fileTree.openSearch')}
             onClick={() => {
-              setSearchMode('file')
-              setIsSearchModalOpen(true)
+              openSearchModal()
             }}
             disabled={!workspaceId}
           >
@@ -1760,11 +1792,11 @@ export function FileTreePane({
         error={searchError}
         droppedChunks={searchDroppedChunks}
         onClose={() => setIsSearchModalOpen(false)}
-        onModeChange={setSearchMode}
+        onModeChange={handleSearchModeChange}
         onQueryChange={setSearchQuery}
         onSubmit={handleSearchSubmit}
-        onSelectFile={(path) => {
-          onSelectFile(path)
+        onSelectFile={(path, line) => {
+          onSelectFile(path, line)
           setIsSearchModalOpen(false)
         }}
       />

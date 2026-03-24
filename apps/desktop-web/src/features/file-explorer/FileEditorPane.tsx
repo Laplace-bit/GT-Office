@@ -37,13 +37,33 @@ interface FileEditorPaneProps {
 
 type SaveState = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error'
 
+function isSameCommandRequest(
+  left: CodeEditorCommandRequest | null | undefined,
+  right: CodeEditorCommandRequest | null | undefined,
+): boolean {
+  if (!left && !right) {
+    return true
+  }
+  if (!left || !right) {
+    return false
+  }
+  return (
+    left.nonce === right.nonce &&
+    left.type === right.type &&
+    left.line === right.line &&
+    left.targetPath === right.targetPath
+  )
+}
+
 // Memoized editor - 完全隔离，不会因父组件状态变化而重渲染
 const MemoizedEditor = memo(
   CodeMirrorEditor,
   (prev, next) =>
+    prev.locale === next.locale &&
     prev.content === next.content &&
     prev.filePath === next.filePath &&
-    prev.readOnly === next.readOnly
+    prev.readOnly === next.readOnly &&
+    isSameCommandRequest(prev.commandRequest, next.commandRequest)
 )
 
 function getFileName(path: string): string {

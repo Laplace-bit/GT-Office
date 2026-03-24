@@ -39,6 +39,22 @@ pub enum ClaudeProviderMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum CodexProviderMode {
+    Official,
+    Preset,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GeminiProviderMode {
+    Official,
+    Preset,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ClaudeAuthScheme {
     AnthropicApiKey,
     AnthropicAuthToken,
@@ -49,6 +65,22 @@ impl ClaudeAuthScheme {
         match self {
             Self::AnthropicApiKey => "ANTHROPIC_API_KEY",
             Self::AnthropicAuthToken => "ANTHROPIC_AUTH_TOKEN",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GeminiAuthMode {
+    OAuth,
+    ApiKey,
+}
+
+impl GeminiAuthMode {
+    pub fn selected_type(&self) -> &'static str {
+        match self {
+            Self::OAuth => "oauth-personal",
+            Self::ApiKey => "gemini-api-key",
         }
     }
 }
@@ -69,6 +101,43 @@ pub struct ClaudeProviderPreset {
     pub why_choose: String,
     pub best_for: String,
     pub requires_billing: bool,
+    pub setup_steps: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra_env: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexProviderPreset {
+    pub provider_id: String,
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    pub website_url: String,
+    pub api_key_url: String,
+    pub billing_url: String,
+    pub recommended_model: String,
+    pub endpoint: Option<String>,
+    pub config_template: String,
+    pub requires_api_key: bool,
+    pub setup_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiProviderPreset {
+    pub provider_id: String,
+    pub name: String,
+    pub category: String,
+    pub description: String,
+    pub website_url: String,
+    pub api_key_url: String,
+    pub billing_url: String,
+    pub recommended_model: String,
+    pub endpoint: Option<String>,
+    pub auth_mode: GeminiAuthMode,
+    pub selected_type: String,
+    pub requires_api_key: bool,
     pub setup_steps: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra_env: BTreeMap<String, String>,
@@ -123,6 +192,35 @@ pub struct ClaudeConfigSnapshot {
     pub updated_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexConfigSnapshot {
+    pub active_mode: Option<CodexProviderMode>,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub config_toml: Option<String>,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
+    pub updated_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiConfigSnapshot {
+    pub active_mode: Option<GeminiProviderMode>,
+    pub auth_mode: Option<GeminiAuthMode>,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub selected_type: Option<String>,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
+    pub updated_at_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeSavedProviderSnapshot {
@@ -140,14 +238,6 @@ pub struct ClaudeSavedProviderSnapshot {
     pub last_applied_at_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct LightAgentConfigSnapshot {
-    pub has_secret: bool,
-    pub secret_ref: Option<String>,
-    pub updated_at_ms: Option<u64>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeSnapshot {
@@ -159,13 +249,27 @@ pub struct ClaudeSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LightAgentGuide {
+pub struct CodexSnapshot {
     pub title: String,
     pub summary: String,
     pub config_path: Option<String>,
     pub docs_url: String,
     pub tips: Vec<String>,
-    pub config: LightAgentConfigSnapshot,
+    pub presets: Vec<CodexProviderPreset>,
+    pub config: CodexConfigSnapshot,
+    pub mcp_installed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiSnapshot {
+    pub title: String,
+    pub summary: String,
+    pub config_path: Option<String>,
+    pub docs_url: String,
+    pub tips: Vec<String>,
+    pub presets: Vec<GeminiProviderPreset>,
+    pub config: GeminiConfigSnapshot,
     pub mcp_installed: bool,
 }
 
@@ -174,8 +278,8 @@ pub struct LightAgentGuide {
 pub struct AiConfigSnapshot {
     pub agents: Vec<AiAgentSnapshotCard>,
     pub claude: ClaudeSnapshot,
-    pub codex: LightAgentGuide,
-    pub gemini: LightAgentGuide,
+    pub codex: CodexSnapshot,
+    pub gemini: GeminiSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,16 +313,48 @@ pub struct ClaudeDraftInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LightAgentDraftInput {
+pub struct CodexDraftInput {
+    pub mode: CodexProviderMode,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub provider_name: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub config_toml: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiDraftInput {
+    pub mode: GeminiProviderMode,
+    #[serde(default)]
+    pub auth_mode: Option<GeminiAuthMode>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub provider_name: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub selected_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AiConfigDraftInput {
     Claude(ClaudeDraftInput),
-    Codex(LightAgentDraftInput),
-    Gemini(LightAgentDraftInput),
+    Codex(CodexDraftInput),
+    Gemini(GeminiDraftInput),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,17 +372,37 @@ pub struct ClaudeNormalizedDraft {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LightAgentNormalizedDraft {
-    pub has_secret: bool,
+pub struct CodexNormalizedDraft {
+    pub mode: CodexProviderMode,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub config_toml: Option<String>,
     pub secret_ref: Option<String>,
+    pub has_secret: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiNormalizedDraft {
+    pub mode: GeminiProviderMode,
+    pub auth_mode: GeminiAuthMode,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub selected_type: String,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AiConfigNormalizedDraft {
     Claude(ClaudeNormalizedDraft),
-    Codex(LightAgentNormalizedDraft),
-    Gemini(LightAgentNormalizedDraft),
+    Codex(CodexNormalizedDraft),
+    Gemini(GeminiNormalizedDraft),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,8 +446,8 @@ pub struct AiConfigApplyResponse {
 #[derive(Debug, Clone)]
 pub enum StoredAiConfigPreview {
     Claude(StoredClaudePreview),
-    Codex(StoredLightAgentPreview),
-    Gemini(StoredLightAgentPreview),
+    Codex(StoredCodexPreview),
+    Gemini(StoredGeminiPreview),
 }
 
 #[derive(Debug, Clone)]
@@ -306,10 +462,19 @@ pub struct StoredClaudePreview {
 }
 
 #[derive(Debug, Clone)]
-pub struct StoredLightAgentPreview {
+pub struct StoredCodexPreview {
     pub preview_id: String,
-    pub agent: AiConfigAgent,
-    pub normalized_draft: LightAgentNormalizedDraft,
+    pub normalized_draft: CodexNormalizedDraft,
+    pub changed_keys: Vec<String>,
+    pub secret_refs: Vec<String>,
+    pub warnings: Vec<String>,
+    pub api_key_secret: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredGeminiPreview {
+    pub preview_id: String,
+    pub normalized_draft: GeminiNormalizedDraft,
     pub changed_keys: Vec<String>,
     pub secret_refs: Vec<String>,
     pub warnings: Vec<String>,

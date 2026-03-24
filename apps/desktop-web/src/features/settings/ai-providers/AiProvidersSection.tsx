@@ -14,7 +14,7 @@ import { ProviderAgentCard } from './shared/ProviderAgentCard'
 import { isLightAgentSnapshotCard } from './shared/provider-utils'
 import { AgentEnhancementsModal } from './shared/AgentEnhancementsModal'
 import { ClaudeConfigModal } from './claude/ClaudeConfigModal'
-import { LightAgentConfigModal } from './light-agents/LightAgentConfigModal'
+import { CodexConfigModal, GeminiConfigModal } from './light-agents/LightAgentConfigModal'
 
 import './AiProvidersSection.scss'
 
@@ -305,14 +305,27 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
         />
       )}
 
-      {configAgentId && configAgentId !== 'claude' && lightConfigAgent && snapshot && (
-        <LightAgentConfigModal
+      {configAgentId === 'codex' && lightConfigAgent && snapshot && (
+        <CodexConfigModal
           workspaceId={workspaceId}
           locale={locale}
           agent={lightConfigAgent}
-          guide={configAgentId === 'codex' ? snapshot.snapshot.codex : snapshot.snapshot.gemini}
-          installing={installingAgent === configAgentId}
-          onInstall={() => void handleInstall(configAgentId)}
+          guide={snapshot.snapshot.codex}
+          installing={installingAgent === 'codex'}
+          onInstall={() => void handleInstall('codex')}
+          onReload={() => handleReload({ background: true })}
+          onClose={() => setConfigAgentId(null)}
+        />
+      )}
+
+      {configAgentId === 'gemini' && lightConfigAgent && snapshot && (
+        <GeminiConfigModal
+          workspaceId={workspaceId}
+          locale={locale}
+          agent={lightConfigAgent}
+          guide={snapshot.snapshot.gemini}
+          installing={installingAgent === 'gemini'}
+          onInstall={() => void handleInstall('gemini')}
           onReload={() => handleReload({ background: true })}
           onClose={() => setConfigAgentId(null)}
         />

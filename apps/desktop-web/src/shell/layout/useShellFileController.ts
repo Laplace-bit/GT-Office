@@ -21,7 +21,7 @@ import {
 type FileSearchMode = 'file' | 'content'
 
 type FileSearchRequest = {
-  mode: FileSearchMode
+  mode?: FileSearchMode
   nonce: number
 }
 
@@ -52,9 +52,12 @@ export interface ShellFileController {
   handleFileModified: (filePath: string, isModified: boolean) => void
   deletePathInWorkspace: (path: string) => Promise<boolean>
   movePathInWorkspace: (fromPath: string, toPath: string) => Promise<boolean>
-  requestFileSearch: (mode: FileSearchMode) => void
+  requestFileSearch: (mode?: FileSearchMode) => void
   consumeFileSearchRequest: (nonce: number) => void
-  requestFileEditorCommand: (type: FileEditorCommandRequest['type']) => void
+  requestFileEditorCommand: (
+    type: FileEditorCommandRequest['type'],
+    options?: { line?: number; targetPath?: string | null },
+  ) => void
   resetFileState: () => void
 }
 
@@ -416,7 +419,7 @@ export function useShellFileController({
     }
   }, [activeWorkspaceId, loadFileContent])
 
-  const requestFileSearch = useCallback((mode: FileSearchMode) => {
+  const requestFileSearch = useCallback((mode?: FileSearchMode) => {
     setFileSearchRequest((prev) => ({
       mode,
       nonce: (prev?.nonce ?? 0) + 1,
@@ -432,10 +435,15 @@ export function useShellFileController({
     })
   }, [])
 
-  const requestFileEditorCommand = useCallback((type: FileEditorCommandRequest['type']) => {
+  const requestFileEditorCommand = useCallback((
+    type: FileEditorCommandRequest['type'],
+    options?: { line?: number; targetPath?: string | null },
+  ) => {
     setFileEditorCommandRequest((prev) => ({
       type,
       nonce: (prev?.nonce ?? 0) + 1,
+      line: options?.line,
+      targetPath: options?.targetPath ?? activeFilePathRef.current,
     }))
   }, [])
 
