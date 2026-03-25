@@ -311,11 +311,6 @@
 }
 
 .station-terminal-shell {
-  --station-terminal-screen-padding-block: #{rem(3)};
-  --station-terminal-screen-padding-inline: #{rem(7)};
-  --station-terminal-scrollbar-top: #{rem(4)};
-  --station-terminal-scrollbar-right: #{rem(1)};
-  --station-terminal-scrollbar-bottom: #{rem(4)};
   flex: 1;
   background: rgba(0, 0, 0, 0.2);
   min-height: 0;
@@ -499,13 +494,6 @@
   .station-unread-badge {
     order: 2;
     margin-left: 0;
-  }
-
-  .station-terminal-shell {
-    --station-terminal-screen-padding-block: #{rem(2)};
-    --station-terminal-screen-padding-inline: #{rem(5)};
-    --station-terminal-scrollbar-top: #{rem(2)};
-    --station-terminal-scrollbar-bottom: #{rem(2)};
   }
 
   .station-terminal-idle-state {

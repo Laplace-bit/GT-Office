@@ -135,11 +135,6 @@
 }
 
 .terminal-station-pane :where(.station-terminal-shell) {
-  --station-terminal-screen-padding-block: 0.1875rem;
-  --station-terminal-screen-padding-inline: 0.4375rem;
-  --station-terminal-scrollbar-top: 0.25rem;
-  --station-terminal-scrollbar-right: 0.0625rem;
-  --station-terminal-scrollbar-bottom: 0.25rem;
   flex: 1;
   display: flex;
   flex-direction: column;

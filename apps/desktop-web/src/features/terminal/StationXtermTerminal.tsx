@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
-import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import {
   isMacOsWebKitTextInputEnvironment,
@@ -130,11 +129,6 @@ function readCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
-function readCssVarOr(name: string, fallback: string): string {
-  const value = readCssVar(name)
-  return value || fallback
-}
-
 function readRootFontSizePx(): number {
   const value = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
   if (!Number.isFinite(value) || value <= 0) {
@@ -156,82 +150,6 @@ function resolveTerminalFontSize(host?: HTMLElement | null): number {
     return Math.max(10, baseSize - 1)
   }
   return baseSize
-}
-
-function getTerminalTheme(): ITheme {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'graphite-dark'
-  if (!isDark) {
-    return {
-      background: readCssVarOr('--vb-terminal-bg', '#f5f8fd'),
-      foreground: readCssVarOr('--vb-terminal-text', '#1f2937'),
-      cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff'),
-      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f5f8fd'),
-      selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#0b1b31'),
-      selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(10, 132, 255, 0.24)'),
-      selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(97, 138, 191, 0.18)'),
-      overviewRulerBorder: 'transparent',
-      scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(84, 106, 134, 0.34)'),
-      scrollbarSliderHoverBackground: readCssVarOr(
-        '--vb-terminal-scrollbar-thumb-hover',
-        'rgba(84, 106, 134, 0.52)',
-      ),
-      scrollbarSliderActiveBackground: readCssVarOr(
-        '--vb-terminal-scrollbar-thumb-active',
-        'rgba(84, 106, 134, 0.68)',
-      ),
-      black: '#455160',
-      red: '#ba4a58',
-      green: '#2d7d5b',
-      yellow: '#9b6a28',
-      blue: '#1f6fa9',
-      magenta: '#835fb8',
-      cyan: '#2e7f8a',
-      white: '#667487',
-      brightBlack: '#6a788c',
-      brightRed: '#d76170',
-      brightGreen: '#369a70',
-      brightYellow: '#b8863f',
-      brightBlue: '#2b88cb',
-      brightMagenta: '#9a74cf',
-      brightCyan: '#3f97a3',
-      brightWhite: '#1c2633',
-    }
-  }
-  return {
-    background: readCssVarOr('--vb-terminal-bg', '#0f141c'),
-    foreground: readCssVarOr('--vb-terminal-text', '#e6edf7'),
-    cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff'),
-    cursorAccent: readCssVarOr('--vb-terminal-bg', '#0f141c'),
-    selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#f7fbff'),
-    selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(122, 168, 255, 0.34)'),
-    selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(95, 128, 178, 0.24)'),
-    overviewRulerBorder: 'transparent',
-    scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(130, 155, 186, 0.42)'),
-    scrollbarSliderHoverBackground: readCssVarOr(
-      '--vb-terminal-scrollbar-thumb-hover',
-      'rgba(156, 179, 208, 0.6)',
-    ),
-    scrollbarSliderActiveBackground: readCssVarOr(
-      '--vb-terminal-scrollbar-thumb-active',
-      'rgba(173, 196, 224, 0.74)',
-    ),
-    black: '#768396',
-    red: '#f08b96',
-    green: '#80e2a7',
-    yellow: '#ebcb7e',
-    blue: '#8ab8ff',
-    magenta: '#cfa0f1',
-    cyan: '#7fdce5',
-    white: '#e6edf7',
-    brightBlack: '#9aa8bc',
-    brightRed: '#ff9fab',
-    brightGreen: '#9beabc',
-    brightYellow: '#f5d993',
-    brightBlue: '#a5c9ff',
-    brightMagenta: '#ddb9f8',
-    brightCyan: '#97e9ef',
-    brightWhite: '#f5f8ff',
-  }
 }
 
 function StationXtermTerminalView({
@@ -267,7 +185,6 @@ function StationXtermTerminalView({
     const host = hostRef.current
     terminal.options.fontFamily = readCssVar('--vb-font-mono')
     terminal.options.fontSize = resolveTerminalFontSize(host)
-    terminal.options.theme = getTerminalTheme()
     terminal.options.overviewRuler = { width: TERMINAL_OVERVIEW_RULER_WIDTH }
     terminal.options.cursorStyle = 'bar'
     terminal.options.cursorWidth = 2
@@ -356,6 +273,7 @@ function StationXtermTerminalView({
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
     let serializeFrameId: number | null = null
+    let removeCompositionStartSyncListener: (() => void) | null = null
     let removeMacOsImeFallbackListeners: (() => void) | null = null
     let lastReportAtMs = 0
     let serializedRestoreState: string | null = null
@@ -381,7 +299,6 @@ function StationXtermTerminalView({
           fontWeight: '500',
           fontWeightBold: '700',
           scrollback: 4000,
-          theme: getTerminalTheme(),
           overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1.2,
@@ -405,6 +322,21 @@ function StationXtermTerminalView({
           userAgent: window.navigator.userAgent,
         })
         const terminalTextarea = terminal.textarea
+        if (terminalTextarea) {
+          // Backport the upstream xterm fix that re-syncs the helper textarea before IME
+          // composition starts. Dynamic TUIs like Claude Code redraw aggressively, and
+          // xterm 6.0.0 can otherwise lock the IME anchor to a stale cursor position.
+          const syncTextareaBeforeCompositionStart = () => {
+            const terminalCore = terminal as typeof terminal & {
+              _core?: { _syncTextArea?: () => void }
+            }
+            terminalCore._core?._syncTextArea?.()
+          }
+          terminalTextarea.addEventListener('compositionstart', syncTextareaBeforeCompositionStart, true)
+          removeCompositionStartSyncListener = () => {
+            terminalTextarea.removeEventListener('compositionstart', syncTextareaBeforeCompositionStart, true)
+          }
+        }
         if (isMacOsWebKitImeFallbackEnabled && terminalTextarea) {
           // macOS WebKit/WKWebView can route IME + Shift text through delayed input events that
           // xterm 6.0.0 misses on keydown/keypress. Keep xterm in charge of normal composition,
@@ -810,6 +742,7 @@ function StationXtermTerminalView({
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
       removeFocusListeners?.()
+      removeCompositionStartSyncListener?.()
       removeMacOsImeFallbackListeners?.()
       resizeObserver?.disconnect()
       appearanceObserver?.disconnect()
