@@ -3,6 +3,11 @@ import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
 import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import {
+  isMacOsWebKitTextInputEnvironment,
+  shouldBypassXtermTextKeyEvent,
+  shouldForwardDeferredMacOsTextInput,
+} from './macos-webkit-ime-workaround'
 
 export interface StationTerminalSink {
   write: (chunk: string) => void
@@ -351,6 +356,7 @@ function StationXtermTerminalView({
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
     let serializeFrameId: number | null = null
+    let removeMacOsImeFallbackListeners: (() => void) | null = null
     let lastReportAtMs = 0
     let serializedRestoreState: string | null = null
     let serializedRestoreCols = 0
@@ -393,6 +399,36 @@ function StationXtermTerminalView({
         terminalRef.current = terminal
         fitAddonRef.current = fitAddon
         scheduleTerminalAppearanceSync()
+
+        const isMacOsWebKitImeFallbackEnabled = isMacOsWebKitTextInputEnvironment({
+          platform: window.navigator.platform,
+          userAgent: window.navigator.userAgent,
+        })
+        const terminalTextarea = terminal.textarea
+        if (isMacOsWebKitImeFallbackEnabled && terminalTextarea) {
+          // macOS WebKit/WKWebView can route IME + Shift text through delayed input events that
+          // xterm 6.0.0 misses on keydown/keypress. Keep xterm in charge of normal composition,
+          // but let these shifted text keys fall through to the native input event path.
+          terminal.attachCustomKeyEventHandler(
+            (event) => !shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled),
+          )
+          const handleDeferredMacOsImeTextInput = (rawEvent: Event) => {
+            const event = rawEvent as InputEvent
+            if (!shouldForwardDeferredMacOsTextInput(event, isMacOsWebKitImeFallbackEnabled)) {
+              return
+            }
+            const text = event.data
+            if (!text) {
+              return
+            }
+            onDataRef.current(stationId, text)
+            terminalTextarea.value = ''
+          }
+          terminalTextarea.addEventListener('input', handleDeferredMacOsImeTextInput)
+          removeMacOsImeFallbackListeners = () => {
+            terminalTextarea.removeEventListener('input', handleDeferredMacOsImeTextInput)
+          }
+        }
 
         const cancelScheduledTerminalFocus = () => {
           const frameId = focusRetryFrameRef.current
@@ -774,6 +810,7 @@ function StationXtermTerminalView({
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
       removeFocusListeners?.()
+      removeMacOsImeFallbackListeners?.()
       resizeObserver?.disconnect()
       appearanceObserver?.disconnect()
       if (refreshFrameId !== null) {

@@ -27,3 +27,8 @@ Thumbs.db
 *.sqlite3
 .gtoffice/
 _backups/
+
+# Local agent runtime artifacts
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.superpowers/
