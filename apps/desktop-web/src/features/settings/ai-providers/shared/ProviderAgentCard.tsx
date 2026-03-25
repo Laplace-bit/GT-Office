@@ -164,6 +164,7 @@ export function ProviderAgentCard({
             }}
             disabled={installCliDisabled}
           >
+            <AppIcon name="cloud-download" width={14} height={14} />
             {installingCli ? t(locale, 'aiConfig.card.installing') : t(locale, 'aiConfig.card.installCli')}
           </button>
         ) : (
@@ -188,15 +189,19 @@ export function ProviderAgentCard({
               </button>
             ))}
             <button
-              className={`action-button secondary ${effectiveConfigureActions.length > 1 ? 'is-subaction' : ''}`}
+              className={`action-button secondary is-icon-only ${effectiveConfigureActions.length > 1 ? 'is-subaction' : ''}`}
               onClick={(e) => {
                 e.stopPropagation()
                 onUninstall()
               }}
               disabled={uninstallCliDisabled}
               title={uninstallTitle}
+              aria-label={uninstallingCli ? t(locale, 'aiConfig.card.uninstalling') : t(locale, 'aiConfig.card.uninstallCli')}
             >
-              {uninstallingCli ? t(locale, 'aiConfig.card.uninstalling') : t(locale, 'aiConfig.card.uninstallCli')}
+              <AppIcon name={uninstallingCli ? 'activity' : 'trash'} width={14} height={14} />
+              <span className="vb-sr-only">
+                {uninstallingCli ? t(locale, 'aiConfig.card.uninstalling') : t(locale, 'aiConfig.card.uninstallCli')}
+              </span>
             </button>
           </div>
         )}

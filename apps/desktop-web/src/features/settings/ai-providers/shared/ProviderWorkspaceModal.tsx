@@ -25,7 +25,7 @@ import {
   type GeminiSnapshot,
 } from '@shell/integration/desktop-api'
 import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
-import { AppIcon } from '@shell/ui/icons'
+import { AppIcon, type AppIconName } from '@shell/ui/icons'
 
 import { AiConfigOverlay } from './AiConfigOverlay'
 import { describeUnknownError } from './provider-utils'
@@ -144,6 +144,36 @@ function filterSavedProviders(locale: Locale, providers: SavedProvider[], keywor
 
     return haystack.includes(query)
   })
+}
+
+interface ProviderIconButtonProps {
+  icon: AppIconName
+  label: string
+  onClick?: () => void
+  disabled?: boolean
+  tone?: 'default' | 'danger' | 'active'
+}
+
+function ProviderIconButton({
+  icon,
+  label,
+  onClick,
+  disabled = false,
+  tone = 'default',
+}: ProviderIconButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`provider-workspace__icon-button is-${tone}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+    >
+      <AppIcon name={icon} width={16} height={16} />
+      <span className="vb-sr-only">{label}</span>
+    </button>
+  )
 }
 
 export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
@@ -761,14 +791,19 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                 <p>{t(locale, '打开后直接管理已配置列表，新增、切换、复制和删除都在这里完成。', 'Manage your configured providers here. Add, switch, duplicate, or delete without leaving this view.')}</p>
               </div>
               <div className="provider-workspace__toolbar-actions">
-                <input
-                  className="provider-workspace__search"
-                  value={searchValue}
-                  onChange={(event) => setSearchValue(event.target.value)}
-                  placeholder={t(locale, '搜索名称、模型或地址', 'Search name, model, or endpoint')}
-                />
-                <button type="button" className="nav-btn btn-primary" onClick={openCreateEditor}>
-                  {t(locale, '新增模型供应商', 'Add provider')}
+                <label className="provider-workspace__search-wrap">
+                  <AppIcon name="search" width={15} height={15} />
+                  <input
+                    className="provider-workspace__search"
+                    value={searchValue}
+                    onChange={(event) => setSearchValue(event.target.value)}
+                    placeholder={t(locale, '搜索名称、模型或地址', 'Search name, model, or endpoint')}
+                    aria-label={t(locale, '搜索模型供应商', 'Search providers')}
+                  />
+                </label>
+                <button type="button" className="nav-btn btn-primary provider-workspace__primary-action" onClick={openCreateEditor}>
+                  <AppIcon name="plus" width={15} height={15} />
+                  {t(locale, '新增', 'Add')}
                 </button>
               </div>
             </div>
@@ -787,6 +822,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                 </p>
                 {savedProviders.length === 0 && (
                   <button type="button" className="nav-btn btn-primary" onClick={openCreateEditor}>
+                    <AppIcon name="plus" width={15} height={15} />
                     {t(locale, '立即新增', 'Create now')}
                   </button>
                 )}
@@ -810,6 +846,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                             <strong>{localizeLabel(locale, savedProvider.providerName)}</strong>
                             {savedProvider.isActive && (
                               <span className="provider-workspace__badge">
+                                <AppIcon name="check" width={12} height={12} />
                                 {t(locale, '当前生效', 'Active')}
                               </span>
                             )}
@@ -825,44 +862,48 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                         </div>
 
                         <div className="provider-workspace__item-actions">
-                          {!savedProvider.isActive && (
-                            <button
-                              type="button"
-                              className="nav-btn btn-secondary"
+                          {savedProvider.isActive ? (
+                            <ProviderIconButton
+                              icon="check"
+                              label={t(locale, '当前生效', 'Active')}
+                              disabled
+                              tone="active"
+                            />
+                          ) : (
+                            <ProviderIconButton
+                              icon={switchingSavedProviderId === savedProvider.savedProviderId ? 'activity' : 'check'}
+                              label={
+                                switchingSavedProviderId === savedProvider.savedProviderId
+                                  ? t(locale, '切换中...', 'Switching...')
+                                  : t(locale, '设为当前', 'Set active')
+                              }
                               disabled={isBusy}
                               onClick={() => void handleSwitchSavedProvider(savedProvider.savedProviderId)}
-                            >
-                              {switchingSavedProviderId === savedProvider.savedProviderId
-                                ? t(locale, '切换中...', 'Switching...')
-                                : t(locale, '设为当前', 'Set active')}
-                            </button>
+                            />
                           )}
-                          <button
-                            type="button"
-                            className="nav-btn btn-secondary"
+                          <ProviderIconButton
+                            icon="pencil"
+                            label={t(locale, '编辑', 'Edit')}
                             disabled={isBusy}
                             onClick={() => openEditEditor(savedProvider.savedProviderId)}
-                          >
-                            {t(locale, '编辑', 'Edit')}
-                          </button>
-                          <button
-                            type="button"
-                            className="nav-btn btn-secondary"
+                          />
+                          <ProviderIconButton
+                            icon="copy"
+                            label={t(locale, '复制', 'Duplicate')}
                             disabled={isBusy}
                             onClick={() => openDuplicateEditor(savedProvider.savedProviderId)}
-                          >
-                            {t(locale, '复制', 'Duplicate')}
-                          </button>
-                          <button
-                            type="button"
-                            className="nav-btn btn-secondary is-danger"
+                          />
+                          <ProviderIconButton
+                            icon={deletingSavedProviderId === savedProvider.savedProviderId ? 'activity' : 'trash'}
+                            label={
+                              deletingSavedProviderId === savedProvider.savedProviderId
+                                ? t(locale, '删除中...', 'Deleting...')
+                                : t(locale, '删除', 'Delete')
+                            }
                             disabled={isBusy}
+                            tone="danger"
                             onClick={() => void handleDeleteSavedProvider(savedProvider.savedProviderId)}
-                          >
-                            {deletingSavedProviderId === savedProvider.savedProviderId
-                              ? t(locale, '删除中...', 'Deleting...')
-                              : t(locale, '删除', 'Delete')}
-                          </button>
+                          />
                         </div>
                       </div>
 
@@ -906,14 +947,12 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                 </p>
               </div>
               <div className="provider-workspace__toolbar-actions">
-                <button
-                  type="button"
-                  className="nav-btn btn-secondary"
+                <ProviderIconButton
+                  icon="rotate-ccw"
+                  label={t(locale, '恢复当前配置', 'Reset to current')}
                   disabled={loading}
                   onClick={seedFromCurrent}
-                >
-                  {t(locale, '恢复当前配置', 'Reset to current')}
-                </button>
+                />
               </div>
             </div>
 
@@ -1117,6 +1156,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                     disabled={loading}
                     onClick={() => setPreview(null)}
                   >
+                    <AppIcon name="pencil" width={15} height={15} />
                     {t(locale, '继续编辑', 'Keep editing')}
                   </button>
                 </div>
@@ -1154,6 +1194,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                   clearFeedback()
                 }}
               >
+                <AppIcon name="x-mark" width={15} height={15} />
                 {t(locale, '取消', 'Cancel')}
               </button>
               <div className="provider-workspace__footer-actions">
@@ -1163,6 +1204,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                   disabled={!isFormValid || loading}
                   onClick={() => void handlePreview()}
                 >
+                  <AppIcon name="search" width={15} height={15} />
                   {loading && !preview ? t(locale, '预览中...', 'Previewing...') : t(locale, '预览变更', 'Preview changes')}
                 </button>
                 <button
@@ -1171,6 +1213,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                   disabled={!preview || loading}
                   onClick={() => void handleApply()}
                 >
+                  <AppIcon name={loading && preview ? 'activity' : 'check'} width={15} height={15} />
                   {loading && preview
                     ? t(locale, '保存中...', 'Saving...')
                     : editorMode === 'edit'

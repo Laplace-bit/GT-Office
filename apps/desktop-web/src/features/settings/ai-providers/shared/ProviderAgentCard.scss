@@ -16,8 +16,8 @@
 
   &:hover {
     border-color: var(--vb-accent);
-    transform: translateY(-rem(2));
-    box-shadow: 0 rem(8) rem(24) rgba(0, 0, 0, 0.08);
+    transform: translateY(-rem(1));
+    box-shadow: 0 rem(6) rem(18) rgba(0, 0, 0, 0.06);
     background: var(--vb-bg-primary);
   }
 
@@ -185,6 +185,13 @@
       min-height: rem(36);
       justify-content: center;
       padding: 0 rem(12);
+    }
+
+    &.is-icon-only {
+      flex: 0 0 auto;
+      width: rem(36);
+      min-width: rem(36);
+      padding: 0;
     }
   }
 }
