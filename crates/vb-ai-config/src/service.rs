@@ -397,7 +397,10 @@ impl AiConfigService {
         Self::read_codex_config_from_value(&effective.values)
     }
 
-    pub fn read_gemini_config(&self, workspace_root: &Path) -> AiConfigResult<GeminiConfigSnapshot> {
+    pub fn read_gemini_config(
+        &self,
+        workspace_root: &Path,
+    ) -> AiConfigResult<GeminiConfigSnapshot> {
         let effective = self
             .settings
             .load_effective(Some(workspace_root))
@@ -412,7 +415,8 @@ impl AiConfigService {
         draft: CodexDraftInput,
     ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
         let current = self.read_codex_config(workspace_root)?;
-        let (normalized, api_key_secret) = Self::normalize_codex_draft(workspace_id, &current, draft)?;
+        let (normalized, api_key_secret) =
+            Self::normalize_codex_draft(workspace_id, &current, draft)?;
         let changes = Self::diff_codex_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -460,7 +464,8 @@ impl AiConfigService {
         draft: GeminiDraftInput,
     ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
         let current = self.read_gemini_config(workspace_root)?;
-        let (normalized, api_key_secret) = Self::normalize_gemini_draft(workspace_id, &current, draft)?;
+        let (normalized, api_key_secret) =
+            Self::normalize_gemini_draft(workspace_id, &current, draft)?;
         let changes = Self::diff_gemini_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -532,9 +537,9 @@ impl AiConfigService {
         }
 
         let patch = Self::build_codex_workspace_patch(&preview.normalized_draft);
-        if let Err(error) = self
-            .settings
-            .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+        if let Err(error) =
+            self.settings
+                .update(SettingsScope::Workspace, Some(workspace_root), &patch)
         {
             let _ = self.restore_file_state(&auth_path, auth_backup.as_deref());
             let _ = self.restore_file_state(&config_path, config_backup.as_deref());
@@ -612,9 +617,9 @@ impl AiConfigService {
         }
 
         let patch = Self::build_gemini_workspace_patch(&preview.normalized_draft);
-        if let Err(error) = self
-            .settings
-            .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+        if let Err(error) =
+            self.settings
+                .update(SettingsScope::Workspace, Some(workspace_root), &patch)
         {
             let _ = self.restore_file_state(&env_path, env_backup.as_deref());
             let _ = self.restore_file_state(&settings_path, settings_backup.as_deref());
@@ -741,7 +746,10 @@ impl AiConfigService {
         Ok(env)
     }
 
-    fn gemini_runtime_env(&self, workspace_root: &Path) -> AiConfigResult<BTreeMap<String, String>> {
+    fn gemini_runtime_env(
+        &self,
+        workspace_root: &Path,
+    ) -> AiConfigResult<BTreeMap<String, String>> {
         let config = self.read_gemini_config(workspace_root)?;
         let mode = match config.active_mode {
             Some(mode) => mode,
@@ -829,10 +837,18 @@ impl AiConfigService {
         normalized: &GeminiNormalizedDraft,
     ) -> AiConfigResult<String> {
         let mut env = BTreeMap::new();
-        if let Some(base_url) = normalized.base_url.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(base_url) = normalized
+            .base_url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), base_url.to_string());
         }
-        if let Some(model) = normalized.model.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(model) = normalized
+            .model
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             env.insert("GEMINI_MODEL".to_string(), model.to_string());
         }
         if normalized.auth_mode == GeminiAuthMode::ApiKey {
@@ -870,23 +886,33 @@ impl AiConfigService {
             return Ok(config_toml.and_then(none_if_empty));
         };
         let model = model.unwrap_or("gpt-5.4");
-        let template = config_toml.and_then(none_if_empty).unwrap_or_else(|| {
-            Self::default_codex_config_toml(provider_name, base_url, model)
-        });
+        let template = config_toml
+            .and_then(none_if_empty)
+            .unwrap_or_else(|| Self::default_codex_config_toml(provider_name, base_url, model));
         let prepared = Self::sync_codex_toml_fields(&template, base_url, model)?;
         Self::validate_codex_config_toml(&prepared)?;
         Ok(Some(prepared))
     }
 
     fn default_codex_config_toml(provider_name: &str, base_url: &str, model: &str) -> String {
-        let provider_key = sanitize_secret_segment(provider_name).trim_matches('_').to_ascii_lowercase();
-        let provider_key = if provider_key.is_empty() { "custom" } else { provider_key.as_str() };
+        let provider_key = sanitize_secret_segment(provider_name)
+            .trim_matches('_')
+            .to_ascii_lowercase();
+        let provider_key = if provider_key.is_empty() {
+            "custom"
+        } else {
+            provider_key.as_str()
+        };
         format!(
             "model_provider = \"{provider_key}\"\nmodel = \"{model}\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.{provider_key}]\nname = \"{provider_name}\"\nbase_url = \"{base_url}\"\nwire_api = \"responses\"\nrequires_openai_auth = true"
         )
     }
 
-    fn sync_codex_toml_fields(template: &str, base_url: &str, model: &str) -> AiConfigResult<String> {
+    fn sync_codex_toml_fields(
+        template: &str,
+        base_url: &str,
+        model: &str,
+    ) -> AiConfigResult<String> {
         let mut table = if template.trim().is_empty() {
             toml::Table::new()
         } else {
@@ -917,10 +943,14 @@ impl AiConfigService {
                 toml::Value::String(base_url.to_string()),
             );
         } else {
-            table.insert("base_url".to_string(), toml::Value::String(base_url.to_string()));
+            table.insert(
+                "base_url".to_string(),
+                toml::Value::String(base_url.to_string()),
+            );
         }
-        toml::to_string_pretty(&table)
-            .map_err(|error| AiConfigError::Invalid(format!("failed to serialize Codex TOML: {error}")))
+        toml::to_string_pretty(&table).map_err(|error| {
+            AiConfigError::Invalid(format!("failed to serialize Codex TOML: {error}"))
+        })
     }
 
     fn normalize_optional_endpoint(value: Option<String>) -> AiConfigResult<Option<String>> {
@@ -940,7 +970,9 @@ impl AiConfigService {
                 let preset = codex_provider_presets()
                     .into_iter()
                     .find(|item| item.provider_id == "codex-official")
-                    .ok_or_else(|| AiConfigError::Invalid("missing Codex official preset".to_string()))?;
+                    .ok_or_else(|| {
+                        AiConfigError::Invalid("missing Codex official preset".to_string())
+                    })?;
                 Ok((
                     CodexNormalizedDraft {
                         mode: CodexProviderMode::Official,
@@ -961,8 +993,8 @@ impl AiConfigService {
                     .into_iter()
                     .find(|item| item.provider_id == provider_id)
                     .ok_or_else(|| AiConfigError::Invalid("unknown Codex preset".to_string()))?;
-                let provider_name = normalize_non_empty(draft.provider_name)
-                    .unwrap_or_else(|| preset.name.clone());
+                let provider_name =
+                    normalize_non_empty(draft.provider_name).unwrap_or_else(|| preset.name.clone());
                 let base_url = Self::normalize_optional_endpoint(
                     draft.base_url.or_else(|| preset.endpoint.clone()),
                 )?;
@@ -972,15 +1004,22 @@ impl AiConfigService {
                     &provider_name,
                     base_url.as_deref(),
                     model.as_deref(),
-                    draft.config_toml.or_else(|| Some(preset.config_template.clone())),
+                    draft
+                        .config_toml
+                        .or_else(|| Some(preset.config_template.clone())),
                 )?;
                 let secret_input = normalize_non_empty(draft.api_key);
-                let can_reuse_secret = current.provider_id.as_deref() == Some(preset.provider_id.as_str())
+                let can_reuse_secret = current.provider_id.as_deref()
+                    == Some(preset.provider_id.as_str())
                     && current.has_secret
                     && current.secret_ref.is_some();
                 let secret_ref = if preset.requires_api_key {
                     if secret_input.is_some() {
-                        Some(Self::provider_secret_ref(workspace_id, "codex", &preset.provider_id))
+                        Some(Self::provider_secret_ref(
+                            workspace_id,
+                            "codex",
+                            &preset.provider_id,
+                        ))
                     } else if can_reuse_secret {
                         current.secret_ref.clone()
                     } else {
@@ -1010,7 +1049,10 @@ impl AiConfigService {
             }
             CodexProviderMode::Custom => {
                 let provider_name = required_field(draft.provider_name, "providerName")?;
-                let base_url = Some(normalize_endpoint(required_field(draft.base_url, "baseUrl")?)?);
+                let base_url = Some(normalize_endpoint(required_field(
+                    draft.base_url,
+                    "baseUrl",
+                )?)?);
                 let model = Some(required_field(draft.model, "model")?);
                 let config_toml = Self::prepare_codex_config_toml(
                     &provider_name,
@@ -1023,7 +1065,11 @@ impl AiConfigService {
                     && current.has_secret
                     && current.secret_ref.is_some();
                 let secret_ref = if secret_input.is_some() {
-                    Some(Self::provider_secret_ref(workspace_id, "codex", "custom-gateway"))
+                    Some(Self::provider_secret_ref(
+                        workspace_id,
+                        "codex",
+                        "custom-gateway",
+                    ))
                 } else if can_reuse_secret {
                     current.secret_ref.clone()
                 } else {
@@ -1061,7 +1107,9 @@ impl AiConfigService {
                 let preset = gemini_provider_presets()
                     .into_iter()
                     .find(|item| item.provider_id == "google-official")
-                    .ok_or_else(|| AiConfigError::Invalid("missing Gemini official preset".to_string()))?;
+                    .ok_or_else(|| {
+                        AiConfigError::Invalid("missing Gemini official preset".to_string())
+                    })?;
                 Ok((
                     GeminiNormalizedDraft {
                         mode: GeminiProviderMode::Official,
@@ -1084,8 +1132,8 @@ impl AiConfigService {
                     .find(|item| item.provider_id == provider_id)
                     .ok_or_else(|| AiConfigError::Invalid("unknown Gemini preset".to_string()))?;
                 let auth_mode = draft.auth_mode.unwrap_or(preset.auth_mode.clone());
-                let provider_name = normalize_non_empty(draft.provider_name)
-                    .unwrap_or_else(|| preset.name.clone());
+                let provider_name =
+                    normalize_non_empty(draft.provider_name).unwrap_or_else(|| preset.name.clone());
                 let base_url = Self::normalize_optional_endpoint(
                     draft.base_url.or_else(|| preset.endpoint.clone()),
                 )?;
@@ -1094,13 +1142,19 @@ impl AiConfigService {
                 let selected_type = normalize_non_empty(draft.selected_type)
                     .unwrap_or_else(|| auth_mode.selected_type().to_string());
                 let secret_input = normalize_non_empty(draft.api_key);
-                let requires_secret = auth_mode == GeminiAuthMode::ApiKey || preset.requires_api_key;
-                let can_reuse_secret = current.provider_id.as_deref() == Some(preset.provider_id.as_str())
+                let requires_secret =
+                    auth_mode == GeminiAuthMode::ApiKey || preset.requires_api_key;
+                let can_reuse_secret = current.provider_id.as_deref()
+                    == Some(preset.provider_id.as_str())
                     && current.has_secret
                     && current.secret_ref.is_some();
                 let secret_ref = if requires_secret {
                     if secret_input.is_some() {
-                        Some(Self::provider_secret_ref(workspace_id, "gemini", &preset.provider_id))
+                        Some(Self::provider_secret_ref(
+                            workspace_id,
+                            "gemini",
+                            &preset.provider_id,
+                        ))
                     } else if can_reuse_secret {
                         current.secret_ref.clone()
                     } else {
@@ -1132,7 +1186,10 @@ impl AiConfigService {
             GeminiProviderMode::Custom => {
                 let auth_mode = draft.auth_mode.unwrap_or(GeminiAuthMode::ApiKey);
                 let provider_name = required_field(draft.provider_name, "providerName")?;
-                let base_url = Some(normalize_endpoint(required_field(draft.base_url, "baseUrl")?)?);
+                let base_url = Some(normalize_endpoint(required_field(
+                    draft.base_url,
+                    "baseUrl",
+                )?)?);
                 let model = Some(required_field(draft.model, "model")?);
                 let selected_type = normalize_non_empty(draft.selected_type)
                     .unwrap_or_else(|| auth_mode.selected_type().to_string());
@@ -1143,7 +1200,11 @@ impl AiConfigService {
                     && current.secret_ref.is_some();
                 let secret_ref = if requires_secret {
                     if secret_input.is_some() {
-                        Some(Self::provider_secret_ref(workspace_id, "gemini", "custom-gateway"))
+                        Some(Self::provider_secret_ref(
+                            workspace_id,
+                            "gemini",
+                            "custom-gateway",
+                        ))
                     } else if can_reuse_secret {
                         current.secret_ref.clone()
                     } else {
@@ -1224,7 +1285,14 @@ impl AiConfigService {
             &mut changes,
             "ai.providers.codex.apiKey",
             "API Key",
-            Some(if current.has_secret { "Saved" } else { "Missing" }.to_string()),
+            Some(
+                if current.has_secret {
+                    "Saved"
+                } else {
+                    "Missing"
+                }
+                .to_string(),
+            ),
             Some(if next.has_secret { "Ready" } else { "Not set" }.to_string()),
             true,
         );
@@ -1240,7 +1308,10 @@ impl AiConfigService {
             &mut changes,
             "ai.providers.gemini.activeMode",
             "Mode",
-            current.active_mode.as_ref().map(Self::gemini_mode_to_string),
+            current
+                .active_mode
+                .as_ref()
+                .map(Self::gemini_mode_to_string),
             Some(Self::gemini_mode_to_string(&next.mode)),
             false,
         );
@@ -1248,7 +1319,10 @@ impl AiConfigService {
             &mut changes,
             "ai.providers.gemini.authMode",
             "Auth",
-            current.auth_mode.as_ref().map(Self::gemini_auth_mode_to_string),
+            current
+                .auth_mode
+                .as_ref()
+                .map(Self::gemini_auth_mode_to_string),
             Some(Self::gemini_auth_mode_to_string(&next.auth_mode)),
             false,
         );
@@ -1288,7 +1362,14 @@ impl AiConfigService {
             &mut changes,
             "ai.providers.gemini.apiKey",
             "API Key",
-            Some(if current.has_secret { "Saved" } else { "Missing" }.to_string()),
+            Some(
+                if current.has_secret {
+                    "Saved"
+                } else {
+                    "Missing"
+                }
+                .to_string(),
+            ),
             Some(if next.has_secret { "Ready" } else { "Not set" }.to_string()),
             true,
         );
@@ -1552,13 +1633,17 @@ impl AiConfigService {
             })?;
         let model = model
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| AiConfigError::Invalid("configured Claude model is missing".to_string()))?;
+            .ok_or_else(|| {
+                AiConfigError::Invalid("configured Claude model is missing".to_string())
+            })?;
         let auth_scheme = auth_scheme.ok_or_else(|| {
             AiConfigError::Invalid("configured Claude auth scheme is missing".to_string())
         })?;
         let secret = secret
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| AiConfigError::Invalid("configured Claude secret is missing".to_string()))?;
+            .ok_or_else(|| {
+                AiConfigError::Invalid("configured Claude secret is missing".to_string())
+            })?;
 
         let mut env = provider_id
             .and_then(|value| {
@@ -1683,7 +1768,9 @@ impl AiConfigService {
         }
     }
 
-    fn with_official_claude_config_defaults(mut config: ClaudeConfigSnapshot) -> ClaudeConfigSnapshot {
+    fn with_official_claude_config_defaults(
+        mut config: ClaudeConfigSnapshot,
+    ) -> ClaudeConfigSnapshot {
         let is_official = config.active_mode == Some(ClaudeProviderMode::Official)
             || config.provider_id.as_deref() == Some(CLAUDE_OFFICIAL_PROVIDER_ID);
         if !is_official {
@@ -1892,7 +1979,6 @@ impl AiConfigService {
     }
 
     fn build_claude_managed_env_keys() {}
-
 
     pub fn preview_claude_patch(
         &self,
@@ -3143,7 +3229,10 @@ fn create_workspace(dir: &Path, name: &str) -> PathBuf {
 
 #[cfg(test)]
 fn write_codex_marker(home: &Path) {
-    write_text_file(&home.join(".codex").join("config.toml"), GTO_AGENT_BRIDGE_SERVER_ID);
+    write_text_file(
+        &home.join(".codex").join("config.toml"),
+        GTO_AGENT_BRIDGE_SERVER_ID,
+    );
 }
 
 #[cfg(test)]
@@ -3242,9 +3331,15 @@ fn claude_status_for_home(home: &Path, workspace_root: &Path) -> bool {
 #[cfg(test)]
 fn agent_status_result(agent: AiConfigAgent, home: &Path, workspace_root: Option<&Path>) -> bool {
     match agent {
-        AiConfigAgent::Claude => workspace_root.is_some_and(|root| claude_status_for_home(home, root)),
-        AiConfigAgent::Codex => file_contains_bridge_marker(&home.join(".codex").join("config.toml")),
-        AiConfigAgent::Gemini => file_contains_bridge_marker(&home.join(".gemini").join("settings.json")),
+        AiConfigAgent::Claude => {
+            workspace_root.is_some_and(|root| claude_status_for_home(home, root))
+        }
+        AiConfigAgent::Codex => {
+            file_contains_bridge_marker(&home.join(".codex").join("config.toml"))
+        }
+        AiConfigAgent::Gemini => {
+            file_contains_bridge_marker(&home.join(".gemini").join("settings.json"))
+        }
     }
 }
 

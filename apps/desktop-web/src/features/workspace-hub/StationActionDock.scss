@@ -1,0 +1,165 @@
+@use "../../styles/tokens/responsive" as *;
+
+.station-action-dock {
+  position: relative;
+  z-index: 0;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: rem(4) rem(6) rem(6);
+  border-top: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 84%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 80%, transparent), transparent 42%),
+    color-mix(in srgb, var(--vb-surface) 66%, transparent);
+  backdrop-filter: blur(rem(18)) saturate(160%);
+  -webkit-backdrop-filter: blur(rem(18)) saturate(160%);
+  box-shadow:
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.04),
+    0 rem(-1) rem(12) color-mix(in srgb, black 10%, transparent);
+}
+
+.station-action-dock-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.station-action-dock-rail {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: rem(4);
+  width: 100%;
+  min-width: 0;
+  padding: rem(2) rem(2);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    width: rem(16);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  &::before {
+    left: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--vb-surface) 84%, transparent), transparent);
+  }
+
+  &::after {
+    right: 0;
+    background: linear-gradient(270deg, color-mix(in srgb, var(--vb-surface) 84%, transparent), transparent);
+  }
+}
+
+.station-action-dock-button {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: rem(5);
+  flex: 0 0 auto;
+  min-height: rem(28);
+  padding: 0 rem(10);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 90%, transparent);
+  border-radius: rem(999);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent), transparent),
+    color-mix(in srgb, var(--vb-glass-light) 76%, transparent);
+  color: var(--vb-text);
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.05),
+    0 rem(1) rem(1) rgba(0, 0, 0, 0.08);
+  transition:
+    transform 160ms var(--vb-ease-smooth),
+    border-color 160ms var(--vb-ease-smooth),
+    background 160ms var(--vb-ease-smooth),
+    box-shadow 160ms var(--vb-ease-smooth),
+    color 160ms var(--vb-ease-smooth);
+
+  &:hover {
+    transform: translateY(rem(-1));
+    border-color: color-mix(in srgb, var(--vb-border-strong) 84%, transparent);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 92%, transparent), transparent),
+      color-mix(in srgb, var(--vb-glass-lighter) 88%, transparent);
+    box-shadow:
+      inset 0 rem(1) 0 rgba(255, 255, 255, 0.07),
+      0 rem(8) rem(14) color-mix(in srgb, black 12%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    transform: translateY(rem(-1));
+    border-color: color-mix(in srgb, var(--vb-accent) 62%, white 38%);
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      0 0 0 rem(4) color-mix(in srgb, var(--vb-accent) 16%, transparent),
+      inset 0 rem(1) 0 rgba(255, 255, 255, 0.07),
+      0 rem(10) rem(16) color-mix(in srgb, var(--vb-accent) 16%, transparent);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.54;
+    transform: none;
+    box-shadow: none;
+  }
+
+  &.is-confirm {
+    border-color: color-mix(in srgb, var(--vb-warning) 34%, var(--vb-border-subtle));
+  }
+
+  &.is-expensive {
+    border-color: color-mix(in srgb, var(--vb-accent) 38%, var(--vb-border-subtle));
+  }
+}
+
+.station-action-dock-icon {
+  width: rem(14);
+  height: rem(14);
+  flex-shrink: 0;
+}
+
+.station-action-dock-label {
+  font-size: rem(9.5);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.station-action-dock.is-compact {
+  padding: rem(3) rem(5) rem(5);
+}
+
+.station-action-dock.is-compact .station-action-dock-button {
+  min-height: rem(26);
+  padding-inline: rem(9);
+}
+
+.station-action-dock.is-compact .station-action-dock-label {
+  font-size: rem(9.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-action-dock-button {
+    transition: none;
+  }
+
+  .station-action-dock-button:hover,
+  .station-action-dock-button:focus-visible {
+    transform: none;
+  }
+}

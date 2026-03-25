@@ -49,9 +49,13 @@ import {
   normalizeWorkbenchContainerFrame,
   reconcileWorkbenchContainers,
   restoreWorkbenchContainers,
+  StationActionCommandSheet,
+  composeStationActionCommand,
   stripDetachedTerminalRuntimeProjectionPatch,
   type AgentStation,
   type DetachedTerminalRuntimeProjectionPatch,
+  type StationActionDescriptor,
+  type StationActionExecution,
   type UpdateStationInput,
   type WorkbenchContainerModel,
   type WorkbenchContainerSnapshot,
@@ -93,12 +97,14 @@ import {
   type TerminalMetaPayload,
   type TerminalOutputPayload,
   type TerminalStatePayload,
+  type ToolCommandSummary,
 } from '../integration/desktop-api'
 import { t } from '../i18n/ui-locale'
 import {
   applyUiPreferences,
   loadUiPreferences,
   saveUiPreferences,
+  UI_PREFERENCES_UPDATED_EVENT,
 } from '../state/ui-preferences'
 import { pickDirectory } from '../integration/directory-picker'
 import {
@@ -118,7 +124,6 @@ import {
   buildDefaultWorkbenchContainerId,
   buildExternalConversationKey,
   buildExternalEndpointKey,
-  buildStationLaunchCommand,
   buildWorkbenchContainerTitle,
   clampLeftPaneWidth,
   clampRightPaneWidth,
@@ -130,6 +135,7 @@ import {
   getStationIdleBanner,
   isCodeEditorKeyboardTarget,
   isEditableKeyboardTarget,
+  isTerminalKeyboardTarget,
   isLinuxPlatform,
   isMacOsPlatform,
   isNavItemId,
@@ -257,6 +263,11 @@ export function ShellRoot() {
   const [stationTerminals, setStationTerminals] = useState<Record<string, StationTerminalRuntime>>(
     () => createInitialStationTerminals(initialStations),
   )
+  const [toolCommandsByStationId, setToolCommandsByStationId] = useState<Record<string, ToolCommandSummary[]>>({})
+  const [pendingStationActionSheet, setPendingStationActionSheet] = useState<{
+    station: AgentStation
+    action: StationActionDescriptor
+  } | null>(null)
   const stationTerminalsRef = useRef(stationTerminals)
   const stationsRef = useRef(initialStations)
   const workbenchContainersRef = useRef(workbenchContainers)
@@ -544,6 +555,17 @@ export function ShellRoot() {
     applyUiPreferences(uiPreferences)
     saveUiPreferences(uiPreferences)
   }, [uiPreferences])
+
+  useEffect(() => {
+    const syncUiPreferences = () => {
+      setUiPreferences(loadUiPreferences())
+    }
+
+    window.addEventListener(UI_PREFERENCES_UPDATED_EVENT, syncUiPreferences)
+    return () => {
+      window.removeEventListener(UI_PREFERENCES_UPDATED_EVENT, syncUiPreferences)
+    }
+  }, [])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -2756,22 +2778,112 @@ export function ShellRoot() {
     [],
   )
 
+  const launchToolProfileForStation = useCallback(
+    async (station: AgentStation, profileId: string = station.toolKind) => {
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!workspaceId) {
+        return null
+      }
+
+      if (!desktopApi.isTauriRuntime()) {
+        const sessionId = await ensureStationTerminalSession(station.id)
+        if (!sessionId) {
+          return null
+        }
+        if (station.toolKind !== 'unknown' && station.toolKind !== 'shell') {
+          sendStationTerminalInput(station.id, `${station.toolKind}\n`)
+        }
+        return sessionId
+      }
+
+      try {
+        const response = await desktopApi.toolLaunch({
+          workspaceId,
+          profileId,
+          context: {
+            agentId: station.id,
+            stationId: station.id,
+            roleKey: station.role,
+            toolKind: station.toolKind,
+            agentWorkdirRel: station.agentWorkdirRel,
+            roleWorkdirRel: station.roleWorkdirRel,
+            resolvedCwd: stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
+            cwdMode: stationTerminalsRef.current[station.id]?.cwdMode ?? 'custom',
+          },
+        })
+
+        const terminalSessionId = response.terminalSessionId?.trim() ?? ''
+        if (!terminalSessionId) {
+          return null
+        }
+
+        sessionStationRef.current[terminalSessionId] = station.id
+        terminalSessionSeqRef.current[terminalSessionId] = 0
+        terminalOutputQueueRef.current[terminalSessionId] = Promise.resolve()
+        delete stationTerminalRestoreStateRef.current[station.id]
+
+        if (response.submitSequence) {
+          const normalizedSubmitSequence = normalizeSubmitSequence(response.submitSequence)
+          if (normalizedSubmitSequence) {
+            stationSubmitSequenceRef.current[station.id] = normalizedSubmitSequence
+          }
+        }
+
+        ensureTerminalSessionVisible(terminalSessionId)
+        resetStationTerminalOutput(
+          station.id,
+          `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
+            sessionId: terminalSessionId,
+            cwd: response.resolvedCwd ?? station.agentWorkdirRel,
+          })}${t(locale, 'system.stationWorkspaceInfo', {
+            roleDir: station.roleWorkdirRel,
+            agentDir: station.agentWorkdirRel,
+          })}`,
+        )
+        setStationTerminalState(station.id, {
+          sessionId: terminalSessionId,
+          stateRaw: 'running',
+          unreadCount: 0,
+          shell: response.shell ?? null,
+          cwdMode: stationTerminalsRef.current[station.id]?.cwdMode ?? 'custom',
+          resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
+        })
+
+        return terminalSessionId
+      } catch (error) {
+        appendStationTerminalOutput(
+          station.id,
+          t(locale, 'system.launchFailed', {
+            detail: describeError(error),
+          }),
+        )
+        return null
+      }
+    },
+    [
+      appendStationTerminalOutput,
+      ensureStationTerminalSession,
+      ensureTerminalSessionVisible,
+      locale,
+      resetStationTerminalOutput,
+      sendStationTerminalInput,
+      setStationTerminalState,
+    ],
+  )
+
   const launchStationCliAgent = useMemo(
     () => async (stationId: string) => {
-      const sessionId = await ensureStationTerminalSession(stationId)
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      if (!station) {
+        return
+      }
+      const sessionId = await launchToolProfileForStation(station)
       if (!sessionId) {
         return
       }
-      const station = stationsRef.current.find((entry) => entry.id === stationId)
-      const launchCommand = station ? buildStationLaunchCommand(station) : null
-      if (!launchCommand) {
-        stationTerminalSinkRef.current[stationId]?.focus()
-        return
-      }
-      sendStationTerminalInput(stationId, launchCommand)
       stationTerminalSinkRef.current[stationId]?.focus()
     },
-    [ensureStationTerminalSession, sendStationTerminalInput],
+    [launchToolProfileForStation],
   )
 
   const ensureTaskTargetRuntime = useCallback(
@@ -3026,6 +3138,21 @@ export function ShellRoot() {
     () => Object.values(stationTerminals).filter((runtime) => runtime.sessionId).length,
     [stationTerminals],
   )
+  const toolCommandReloadKey = useMemo(
+    () =>
+      stations
+        .map((station) => {
+          const runtime = stationTerminals[station.id]
+          return [
+            station.id,
+            station.toolKind,
+            runtime?.sessionId ? 'live' : 'idle',
+            runtime?.resolvedCwd ?? '',
+          ].join(':')
+        })
+        .join('|'),
+    [stationTerminals, stations],
+  )
 
   const togglePinnedWorkbenchContainer = useCallback((containerId: string) => {
     setPinnedWorkbenchContainerId((prev) => (prev === containerId ? null : containerId))
@@ -3040,9 +3167,88 @@ export function ShellRoot() {
     setIsStationSearchOpen(true)
   }, [])
 
+  const loadToolCommandsForStations = useCallback(async () => {
+    const workspaceId = activeWorkspaceIdRef.current
+    if (!workspaceId || !desktopApi.isTauriRuntime()) {
+      setToolCommandsByStationId({})
+      return
+    }
+
+    try {
+      const entries = await Promise.all(
+        stationsRef.current.map(async (station) => {
+          const runtime = stationTerminalsRef.current[station.id]
+          const response = await desktopApi.toolListCommands({
+            workspaceId,
+            toolKind: station.toolKind,
+            station: {
+              stationId: station.id,
+              hasTerminalSession: Boolean(runtime?.sessionId),
+              detachedReadonly: false,
+              resolvedCwd: runtime?.resolvedCwd ?? null,
+            },
+          })
+          return [station.id, response.commands] as const
+        }),
+      )
+      setToolCommandsByStationId(Object.fromEntries(entries))
+    } catch (error) {
+      console.warn('[station-command-deck] failed to load command catalog', error)
+      setToolCommandsByStationId({})
+    }
+  }, [])
+
+  const executeStationAction = useCallback(
+    async (station: AgentStation, action: StationActionDescriptor) => {
+      const execution: StationActionExecution = action.execution
+      switch (execution.type) {
+        case 'insert_text':
+          handleStationTerminalInput(station.id, execution.text)
+          stationTerminalSinkRef.current[station.id]?.focus()
+          return
+        case 'insert_and_submit':
+          handleStationTerminalInput(station.id, execution.text)
+          await submitStationTerminal(station.id)
+          stationTerminalSinkRef.current[station.id]?.focus()
+          return
+        case 'submit_terminal':
+          await submitStationTerminal(station.id)
+          stationTerminalSinkRef.current[station.id]?.focus()
+          return
+        case 'launch_cli':
+          await launchStationCliAgent(station.id)
+          stationTerminalSinkRef.current[station.id]?.focus()
+          return
+        case 'open_command_sheet':
+          setPendingStationActionSheet({ station, action })
+          return
+        case 'open_settings_modal':
+          setIsChannelStudioOpen(false)
+          setIsSettingsOpen(true)
+          return
+        case 'open_channel_studio':
+          setActiveNavId('channels')
+          setIsSettingsOpen(false)
+          setIsChannelStudioOpen(true)
+          return
+        case 'launch_tool_profile': {
+          await launchToolProfileForStation(station, execution.profileId)
+          return
+        }
+        default:
+          return
+      }
+    },
+    [handleStationTerminalInput, launchStationCliAgent, launchToolProfileForStation, submitStationTerminal],
+  )
+
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
     setPendingScrollStationId((prev) => (prev === stationId ? null : prev))
   }, [])
+
+  useEffect(() => {
+    void loadToolCommandsForStations()
+  }, [activeWorkspaceId, loadToolCommandsForStations, toolCommandReloadKey])
 
   const terminalSessionSnapshotEntries = useMemo(
     () =>
@@ -3684,9 +3890,10 @@ export function ShellRoot() {
 
       const bindings = shortcutBindingsRef.current
       const isMacOs = nativeWindowTopMacOsRef.current
+      const isTerminalTarget = isTerminalKeyboardTarget(event.target)
 
       if (matchesShortcutEvent(event, bindings.taskQuickDispatch, isMacOs)) {
-        if (isShortcutRepeat(event)) {
+        if (isTerminalTarget || isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
@@ -3696,7 +3903,7 @@ export function ShellRoot() {
       }
 
       if (matchesShortcutEvent(event, bindings.openContentSearch, isMacOs)) {
-        if (isShortcutRepeat(event)) {
+        if (isTerminalTarget || isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
@@ -3732,7 +3939,7 @@ export function ShellRoot() {
       }
 
       if (matchesShortcutEvent(event, bindings.openFileSearch, isMacOs)) {
-        if (isShortcutRepeat(event)) {
+        if (isTerminalTarget || isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
@@ -4074,6 +4281,8 @@ export function ShellRoot() {
         showStage: true,
         showFloatingPortal: false,
         floatingVisibility: 'non_topmost' as const,
+        onRunStationAction: executeStationAction,
+        toolCommandsByStationId,
       }
     : null
 
@@ -4084,6 +4293,8 @@ export function ShellRoot() {
     floatingVisibility: 'non_topmost' as const,
     scrollToStationId: pendingScrollStationId,
     onScrollToStationHandled: handleCanvasScrollToStationHandled,
+    onRunStationAction: executeStationAction,
+    toolCommandsByStationId,
   }
 
   const topmostWorkbenchCanvasProps = hasGlobalTopmostWorkbench
@@ -4092,10 +4303,36 @@ export function ShellRoot() {
         containers: workbenchContainers,
         showStage: false,
         floatingVisibility: 'topmost' as const,
+        onRunStationAction: executeStationAction,
+        toolCommandsByStationId,
       }
     : null
 
+  const handleSubmitStationActionSheet = useCallback(
+    async (values: Record<string, string | boolean>) => {
+      const pending = pendingStationActionSheet
+      if (!pending || pending.action.execution.type !== 'open_command_sheet') {
+        setPendingStationActionSheet(null)
+        return
+      }
+
+      const command = composeStationActionCommand(pending.action, values)
+      setPendingStationActionSheet(null)
+      if (!command) {
+        return
+      }
+
+      handleStationTerminalInput(pending.station.id, command)
+      if (pending.action.execution.submit) {
+        await submitStationTerminal(pending.station.id)
+      }
+      stationTerminalSinkRef.current[pending.station.id]?.focus()
+    },
+    [handleStationTerminalInput, pendingStationActionSheet, submitStationTerminal],
+  )
+
   return (
+    <>
     <ShellRootView
       shellContainerRef={shellContainerRef}
       shellTopRef={shellTopRef}
@@ -4306,5 +4543,18 @@ export function ShellRoot() {
         onSelectStation: handleStationSearchSelectStation,
       }}
     />
+      <StationActionCommandSheet
+        locale={locale}
+        station={pendingStationActionSheet?.station ?? null}
+        action={pendingStationActionSheet?.action ?? null}
+        open={Boolean(pendingStationActionSheet)}
+        onClose={() => {
+          setPendingStationActionSheet(null)
+        }}
+        onSubmit={(values) => {
+          void handleSubmitStationActionSheet(values)
+        }}
+      />
+    </>
   )
 }

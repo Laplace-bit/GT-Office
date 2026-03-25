@@ -20,8 +20,13 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { StationTerminalSinkBindingHandler } from '@features/terminal'
-import type { RenderedScreenSnapshot, StationTerminalRestoreStatePayload } from '@shell/integration/desktop-api'
+import type {
+  RenderedScreenSnapshot,
+  StationTerminalRestoreStatePayload,
+  ToolCommandSummary,
+} from '@shell/integration/desktop-api'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
+import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 import { WorkbenchUtilityActions } from './WorkbenchUtilityActions'
 import './WorkbenchCanvas.scss'
@@ -57,6 +62,8 @@ interface WorkbenchCanvasPanelProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onRunStationAction: (station: AgentStation, action: StationActionDescriptor) => void
+  toolCommandsByStationId?: Record<string, ToolCommandSummary[]>
   onRestoreStateCaptured?: (stationId: string, state: StationTerminalRestoreStatePayload) => void
   onRemoveStation: (stationId: string) => void
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
@@ -165,6 +172,8 @@ function WorkbenchCanvasPanelView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onRunStationAction,
+  toolCommandsByStationId = {},
   onRestoreStateCaptured,
   onRemoveStation,
   onLayoutModeChange,
@@ -362,6 +371,8 @@ function WorkbenchCanvasPanelView({
         onResizeTerminal={onResizeTerminal}
         onBindTerminalSink={onBindTerminalSink}
         onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+        onRunAction={onRunStationAction}
+        commands={toolCommandsByStationId[station.id]}
         onRestoreStateCaptured={onRestoreStateCaptured}
         onRemoveStation={onRemoveStation}
         onEnterFullscreen={handleEnterFullscreen}

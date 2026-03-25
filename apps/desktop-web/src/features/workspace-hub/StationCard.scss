@@ -311,6 +311,11 @@
 }
 
 .station-terminal-shell {
+  --station-terminal-screen-padding-block: #{rem(3)};
+  --station-terminal-screen-padding-inline: #{rem(7)};
+  --station-terminal-scrollbar-top: #{rem(4)};
+  --station-terminal-scrollbar-right: #{rem(1)};
+  --station-terminal-scrollbar-bottom: #{rem(4)};
   flex: 1;
   background: rgba(0, 0, 0, 0.2);
   min-height: 0;
@@ -324,139 +329,7 @@
     inset 0 rem(-1) 0 color-mix(in srgb, var(--vb-terminal-shell-shadow) 24%, transparent);
 
   .station-terminal-host {
-    width: 100% !important;
-    height: 100% !important;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-    position: relative;
     z-index: 1;
-
-    :where(.xterm, .terminal) {
-      width: 100% !important;
-      height: 100% !important;
-      overflow: hidden;
-      background: var(--vb-terminal-bg);
-
-      .xterm-decoration-overview-ruler {
-        display: none !important;
-        width: 0 !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-      }
-
-      .xterm-viewport {
-        width: 100% !important;
-        height: 100% !important;
-        overflow-x: hidden !important;
-        scrollbar-width: none !important;
-
-        &::-webkit-scrollbar {
-          display: none !important;
-          width: 0 !important;
-          height: 0 !important;
-        }
-      }
-
-      .xterm-screen {
-        position: relative;
-        padding: rem(3) rem(7);
-        width: 100% !important;
-        height: 100% !important;
-        box-sizing: border-box;
-      }
-
-      .xterm-rows {
-        position: relative;
-        z-index: 2;
-      }
-
-      .xterm-rows > div {
-        position: relative;
-      }
-
-      .xterm-selection {
-        position: relative;
-        z-index: 7 !important;
-      }
-
-      .xterm-selection div,
-      [class*='xterm-dom-renderer-owner'] .xterm-selection div {
-        background-color: var(--vb-terminal-selection-inactive) !important;
-        border-radius: rem(4);
-      }
-
-      .xterm-rows span::selection,
-      [class*='xterm-dom-renderer-owner'] .xterm-rows span::selection {
-        background: var(--vb-terminal-selection-strong);
-        color: var(--vb-terminal-selection-text);
-      }
-
-      .xterm-scrollable-element {
-        width: 100% !important;
-        height: 100% !important;
-
-        > .scrollbar.vertical {
-          width: var(--vb-terminal-scrollbar-size) !important;
-          right: rem(1);
-          top: rem(4);
-          bottom: rem(4);
-          border: 0 !important;
-          border-radius: rem(999);
-          outline: none;
-          background: transparent !important;
-          box-shadow: none !important;
-          opacity: 0.76;
-          transition:
-            opacity 180ms var(--vb-ease-smooth),
-            background-color 180ms var(--vb-ease-smooth);
-        }
-
-        > .visible.scrollbar.vertical {
-          opacity: 0.92;
-        }
-
-        > .invisible.scrollbar.vertical {
-          opacity: 0;
-        }
-
-        > .scrollbar.vertical > .slider {
-          border-radius: rem(999);
-          border: 0 !important;
-          box-shadow: none !important;
-        }
-
-        > .scrollbar.horizontal {
-          display: none !important;
-          height: 0 !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-        }
-
-        > .shadow,
-        > .shadow.left,
-        > .shadow.top-left-corner,
-        > .shadow.top.left {
-          display: none !important;
-          box-shadow: none !important;
-        }
-      }
-    }
-  }
-
-  &:focus-within .xterm-selection div,
-  &:focus-within [class*='xterm-dom-renderer-owner'] .xterm-selection div {
-    background-color: var(--vb-terminal-selection-strong) !important;
-  }
-
-  &:focus-within .xterm-scrollable-element > .scrollbar.vertical {
-    opacity: 1;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .xterm-scrollable-element > .scrollbar.vertical {
-      transition: none;
-    }
   }
 }
 
@@ -629,18 +502,10 @@
   }
 
   .station-terminal-shell {
-    .station-terminal-host {
-      :where(.xterm, .terminal) {
-        .xterm-screen {
-          padding: rem(2) rem(5);
-        }
-
-        .xterm-scrollable-element > .scrollbar.vertical {
-          top: rem(2);
-          bottom: rem(2);
-        }
-      }
-    }
+    --station-terminal-screen-padding-block: #{rem(2)};
+    --station-terminal-screen-padding-inline: #{rem(5)};
+    --station-terminal-scrollbar-top: #{rem(2)};
+    --station-terminal-scrollbar-bottom: #{rem(2)};
   }
 
   .station-terminal-idle-state {

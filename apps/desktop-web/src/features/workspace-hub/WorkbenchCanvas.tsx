@@ -22,8 +22,9 @@ import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import type { StationTerminalSinkBindingHandler } from '@features/terminal'
-import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import type { RenderedScreenSnapshot, ToolCommandSummary } from '@shell/integration/desktop-api'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
+import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 import './WorkbenchCanvas.scss'
 
@@ -86,6 +87,8 @@ interface WorkbenchCanvasProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onRunStationAction: (station: AgentStation, action: StationActionDescriptor) => void
+  toolCommandsByStationId?: Record<string, ToolCommandSummary[]>
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
   onCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void
   onFloatContainer: (containerId: string) => void
@@ -269,6 +272,8 @@ function WorkbenchCanvasView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onRunStationAction,
+  toolCommandsByStationId = {},
   onLayoutModeChange,
   onCustomLayoutChange,
   onFloatContainer,
@@ -578,6 +583,8 @@ function WorkbenchCanvasView({
                     onResizeTerminal={onResizeTerminal}
                     onBindTerminalSink={onBindTerminalSink}
                     onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                    onRunStationAction={onRunStationAction}
+                    toolCommandsByStationId={toolCommandsByStationId}
                     onRemoveStation={onRemoveStation}
                     onLayoutModeChange={onLayoutModeChange}
                     onCustomLayoutChange={onCustomLayoutChange}
@@ -649,6 +656,8 @@ function WorkbenchCanvasView({
                     onResizeTerminal={onResizeTerminal}
                     onBindTerminalSink={onBindTerminalSink}
                     onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                    onRunStationAction={onRunStationAction}
+                    toolCommandsByStationId={toolCommandsByStationId}
                     onRemoveStation={onRemoveStation}
                     onLayoutModeChange={onLayoutModeChange}
                     onCustomLayoutChange={onCustomLayoutChange}

@@ -1,13 +1,21 @@
+import { useEffect, useState } from 'react'
 import { localeOptions, t, type Locale } from '@shell/i18n/ui-locale'
 import {
+  commandRailProviderCommandOptionsByProvider,
+  defaultUiPreferences,
+  loadUiPreferences,
   monoFontOptions,
   themeOptions,
+  UI_PREFERENCES_UPDATED_EVENT,
+  saveUiPreferences,
   uiFontOptions,
   uiFontSizeOptions,
+  type CommandRailProviderId,
   type MonoFont,
   type ThemeMode,
   type UiFont,
   type UiFontSize,
+  type UiPreferences,
 } from '@shell/state/ui-preferences'
 import './DisplayPreferences.scss'
 
@@ -24,6 +32,58 @@ interface DisplayPreferencesProps {
   onUiFontSizeChange: (value: UiFontSize) => void
 }
 
+type CommandRailPreferencesState = Pick<
+  UiPreferences,
+  'showCommandRail' | 'pinnedCommandIdsByProvider'
+>
+
+const commandRailProviderIds: CommandRailProviderId[] = ['claude', 'codex']
+
+function dedupeCommandIds(commandIds: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  commandIds.forEach((commandId) => {
+    if (!commandId || seen.has(commandId)) {
+      return
+    }
+    seen.add(commandId)
+    result.push(commandId)
+  })
+
+  return result
+}
+
+function readCommandRailPreferences(): CommandRailPreferencesState {
+  const preferences = loadUiPreferences()
+  return {
+    showCommandRail: preferences.showCommandRail,
+    pinnedCommandIdsByProvider: preferences.pinnedCommandIdsByProvider,
+  }
+}
+
+function getProviderTitle(locale: Locale, providerId: CommandRailProviderId): string {
+  if (providerId === 'claude') {
+    return t(locale, 'Pinned Claude commands', 'Pinned Claude commands')
+  }
+  return t(locale, 'Pinned Codex commands', 'Pinned Codex commands')
+}
+
+function getProviderDescription(locale: Locale, providerId: CommandRailProviderId): string {
+  if (providerId === 'claude') {
+    return t(
+      locale,
+      'Choose which Claude slash commands stay in the primary rail.',
+      'Choose which Claude slash commands stay in the primary rail.',
+    )
+  }
+  return t(
+    locale,
+    'Choose which Codex slash commands and presets stay in the primary rail.',
+    'Choose which Codex slash commands and presets stay in the primary rail.',
+  )
+}
+
 export function DisplayPreferences({
   locale,
   themeMode,
@@ -36,6 +96,73 @@ export function DisplayPreferences({
   onMonoFontChange,
   onUiFontSizeChange,
 }: DisplayPreferencesProps) {
+  const [commandRailPreferences, setCommandRailPreferences] = useState<CommandRailPreferencesState>(
+    () => readCommandRailPreferences(),
+  )
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== 'gtoffice.ui.preferences.v1') {
+        return
+      }
+      setCommandRailPreferences(readCommandRailPreferences())
+    }
+
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  const updateCommandRailPreferences = (
+    updater: (current: UiPreferences) => UiPreferences,
+  ) => {
+    const current = loadUiPreferences()
+    const next = updater(current)
+    saveUiPreferences(next)
+    window.dispatchEvent(new Event(UI_PREFERENCES_UPDATED_EVENT))
+    setCommandRailPreferences({
+      showCommandRail: next.showCommandRail,
+      pinnedCommandIdsByProvider: next.pinnedCommandIdsByProvider,
+    })
+  }
+
+  const toggleRailVisibility = () => {
+    updateCommandRailPreferences((current) => ({
+      ...current,
+      showCommandRail: !current.showCommandRail,
+    }))
+  }
+
+  const togglePinnedCommand = (providerId: CommandRailProviderId, commandId: string) => {
+    updateCommandRailPreferences((current) => {
+      const currentPinnedIds =
+        current.pinnedCommandIdsByProvider[providerId] ??
+        defaultUiPreferences.pinnedCommandIdsByProvider[providerId]
+      const normalizedPinnedIds = dedupeCommandIds(currentPinnedIds)
+      const nextPinnedIds = normalizedPinnedIds.includes(commandId)
+        ? normalizedPinnedIds.filter((id) => id !== commandId)
+        : [...normalizedPinnedIds, commandId]
+
+      return {
+        ...current,
+        pinnedCommandIdsByProvider: {
+          ...current.pinnedCommandIdsByProvider,
+          [providerId]: nextPinnedIds,
+        },
+      }
+    })
+  }
+
+  const resetCommandRailPreferences = () => {
+    updateCommandRailPreferences((current) => ({
+      ...current,
+      showCommandRail: defaultUiPreferences.showCommandRail,
+      showWorkspaceActionsInRail: defaultUiPreferences.showWorkspaceActionsInRail,
+      pinnedCommandIdsByProvider: defaultUiPreferences.pinnedCommandIdsByProvider,
+    }))
+  }
+
   return (
     <div className="display-preferences" aria-label={t(locale, 'displayPreferences.title')}>
       <div className="settings-group-title">{t(locale, 'displayPreferences.language')}</div>
@@ -76,6 +203,87 @@ export function DisplayPreferences({
               </option>
             ))}
             </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group-title">{t(locale, 'Command Rail', 'Command Rail')}</div>
+      <div className="settings-group">
+        <div className="settings-row">
+          <div className="settings-row-label">
+            <strong>{t(locale, 'Show command rail', 'Show command rail')}</strong>
+            <span>
+              {t(
+                locale,
+                'Keep the provider-native command rail visible beneath the terminal.',
+                'Keep the provider-native command rail visible beneath the terminal.',
+              )}
+            </span>
+          </div>
+          <div className="settings-row-control">
+            <button
+              type="button"
+              className={`display-preferences-switch ${
+                commandRailPreferences.showCommandRail ? 'on' : ''
+              }`}
+              onClick={toggleRailVisibility}
+              aria-pressed={commandRailPreferences.showCommandRail}
+              aria-label={t(locale, 'Show command rail', 'Show command rail')}
+            >
+              <span className="display-preferences-switch-thumb" />
+            </button>
+          </div>
+        </div>
+        {commandRailProviderIds.map((providerId) => {
+          const providerOptions = commandRailProviderCommandOptionsByProvider[providerId]
+          const pinnedCommandIds =
+            commandRailPreferences.pinnedCommandIdsByProvider[providerId] ??
+            defaultUiPreferences.pinnedCommandIdsByProvider[providerId]
+          const pinnedCommandIdSet = new Set(dedupeCommandIds(pinnedCommandIds))
+
+          return (
+            <div className="settings-row command-rail-preferences-row" key={providerId}>
+              <div className="settings-row-label">
+                <strong>{getProviderTitle(locale, providerId)}</strong>
+                <span>{getProviderDescription(locale, providerId)}</span>
+              </div>
+              <div className="settings-row-control command-rail-preferences-control">
+                <div className="command-rail-chip-list" role="group" aria-label={getProviderTitle(locale, providerId)}>
+                  {providerOptions.map((option) => {
+                    const isPinned = pinnedCommandIdSet.has(option.id)
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={`command-rail-chip ${isPinned ? 'is-active' : ''}`}
+                        onClick={() => togglePinnedCommand(providerId, option.id)}
+                        aria-pressed={isPinned}
+                        title={option.label}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        <div className="settings-row command-rail-reset-row">
+          <div className="settings-row-label">
+            <strong>{t(locale, 'Reset command rail defaults', 'Reset command rail defaults')}</strong>
+            <span>
+              {t(
+                locale,
+                'Restore the default command rail visibility and pinned provider-native entries.',
+                'Restore the default command rail visibility and pinned provider-native entries.',
+              )}
+            </span>
+          </div>
+          <div className="settings-row-control">
+            <button type="button" className="command-rail-reset-button" onClick={resetCommandRailPreferences}>
+              {t(locale, 'Reset to defaults', 'Reset to defaults')}
+            </button>
           </div>
         </div>
       </div>

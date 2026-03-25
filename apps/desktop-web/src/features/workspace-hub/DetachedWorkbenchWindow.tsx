@@ -1,6 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
+import {
+  composeStationActionCommand,
+  type StationActionDescriptor,
+} from './station-action-model'
+import { StationActionCommandSheet } from './StationActionCommandSheet'
 import type { AgentStation, StationRole } from './station-model'
+import { normalizeStationToolKind } from './station-model'
+import { buildStationLaunchCommand } from '@shell/layout/ShellRoot.shared'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
   normalizeWorkbenchCustomLayout,
@@ -18,6 +25,7 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import {
   applyUiPreferences,
   loadUiPreferences,
+  UI_PREFERENCES_UPDATED_EVENT,
   type UiPreferences,
 } from '@shell/state/ui-preferences'
 import {
@@ -28,6 +36,7 @@ import {
   type SurfaceDetachedStationPayload,
   type SurfaceWindowUpdatedPayload,
   type StationTerminalRestoreStatePayload,
+  type ToolCommandSummary,
 } from '@shell/integration/desktop-api'
 import type {
   StationTerminalSink,
@@ -80,6 +89,7 @@ function mapDetachedStation(payload: SurfaceDetachedStationPayload): AgentStatio
     agentWorkdirRel: payload.agentWorkdirRel,
     customWorkdir: true,
     tool: payload.tool,
+    toolKind: normalizeStationToolKind(payload.tool),
     terminalSessionId: payload.sessionId?.trim() ?? '',
     state: payload.sessionId ? 'running' : 'idle',
     workspaceId: payload.workspaceId,
@@ -116,38 +126,6 @@ function buildDetachedContainer(payload: DetachedWorkbenchWindowPayload): Workbe
   }
 }
 
-function normalizeStationToolKind(
-  tool: string | null | undefined,
-): 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown' {
-  const normalized = tool?.trim().toLowerCase() ?? ''
-  if (normalized.includes('claude')) {
-    return 'claude'
-  }
-  if (normalized.includes('codex')) {
-    return 'codex'
-  }
-  if (normalized.includes('gemini')) {
-    return 'gemini'
-  }
-  if (normalized.includes('shell')) {
-    return 'shell'
-  }
-  return 'unknown'
-}
-
-function buildStationLaunchCommand(station: AgentStation): string | null {
-  switch (normalizeStationToolKind(station.tool)) {
-    case 'claude':
-      return 'claude\n'
-    case 'codex':
-      return 'codex\n'
-    case 'gemini':
-      return 'gemini\n'
-    default:
-      return null
-  }
-}
-
 interface StationTerminalRestoreState {
   content: string
   cols: number
@@ -164,6 +142,11 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     payload.activeStationId ?? payload.stations[0]?.stationId ?? '',
   )
   const activeStationIdRef = useRef(activeStationId)
+  const [toolCommandsByStationId, setToolCommandsByStationId] = useState<Record<string, ToolCommandSummary[]>>({})
+  const [pendingStationActionSheet, setPendingStationActionSheet] = useState<{
+    station: AgentStation
+    action: StationActionDescriptor
+  } | null>(null)
   const [stationRuntimes, setStationRuntimes] = useState<Record<string, WorkbenchStationRuntime>>(() => {
     const runtimes = buildInitialRuntimeMap(payload.stations)
     console.log(DETACHED_LOG_PREFIX, 'init runtimes', JSON.stringify(Object.entries(runtimes).map(([k, v]) => [k.slice(0, 8), v.sessionId?.slice(0, 8) ?? null])))
@@ -190,6 +173,64 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     stationRuntimesRef.current = stationRuntimes
   }, [stationRuntimes])
 
+  const toolCommandReloadKey = useMemo(
+    () =>
+      stations
+        .map((station) => {
+          const runtime = stationRuntimes[station.id]
+          return [
+            station.id,
+            station.toolKind,
+            runtime?.sessionId ? 'live' : 'idle',
+            runtime?.resolvedCwd ?? '',
+          ].join(':')
+        })
+        .join('|'),
+    [stationRuntimes, stations],
+  )
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      setToolCommandsByStationId({})
+      return
+    }
+
+    let cancelled = false
+    const loadToolCommands = async () => {
+      try {
+        const entries = await Promise.all(
+          stations.map(async (station) => {
+            const runtime = stationRuntimesRef.current[station.id]
+            const response = await desktopApi.toolListCommands({
+              workspaceId: payload.workspaceId,
+              toolKind: station.toolKind,
+              station: {
+                stationId: station.id,
+                hasTerminalSession: Boolean(runtime?.sessionId),
+                detachedReadonly: true,
+                resolvedCwd: runtime?.resolvedCwd ?? null,
+              },
+            })
+            return [station.id, response.commands] as const
+          }),
+        )
+        if (!cancelled) {
+          setToolCommandsByStationId(Object.fromEntries(entries))
+        }
+      } catch (error) {
+        console.warn('[station-command-deck] detached catalog load failed', error)
+        if (!cancelled) {
+          setToolCommandsByStationId({})
+        }
+      }
+    }
+
+    void loadToolCommands()
+    return () => {
+      cancelled = true
+    }
+  }, [payload.workspaceId, stations, toolCommandReloadKey])
+
   useEffect(() => {
     activeStationIdRef.current = activeStationId
   }, [activeStationId])
@@ -205,9 +246,14 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       }
       setUiPreferences(loadUiPreferences())
     }
+    const onPreferencesUpdated = () => {
+      setUiPreferences(loadUiPreferences())
+    }
     window.addEventListener('storage', onStorage)
+    window.addEventListener(UI_PREFERENCES_UPDATED_EVENT, onPreferencesUpdated)
     return () => {
       window.removeEventListener('storage', onStorage)
+      window.removeEventListener(UI_PREFERENCES_UPDATED_EVENT, onPreferencesUpdated)
     }
   }, [])
 
@@ -719,6 +765,27 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     [payload.containerId, payload.workspaceId, postBridgeMessage],
   )
 
+  const handleSubmitStationActionSheet = useCallback((values: Record<string, string | boolean>) => {
+    const pending = pendingStationActionSheet
+    if (!pending || pending.action.execution.type !== 'open_command_sheet') {
+      setPendingStationActionSheet(null)
+      return
+    }
+
+    const command = composeStationActionCommand(pending.action, values)
+    setPendingStationActionSheet(null)
+    if (!command) {
+      return
+    }
+
+    sendInput(pending.station.id, command)
+    if (pending.action.execution.submit) {
+      window.setTimeout(() => {
+        sinkByStationRef.current[pending.station.id]?.submit?.()
+      }, STATION_INPUT_FLUSH_MS)
+    }
+  }, [pendingStationActionSheet, sendInput])
+
   useEffect(() => {
     const flushTimerMap = inputFlushTimerRef.current
     return () => {
@@ -756,6 +823,39 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           onResizeTerminal={handleResize}
           onBindTerminalSink={bindSink}
           onRenderedScreenSnapshot={undefined}
+          onRunStationAction={(station: AgentStation, action: StationActionDescriptor) => {
+            switch (action.execution.type) {
+              case 'insert_text':
+                sendInput(station.id, action.execution.text)
+                return
+              case 'insert_and_submit':
+                sendInput(station.id, action.execution.text)
+                queueMicrotask(() => {
+                  sinkByStationRef.current[station.id]?.submit?.()
+                })
+                return
+              case 'submit_terminal':
+                sinkByStationRef.current[station.id]?.submit?.()
+                return
+              case 'launch_cli': {
+                const command = buildStationLaunchCommand(station)
+                if (command) {
+                  void launchStationCliAgent(station.id)
+                }
+                return
+              }
+              case 'open_command_sheet':
+                setPendingStationActionSheet({ station, action })
+                return
+              case 'launch_tool_profile':
+              case 'open_settings_modal':
+              case 'open_channel_studio':
+                return
+              default:
+                return
+            }
+          }}
+          toolCommandsByStationId={toolCommandsByStationId}
           onRestoreStateCaptured={handleRestoreStateCaptured}
           onRemoveStation={() => {}}
           onLayoutModeChange={(containerId, mode) => {
@@ -789,6 +889,16 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           }}
         />
       </div>
+      <StationActionCommandSheet
+        locale={uiPreferences.locale as Locale}
+        station={pendingStationActionSheet?.station ?? null}
+        action={pendingStationActionSheet?.action ?? null}
+        open={Boolean(pendingStationActionSheet)}
+        onClose={() => {
+          setPendingStationActionSheet(null)
+        }}
+        onSubmit={handleSubmitStationActionSheet}
+      />
     </div>
   )
 }

@@ -1,0 +1,264 @@
+@use "../../styles/tokens/responsive" as *;
+
+.station-action-command-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: rem(20);
+  background: color-mix(in srgb, var(--vb-surface) 32%, rgba(5, 8, 18, 0.52));
+  backdrop-filter: blur(rem(18)) saturate(140%);
+  -webkit-backdrop-filter: blur(rem(18)) saturate(140%);
+}
+
+.station-action-command-sheet {
+  width: min(rem(544), calc(100vw - rem(20)));
+  max-height: min(rem(672), calc(100vh - rem(20)));
+  display: flex;
+  flex-direction: column;
+  border-radius: rem(22);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--vb-accent) 16%, transparent), transparent 44%),
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 94%, transparent), transparent 24%),
+    color-mix(in srgb, var(--vb-surface) 92%, transparent);
+  box-shadow:
+    0 rem(22) rem(42) color-mix(in srgb, black 24%, transparent),
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.station-action-command-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: rem(16);
+  padding: rem(18) rem(18) rem(12);
+}
+
+.station-action-command-sheet-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: rem(4);
+
+  h2 {
+    margin: 0;
+    font-size: rem(20);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    color: var(--vb-text);
+  }
+
+  p {
+    margin: 0;
+    color: var(--vb-text-muted);
+    font-size: rem(12);
+    line-height: 1.5;
+  }
+}
+
+.station-action-command-sheet-eyebrow {
+  font-size: rem(10);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
+  font-weight: 700;
+}
+
+.station-action-command-sheet-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: rem(30);
+  height: rem(30);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 90%, transparent);
+  border-radius: rem(999);
+  background: color-mix(in srgb, var(--vb-glass-light) 72%, transparent);
+  color: var(--vb-text);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 56%, transparent),
+      0 0 0 rem(4) color-mix(in srgb, var(--vb-accent) 16%, transparent);
+  }
+}
+
+.station-action-command-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: rem(16);
+  min-height: 0;
+  padding: 0 rem(18) rem(18);
+}
+
+.station-action-command-sheet-fields {
+  display: flex;
+  flex-direction: column;
+  gap: rem(12);
+  min-height: 0;
+  overflow: auto;
+  padding-right: rem(2);
+}
+
+.station-action-command-sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: rem(6);
+}
+
+.station-action-command-sheet-field-label {
+  font-size: rem(11);
+  font-weight: 700;
+  color: var(--vb-text);
+  letter-spacing: -0.01em;
+}
+
+.station-action-command-sheet-control {
+  width: 100%;
+  min-height: rem(40);
+  padding: rem(10) rem(12);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 90%, transparent);
+  border-radius: rem(14);
+  background: color-mix(in srgb, var(--vb-glass-light) 74%, transparent);
+  color: var(--vb-text);
+  font: inherit;
+
+  &:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--vb-accent) 64%, white 36%);
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 54%, transparent),
+      0 0 0 rem(4) color-mix(in srgb, var(--vb-accent) 16%, transparent);
+  }
+}
+
+.station-action-command-sheet-control-textarea {
+  min-height: rem(108);
+  resize: vertical;
+}
+
+.station-action-command-sheet-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(10);
+  min-height: rem(40);
+  padding: 0 rem(12);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 90%, transparent);
+  border-radius: rem(14);
+  background: color-mix(in srgb, var(--vb-glass-light) 74%, transparent);
+  color: var(--vb-text);
+  font-size: rem(12);
+  font-weight: 600;
+}
+
+.station-action-command-sheet-empty {
+  display: flex;
+  flex-direction: column;
+  gap: rem(6);
+  padding: rem(14);
+  border-radius: rem(16);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
+  background: color-mix(in srgb, var(--vb-glass-light) 68%, transparent);
+
+  strong {
+    color: var(--vb-text);
+    font-size: rem(12);
+  }
+
+  p {
+    margin: 0;
+    color: var(--vb-text-muted);
+    font-size: rem(11);
+    line-height: 1.5;
+  }
+}
+
+.station-action-command-sheet-preview {
+  display: flex;
+  flex-direction: column;
+  gap: rem(8);
+  padding: rem(14);
+  border-radius: rem(16);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
+  background: color-mix(in srgb, var(--vb-glass-light) 60%, transparent);
+
+  span {
+    font-size: rem(10);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--vb-text-muted);
+    font-weight: 700;
+  }
+
+  code {
+    font-family: var(--vb-font-mono);
+    font-size: rem(11);
+    line-height: 1.55;
+    color: var(--vb-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.station-action-command-sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: rem(10);
+}
+
+.station-action-command-sheet-secondary,
+.station-action-command-sheet-primary {
+  min-height: rem(38);
+  padding: 0 rem(16);
+  border-radius: rem(999);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 90%, transparent);
+  background: color-mix(in srgb, var(--vb-glass-light) 72%, transparent);
+  color: var(--vb-text);
+  font-size: rem(12);
+  font-weight: 700;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 54%, transparent),
+      0 0 0 rem(4) color-mix(in srgb, var(--vb-accent) 16%, transparent);
+  }
+}
+
+.station-action-command-sheet-primary {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--vb-accent) 88%, black 12%);
+  color: white;
+
+  &.is-confirm {
+    background: color-mix(in srgb, var(--vb-warning) 84%, black 16%);
+  }
+
+  &.is-expensive {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--vb-accent) 84%, black 16%),
+      color-mix(in srgb, var(--vb-warning) 44%, var(--vb-accent))
+    );
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.56;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-action-command-sheet-backdrop,
+  .station-action-command-sheet,
+  .station-action-command-sheet-close,
+  .station-action-command-sheet-control,
+  .station-action-command-sheet-secondary,
+  .station-action-command-sheet-primary {
+    transition: none;
+  }
+}

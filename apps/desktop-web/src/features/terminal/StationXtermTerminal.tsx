@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 import '@xterm/xterm/css/xterm.css'
+import './StationXtermTerminal.scss'
 import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 

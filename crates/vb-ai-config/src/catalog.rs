@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::models::{
-    ClaudeAuthScheme, ClaudeProviderPreset, CodexSnapshot, CodexProviderPreset,
-    GeminiAuthMode, GeminiProviderPreset, GeminiSnapshot,
+    ClaudeAuthScheme, ClaudeProviderPreset, CodexProviderPreset, CodexSnapshot, GeminiAuthMode,
+    GeminiProviderPreset, GeminiSnapshot,
 };
 
 pub const CLAUDE_OFFICIAL_PROVIDER_ID: &str = "anthropic-official";
@@ -859,15 +859,24 @@ mod tests {
 
         assert_eq!(
             claude,
-            expected.iter().map(|value| value.to_string()).collect::<Vec<_>>()
+            expected
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
         );
         assert_eq!(
             codex,
-            expected.iter().map(|value| value.to_string()).collect::<Vec<_>>()
+            expected
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
         );
         assert_eq!(
             gemini,
-            expected.iter().map(|value| value.to_string()).collect::<Vec<_>>()
+            expected
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
         );
     }
 

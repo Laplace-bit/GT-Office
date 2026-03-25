@@ -956,8 +956,11 @@ impl TaskService {
             });
 
             let submit_sequence = resolve_submit_sequence(request, &target_agent_id, &runtime);
-            let command =
-                build_task_dispatch_command(&enrich_dispatch_markdown(&request.markdown, request, &task_id));
+            let command = build_task_dispatch_command(&enrich_dispatch_markdown(
+                &request.markdown,
+                request,
+                &task_id,
+            ));
             if let Err(error) = write_terminal(&runtime.session_id, &command, &submit_sequence) {
                 warn!(
                     workspace_id = %request.workspace_id,

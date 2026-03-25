@@ -1162,6 +1162,181 @@ export interface AgentRuntimeUnregisterResponse {
   unregistered: boolean
 }
 
+export type ToolProfileActionCategory =
+  | 'prompt_insert'
+  | 'terminal_submit'
+  | 'launch_tool'
+  | 'open_settings'
+  | 'mcp_helper'
+  | 'slash_template'
+
+export type ToolProfileSurfaceTarget = 'terminal' | 'workspace_ui' | 'tool_adapter'
+export type ToolProfileScopeKind = 'station' | 'workspace' | 'selection'
+export type ToolProfileProviderKind = 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown' | 'any'
+export type ToolCommandProviderKind = ToolProfileProviderKind
+export type ToolCommandKind =
+  | 'semantic'
+  | 'provider_native'
+  | 'bundled_skill'
+  | 'settings_entry'
+  | 'launch_profile'
+export type ToolCommandFamily = 'built_in' | 'bundled_skill' | 'workspace_action'
+export type ToolCommandCategory = ToolProfileActionCategory
+export type ToolCommandSurfaceTarget = ToolProfileSurfaceTarget
+export type ToolCommandScopeKind = ToolProfileScopeKind
+export type ToolCommandPresentation = 'direct' | 'sheet' | 'navigation'
+export type ToolCommandDangerLevel = 'safe' | 'confirm' | 'expensive'
+export type ToolCommandArgumentKind = 'text' | 'multiline_text' | 'enum' | 'duration' | 'path' | 'boolean'
+
+export interface ToolProfileSummary {
+  workspaceId?: string | null
+  id: string
+  profileId?: string | null
+  toolKind?: ToolProfileProviderKind | null
+  label: string
+  shortLabel?: string | null
+  tooltip?: string | null
+  icon?: string | null
+  providerKind?: ToolProfileProviderKind | null
+  category?: ToolProfileActionCategory | null
+  surfaceTarget?: ToolProfileSurfaceTarget | null
+  scopeKind?: ToolProfileScopeKind | null
+  priority?: number | null
+  group?: 'launch' | 'prompt' | 'templates' | 'submit' | 'workspace' | 'profiles' | null
+  requiresLiveSession?: boolean | null
+  supportsDetachedWindow?: boolean | null
+  supportsParallelTargets?: boolean | null
+  title?: string | null
+  launchMode?: string | null
+  configured?: boolean | null
+  providerSummary?: string | null
+  provider?: Record<string, unknown> | null
+  launchDefaults?: Record<string, unknown> | null
+  supports?: Record<string, unknown> | null
+  warnings?: string[] | null
+}
+
+export interface ToolListProfilesResponse {
+  workspaceId: string
+  profiles: ToolProfileSummary[]
+}
+
+export interface ToolLaunchRequest {
+  workspaceId: string
+  profileId: string
+  context?: Record<string, unknown> | null
+}
+
+export interface ToolLaunchResponse {
+  workspaceId: string
+  profileId: string
+  toolKind?: ToolProfileProviderKind | null
+  context?: Record<string, unknown> | null
+  toolSessionId?: string | null
+  terminalSessionId?: string | null
+  stationId?: string | null
+  roleKey?: string | null
+  resolvedCwd?: string | null
+  shell?: string | null
+  submitSequence?: string | null
+  launchCommand?: string | null
+  initialPrompt?: string | null
+}
+
+export interface ToolValidateProfileResponse {
+  profile: Record<string, unknown>
+  valid: boolean
+  profileId?: string | null
+  toolKind?: ToolProfileProviderKind | null
+  warnings: string[]
+}
+
+export interface ToolCommandArgumentOption {
+  label: string
+  value: string
+}
+
+export interface ToolCommandArgument {
+  name: string
+  label: string
+  kind: ToolCommandArgumentKind
+  placeholder?: string | null
+  defaultValue?: string | null
+  options: ToolCommandArgumentOption[]
+  required: boolean
+}
+
+export type ToolCommandExecution =
+  | {
+      type: 'insert_text'
+      text: string
+      submit: boolean
+    }
+  | {
+      type: 'open_command_sheet'
+      command: string
+      submit: boolean
+    }
+  | {
+      type: 'launch_profile'
+      profileId: string
+    }
+  | {
+      type: 'open_settings_modal'
+      section: string
+    }
+  | {
+      type: 'open_channel_studio'
+    }
+
+export interface ToolCommandCatalogStationContext {
+  stationId?: string | null
+  hasTerminalSession: boolean
+  detachedReadonly: boolean
+  resolvedCwd?: string | null
+}
+
+export interface ToolCommandSummary {
+  id: string
+  label: string
+  shortLabel?: string | null
+  slashCommand?: string | null
+  commandFamily: ToolCommandFamily
+  tooltip?: string | null
+  icon: string
+  providerKind: ToolCommandProviderKind
+  kind: ToolCommandKind
+  category: ToolCommandCategory
+  surfaceTarget: ToolCommandSurfaceTarget
+  scopeKind: ToolCommandScopeKind
+  group: string
+  priority: number
+  presentation: ToolCommandPresentation
+  dangerLevel: ToolCommandDangerLevel
+  defaultPinned: boolean
+  enabled: boolean
+  disabledReason?: string | null
+  requiresLiveSession: boolean
+  supportsDetachedWindow: boolean
+  supportsParallelTargets: boolean
+  execution: ToolCommandExecution
+  arguments: ToolCommandArgument[]
+}
+
+export interface ToolListCommandsRequest {
+  workspaceId: string
+  toolKind?: ToolProfileProviderKind | null
+  station: ToolCommandCatalogStationContext
+}
+
+export interface ToolListCommandsResponse {
+  workspaceId: string
+  catalogVersion: number
+  toolKind?: ToolProfileProviderKind | null
+  station: ToolCommandCatalogStationContext
+  commands: ToolCommandSummary[]
+}
+
 export type ChannelKind = 'direct' | 'group' | 'broadcast'
 export type ChannelMessageType = 'task_instruction' | 'status' | 'handover'
 
@@ -1786,6 +1961,33 @@ export const desktopApi = {
     return invokeCommand<SettingsEffectiveResponse>('settings_get_effective', {
       workspaceId: workspaceId ?? null,
     })
+  },
+  toolListProfiles(workspaceId: string) {
+    return invokeCommand<ToolListProfilesResponse>('tool_list_profiles', { workspaceId })
+  },
+  toolListCommands(request: ToolListCommandsRequest) {
+    return invokeCommand<ToolListCommandsResponse>('tool_list_commands', {
+      request: {
+        workspaceId: request.workspaceId,
+        toolKind: request.toolKind ?? null,
+        station: {
+          stationId: request.station.stationId ?? null,
+          hasTerminalSession: request.station.hasTerminalSession,
+          detachedReadonly: request.station.detachedReadonly,
+          resolvedCwd: request.station.resolvedCwd ?? null,
+        },
+      },
+    })
+  },
+  toolLaunch(request: ToolLaunchRequest) {
+    return invokeCommand<ToolLaunchResponse>('tool_launch', {
+      workspaceId: request.workspaceId,
+      profileId: request.profileId,
+      context: request.context ?? null,
+    })
+  },
+  toolValidateProfile(profile: Record<string, unknown>) {
+    return invokeCommand<ToolValidateProfileResponse>('tool_validate_profile', { profile })
   },
   settingsUpdate(
     scope: 'user' | 'workspace' | 'session',

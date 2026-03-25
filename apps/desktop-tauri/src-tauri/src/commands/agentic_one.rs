@@ -208,17 +208,18 @@ pub async fn install_agent_mcp(
     emit_progress(
         &window,
         &progress_event,
-        format!(
-            "ℹ️ MCP installer script: {}",
-            installer_path.display()
-        ),
+        format!("ℹ️ MCP installer script: {}", installer_path.display()),
     );
-    let stdout = String::from_utf8_lossy(&mcp_output.stdout).trim().to_string();
+    let stdout = String::from_utf8_lossy(&mcp_output.stdout)
+        .trim()
+        .to_string();
     if !stdout.is_empty() {
         emit_progress(&window, &progress_event, stdout);
     }
 
-    let stderr = String::from_utf8_lossy(&mcp_output.stderr).trim().to_string();
+    let stderr = String::from_utf8_lossy(&mcp_output.stderr)
+        .trim()
+        .to_string();
     if !stderr.is_empty() {
         emit_progress(&window, &progress_event, format!("⚠️ {stderr}"));
     }
@@ -286,7 +287,8 @@ fn workspace_relative_installer_candidates() -> Vec<PathBuf> {
 
 fn resolve_existing_mcp_installer_path(window: &tauri::Window) -> Result<PathBuf, String> {
     if let Ok(resource_path) = window.app_handle().path().resource_dir() {
-        let installer_script = resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
+        let installer_script =
+            resource_path.join("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
         if installer_script_exists(&installer_script) {
             return Ok(installer_script);
         }

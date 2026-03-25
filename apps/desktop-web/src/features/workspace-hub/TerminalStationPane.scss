@@ -135,6 +135,11 @@
 }
 
 .terminal-station-pane :where(.station-terminal-shell) {
+  --station-terminal-screen-padding-block: 0.1875rem;
+  --station-terminal-screen-padding-inline: 0.4375rem;
+  --station-terminal-scrollbar-top: 0.25rem;
+  --station-terminal-scrollbar-right: 0.0625rem;
+  --station-terminal-scrollbar-bottom: 0.25rem;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -150,131 +155,9 @@
 }
 
 .terminal-station-pane :where(.station-terminal-host) {
-  width: 100% !important;
-  height: 100% !important;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  position: relative;
   z-index: 1;
 }
 
-.terminal-station-pane :where(.xterm, .terminal) {
-  width: 100% !important;
-  height: 100% !important;
-  overflow: hidden;
-  background: var(--vb-terminal-bg);
-
-  .xterm-decoration-overview-ruler {
-    display: none !important;
-    width: 0 !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-  }
-
-  .xterm-viewport {
-    width: 100% !important;
-    height: 100% !important;
-    overflow-x: hidden !important;
-    scrollbar-width: none !important;
-
-    &::-webkit-scrollbar {
-      display: none !important;
-      width: 0 !important;
-      height: 0 !important;
-    }
-  }
-
-  .xterm-screen {
-    position: relative;
-    width: 100% !important;
-    height: 100% !important;
-    padding: 0.1875rem 0.4375rem;
-    box-sizing: border-box;
-  }
-
-  .xterm-rows {
-    position: relative;
-    z-index: 2;
-  }
-
-  .xterm-selection {
-    position: relative;
-    z-index: 7 !important;
-  }
-
-  .xterm-selection div,
-  [class*='xterm-dom-renderer-owner'] .xterm-selection div {
-    background-color: var(--vb-terminal-selection-inactive) !important;
-    border-radius: 0.25rem;
-  }
-
-  .xterm-rows span::selection,
-  [class*='xterm-dom-renderer-owner'] .xterm-rows span::selection {
-    background: var(--vb-terminal-selection-strong);
-    color: var(--vb-terminal-selection-text);
-  }
-
-  .xterm-scrollable-element {
-    width: 100% !important;
-    height: 100% !important;
-
-    > .scrollbar.vertical {
-      width: var(--vb-terminal-scrollbar-size) !important;
-      top: 0.25rem;
-      right: 0.0625rem;
-      bottom: 0.25rem;
-      border: 0 !important;
-      border-radius: 999rem;
-      outline: none;
-      background: transparent !important;
-      box-shadow: none !important;
-      opacity: 0.76;
-      transition:
-        opacity 180ms var(--vb-ease-smooth),
-        background-color 180ms var(--vb-ease-smooth);
-    }
-
-    > .visible.scrollbar.vertical {
-      opacity: 0.92;
-    }
-
-    > .invisible.scrollbar.vertical {
-      opacity: 0;
-    }
-
-    > .scrollbar.vertical > .slider {
-      border-radius: 999rem;
-      border: 0 !important;
-      box-shadow: none !important;
-    }
-
-    > .scrollbar.horizontal,
-    > .shadow,
-    > .shadow.left,
-    > .shadow.top-left-corner,
-    > .shadow.top.left {
-      display: none !important;
-      height: 0 !important;
-      opacity: 0 !important;
-      pointer-events: none !important;
-      box-shadow: none !important;
-    }
-  }
-}
-
-.terminal-station-pane :where(.station-terminal-shell:focus-within) .xterm-selection div,
-.terminal-station-pane
-  :where(.station-terminal-shell:focus-within)
-  [class*='xterm-dom-renderer-owner']
-  .xterm-selection
-  div {
-  background-color: var(--vb-terminal-selection-strong) !important;
-}
-
-.terminal-station-pane :where(.station-terminal-shell:focus-within) .xterm-scrollable-element > .scrollbar.vertical {
-  opacity: 1;
-}
 
 .terminal-station-pane-idle-state {
   flex: 1;

@@ -183,6 +183,7 @@ pub fn run() {
             git::git_stash_push,
             git::git_stash_pop,
             git::git_stash_list,
+            tool_adapter::command_catalog::tool_list_commands,
             tool_adapter::tool_profiles::tool_list_profiles,
             tool_adapter::tool_profiles::tool_launch,
             tool_adapter::tool_profiles::tool_validate_profile,

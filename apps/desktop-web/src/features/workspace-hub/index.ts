@@ -5,6 +5,17 @@ export type {
   DetachedWorkbenchWindowPayload,
 } from './DetachedWorkbenchWindow'
 export { StationCard } from './StationCard'
+export { StationActionDock } from './StationActionDock'
+export { StationActionCommandSheet } from './StationActionCommandSheet'
+export { resolveStationActions } from './station-action-registry'
+export { composeStationActionCommand } from './station-action-model'
+export type {
+  ResolveStationActionOptions,
+  StationActionArgument,
+  StationActionDescriptor,
+  StationActionExecution,
+  StationProviderKind,
+} from './station-action-model'
 export { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
 export { StationManageModal } from './StationManageModal'
 export { StationSearchModal } from './StationSearchModal'
@@ -23,6 +34,7 @@ export {
 export {
   createDefaultStations,
   mapAgentProfileToStation,
+  normalizeStationToolKind,
 } from './station-model'
 export {
   createDefaultFloatingFrame,

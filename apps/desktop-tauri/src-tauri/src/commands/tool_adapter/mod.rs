@@ -1,3 +1,4 @@
+pub mod command_catalog;
 pub mod tool_profiles;
 
 use serde::{Deserialize, Serialize};

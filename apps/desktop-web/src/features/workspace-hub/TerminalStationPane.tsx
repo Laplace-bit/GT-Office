@@ -1,5 +1,8 @@
 import { memo, useMemo } from 'react'
 import type { AgentStation, StationRole } from './station-model'
+import { StationActionDock } from './StationActionDock'
+import { resolveStationActions } from './station-action-registry'
+import type { StationActionDescriptor } from './station-action-model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -9,7 +12,7 @@ import {
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
-import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import type { RenderedScreenSnapshot, ToolCommandSummary } from '@shell/integration/desktop-api'
 import './TerminalStationPane.scss'
 
 export interface WorkbenchStationRuntime {
@@ -86,6 +89,8 @@ interface TerminalStationPaneProps {
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onReturnToWorkspace?: () => void
+  onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
+  commands?: ToolCommandSummary[]
 }
 
 function TerminalStationPaneView({
@@ -105,6 +110,8 @@ function TerminalStationPaneView({
   onBindTerminalSink,
   onRenderedScreenSnapshot,
   onReturnToWorkspace,
+  onRunAction,
+  commands = [],
 }: TerminalStationPaneProps) {
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
@@ -134,6 +141,20 @@ function TerminalStationPaneView({
       ),
     }
   }, [detachedReadonly, locale])
+  const stationActions = useMemo(
+    () =>
+      resolveStationActions({
+        station,
+        hasTerminalSession,
+        detachedReadonly,
+        commands,
+      }),
+    [commands, detachedReadonly, hasTerminalSession, station],
+  )
+  const handleRunAction = useMemo(
+    () => (action: StationActionDescriptor) => onRunAction(station, action),
+    [onRunAction, station],
+  )
 
   return (
     <section className={['terminal-station-pane', active ? 'active' : ''].join(' ')}>
@@ -207,16 +228,18 @@ function TerminalStationPaneView({
       </div>
 
       {hasTerminalSession ? (
-        <StationXtermTerminal
-          stationId={station.id}
-          sessionId={runtime?.sessionId ?? null}
-          appearanceVersion={appearanceVersion}
-          onActivateStation={() => onSelectStation(station.id)}
-          onData={onSendInputData}
-          onResize={onResizeTerminal}
-          onBindSink={onBindTerminalSink}
-          onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-        />
+        <>
+          <StationXtermTerminal
+            stationId={station.id}
+            sessionId={runtime?.sessionId ?? null}
+            appearanceVersion={appearanceVersion}
+            onActivateStation={() => onSelectStation(station.id)}
+            onData={onSendInputData}
+            onResize={onResizeTerminal}
+            onBindSink={onBindTerminalSink}
+            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+          />
+        </>
       ) : (
         <div className="terminal-station-pane-idle-state">
           <div className="terminal-station-pane-idle-copy">
@@ -256,6 +279,7 @@ function TerminalStationPaneView({
           </div>
         </div>
       )}
+      <StationActionDock actions={stationActions} onAction={handleRunAction} />
     </section>
   )
 }

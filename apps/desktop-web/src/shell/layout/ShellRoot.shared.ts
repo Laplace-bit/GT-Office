@@ -326,6 +326,13 @@ export function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean 
   return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
 }
 
+export function isTerminalKeyboardTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest('.xterm-helper-textarea, .xterm, .station-terminal-shell'))
+  )
+}
+
 export function shouldPreventDesktopBrowserShortcut(event: KeyboardEvent): boolean {
   if (!(event.metaKey || event.ctrlKey) || event.altKey) {
     return false
@@ -753,6 +760,7 @@ export function createStationFromNumber(
   const workdir = hasCustomWorkdir
     ? normalizedWorkdir
     : buildStationWorkdirs(role, id).agentWorkdirRel
+  const tool = input?.tool?.trim() ? input.tool.trim() : 'codex cli'
   return {
     id,
     name: input?.name?.trim() ? input.name.trim() : `角色-${suffix}`,
@@ -760,7 +768,8 @@ export function createStationFromNumber(
     roleWorkdirRel: buildRoleWorkdirRel(role),
     agentWorkdirRel: workdir,
     customWorkdir: hasCustomWorkdir,
-    tool: input?.tool?.trim() ? input.tool.trim() : 'codex cli',
+    tool,
+    toolKind: normalizeStationToolKind(tool),
     terminalSessionId: `ts_${String(number).padStart(3, '0')}`,
     state: 'idle',
     workspaceId: workspaceId ?? 'ws_gtoffice',

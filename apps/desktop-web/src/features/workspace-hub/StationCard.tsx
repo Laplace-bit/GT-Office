@@ -1,7 +1,10 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { GripHorizontal } from 'lucide-react'
 import type { AgentStation, StationRole } from './station-model'
+import { StationActionDock } from './StationActionDock'
+import { resolveStationActions } from './station-action-registry'
+import type { StationActionDescriptor } from './station-action-model'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -12,7 +15,11 @@ import {
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
-import type { RenderedScreenSnapshot, StationTerminalRestoreStatePayload } from '@shell/integration/desktop-api'
+import type {
+  RenderedScreenSnapshot,
+  StationTerminalRestoreStatePayload,
+  ToolCommandSummary,
+} from '@shell/integration/desktop-api'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
@@ -115,6 +122,8 @@ interface StationCardProps {
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
+  onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
+  commands?: ToolCommandSummary[]
   draggable?: boolean
   onStationDragStart?: (event: DragEvent<HTMLButtonElement>, stationId: string) => void
   onStationDragPointerStart?: (event: ReactPointerEvent<HTMLElement>, stationId: string) => void
@@ -158,6 +167,8 @@ function StationCardView({
   onRestoreStateCaptured,
   onEnterFullscreen,
   onExitFullscreen,
+  onRunAction,
+  commands = [],
   draggable = false,
   onStationDragPointerStart,
 }: StationCardProps) {
@@ -282,6 +293,24 @@ function StationCardView({
     terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
     flushPendingTerminalFocus()
   }, [flushPendingTerminalFocus])
+  const stationActions = useMemo(
+    () =>
+      resolveStationActions({
+        station,
+        hasTerminalSession,
+        detachedReadonly: false,
+        commands,
+      }),
+    [commands, hasTerminalSession, station],
+  )
+  const handleRunAction = useCallback(
+    (action: StationActionDescriptor) => {
+      onRunAction(station, action)
+      requestTerminalFocus()
+    },
+    [onRunAction, requestTerminalFocus, station],
+  )
+  const dockCompact = compactLayout || isMiniature
   const activateStationAndFocusTerminal = useCallback(() => {
     onSelectStation(station.id)
     requestTerminalFocus()
@@ -513,17 +542,19 @@ function StationCardView({
         </div>
       </header>
       {hasTerminalSession ? (
-        <StationXtermTerminal
-          stationId={station.id}
-          sessionId={runtime?.sessionId ?? null}
-          appearanceVersion={appearanceVersion}
-          onActivateStation={activateStationFromTerminal}
-          onData={onSendInputData}
-          onResize={onResizeTerminal}
-          onBindSink={handleBindSink}
-          onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-          onRestoreStateCaptured={onRestoreStateCaptured}
-        />
+        <>
+          <StationXtermTerminal
+            stationId={station.id}
+            sessionId={runtime?.sessionId ?? null}
+            appearanceVersion={appearanceVersion}
+            onActivateStation={activateStationFromTerminal}
+            onData={onSendInputData}
+            onResize={onResizeTerminal}
+            onBindSink={handleBindSink}
+            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+            onRestoreStateCaptured={onRestoreStateCaptured}
+          />
+        </>
       ) : (
         <div className="station-terminal-idle-state">
           <div className="station-terminal-idle-copy">
@@ -563,6 +594,7 @@ function StationCardView({
           </div>
         </div>
       )}
+      <StationActionDock actions={stationActions} compact={dockCompact} onAction={handleRunAction} />
 
     </article>
   )
@@ -613,6 +645,8 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onRemoveStation === next.onRemoveStation &&
     prev.onEnterFullscreen === next.onEnterFullscreen &&
     prev.onExitFullscreen === next.onExitFullscreen &&
+    prev.onRunAction === next.onRunAction &&
+    prev.commands === next.commands &&
     prev.onStationDragStart === next.onStationDragStart &&
     prev.onStationDragPointerStart === next.onStationDragPointerStart &&
     prev.onStationDragEnd === next.onStationDragEnd &&
