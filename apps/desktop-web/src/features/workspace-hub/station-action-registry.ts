@@ -1,6 +1,11 @@
 import type { AppIconName } from '@shell/ui/icons'
 import type { ToolCommandSummary } from '@shell/integration/desktop-api'
-import { defaultUiPreferences, type UiPreferences } from '@shell/state/ui-preferences'
+import {
+  defaultUiPreferences,
+  isQuickCommandProviderId,
+  type CommandRailProviderId,
+  type UiPreferences,
+} from '@shell/state/ui-preferences'
 import type {
   ResolveStationActionOptions,
   StationActionDescriptor,
@@ -8,6 +13,7 @@ import type {
   StationActionGroupKind,
   StationActionRailModel,
 } from './station-action-model'
+import { resolveStationActionPreferenceKey } from './station-action-copy'
 
 const ICON_MAP: Record<string, AppIconName> = {
   activity: 'activity',
@@ -175,18 +181,10 @@ function mapCommand(
   }
 }
 
-function getPinnedPreferenceKey(action: StationActionDescriptor): string {
-  if (action.slashCommand?.startsWith('/')) {
-    return action.slashCommand.slice(1).replace(/\s+/g, '-').toLowerCase()
-  }
-  return action.id.replace(/^[^-]+-/, '')
-}
-
-function getPinnedProviderId(providerKind: StationActionDescriptor['providerKind']): 'claude' | 'codex' | null {
-  if (providerKind === 'claude' || providerKind === 'codex') {
-    return providerKind
-  }
-  return null
+function getPinnedProviderId(
+  providerKind: StationActionDescriptor['providerKind'],
+): CommandRailProviderId | null {
+  return isQuickCommandProviderId(providerKind) ? providerKind : null
 }
 
 function resolvePinnedPreferenceSet(
@@ -211,7 +209,7 @@ function buildRailActions(
   return actions
     .filter((action) => {
       const pinnedSet = resolvePinnedPreferenceSet(action.providerKind, uiPreferences)
-      return pinnedSet.has(getPinnedPreferenceKey(action))
+      return pinnedSet.has(resolveStationActionPreferenceKey(action))
     })
     .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id))
 }

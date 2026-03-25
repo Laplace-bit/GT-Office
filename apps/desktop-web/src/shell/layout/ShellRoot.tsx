@@ -114,7 +114,6 @@ import {
   STATION_INPUT_FLUSH_MS,
   STATION_INPUT_MAX_BUFFER_BYTES,
   STATION_TASK_SIGNAL_VISIBLE_MS,
-  STATION_TASK_SUBMIT_MAX_RETRY_FRAMES,
   TASK_DISPATCH_HISTORY_LIMIT,
   TASK_DRAFT_PERSIST_DEBOUNCE_MS,
   TELEGRAM_DEBUG_TOAST_VISIBLE_MS,
@@ -2545,22 +2544,70 @@ export function ShellRoot() {
   )
 
   const submitStationTerminal = useCallback(async (stationId: string): Promise<boolean> => {
-    for (let attempt = 0; attempt <= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES; attempt += 1) {
-      const submittedByTerminal = stationTerminalSinkRef.current[stationId]?.submit?.() ?? false
-      if (submittedByTerminal) {
-        return true
+    if (!desktopApi.isTauriRuntime()) {
+      return false
+    }
+
+    try {
+      let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      if (!sessionId) {
+        sessionId = await ensureStationTerminalSession(stationId)
+        if (!sessionId) {
+          return false
+        }
       }
-      if (attempt >= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES) {
+      await desktopApi.terminalWriteWithSubmit(
+        sessionId,
+        '',
+        stationSubmitSequenceRef.current[stationId] ?? '\r',
+      )
+      return true
+    } catch (error) {
+      appendStationTerminalOutput(
+        stationId,
+        t(locale, 'system.sendFailed', {
+          detail: describeError(error),
+        }),
+      )
+      return false
+    }
+  }, [appendStationTerminalOutput, ensureStationTerminalSession, locale])
+
+  const writeStationTerminalWithSubmit = useCallback(
+    async (stationId: string, input: string): Promise<boolean> => {
+      if (!input) {
+        return submitStationTerminal(stationId)
+      }
+      if (!desktopApi.isTauriRuntime()) {
         return false
       }
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-          resolve()
-        })
-      })
-    }
-    return false
-  }, [])
+
+      try {
+        let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+        if (!sessionId) {
+          sessionId = await ensureStationTerminalSession(stationId)
+          if (!sessionId) {
+            return false
+          }
+        }
+        await desktopApi.terminalWriteWithSubmit(
+          sessionId,
+          input,
+          stationSubmitSequenceRef.current[stationId] ?? '\r',
+        )
+        return true
+      } catch (error) {
+        appendStationTerminalOutput(
+          stationId,
+          t(locale, 'system.sendFailed', {
+            detail: describeError(error),
+          }),
+        )
+        return false
+      }
+    },
+    [appendStationTerminalOutput, ensureStationTerminalSession, locale, submitStationTerminal],
+  )
 
   const handleStationTerminalInput = useCallback(
     (stationId: string, data: string) => {
@@ -2714,6 +2761,14 @@ export function ShellRoot() {
           handleStationTerminalInput(message.stationId, message.input)
           return
         }
+        case 'detached_terminal_write_with_submit': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          void writeStationTerminalWithSubmit(message.stationId, message.input)
+          return
+        }
         case 'detached_terminal_resize': {
           const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
           if (!container) {
@@ -2759,6 +2814,7 @@ export function ShellRoot() {
       queueDetachedProjectionMessage,
       resizeStationTerminal,
       resolveDetachedBridgeContainer,
+      writeStationTerminalWithSubmit,
     ],
   )
 
@@ -3207,8 +3263,7 @@ export function ShellRoot() {
           stationTerminalSinkRef.current[station.id]?.focus()
           return
         case 'insert_and_submit':
-          handleStationTerminalInput(station.id, execution.text)
-          await submitStationTerminal(station.id)
+          await writeStationTerminalWithSubmit(station.id, execution.text)
           stationTerminalSinkRef.current[station.id]?.focus()
           return
         case 'submit_terminal':
@@ -3239,7 +3294,13 @@ export function ShellRoot() {
           return
       }
     },
-    [handleStationTerminalInput, launchStationCliAgent, launchToolProfileForStation, submitStationTerminal],
+    [
+      handleStationTerminalInput,
+      launchStationCliAgent,
+      launchToolProfileForStation,
+      submitStationTerminal,
+      writeStationTerminalWithSubmit,
+    ],
   )
 
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
@@ -4322,13 +4383,19 @@ export function ShellRoot() {
         return
       }
 
-      handleStationTerminalInput(pending.station.id, command)
       if (pending.action.execution.submit) {
-        await submitStationTerminal(pending.station.id)
+        await writeStationTerminalWithSubmit(pending.station.id, command)
+      } else {
+        handleStationTerminalInput(pending.station.id, command)
       }
       stationTerminalSinkRef.current[pending.station.id]?.focus()
     },
-    [handleStationTerminalInput, pendingStationActionSheet, submitStationTerminal],
+    [
+      handleStationTerminalInput,
+      pendingStationActionSheet,
+      submitStationTerminal,
+      writeStationTerminalWithSubmit,
+    ],
   )
 
   return (

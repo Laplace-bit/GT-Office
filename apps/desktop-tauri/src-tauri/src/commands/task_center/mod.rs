@@ -68,35 +68,36 @@ pub(crate) fn write_terminal_with_submit(
     command: &str,
     submit_sequence: &str,
 ) -> Result<(), String> {
-    let accepted_command = state
-        .terminal_provider
-        .write_session(session_id, command)
-        .map_err(to_terminal_error)?;
-    if !accepted_command {
-        return Err("CHANNEL_DELIVERY_FAILED: terminal write rejected".to_string());
+    let chunks = build_terminal_submit_chunks(command, submit_sequence);
+    for (index, chunk) in chunks.iter().enumerate() {
+        let accepted = state
+            .terminal_provider
+            .write_session(session_id, chunk)
+            .map_err(to_terminal_error)?;
+        if !accepted {
+            let reason = match index {
+                0 if !command.is_empty() => "CHANNEL_DELIVERY_FAILED: terminal write rejected",
+                0 => "CHANNEL_DELIVERY_FAILED: terminal submit rejected",
+                1 => "CHANNEL_DELIVERY_FAILED: terminal submit rejected",
+                _ => "CHANNEL_DELIVERY_FAILED: terminal hard submit rejected",
+            };
+            return Err(reason.to_string());
+        }
+        if index + 1 < chunks.len() {
+            thread::sleep(Duration::from_millis(50));
+        }
     }
+    Ok(())
+}
 
-    thread::sleep(Duration::from_millis(50));
-
-    let accepted_submit = state
-        .terminal_provider
-        .write_session(session_id, submit_sequence)
-        .map_err(to_terminal_error)?;
-    if !accepted_submit {
-        return Err("CHANNEL_DELIVERY_FAILED: terminal submit rejected".to_string());
+pub(crate) fn build_terminal_submit_chunks(command: &str, submit_sequence: &str) -> Vec<String> {
+    let mut chunks = Vec::with_capacity(3);
+    if !command.is_empty() {
+        chunks.push(command.to_string());
     }
-
-    thread::sleep(Duration::from_millis(50));
-
-    let accepted_hard_submit = state
-        .terminal_provider
-        .write_session(session_id, "\r")
-        .map_err(to_terminal_error)?;
-    if accepted_hard_submit {
-        Ok(())
-    } else {
-        Err("CHANNEL_DELIVERY_FAILED: terminal hard submit rejected".to_string())
-    }
+    chunks.push(submit_sequence.to_string());
+    chunks.push("\r".to_string());
+    chunks
 }
 
 #[tauri::command]

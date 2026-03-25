@@ -1,13 +1,17 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { AppIcon } from '@shell/ui/icons'
+import { t } from '@shell/i18n/ui-locale'
 import {
+  isQuickCommandProviderId,
+  isQuickCommandRailVisible,
   loadUiPreferences,
   UI_PREFERENCES_UPDATED_EVENT,
   type UiPreferences,
 } from '@shell/state/ui-preferences'
 import { buildStationActionRailModel } from './station-action-registry'
 import { getStationActionDisplayLabel, type StationActionDescriptor } from './station-action-model'
+import { resolveStationActionAriaLabel, resolveStationActionTooltip } from './station-action-copy'
 import './StationActionDock.scss'
 
 interface StationActionDockProps {
@@ -25,6 +29,11 @@ function StationActionDockView({ actions, compact = false, onAction }: StationAc
     () => buildStationActionRailModel(actions, uiPreferences),
     [actions, uiPreferences],
   )
+  const providerId = useMemo(() => {
+    const providerKind = actions.find((action) => isQuickCommandProviderId(action.providerKind))?.providerKind
+    return providerKind && isQuickCommandProviderId(providerKind) ? providerKind : null
+  }, [actions])
+  const locale = uiPreferences.locale
 
   const handleRailKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const currentButton = event.currentTarget
@@ -82,16 +91,22 @@ function StationActionDockView({ actions, compact = false, onAction }: StationAc
     return null
   }
 
-  if (!uiPreferences.showCommandRail) {
+  if (providerId && !isQuickCommandRailVisible(providerId, uiPreferences)) {
     return null
   }
 
   return (
     <div ref={rootRef} className={['station-action-dock', compact ? 'is-compact' : ''].join(' ')}>
       <div className="station-action-dock-shell">
-        <div ref={railRef} className="station-action-dock-rail" role="toolbar" aria-label="CLI commands">
+        <div
+          ref={railRef}
+          className="station-action-dock-rail"
+          role="toolbar"
+          aria-label={t(locale, 'quickCommands.rail.ariaLabel')}
+        >
           {primaryActions.map((action) => {
             const displayLabel = getStationActionDisplayLabel(action)
+            const tooltip = resolveStationActionTooltip(locale, action)
             return (
               <button
                 key={action.id}
@@ -108,8 +123,8 @@ function StationActionDockView({ actions, compact = false, onAction }: StationAc
                   onAction(action)
                 }}
                 onKeyDown={handleRailKeyDown}
-                title={action.disabledReason ?? action.tooltip ?? displayLabel}
-                aria-label={action.disabledReason ?? action.tooltip ?? displayLabel}
+                title={tooltip}
+                aria-label={resolveStationActionAriaLabel(locale, action)}
                 disabled={Boolean(action.disabled)}
               >
                 <AppIcon name={action.icon} className="vb-icon station-action-dock-icon" aria-hidden="true" />

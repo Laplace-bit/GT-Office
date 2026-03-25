@@ -1,5 +1,5 @@
-import { messages, type TranslationKey } from './messages'
-import { supportedLocales, type Locale } from './locale-types'
+import { messages, type TranslationKey } from './messages.js'
+import { supportedLocales, type Locale } from './locale-types.js'
 
 type TranslationParams = Record<string, string | number | undefined>
 

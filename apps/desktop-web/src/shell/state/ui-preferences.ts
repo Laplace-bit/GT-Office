@@ -1,10 +1,29 @@
-import type { Locale, TranslationKey } from '../i18n/ui-locale'
+import type { Locale, TranslationKey } from '../i18n/ui-locale.js'
+import {
+  getQuickCommandVisibility,
+  isQuickCommandProviderId,
+  normalizeQuickCommandVisibilityByProvider,
+  quickCommandDefaultVisibilityByProvider,
+  quickCommandProviderCopyByProvider,
+  resolveQuickCommandDescriptionKey,
+  resolveQuickCommandDisabledReasonKey,
+  resolveQuickCommandPreferenceId,
+  type QuickCommandProviderId,
+} from './quick-command-metadata.js'
 
 export type ThemeMode = 'graphite-light' | 'graphite-dark'
 export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
-export type CommandRailProviderId = 'claude' | 'codex'
+export type CommandRailProviderId = QuickCommandProviderId
+export {
+  isQuickCommandProviderId,
+  quickCommandDefaultVisibilityByProvider,
+  quickCommandProviderCopyByProvider,
+  resolveQuickCommandDescriptionKey,
+  resolveQuickCommandDisabledReasonKey,
+  resolveQuickCommandPreferenceId,
+}
 
 export interface CommandRailCommandOption {
   id: string
@@ -17,8 +36,10 @@ export interface UiPreferences {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
+  /** @deprecated Prefer `quickCommandVisibilityByProvider`. */
   showCommandRail: boolean
   showWorkspaceActionsInRail: boolean
+  quickCommandVisibilityByProvider: Record<CommandRailProviderId, boolean>
   pinnedCommandIdsByProvider: Record<string, string[]>
 }
 
@@ -112,17 +133,82 @@ export const commandRailCodexCommandOptions: ReadonlyArray<CommandRailCommandOpt
   { id: 'statusline', label: '/statusline' },
 ]
 
+export const commandRailGeminiCommandOptions: ReadonlyArray<CommandRailCommandOption> = [
+  { id: 'about', label: '/about' },
+  { id: 'auth', label: '/auth' },
+  { id: 'bug', label: '/bug' },
+  { id: 'chat', label: '/chat' },
+  { id: 'chat-delete', label: '/chat delete' },
+  { id: 'chat-list', label: '/chat list' },
+  { id: 'chat-resume', label: '/chat resume' },
+  { id: 'chat-save', label: '/chat save' },
+  { id: 'chat-share', label: '/chat share' },
+  { id: 'clear', label: '/clear' },
+  { id: 'commands', label: '/commands' },
+  { id: 'commands-reload', label: '/commands reload' },
+  { id: 'compress', label: '/compress' },
+  { id: 'copy', label: '/copy' },
+  { id: 'directory', label: '/directory' },
+  { id: 'dir', label: '/dir' },
+  { id: 'directory-add', label: '/directory add' },
+  { id: 'directory-show', label: '/directory show' },
+  { id: 'docs', label: '/docs' },
+  { id: 'editor', label: '/editor' },
+  { id: 'extensions', label: '/extensions' },
+  { id: 'exit', label: '/exit' },
+  { id: 'help', label: '/help' },
+  { id: 'hooks', label: '/hooks' },
+  { id: 'hooks-list', label: '/hooks list' },
+  { id: 'ide', label: '/ide' },
+  { id: 'ide-status', label: '/ide status' },
+  { id: 'init', label: '/init' },
+  { id: 'mcp', label: '/mcp' },
+  { id: 'mcp-auth', label: '/mcp auth' },
+  { id: 'mcp-desc', label: '/mcp desc' },
+  { id: 'mcp-list', label: '/mcp list' },
+  { id: 'mcp-refresh', label: '/mcp refresh' },
+  { id: 'mcp-schema', label: '/mcp schema' },
+  { id: 'memory', label: '/memory' },
+  { id: 'memory-add', label: '/memory add' },
+  { id: 'memory-list', label: '/memory list' },
+  { id: 'memory-refresh', label: '/memory refresh' },
+  { id: 'memory-show', label: '/memory show' },
+  { id: 'model', label: '/model' },
+  { id: 'plan', label: '/plan' },
+  { id: 'policies', label: '/policies' },
+  { id: 'policies-list', label: '/policies list' },
+  { id: 'privacy', label: '/privacy' },
+  { id: 'quit', label: '/quit' },
+  { id: 'restore', label: '/restore' },
+  { id: 'rewind', label: '/rewind' },
+  { id: 'resume', label: '/resume' },
+  { id: 'settings', label: '/settings' },
+  { id: 'shells', label: '/shells' },
+  { id: 'setup-github', label: '/setup-github' },
+  { id: 'skills', label: '/skills' },
+  { id: 'skills-list', label: '/skills list' },
+  { id: 'skills-reload', label: '/skills reload' },
+  { id: 'stats', label: '/stats' },
+  { id: 'terminal-setup', label: '/terminal-setup' },
+  { id: 'theme', label: '/theme' },
+  { id: 'tools', label: '/tools' },
+  { id: 'tools-desc', label: '/tools desc' },
+  { id: 'vim', label: '/vim' },
+]
+
 export const commandRailProviderCommandOptionsByProvider: Record<
   CommandRailProviderId,
   ReadonlyArray<CommandRailCommandOption>
 > = {
   claude: commandRailClaudeCommandOptions,
   codex: commandRailCodexCommandOptions,
+  gemini: commandRailGeminiCommandOptions,
 }
 
 export const commandRailDefaultPinnedCommandIdsByProvider: Record<CommandRailProviderId, string[]> = {
   claude: ['new', 'diff', 'context', 'plan', 'status', 'agents', 'mcp', 'simplify', 'effort-max'],
   codex: ['new', 'review', 'diff', 'status', 'model', 'mcp', 'plan', 'fast-on'],
+  gemini: ['resume', 'clear', 'help', 'model', 'mcp-list', 'memory-show', 'stats', 'tools-desc'],
 }
 
 export const defaultUiPreferences: UiPreferences = {
@@ -133,6 +219,7 @@ export const defaultUiPreferences: UiPreferences = {
   uiFontSize: 'medium',
   showCommandRail: true,
   showWorkspaceActionsInRail: true,
+  quickCommandVisibilityByProvider: quickCommandDefaultVisibilityByProvider,
   pinnedCommandIdsByProvider: commandRailDefaultPinnedCommandIdsByProvider,
 }
 
@@ -252,6 +339,40 @@ function normalizePinnedCommandIdsByProvider(
   return normalized
 }
 
+export function isQuickCommandRailVisible(
+  providerId: CommandRailProviderId,
+  preferences: Pick<UiPreferences, 'quickCommandVisibilityByProvider'> = defaultUiPreferences,
+): boolean {
+  return getQuickCommandVisibility(providerId, preferences.quickCommandVisibilityByProvider)
+}
+
+export function setQuickCommandRailVisibility(
+  providerId: CommandRailProviderId,
+  visible: boolean,
+  preferences: UiPreferences,
+): UiPreferences {
+  const quickCommandVisibilityByProvider = {
+    ...preferences.quickCommandVisibilityByProvider,
+    [providerId]: visible,
+  }
+  return {
+    ...preferences,
+    quickCommandVisibilityByProvider,
+    showCommandRail: Object.values(quickCommandVisibilityByProvider).some(Boolean),
+  }
+}
+
+export function toggleQuickCommandRailVisibility(
+  providerId: CommandRailProviderId,
+  preferences: UiPreferences,
+): UiPreferences {
+  return setQuickCommandRailVisibility(
+    providerId,
+    !isQuickCommandRailVisible(providerId, preferences),
+    preferences,
+  )
+}
+
 export function loadUiPreferences(): UiPreferences {
   if (typeof window === 'undefined') {
     return defaultUiPreferences
@@ -263,6 +384,14 @@ export function loadUiPreferences(): UiPreferences {
       return defaultUiPreferences
     }
     const parsed = JSON.parse(raw) as Partial<UiPreferences>
+    const normalizedQuickCommandVisibilityByProvider = normalizeQuickCommandVisibilityByProvider(
+      parsed.quickCommandVisibilityByProvider,
+      parsed.showCommandRail,
+    )
+    const hasQuickCommandVisibilityByProvider =
+      parsed.quickCommandVisibilityByProvider != null &&
+      typeof parsed.quickCommandVisibilityByProvider === 'object' &&
+      Object.keys(parsed.quickCommandVisibilityByProvider).length > 0
     return {
       locale: parsed.locale ?? defaultUiPreferences.locale,
       themeMode: parsed.themeMode ?? defaultUiPreferences.themeMode,
@@ -273,14 +402,16 @@ export function loadUiPreferences(): UiPreferences {
         parsed.uiFontSize === 'large' || parsed.uiFontSize === 'xlarge'
           ? parsed.uiFontSize
           : defaultUiPreferences.uiFontSize,
-      showCommandRail:
-        typeof parsed.showCommandRail === 'boolean'
+      showCommandRail: hasQuickCommandVisibilityByProvider
+        ? Object.values(normalizedQuickCommandVisibilityByProvider).some(Boolean)
+        : typeof parsed.showCommandRail === 'boolean'
           ? parsed.showCommandRail
           : defaultUiPreferences.showCommandRail,
       showWorkspaceActionsInRail:
         typeof parsed.showWorkspaceActionsInRail === 'boolean'
           ? parsed.showWorkspaceActionsInRail
           : defaultUiPreferences.showWorkspaceActionsInRail,
+      quickCommandVisibilityByProvider: normalizedQuickCommandVisibilityByProvider,
       pinnedCommandIdsByProvider: normalizePinnedCommandIdsByProvider(
         parsed.pinnedCommandIdsByProvider,
       ),

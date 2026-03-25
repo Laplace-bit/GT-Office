@@ -427,6 +427,19 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     [sendInput],
   )
 
+  const sendInputWithSubmit = useCallback(
+    async (stationId: string, input: string) => {
+      await postBridgeMessage({
+        kind: 'detached_terminal_write_with_submit',
+        workspaceId: payload.workspaceId,
+        containerId: payload.containerId,
+        stationId,
+        input,
+      })
+    },
+    [payload.containerId, payload.workspaceId, postBridgeMessage],
+  )
+
   const ensureStationTerminalSession = useCallback(
     async (stationId: string): Promise<string | null> => {
       const existing = stationRuntimesRef.current[stationId]?.sessionId ?? null
@@ -778,13 +791,14 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       return
     }
 
-    sendInput(pending.station.id, command)
     if (pending.action.execution.submit) {
-      window.setTimeout(() => {
-        sinkByStationRef.current[pending.station.id]?.submit?.()
-      }, STATION_INPUT_FLUSH_MS)
+      void sendInputWithSubmit(pending.station.id, command).catch(() => {
+        requestHydrate()
+      })
+    } else {
+      sendInput(pending.station.id, command)
     }
-  }, [pendingStationActionSheet, sendInput])
+  }, [pendingStationActionSheet, requestHydrate, sendInput, sendInputWithSubmit])
 
   useEffect(() => {
     const flushTimerMap = inputFlushTimerRef.current
@@ -829,13 +843,14 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
                 sendInput(station.id, action.execution.text)
                 return
               case 'insert_and_submit':
-                sendInput(station.id, action.execution.text)
-                queueMicrotask(() => {
-                  sinkByStationRef.current[station.id]?.submit?.()
+                void sendInputWithSubmit(station.id, action.execution.text).catch(() => {
+                  requestHydrate()
                 })
                 return
               case 'submit_terminal':
-                sinkByStationRef.current[station.id]?.submit?.()
+                void sendInputWithSubmit(station.id, '').catch(() => {
+                  requestHydrate()
+                })
                 return
               case 'launch_cli': {
                 const command = buildStationLaunchCommand(station)

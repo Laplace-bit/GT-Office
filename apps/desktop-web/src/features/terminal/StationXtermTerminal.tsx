@@ -9,7 +9,6 @@ export interface StationTerminalSink {
   reset: (content?: string) => void
   restore: (content: string, cols: number, rows: number) => void
   focus: () => void
-  submit: () => boolean
 }
 
 export interface StationTerminalSinkBindingMeta {
@@ -633,17 +632,6 @@ function StationXtermTerminalView({
             ensureFitWhenVisible()
           })
         }
-        const submitFromXterm = () => {
-          try {
-            terminal.focus()
-            terminal.input('\r', true)
-            scheduleRefresh()
-            return true
-          } catch {
-            return false
-          }
-        }
-
         dataDisposable = terminal.onData((data) => {
           onDataRef.current(stationId, data)
         })
@@ -765,7 +753,6 @@ function StationXtermTerminalView({
           focus: () => {
             requestTerminalFocus()
           },
-          submit: () => submitFromXterm(),
         }
         boundSinkRef.current = sink
         onBindSink(stationId, sink)

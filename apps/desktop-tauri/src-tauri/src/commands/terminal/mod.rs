@@ -10,6 +10,7 @@ use crate::app_state::{AppState, RenderedScreenSnapshot};
 use crate::commands::settings::ai_config::{
     agent_tool_kind_from_param, augment_terminal_env_for_agent,
 };
+use crate::commands::task_center::write_terminal_with_submit;
 
 fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
     match cwd_mode.as_deref().unwrap_or("workspace_root") {
@@ -46,6 +47,13 @@ fn build_terminal_create_response(
 
 fn build_terminal_write_response(session_id: &str, accepted: bool) -> Value {
     json!({ "sessionId": session_id, "accepted": accepted })
+}
+
+pub(crate) fn resolve_terminal_submit_sequence(submit_sequence: Option<String>) -> String {
+    match submit_sequence {
+        Some(value) if !value.is_empty() => value,
+        _ => "\r".to_string(),
+    }
 }
 
 fn build_terminal_resize_response(session_id: &str, cols: u16, rows: u16, resized: bool) -> Value {
@@ -184,6 +192,18 @@ pub fn terminal_write(
         .write_session(&session_id, &input)
         .map_err(to_terminal_error)?;
     Ok(build_terminal_write_response(&session_id, accepted))
+}
+
+#[tauri::command]
+pub fn terminal_write_with_submit(
+    session_id: String,
+    input: String,
+    submit_sequence: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let submit_sequence = resolve_terminal_submit_sequence(submit_sequence);
+    write_terminal_with_submit(state.inner(), &session_id, &input, &submit_sequence)?;
+    Ok(build_terminal_write_response(&session_id, true))
 }
 
 #[tauri::command]

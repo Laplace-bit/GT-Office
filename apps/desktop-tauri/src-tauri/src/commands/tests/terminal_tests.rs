@@ -2,8 +2,9 @@ use super::{
     build_terminal_create_response, build_terminal_delta_response, build_terminal_kill_response,
     build_terminal_report_rendered_screen_response, build_terminal_resize_response,
     build_terminal_snapshot_response, build_terminal_visibility_response,
-    build_terminal_write_response, parse_cwd_mode,
+    build_terminal_write_response, parse_cwd_mode, resolve_terminal_submit_sequence,
 };
+use crate::commands::task_center::build_terminal_submit_chunks;
 use vb_abstractions::TerminalCwdMode;
 
 #[test]
@@ -45,6 +46,32 @@ fn terminal_write_response_keeps_contract_fields() {
     let payload = build_terminal_write_response("ts-1", true);
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["accepted"], true);
+}
+
+#[test]
+fn resolve_terminal_submit_sequence_defaults_to_carriage_return() {
+    assert_eq!(resolve_terminal_submit_sequence(None), "\r");
+    assert_eq!(resolve_terminal_submit_sequence(Some(String::new())), "\r");
+    assert_eq!(
+        resolve_terminal_submit_sequence(Some("\x1b[13~".to_string())),
+        "\x1b[13~"
+    );
+}
+
+#[test]
+fn build_terminal_submit_chunks_skips_empty_command_but_keeps_submit_bytes() {
+    assert_eq!(
+        build_terminal_submit_chunks("", "\r"),
+        vec!["\r".to_string(), "\r".to_string()]
+    );
+    assert_eq!(
+        build_terminal_submit_chunks("/status", "\x1b[13~"),
+        vec![
+            "/status".to_string(),
+            "\x1b[13~".to_string(),
+            "\r".to_string(),
+        ]
+    );
 }
 
 #[test]

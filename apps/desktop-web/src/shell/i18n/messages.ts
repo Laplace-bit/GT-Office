@@ -8,6 +8,118 @@ export const messages = {
   'displayPreferences.monoFont': { 'zh-CN': '代码字体', 'en-US': 'Mono Font' },
   'themeOption.graphiteLight': { 'zh-CN': '浅色石墨', 'en-US': 'Graphite Light' },
   'themeOption.graphiteDark': { 'zh-CN': '深色石墨', 'en-US': 'Graphite Dark' },
+  'quickCommands.section.title': { 'zh-CN': '快捷命令', 'en-US': 'Quick commands' },
+  'quickCommands.section.description': {
+    'zh-CN': '按供应商配置显示在命令坞里的常用按钮。',
+    'en-US': 'Configure which quick actions appear in the command rail for each provider.',
+  },
+  'quickCommands.section.visibility': { 'zh-CN': '显示快捷命令', 'en-US': 'Show quick commands' },
+  'quickCommands.rail.ariaLabel': { 'zh-CN': 'CLI 快捷命令', 'en-US': 'CLI quick commands' },
+  'quickCommands.section.hint': {
+    'zh-CN': '将鼠标悬停在按钮上查看对齐说明。',
+    'en-US': 'Hover a button to read its aligned description.',
+  },
+  'quickCommands.section.count': {
+    'zh-CN': '{count} 个常用命令',
+    'en-US': '{count} quick commands',
+  },
+  'quickCommands.section.shown': { 'zh-CN': '已显示', 'en-US': 'Shown' },
+  'quickCommands.section.hidden': { 'zh-CN': '未显示', 'en-US': 'Hidden' },
+  'quickCommands.section.empty': {
+    'zh-CN': '当前还没有可固定的快捷命令。',
+    'en-US': 'There are no quick commands available to pin yet.',
+  },
+  'quickCommands.provider.claude.title': { 'zh-CN': 'Claude 快捷命令', 'en-US': 'Claude quick commands' },
+  'quickCommands.provider.claude.description': {
+    'zh-CN': '管理 Claude Code 的原生命令和常用预设。',
+    'en-US': 'Manage Claude Code native commands and common presets.',
+  },
+  'quickCommands.provider.codex.title': { 'zh-CN': 'Codex 快捷命令', 'en-US': 'Codex quick commands' },
+  'quickCommands.provider.codex.description': {
+    'zh-CN': '管理 Codex CLI 的原生命令和常用预设。',
+    'en-US': 'Manage Codex CLI native commands and common presets.',
+  },
+  'quickCommands.provider.gemini.title': { 'zh-CN': 'Gemini 快捷命令', 'en-US': 'Gemini quick commands' },
+  'quickCommands.provider.gemini.description': {
+    'zh-CN': '管理 Gemini CLI 的原生命令和常用预设。',
+    'en-US': 'Manage Gemini CLI native commands and common presets.',
+  },
+  'quickCommands.command.session': {
+    'zh-CN': '开始、恢复或整理当前会话。',
+    'en-US': 'Start, resume, or tidy the current session.',
+  },
+  'quickCommands.command.inspect': {
+    'zh-CN': '查看当前状态、改动或相关输出。',
+    'en-US': 'Inspect current state, changes, or output.',
+  },
+  'quickCommands.command.plan': {
+    'zh-CN': '进入计划、上下文或并行工作流。',
+    'en-US': 'Open planning, context, or parallel-workflow actions.',
+  },
+  'quickCommands.command.control': {
+    'zh-CN': '管理工具、权限、插件或运行环境。',
+    'en-US': 'Manage tools, permissions, plugins, or runtime settings.',
+  },
+  'quickCommands.command.runtime': {
+    'zh-CN': '调整模型、推理强度或执行模式。',
+    'en-US': 'Adjust model, effort, or execution mode.',
+  },
+  'quickCommands.command.account': {
+    'zh-CN': '处理登录、反馈和账户相关动作。',
+    'en-US': 'Handle sign-in, feedback, and account-related actions.',
+  },
+  'quickCommands.command.surface': {
+    'zh-CN': '把当前会话切到其他界面或窗口。',
+    'en-US': 'Move the current session to another surface or window.',
+  },
+  'quickCommands.command.review': {
+    'zh-CN': '审阅代码质量、简化改动或检查问题。',
+    'en-US': 'Review code quality, simplify changes, or check for issues.',
+  },
+  'quickCommands.command.info': {
+    'zh-CN': '查看帮助、技能、文档或信息项。',
+    'en-US': 'Open help, skills, docs, or informational items.',
+  },
+  'quickCommands.command.status': {
+    'zh-CN': '查看当前 CLI 或会话状态。',
+    'en-US': 'Show the current CLI or session status.',
+  },
+  'quickCommands.command.genericClaude': {
+    'zh-CN': 'Claude Code 原生命令。',
+    'en-US': 'Claude Code native command.',
+  },
+  'quickCommands.command.genericCodex': {
+    'zh-CN': 'Codex CLI 原生命令。',
+    'en-US': 'Codex CLI native command.',
+  },
+  'quickCommands.command.genericGemini': {
+    'zh-CN': 'Gemini CLI 原生命令。',
+    'en-US': 'Gemini CLI native command.',
+  },
+  'quickCommands.rail.disabled.detachedReadonly': {
+    'zh-CN': '分离窗口当前为只读模式。',
+    'en-US': 'Detached windows are read only.',
+  },
+  'quickCommands.rail.disabled.startClaudeSession': {
+    'zh-CN': '请先启动一个 Claude 实时会话。',
+    'en-US': 'Start a live Claude session first.',
+  },
+  'quickCommands.rail.disabled.startCodexSession': {
+    'zh-CN': '请先启动一个 Codex 实时会话。',
+    'en-US': 'Start a live Codex session first.',
+  },
+  'quickCommands.rail.disabled.startGeminiSession': {
+    'zh-CN': '请先启动一个 Gemini 实时会话。',
+    'en-US': 'Start a live Gemini session first.',
+  },
+  'quickCommands.tooltip.startSession': {
+    'zh-CN': '请先启动 {provider} 会话。',
+    'en-US': 'Start a live {provider} session first.',
+  },
+  'quickCommands.tooltip.detachedReadonly': {
+    'zh-CN': '分离窗口为只读，请回到主工作区执行。',
+    'en-US': 'Detached windows are read only. Run this from the main workspace window.',
+  },
 
   'workbench.title': { 'zh-CN': '中央角色画布（核心）', 'en-US': 'Central Role Canvas (Core)' },
   'workbench.description': {

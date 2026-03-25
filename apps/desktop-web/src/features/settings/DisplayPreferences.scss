@@ -1,5 +1,4 @@
 @use '../../styles/tokens/responsive' as *;
-@use "sass:color";
 
 /* ========================================
    Display Preferences & Apple Forms
@@ -108,86 +107,6 @@
   }
 }
 
-.command-rail-preferences-control {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: rem(10);
-  max-width: min(rem(520), 100%);
-}
-
-.command-rail-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: rem(8);
-}
-
-.command-rail-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: rem(32);
-  padding: rem(6) rem(12);
-  border-radius: rem(999);
-  border: rem(1) solid color-mix(in srgb, var(--vb-border) 55%, transparent);
-  background: color-mix(in srgb, var(--vb-surface-muted) 62%, transparent);
-  color: var(--vb-text-muted);
-  font-size: rem(12);
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    box-shadow 0.18s ease;
-
-  &:hover {
-    transform: translateY(-rem(1));
-    color: var(--vb-text);
-    background: var(--vb-hover-overlay);
-    border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border));
-  }
-
-  &:focus {
-    outline: none;
-    box-shadow: 0 0 0 rem(3) color-mix(in srgb, var(--vb-accent) 18%, transparent);
-  }
-
-  &.is-active {
-    color: var(--vb-accent);
-    background: var(--vb-accent-light);
-    border-color: color-mix(in srgb, var(--vb-accent) 42%, var(--vb-border));
-    box-shadow: 0 rem(2) rem(8) color-mix(in srgb, var(--vb-accent) 12%, transparent);
-  }
-}
-
-.command-rail-reset-button {
-  align-self: flex-end;
-  padding: rem(6) rem(10);
-  border-radius: rem(8);
-  border: rem(1) solid color-mix(in srgb, var(--vb-border) 45%, transparent);
-  background: transparent;
-  color: var(--vb-text-muted);
-  font-size: rem(12);
-  font-weight: 500;
-  cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
-
-  &:hover {
-    color: var(--vb-text);
-    background: var(--vb-hover-overlay);
-    border-color: color-mix(in srgb, var(--vb-accent) 22%, var(--vb-border));
-  }
-
-  &:focus {
-    outline: none;
-    box-shadow: 0 0 0 rem(3) color-mix(in srgb, var(--vb-accent) 16%, transparent);
-  }
-}
-
 /* Premium Apple Select */
 .settings-row .settings-select {
   width: auto;
@@ -255,21 +174,6 @@
     }
   }
 
-  .display-preferences-switch {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(0, 0, 0, 0.2);
-  }
-
-  .display-preferences-segmented {
-    background: rgba(0, 0, 0, 0.3);
-    
-    button {
-      &.active {
-        background: rgba(255, 255, 255, 0.15);
-        box-shadow: 0 rem(2) rem(8) rgba(0, 0, 0, 0.4);
-      }
-    }
-  }
 }
 
 @container (max-width: rem(42)) {
@@ -289,27 +193,5 @@
   .settings-row .settings-select {
     width: 100%;
     min-width: 0;
-  }
-
-  .display-preferences-segmented {
-    width: 100%;
-
-    button {
-      flex: 1 1 0;
-    }
-  }
-
-  .command-rail-preferences-control {
-    align-items: flex-start;
-    width: 100%;
-    max-width: none;
-  }
-
-  .command-rail-chip-list {
-    justify-content: flex-start;
-  }
-
-  .command-rail-reset-button {
-    align-self: flex-start;
   }
 }

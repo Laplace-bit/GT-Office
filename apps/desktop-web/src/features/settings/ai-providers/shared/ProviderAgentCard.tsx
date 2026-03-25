@@ -2,6 +2,7 @@ import type { AiAgentSnapshotCard } from '@shell/integration/desktop-api'
 import { AppIcon } from '@shell/ui/icons'
 import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
 import { resolveEnabledEnhancementCount } from './provider-utils'
+import { ProviderQuickCommands } from './ProviderQuickCommands'
 
 import './ProviderAgentCard.scss'
 
@@ -144,6 +145,12 @@ export function ProviderAgentCard({
           )}
         </div>
       </div>
+
+      {(agent.agent === 'claude' || agent.agent === 'codex' || agent.agent === 'gemini') && (
+        <div className="ai-provider-card__quick-commands">
+          <ProviderQuickCommands locale={locale} providerId={agent.agent} />
+        </div>
+      )}
 
       <div className="ai-provider-card__actions">
         {!agent.installStatus.installed ? (

@@ -156,6 +156,7 @@ pub fn run() {
             file_explorer::fs_search_files,
             terminal::terminal_create,
             terminal::terminal_write,
+            terminal::terminal_write_with_submit,
             terminal::terminal_resize,
             terminal::terminal_kill,
             terminal::terminal_set_visibility,

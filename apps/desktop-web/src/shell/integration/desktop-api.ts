@@ -438,6 +438,14 @@ export interface DetachedTerminalWriteInputMessage {
   input: string
 }
 
+export interface DetachedTerminalWriteWithSubmitMessage {
+  kind: 'detached_terminal_write_with_submit'
+  workspaceId: string
+  containerId: string
+  stationId: string
+  input: string
+}
+
 export interface DetachedTerminalResizeMessage {
   kind: 'detached_terminal_resize'
   workspaceId: string
@@ -495,6 +503,7 @@ export type DetachedTerminalBridgeMessage =
   | DetachedTerminalHydrateSnapshotMessage
   | DetachedTerminalEnsureSessionMessage
   | DetachedTerminalWriteInputMessage
+  | DetachedTerminalWriteWithSubmitMessage
   | DetachedTerminalResizeMessage
   | DetachedTerminalActivateStationMessage
   | DetachedTerminalOutputAppendMessage
@@ -2109,6 +2118,13 @@ export const desktopApi = {
     return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write', {
       sessionId,
       input,
+    })
+  },
+  terminalWriteWithSubmit(sessionId: string, input: string, submitSequence?: string | null) {
+    return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write_with_submit', {
+      sessionId,
+      input,
+      submitSequence: submitSequence ?? null,
     })
   },
   terminalResize(sessionId: string, cols: number, rows: number) {

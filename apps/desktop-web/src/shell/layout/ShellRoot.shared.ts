@@ -104,8 +104,6 @@ export const LEFT_PANE_WIDTH_DEFAULT = 270
 export const RIGHT_PANE_WIDTH_MIN = 280
 export const RIGHT_PANE_WIDTH_MAX = 1600
 export const RIGHT_PANE_WIDTH_DEFAULT = 360
-export const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
-
 export function buildDefaultWorkbenchContainerId(): string {
   return 'canvas-main'
 }
