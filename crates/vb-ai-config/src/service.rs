@@ -13,8 +13,8 @@ use vb_abstractions::SettingsScope;
 use vb_security::SecretStore;
 use vb_settings::{JsonSettingsService, SettingsPaths};
 use vb_storage::{
-    AiConfigAuditLogInput, SavedClaudeProviderInput, SavedClaudeProviderRecord,
-    SqliteAiConfigRepository,
+    AiConfigAuditLogInput, SavedAiProviderInput, SavedAiProviderRecord,
+    SavedClaudeProviderInput, SavedClaudeProviderRecord, SqliteAiConfigRepository,
 };
 
 use crate::{
@@ -28,8 +28,9 @@ use crate::{
         AiConfigPreviewResponse, AiConfigSnapshot, ClaudeAuthScheme, ClaudeConfigSnapshot,
         ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode, ClaudeSavedProviderSnapshot,
         ClaudeSnapshot, CodexConfigSnapshot, CodexDraftInput, CodexNormalizedDraft,
-        CodexProviderMode, GeminiAuthMode, GeminiConfigSnapshot, GeminiDraftInput,
-        GeminiNormalizedDraft, GeminiProviderMode, StoredAiConfigPreview, StoredClaudePreview,
+        CodexProviderMode, CodexSavedProviderSnapshot, GeminiAuthMode, GeminiConfigSnapshot,
+        GeminiDraftInput, GeminiNormalizedDraft, GeminiProviderMode,
+        GeminiSavedProviderSnapshot, StoredAiConfigPreview, StoredClaudePreview,
         StoredCodexPreview, StoredGeminiPreview,
     },
 };
@@ -37,6 +38,7 @@ use crate::{
 const AI_SECRET_SERVICE: &str = "gtoffice.ai-config";
 const AI_SECRET_NAMESPACE: &str = "AI_CONFIG_SECRET";
 const GTO_AGENT_BRIDGE_SERVER_ID: &str = "gto-agent-bridge";
+const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
 
 #[derive(Debug, Error)]
 pub enum AiConfigError {
@@ -186,13 +188,13 @@ impl AiConfigService {
 
     pub fn list_saved_claude_providers(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
     ) -> AiConfigResult<Vec<ClaudeSavedProviderSnapshot>> {
         self.audit_repository
             .ensure_schema()
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
         self.audit_repository
-            .list_saved_claude_providers(workspace_id)
+            .list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)
             .map_err(|error| AiConfigError::Storage(error.to_string()))?
             .into_iter()
             .map(saved_claude_provider_snapshot_from_record)
@@ -201,14 +203,14 @@ impl AiConfigService {
 
     pub fn switch_saved_claude_provider(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         workspace_root: &Path,
         saved_provider_id: &str,
         confirmed_by: &str,
     ) -> AiConfigResult<AiConfigApplyResponse> {
         let live_settings_path = self.claude_live_settings_path()?;
         self.switch_saved_claude_provider_with_live_settings_path(
-            workspace_id,
+            GLOBAL_AI_CONFIG_CONTEXT,
             workspace_root,
             saved_provider_id,
             confirmed_by,
@@ -230,7 +232,7 @@ impl AiConfigService {
 
         let saved_provider = self
             .audit_repository
-            .get_saved_claude_provider(workspace_id, saved_provider_id)
+            .get_saved_claude_provider(GLOBAL_AI_CONFIG_CONTEXT, saved_provider_id)
             .map_err(|error| AiConfigError::Storage(error.to_string()))?
             .ok_or_else(|| AiConfigError::SavedProviderNotFound(saved_provider_id.to_string()))?;
         let normalized = normalized_from_saved_claude_provider(&saved_provider)?;
@@ -242,7 +244,7 @@ impl AiConfigService {
         let patch = build_workspace_patch(&normalized, Some(saved_provider_id));
         if let Err(error) =
             self.settings
-                .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+                .update(SettingsScope::User, None, &patch)
         {
             self.restore_file_state(live_settings_path, live_settings_backup.as_deref())?;
             return Err(AiConfigError::Settings(error.to_string()));
@@ -250,7 +252,11 @@ impl AiConfigService {
 
         let applied_at_ms = now_ms();
         self.audit_repository
-            .set_active_saved_claude_provider(workspace_id, saved_provider_id, applied_at_ms as i64)
+            .set_active_saved_claude_provider(
+                GLOBAL_AI_CONFIG_CONTEXT,
+                saved_provider_id,
+                applied_at_ms as i64,
+            )
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
         let changes = diff_claude_config(&current, &normalized);
@@ -274,7 +280,7 @@ impl AiConfigService {
         self.audit_repository
             .insert_audit_log(&AiConfigAuditLogInput {
                 audit_id: audit_id.clone(),
-                workspace_id: workspace_id.to_string(),
+                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                 agent: "claude".to_string(),
                 mode: mode_to_string(&normalized.mode).to_string(),
                 provider_id: normalized.provider_id.clone(),
@@ -285,16 +291,16 @@ impl AiConfigService {
             })
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
-        let effective = self.read_snapshot(workspace_id, workspace_root)?;
+        let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
         Ok(AiConfigApplyResponse {
-            workspace_id: workspace_id.to_string(),
+            workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             preview_id: format!("saved-provider:{saved_provider_id}"),
             confirmed_by: confirmed_by.to_string(),
             applied: true,
             audit_id,
             effective,
             changed_targets: vec![
-                "workspace_settings".to_string(),
+                "user_settings".to_string(),
                 "claude_live_settings".to_string(),
                 "saved_provider_db".to_string(),
                 "audit_log".to_string(),
@@ -311,7 +317,7 @@ impl AiConfigService {
         let fingerprint = fingerprint_claude_config(normalized);
         let existing_records = self
             .audit_repository
-            .list_saved_claude_providers(workspace_id)
+            .list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)
             .map_err(|error| AiConfigError::Storage(error.to_string()))?
             .into_iter()
             .collect::<Vec<_>>();
@@ -345,7 +351,7 @@ impl AiConfigService {
         let record = self
             .audit_repository
             .upsert_saved_claude_provider(&SavedClaudeProviderInput {
-                workspace_id: workspace_id.to_string(),
+                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                 saved_provider_id: Some(saved_provider_id.to_string()),
                 fingerprint: fingerprint_claude_config(normalized),
                 mode: mode_to_string(&normalized.mode).to_string(),
@@ -367,6 +373,131 @@ impl AiConfigService {
         saved_claude_provider_snapshot_from_record(record)
     }
 
+    fn list_saved_codex_providers(&self) -> AiConfigResult<Vec<CodexSavedProviderSnapshot>> {
+        self.audit_repository
+            .ensure_schema()
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        self.audit_repository
+            .list_saved_providers("codex")
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?
+            .into_iter()
+            .map(saved_codex_provider_snapshot_from_record)
+            .collect()
+    }
+
+    fn list_saved_gemini_providers(&self) -> AiConfigResult<Vec<GeminiSavedProviderSnapshot>> {
+        self.audit_repository
+            .ensure_schema()
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        self.audit_repository
+            .list_saved_providers("gemini")
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?
+            .into_iter()
+            .map(saved_gemini_provider_snapshot_from_record)
+            .collect()
+    }
+
+    fn resolve_saved_provider_id(
+        &self,
+        agent: &str,
+        fingerprint: String,
+        preferred_saved_provider_id: Option<&str>,
+    ) -> AiConfigResult<String> {
+        let existing_records = self
+            .audit_repository
+            .list_saved_providers(agent)
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        if let Some(existing) = existing_records
+            .iter()
+            .find(|item| item.fingerprint == fingerprint)
+        {
+            return Ok(existing.saved_provider_id.clone());
+        }
+        if let Some(preferred_saved_provider_id) = preferred_saved_provider_id {
+            if existing_records
+                .iter()
+                .any(|item| item.saved_provider_id == preferred_saved_provider_id)
+            {
+                return Ok(preferred_saved_provider_id.to_string());
+            }
+            return Err(AiConfigError::SavedProviderNotFound(
+                preferred_saved_provider_id.to_string(),
+            ));
+        }
+        Ok(format!("provider:{agent}:{}", Uuid::new_v4()))
+    }
+
+    fn upsert_saved_codex_provider_record(
+        &self,
+        saved_provider_id: &str,
+        normalized: &CodexNormalizedDraft,
+        applied_at_ms: u64,
+    ) -> AiConfigResult<CodexSavedProviderSnapshot> {
+        let extra_json = json!({
+            "configToml": normalized.config_toml,
+        })
+        .to_string();
+        let record = self
+            .audit_repository
+            .upsert_saved_provider(&SavedAiProviderInput {
+                agent: "codex".to_string(),
+                saved_provider_id: Some(saved_provider_id.to_string()),
+                fingerprint: fingerprint_codex_config(normalized),
+                mode: Self::codex_mode_to_string(&normalized.mode).to_string(),
+                provider_id: normalized.provider_id.clone(),
+                provider_name: normalized
+                    .provider_name
+                    .clone()
+                    .unwrap_or_else(|| "Codex".to_string()),
+                base_url: normalized.base_url.clone(),
+                model: normalized.model.clone(),
+                secret_ref: normalized.secret_ref.clone(),
+                has_secret: normalized.has_secret,
+                extra_json,
+                created_at_ms: applied_at_ms as i64,
+                updated_at_ms: applied_at_ms as i64,
+                last_applied_at_ms: applied_at_ms as i64,
+            })
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        saved_codex_provider_snapshot_from_record(record)
+    }
+
+    fn upsert_saved_gemini_provider_record(
+        &self,
+        saved_provider_id: &str,
+        normalized: &GeminiNormalizedDraft,
+        applied_at_ms: u64,
+    ) -> AiConfigResult<GeminiSavedProviderSnapshot> {
+        let extra_json = json!({
+            "authMode": Self::gemini_auth_mode_to_string(&normalized.auth_mode),
+            "selectedType": normalized.selected_type,
+        })
+        .to_string();
+        let record = self
+            .audit_repository
+            .upsert_saved_provider(&SavedAiProviderInput {
+                agent: "gemini".to_string(),
+                saved_provider_id: Some(saved_provider_id.to_string()),
+                fingerprint: fingerprint_gemini_config(normalized),
+                mode: Self::gemini_mode_to_string(&normalized.mode).to_string(),
+                provider_id: normalized.provider_id.clone(),
+                provider_name: normalized
+                    .provider_name
+                    .clone()
+                    .unwrap_or_else(|| "Gemini".to_string()),
+                base_url: normalized.base_url.clone(),
+                model: normalized.model.clone(),
+                secret_ref: normalized.secret_ref.clone(),
+                has_secret: normalized.has_secret,
+                extra_json,
+                created_at_ms: applied_at_ms as i64,
+                updated_at_ms: applied_at_ms as i64,
+                last_applied_at_ms: applied_at_ms as i64,
+            })
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        saved_gemini_provider_snapshot_from_record(record)
+    }
+
     pub fn list_audit_logs(
         &self,
         workspace_id: &str,
@@ -378,32 +509,318 @@ impl AiConfigService {
             .map_err(|error| AiConfigError::Storage(error.to_string()))
     }
 
+    pub fn switch_saved_provider(
+        &self,
+        agent: AiConfigAgent,
+        workspace_root: Option<&Path>,
+        saved_provider_id: &str,
+        confirmed_by: &str,
+    ) -> AiConfigResult<AiConfigApplyResponse> {
+        let workspace_root = workspace_root.unwrap_or_else(|| Path::new(""));
+        match agent {
+            AiConfigAgent::Claude => self.switch_saved_claude_provider(
+                GLOBAL_AI_CONFIG_CONTEXT,
+                workspace_root,
+                saved_provider_id,
+                confirmed_by,
+            ),
+            AiConfigAgent::Codex => {
+                self.audit_repository
+                    .ensure_schema()
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                let saved_provider = self
+                    .audit_repository
+                    .get_saved_provider("codex", saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
+                    .ok_or_else(|| {
+                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
+                    })?;
+                let normalized = normalized_from_saved_codex_provider(&saved_provider)?;
+                let auth_backup = self.snapshot_file_state(&Self::codex_auth_path()?)?;
+                let config_backup = self.snapshot_file_state(&Self::codex_config_path()?)?;
+                if let Err(error) = self.sync_codex_live_settings(&normalized) {
+                    let _ =
+                        self.restore_file_state(&Self::codex_auth_path()?, auth_backup.as_deref());
+                    let _ = self
+                        .restore_file_state(&Self::codex_config_path()?, config_backup.as_deref());
+                    return Err(error);
+                }
+                self.settings
+                    .update(
+                        SettingsScope::User,
+                        None,
+                        &Self::build_codex_workspace_patch(&normalized, Some(saved_provider_id)),
+                    )
+                    .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                self.audit_repository
+                    .set_active_saved_provider("codex", saved_provider_id, now_ms() as i64)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                Ok(AiConfigApplyResponse {
+                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
+                    preview_id: format!("saved-provider:{saved_provider_id}"),
+                    confirmed_by: confirmed_by.to_string(),
+                    applied: true,
+                    audit_id: format!("audit:{}", Uuid::new_v4()),
+                    effective,
+                    changed_targets: vec![
+                        "user_settings".to_string(),
+                        "codex_auth_json".to_string(),
+                        "codex_config_toml".to_string(),
+                        "saved_provider_db".to_string(),
+                    ],
+                })
+            }
+            AiConfigAgent::Gemini => {
+                self.audit_repository
+                    .ensure_schema()
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                let saved_provider = self
+                    .audit_repository
+                    .get_saved_provider("gemini", saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
+                    .ok_or_else(|| {
+                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
+                    })?;
+                let normalized = normalized_from_saved_gemini_provider(&saved_provider)?;
+                let env_backup = self.snapshot_file_state(&Self::gemini_env_path()?)?;
+                let settings_backup = self.snapshot_file_state(&Self::gemini_settings_path()?)?;
+                if let Err(error) = self.sync_gemini_live_settings(&normalized) {
+                    let _ =
+                        self.restore_file_state(&Self::gemini_env_path()?, env_backup.as_deref());
+                    let _ = self.restore_file_state(
+                        &Self::gemini_settings_path()?,
+                        settings_backup.as_deref(),
+                    );
+                    return Err(error);
+                }
+                self.settings
+                    .update(
+                        SettingsScope::User,
+                        None,
+                        &Self::build_gemini_workspace_patch(&normalized, Some(saved_provider_id)),
+                    )
+                    .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                self.audit_repository
+                    .set_active_saved_provider("gemini", saved_provider_id, now_ms() as i64)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                Ok(AiConfigApplyResponse {
+                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
+                    preview_id: format!("saved-provider:{saved_provider_id}"),
+                    confirmed_by: confirmed_by.to_string(),
+                    applied: true,
+                    audit_id: format!("audit:{}", Uuid::new_v4()),
+                    effective,
+                    changed_targets: vec![
+                        "user_settings".to_string(),
+                        "gemini_env_file".to_string(),
+                        "gemini_settings_json".to_string(),
+                        "saved_provider_db".to_string(),
+                    ],
+                })
+            }
+        }
+    }
+
+    pub fn delete_saved_provider(
+        &self,
+        agent: AiConfigAgent,
+        workspace_root: Option<&Path>,
+        saved_provider_id: &str,
+        confirmed_by: &str,
+    ) -> AiConfigResult<AiConfigApplyResponse> {
+        let workspace_root = workspace_root.unwrap_or_else(|| Path::new(""));
+        match agent {
+            AiConfigAgent::Claude => {
+                let deleted = self
+                    .audit_repository
+                    .delete_saved_claude_provider(GLOBAL_AI_CONFIG_CONTEXT, saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                if !deleted {
+                    return Err(AiConfigError::SavedProviderNotFound(
+                        saved_provider_id.to_string(),
+                    ));
+                }
+                let remaining = self.list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)?;
+                if let Some(next) = remaining.first() {
+                    let normalized = normalized_from_saved_claude_provider(
+                        &self
+                            .audit_repository
+                            .get_saved_claude_provider(
+                                GLOBAL_AI_CONFIG_CONTEXT,
+                                &next.saved_provider_id,
+                            )
+                            .map_err(|error| AiConfigError::Storage(error.to_string()))?
+                            .ok_or_else(|| {
+                                AiConfigError::SavedProviderNotFound(next.saved_provider_id.clone())
+                            })?,
+                    )?;
+                    self.sync_claude_live_settings_at_path(
+                        &self.claude_live_settings_path()?,
+                        &normalized,
+                    )?;
+                    self.settings
+                        .update(
+                            SettingsScope::User,
+                            None,
+                            &build_workspace_patch(
+                                &normalized,
+                                Some(next.saved_provider_id.as_str()),
+                            ),
+                        )
+                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                    self.audit_repository
+                        .set_active_saved_claude_provider(
+                            GLOBAL_AI_CONFIG_CONTEXT,
+                            &next.saved_provider_id,
+                            now_ms() as i64,
+                        )
+                        .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                } else {
+                    self.settings
+                        .update(
+                            SettingsScope::User,
+                            None,
+                            &build_empty_claude_patch(),
+                        )
+                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                }
+                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                Ok(AiConfigApplyResponse {
+                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
+                    preview_id: format!("delete-provider:{saved_provider_id}"),
+                    confirmed_by: confirmed_by.to_string(),
+                    applied: true,
+                    audit_id: format!("audit:{}", Uuid::new_v4()),
+                    effective,
+                    changed_targets: vec!["user_settings".to_string(), "saved_provider_db".to_string()],
+                })
+            }
+            AiConfigAgent::Codex => {
+                self.audit_repository
+                    .delete_saved_provider("codex", saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                let remaining = self
+                    .audit_repository
+                    .list_saved_providers("codex")
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                if let Some(next) = remaining.first() {
+                    let normalized = normalized_from_saved_codex_provider(next)?;
+                    self.sync_codex_live_settings(&normalized)?;
+                    self.settings
+                        .update(
+                            SettingsScope::User,
+                            None,
+                            &Self::build_codex_workspace_patch(
+                                &normalized,
+                                Some(next.saved_provider_id.as_str()),
+                            ),
+                        )
+                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                    self.audit_repository
+                        .set_active_saved_provider("codex", &next.saved_provider_id, now_ms() as i64)
+                        .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                } else {
+                    self.sync_codex_live_settings(&official_codex_normalized_draft())?;
+                    self.settings
+                        .update(SettingsScope::User, None, &Self::build_empty_codex_patch())
+                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                }
+                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                Ok(AiConfigApplyResponse {
+                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
+                    preview_id: format!("delete-provider:{saved_provider_id}"),
+                    confirmed_by: confirmed_by.to_string(),
+                    applied: true,
+                    audit_id: format!("audit:{}", Uuid::new_v4()),
+                    effective,
+                    changed_targets: vec![
+                        "user_settings".to_string(),
+                        "codex_auth_json".to_string(),
+                        "codex_config_toml".to_string(),
+                        "saved_provider_db".to_string(),
+                    ],
+                })
+            }
+            AiConfigAgent::Gemini => {
+                self.audit_repository
+                    .delete_saved_provider("gemini", saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                let remaining = self
+                    .audit_repository
+                    .list_saved_providers("gemini")
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                if let Some(next) = remaining.first() {
+                    let normalized = normalized_from_saved_gemini_provider(next)?;
+                    self.sync_gemini_live_settings(&normalized)?;
+                    self.settings
+                        .update(
+                            SettingsScope::User,
+                            None,
+                            &Self::build_gemini_workspace_patch(
+                                &normalized,
+                                Some(next.saved_provider_id.as_str()),
+                            ),
+                        )
+                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                    self.audit_repository
+                        .set_active_saved_provider("gemini", &next.saved_provider_id, now_ms() as i64)
+                        .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                } else {
+                    self.sync_gemini_live_settings(&official_gemini_normalized_draft())?;
+                    self.settings
+                        .update(SettingsScope::User, None, &Self::build_empty_gemini_patch())
+                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
+                }
+                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                Ok(AiConfigApplyResponse {
+                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
+                    preview_id: format!("delete-provider:{saved_provider_id}"),
+                    confirmed_by: confirmed_by.to_string(),
+                    applied: true,
+                    audit_id: format!("audit:{}", Uuid::new_v4()),
+                    effective,
+                    changed_targets: vec![
+                        "user_settings".to_string(),
+                        "gemini_env_file".to_string(),
+                        "gemini_settings_json".to_string(),
+                        "saved_provider_db".to_string(),
+                    ],
+                })
+            }
+        }
+    }
+
     pub fn read_claude_config(
         &self,
-        workspace_root: &Path,
+        _workspace_root: &Path,
     ) -> AiConfigResult<ClaudeConfigSnapshot> {
         let effective = self
             .settings
-            .load_effective(Some(workspace_root))
+            .load_effective(None)
             .map_err(|error| AiConfigError::Settings(error.to_string()))?;
         read_claude_config_from_value(&effective.values)
     }
 
-    pub fn read_codex_config(&self, workspace_root: &Path) -> AiConfigResult<CodexConfigSnapshot> {
+    pub fn read_codex_config(
+        &self,
+        _workspace_root: &Path,
+    ) -> AiConfigResult<CodexConfigSnapshot> {
         let effective = self
             .settings
-            .load_effective(Some(workspace_root))
+            .load_effective(None)
             .map_err(|error| AiConfigError::Settings(error.to_string()))?;
         Self::read_codex_config_from_value(&effective.values)
     }
 
     pub fn read_gemini_config(
         &self,
-        workspace_root: &Path,
+        _workspace_root: &Path,
     ) -> AiConfigResult<GeminiConfigSnapshot> {
         let effective = self
             .settings
-            .load_effective(Some(workspace_root))
+            .load_effective(None)
             .map_err(|error| AiConfigError::Settings(error.to_string()))?;
         Self::read_gemini_config_from_value(&effective.values)
     }
@@ -415,8 +832,21 @@ impl AiConfigService {
         draft: CodexDraftInput,
     ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
         let current = self.read_codex_config(workspace_root)?;
+        let saved_provider_id = draft.saved_provider_id.clone();
+        let saved_provider = if let Some(saved_provider_id) = saved_provider_id.as_deref() {
+            Some(
+                self.audit_repository
+                    .get_saved_provider("codex", saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
+                    .ok_or_else(|| {
+                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
+                    })?,
+            )
+        } else {
+            None
+        };
         let (normalized, api_key_secret) =
-            Self::normalize_codex_draft(workspace_id, &current, draft)?;
+            Self::normalize_codex_draft(workspace_id, &current, saved_provider.as_ref(), draft)?;
         let changes = Self::diff_codex_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -433,7 +863,7 @@ impl AiConfigService {
             .collect::<Vec<_>>();
         let response = AiConfigPreviewResponse {
             workspace_id: workspace_id.to_string(),
-            scope: "workspace".to_string(),
+            scope: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             agent: AiConfigAgent::Codex,
             preview_id: preview_id.clone(),
             allowed: true,
@@ -448,6 +878,7 @@ impl AiConfigService {
             response,
             StoredAiConfigPreview::Codex(StoredCodexPreview {
                 preview_id,
+                saved_provider_id,
                 normalized_draft: normalized,
                 changed_keys: changes.into_iter().map(|entry| entry.key).collect(),
                 secret_refs,
@@ -464,8 +895,21 @@ impl AiConfigService {
         draft: GeminiDraftInput,
     ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
         let current = self.read_gemini_config(workspace_root)?;
+        let saved_provider_id = draft.saved_provider_id.clone();
+        let saved_provider = if let Some(saved_provider_id) = saved_provider_id.as_deref() {
+            Some(
+                self.audit_repository
+                    .get_saved_provider("gemini", saved_provider_id)
+                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
+                    .ok_or_else(|| {
+                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
+                    })?,
+            )
+        } else {
+            None
+        };
         let (normalized, api_key_secret) =
-            Self::normalize_gemini_draft(workspace_id, &current, draft)?;
+            Self::normalize_gemini_draft(workspace_id, &current, saved_provider.as_ref(), draft)?;
         let changes = Self::diff_gemini_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -482,7 +926,7 @@ impl AiConfigService {
             .collect::<Vec<_>>();
         let response = AiConfigPreviewResponse {
             workspace_id: workspace_id.to_string(),
-            scope: "workspace".to_string(),
+            scope: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             agent: AiConfigAgent::Gemini,
             preview_id: preview_id.clone(),
             allowed: true,
@@ -497,6 +941,7 @@ impl AiConfigService {
             response,
             StoredAiConfigPreview::Gemini(StoredGeminiPreview {
                 preview_id,
+                saved_provider_id,
                 normalized_draft: normalized,
                 changed_keys: changes.into_iter().map(|entry| entry.key).collect(),
                 secret_refs,
@@ -536,10 +981,16 @@ impl AiConfigService {
             return Err(error);
         }
 
-        let patch = Self::build_codex_workspace_patch(&preview.normalized_draft);
+        let saved_provider_id = self.resolve_saved_provider_id(
+            "codex",
+            fingerprint_codex_config(&preview.normalized_draft),
+            preview.saved_provider_id.as_deref(),
+        )?;
+        let patch =
+            Self::build_codex_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
         if let Err(error) =
             self.settings
-                .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+                .update(SettingsScope::User, None, &patch)
         {
             let _ = self.restore_file_state(&auth_path, auth_backup.as_deref());
             let _ = self.restore_file_state(&config_path, config_backup.as_deref());
@@ -556,7 +1007,7 @@ impl AiConfigService {
         self.audit_repository
             .insert_audit_log(&AiConfigAuditLogInput {
                 audit_id: audit_id.clone(),
-                workspace_id: workspace_id.to_string(),
+                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                 agent: "codex".to_string(),
                 mode: Self::codex_mode_to_string(&preview.normalized_draft.mode).to_string(),
                 provider_id: preview.normalized_draft.provider_id.clone(),
@@ -567,19 +1018,26 @@ impl AiConfigService {
             })
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
-        let effective = self.read_snapshot(workspace_id, workspace_root)?;
+        self.upsert_saved_codex_provider_record(
+            &saved_provider_id,
+            &preview.normalized_draft,
+            created_at_ms as u64,
+        )?;
+
+        let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
 
         Ok(AiConfigApplyResponse {
-            workspace_id: workspace_id.to_string(),
+            workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             preview_id: preview.preview_id.clone(),
             confirmed_by: confirmed_by.to_string(),
             applied: true,
             audit_id,
             effective,
             changed_targets: vec![
-                "workspace_settings".to_string(),
+                "user_settings".to_string(),
                 "codex_auth_json".to_string(),
                 "codex_config_toml".to_string(),
+                "saved_provider_db".to_string(),
                 "secret_store".to_string(),
                 "audit_log".to_string(),
             ],
@@ -616,10 +1074,16 @@ impl AiConfigService {
             return Err(error);
         }
 
-        let patch = Self::build_gemini_workspace_patch(&preview.normalized_draft);
+        let saved_provider_id = self.resolve_saved_provider_id(
+            "gemini",
+            fingerprint_gemini_config(&preview.normalized_draft),
+            preview.saved_provider_id.as_deref(),
+        )?;
+        let patch =
+            Self::build_gemini_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
         if let Err(error) =
             self.settings
-                .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+                .update(SettingsScope::User, None, &patch)
         {
             let _ = self.restore_file_state(&env_path, env_backup.as_deref());
             let _ = self.restore_file_state(&settings_path, settings_backup.as_deref());
@@ -636,7 +1100,7 @@ impl AiConfigService {
         self.audit_repository
             .insert_audit_log(&AiConfigAuditLogInput {
                 audit_id: audit_id.clone(),
-                workspace_id: workspace_id.to_string(),
+                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                 agent: "gemini".to_string(),
                 mode: Self::gemini_mode_to_string(&preview.normalized_draft.mode).to_string(),
                 provider_id: preview.normalized_draft.provider_id.clone(),
@@ -647,19 +1111,26 @@ impl AiConfigService {
             })
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
-        let effective = self.read_snapshot(workspace_id, workspace_root)?;
+        self.upsert_saved_gemini_provider_record(
+            &saved_provider_id,
+            &preview.normalized_draft,
+            created_at_ms as u64,
+        )?;
+
+        let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
 
         Ok(AiConfigApplyResponse {
-            workspace_id: workspace_id.to_string(),
+            workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             preview_id: preview.preview_id.clone(),
             confirmed_by: confirmed_by.to_string(),
             applied: true,
             audit_id,
             effective,
             changed_targets: vec![
-                "workspace_settings".to_string(),
+                "user_settings".to_string(),
                 "gemini_env_file".to_string(),
                 "gemini_settings_json".to_string(),
+                "saved_provider_db".to_string(),
                 "secret_store".to_string(),
                 "audit_log".to_string(),
             ],
@@ -795,12 +1266,12 @@ impl AiConfigService {
             .map(|mode| format!("{mode:?}: {provider} / {model}"))
     }
 
-    fn provider_secret_ref(workspace_id: &str, agent: &str, provider_id: &str) -> String {
+    fn provider_secret_ref(_workspace_id: &str, agent: &str, provider_id: &str) -> String {
         format!(
             "ai-config/{}/{}/{}/api_key",
-            sanitize_secret_segment(workspace_id),
             sanitize_secret_segment(agent),
-            sanitize_secret_segment(provider_id)
+            sanitize_secret_segment(provider_id),
+            Uuid::new_v4()
         )
     }
 
@@ -963,6 +1434,7 @@ impl AiConfigService {
     fn normalize_codex_draft(
         workspace_id: &str,
         current: &CodexConfigSnapshot,
+        saved_provider: Option<&SavedAiProviderRecord>,
         draft: CodexDraftInput,
     ) -> AiConfigResult<(CodexNormalizedDraft, Option<String>)> {
         match draft.mode {
@@ -1013,6 +1485,13 @@ impl AiConfigService {
                     == Some(preset.provider_id.as_str())
                     && current.has_secret
                     && current.secret_ref.is_some();
+                let saved_provider_secret_ref = saved_provider.and_then(|item| {
+                    if item.has_secret {
+                        item.secret_ref.clone()
+                    } else {
+                        None
+                    }
+                });
                 let secret_ref = if preset.requires_api_key {
                     if secret_input.is_some() {
                         Some(Self::provider_secret_ref(
@@ -1022,6 +1501,8 @@ impl AiConfigService {
                         ))
                     } else if can_reuse_secret {
                         current.secret_ref.clone()
+                    } else if saved_provider_secret_ref.is_some() {
+                        saved_provider_secret_ref
                     } else {
                         None
                     }
@@ -1064,6 +1545,13 @@ impl AiConfigService {
                 let can_reuse_secret = current.provider_id.as_deref() == Some("custom-gateway")
                     && current.has_secret
                     && current.secret_ref.is_some();
+                let saved_provider_secret_ref = saved_provider.and_then(|item| {
+                    if item.has_secret {
+                        item.secret_ref.clone()
+                    } else {
+                        None
+                    }
+                });
                 let secret_ref = if secret_input.is_some() {
                     Some(Self::provider_secret_ref(
                         workspace_id,
@@ -1072,6 +1560,8 @@ impl AiConfigService {
                     ))
                 } else if can_reuse_secret {
                     current.secret_ref.clone()
+                } else if saved_provider_secret_ref.is_some() {
+                    saved_provider_secret_ref
                 } else {
                     None
                 };
@@ -1100,6 +1590,7 @@ impl AiConfigService {
     fn normalize_gemini_draft(
         workspace_id: &str,
         current: &GeminiConfigSnapshot,
+        saved_provider: Option<&SavedAiProviderRecord>,
         draft: GeminiDraftInput,
     ) -> AiConfigResult<(GeminiNormalizedDraft, Option<String>)> {
         match draft.mode {
@@ -1148,6 +1639,13 @@ impl AiConfigService {
                     == Some(preset.provider_id.as_str())
                     && current.has_secret
                     && current.secret_ref.is_some();
+                let saved_provider_secret_ref = saved_provider.and_then(|item| {
+                    if item.has_secret {
+                        item.secret_ref.clone()
+                    } else {
+                        None
+                    }
+                });
                 let secret_ref = if requires_secret {
                     if secret_input.is_some() {
                         Some(Self::provider_secret_ref(
@@ -1157,6 +1655,8 @@ impl AiConfigService {
                         ))
                     } else if can_reuse_secret {
                         current.secret_ref.clone()
+                    } else if saved_provider_secret_ref.is_some() {
+                        saved_provider_secret_ref
                     } else {
                         None
                     }
@@ -1198,6 +1698,13 @@ impl AiConfigService {
                 let can_reuse_secret = current.provider_id.as_deref() == Some("custom-gateway")
                     && current.has_secret
                     && current.secret_ref.is_some();
+                let saved_provider_secret_ref = saved_provider.and_then(|item| {
+                    if item.has_secret {
+                        item.secret_ref.clone()
+                    } else {
+                        None
+                    }
+                });
                 let secret_ref = if requires_secret {
                     if secret_input.is_some() {
                         Some(Self::provider_secret_ref(
@@ -1207,6 +1714,8 @@ impl AiConfigService {
                         ))
                     } else if can_reuse_secret {
                         current.secret_ref.clone()
+                    } else if saved_provider_secret_ref.is_some() {
+                        saved_provider_secret_ref
                     } else {
                         None
                     }
@@ -1392,11 +1901,15 @@ impl AiConfigService {
         warnings
     }
 
-    fn build_codex_workspace_patch(normalized: &CodexNormalizedDraft) -> Value {
+    fn build_codex_workspace_patch(
+        normalized: &CodexNormalizedDraft,
+        saved_provider_id: Option<&str>,
+    ) -> Value {
         json!({
             "ai": {
                 "providers": {
                     "codex": {
+                        "savedProviderId": saved_provider_id,
                         "activeMode": Self::codex_mode_to_string(&normalized.mode),
                         "providerId": normalized.provider_id,
                         "providerName": normalized.provider_name,
@@ -1412,11 +1925,15 @@ impl AiConfigService {
         })
     }
 
-    fn build_gemini_workspace_patch(normalized: &GeminiNormalizedDraft) -> Value {
+    fn build_gemini_workspace_patch(
+        normalized: &GeminiNormalizedDraft,
+        saved_provider_id: Option<&str>,
+    ) -> Value {
         json!({
             "ai": {
                 "providers": {
                     "gemini": {
+                        "savedProviderId": saved_provider_id,
                         "activeMode": Self::gemini_mode_to_string(&normalized.mode),
                         "authMode": Self::gemini_auth_mode_to_string(&normalized.auth_mode),
                         "providerId": normalized.provider_id,
@@ -1433,17 +1950,65 @@ impl AiConfigService {
         })
     }
 
+    fn build_empty_codex_patch() -> Value {
+        json!({
+            "ai": {
+                "providers": {
+                    "codex": {
+                        "savedProviderId": Value::Null,
+                        "activeMode": Value::Null,
+                        "providerId": Value::Null,
+                        "providerName": Value::Null,
+                        "baseUrl": Value::Null,
+                        "model": Value::Null,
+                        "configToml": Value::Null,
+                        "secretRef": Value::Null,
+                        "hasSecret": false,
+                        "updatedAtMs": now_ms(),
+                    }
+                }
+            }
+        })
+    }
+
+    fn build_empty_gemini_patch() -> Value {
+        json!({
+            "ai": {
+                "providers": {
+                    "gemini": {
+                        "savedProviderId": Value::Null,
+                        "activeMode": Value::Null,
+                        "authMode": Value::Null,
+                        "providerId": Value::Null,
+                        "providerName": Value::Null,
+                        "baseUrl": Value::Null,
+                        "model": Value::Null,
+                        "selectedType": Value::Null,
+                        "secretRef": Value::Null,
+                        "hasSecret": false,
+                        "updatedAtMs": now_ms(),
+                    }
+                }
+            }
+        })
+    }
+
     fn read_codex_config_from_value(value: &Value) -> AiConfigResult<CodexConfigSnapshot> {
         let config_value = value
             .pointer("/ai/providers/codex")
             .cloned()
             .unwrap_or_else(|| json!({}));
         let object = config_value.as_object().cloned().unwrap_or_default();
+        let saved_provider_id = object
+            .get("savedProviderId")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string());
         let secret_ref = object
             .get("secretRef")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
         Ok(CodexConfigSnapshot {
+            saved_provider_id,
             active_mode: object
                 .get("activeMode")
                 .and_then(Value::as_str)
@@ -1483,11 +2048,16 @@ impl AiConfigService {
             .cloned()
             .unwrap_or_else(|| json!({}));
         let object = config_value.as_object().cloned().unwrap_or_default();
+        let saved_provider_id = object
+            .get("savedProviderId")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string());
         let secret_ref = object
             .get("secretRef")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
         Ok(GeminiConfigSnapshot {
+            saved_provider_id,
             active_mode: object
                 .get("activeMode")
                 .and_then(Value::as_str)
@@ -1987,9 +2557,11 @@ impl AiConfigService {
         scope: &str,
         draft: ClaudeDraftInput,
     ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
-        if !scope.trim().eq_ignore_ascii_case("workspace") {
+        if !scope.trim().eq_ignore_ascii_case("workspace")
+            && !scope.trim().eq_ignore_ascii_case(GLOBAL_AI_CONFIG_CONTEXT)
+        {
             return Err(AiConfigError::UnsupportedScope(
-                "only workspace scope is supported".to_string(),
+                "only global scope is supported".to_string(),
             ));
         }
 
@@ -2002,7 +2574,7 @@ impl AiConfigService {
         let saved_provider = if let Some(saved_provider_id) = saved_provider_id.as_deref() {
             Some(
                 self.audit_repository
-                    .get_saved_claude_provider(workspace_id, saved_provider_id)
+                    .get_saved_claude_provider(GLOBAL_AI_CONFIG_CONTEXT, saved_provider_id)
                     .map_err(|error| AiConfigError::Storage(error.to_string()))?
                     .ok_or_else(|| {
                         AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
@@ -2012,7 +2584,12 @@ impl AiConfigService {
             None
         };
         let (normalized, api_key_secret) =
-            normalize_claude_draft(workspace_id, &current, saved_provider.as_ref(), draft)?;
+            normalize_claude_draft(
+                GLOBAL_AI_CONFIG_CONTEXT,
+                &current,
+                saved_provider.as_ref(),
+                draft,
+            )?;
         let changes = diff_claude_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -2028,8 +2605,8 @@ impl AiConfigService {
             .into_iter()
             .collect::<Vec<_>>();
         let response = AiConfigPreviewResponse {
-            workspace_id: workspace_id.to_string(),
-            scope: "workspace".to_string(),
+            workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
+            scope: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             agent: AiConfigAgent::Claude,
             preview_id: preview_id.clone(),
             allowed: true,
@@ -2085,7 +2662,7 @@ impl AiConfigService {
 
         let applied_at_ms = now_ms();
         let saved_provider_id = self.resolve_saved_claude_provider_id(
-            workspace_id,
+            GLOBAL_AI_CONFIG_CONTEXT,
             &preview.normalized_draft,
             preview.saved_provider_id.as_deref(),
         )?;
@@ -2106,7 +2683,7 @@ impl AiConfigService {
             build_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
         if let Err(error) =
             self.settings
-                .update(SettingsScope::Workspace, Some(workspace_root), &patch)
+                .update(SettingsScope::User, None, &patch)
         {
             self.restore_file_state(live_settings_path, live_settings_backup.as_deref())?;
             return Err(AiConfigError::Settings(error.to_string()));
@@ -2120,7 +2697,7 @@ impl AiConfigService {
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
         self.upsert_saved_claude_provider_record(
-            workspace_id,
+            GLOBAL_AI_CONFIG_CONTEXT,
             &saved_provider_id,
             &preview.normalized_draft,
             applied_at_ms,
@@ -2129,7 +2706,7 @@ impl AiConfigService {
         self.audit_repository
             .insert_audit_log(&AiConfigAuditLogInput {
                 audit_id: audit_id.clone(),
-                workspace_id: workspace_id.to_string(),
+                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                 agent: "claude".to_string(),
                 mode: mode_to_string(&preview.normalized_draft.mode).to_string(),
                 provider_id: preview.normalized_draft.provider_id.clone(),
@@ -2140,17 +2717,17 @@ impl AiConfigService {
             })
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
 
-        let effective = self.read_snapshot(workspace_id, workspace_root)?;
+        let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
 
         Ok(AiConfigApplyResponse {
-            workspace_id: workspace_id.to_string(),
+            workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
             preview_id: preview.preview_id.clone(),
             confirmed_by: confirmed_by.to_string(),
             applied: true,
             audit_id,
             effective,
             changed_targets: vec![
-                "workspace_settings".to_string(),
+                "user_settings".to_string(),
                 "claude_live_settings".to_string(),
                 "saved_provider_db".to_string(),
                 "secret_store".to_string(),
@@ -2162,24 +2739,41 @@ impl AiConfigService {
     pub fn read_snapshot(
         &self,
         workspace_id: &str,
-        workspace_root: &Path,
+        workspace_root: Option<&Path>,
     ) -> AiConfigResult<AiConfigSnapshot> {
+        let workspace_root = workspace_root.unwrap_or_else(|| Path::new(""));
         let mut claude_config = self.read_claude_config(workspace_root)?;
-        let saved_claude_providers = self.list_saved_claude_providers(workspace_id)?;
+        let saved_claude_providers = self.list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)?;
         if claude_config.saved_provider_id.is_none() {
             claude_config.saved_provider_id = saved_claude_providers
                 .iter()
                 .find(|item| item.is_active)
                 .map(|item| item.saved_provider_id.clone());
         }
-        let codex_config = self.read_codex_config(workspace_root)?;
-        let gemini_config = self.read_gemini_config(workspace_root)?;
+        let mut codex_config = self.read_codex_config(workspace_root)?;
+        let saved_codex_providers = self.list_saved_codex_providers()?;
+        if codex_config.saved_provider_id.is_none() {
+            codex_config.saved_provider_id = saved_codex_providers
+                .iter()
+                .find(|item| item.is_active)
+                .map(|item| item.saved_provider_id.clone());
+        }
+        let mut gemini_config = self.read_gemini_config(workspace_root)?;
+        let saved_gemini_providers = self.list_saved_gemini_providers()?;
+        if gemini_config.saved_provider_id.is_none() {
+            gemini_config.saved_provider_id = saved_gemini_providers
+                .iter()
+                .find(|item| item.is_active)
+                .map(|item| item.saved_provider_id.clone());
+        }
 
         let mut codex_snapshot = codex_snapshot_template();
         codex_snapshot.config = codex_config.clone();
+        codex_snapshot.saved_providers = saved_codex_providers;
 
         let mut gemini_snapshot = gemini_snapshot_template();
         gemini_snapshot.config = gemini_config.clone();
+        gemini_snapshot.saved_providers = saved_gemini_providers;
         let workspace_root_for_mcp = workspace_root.to_path_buf();
         let (
             claude_install_status,
@@ -2552,6 +3146,27 @@ fn build_workspace_patch(
     })
 }
 
+fn build_empty_claude_patch() -> Value {
+    json!({
+        "ai": {
+            "providers": {
+                "claude": {
+                    "savedProviderId": Value::Null,
+                    "activeMode": Value::Null,
+                    "providerId": Value::Null,
+                    "providerName": Value::Null,
+                    "baseUrl": Value::Null,
+                    "model": Value::Null,
+                    "authScheme": Value::Null,
+                    "secretRef": Value::Null,
+                    "hasSecret": false,
+                    "updatedAtMs": now_ms(),
+                }
+            }
+        }
+    })
+}
+
 fn read_claude_config_from_value(value: &Value) -> AiConfigResult<ClaudeConfigSnapshot> {
     let config_value = value
         .pointer("/ai/providers/claude")
@@ -2762,6 +3377,227 @@ fn normalized_from_saved_claude_provider(
         base_url: record.base_url.clone(),
         model: record.model.clone(),
         auth_scheme,
+        secret_ref: record.secret_ref.clone(),
+        has_secret: record.has_secret,
+    })
+}
+
+fn fingerprint_codex_config(normalized: &CodexNormalizedDraft) -> String {
+    json!({
+        "mode": AiConfigService::codex_mode_to_string(&normalized.mode),
+        "providerId": normalized.provider_id,
+        "providerName": normalized.provider_name,
+        "baseUrl": normalized.base_url,
+        "model": normalized.model,
+        "configToml": normalized.config_toml,
+        "hasSecret": normalized.has_secret,
+    })
+    .to_string()
+}
+
+fn official_codex_normalized_draft() -> CodexNormalizedDraft {
+    let preset = codex_provider_presets()
+        .into_iter()
+        .find(|item| item.provider_id == "codex-official")
+        .unwrap_or_else(|| {
+            panic!("missing Codex official preset");
+        });
+    CodexNormalizedDraft {
+        mode: CodexProviderMode::Official,
+        provider_id: Some(preset.provider_id),
+        provider_name: Some(preset.name),
+        base_url: None,
+        model: Some(preset.recommended_model),
+        config_toml: None,
+        secret_ref: None,
+        has_secret: false,
+    }
+}
+
+fn saved_codex_provider_snapshot_from_record(
+    record: SavedAiProviderRecord,
+) -> AiConfigResult<CodexSavedProviderSnapshot> {
+    let mode = AiConfigService::parse_codex_mode(&record.mode).ok_or_else(|| {
+        AiConfigError::Storage(format!(
+            "saved Codex provider has invalid mode: {}",
+            record.mode
+        ))
+    })?;
+    let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
+
+    Ok(CodexSavedProviderSnapshot {
+        saved_provider_id: record.saved_provider_id,
+        mode,
+        provider_id: record.provider_id,
+        provider_name: record.provider_name,
+        base_url: record.base_url,
+        model: record.model,
+        config_toml: extra
+            .get("configToml")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string()),
+        has_secret: record.has_secret,
+        is_active: record.is_active,
+        created_at_ms: record.created_at_ms.max(0) as u64,
+        updated_at_ms: record.updated_at_ms.max(0) as u64,
+        last_applied_at_ms: record.last_applied_at_ms.max(0) as u64,
+    })
+}
+
+fn normalized_from_saved_codex_provider(
+    record: &SavedAiProviderRecord,
+) -> AiConfigResult<CodexNormalizedDraft> {
+    let mode = AiConfigService::parse_codex_mode(&record.mode).ok_or_else(|| {
+        AiConfigError::Storage(format!(
+            "saved Codex provider has invalid mode: {}",
+            record.mode
+        ))
+    })?;
+    if mode != CodexProviderMode::Official
+        && record.has_secret
+        && record
+            .secret_ref
+            .as_deref()
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return Err(AiConfigError::Storage(format!(
+            "saved Codex provider {} is missing secret reference",
+            record.saved_provider_id
+        )));
+    }
+    let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
+
+    Ok(CodexNormalizedDraft {
+        mode,
+        provider_id: record.provider_id.clone(),
+        provider_name: Some(record.provider_name.clone()),
+        base_url: record.base_url.clone(),
+        model: record.model.clone(),
+        config_toml: extra
+            .get("configToml")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string()),
+        secret_ref: record.secret_ref.clone(),
+        has_secret: record.has_secret,
+    })
+}
+
+fn fingerprint_gemini_config(normalized: &GeminiNormalizedDraft) -> String {
+    json!({
+        "mode": AiConfigService::gemini_mode_to_string(&normalized.mode),
+        "authMode": AiConfigService::gemini_auth_mode_to_string(&normalized.auth_mode),
+        "providerId": normalized.provider_id,
+        "providerName": normalized.provider_name,
+        "baseUrl": normalized.base_url,
+        "model": normalized.model,
+        "selectedType": normalized.selected_type,
+        "hasSecret": normalized.has_secret,
+    })
+    .to_string()
+}
+
+fn official_gemini_normalized_draft() -> GeminiNormalizedDraft {
+    let preset = gemini_provider_presets()
+        .into_iter()
+        .find(|item| item.provider_id == "google-official")
+        .unwrap_or_else(|| {
+            panic!("missing Gemini official preset");
+        });
+    GeminiNormalizedDraft {
+        mode: GeminiProviderMode::Official,
+        auth_mode: GeminiAuthMode::OAuth,
+        provider_id: Some(preset.provider_id),
+        provider_name: Some(preset.name),
+        base_url: preset.endpoint,
+        model: Some(preset.recommended_model),
+        selected_type: GeminiAuthMode::OAuth.selected_type().to_string(),
+        secret_ref: None,
+        has_secret: false,
+    }
+}
+
+fn saved_gemini_provider_snapshot_from_record(
+    record: SavedAiProviderRecord,
+) -> AiConfigResult<GeminiSavedProviderSnapshot> {
+    let mode = AiConfigService::parse_gemini_mode(&record.mode).ok_or_else(|| {
+        AiConfigError::Storage(format!(
+            "saved Gemini provider has invalid mode: {}",
+            record.mode
+        ))
+    })?;
+    let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
+    let auth_mode = extra
+        .get("authMode")
+        .and_then(Value::as_str)
+        .and_then(AiConfigService::parse_gemini_auth_mode)
+        .unwrap_or(GeminiAuthMode::OAuth);
+    let selected_type = extra
+        .get("selectedType")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| auth_mode.selected_type().to_string());
+
+    Ok(GeminiSavedProviderSnapshot {
+        saved_provider_id: record.saved_provider_id,
+        mode,
+        auth_mode,
+        provider_id: record.provider_id,
+        provider_name: record.provider_name,
+        base_url: record.base_url,
+        model: record.model,
+        selected_type,
+        has_secret: record.has_secret,
+        is_active: record.is_active,
+        created_at_ms: record.created_at_ms.max(0) as u64,
+        updated_at_ms: record.updated_at_ms.max(0) as u64,
+        last_applied_at_ms: record.last_applied_at_ms.max(0) as u64,
+    })
+}
+
+fn normalized_from_saved_gemini_provider(
+    record: &SavedAiProviderRecord,
+) -> AiConfigResult<GeminiNormalizedDraft> {
+    let mode = AiConfigService::parse_gemini_mode(&record.mode).ok_or_else(|| {
+        AiConfigError::Storage(format!(
+            "saved Gemini provider has invalid mode: {}",
+            record.mode
+        ))
+    })?;
+    let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
+    let auth_mode = extra
+        .get("authMode")
+        .and_then(Value::as_str)
+        .and_then(AiConfigService::parse_gemini_auth_mode)
+        .unwrap_or(GeminiAuthMode::OAuth);
+    let selected_type = extra
+        .get("selectedType")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| auth_mode.selected_type().to_string());
+
+    if mode != GeminiProviderMode::Official
+        && record.has_secret
+        && record
+            .secret_ref
+            .as_deref()
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return Err(AiConfigError::Storage(format!(
+            "saved Gemini provider {} is missing secret reference",
+            record.saved_provider_id
+        )));
+    }
+
+    Ok(GeminiNormalizedDraft {
+        mode,
+        auth_mode,
+        provider_id: record.provider_id.clone(),
+        provider_name: Some(record.provider_name.clone()),
+        base_url: record.base_url.clone(),
+        model: record.model.clone(),
+        selected_type,
         secret_ref: record.secret_ref.clone(),
         has_secret: record.has_secret,
     })
@@ -2997,11 +3833,11 @@ fn normalize_endpoint(value: String) -> AiConfigResult<String> {
     Ok(trimmed)
 }
 
-fn build_secret_ref(workspace_id: &str, provider_id: &str) -> String {
+fn build_secret_ref(_workspace_id: &str, provider_id: &str) -> String {
     format!(
-        "ai-config/{}/claude/{}/api_key",
-        sanitize_secret_segment(workspace_id),
-        sanitize_secret_segment(provider_id)
+        "ai-config/claude/{}/{}/api_key",
+        sanitize_secret_segment(provider_id),
+        Uuid::new_v4()
     )
 }
 
@@ -3359,11 +4195,13 @@ pub fn test_settings_service(user_file: &Path) -> JsonSettingsService {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf};
+    use std::{ffi::OsString, fs, path::PathBuf, sync::Mutex};
 
     use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
 
     use super::*;
+
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
@@ -3387,6 +4225,39 @@ mod tests {
 
     fn live_settings_path_for(dir: &Path) -> PathBuf {
         dir.join("mock-home").join(".claude").join("settings.json")
+    }
+
+    fn with_test_home<T>(dir: &Path, f: impl FnOnce(&Path) -> T) -> T {
+        let _guard = HOME_ENV_LOCK.lock().unwrap();
+        let home = create_test_home(dir);
+        let previous_home = std::env::var_os("HOME");
+        let previous_userprofile = std::env::var_os("USERPROFILE");
+        let previous_homedrive = std::env::var_os("HOMEDRIVE");
+        let previous_homepath = std::env::var_os("HOMEPATH");
+
+        std::env::set_var("HOME", &home);
+        std::env::remove_var("USERPROFILE");
+        std::env::remove_var("HOMEDRIVE");
+        std::env::remove_var("HOMEPATH");
+
+        let result = f(&home);
+
+        match previous_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+        restore_env_var("USERPROFILE", previous_userprofile);
+        restore_env_var("HOMEDRIVE", previous_homedrive);
+        restore_env_var("HOMEPATH", previous_homepath);
+
+        result
+    }
+
+    fn restore_env_var(key: &str, value: Option<OsString>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
     }
 
     #[test]
@@ -3551,7 +4422,8 @@ mod tests {
                 &live_settings_path,
             )
             .unwrap();
-        let config_raw = fs::read_to_string(workspace_root.join(".gtoffice/config.json")).unwrap();
+        assert!(!workspace_root.join(".gtoffice/config.json").exists());
+        let config_raw = fs::read_to_string(dir.join("user-settings.json")).unwrap();
         assert!(!config_raw.contains("secret-token"));
         assert!(config_raw.contains("secretRef"));
         assert!(preview.secret_refs.len() == 1);
@@ -3751,13 +4623,13 @@ mod tests {
             .expect("active saved provider");
         assert_eq!(active.saved_provider_id, deepseek_saved_id);
 
-        let workspace_json = read_claude_config_from_value(
-            &read_json_object_file(&workspace_root.join(".gtoffice/config.json")).unwrap(),
+        let user_json = read_claude_config_from_value(
+            &read_json_object_file(&dir.join("user-settings.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(workspace_json.provider_id.as_deref(), Some("deepseek"));
+        assert_eq!(user_json.provider_id.as_deref(), Some("deepseek"));
         assert_eq!(
-            workspace_json.saved_provider_id.as_deref(),
+            user_json.saved_provider_id.as_deref(),
             Some(deepseek_saved_id.as_str())
         );
 
@@ -4223,5 +5095,250 @@ mod tests {
 
         assert!(agent_status_result(AiConfigAgent::Codex, &home, None));
         assert!(agent_status_result(AiConfigAgent::Gemini, &home, None));
+    }
+
+    #[test]
+    fn codex_apply_persists_global_settings_and_saved_provider_list() {
+        let dir = temp_dir("codex-global-saved-provider");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("codex-global-saved-provider");
+
+        with_test_home(&dir, |_home| {
+            let (_, stored) = service
+                .preview_codex_patch(
+                    &workspace_id,
+                    &workspace_root,
+                    CodexDraftInput {
+                        mode: CodexProviderMode::Official,
+                        saved_provider_id: None,
+                        provider_id: None,
+                        provider_name: None,
+                        base_url: None,
+                        model: None,
+                        api_key: None,
+                        config_toml: None,
+                    },
+                )
+                .unwrap();
+            let stored = match stored {
+                StoredAiConfigPreview::Codex(value) => value,
+                _ => panic!("Expected Codex preview"),
+            };
+
+            let applied = service
+                .apply_codex_preview(&workspace_id, &workspace_root, "tester", &stored)
+                .unwrap();
+            let effective_json = serde_json::to_value(&applied.effective).unwrap();
+            let user_json = read_json_object_file(&dir.join("user-settings.json")).unwrap();
+
+            assert_eq!(
+                user_json
+                    .pointer("/ai/providers/codex/providerId")
+                    .and_then(Value::as_str),
+                Some("codex-official")
+            );
+            assert!(
+                !workspace_root.join(".gtoffice/config.json").exists(),
+                "workspace config should stay untouched for global provider settings"
+            );
+            assert_eq!(
+                effective_json
+                    .pointer("/codex/savedProviders/0/providerId")
+                    .and_then(Value::as_str),
+                Some("codex-official")
+            );
+        });
+    }
+
+    #[test]
+    fn gemini_apply_persists_global_settings_and_saved_provider_list() {
+        let dir = temp_dir("gemini-global-saved-provider");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("gemini-global-saved-provider");
+
+        with_test_home(&dir, |_home| {
+            let (_, stored) = service
+                .preview_gemini_patch(
+                    &workspace_id,
+                    &workspace_root,
+                    GeminiDraftInput {
+                        mode: GeminiProviderMode::Official,
+                        saved_provider_id: None,
+                        auth_mode: None,
+                        provider_id: None,
+                        provider_name: None,
+                        base_url: None,
+                        model: None,
+                        api_key: None,
+                        selected_type: None,
+                    },
+                )
+                .unwrap();
+            let stored = match stored {
+                StoredAiConfigPreview::Gemini(value) => value,
+                _ => panic!("Expected Gemini preview"),
+            };
+
+            let applied = service
+                .apply_gemini_preview(&workspace_id, &workspace_root, "tester", &stored)
+                .unwrap();
+            let effective_json = serde_json::to_value(&applied.effective).unwrap();
+            let user_json = read_json_object_file(&dir.join("user-settings.json")).unwrap();
+
+            assert_eq!(
+                user_json
+                    .pointer("/ai/providers/gemini/providerId")
+                    .and_then(Value::as_str),
+                Some("google-official")
+            );
+            assert!(
+                !workspace_root.join(".gtoffice/config.json").exists(),
+                "workspace config should stay untouched for global provider settings"
+            );
+            assert_eq!(
+                effective_json
+                    .pointer("/gemini/savedProviders/0/providerId")
+                    .and_then(Value::as_str),
+                Some("google-official")
+            );
+        });
+    }
+
+    #[test]
+    fn switching_saved_codex_provider_updates_global_active_config() {
+        let dir = temp_dir("codex-switch-provider");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("codex-switch-provider");
+
+        with_test_home(&dir, |_home| {
+            for provider_id in ["codex-official", "openrouter"] {
+                let (_, stored) = service
+                    .preview_codex_patch(
+                        &workspace_id,
+                        &workspace_root,
+                        CodexDraftInput {
+                            mode: if provider_id == "codex-official" {
+                                CodexProviderMode::Official
+                            } else {
+                                CodexProviderMode::Preset
+                            },
+                            saved_provider_id: None,
+                            provider_id: if provider_id == "codex-official" {
+                                None
+                            } else {
+                                Some(provider_id.to_string())
+                            },
+                            provider_name: None,
+                            base_url: None,
+                            model: None,
+                            api_key: if provider_id == "codex-official" {
+                                None
+                            } else {
+                                Some("openrouter-secret".to_string())
+                            },
+                            config_toml: None,
+                        },
+                    )
+                    .unwrap();
+                let stored = match stored {
+                    StoredAiConfigPreview::Codex(value) => value,
+                    _ => panic!("Expected Codex preview"),
+                };
+                service
+                    .apply_codex_preview(&workspace_id, &workspace_root, "tester", &stored)
+                    .unwrap();
+            }
+
+            let snapshot = service
+                .read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(&workspace_root))
+                .unwrap();
+            let saved_provider_id = snapshot
+                .codex
+                .saved_providers
+                .iter()
+                .find(|item| item.provider_id.as_deref() == Some("codex-official"))
+                .map(|item| item.saved_provider_id.clone())
+                .expect("codex official provider");
+
+            let switched = service
+                .switch_saved_provider(
+                    AiConfigAgent::Codex,
+                    Some(&workspace_root),
+                    &saved_provider_id,
+                    "tester",
+                )
+                .unwrap();
+            assert_eq!(
+                switched.effective.codex.config.saved_provider_id.as_deref(),
+                Some(saved_provider_id.as_str())
+            );
+            assert_eq!(
+                switched.effective.codex.config.provider_id.as_deref(),
+                Some("codex-official")
+            );
+        });
+    }
+
+    #[test]
+    fn deleting_last_gemini_provider_clears_global_active_config() {
+        let dir = temp_dir("gemini-delete-provider");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("gemini-delete-provider");
+
+        with_test_home(&dir, |_home| {
+            let (_, stored) = service
+                .preview_gemini_patch(
+                    &workspace_id,
+                    &workspace_root,
+                    GeminiDraftInput {
+                        mode: GeminiProviderMode::Official,
+                        saved_provider_id: None,
+                        auth_mode: None,
+                        provider_id: None,
+                        provider_name: None,
+                        base_url: None,
+                        model: None,
+                        api_key: None,
+                        selected_type: None,
+                    },
+                )
+                .unwrap();
+            let stored = match stored {
+                StoredAiConfigPreview::Gemini(value) => value,
+                _ => panic!("Expected Gemini preview"),
+            };
+            let applied = service
+                .apply_gemini_preview(&workspace_id, &workspace_root, "tester", &stored)
+                .unwrap();
+            let saved_provider_id = applied
+                .effective
+                .gemini
+                .saved_providers
+                .first()
+                .map(|item| item.saved_provider_id.clone())
+                .expect("saved gemini provider");
+
+            let deleted = service
+                .delete_saved_provider(
+                    AiConfigAgent::Gemini,
+                    Some(&workspace_root),
+                    &saved_provider_id,
+                    "tester",
+                )
+                .unwrap();
+
+            assert!(deleted.applied);
+            assert!(deleted.effective.gemini.saved_providers.is_empty());
+            assert!(deleted.effective.gemini.config.saved_provider_id.is_none());
+            assert!(deleted.effective.gemini.config.active_mode.is_none());
+        });
     }
 }

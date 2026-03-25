@@ -11,19 +11,16 @@ import {
 import { t, type Locale } from '@shell/i18n/ui-locale'
 
 import { ProviderAgentCard } from './shared/ProviderAgentCard'
-import { isLightAgentSnapshotCard } from './shared/provider-utils'
 import { AgentEnhancementsModal } from './shared/AgentEnhancementsModal'
-import { ClaudeConfigModal } from './claude/ClaudeConfigModal'
-import { CodexConfigModal, GeminiConfigModal } from './light-agents/LightAgentConfigModal'
+import { ProviderWorkspaceModal } from './shared/ProviderWorkspaceModal'
 
 import './AiProvidersSection.scss'
 
 interface AiProvidersSectionProps {
-  workspaceId: string
+  workspaceId?: string | null
   locale: Locale
 }
 
-type ClaudeConfigEntryMode = 'wizard' | 'saved'
 type AgentLoadingMap = Record<AiConfigAgent, boolean>
 
 const AGENT_ORDER: AiConfigAgent[] = ['claude', 'codex', 'gemini']
@@ -85,7 +82,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   const [selectedAgentId, setSelectedAgentId] = useState<AiConfigAgent | null>(null)
   const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
   const [serviceAgentId, setServiceAgentId] = useState<AiConfigAgent | null>(null)
-  const [claudeEntryMode, setClaudeEntryMode] = useState<ClaudeConfigEntryMode>('wizard')
   const [actionError, setActionError] = useState<string | null>(null)
   const reloadTokenRef = useRef(0)
 
@@ -197,6 +193,10 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   }
 
   const handleInstallMcp = async (agent: AiConfigAgent) => {
+    if (!workspaceId) {
+      setActionError(t(locale, '请先打开一个工作区以配置增强服务。', 'Open a workspace before configuring enhancements.'))
+      return
+    }
     setInstallingMcpAgent(agent)
     setActionError(null)
     try {
@@ -223,7 +223,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   )
 
   const configAgent = snapshot?.snapshot.agents.find((agent) => agent.agent === configAgentId) ?? null
-  const lightConfigAgent = isLightAgentSnapshotCard(configAgent) ? configAgent : null
 
   return (
     <section className="ai-providers-section">
@@ -252,81 +251,59 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
             onInstall={() => void handleInstall(agent.agent)}
             onUninstall={() => void handleUninstall(agent.agent)}
             onOpenEnhancements={() => {
+              if (!workspaceId) {
+                setActionError(
+                  t(locale, '请先打开一个工作区以配置增强服务。', 'Open a workspace before configuring enhancements.'),
+                )
+                return
+              }
               setSelectedAgentId(agent.agent)
               setServiceAgentId(agent.agent)
             }}
             onConfigure={() => {
               setSelectedAgentId(agent.agent)
-              if (agent.agent === 'claude') {
-                setClaudeEntryMode('wizard')
-              }
               setConfigAgentId(agent.agent)
             }}
-            configureActions={
-              agent.agent === 'claude'
-                ? [
-                    {
-                      key: 'wizard',
-                      label: t(locale, 'aiConfig.card.configureWizard'),
-                      onClick: () => {
-                        setSelectedAgentId('claude')
-                        setClaudeEntryMode('wizard')
-                        setConfigAgentId('claude')
-                      },
-                    },
-                    {
-                      key: 'saved',
-                      label: t(locale, 'aiConfig.card.savedProviders'),
-                      onClick: () => {
-                        setSelectedAgentId('claude')
-                        setClaudeEntryMode('saved')
-                        setConfigAgentId('claude')
-                      },
-                    },
-                  ]
-                : undefined
-            }
+            enhancementDisabled={!workspaceId}
           />
         ))}
       </div>
 
       {configAgentId === 'claude' && configAgent && snapshot && (
-        <ClaudeConfigModal
+        <ProviderWorkspaceModal
+          agentId="claude"
           workspaceId={workspaceId}
           locale={locale}
           agent={configAgent}
-          snapshot={snapshot.snapshot.claude}
-          entryMode={claudeEntryMode}
-          installing={installingAgent === 'claude'}
-          onInstall={() => void handleInstall('claude')}
+          guide={snapshot.snapshot.claude}
           onReload={() => handleReload({ background: true })}
           onSnapshotUpdate={handleSnapshotUpdate}
           onClose={() => setConfigAgentId(null)}
         />
       )}
 
-      {configAgentId === 'codex' && lightConfigAgent && snapshot && (
-        <CodexConfigModal
+      {configAgentId === 'codex' && configAgent && snapshot && (
+        <ProviderWorkspaceModal
+          agentId="codex"
           workspaceId={workspaceId}
           locale={locale}
-          agent={lightConfigAgent}
+          agent={configAgent}
           guide={snapshot.snapshot.codex}
-          installing={installingAgent === 'codex'}
-          onInstall={() => void handleInstall('codex')}
           onReload={() => handleReload({ background: true })}
+          onSnapshotUpdate={handleSnapshotUpdate}
           onClose={() => setConfigAgentId(null)}
         />
       )}
 
-      {configAgentId === 'gemini' && lightConfigAgent && snapshot && (
-        <GeminiConfigModal
+      {configAgentId === 'gemini' && configAgent && snapshot && (
+        <ProviderWorkspaceModal
+          agentId="gemini"
           workspaceId={workspaceId}
           locale={locale}
-          agent={lightConfigAgent}
+          agent={configAgent}
           guide={snapshot.snapshot.gemini}
-          installing={installingAgent === 'gemini'}
-          onInstall={() => void handleInstall('gemini')}
           onReload={() => handleReload({ background: true })}
+          onSnapshotUpdate={handleSnapshotUpdate}
           onClose={() => setConfigAgentId(null)}
         />
       )}

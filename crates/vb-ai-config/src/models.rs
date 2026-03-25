@@ -195,6 +195,7 @@ pub struct ClaudeConfigSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexConfigSnapshot {
+    pub saved_provider_id: Option<String>,
     pub active_mode: Option<CodexProviderMode>,
     pub provider_id: Option<String>,
     pub provider_name: Option<String>,
@@ -209,6 +210,7 @@ pub struct CodexConfigSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiConfigSnapshot {
+    pub saved_provider_id: Option<String>,
     pub active_mode: Option<GeminiProviderMode>,
     pub auth_mode: Option<GeminiAuthMode>,
     pub provider_id: Option<String>,
@@ -240,6 +242,41 @@ pub struct ClaudeSavedProviderSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CodexSavedProviderSnapshot {
+    pub saved_provider_id: String,
+    pub mode: CodexProviderMode,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub config_toml: Option<String>,
+    pub has_secret: bool,
+    pub is_active: bool,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+    pub last_applied_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiSavedProviderSnapshot {
+    pub saved_provider_id: String,
+    pub mode: GeminiProviderMode,
+    pub auth_mode: GeminiAuthMode,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub selected_type: String,
+    pub has_secret: bool,
+    pub is_active: bool,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+    pub last_applied_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaudeSnapshot {
     pub presets: Vec<ClaudeProviderPreset>,
     pub config: ClaudeConfigSnapshot,
@@ -257,6 +294,7 @@ pub struct CodexSnapshot {
     pub tips: Vec<String>,
     pub presets: Vec<CodexProviderPreset>,
     pub config: CodexConfigSnapshot,
+    pub saved_providers: Vec<CodexSavedProviderSnapshot>,
     pub mcp_installed: bool,
 }
 
@@ -270,6 +308,7 @@ pub struct GeminiSnapshot {
     pub tips: Vec<String>,
     pub presets: Vec<GeminiProviderPreset>,
     pub config: GeminiConfigSnapshot,
+    pub saved_providers: Vec<GeminiSavedProviderSnapshot>,
     pub mcp_installed: bool,
 }
 
@@ -316,6 +355,8 @@ pub struct ClaudeDraftInput {
 pub struct CodexDraftInput {
     pub mode: CodexProviderMode,
     #[serde(default)]
+    pub saved_provider_id: Option<String>,
+    #[serde(default)]
     pub provider_id: Option<String>,
     #[serde(default)]
     pub provider_name: Option<String>,
@@ -333,6 +374,8 @@ pub struct CodexDraftInput {
 #[serde(rename_all = "camelCase")]
 pub struct GeminiDraftInput {
     pub mode: GeminiProviderMode,
+    #[serde(default)]
+    pub saved_provider_id: Option<String>,
     #[serde(default)]
     pub auth_mode: Option<GeminiAuthMode>,
     #[serde(default)]
@@ -464,6 +507,7 @@ pub struct StoredClaudePreview {
 #[derive(Debug, Clone)]
 pub struct StoredCodexPreview {
     pub preview_id: String,
+    pub saved_provider_id: Option<String>,
     pub normalized_draft: CodexNormalizedDraft,
     pub changed_keys: Vec<String>,
     pub secret_refs: Vec<String>,
@@ -474,6 +518,7 @@ pub struct StoredCodexPreview {
 #[derive(Debug, Clone)]
 pub struct StoredGeminiPreview {
     pub preview_id: String,
+    pub saved_provider_id: Option<String>,
     pub normalized_draft: GeminiNormalizedDraft,
     pub changed_keys: Vec<String>,
     pub secret_refs: Vec<String>,

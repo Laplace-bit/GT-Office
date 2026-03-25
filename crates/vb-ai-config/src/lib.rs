@@ -12,10 +12,11 @@ pub use models::{
     AiConfigPreviewResponse, AiConfigReadSnapshotResponse, AiConfigSnapshot, ClaudeAuthScheme,
     ClaudeConfigSnapshot, ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode,
     ClaudeProviderPreset, ClaudeSavedProviderSnapshot, ClaudeSnapshot, CodexConfigSnapshot,
-    CodexDraftInput, CodexNormalizedDraft, CodexProviderMode, CodexProviderPreset, CodexSnapshot,
-    GeminiAuthMode, GeminiConfigSnapshot, GeminiDraftInput, GeminiNormalizedDraft,
-    GeminiProviderMode, GeminiProviderPreset, GeminiSnapshot, StoredAiConfigPreview,
-    StoredClaudePreview, StoredCodexPreview, StoredGeminiPreview,
+    CodexDraftInput, CodexNormalizedDraft, CodexProviderMode, CodexProviderPreset,
+    CodexSavedProviderSnapshot, CodexSnapshot, GeminiAuthMode, GeminiConfigSnapshot,
+    GeminiDraftInput, GeminiNormalizedDraft, GeminiProviderMode, GeminiProviderPreset,
+    GeminiSavedProviderSnapshot, GeminiSnapshot, StoredAiConfigPreview, StoredClaudePreview,
+    StoredCodexPreview, StoredGeminiPreview,
 };
 pub use service::{
     agent_mcp_installed_for_workspace, claude_mcp_installed_for_workspace, AiConfigError,

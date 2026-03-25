@@ -63,6 +63,45 @@ pub struct SavedClaudeProviderRecord {
     pub last_applied_at_ms: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAiProviderInput {
+    pub agent: String,
+    pub saved_provider_id: Option<String>,
+    pub fingerprint: String,
+    pub mode: String,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
+    pub extra_json: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub last_applied_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAiProviderRecord {
+    pub agent: String,
+    pub saved_provider_id: String,
+    pub fingerprint: String,
+    pub mode: String,
+    pub provider_id: Option<String>,
+    pub provider_name: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub secret_ref: Option<String>,
+    pub has_secret: bool,
+    pub extra_json: String,
+    pub is_active: bool,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub last_applied_at_ms: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct SqliteAiConfigRepository {
     storage: SqliteStorage,
@@ -455,6 +494,317 @@ impl SqliteAiConfigRepository {
         }
         self.get_saved_claude_provider(workspace_id, saved_provider_id)
     }
+
+    pub fn delete_saved_claude_provider(
+        &self,
+        workspace_id: &str,
+        saved_provider_id: &str,
+    ) -> Result<bool, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM ai_config_saved_claude_providers WHERE workspace_id = ?1 AND saved_provider_id = ?2",
+                params![workspace_id, saved_provider_id],
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+        Ok(deleted > 0)
+    }
+
+    pub fn upsert_saved_provider(
+        &self,
+        input: &SavedAiProviderInput,
+    ) -> Result<SavedAiProviderRecord, AiConfigRepositoryError> {
+        let mut conn = self.connection()?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let existing_by_fingerprint = tx
+            .query_row(
+                "SELECT
+                    agent,
+                    saved_provider_id,
+                    fingerprint,
+                    mode,
+                    provider_id,
+                    provider_name,
+                    base_url,
+                    model,
+                    secret_ref,
+                    has_secret,
+                    extra_json,
+                    is_active,
+                    created_at_ms,
+                    updated_at_ms,
+                    last_applied_at_ms
+                 FROM ai_config_saved_providers
+                 WHERE agent = ?1 AND fingerprint = ?2",
+                params![input.agent, input.fingerprint],
+                map_saved_ai_provider_row,
+            )
+            .optional()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let existing_by_id = input
+            .saved_provider_id
+            .as_ref()
+            .map(|saved_provider_id| {
+                tx.query_row(
+                    "SELECT
+                        agent,
+                        saved_provider_id,
+                        fingerprint,
+                        mode,
+                        provider_id,
+                        provider_name,
+                        base_url,
+                        model,
+                        secret_ref,
+                        has_secret,
+                        extra_json,
+                        is_active,
+                        created_at_ms,
+                        updated_at_ms,
+                        last_applied_at_ms
+                     FROM ai_config_saved_providers
+                     WHERE agent = ?1 AND saved_provider_id = ?2",
+                    params![input.agent, saved_provider_id],
+                    map_saved_ai_provider_row,
+                )
+                .optional()
+            })
+            .transpose()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?
+            .flatten();
+
+        tx.execute(
+            "UPDATE ai_config_saved_providers
+             SET is_active = 0
+             WHERE agent = ?1",
+            params![input.agent],
+        )
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })?;
+
+        let saved_provider_id = input
+            .saved_provider_id
+            .clone()
+            .or_else(|| {
+                existing_by_fingerprint
+                    .as_ref()
+                    .map(|item| item.saved_provider_id.clone())
+            })
+            .unwrap_or_else(|| format!("provider:{}", Uuid::new_v4()));
+        let created_at_ms = existing_by_id
+            .as_ref()
+            .or(existing_by_fingerprint.as_ref())
+            .map(|item| item.created_at_ms)
+            .unwrap_or(input.created_at_ms);
+
+        tx.execute(
+            "INSERT INTO ai_config_saved_providers (
+                agent,
+                saved_provider_id,
+                fingerprint,
+                mode,
+                provider_id,
+                provider_name,
+                base_url,
+                model,
+                secret_ref,
+                has_secret,
+                extra_json,
+                is_active,
+                created_at_ms,
+                updated_at_ms,
+                last_applied_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14)
+            ON CONFLICT(saved_provider_id) DO UPDATE SET
+                agent = excluded.agent,
+                fingerprint = excluded.fingerprint,
+                mode = excluded.mode,
+                provider_id = excluded.provider_id,
+                provider_name = excluded.provider_name,
+                base_url = excluded.base_url,
+                model = excluded.model,
+                secret_ref = excluded.secret_ref,
+                has_secret = excluded.has_secret,
+                extra_json = excluded.extra_json,
+                is_active = 1,
+                updated_at_ms = excluded.updated_at_ms,
+                last_applied_at_ms = excluded.last_applied_at_ms",
+            params![
+                input.agent,
+                saved_provider_id,
+                input.fingerprint,
+                input.mode,
+                input.provider_id,
+                input.provider_name,
+                input.base_url,
+                input.model,
+                input.secret_ref,
+                input.has_secret,
+                input.extra_json,
+                created_at_ms,
+                input.updated_at_ms,
+                input.last_applied_at_ms,
+            ],
+        )
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })?;
+
+        tx.commit()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        self.get_saved_provider(&input.agent, &saved_provider_id)?
+            .ok_or_else(|| AiConfigRepositoryError::Storage {
+                message: "saved provider missing after upsert".to_string(),
+            })
+    }
+
+    pub fn list_saved_providers(
+        &self,
+        agent: &str,
+    ) -> Result<Vec<SavedAiProviderRecord>, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT
+                    agent,
+                    saved_provider_id,
+                    fingerprint,
+                    mode,
+                    provider_id,
+                    provider_name,
+                    base_url,
+                    model,
+                    secret_ref,
+                    has_secret,
+                    extra_json,
+                    is_active,
+                    created_at_ms,
+                    updated_at_ms,
+                    last_applied_at_ms
+                 FROM ai_config_saved_providers
+                 WHERE agent = ?1
+                 ORDER BY created_at_ms DESC, saved_provider_id DESC",
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let rows = stmt
+            .query_map(params![agent], map_saved_ai_provider_row)
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?);
+        }
+        Ok(results)
+    }
+
+    pub fn get_saved_provider(
+        &self,
+        agent: &str,
+        saved_provider_id: &str,
+    ) -> Result<Option<SavedAiProviderRecord>, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        conn.query_row(
+            "SELECT
+                agent,
+                saved_provider_id,
+                fingerprint,
+                mode,
+                provider_id,
+                provider_name,
+                base_url,
+                model,
+                secret_ref,
+                has_secret,
+                extra_json,
+                is_active,
+                created_at_ms,
+                updated_at_ms,
+                last_applied_at_ms
+             FROM ai_config_saved_providers
+             WHERE agent = ?1 AND saved_provider_id = ?2",
+            params![agent, saved_provider_id],
+            map_saved_ai_provider_row,
+        )
+        .optional()
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })
+    }
+
+    pub fn set_active_saved_provider(
+        &self,
+        agent: &str,
+        saved_provider_id: &str,
+        last_applied_at_ms: i64,
+    ) -> Result<Option<SavedAiProviderRecord>, AiConfigRepositoryError> {
+        let mut conn = self.connection()?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let updated = tx
+            .execute(
+                "UPDATE ai_config_saved_providers
+                 SET is_active = CASE WHEN saved_provider_id = ?2 THEN 1 ELSE 0 END,
+                     last_applied_at_ms = CASE WHEN saved_provider_id = ?2 THEN ?3 ELSE last_applied_at_ms END
+                 WHERE agent = ?1",
+                params![agent, saved_provider_id, last_applied_at_ms],
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+        tx.commit()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        if updated == 0 {
+            return Ok(None);
+        }
+        self.get_saved_provider(agent, saved_provider_id)
+    }
+
+    pub fn delete_saved_provider(
+        &self,
+        agent: &str,
+        saved_provider_id: &str,
+    ) -> Result<bool, AiConfigRepositoryError> {
+        let conn = self.connection()?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM ai_config_saved_providers WHERE agent = ?1 AND saved_provider_id = ?2",
+                params![agent, saved_provider_id],
+            )
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+        Ok(deleted > 0)
+    }
 }
 
 fn map_saved_claude_provider_row(
@@ -472,6 +822,28 @@ fn map_saved_claude_provider_row(
         auth_scheme: row.get(8)?,
         secret_ref: row.get(9)?,
         has_secret: row.get(10)?,
+        is_active: row.get::<_, i64>(11)? != 0,
+        created_at_ms: row.get(12)?,
+        updated_at_ms: row.get(13)?,
+        last_applied_at_ms: row.get(14)?,
+    })
+}
+
+fn map_saved_ai_provider_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<SavedAiProviderRecord> {
+    Ok(SavedAiProviderRecord {
+        agent: row.get(0)?,
+        saved_provider_id: row.get(1)?,
+        fingerprint: row.get(2)?,
+        mode: row.get(3)?,
+        provider_id: row.get(4)?,
+        provider_name: row.get(5)?,
+        base_url: row.get(6)?,
+        model: row.get(7)?,
+        secret_ref: row.get(8)?,
+        has_secret: row.get(9)?,
+        extra_json: row.get(10)?,
         is_active: row.get::<_, i64>(11)? != 0,
         created_at_ms: row.get(12)?,
         updated_at_ms: row.get(13)?,
@@ -521,4 +893,31 @@ CREATE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_active
 
 CREATE INDEX IF NOT EXISTS idx_ai_config_saved_claude_workspace_created
   ON ai_config_saved_claude_providers(workspace_id, created_at_ms DESC);
+
+CREATE TABLE IF NOT EXISTS ai_config_saved_providers (
+  saved_provider_id TEXT PRIMARY KEY,
+  agent TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  provider_id TEXT,
+  provider_name TEXT NOT NULL,
+  base_url TEXT,
+  model TEXT,
+  secret_ref TEXT,
+  has_secret INTEGER NOT NULL DEFAULT 0,
+  extra_json TEXT NOT NULL DEFAULT '{}',
+  is_active INTEGER NOT NULL DEFAULT 0,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  last_applied_at_ms INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_config_saved_provider_agent_fingerprint
+  ON ai_config_saved_providers(agent, fingerprint);
+
+CREATE INDEX IF NOT EXISTS idx_ai_config_saved_provider_agent_active
+  ON ai_config_saved_providers(agent, is_active, last_applied_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ai_config_saved_provider_agent_created
+  ON ai_config_saved_providers(agent, created_at_ms DESC);
 "#;

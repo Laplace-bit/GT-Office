@@ -809,6 +809,7 @@ export interface GeminiProviderPreset {
 }
 
 export interface CodexConfigSnapshot {
+  savedProviderId?: string | null
   activeMode?: CodexProviderMode | null
   providerId?: string | null
   providerName?: string | null
@@ -821,6 +822,7 @@ export interface CodexConfigSnapshot {
 }
 
 export interface GeminiConfigSnapshot {
+  savedProviderId?: string | null
   activeMode?: GeminiProviderMode | null
   authMode?: GeminiAuthMode | null
   providerId?: string | null
@@ -833,6 +835,37 @@ export interface GeminiConfigSnapshot {
   updatedAtMs?: number | null
 }
 
+export interface CodexSavedProviderSnapshot {
+  savedProviderId: string
+  mode: CodexProviderMode
+  providerId?: string | null
+  providerName: string
+  baseUrl?: string | null
+  model?: string | null
+  configToml?: string | null
+  hasSecret: boolean
+  isActive: boolean
+  createdAtMs: number
+  updatedAtMs: number
+  lastAppliedAtMs: number
+}
+
+export interface GeminiSavedProviderSnapshot {
+  savedProviderId: string
+  mode: GeminiProviderMode
+  providerId?: string | null
+  providerName: string
+  baseUrl?: string | null
+  model?: string | null
+  authMode: GeminiAuthMode
+  selectedType: string
+  hasSecret: boolean
+  isActive: boolean
+  createdAtMs: number
+  updatedAtMs: number
+  lastAppliedAtMs: number
+}
+
 export interface CodexSnapshot {
   title: string
   summary: string
@@ -841,6 +874,7 @@ export interface CodexSnapshot {
   tips: string[]
   presets: CodexProviderPreset[]
   config: CodexConfigSnapshot
+  savedProviders: CodexSavedProviderSnapshot[]
   mcpInstalled: boolean
 }
 
@@ -852,6 +886,7 @@ export interface GeminiSnapshot {
   tips: string[]
   presets: GeminiProviderPreset[]
   config: GeminiConfigSnapshot
+  savedProviders: GeminiSavedProviderSnapshot[]
   mcpInstalled: boolean
 }
 
@@ -882,6 +917,7 @@ export interface ClaudeDraftInput {
 
 export interface CodexDraftInput {
   mode: CodexProviderMode
+  savedProviderId?: string | null
   providerId?: string | null
   providerName?: string | null
   baseUrl?: string | null
@@ -892,6 +928,7 @@ export interface CodexDraftInput {
 
 export interface GeminiDraftInput {
   mode: GeminiProviderMode
+  savedProviderId?: string | null
   authMode?: GeminiAuthMode | null
   providerId?: string | null
   providerName?: string | null
@@ -2039,35 +2076,54 @@ export const desktopApi = {
       agentToolKind: options?.agentToolKind ?? null,
     })
   },
-  aiConfigReadSnapshot(workspaceId: string, allow?: string | null) {
+  aiConfigReadSnapshot(workspaceId?: string | null, allow?: string | null) {
     return invokeCommand<AiConfigReadSnapshotResponse>('ai_config_read_snapshot', {
-      workspaceId,
+      workspaceId: workspaceId ?? null,
       allow: allow ?? null,
     })
   },
   aiConfigPreviewPatch(
-    workspaceId: string,
+    workspaceId: string | null | undefined,
     agent: AiConfigAgent,
-    scope: 'workspace',
+    scope: 'global',
     draft: AiConfigDraftInput,
   ) {
     return invokeCommand<AiConfigPreviewResponse>('ai_config_preview_patch', {
-      workspaceId,
+      workspaceId: workspaceId ?? null,
       agent,
       scope,
       draft,
     })
   },
-  aiConfigApplyPatch(workspaceId: string, previewId: string, confirmedBy: string) {
+  aiConfigApplyPatch(workspaceId: string | null | undefined, previewId: string, confirmedBy: string) {
     return invokeCommand<AiConfigApplyResponse>('ai_config_apply_patch', {
-      workspaceId,
+      workspaceId: workspaceId ?? null,
       previewId,
       confirmedBy,
     })
   },
-  aiConfigSwitchSavedClaudeProvider(workspaceId: string, savedProviderId: string, confirmedBy: string) {
-    return invokeCommand<AiConfigApplyResponse>('ai_config_switch_saved_claude_provider', {
-      workspaceId,
+  aiConfigSwitchSavedProvider(
+    workspaceId: string | null | undefined,
+    agent: AiConfigAgent,
+    savedProviderId: string,
+    confirmedBy: string,
+  ) {
+    return invokeCommand<AiConfigApplyResponse>('ai_config_switch_saved_provider', {
+      workspaceId: workspaceId ?? null,
+      agent,
+      savedProviderId,
+      confirmedBy,
+    })
+  },
+  aiConfigDeleteSavedProvider(
+    workspaceId: string | null | undefined,
+    agent: AiConfigAgent,
+    savedProviderId: string,
+    confirmedBy: string,
+  ) {
+    return invokeCommand<AiConfigApplyResponse>('ai_config_delete_saved_provider', {
+      workspaceId: workspaceId ?? null,
+      agent,
       savedProviderId,
       confirmedBy,
     })

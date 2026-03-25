@@ -18,6 +18,7 @@ interface ProviderAgentCardProps {
   onUninstall: () => void
   onOpenEnhancements: () => void
   onConfigure: () => void
+  enhancementDisabled?: boolean
   configureActions?: Array<{
     key: string
     label: string
@@ -57,11 +58,12 @@ export function ProviderAgentCard({
   onUninstall,
   onOpenEnhancements,
   onConfigure,
+  enhancementDisabled = false,
   configureActions,
 }: ProviderAgentCardProps) {
   const installCliDisabled = statusLoading || installingCli
   const uninstallCliDisabled = statusLoading || uninstallingCli
-  const enhancementDisabled = statusLoading || !agent.installStatus.installed
+  const isEnhancementDisabled = statusLoading || !agent.installStatus.installed || enhancementDisabled
   const tone = statusLoading ? 'muted' : resolveStatusTone(agent)
   const label = statusLoading
     ? t(locale, '正在检查本机环境', 'Checking local environment')
@@ -74,10 +76,10 @@ export function ProviderAgentCard({
   const effectiveConfigureActions =
     configureActions && configureActions.length > 0
       ? configureActions
-      : [
+        : [
           {
             key: 'configure',
-            label: t(locale, 'aiConfig.card.configure'),
+            label: t(locale, '模型供应商', 'Model Providers'),
             onClick: onConfigure,
           },
         ]
@@ -202,11 +204,11 @@ export function ProviderAgentCard({
           className="action-button secondary"
           onClick={(e) => {
             e.stopPropagation()
-            if (!enhancementDisabled) {
+            if (!isEnhancementDisabled) {
               onOpenEnhancements()
             }
           }}
-          disabled={enhancementDisabled}
+          disabled={isEnhancementDisabled}
         >
           <AppIcon name="sparkles" width={14} height={14} />
           {t(locale, 'aiConfig.card.enhancementEntry')}

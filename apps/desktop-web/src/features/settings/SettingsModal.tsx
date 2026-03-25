@@ -110,13 +110,7 @@ export function SettingsModal({
       case 'ai':
         return (
           <div className="settings-pane-section">
-            {workspaceId ? (
-              <AiProvidersSection locale={locale} workspaceId={workspaceId} />
-            ) : (
-              <p style={{ padding: `${rem14(24)} 0`, color: 'var(--vb-text-muted)' }}>
-                {t(locale, '请先打开一个工作区以管理 AI 配置。', 'Please open a workspace to manage AI configuration.')}
-              </p>
-            )}
+            <AiProvidersSection locale={locale} workspaceId={workspaceId} />
           </div>
         )
       case 'about':
@@ -187,7 +181,7 @@ export function SettingsModal({
               onClick={() => setActiveTab('ai')}
             >
               <AppIcon name="sparkles" aria-hidden="true" />
-              {t(locale, 'Agent 供应商', 'Agent Providers')}
+              {t(locale, '模型供应商', 'Model Providers')}
             </button>
             <button
               className={`settings-nav-item ${activeTab === 'about' ? 'active' : ''}`}
@@ -206,7 +200,7 @@ export function SettingsModal({
               {activeTab === 'general' && t(locale, 'settingsModal.nav.general')}
               {activeTab === 'shortcuts' && t(locale, '快捷键', 'Keybindings')}
               {activeTab === 'channels' && t(locale, 'settingsModal.nav.channels')}
-              {activeTab === 'ai' && t(locale, 'Agent 供应商', 'Agent Providers')}
+              {activeTab === 'ai' && t(locale, '模型供应商', 'Model Providers')}
               {activeTab === 'about' && t(locale, 'settingsModal.nav.about')}
             </h3>
             <button

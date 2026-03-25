@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -13,10 +13,7 @@ use vb_task::AgentToolKind;
 use vb_tools::agent_installer::{AgentInstaller, AgentType};
 
 use crate::app_state::AppState;
-
-fn ensure_workspace_exists(state: &AppState, workspace_id: &str) -> Result<(), String> {
-    state.workspace_root_path(workspace_id).map(|_| ())
-}
+const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
 
 fn resolve_ai_config_repository(app: &AppHandle) -> Result<SqliteAiConfigRepository, String> {
     let base_dir = app
@@ -35,6 +32,16 @@ fn resolve_ai_config_service(app: &AppHandle, state: &AppState) -> Result<AiConf
         state.settings_service.clone(),
         resolve_ai_config_repository(app)?,
     ))
+}
+
+fn resolve_ai_workspace_root(
+    state: &AppState,
+    workspace_id: Option<&str>,
+) -> Result<Option<PathBuf>, String> {
+    workspace_id
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| state.workspace_root_path(value))
+        .transpose()
 }
 
 pub fn augment_terminal_env_for_agent(
@@ -105,43 +112,42 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
 
 #[tauri::command]
 pub async fn ai_config_read_snapshot(
-    workspace_id: String,
+    workspace_id: Option<String>,
     allow: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<AiConfigReadSnapshotResponse, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
-    let workspace_root = state.workspace_root_path(&workspace_id)?;
+    let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
+    let cache_key = workspace_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(GLOBAL_AI_CONFIG_CONTEXT);
+    let workspace_root_text = workspace_root
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| GLOBAL_AI_CONFIG_CONTEXT.to_string());
 
     // Check cache first (5 second TTL)
-    if let Ok(Some(cached)) = state.get_ai_config_snapshot_cache(&workspace_id) {
+    if let Ok(Some(cached)) = state.get_ai_config_snapshot_cache(cache_key) {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_millis() as u64)
             .unwrap_or(0);
         let cache_age_ms = now_ms.saturating_sub(cached.cached_at_ms);
 
-        // Cache valid for 5 seconds, and workspace root must match
-        if cache_age_ms < 5000
-            && cached.workspace_root == workspace_root.to_string_lossy().to_string()
-        {
-            tracing::debug!("AI config cache hit for workspace {}", workspace_id);
+        if cache_age_ms < 5000 && cached.workspace_root == workspace_root_text {
+            tracing::debug!("AI config cache hit for context {}", cache_key);
             return Ok(AiConfigReadSnapshotResponse {
-                workspace_id,
+                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                 allow: allow.unwrap_or_else(|| "strict".to_string()),
                 snapshot: cached.snapshot,
                 masking: vec!["apiKey".to_string(), "secretRef".to_string()],
             });
         }
-        tracing::debug!(
-            "AI config cache expired for workspace {} (age: {}ms)",
-            workspace_id,
-            cache_age_ms
-        );
+        tracing::debug!("AI config cache expired for context {} (age: {}ms)", cache_key, cache_age_ms);
     }
 
     let workspace_root_for_read = workspace_root.clone();
-    let workspace_id_for_read = workspace_id.clone();
     let app_for_read = app.clone();
     let settings_service = state.settings_service.clone();
     let snapshot = tauri::async_runtime::spawn_blocking(move || {
@@ -150,21 +156,17 @@ pub async fn ai_config_read_snapshot(
             resolve_ai_config_repository(&app_for_read)?,
         );
         service
-            .read_snapshot(&workspace_id_for_read, &workspace_root_for_read)
+            .read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, workspace_root_for_read.as_deref())
             .map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| format!("AI_CONFIG_SNAPSHOT_TASK_FAILED: {error}"))??;
 
     // Update cache
-    let _ = state.set_ai_config_snapshot_cache(
-        &workspace_id,
-        &workspace_root.to_string_lossy(),
-        snapshot.clone(),
-    );
+    let _ = state.set_ai_config_snapshot_cache(cache_key, &workspace_root_text, snapshot.clone());
 
     Ok(AiConfigReadSnapshotResponse {
-        workspace_id,
+        workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
         allow: allow.unwrap_or_else(|| "strict".to_string()),
         snapshot,
         masking: vec!["apiKey".to_string(), "secretRef".to_string()],
@@ -173,35 +175,35 @@ pub async fn ai_config_read_snapshot(
 
 #[tauri::command]
 pub fn ai_config_preview_patch(
-    workspace_id: String,
+    workspace_id: Option<String>,
     scope: String,
     agent: String,
     draft: Value,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<vb_ai_config::AiConfigPreviewResponse, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
     let agent_type = AiConfigAgent::parse(&agent)
         .ok_or_else(|| "AI_CONFIG_AGENT_UNSUPPORTED: unsupported agent".to_string())?;
 
-    let workspace_root = state.workspace_root_path(&workspace_id)?;
+    let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
+    let root_ref = workspace_root.as_deref().unwrap_or_else(|| Path::new(""));
     let service = resolve_ai_config_service(&app, &state)?;
 
     let (preview, stored_preview) = match agent_type {
         AiConfigAgent::Claude => {
             let draft: ClaudeDraftInput = serde_json::from_value(draft)
                 .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
-            service.preview_claude_patch(&workspace_id, &workspace_root, &scope, draft)
+            service.preview_claude_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &scope, draft)
         }
         AiConfigAgent::Codex => {
             let draft: CodexDraftInput = serde_json::from_value(draft)
                 .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
-            service.preview_codex_patch(&workspace_id, &workspace_root, draft)
+            service.preview_codex_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, draft)
         }
         AiConfigAgent::Gemini => {
             let draft: GeminiDraftInput = serde_json::from_value(draft)
                 .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
-            service.preview_gemini_patch(&workspace_id, &workspace_root, draft)
+            service.preview_gemini_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, draft)
         }
     }
     .map_err(|error| error.to_string())?;
@@ -212,31 +214,30 @@ pub fn ai_config_preview_patch(
 
 #[tauri::command]
 pub fn ai_config_apply_patch(
-    workspace_id: String,
+    workspace_id: Option<String>,
     preview_id: String,
     confirmed_by: String,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
     let preview = state
         .take_ai_config_preview(&preview_id)?
         .ok_or_else(|| "AI_CONFIG_PREVIEW_NOT_FOUND: preview has expired".to_string())?;
-    let workspace_root = state.workspace_root_path(&workspace_id)?;
+    let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
+    let root_ref = workspace_root.as_deref().unwrap_or_else(|| Path::new(""));
     let service = resolve_ai_config_service(&app, &state)?;
 
-    // Invalidate cache before applying changes
-    let _ = state.invalidate_ai_config_snapshot_cache(&workspace_id);
+    let _ = state.invalidate_all_ai_config_snapshot_cache();
 
     let response = match &preview {
         StoredAiConfigPreview::Claude(p) => {
-            service.apply_claude_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+            service.apply_claude_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, p)
         }
         StoredAiConfigPreview::Codex(p) => {
-            service.apply_codex_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+            service.apply_codex_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, p)
         }
         StoredAiConfigPreview::Gemini(p) => {
-            service.apply_gemini_preview(&workspace_id, &workspace_root, &confirmed_by, p)
+            service.apply_gemini_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, p)
         }
     }
     .map_err(|error| error.to_string())?;
@@ -251,7 +252,7 @@ pub fn ai_config_apply_patch(
         "ai_config/changed",
         json!({
             "auditId": response.audit_id,
-            "scope": "workspace",
+            "scope": GLOBAL_AI_CONFIG_CONTEXT,
             "changedKeys": changed_keys,
         }),
     );
@@ -260,57 +261,82 @@ pub fn ai_config_apply_patch(
 
 #[tauri::command]
 pub fn ai_config_list_audit_logs(
-    workspace_id: String,
+    workspace_id: Option<String>,
     agent: String,
     limit: Option<usize>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Vec<vb_storage::AiConfigAuditLogInput>, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
     let service = resolve_ai_config_service(&app, &state)?;
     service
-        .list_audit_logs(&workspace_id, &agent, limit.unwrap_or(10))
+        .list_audit_logs(
+            workspace_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(GLOBAL_AI_CONFIG_CONTEXT),
+            &agent,
+            limit.unwrap_or(10),
+        )
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn ai_config_switch_saved_claude_provider(
-    workspace_id: String,
+pub fn ai_config_switch_saved_provider(
+    workspace_id: Option<String>,
+    agent: String,
     saved_provider_id: String,
     confirmed_by: String,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
-    let workspace_root = state.workspace_root_path(&workspace_id)?;
+    let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
     let service = resolve_ai_config_service(&app, &state)?;
+    let agent = AiConfigAgent::parse(&agent)
+        .ok_or_else(|| "AI_CONFIG_AGENT_UNSUPPORTED: unsupported agent".to_string())?;
 
-    // Invalidate cache before switching
-    let _ = state.invalidate_ai_config_snapshot_cache(&workspace_id);
+    let _ = state.invalidate_all_ai_config_snapshot_cache();
 
     let response = service
-        .switch_saved_claude_provider(
-            &workspace_id,
-            &workspace_root,
-            &saved_provider_id,
-            &confirmed_by,
-        )
+        .switch_saved_provider(agent, workspace_root.as_deref(), &saved_provider_id, &confirmed_by)
         .map_err(|error| error.to_string())?;
 
     let _ = app.emit(
         "ai_config/changed",
         json!({
             "auditId": response.audit_id,
-            "scope": "workspace",
-            "changedKeys": [
-                "ai.providers.claude.savedProviderId",
-                "ai.providers.claude.activeMode",
-                "ai.providers.claude.providerId",
-                "ai.providers.claude.providerName",
-                "ai.providers.claude.baseUrl",
-                "ai.providers.claude.model",
-                "ai.providers.claude.authScheme",
-            ],
+            "scope": GLOBAL_AI_CONFIG_CONTEXT,
+            "changedKeys": [],
+        }),
+    );
+    Ok(response)
+}
+
+#[tauri::command]
+pub fn ai_config_delete_saved_provider(
+    workspace_id: Option<String>,
+    agent: String,
+    saved_provider_id: String,
+    confirmed_by: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
+    let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
+    let service = resolve_ai_config_service(&app, &state)?;
+    let agent = AiConfigAgent::parse(&agent)
+        .ok_or_else(|| "AI_CONFIG_AGENT_UNSUPPORTED: unsupported agent".to_string())?;
+
+    let _ = state.invalidate_all_ai_config_snapshot_cache();
+
+    let response = service
+        .delete_saved_provider(agent, workspace_root.as_deref(), &saved_provider_id, &confirmed_by)
+        .map_err(|error| error.to_string())?;
+
+    let _ = app.emit(
+        "ai_config/changed",
+        json!({
+            "auditId": response.audit_id,
+            "scope": GLOBAL_AI_CONFIG_CONTEXT,
+            "changedKeys": [],
         }),
     );
     Ok(response)

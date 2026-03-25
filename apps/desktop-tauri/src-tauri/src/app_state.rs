@@ -602,6 +602,15 @@ impl AppState {
         Ok(())
     }
 
+    pub fn invalidate_all_ai_config_snapshot_cache(&self) -> Result<(), String> {
+        let mut caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
+            "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned"
+                .to_string()
+        })?;
+        caches.clear();
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn bind_external_reply_session(
         &self,

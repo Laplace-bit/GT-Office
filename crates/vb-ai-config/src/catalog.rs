@@ -796,6 +796,7 @@ pub fn codex_snapshot_template() -> CodexSnapshot {
         ],
         presets: codex_provider_presets(),
         config: Default::default(),
+        saved_providers: Vec::new(),
         mcp_installed: false,
     }
 }
@@ -813,6 +814,7 @@ pub fn gemini_snapshot_template() -> GeminiSnapshot {
         ],
         presets: gemini_provider_presets(),
         config: Default::default(),
+        saved_providers: Vec::new(),
         mcp_installed: false,
     }
 }

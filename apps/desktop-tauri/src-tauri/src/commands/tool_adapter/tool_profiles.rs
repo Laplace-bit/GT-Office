@@ -113,7 +113,7 @@ pub(crate) fn read_ai_config_snapshot(
 
     let service = resolve_ai_config_service(app, state)?;
     let snapshot = service
-        .read_snapshot(workspace_id, &workspace_root)
+        .read_snapshot(workspace_id, Some(&workspace_root))
         .map_err(|error| error.to_string())?;
     let _ =
         state.set_ai_config_snapshot_cache(workspace_id, &workspace_root_text, snapshot.clone());
