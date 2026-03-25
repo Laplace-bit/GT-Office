@@ -21,6 +21,7 @@ import {
 } from './ShellRoot.shared'
 import { ActivityRail } from './ActivityRail'
 import { LeftBusinessPane } from './LeftBusinessPane'
+import { resolveLeftPaneSlotClassName } from './left-pane-layout'
 import { StatusBar } from './StatusBar'
 import { TopControlBar } from './TopControlBar'
 import type { NavItemId, PaneModel } from './navigation-model'
@@ -146,6 +147,7 @@ function ShellLeftPaneContent({
   activePaneModel,
 }: ShellLeftPaneContentProps) {
   const showFileTree = activeNavId === 'files'
+  const fileTreeSlotClassName = resolveLeftPaneSlotClassName(showFileTree)
 
   const secondaryPane = (() => {
     if (activeNavId === 'tasks') {
@@ -169,10 +171,10 @@ function ShellLeftPaneContent({
 
   return (
     <>
-      <div style={showFileTree ? undefined : { display: 'none' }} aria-hidden={!showFileTree}>
+      <div className={fileTreeSlotClassName} aria-hidden={!showFileTree}>
         <FileTreePane {...fileTreePaneProps} />
       </div>
-      {showFileTree ? null : secondaryPane}
+      {showFileTree ? null : <div className="shell-left-pane-slot">{secondaryPane}</div>}
     </>
   )
 }
