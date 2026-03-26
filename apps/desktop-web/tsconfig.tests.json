@@ -13,8 +13,10 @@
   },
   "include": [
     "tests/**/*.ts",
-    "src/features/file-explorer/file-search-state.ts",
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
-    "src/shell/layout/left-pane-layout.ts"
+    "src/features/terminal/station-terminal-input-buffer.ts",
+    "src/features/terminal/station-terminal-runtime-state.ts",
+    "src/features/terminal/station-terminal-restore-state.ts",
+    "src/features/terminal/station-terminal-document-scope.ts"
   ]
 }

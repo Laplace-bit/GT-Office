@@ -33,7 +33,30 @@ import {
   type TaskDispatchRecord,
   type TaskDraftState,
 } from '@features/task-center'
-import type { StationTerminalSink, StationTerminalSinkBindingHandler } from '@features/terminal'
+import {
+  buildClosedStationTerminalRuntime,
+  buildSessionBindingRuntimePatch,
+  captureMatchingSessionOwnedRestoreState,
+  captureSessionOwnedRestoreState,
+  createBufferedStationInputController,
+  ensureSingleFlightStationSession,
+  resolveStationSessionRebindCleanup,
+  retainSessionOwnedRestoreState,
+  resolveClosedStationSessionCleanup,
+  resolveDroppedStationRuntimeCleanup,
+  resolveDroppedStationSessionCleanup,
+  resolveStationRuntimeRegistrationCleanup,
+  shouldApplyRecoveredStationOutput,
+  shouldApplyStationSessionLaunchFailure,
+  shouldApplyStationSessionResult,
+  shouldApplyStationToolLaunchResult,
+  shouldForwardStationTerminalInput,
+  shouldMatchDetachedBridgeSession,
+  type BufferedStationInputController,
+  type SessionOwnedRestoreState,
+  type StationTerminalSink,
+  type StationTerminalSinkBindingHandler,
+} from '@features/terminal'
 import {
   buildStationChannelBotBindingMap,
   resolveConnectorAccounts,
@@ -152,6 +175,7 @@ import {
   readRecord,
   readString,
   readTaskQuickDispatchOpacityFromSettings,
+  STATION_TASK_SUBMIT_MAX_RETRY_FRAMES,
   shouldFlushStationInputImmediately,
   shouldPreventDesktopBrowserShortcut,
   summarizeExternalChannelText,
@@ -277,13 +301,13 @@ export function ShellRoot() {
   const sessionStationRef = useRef<Record<string, string>>({})
   const terminalSessionSeqRef = useRef<Record<string, number>>({})
   const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
+  const ensureStationTerminalSessionInFlightRef = useRef<Record<string, Promise<string | null>>>({})
+  const stationToolLaunchSeqRef = useRef<Record<string, number>>({})
   const stationTerminalSinkRef = useRef<Record<string, StationTerminalSink>>({})
   const stationTerminalOutputCacheRef = useRef<Record<string, string>>({})
-  const stationTerminalRestoreStateRef = useRef<Record<string, { content: string; cols: number; rows: number }>>({})
-  const stationTerminalInputQueueRef = useRef<Record<string, string>>({})
+  const stationTerminalRestoreStateRef = useRef<Record<string, SessionOwnedRestoreState>>({})
+  const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
-  const stationTerminalInputFlushTimerRef = useRef<Record<string, number | null>>({})
-  const stationTerminalInputSendingRef = useRef<Record<string, boolean>>({})
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
     null,
@@ -1128,6 +1152,9 @@ export function ShellRoot() {
           ...current,
           ...patch,
         }
+        if ((current.sessionId ?? null) !== (nextRuntime.sessionId ?? null)) {
+          delete stationTerminalRestoreStateRef.current[stationId]
+        }
         const next = {
           ...prev,
           [stationId]: nextRuntime,
@@ -1512,12 +1539,21 @@ export function ShellRoot() {
         if (meta?.sourceSink && stationTerminalSinkRef.current[stationId] !== meta.sourceSink) {
           return
         }
-        if (meta?.restoreState) {
-          stationTerminalRestoreStateRef.current[stationId] = {
-            content: meta.restoreState,
-            cols: meta.restoreCols ?? 0,
-            rows: meta.restoreRows ?? 0,
-          }
+        const capturedRestoreState = meta?.restoreState
+          ? captureMatchingSessionOwnedRestoreState(
+              stationTerminalsRef.current[stationId],
+              meta.sourceSessionId,
+              {
+                content: meta.restoreState,
+                cols: meta.restoreCols ?? 0,
+                rows: meta.restoreRows ?? 0,
+              },
+            )
+          : null
+        if (capturedRestoreState) {
+          stationTerminalRestoreStateRef.current[stationId] = capturedRestoreState
+        } else {
+          delete stationTerminalRestoreStateRef.current[stationId]
         }
         delete stationTerminalSinkRef.current[stationId]
         return
@@ -1525,11 +1561,15 @@ export function ShellRoot() {
       stationTerminalSinkRef.current[stationId] = sink
       const station = stationsRef.current.find((item) => item.id === stationId)
       const cachedContent = stationTerminalOutputCacheRef.current[stationId] ?? getStationIdleBanner(station)
-      const restoreState = stationTerminalRestoreStateRef.current[stationId]
+      const restoreState = retainSessionOwnedRestoreState(
+        stationTerminalRestoreStateRef.current[stationId],
+        stationTerminalsRef.current[stationId]?.sessionId ?? null,
+      )
       if (restoreState) {
-        sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
+        sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         return
       }
+      delete stationTerminalRestoreStateRef.current[stationId]
       sink.reset(cachedContent)
     },
     [],
@@ -1620,6 +1660,14 @@ export function ShellRoot() {
                 delta.fromSeq === seq + 1 &&
                 delta.toSeq >= payload.seq
               ) {
+                if (
+                  !shouldApplyRecoveredStationOutput(
+                    stationTerminalsRef.current[stationId],
+                    payload.sessionId,
+                  )
+                ) {
+                  return
+                }
                 const text = decodeBase64Chunk(delta.chunk)
                 if (text) {
                   appendStationTerminalOutput(stationId, text)
@@ -1635,6 +1683,14 @@ export function ShellRoot() {
               if (!snapshot) {
                 return
               }
+              if (
+                !shouldApplyRecoveredStationOutput(
+                  stationTerminalsRef.current[stationId],
+                  payload.sessionId,
+                )
+              ) {
+                return
+              }
               resetStationTerminalOutput(stationId, decodeBase64Chunk(snapshot.chunk))
               terminalSessionSeqRef.current[payload.sessionId] = snapshot.currentSeq
               if (unread) {
@@ -1647,11 +1703,36 @@ export function ShellRoot() {
           if (!stationId) {
             return
           }
-          setStationTerminalState(stationId, { stateRaw: payload.to })
+          const nextClosedRuntime =
+            payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed'
+              ? buildClosedStationTerminalRuntime(
+                  stationTerminalsRef.current[stationId],
+                  payload.sessionId,
+                  payload.to,
+                )
+              : null
+          const closedSessionCleanup =
+            payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed'
+              ? resolveClosedStationSessionCleanup(
+                  stationTerminalsRef.current[stationId],
+                  payload.sessionId,
+                )
+              : null
+          if (nextClosedRuntime) {
+            setStationTerminalState(stationId, nextClosedRuntime)
+          } else if (payload.to !== 'exited' && payload.to !== 'killed' && payload.to !== 'failed') {
+            setStationTerminalState(stationId, { stateRaw: payload.to })
+          }
           appendStationTerminalOutput(stationId, `\n[terminal:${payload.to}]\n`)
           if (payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed') {
             delete terminalSessionSeqRef.current[payload.sessionId]
             delete terminalOutputQueueRef.current[payload.sessionId]
+            delete sessionStationRef.current[payload.sessionId]
+            delete terminalSessionVisibilityRef.current[payload.sessionId]
+            if (closedSessionCleanup) {
+              stationTerminalInputControllerRef.current?.clear(stationId)
+              delete stationSubmitSequenceRef.current[stationId]
+            }
           }
         },
         onMeta: (payload: TerminalMetaPayload) => {
@@ -1945,20 +2026,16 @@ export function ShellRoot() {
     detachedProjectionDispatchQueueRef.current = {}
     terminalSessionSeqRef.current = {}
     terminalOutputQueueRef.current = {}
+    ensureStationTerminalSessionInFlightRef.current = {}
+    stationToolLaunchSeqRef.current = {}
     terminalSessionVisibilityRef.current = {}
     stationTerminalRestoreStateRef.current = {}
     stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
       acc[station.id] = getStationIdleBanner(station)
       return acc
     }, {})
-    Object.values(stationTerminalInputFlushTimerRef.current).forEach((timerId) => {
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-    })
-    stationTerminalInputFlushTimerRef.current = {}
-    stationTerminalInputQueueRef.current = {}
-    stationTerminalInputSendingRef.current = {}
+    stationTerminalInputControllerRef.current?.dispose()
+    stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
     Object.entries(stationTerminalSinkRef.current).forEach(([stationId, sink]) => {
       sink.reset(stationTerminalOutputCacheRef.current[stationId])
@@ -2038,17 +2115,19 @@ export function ShellRoot() {
         delete terminalSessionVisibilityRef.current[sessionId]
       }
     })
-    Object.entries(stationTerminalInputFlushTimerRef.current).forEach(([stationId, timerId]) => {
-      if (stationIdSet.has(stationId)) {
-        return
-      }
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-      delete stationTerminalInputFlushTimerRef.current[stationId]
-      delete stationTerminalInputQueueRef.current[stationId]
-      delete stationTerminalInputSendingRef.current[stationId]
-    })
+    stationTerminalsRef.current = Object.keys(stationTerminalsRef.current).reduce<Record<string, StationTerminalRuntime>>(
+      (acc, stationId) => {
+        if (stationIdSet.has(stationId)) {
+          acc[stationId] = stationTerminalsRef.current[stationId]
+        } else {
+          stationTerminalInputControllerRef.current?.clear(stationId)
+          delete ensureStationTerminalSessionInFlightRef.current[stationId]
+        }
+        return acc
+      },
+      {},
+    )
+
     if (!activeStationId && stations[0]) {
       setActiveStationId(stations[0].id)
       return
@@ -2335,115 +2414,161 @@ export function ShellRoot() {
   )
 
   const ensureStationTerminalSession = useMemo(
-    () => async (stationId: string): Promise<string | null> => {
-      const existing = stationTerminalsRef.current[stationId]?.sessionId
-      if (existing) {
-        return existing
-      }
+    () =>
+      ensureSingleFlightStationSession({
+        getExistingSessionId: (stationId) => stationTerminalsRef.current[stationId]?.sessionId,
+        getInFlight: (stationId) => ensureStationTerminalSessionInFlightRef.current[stationId],
+        setInFlight: (stationId, promise) => {
+          ensureStationTerminalSessionInFlightRef.current[stationId] = promise
+        },
+        clearInFlight: (stationId, promise) => {
+          if (ensureStationTerminalSessionInFlightRef.current[stationId] === promise) {
+            delete ensureStationTerminalSessionInFlightRef.current[stationId]
+          }
+        },
+        createSession: async (stationId: string): Promise<string | null> => {
+          if (!activeWorkspaceId) {
+            appendStationTerminalOutput(stationId, t(locale, 'system.bindWorkspace'))
+            return null
+          }
+          if (!desktopApi.isTauriRuntime()) {
+            appendStationTerminalOutput(stationId, t(locale, 'system.webPreviewNoPty'))
+            return null
+          }
 
-      if (!activeWorkspaceId) {
-        appendStationTerminalOutput(stationId, t(locale, 'system.bindWorkspace'))
-        return null
-      }
-      if (!desktopApi.isTauriRuntime()) {
-        appendStationTerminalOutput(stationId, t(locale, 'system.webPreviewNoPty'))
-        return null
-      }
+          const launchWorkspaceId = activeWorkspaceId
+          try {
+            const station = stationsRef.current.find((item) => item.id === stationId)
+            if (!station) {
+              appendStationTerminalOutput(
+                stationId,
+                t(locale, 'system.launchFailed', {
+                  detail: 'STATION_NOT_FOUND',
+                }),
+              )
+              return null
+            }
+            const workspaceRoot = await resolveWorkspaceRoot(launchWorkspaceId)
+            if (!workspaceRoot) {
+              if (
+                shouldApplyStationSessionLaunchFailure(
+                  launchWorkspaceId,
+                  activeWorkspaceIdRef.current,
+                  stationsRef.current.some((item) => item.id === stationId),
+                  stationTerminalsRef.current[stationId],
+                )
+              ) {
+                appendStationTerminalOutput(
+                  stationId,
+                  t(locale, 'system.launchFailed', {
+                    detail: 'WORKSPACE_CONTEXT_UNAVAILABLE',
+                  }),
+                )
+              }
+              return null
+            }
 
-      try {
-        const station = stationsRef.current.find((item) => item.id === stationId)
-        if (!station) {
-          appendStationTerminalOutput(
-            stationId,
-            t(locale, 'system.launchFailed', {
-              detail: 'STATION_NOT_FOUND',
-            }),
-          )
-          return null
-        }
-        const workspaceRoot = await resolveWorkspaceRoot(activeWorkspaceId)
-        if (!workspaceRoot) {
-          appendStationTerminalOutput(
-            stationId,
-            t(locale, 'system.launchFailed', {
-              detail: 'WORKSPACE_CONTEXT_UNAVAILABLE',
-            }),
-          )
-          return null
-        }
-
-        await desktopApi.fsWriteFile(
-          activeWorkspaceId,
-          buildAgentWorkspaceMarkerPath(station.agentWorkdirRel),
-          '',
-        )
-        const agentWorkspaceCwd = resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
-        const terminalEnv = {
-          GTO_WORKSPACE_ID: activeWorkspaceId,
-          GTO_AGENT_ID: station.id,
-          GTO_ROLE_KEY: station.role,
-          GTO_STATION_ID: station.id,
-        }
-        const session = await desktopApi.terminalCreate(activeWorkspaceId, {
-          cwd: agentWorkspaceCwd,
-          cwdMode: 'custom',
-          env: terminalEnv,
-          agentToolKind: normalizeStationToolKind(station.tool),
-        })
-        sessionStationRef.current[session.sessionId] = stationId
-        terminalSessionSeqRef.current[session.sessionId] = 0
-        terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
-        delete stationTerminalRestoreStateRef.current[stationId]
-        ensureTerminalSessionVisible(session.sessionId)
-        const currentRuntime = stationTerminalsRef.current[stationId] ?? {
-          sessionId: null,
-          stateRaw: 'idle',
-          unreadCount: 0,
-          shell: null,
-          cwdMode: 'workspace_root' as const,
-          resolvedCwd: null,
-        }
-        stationTerminalsRef.current = {
-          ...stationTerminalsRef.current,
-          [stationId]: {
-            ...currentRuntime,
-            sessionId: session.sessionId,
-            stateRaw: 'running',
-            unreadCount: 0,
-            shell: session.shell,
-            cwdMode: session.cwdMode,
-            resolvedCwd: session.resolvedCwd,
-          },
-        }
-        resetStationTerminalOutput(
-          stationId,
-          `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
-            sessionId: session.sessionId,
-            cwd: session.resolvedCwd,
-          })}${t(locale, 'system.stationWorkspaceInfo', {
-            roleDir: station.roleWorkdirRel,
-            agentDir: station.agentWorkdirRel,
-          })}`,
-        )
-        setStationTerminalState(stationId, {
-          sessionId: session.sessionId,
-          stateRaw: 'running',
-          unreadCount: 0,
-          shell: session.shell,
-          cwdMode: session.cwdMode,
-          resolvedCwd: session.resolvedCwd,
-        })
-        return session.sessionId
-      } catch (error) {
-        appendStationTerminalOutput(
-          stationId,
-          t(locale, 'system.launchFailed', {
-            detail: describeError(error),
-          }),
-        )
-        return null
-      }
-    },
+            await desktopApi.fsWriteFile(
+              launchWorkspaceId,
+              buildAgentWorkspaceMarkerPath(station.agentWorkdirRel),
+              '',
+            )
+            const agentWorkspaceCwd = resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
+            const terminalEnv = {
+              GTO_WORKSPACE_ID: activeWorkspaceId,
+              GTO_AGENT_ID: station.id,
+              GTO_ROLE_KEY: station.role,
+              GTO_STATION_ID: station.id,
+            }
+            const session = await desktopApi.terminalCreate(launchWorkspaceId, {
+              cwd: agentWorkspaceCwd,
+              cwdMode: 'custom',
+              env: terminalEnv,
+              agentToolKind: normalizeStationToolKind(station.tool),
+            })
+            if (
+              !shouldApplyStationSessionResult(
+                launchWorkspaceId,
+                activeWorkspaceIdRef.current,
+                stationsRef.current.some((item) => item.id === stationId),
+                stationTerminalsRef.current[stationId],
+              )
+            ) {
+              const droppedSessionCleanup = resolveDroppedStationSessionCleanup(session.sessionId)
+              if (droppedSessionCleanup) {
+                void desktopApi.terminalKill(
+                  droppedSessionCleanup.sessionId,
+                  droppedSessionCleanup.signal,
+                ).catch(() => {
+                  // Dropped async station launches must not leave orphan backend sessions behind.
+                })
+              }
+              return null
+            }
+            sessionStationRef.current[session.sessionId] = stationId
+            terminalSessionSeqRef.current[session.sessionId] = 0
+            terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
+            delete stationTerminalRestoreStateRef.current[stationId]
+            ensureTerminalSessionVisible(session.sessionId)
+            const currentRuntime = stationTerminalsRef.current[stationId] ?? {
+              sessionId: null,
+              stateRaw: 'idle',
+              unreadCount: 0,
+              shell: null,
+              cwdMode: 'workspace_root' as const,
+              resolvedCwd: null,
+            }
+            stationTerminalsRef.current = {
+              ...stationTerminalsRef.current,
+              [stationId]: {
+                ...currentRuntime,
+                sessionId: session.sessionId,
+                stateRaw: 'running',
+                unreadCount: 0,
+                shell: session.shell,
+                cwdMode: session.cwdMode,
+                resolvedCwd: session.resolvedCwd,
+              },
+            }
+            resetStationTerminalOutput(
+              stationId,
+              `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
+                sessionId: session.sessionId,
+                cwd: session.resolvedCwd,
+              })}${t(locale, 'system.stationWorkspaceInfo', {
+                roleDir: station.roleWorkdirRel,
+                agentDir: station.agentWorkdirRel,
+              })}`,
+            )
+            setStationTerminalState(stationId, {
+              sessionId: session.sessionId,
+              stateRaw: 'running',
+              unreadCount: 0,
+              shell: session.shell,
+              cwdMode: session.cwdMode,
+              resolvedCwd: session.resolvedCwd,
+            })
+            return session.sessionId
+          } catch (error) {
+            if (
+              shouldApplyStationSessionLaunchFailure(
+                launchWorkspaceId,
+                activeWorkspaceIdRef.current,
+                stationsRef.current.some((item) => item.id === stationId),
+                stationTerminalsRef.current[stationId],
+              )
+            ) {
+              appendStationTerminalOutput(
+                stationId,
+                t(locale, 'system.launchFailed', {
+                  detail: describeError(error),
+                }),
+              )
+            }
+            return null
+          }
+        },
+      }),
     [
       activeWorkspaceId,
       appendStationTerminalOutput,
@@ -2464,114 +2589,67 @@ export function ShellRoot() {
   )
 
   const sendStationTerminalInput = useMemo(
-    () => {
-      const clearFlushTimer = (stationId: string) => {
-        const timerId = stationTerminalInputFlushTimerRef.current[stationId]
-        if (typeof timerId === 'number') {
-          window.clearTimeout(timerId)
-        }
-        stationTerminalInputFlushTimerRef.current[stationId] = null
-      }
-
-      const flushStationInput = async (stationId: string) => {
-        clearFlushTimer(stationId)
-        if (stationTerminalInputSendingRef.current[stationId]) {
-          return
-        }
-        const queuedInput = stationTerminalInputQueueRef.current[stationId] ?? ''
-        if (!queuedInput) {
-          return
-        }
-        stationTerminalInputQueueRef.current[stationId] = ''
-        stationTerminalInputSendingRef.current[stationId] = true
-
-        if (!desktopApi.isTauriRuntime()) {
-          appendStationTerminalOutput(stationId, t(locale, 'system.webPreviewNoInput'))
-          stationTerminalInputSendingRef.current[stationId] = false
-          return
-        }
-
-        try {
-          let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-          if (!sessionId) {
-            sessionId = await ensureStationTerminalSession(stationId)
-            if (!sessionId) {
-              stationTerminalInputSendingRef.current[stationId] = false
+    () => (stationId: string, input: string) => {
+      if (!stationTerminalInputControllerRef.current) {
+        stationTerminalInputControllerRef.current = createBufferedStationInputController({
+          flushDelayMs: STATION_INPUT_FLUSH_MS,
+          maxBufferBytes: STATION_INPUT_MAX_BUFFER_BYTES,
+          shouldFlushImmediately: shouldFlushStationInputImmediately,
+          scheduleTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+          clearTimer: (timerId) => window.clearTimeout(timerId),
+          sendInput: async (targetStationId, queuedInput) => {
+            if (!desktopApi.isTauriRuntime()) {
+              appendStationTerminalOutput(targetStationId, t(localeRef.current, 'system.webPreviewNoInput'))
               return
             }
-          }
-          await desktopApi.terminalWrite(sessionId, queuedInput)
-        } catch (error) {
-          appendStationTerminalOutput(
-            stationId,
-            t(locale, 'system.sendFailed', {
-              detail: describeError(error),
-            }),
-          )
-        } finally {
-          stationTerminalInputSendingRef.current[stationId] = false
-          if (stationTerminalInputQueueRef.current[stationId]) {
-            queueMicrotask(() => {
-              void flushStationInput(stationId)
-            })
-          }
-        }
-      }
 
-      return (stationId: string, input: string) => {
-        if (!input) {
-          return
-        }
-        const previous = stationTerminalInputQueueRef.current[stationId] ?? ''
-        const merged = `${previous}${input}`
-        stationTerminalInputQueueRef.current[stationId] =
-          merged.length > STATION_INPUT_MAX_BUFFER_BYTES
-            ? merged.slice(merged.length - STATION_INPUT_MAX_BUFFER_BYTES)
-            : merged
-
-        clearFlushTimer(stationId)
-        if (shouldFlushStationInputImmediately(input)) {
-          void flushStationInput(stationId)
-          return
-        }
-        stationTerminalInputFlushTimerRef.current[stationId] = window.setTimeout(() => {
-          stationTerminalInputFlushTimerRef.current[stationId] = null
-          void flushStationInput(stationId)
-        }, STATION_INPUT_FLUSH_MS)
+            try {
+              const sessionId = stationTerminalsRef.current[targetStationId]?.sessionId ?? null
+              if (!sessionId || !shouldForwardStationTerminalInput(sessionId)) {
+                return
+              }
+              await desktopApi.terminalWrite(sessionId, queuedInput)
+            } catch (error) {
+              appendStationTerminalOutput(
+                targetStationId,
+                t(localeRef.current, 'system.sendFailed', {
+                  detail: describeError(error),
+                }),
+              )
+            }
+          },
+        })
       }
+      stationTerminalInputControllerRef.current.enqueue(stationId, input)
     },
-    [appendStationTerminalOutput, ensureStationTerminalSession, locale],
+    [appendStationTerminalOutput, ensureStationTerminalSession],
   )
 
-  const submitStationTerminal = useCallback(async (stationId: string): Promise<boolean> => {
-    if (!desktopApi.isTauriRuntime()) {
-      return false
+  useEffect(() => {
+    return () => {
+      stationTerminalInputControllerRef.current?.dispose()
+      stationTerminalInputControllerRef.current = null
     }
+  }, [])
 
-    try {
-      let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      if (!sessionId) {
-        sessionId = await ensureStationTerminalSession(stationId)
-        if (!sessionId) {
-          return false
-        }
+
+  const submitStationTerminal = useCallback(async (stationId: string): Promise<boolean> => {
+    for (let attempt = 0; attempt <= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES; attempt += 1) {
+      const submittedByTerminal = stationTerminalSinkRef.current[stationId]?.submit?.() ?? false
+      if (submittedByTerminal) {
+        return true
       }
-      await desktopApi.terminalWriteWithSubmit(
-        sessionId,
-        '',
-        stationSubmitSequenceRef.current[stationId] ?? '\r',
-      )
-      return true
-    } catch (error) {
-      appendStationTerminalOutput(
-        stationId,
-        t(locale, 'system.sendFailed', {
-          detail: describeError(error),
-        }),
-      )
-      return false
+      if (attempt >= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES) {
+        return false
+      }
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          resolve()
+        })
+      })
     }
-  }, [appendStationTerminalOutput, ensureStationTerminalSession, locale])
+    return false
+  }, [])
 
   const writeStationTerminalWithSubmit = useCallback(
     async (stationId: string, input: string): Promise<boolean> => {
@@ -2609,34 +2687,83 @@ export function ShellRoot() {
     [appendStationTerminalOutput, ensureStationTerminalSession, locale, submitStationTerminal],
   )
 
+  const reconcileStationRuntimeRegistration = useCallback(
+    async (input: { workspaceId: string; stationId: string; expectedSessionId: string | null }) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const currentStation = stationsRef.current.find((item) => item.id === input.stationId)
+      const runtimeRegistrationCleanup = resolveStationRuntimeRegistrationCleanup(
+        input.workspaceId,
+        activeWorkspaceIdRef.current,
+        Boolean(currentStation),
+        input.expectedSessionId,
+        stationTerminalsRef.current[input.stationId],
+      )
+      if (!runtimeRegistrationCleanup) {
+        return
+      }
+      if (runtimeRegistrationCleanup.action === 'unregister') {
+        await desktopApi.agentRuntimeUnregister(input.workspaceId, input.stationId)
+        return
+      }
+      if (!currentStation) {
+        await desktopApi.agentRuntimeUnregister(input.workspaceId, input.stationId)
+        return
+      }
+      await desktopApi.agentRuntimeRegister({
+        workspaceId: input.workspaceId,
+        agentId: input.stationId,
+        stationId: input.stationId,
+        roleKey: currentStation.role,
+        sessionId: runtimeRegistrationCleanup.sessionId,
+        toolKind: normalizeStationToolKind(currentStation.tool),
+        resolvedCwd: runtimeRegistrationCleanup.resolvedCwd,
+        submitSequence: stationSubmitSequenceRef.current[input.stationId] ?? null,
+        online: true,
+      })
+    },
+    [],
+  )
+
   const handleStationTerminalInput = useCallback(
     (stationId: string, data: string) => {
       const submitSequence = normalizeSubmitSequence(data)
       if (submitSequence) {
         stationSubmitSequenceRef.current[stationId] = submitSequence
         const workspaceId = activeWorkspaceIdRef.current
-        const sessionId = stationTerminalsRef.current[stationId]?.sessionId
+        const runtime = stationTerminalsRef.current[stationId]
+        const sessionId = runtime?.sessionId ?? null
         const station = stationsRef.current.find((entry) => entry.id === stationId)
         const stationRole = station?.role ?? null
         if (workspaceId && sessionId) {
-          void desktopApi.agentRuntimeRegister({
-            workspaceId,
-            agentId: stationId,
-            stationId,
-            roleKey: stationRole,
-            sessionId,
-            toolKind: normalizeStationToolKind(station?.tool),
-            resolvedCwd: stationTerminalsRef.current[stationId]?.resolvedCwd ?? null,
-            submitSequence,
-            online: true,
-          }).catch(() => {
-            // Best-effort runtime update; next periodic sync will retry.
-          })
+          void desktopApi
+            .agentRuntimeRegister({
+              workspaceId,
+              agentId: stationId,
+              stationId,
+              roleKey: stationRole,
+              sessionId,
+              toolKind: normalizeStationToolKind(station?.tool),
+              resolvedCwd: runtime?.resolvedCwd ?? null,
+              submitSequence,
+              online: true,
+            })
+            .then(() =>
+              reconcileStationRuntimeRegistration({
+                workspaceId,
+                stationId,
+                expectedSessionId: sessionId,
+              }),
+            )
+            .catch(() => {
+              // Best-effort runtime update; next periodic sync will retry.
+            })
         }
       }
       sendStationTerminalInput(stationId, data)
     },
-    [sendStationTerminalInput],
+    [reconcileStationRuntimeRegistration, sendStationTerminalInput],
   )
 
   const resizeStationTerminal = useMemo(
@@ -2675,6 +2802,12 @@ export function ShellRoot() {
     [],
   )
 
+  const matchesDetachedBridgeSession = useCallback(
+    (stationId: string, sessionId: string | null) =>
+      shouldMatchDetachedBridgeSession(stationTerminalsRef.current[stationId]?.sessionId, sessionId),
+    [],
+  )
+
   const buildDetachedHydrateSnapshotMessage = useCallback(
     (targetWindowLabel: string, containerId: string): DetachedTerminalHydrateSnapshotMessage | null => {
       const container =
@@ -2701,9 +2834,12 @@ export function ShellRoot() {
         return acc
       }, {})
       const restoreStates = container.stationIds.reduce<Record<string, StationTerminalRestoreStatePayload>>((acc, stationId) => {
-        const state = stationTerminalRestoreStateRef.current[stationId]
+        const state = retainSessionOwnedRestoreState(
+          stationTerminalRestoreStateRef.current[stationId],
+          stationTerminalsRef.current[stationId]?.sessionId ?? null,
+        )
         if (state) {
-          acc[stationId] = state
+          acc[stationId] = state.state
         }
         return acc
       }, {})
@@ -2750,7 +2886,15 @@ export function ShellRoot() {
           if (!container) {
             return
           }
-          void ensureStationTerminalSession(message.stationId)
+          void ensureStationTerminalSession(message.stationId).then((sessionId) => {
+            if (sessionId || stationTerminalsRef.current[message.stationId]?.sessionId) {
+              return
+            }
+            publishDetachedRuntimePatch(
+              message.stationId,
+              buildSessionBindingRuntimePatch(null) as DetachedTerminalRuntimeProjectionPatch,
+            )
+          })
           return
         }
         case 'detached_terminal_write_input': {
@@ -2758,20 +2902,18 @@ export function ShellRoot() {
           if (!container) {
             return
           }
-          handleStationTerminalInput(message.stationId, message.input)
-          return
-        }
-        case 'detached_terminal_write_with_submit': {
-          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
-          if (!container) {
+          if (!matchesDetachedBridgeSession(message.stationId, message.sessionId)) {
             return
           }
-          void writeStationTerminalWithSubmit(message.stationId, message.input)
+          handleStationTerminalInput(message.stationId, message.input)
           return
         }
         case 'detached_terminal_resize': {
           const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
           if (!container) {
+            return
+          }
+          if (!matchesDetachedBridgeSession(message.stationId, message.sessionId)) {
             return
           }
           resizeStationTerminal(message.stationId, message.cols, message.rows)
@@ -2800,7 +2942,18 @@ export function ShellRoot() {
           if (!container) {
             return
           }
-          stationTerminalRestoreStateRef.current[message.stationId] = message.state
+          if (!matchesDetachedBridgeSession(message.stationId, message.sessionId)) {
+            return
+          }
+          const capturedRestoreState = captureSessionOwnedRestoreState(
+            stationTerminalsRef.current[message.stationId],
+            message.state,
+          )
+          if (capturedRestoreState) {
+            stationTerminalRestoreStateRef.current[message.stationId] = capturedRestoreState
+          } else {
+            delete stationTerminalRestoreStateRef.current[message.stationId]
+          }
           return
         }
         default:
@@ -2811,10 +2964,10 @@ export function ShellRoot() {
       buildDetachedHydrateSnapshotMessage,
       ensureStationTerminalSession,
       handleStationTerminalInput,
+      matchesDetachedBridgeSession,
       queueDetachedProjectionMessage,
       resizeStationTerminal,
       resolveDetachedBridgeContainer,
-      writeStationTerminalWithSubmit,
     ],
   )
 
@@ -2840,6 +2993,8 @@ export function ShellRoot() {
       if (!workspaceId) {
         return null
       }
+      const requestSeq = (stationToolLaunchSeqRef.current[station.id] ?? 0) + 1
+      stationToolLaunchSeqRef.current[station.id] = requestSeq
 
       if (!desktopApi.isTauriRuntime()) {
         const sessionId = await ensureStationTerminalSession(station.id)
@@ -2871,6 +3026,73 @@ export function ShellRoot() {
         const terminalSessionId = response.terminalSessionId?.trim() ?? ''
         if (!terminalSessionId) {
           return null
+        }
+        if (
+          !shouldApplyStationToolLaunchResult(
+            workspaceId,
+            activeWorkspaceIdRef.current,
+            stationsRef.current.some((item) => item.id === station.id),
+            requestSeq,
+            stationToolLaunchSeqRef.current[station.id] ?? 0,
+          )
+        ) {
+          const droppedSessionCleanup = resolveDroppedStationSessionCleanup(terminalSessionId)
+          if (droppedSessionCleanup) {
+            void desktopApi.terminalKill(
+              droppedSessionCleanup.sessionId,
+              droppedSessionCleanup.signal,
+            ).catch(() => {
+              // Dropped async tool launches must not leave orphan backend sessions behind.
+            })
+          }
+          const droppedRuntimeCleanup = resolveDroppedStationRuntimeCleanup(
+            workspaceId,
+            activeWorkspaceIdRef.current,
+            stationsRef.current.some((item) => item.id === station.id),
+            stationTerminalsRef.current[station.id],
+          )
+          if (droppedRuntimeCleanup.action === 'register_current') {
+            const submitSequence = stationSubmitSequenceRef.current[station.id] ?? null
+            void desktopApi
+              .agentRuntimeRegister({
+                workspaceId,
+                agentId: station.id,
+                stationId: station.id,
+                roleKey: station.role,
+                sessionId: droppedRuntimeCleanup.sessionId,
+                toolKind: normalizeStationToolKind(station.tool),
+                resolvedCwd: droppedRuntimeCleanup.resolvedCwd,
+                submitSequence,
+                online: true,
+              })
+              .catch(() => {
+                // Runtime sync effect will retry from current station ownership.
+              })
+          } else {
+            void desktopApi.agentRuntimeUnregister(workspaceId, station.id).catch(() => {
+              // Runtime sync effect will retry from current station ownership.
+            })
+          }
+          return null
+        }
+
+        const rebindCleanup = resolveStationSessionRebindCleanup(
+          stationTerminalsRef.current[station.id],
+          terminalSessionId,
+        )
+        if (rebindCleanup) {
+          delete sessionStationRef.current[rebindCleanup.previousSessionId]
+          delete terminalSessionSeqRef.current[rebindCleanup.previousSessionId]
+          delete terminalOutputQueueRef.current[rebindCleanup.previousSessionId]
+          delete terminalSessionVisibilityRef.current[rebindCleanup.previousSessionId]
+          stationTerminalInputControllerRef.current?.clear(station.id)
+          delete stationTerminalRestoreStateRef.current[station.id]
+          delete stationSubmitSequenceRef.current[station.id]
+          void desktopApi
+            .terminalKill(rebindCleanup.previousSessionId, rebindCleanup.signal)
+            .catch(() => {
+              // Rebinding must not leave the superseded backend session running.
+            })
         }
 
         sessionStationRef.current[terminalSessionId] = station.id
@@ -2907,12 +3129,22 @@ export function ShellRoot() {
 
         return terminalSessionId
       } catch (error) {
-        appendStationTerminalOutput(
-          station.id,
-          t(locale, 'system.launchFailed', {
-            detail: describeError(error),
-          }),
-        )
+        if (
+          shouldApplyStationToolLaunchResult(
+            workspaceId,
+            activeWorkspaceIdRef.current,
+            stationsRef.current.some((item) => item.id === station.id),
+            requestSeq,
+            stationToolLaunchSeqRef.current[station.id] ?? 0,
+          )
+        ) {
+          appendStationTerminalOutput(
+            station.id,
+            t(locale, 'system.launchFailed', {
+              detail: describeError(error),
+            }),
+          )
+        }
         return null
       }
     },
@@ -2955,19 +3187,44 @@ export function ShellRoot() {
       if (!sessionId) {
         return
       }
+      const currentStation = stationsRef.current.find((item) => item.id === input.targetStationId)
+      const runtimeRegistrationCleanup = resolveStationRuntimeRegistrationCleanup(
+        input.workspaceId,
+        activeWorkspaceIdRef.current,
+        Boolean(currentStation),
+        sessionId,
+        stationTerminalsRef.current[input.targetStationId],
+      )
+      if (runtimeRegistrationCleanup?.action === 'unregister') {
+        void desktopApi.agentRuntimeUnregister(input.workspaceId, input.targetStationId).catch(() => {
+          // Runtime sync effect will retry from current station ownership.
+        })
+        return
+      }
+      const registrationSessionId = runtimeRegistrationCleanup?.sessionId ?? sessionId
+      const registrationResolvedCwd =
+        runtimeRegistrationCleanup?.resolvedCwd ??
+        stationTerminalsRef.current[input.targetStationId]?.resolvedCwd ??
+        null
+      const registrationStation = currentStation ?? station
       await desktopApi.agentRuntimeRegister({
         workspaceId: input.workspaceId,
-        agentId: station.id,
-        stationId: station.id,
-        roleKey: station.role,
-        sessionId,
-        toolKind: normalizeStationToolKind(station.tool),
-        resolvedCwd: stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
-        submitSequence: stationSubmitSequenceRef.current[station.id] ?? null,
+        agentId: input.targetStationId,
+        stationId: input.targetStationId,
+        roleKey: registrationStation.role,
+        sessionId: registrationSessionId,
+        toolKind: normalizeStationToolKind(registrationStation.tool),
+        resolvedCwd: registrationResolvedCwd,
+        submitSequence: stationSubmitSequenceRef.current[input.targetStationId] ?? null,
         online: true,
       })
+      await reconcileStationRuntimeRegistration({
+        workspaceId: input.workspaceId,
+        stationId: input.targetStationId,
+        expectedSessionId: registrationSessionId,
+      })
     },
-    [ensureStationTerminalSession],
+    [ensureStationTerminalSession, reconcileStationRuntimeRegistration],
   )
 
   const dispatchTaskBatch = useCallback(
@@ -3096,13 +3353,7 @@ export function ShellRoot() {
         delete terminalOutputQueueRef.current[targetSessionId]
         delete terminalSessionVisibilityRef.current[targetSessionId]
       }
-      const flushTimerId = stationTerminalInputFlushTimerRef.current[stationId]
-      if (typeof flushTimerId === 'number') {
-        window.clearTimeout(flushTimerId)
-      }
-      delete stationTerminalInputFlushTimerRef.current[stationId]
-      delete stationTerminalInputQueueRef.current[stationId]
-      delete stationTerminalInputSendingRef.current[stationId]
+      stationTerminalInputControllerRef.current?.clear(stationId)
       delete stationTerminalRestoreStateRef.current[stationId]
 
       setStations((prev) => prev.filter((station) => station.id !== stationId))
@@ -3294,13 +3545,7 @@ export function ShellRoot() {
           return
       }
     },
-    [
-      handleStationTerminalInput,
-      launchStationCliAgent,
-      launchToolProfileForStation,
-      submitStationTerminal,
-      writeStationTerminalWithSubmit,
-    ],
+    [handleStationTerminalInput, launchStationCliAgent, launchToolProfileForStation, submitStationTerminal],
   )
 
   const handleCanvasScrollToStationHandled = useCallback((stationId: string) => {
@@ -3496,6 +3741,25 @@ export function ShellRoot() {
               env: terminalEnv,
               agentToolKind: station ? normalizeStationToolKind(station.tool) : 'unknown',
             })
+            if (
+              !shouldApplyStationSessionResult(
+                workspaceId,
+                activeWorkspaceIdRef.current,
+                stationsRef.current.some((item) => item.id === terminal.stationId),
+                stationTerminalsRef.current[terminal.stationId],
+              )
+            ) {
+              const droppedSessionCleanup = resolveDroppedStationSessionCleanup(session.sessionId)
+              if (droppedSessionCleanup) {
+                void desktopApi.terminalKill(
+                  droppedSessionCleanup.sessionId,
+                  droppedSessionCleanup.signal,
+                ).catch(() => {
+                  // Dropped restore sessions must not leave orphan backend sessions behind.
+                })
+              }
+              continue
+            }
             sessionStationRef.current[session.sessionId] = terminal.stationId
             terminalSessionSeqRef.current[session.sessionId] = 0
             terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
@@ -4383,19 +4647,13 @@ export function ShellRoot() {
         return
       }
 
+      handleStationTerminalInput(pending.station.id, command)
       if (pending.action.execution.submit) {
-        await writeStationTerminalWithSubmit(pending.station.id, command)
-      } else {
-        handleStationTerminalInput(pending.station.id, command)
+        await submitStationTerminal(pending.station.id)
       }
       stationTerminalSinkRef.current[pending.station.id]?.focus()
     },
-    [
-      handleStationTerminalInput,
-      pendingStationActionSheet,
-      submitStationTerminal,
-      writeStationTerminalWithSubmit,
-    ],
+    [handleStationTerminalInput, pendingStationActionSheet, submitStationTerminal],
   )
 
   return (

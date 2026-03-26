@@ -435,6 +435,7 @@ export interface DetachedTerminalWriteInputMessage {
   workspaceId: string
   containerId: string
   stationId: string
+  sessionId: string | null
   input: string
 }
 
@@ -451,6 +452,7 @@ export interface DetachedTerminalResizeMessage {
   workspaceId: string
   containerId: string
   stationId: string
+  sessionId: string | null
   cols: number
   rows: number
 }
@@ -486,6 +488,7 @@ export interface DetachedTerminalRestoreStateMessage {
   workspaceId: string
   containerId: string
   stationId: string
+  sessionId: string | null
   state: StationTerminalRestoreStatePayload
 }
 

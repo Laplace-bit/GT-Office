@@ -1,6 +1,9 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
+import { shouldAcceptStationTerminalLocalInput } from './station-terminal-runtime-state'
+import { resolveTerminalDocument } from './station-terminal-document-scope'
 import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
+import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import {
   isMacOsWebKitTextInputEnvironment,
@@ -13,10 +16,12 @@ export interface StationTerminalSink {
   reset: (content?: string) => void
   restore: (content: string, cols: number, rows: number) => void
   focus: () => void
+  submit: () => boolean
 }
 
 export interface StationTerminalSinkBindingMeta {
   sourceSink?: StationTerminalSink | null
+  sourceSessionId?: string | null
   restoreState?: string | null
   restoreCols?: number
   restoreRows?: number
@@ -37,7 +42,11 @@ interface StationXtermTerminalProps {
   onResize: (stationId: string, cols: number, rows: number) => void
   onBindSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
-  onRestoreStateCaptured?: (stationId: string, state: { content: string; cols: number; rows: number }) => void
+  onRestoreStateCaptured?: (
+    stationId: string,
+    state: { content: string; cols: number; rows: number },
+    sourceSessionId: string | null,
+  ) => void
 }
 
 const DOM_DELTA_LINE = 1
@@ -125,12 +134,17 @@ function findScrollableStationGrid(element: HTMLElement): HTMLElement | null {
   return grid.scrollHeight > grid.clientHeight + 1 ? grid : null
 }
 
-function readCssVar(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+function readCssVar(name: string, doc: Document): string {
+  return getComputedStyle(doc.documentElement).getPropertyValue(name).trim()
 }
 
-function readRootFontSizePx(): number {
-  const value = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+function readCssVarOr(name: string, fallback: string, doc: Document): string {
+  const value = readCssVar(name, doc)
+  return value || fallback
+}
+
+function readRootFontSizePx(doc: Document): number {
+  const value = Number.parseFloat(getComputedStyle(doc.documentElement).fontSize)
   if (!Number.isFinite(value) || value <= 0) {
     return 14
   }
@@ -138,7 +152,8 @@ function readRootFontSizePx(): number {
 }
 
 function resolveTerminalFontSize(host?: HTMLElement | null): number {
-  const baseSize = Math.max(10, Math.round(readRootFontSizePx() - 1))
+  const doc = resolveTerminalDocument(host, document)
+  const baseSize = Math.max(10, Math.round(readRootFontSizePx(doc) - 1))
   if (!host) {
     return baseSize
   }
@@ -150,6 +165,87 @@ function resolveTerminalFontSize(host?: HTMLElement | null): number {
     return Math.max(10, baseSize - 1)
   }
   return baseSize
+}
+
+function getTerminalTheme(host?: HTMLElement | null): ITheme {
+  const doc = resolveTerminalDocument(host, document)
+  const isDark = doc.documentElement.getAttribute('data-theme') === 'graphite-dark'
+  if (!isDark) {
+    return {
+      background: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
+      foreground: readCssVarOr('--vb-terminal-text', '#1f2937', doc),
+      cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff', doc),
+      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
+      selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#0b1b31', doc),
+      selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(10, 132, 255, 0.24)', doc),
+      selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(97, 138, 191, 0.18)', doc),
+      overviewRulerBorder: 'transparent',
+      scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(84, 106, 134, 0.34)', doc),
+      scrollbarSliderHoverBackground: readCssVarOr(
+        '--vb-terminal-scrollbar-thumb-hover',
+        'rgba(84, 106, 134, 0.52)',
+        doc,
+      ),
+      scrollbarSliderActiveBackground: readCssVarOr(
+        '--vb-terminal-scrollbar-thumb-active',
+        'rgba(84, 106, 134, 0.68)',
+        doc,
+      ),
+      black: '#455160',
+      red: '#ba4a58',
+      green: '#2d7d5b',
+      yellow: '#9b6a28',
+      blue: '#1f6fa9',
+      magenta: '#835fb8',
+      cyan: '#2e7f8a',
+      white: '#667487',
+      brightBlack: '#6a788c',
+      brightRed: '#d76170',
+      brightGreen: '#369a70',
+      brightYellow: '#b8863f',
+      brightBlue: '#2b88cb',
+      brightMagenta: '#9a74cf',
+      brightCyan: '#3f97a3',
+      brightWhite: '#1c2633',
+    }
+  }
+  return {
+    background: readCssVarOr('--vb-terminal-bg', '#0f141c', doc),
+    foreground: readCssVarOr('--vb-terminal-text', '#e6edf7', doc),
+    cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff', doc),
+    cursorAccent: readCssVarOr('--vb-terminal-bg', '#0f141c', doc),
+    selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#f7fbff', doc),
+    selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(122, 168, 255, 0.34)', doc),
+    selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(95, 128, 178, 0.24)', doc),
+    overviewRulerBorder: 'transparent',
+    scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(130, 155, 186, 0.42)', doc),
+    scrollbarSliderHoverBackground: readCssVarOr(
+      '--vb-terminal-scrollbar-thumb-hover',
+      'rgba(156, 179, 208, 0.6)',
+      doc,
+    ),
+    scrollbarSliderActiveBackground: readCssVarOr(
+      '--vb-terminal-scrollbar-thumb-active',
+      'rgba(173, 196, 224, 0.74)',
+      doc,
+    ),
+    black: '#768396',
+    red: '#f08b96',
+    green: '#80e2a7',
+    yellow: '#ebcb7e',
+    blue: '#8ab8ff',
+    magenta: '#cfa0f1',
+    cyan: '#7fdce5',
+    white: '#e6edf7',
+    brightBlack: '#9aa8bc',
+    brightRed: '#ff9fab',
+    brightGreen: '#9beabc',
+    brightYellow: '#f5d993',
+    brightBlue: '#a5c9ff',
+    brightMagenta: '#ddb9f8',
+    brightCyan: '#97e9ef',
+    brightWhite: '#f5f8ff',
+  }
 }
 
 function StationXtermTerminalView({
@@ -183,8 +279,10 @@ function StationXtermTerminalView({
       return
     }
     const host = hostRef.current
-    terminal.options.fontFamily = readCssVar('--vb-font-mono')
+    const doc = resolveTerminalDocument(host, document)
+    terminal.options.fontFamily = readCssVar('--vb-font-mono', doc)
     terminal.options.fontSize = resolveTerminalFontSize(host)
+    terminal.options.theme = getTerminalTheme(host)
     terminal.options.overviewRuler = { width: TERMINAL_OVERVIEW_RULER_WIDTH }
     terminal.options.cursorStyle = 'bar'
     terminal.options.cursorWidth = 2
@@ -294,15 +392,15 @@ function StationXtermTerminalView({
           cursorBlink: false,
           cursorStyle: 'bar',
           cursorWidth: 2,
-          fontFamily: readCssVar('--vb-font-mono'),
+          fontFamily: readCssVar('--vb-font-mono', resolveTerminalDocument(host, document)),
           fontSize: resolveTerminalFontSize(host),
           fontWeight: '500',
           fontWeightBold: '700',
           scrollback: 4000,
+          theme: getTerminalTheme(host),
           overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1.2,
-          allowProposedApi: true,
         })
         // Keep inactive cursor subtle and slim instead of default thick outline block.
         ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
@@ -429,11 +527,15 @@ function StationXtermTerminalView({
             })
             serializedRestoreCols = terminal.cols
             serializedRestoreRows = terminal.rows
-            onRestoreStateCapturedRef.current?.(stationId, {
-              content: serializedRestoreState,
-              cols: serializedRestoreCols,
-              rows: serializedRestoreRows,
-            })
+            onRestoreStateCapturedRef.current?.(
+              stationId,
+              {
+                content: serializedRestoreState,
+                cols: serializedRestoreCols,
+                rows: serializedRestoreRows,
+              },
+              sessionId ?? null,
+            )
           } catch {
             // No-op: serialization should not break terminal lifecycle.
           }
@@ -600,7 +702,24 @@ function StationXtermTerminalView({
             ensureFitWhenVisible()
           })
         }
+        const submitFromXterm = () => {
+          if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
+            return false
+          }
+          try {
+            terminal.focus()
+            terminal.input('\r', true)
+            scheduleRefresh()
+            return true
+          } catch {
+            return false
+          }
+        }
+
         dataDisposable = terminal.onData((data) => {
+          if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
+            return
+          }
           onDataRef.current(stationId, data)
         })
         const setBlinkState = (enabled: boolean) => {
@@ -649,7 +768,7 @@ function StationXtermTerminalView({
         })
         resizeObserver.observe(host)
 
-        const fontFaceSet = (document as Document & { fonts?: FontFaceSet }).fonts
+        const fontFaceSet = (resolveTerminalDocument(host, document) as Document & { fonts?: FontFaceSet }).fonts
         if (fontFaceSet?.ready) {
           void fontFaceSet.ready
             .then(() => {
@@ -671,7 +790,7 @@ function StationXtermTerminalView({
         appearanceObserver = new MutationObserver(() => {
           scheduleTerminalAppearanceSync()
         })
-        appearanceObserver.observe(document.documentElement, {
+        appearanceObserver.observe(resolveTerminalDocument(host, document).documentElement, {
           attributes: true,
           attributeFilter: ['data-theme', 'style'],
         })
@@ -721,12 +840,17 @@ function StationXtermTerminalView({
           focus: () => {
             requestTerminalFocus()
           },
+          submit: () => submitFromXterm(),
         }
         boundSinkRef.current = sink
         onBindSink(stationId, sink)
       },
-    ).catch(() => {
-      // No-op: xterm chunk failed to load.
+    ).catch((error) => {
+      console.warn('[StationXtermTerminal] Failed to load or initialize xterm runtime.', {
+        stationId,
+        sessionId,
+        error,
+      })
     })
 
     return () => {
@@ -735,6 +859,7 @@ function StationXtermTerminalView({
       boundSinkRef.current = null
       onBindSink(stationId, null, {
         sourceSink: boundSink,
+        sourceSessionId: sessionId,
         restoreState: serializedRestoreState,
         restoreCols: serializedRestoreCols,
         restoreRows: serializedRestoreRows,

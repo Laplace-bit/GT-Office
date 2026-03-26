@@ -64,7 +64,11 @@ interface WorkbenchCanvasPanelProps {
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onRunStationAction: (station: AgentStation, action: StationActionDescriptor) => void
   toolCommandsByStationId?: Record<string, ToolCommandSummary[]>
-  onRestoreStateCaptured?: (stationId: string, state: StationTerminalRestoreStatePayload) => void
+  onRestoreStateCaptured?: (
+    stationId: string,
+    state: StationTerminalRestoreStatePayload,
+    sourceSessionId: string | null,
+  ) => void
   onRemoveStation: (stationId: string) => void
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
   onCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void

@@ -14,6 +14,11 @@ import {
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
+import {
+  didStationTerminalRenderabilityChange,
+  shouldAutoLaunchStationTerminalFromSurface,
+  shouldRenderStationTerminal,
+} from '@features/terminal/station-terminal-runtime-state'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type {
   RenderedScreenSnapshot,
@@ -96,6 +101,7 @@ function StationIconButton({
 interface StationTerminalRuntime {
   sessionId: string | null
   unreadCount: number
+  stateRaw?: string | null
 }
 
 interface StationCardProps {
@@ -118,7 +124,11 @@ interface StationCardProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
-  onRestoreStateCaptured?: (stationId: string, state: StationTerminalRestoreStatePayload) => void
+  onRestoreStateCaptured?: (
+    stationId: string,
+    state: StationTerminalRestoreStatePayload,
+    sourceSessionId: string | null,
+  ) => void
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
@@ -279,6 +289,8 @@ function StationCardView({
   const unreadLabel =
     runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
   const hasTerminalSession = Boolean(runtime?.sessionId)
+  const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
+  const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
   const channelBindingSummaries = channelBotBindings ?? []
   const visibleChannelBindingSummaries = channelBindingSummaries.slice(0, 1)
   const hiddenChannelBindingCount = Math.max(
@@ -317,16 +329,16 @@ function StationCardView({
   }, [onSelectStation, requestTerminalFocus, station.id])
   const activateStationAndOpenTerminal = useCallback(() => {
     activateStationAndFocusTerminal()
-    if (!runtime?.sessionId) {
+    if (shouldAutoLaunchTerminal) {
       onLaunchStationTerminal(station.id)
     }
-  }, [activateStationAndFocusTerminal, onLaunchStationTerminal, runtime?.sessionId, station.id])
+  }, [activateStationAndFocusTerminal, onLaunchStationTerminal, shouldAutoLaunchTerminal, station.id])
   const activateStationFromTerminal = useCallback(() => {
     onSelectStation(station.id)
-    if (!runtime?.sessionId) {
+    if (shouldAutoLaunchTerminal) {
       onLaunchStationTerminal(station.id)
     }
-  }, [onLaunchStationTerminal, onSelectStation, runtime?.sessionId, station.id])
+  }, [onLaunchStationTerminal, onSelectStation, shouldAutoLaunchTerminal, station.id])
   const activateStationOnly = useCallback(() => {
     onSelectStation(station.id)
   }, [onSelectStation, station.id])
@@ -541,7 +553,7 @@ function StationCardView({
           </StationIconButton>
         </div>
       </header>
-      {hasTerminalSession ? (
+      {shouldRenderTerminal ? (
         <>
           <StationXtermTerminal
             stationId={station.id}
@@ -651,6 +663,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onStationDragPointerStart === next.onStationDragPointerStart &&
     prev.onStationDragEnd === next.onStationDragEnd &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
+    !didStationTerminalRenderabilityChange(prev.runtime, next.runtime) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&
     (prev.taskSignal?.taskId ?? null) === (next.taskSignal?.taskId ?? null) &&

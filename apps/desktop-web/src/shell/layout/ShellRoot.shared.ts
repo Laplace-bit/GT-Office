@@ -84,6 +84,7 @@ export type FileEditorCommandRequest = {
 export const STATION_INPUT_FLUSH_MS = 12
 export const STATION_INPUT_MAX_BUFFER_BYTES = 65536
 const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
+export const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
 export const TASK_DISPATCH_HISTORY_LIMIT = 40
 export const TASK_DRAFT_PERSIST_DEBOUNCE_MS = 360
 export const SHELL_LAYOUT_STORAGE_KEY = 'gtoffice.shell.layout.v2'

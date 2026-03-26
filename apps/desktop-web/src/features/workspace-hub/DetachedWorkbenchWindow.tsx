@@ -7,7 +7,12 @@ import {
 import { StationActionCommandSheet } from './StationActionCommandSheet'
 import type { AgentStation, StationRole } from './station-model'
 import { normalizeStationToolKind } from './station-model'
-import { buildStationLaunchCommand } from '@shell/layout/ShellRoot.shared'
+import {
+  buildStationLaunchCommand,
+  STATION_INPUT_FLUSH_MS,
+  STATION_INPUT_MAX_BUFFER_BYTES,
+  shouldFlushStationInputImmediately,
+} from '@shell/layout/ShellRoot.shared'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
   normalizeWorkbenchCustomLayout,
@@ -32,34 +37,33 @@ import {
   desktopApi,
   type DetachedTerminalBridgeMessage,
   type DetachedTerminalHydrateSnapshotMessage,
+  type RenderedScreenSnapshot,
   type SurfaceBridgeEventPayload,
   type SurfaceDetachedStationPayload,
   type SurfaceWindowUpdatedPayload,
   type StationTerminalRestoreStatePayload,
   type ToolCommandSummary,
 } from '@shell/integration/desktop-api'
-import type {
-  StationTerminalSink,
-  StationTerminalSinkBindingMeta,
+import {
+  captureMatchingSessionOwnedRestoreState,
+  captureReportedSessionOwnedRestoreState,
+  captureSessionOwnedRestoreState,
+  createBufferedStationInputController,
+  didHydrateChangeSessionBinding,
+  didSessionBindingChange,
+  hydrateSettlesSessionBinding,
+  patchTouchesSessionBinding,
+  resolveNextPendingLaunchCommand,
+  retainSessionOwnedRestoreState,
+  shouldClearPendingFocusIntent,
+  shouldClearPendingLaunchCommand,
+  shouldFlushPendingLaunchCommand,
+  type BufferedStationInputController,
+  type SessionOwnedRestoreState,
+  type StationTerminalSink,
+  type StationTerminalSinkBindingMeta,
 } from '@features/terminal'
 import './DetachedWorkbenchWindow.scss'
-
-const STATION_INPUT_FLUSH_MS = 12
-const STATION_INPUT_MAX_BUFFER_BYTES = 65536
-const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
-
-function shouldFlushStationInputImmediately(input: string): boolean {
-  if (!input) {
-    return false
-  }
-  if (input.includes('\n') || input.includes('\r')) {
-    return true
-  }
-  if (input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES) {
-    return true
-  }
-  return /[\x00-\x1f\x7f]/.test(input) || input.includes('\x1b')
-}
 
 export interface DetachedWorkbenchWindowPayload {
   windowLabel: string
@@ -126,11 +130,7 @@ function buildDetachedContainer(payload: DetachedWorkbenchWindowPayload): Workbe
   }
 }
 
-interface StationTerminalRestoreState {
-  content: string
-  cols: number
-  rows: number
-}
+type StationTerminalRestoreState = SessionOwnedRestoreState
 
 function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWindowPayload }) {
   const initialPreferences = useMemo(loadUiPreferences, [])
@@ -161,9 +161,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const ensureSessionInFlightRef = useRef<Record<string, boolean>>({})
   const pendingFocusStationRef = useRef<Record<string, boolean>>({})
   const pendingLaunchCommandRef = useRef<Record<string, string | null>>({})
-  const inputQueueRef = useRef<Record<string, string>>({})
-  const inputSendingRef = useRef<Record<string, boolean>>({})
-  const inputFlushTimerRef = useRef<Record<string, number | null>>({})
+  const inputControllerRef = useRef<BufferedStationInputController | null>(null)
 
   useEffect(() => {
     stationsRef.current = stations
@@ -266,12 +264,17 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const setStationRuntime = useCallback((stationId: string, patch: Partial<WorkbenchStationRuntime>) => {
     setStationRuntimes((prev) => {
       const current = prev[stationId] ?? createEmptyWorkbenchStationRuntime()
+      const nextRuntime = {
+        ...current,
+        ...patch,
+      }
+      if (didSessionBindingChange(current.sessionId, nextRuntime.sessionId)) {
+        delete stationTerminalRestoreStateRef.current[stationId]
+        inputControllerRef.current?.clear(stationId)
+      }
       return {
         ...prev,
-        [stationId]: {
-          ...current,
-          ...patch,
-        },
+        [stationId]: nextRuntime,
       }
     })
   }, [])
@@ -295,6 +298,11 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       }
     })
   }, [])
+
+  const getStationSessionId = useCallback(
+    (stationId: string) => stationRuntimesRef.current[stationId]?.sessionId ?? null,
+    [],
+  )
 
   const clearStationUnread = useCallback((stationId: string) => {
     setStationRuntimes((prev) => {
@@ -353,72 +361,51 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     delete pendingFocusStationRef.current[stationId]
   }, [])
 
-  const sendInput = useMemo(() => {
-    const clearFlushTimer = (stationId: string) => {
-      const timerId = inputFlushTimerRef.current[stationId]
-      if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
-      }
-      inputFlushTimerRef.current[stationId] = null
-    }
-
-    const flushInput = async (stationId: string) => {
-      clearFlushTimer(stationId)
-      if (inputSendingRef.current[stationId]) {
-        return
-      }
-      const queuedInput = inputQueueRef.current[stationId] ?? ''
-      if (!queuedInput) {
-        return
-      }
-      inputQueueRef.current[stationId] = ''
-      inputSendingRef.current[stationId] = true
-      try {
-        await postBridgeMessage({
-          kind: 'detached_terminal_write_input',
-          workspaceId: payload.workspaceId,
-          containerId: payload.containerId,
-          stationId,
-          input: queuedInput,
+  const sendInput = useMemo(
+    () => (stationId: string, input: string) => {
+      if (!inputControllerRef.current) {
+        inputControllerRef.current = createBufferedStationInputController({
+          flushDelayMs: STATION_INPUT_FLUSH_MS,
+          maxBufferBytes: STATION_INPUT_MAX_BUFFER_BYTES,
+          shouldFlushImmediately: shouldFlushStationInputImmediately,
+          scheduleTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+          clearTimer: (timerId) => window.clearTimeout(timerId),
+          sendInput: async (targetStationId, queuedInput) => {
+            try {
+              await postBridgeMessage({
+                kind: 'detached_terminal_write_input',
+                workspaceId: payload.workspaceId,
+                containerId: payload.containerId,
+                stationId: targetStationId,
+                sessionId: getStationSessionId(targetStationId),
+                input: queuedInput,
+              })
+            } catch {
+              requestHydrate()
+            }
+          },
         })
-      } catch {
-        requestHydrate()
-      } finally {
-        inputSendingRef.current[stationId] = false
-        if (inputQueueRef.current[stationId]) {
-          queueMicrotask(() => {
-            void flushInput(stationId)
-          })
-        }
       }
-    }
+      inputControllerRef.current.enqueue(stationId, input)
+    },
+    [getStationSessionId, payload.containerId, payload.workspaceId, postBridgeMessage, requestHydrate],
+  )
 
-    return (stationId: string, input: string) => {
-      if (!input) {
-        return
-      }
-      const previous = inputQueueRef.current[stationId] ?? ''
-      const merged = `${previous}${input}`
-      inputQueueRef.current[stationId] =
-        merged.length > STATION_INPUT_MAX_BUFFER_BYTES
-          ? merged.slice(merged.length - STATION_INPUT_MAX_BUFFER_BYTES)
-          : merged
-      clearFlushTimer(stationId)
-      if (shouldFlushStationInputImmediately(input)) {
-        void flushInput(stationId)
-        return
-      }
-      inputFlushTimerRef.current[stationId] = window.setTimeout(() => {
-        inputFlushTimerRef.current[stationId] = null
-        void flushInput(stationId)
-      }, STATION_INPUT_FLUSH_MS)
+  useEffect(() => {
+    return () => {
+      inputControllerRef.current?.dispose()
+      inputControllerRef.current = null
     }
-  }, [payload.containerId, payload.workspaceId, postBridgeMessage, requestHydrate])
+  }, [])
+
 
   const flushPendingLaunchCommand = useCallback(
-    (stationId: string) => {
+    (
+      stationId: string,
+      runtime: Pick<WorkbenchStationRuntime, 'sessionId'> | null | undefined = stationRuntimesRef.current[stationId],
+    ) => {
       const command = pendingLaunchCommandRef.current[stationId]
-      if (!command || !stationRuntimesRef.current[stationId]?.sessionId) {
+      if (!shouldFlushPendingLaunchCommand(command, runtime) || !command) {
         return
       }
       delete pendingLaunchCommandRef.current[stationId]
@@ -483,9 +470,27 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         return acc
       }, {})
       stationsRef.current.forEach((station) => {
-        projectionSeqRef.current[station.id] = message.projectionSeqByStation[station.id] ?? 0
-        if (nextRuntimes[station.id]?.sessionId) {
+        const previousProjectionSeq = projectionSeqRef.current[station.id] ?? 0
+        const nextProjectionSeq = message.projectionSeqByStation[station.id] ?? 0
+        const previousRuntime = stationRuntimesRef.current[station.id]
+        const nextRuntime = nextRuntimes[station.id]
+        projectionSeqRef.current[station.id] = nextProjectionSeq
+        if (didHydrateChangeSessionBinding(previousRuntime, nextRuntime)) {
+          inputControllerRef.current?.clear(station.id)
+        }
+        const launchSettled = hydrateSettlesSessionBinding(
+          previousProjectionSeq,
+          nextProjectionSeq,
+          nextRuntime,
+        )
+        if (launchSettled) {
           delete ensureSessionInFlightRef.current[station.id]
+        }
+        if (shouldClearPendingLaunchCommand(pendingLaunchCommandRef.current[station.id], launchSettled, nextRuntime)) {
+          delete pendingLaunchCommandRef.current[station.id]
+        }
+        if (shouldClearPendingFocusIntent(pendingFocusStationRef.current[station.id], launchSettled, nextRuntime)) {
+          delete pendingFocusStationRef.current[station.id]
         }
       })
       outputCacheRef.current = nextOutputs
@@ -500,15 +505,30 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         ...prev,
         activeStationId: nextActiveStationId || prev.activeStationId,
       }))
-      stationTerminalRestoreStateRef.current = message.restoreStates ? { ...message.restoreStates } : {}
+      stationTerminalRestoreStateRef.current = stationsRef.current.reduce<Record<string, StationTerminalRestoreState>>(
+        (acc, station) => {
+          const restoreState = message.restoreStates?.[station.id]
+          const capturedRestoreState = restoreState
+            ? captureSessionOwnedRestoreState(nextRuntimes[station.id], restoreState)
+            : null
+          if (capturedRestoreState) {
+            acc[station.id] = capturedRestoreState
+          }
+          return acc
+        },
+        {},
+      )
       Object.entries(sinkByStationRef.current).forEach(([stationId, sink]) => {
         if (!sink) {
           return
         }
-        const restoreState = message.restoreStates?.[stationId]
+        const restoreState = retainSessionOwnedRestoreState(
+          stationTerminalRestoreStateRef.current[stationId],
+          nextRuntimes[stationId]?.sessionId ?? null,
+        )
         if (restoreState) {
           console.log(DETACHED_LOG_PREFIX, 'hydrate sink.restore', stationId.slice(0, 8))
-          sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
+          sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         } else {
           console.log(DETACHED_LOG_PREFIX, 'hydrate sink.reset', stationId.slice(0, 8), 'len=', (nextOutputs[stationId] ?? '').length)
           sink.reset(nextOutputs[stationId] ?? '')
@@ -516,7 +536,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         flushPendingStationFocus(stationId)
       })
       stationsRef.current.forEach((station) => {
-        flushPendingLaunchCommand(station.id)
+        flushPendingLaunchCommand(station.id, nextRuntimes[station.id])
         flushPendingStationFocus(station.id)
       })
     },
@@ -600,12 +620,22 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           if (!applyProjectionSeq(message.stationId, message.projectionSeq)) {
             return
           }
-          if (message.runtimePatch.sessionId) {
+          const nextRuntime = {
+            ...(stationRuntimesRef.current[message.stationId] ?? createEmptyWorkbenchStationRuntime()),
+            ...message.runtimePatch,
+          }
+          if (patchTouchesSessionBinding(message.runtimePatch)) {
             delete ensureSessionInFlightRef.current[message.stationId]
+          }
+          if (shouldClearPendingLaunchCommand(pendingLaunchCommandRef.current[message.stationId], patchTouchesSessionBinding(message.runtimePatch), nextRuntime)) {
+            delete pendingLaunchCommandRef.current[message.stationId]
+          }
+          if (shouldClearPendingFocusIntent(pendingFocusStationRef.current[message.stationId], patchTouchesSessionBinding(message.runtimePatch), nextRuntime)) {
+            delete pendingFocusStationRef.current[message.stationId]
           }
           setStationRuntime(message.stationId, message.runtimePatch)
           queueMicrotask(() => {
-            flushPendingLaunchCommand(message.stationId)
+            flushPendingLaunchCommand(message.stationId, nextRuntime)
             flushPendingStationFocus(message.stationId)
           })
           return
@@ -681,12 +711,21 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         if (meta?.sourceSink && sinkByStationRef.current[stationId] !== meta.sourceSink) {
           return
         }
-        if (meta?.restoreState) {
-          stationTerminalRestoreStateRef.current[stationId] = {
-            content: meta.restoreState,
-            cols: meta.restoreCols ?? 0,
-            rows: meta.restoreRows ?? 0,
-          }
+        const capturedRestoreState = meta?.restoreState
+          ? captureMatchingSessionOwnedRestoreState(
+              stationRuntimesRef.current[stationId],
+              meta.sourceSessionId,
+              {
+                content: meta.restoreState,
+                cols: meta.restoreCols ?? 0,
+                rows: meta.restoreRows ?? 0,
+              },
+            )
+          : null
+        if (capturedRestoreState) {
+          stationTerminalRestoreStateRef.current[stationId] = capturedRestoreState
+        } else {
+          delete stationTerminalRestoreStateRef.current[stationId]
         }
         delete sinkByStationRef.current[stationId]
         return
@@ -695,12 +734,16 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       sinkByStationRef.current[stationId] = sink
       console.log(DETACHED_LOG_PREFIX, 'bindSink', stationId.slice(0, 8), 'hasRestoreState=', !!stationTerminalRestoreStateRef.current[stationId], 'hasCachedOutput=', Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId), 'sessionId=', stationRuntimesRef.current[stationId]?.sessionId?.slice(0, 8) ?? null)
 
-      const restoreState = stationTerminalRestoreStateRef.current[stationId]
+      const restoreState = retainSessionOwnedRestoreState(
+        stationTerminalRestoreStateRef.current[stationId],
+        stationRuntimesRef.current[stationId]?.sessionId ?? null,
+      )
       if (restoreState) {
-        sink.restore(restoreState.content, restoreState.cols, restoreState.rows)
+        sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         flushPendingStationFocus(stationId)
         return
       }
+      delete stationTerminalRestoreStateRef.current[stationId]
 
       if (Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId)) {
         sink.reset(outputCacheRef.current[stationId] ?? '')
@@ -721,6 +764,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     async (stationId: string) => {
       selectStation(stationId)
       pendingFocusStationRef.current[stationId] = true
+      pendingLaunchCommandRef.current[stationId] = resolveNextPendingLaunchCommand('terminal', null)
       const sessionId = await ensureStationTerminalSession(stationId)
       if (sessionId) {
         flushPendingStationFocus(stationId)
@@ -735,12 +779,12 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       pendingFocusStationRef.current[stationId] = true
       const station = stationsRef.current.find((entry) => entry.id === stationId)
       const launchCommand = station ? buildStationLaunchCommand(station) : null
+      pendingLaunchCommandRef.current[stationId] = resolveNextPendingLaunchCommand('cli', launchCommand)
       const sessionId = await ensureStationTerminalSession(stationId)
       if (launchCommand) {
         if (sessionId || stationRuntimesRef.current[stationId]?.sessionId) {
+          delete pendingLaunchCommandRef.current[stationId]
           sendInput(stationId, launchCommand)
-        } else {
-          pendingLaunchCommandRef.current[stationId] = launchCommand
         }
       }
       if (sessionId) {
@@ -757,26 +801,54 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         workspaceId: payload.workspaceId,
         containerId: payload.containerId,
         stationId,
+        sessionId: getStationSessionId(stationId),
         cols,
         rows,
       }).catch(() => {})
     },
-    [payload.containerId, payload.workspaceId, postBridgeMessage],
+    [getStationSessionId, payload.containerId, payload.workspaceId, postBridgeMessage],
   )
 
   const handleRestoreStateCaptured = useCallback(
-    (stationId: string, state: StationTerminalRestoreStatePayload) => {
-      stationTerminalRestoreStateRef.current[stationId] = state
+    (
+      stationId: string,
+      state: StationTerminalRestoreStatePayload,
+      sourceSessionId: string | null,
+    ) => {
+      const capturedRestoreState = captureReportedSessionOwnedRestoreState(
+        stationRuntimesRef.current[stationId],
+        sourceSessionId,
+        state,
+      )
+      if (capturedRestoreState) {
+        stationTerminalRestoreStateRef.current[stationId] = capturedRestoreState
+      } else {
+        delete stationTerminalRestoreStateRef.current[stationId]
+      }
       void postBridgeMessage({
         kind: 'detached_terminal_restore_state',
         workspaceId: payload.workspaceId,
         containerId: payload.containerId,
         stationId,
+        sessionId: sourceSessionId,
         state,
       }).catch(() => {})
     },
     [payload.containerId, payload.workspaceId, postBridgeMessage],
   )
+
+  const handleRenderedScreenSnapshot = useCallback((stationId: string, snapshot: RenderedScreenSnapshot) => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
+    if (!sessionId || snapshot.sessionId !== sessionId) {
+      return
+    }
+    void desktopApi.terminalReportRenderedScreen(snapshot).catch(() => {
+      // Snapshot reporting is best-effort and must not affect terminal interaction.
+    })
+  }, [])
 
   const handleSubmitStationActionSheet = useCallback((values: Record<string, string | boolean>) => {
     const pending = pendingStationActionSheet
@@ -799,17 +871,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       sendInput(pending.station.id, command)
     }
   }, [pendingStationActionSheet, requestHydrate, sendInput, sendInputWithSubmit])
-
-  useEffect(() => {
-    const flushTimerMap = inputFlushTimerRef.current
-    return () => {
-      Object.values(flushTimerMap).forEach((timerId) => {
-        if (typeof timerId === 'number') {
-          window.clearTimeout(timerId)
-        }
-      })
-    }
-  }, [])
 
   return (
     <div className="detached-workbench-window">
@@ -836,7 +897,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           onSendInputData={sendInput}
           onResizeTerminal={handleResize}
           onBindTerminalSink={bindSink}
-          onRenderedScreenSnapshot={undefined}
+          onRenderedScreenSnapshot={handleRenderedScreenSnapshot}
           onRunStationAction={(station: AgentStation, action: StationActionDescriptor) => {
             switch (action.execution.type) {
               case 'insert_text':
