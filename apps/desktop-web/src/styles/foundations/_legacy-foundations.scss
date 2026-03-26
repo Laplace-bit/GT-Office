@@ -546,6 +546,16 @@ select option {
   transition-timing-function: var(--vb-ease-out);
 }
 
+/* xterm applies ANSI colors via inline styles on <span> elements.
+   The global color transition causes text to render in the wrong color
+   during repaints in WKWebView's DOM renderer (production).  Disable all
+   transitions inside the xterm container to keep terminal output crisp. */
+.xterm *,
+.xterm-rows *,
+.station-terminal-host .xterm {
+  transition: none !important;
+}
+
 /* Performance: disable transitions during theme switch */
 .disable-transitions * {
   transition: none !important;

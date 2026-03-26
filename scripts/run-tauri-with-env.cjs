@@ -6,6 +6,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { createRequire } = require('node:module')
+const { assertSupportedBundlesForHost } = require('./tauri-bundle-guards.cjs')
 
 const repoRoot = path.resolve(__dirname, '..')
 const workspacePath = path.join(repoRoot, 'apps', 'desktop-tauri')
@@ -281,6 +282,33 @@ function resolveMacOsArchSuffix() {
 function readTauriConfig() {
   const configPath = path.join(workspacePath, 'src-tauri', 'tauri.conf.json')
   return JSON.parse(fs.readFileSync(configPath, 'utf8'))
+}
+
+function normalizeErrorMessage(error) {
+  if (typeof error === 'string') {
+    return error
+  }
+
+  if (error && typeof error.message === 'string' && error.message.length > 0) {
+    return error.message
+  }
+
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function logNormalizedError(error, tauriCliModule = null) {
+  const normalizedErrorMessage = normalizeErrorMessage(error)
+
+  if (tauriCliModule && typeof tauriCliModule.logError === 'function') {
+    tauriCliModule.logError(normalizedErrorMessage)
+    return
+  }
+
+  console.error(normalizedErrorMessage)
 }
 
 function runCommandOrThrow(command, args, options) {
@@ -560,66 +588,53 @@ async function resolveTauriArgs(passthroughArgs) {
 }
 
 async function main() {
-  const passthroughArgs = process.argv.slice(2)
-  const env = ensureCargoTargetDir({ ...process.env })
-
-  const ensureResult = runNodeScript(ensureScriptPath, [], env)
-  if (ensureResult.status !== 0) {
-    process.exit(ensureResult.status ?? 1)
-  }
-
-  const cargoEnv = ensureCargoEnv(env)
-  if (!cargoEnv) {
-    failWithCargoHint()
-  }
-
-  ensureFreshTauriBuildCache(cargoEnv)
-
-  const sidecarResult = runNodeScript(sidecarBuildScriptPath, passthroughArgs, cargoEnv)
-  if (sidecarResult.status !== 0) {
-    process.exit(sidecarResult.status ?? 1)
-  }
-
-  const workspaceRequire = createRequire(path.join(workspacePath, 'package.json'))
   let tauriCliModule
-  try {
-    tauriCliModule = workspaceRequire('@tauri-apps/cli/main.js')
-  } catch (error) {
-    console.error('[GT Office] Unable to load @tauri-apps/cli module after ensure step.')
-    console.error(error && error.message ? error.message : String(error))
-    process.exit(1)
-    return
-  }
-
-  process.chdir(workspacePath)
-  Object.assign(process.env, cargoEnv)
-  const tauriArgs = await resolveTauriArgs(passthroughArgs)
 
   try {
+    const passthroughArgs = process.argv.slice(2)
+    assertSupportedBundlesForHost(passthroughArgs, process.platform)
+
+    const env = ensureCargoTargetDir({ ...process.env })
+    const ensureResult = runNodeScript(ensureScriptPath, [], env)
+    if (ensureResult.status !== 0) {
+      process.exit(ensureResult.status ?? 1)
+      return
+    }
+
+    const cargoEnv = ensureCargoEnv(env)
+    if (!cargoEnv) {
+      failWithCargoHint()
+      return
+    }
+
+    ensureFreshTauriBuildCache(cargoEnv)
+
+    const sidecarResult = runNodeScript(sidecarBuildScriptPath, passthroughArgs, cargoEnv)
+    if (sidecarResult.status !== 0) {
+      process.exit(sidecarResult.status ?? 1)
+      return
+    }
+
+    const workspaceRequire = createRequire(path.join(workspacePath, 'package.json'))
+    try {
+      tauriCliModule = workspaceRequire('@tauri-apps/cli/main.js')
+    } catch (error) {
+      throw new Error(
+        `[GT Office] Unable to load @tauri-apps/cli module after ensure step. ${normalizeErrorMessage(error)}`,
+      )
+    }
+
+    process.chdir(workspacePath)
+    Object.assign(process.env, cargoEnv)
+    const tauriArgs = await resolveTauriArgs(passthroughArgs)
+
     await tauriCliModule.run(tauriArgs, 'tauri')
     if (shouldUseCustomMacOsDmgFlow(passthroughArgs)) {
       createCustomMacOsDmg(cargoEnv, tauriArgs)
     }
     process.exit(0)
   } catch (error) {
-    const normalizedErrorMessage =
-      typeof error === 'string'
-        ? error
-        : error && typeof error.message === 'string' && error.message.length > 0
-          ? error.message
-          : (() => {
-              try {
-                return JSON.stringify(error)
-              } catch {
-                return String(error)
-              }
-            })()
-
-    if (typeof tauriCliModule.logError === 'function') {
-      tauriCliModule.logError(normalizedErrorMessage)
-    } else {
-      console.error(normalizedErrorMessage)
-    }
+    logNormalizedError(error, tauriCliModule)
     process.exit(1)
   }
 }

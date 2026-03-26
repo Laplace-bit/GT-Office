@@ -10,23 +10,16 @@ import {
 } from 'react'
 import { defaultRangeExtractor, type Range, useVirtualizer } from '@tanstack/react-virtual'
 import {
-  type DaemonSearchBackpressurePayload,
-  type DaemonSearchCancelledPayload,
-  type DaemonSearchChunkPayload,
-  type DaemonSearchDonePayload,
   desktopApi,
   type FilesystemChangedPayload,
   type FilesystemWatchErrorPayload,
   type FsEntry,
-  type FsSearchMatch,
   type GitStatusFile,
   type GitUpdatedPayload,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
-import { FileSearchModal } from './FileSearchModal'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
-import { resolveFileSearchEntries } from './file-search-state'
 import { resolveFileVisual, type FileVisual } from './file-visuals'
 import { addNotification } from '../../stores/notification'
 import './FileTreePane.scss'
@@ -39,11 +32,7 @@ interface FileTreePaneProps {
   onCreateFile: (filePath: string) => Promise<boolean>
   onDeletePath: (path: string) => Promise<boolean>
   onMovePath: (fromPath: string, toPath: string) => Promise<boolean>
-  searchRequest?: {
-    mode?: 'file' | 'content'
-    nonce: number
-  } | null
-  onSearchRequestConsumed?: (nonce: number) => void
+  onOpenSearch?: (mode?: 'file' | 'content') => void
 }
 
 interface TreeRow {
@@ -66,7 +55,6 @@ interface TreeContextMenuState {
 const ROOT_DIR = '.'
 const ROW_HEIGHT = 34
 const OVERSCAN_ROWS = 80
-const CONTENT_MATCH_MAX_RENDER = 1200
 const PRE_RENDER_AHEAD_ROWS = 200
 const PRE_RENDER_BEHIND_ROWS = 40
 const INITIAL_PRELOAD_ROWS = 400
@@ -75,26 +63,8 @@ const SPEED_MEDIUM_PX_PER_SEC = 900
 const SPEED_FAST_PX_PER_SEC = 1800
 const SPEED_MEDIUM_EXTRA_ROWS = 400
 const SPEED_FAST_EXTRA_ROWS = 800
-const SEARCH_DEBOUNCE_MS = 48
-const SEARCH_MODE_STORAGE_KEY = 'gtoffice.fileTree.searchMode.v1'
 const INITIAL_EXPANDED: Record<string, boolean> = {
   [ROOT_DIR]: true,
-}
-type SearchMode = 'file' | 'content'
-
-function readPersistedSearchMode(): SearchMode {
-  if (typeof window === 'undefined') {
-    return 'file'
-  }
-  const stored = window.localStorage.getItem(SEARCH_MODE_STORAGE_KEY)
-  return stored === 'content' ? 'content' : 'file'
-}
-
-function persistSearchMode(mode: SearchMode) {
-  if (typeof window === 'undefined') {
-    return
-  }
-  window.localStorage.setItem(SEARCH_MODE_STORAGE_KEY, mode)
 }
 
 function normalizeDirectoryPath(path: string): string {
@@ -433,8 +403,7 @@ export function FileTreePane({
   onCreateFile,
   onDeletePath,
   onMovePath,
-  searchRequest,
-  onSearchRequestConsumed,
+  onOpenSearch,
 }: FileTreePaneProps) {
   const [entriesByDirectory, setEntriesByDirectory] = useState<Record<string, FsEntry[]>>({})
   const [expandedDirectories, setExpandedDirectories] =
@@ -475,60 +444,21 @@ export function FileTreePane({
   const [expandAnimationNonce, setExpandAnimationNonce] = useState(0)
   const [hasInteractedScroll, setHasInteractedScroll] = useState(false)
   const [scrollSpeedTier, setScrollSpeedTier] = useState<'idle' | 'medium' | 'fast'>('idle')
-  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
-  const [preferredSearchMode, setPreferredSearchMode] = useState<SearchMode>(() => readPersistedSearchMode())
-  const [searchMode, setSearchMode] = useState<SearchMode>(() => readPersistedSearchMode())
-  const [searchQuery, setSearchQuery] = useState('')
-  const [fileMatches, setFileMatches] = useState<FsEntry[]>([])
-  const [contentMatches, setContentMatches] = useState<FsSearchMatch[]>([])
   const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [searchError, setSearchError] = useState<string | null>(null)
-  const [searchDroppedChunks, setSearchDroppedChunks] = useState(0)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const workspaceIdRef = useRef<string | null>(workspaceId)
   const loadedDirectoriesRef = useRef<Record<string, boolean>>({})
   const inFlightDirectoryLoadsRef = useRef<Record<string, Promise<void>>>({})
   const pendingRefreshDirectoriesRef = useRef<Set<string>>(new Set())
   const refreshTimerRef = useRef<number | null>(null)
-  const searchRequestSeqRef = useRef(0)
-  const activeStreamSearchIdRef = useRef<string | null>(null)
   const lastScrollTopRef = useRef(0)
   const lastScrollTsRef = useRef(0)
   const scrollDirectionRef = useRef<'forward' | 'backward'>('forward')
   const speedTierRafRef = useRef<number | null>(null)
   const lastAutoRevealPathRef = useRef<string | null>(null)
-  const trimmedSearchQuery = searchQuery.trim()
 
-  const cancelActiveStreamSearch = useCallback(() => {
-    const activeSearchId = activeStreamSearchIdRef.current
-    if (!activeSearchId) {
-      return
-    }
-    activeStreamSearchIdRef.current = null
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
-    void desktopApi.fsSearchStreamCancel(activeSearchId).catch(() => {
-      // ignore cancellation races
-    })
-  }, [])
 
-  const openSearchModal = useCallback((mode?: SearchMode) => {
-    const nextMode = mode ?? preferredSearchMode
-    setSearchMode(nextMode)
-    if (mode) {
-      setPreferredSearchMode(nextMode)
-      persistSearchMode(nextMode)
-    }
-    setIsSearchModalOpen(true)
-  }, [preferredSearchMode])
 
-  const handleSearchModeChange = useCallback((mode: SearchMode) => {
-    setSearchMode(mode)
-    setPreferredSearchMode(mode)
-    persistSearchMode(mode)
-  }, [])
 
   const loadDirectory = useCallback(
     async (rawDirectoryPath: string) => {
@@ -626,14 +556,6 @@ export function FileTreePane({
       setExpandedDirectories(INITIAL_EXPANDED)
       setLoadedDirectories({})
       setLoadingDirectories({})
-      setSearchQuery('')
-      setFileMatches([])
-      setContentMatches([])
-      setSearchError(null)
-      setSearchLoading(false)
-      setSearchDroppedChunks(0)
-      setIsSearchModalOpen(false)
-      cancelActiveStreamSearch()
       setHasInteractedScroll(false)
       setScrollSpeedTier('idle')
       lastScrollTopRef.current = 0
@@ -644,7 +566,7 @@ export function FileTreePane({
       return
     }
     void refreshRoot()
-  }, [cancelActiveStreamSearch, refreshRoot, workspaceId])
+  }, [refreshRoot, workspaceId])
 
   useEffect(() => {
     if (!contextMenu) {
@@ -707,224 +629,6 @@ export function FileTreePane({
     }, 240)
     return () => window.clearTimeout(timerId)
   }, [expandAnimationNonce, recentExpandedPath])
-
-  // Track the last processed nonce to avoid re-opening on re-renders
-  const lastProcessedNonceRef = useRef(0)
-
-  useEffect(() => {
-    if (!searchRequest || searchRequest.nonce <= 0) {
-      return
-    }
-    // Only open if this is a new request (nonce increased)
-    if (searchRequest.nonce <= lastProcessedNonceRef.current) {
-      return
-    }
-    lastProcessedNonceRef.current = searchRequest.nonce
-    openSearchModal(searchRequest.mode)
-    onSearchRequestConsumed?.(searchRequest.nonce)
-  }, [onSearchRequestConsumed, openSearchModal, searchRequest])
-
-  useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
-      return
-    }
-
-    let active = true
-    let cleanup: (() => void) | null = null
-    void desktopApi
-      .subscribeDaemonSearchEvents({
-        onChunk: (payload: DaemonSearchChunkPayload) => {
-          if (!active || payload.searchId !== activeStreamSearchIdRef.current) {
-            return
-          }
-          setContentMatches((prev) => {
-            if (prev.length >= CONTENT_MATCH_MAX_RENDER) {
-              return prev
-            }
-            const next = [...prev]
-            for (const item of payload.items) {
-              if (next.length >= CONTENT_MATCH_MAX_RENDER) {
-                break
-              }
-              next.push({
-                path: item.path,
-                line: item.line,
-                preview: item.preview,
-              })
-            }
-            return next
-          })
-        },
-        onBackpressure: (payload: DaemonSearchBackpressurePayload) => {
-          if (!active || payload.searchId !== activeStreamSearchIdRef.current) {
-            return
-          }
-          setSearchDroppedChunks((prev) => prev + Math.max(0, payload.droppedChunks || 0))
-        },
-        onDone: (payload: DaemonSearchDonePayload) => {
-          if (!active || payload.searchId !== activeStreamSearchIdRef.current) {
-            return
-          }
-          setSearchLoading(false)
-          activeStreamSearchIdRef.current = null
-        },
-        onCancelled: (payload: DaemonSearchCancelledPayload) => {
-          if (!active || payload.searchId !== activeStreamSearchIdRef.current) {
-            return
-          }
-          setSearchLoading(false)
-          activeStreamSearchIdRef.current = null
-        },
-      })
-      .then((unlisten) => {
-        if (!active) {
-          unlisten()
-          return
-        }
-        cleanup = unlisten
-      })
-
-    return () => {
-      active = false
-      if (cleanup) {
-        cleanup()
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      cancelActiveStreamSearch()
-    }
-  }, [cancelActiveStreamSearch])
-
-  useEffect(() => {
-    if (!isSearchModalOpen || !workspaceId || searchMode !== 'content') {
-      cancelActiveStreamSearch()
-      if (searchMode === 'content') {
-        setSearchLoading(false)
-        setSearchError(null)
-      }
-      return
-    }
-
-    if (!trimmedSearchQuery) {
-      cancelActiveStreamSearch()
-      setSearchLoading(false)
-      setSearchError(null)
-      setContentMatches([])
-      setSearchDroppedChunks(0)
-      return
-    }
-
-    const requestId = searchRequestSeqRef.current + 1
-    searchRequestSeqRef.current = requestId
-    setSearchLoading(true)
-    setSearchError(null)
-    setSearchDroppedChunks(0)
-    setContentMatches([])
-
-    const timer = window.setTimeout(() => {
-      const searchId = `search_${Date.now().toString(36)}_${requestId.toString(36)}`
-      const previousSearchId = activeStreamSearchIdRef.current
-      activeStreamSearchIdRef.current = searchId
-      if (previousSearchId && previousSearchId !== searchId) {
-        void desktopApi.fsSearchStreamCancel(previousSearchId).catch(() => {
-          // ignore cancellation races
-        })
-      }
-      void desktopApi
-        .fsSearchStreamStart(workspaceId, {
-          searchId,
-          query: trimmedSearchQuery,
-          chunkSize: 64,
-          maxResults: CONTENT_MATCH_MAX_RENDER,
-        })
-        .catch(async (error) => {
-          if (
-            searchRequestSeqRef.current !== requestId ||
-            activeStreamSearchIdRef.current !== searchId
-          ) {
-            return
-          }
-          activeStreamSearchIdRef.current = null
-          try {
-            const response = await desktopApi.fsSearchText(workspaceId, trimmedSearchQuery)
-            if (searchRequestSeqRef.current !== requestId) {
-              return
-            }
-            setContentMatches(response.matches.slice(0, CONTENT_MATCH_MAX_RENDER))
-            setSearchLoading(false)
-          } catch (fallbackError) {
-            if (searchRequestSeqRef.current !== requestId) {
-              return
-            }
-            setSearchLoading(false)
-            setContentMatches([])
-            setSearchError(
-              t(locale, 'fileTree.searchFailed', {
-                detail: fallbackError instanceof Error ? fallbackError.message : describeUnknownError(error),
-              }),
-            )
-          }
-        })
-    }, SEARCH_DEBOUNCE_MS)
-
-    return () => {
-      window.clearTimeout(timer)
-    }
-  }, [cancelActiveStreamSearch, isSearchModalOpen, locale, searchMode, trimmedSearchQuery, workspaceId])
-
-  useEffect(() => {
-    if (!isSearchModalOpen || !workspaceId || searchMode !== 'file') {
-      if (searchMode === 'file') {
-        setSearchLoading(false)
-        setSearchError(null)
-      }
-      return
-    }
-
-    if (!trimmedSearchQuery) {
-      setFileMatches([])
-      setSearchLoading(false)
-      setSearchError(null)
-      return
-    }
-
-    const requestId = searchRequestSeqRef.current + 1
-    searchRequestSeqRef.current = requestId
-    setSearchLoading(true)
-    setSearchError(null)
-    setFileMatches([])
-
-    const timer = window.setTimeout(() => {
-      void desktopApi
-        .fsSearchFiles(workspaceId, trimmedSearchQuery, 120)
-        .then((response) => {
-          if (searchRequestSeqRef.current !== requestId) {
-            return
-          }
-          setFileMatches(resolveFileSearchEntries(response.matches))
-          setSearchLoading(false)
-        })
-        .catch((error) => {
-          if (searchRequestSeqRef.current !== requestId) {
-            return
-          }
-          setSearchLoading(false)
-          setFileMatches([])
-          setSearchError(
-            t(locale, 'fileTree.searchFailed', {
-              detail: error instanceof Error ? error.message : String(error),
-            }),
-          )
-        })
-    }, SEARCH_DEBOUNCE_MS)
-
-    return () => {
-      window.clearTimeout(timer)
-    }
-  }, [isSearchModalOpen, locale, searchMode, trimmedSearchQuery, workspaceId])
 
   const toggleDirectory = useCallback(
     (directoryPath: string) => {
@@ -1393,22 +1097,6 @@ export function FileTreePane({
     [locale, onMovePath, onSelectFile, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId],
   )
 
-  const handleSearchSubmit = useCallback(() => {
-    if (searchMode === 'file') {
-      const first = fileMatches[0]
-      if (first) {
-        onSelectFile(first.path)
-        setIsSearchModalOpen(false)
-      }
-      return
-    }
-    const first = contentMatches[0]
-    if (first) {
-      onSelectFile(first.path, first.line)
-      setIsSearchModalOpen(false)
-    }
-  }, [contentMatches, fileMatches, onSelectFile, searchMode])
-
   const handleDirectoryToggleClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       const path = event.currentTarget.dataset.path
@@ -1591,7 +1279,7 @@ export function FileTreePane({
             aria-label={t(locale, 'fileTree.openSearch')}
             title={t(locale, 'fileTree.openSearch')}
             onClick={() => {
-              openSearchModal()
+              onOpenSearch?.('file')
             }}
             disabled={!workspaceId}
           >
@@ -1812,26 +1500,6 @@ export function FileTreePane({
         </div>
         , document.body
       ) : null}
-      <FileSearchModal
-        open={isSearchModalOpen}
-        locale={locale}
-        workspaceId={workspaceId}
-        mode={searchMode}
-        query={searchQuery}
-        fileMatches={fileMatches}
-        contentMatches={contentMatches}
-        loading={searchLoading}
-        error={searchError}
-        droppedChunks={searchDroppedChunks}
-        onClose={() => setIsSearchModalOpen(false)}
-        onModeChange={handleSearchModeChange}
-        onQueryChange={setSearchQuery}
-        onSubmit={handleSearchSubmit}
-        onSelectFile={(path, line) => {
-          onSelectFile(path, line)
-          setIsSearchModalOpen(false)
-        }}
-      />
       <FileTreePromptModal
         key={`${promptModal.open ? 'open' : 'closed'}:${promptModal.title}:${promptModal.defaultValue}`}
         open={promptModal.open}

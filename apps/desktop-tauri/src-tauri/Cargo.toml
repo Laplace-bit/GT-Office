@@ -20,6 +20,7 @@ grep-searcher = "0.1"
 ignore = "0.4"
 notify = "6"
 qrcode = "0.14"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.14"
 serde = { workspace = true }

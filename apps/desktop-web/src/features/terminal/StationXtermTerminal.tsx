@@ -10,6 +10,7 @@ import {
   shouldBypassXtermTextKeyEvent,
   shouldForwardDeferredMacOsTextInput,
   shouldKeepDeferredMacOsTextInputPending,
+  shouldSkipDeferredMacOsTextInput,
 } from './macos-webkit-ime-workaround'
 
 export interface StationTerminalSink {
@@ -374,6 +375,8 @@ function StationXtermTerminalView({
     let serializeFrameId: number | null = null
     let removeCompositionStartSyncListener: (() => void) | null = null
     let removeMacOsImeFallbackListeners: (() => void) | null = null
+    let pendingNativeTextInputRef: { current: boolean } | null = null
+    let pendingNativeTextInputXtermDataRef: { current: string | null } | null = null
     let lastReportAtMs = 0
     let serializedRestoreState: string | null = null
     let serializedRestoreCols = 0
@@ -401,7 +404,7 @@ function StationXtermTerminalView({
           theme: getTerminalTheme(host),
           overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,
-          minimumContrastRatio: 1.2,
+          minimumContrastRatio: 1,
         })
         // Keep inactive cursor subtle and slim instead of default thick outline block.
         ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
@@ -440,43 +443,63 @@ function StationXtermTerminalView({
           // macOS WebKit/WKWebView can route IME + Shift text through delayed input events that
           // xterm 6.0.0 misses on keydown/keypress. Keep xterm in charge of normal composition,
           // but let these shifted text keys fall through to the native input event path.
-          const pendingNativeTextInputRef = { current: false }
+          pendingNativeTextInputRef = { current: false }
+          pendingNativeTextInputXtermDataRef = { current: null as string | null }
           terminal.attachCustomKeyEventHandler((event) => {
             const shouldBypass = shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled)
             if (shouldBypass) {
-              pendingNativeTextInputRef.current = true
+              pendingNativeTextInputRef!.current = true
+              pendingNativeTextInputXtermDataRef!.current = null
             }
             return !shouldBypass
           })
           const resetPendingNativeTextInput = () => {
-            pendingNativeTextInputRef.current = false
+            pendingNativeTextInputRef!.current = false
+            pendingNativeTextInputXtermDataRef!.current = null
           }
           const handleDeferredMacOsImeTextInput = (rawEvent: Event) => {
             const event = rawEvent as InputEvent
-            if (!pendingNativeTextInputRef.current) {
+            if (!pendingNativeTextInputRef?.current) {
               return
             }
             if (shouldKeepDeferredMacOsTextInputPending(event, isMacOsWebKitImeFallbackEnabled)) {
               return
             }
             if (!shouldForwardDeferredMacOsTextInput(event, isMacOsWebKitImeFallbackEnabled)) {
-              pendingNativeTextInputRef.current = false
+              resetPendingNativeTextInput()
               return
             }
             const text = event.data
             if (!text) {
-              pendingNativeTextInputRef.current = false
+              resetPendingNativeTextInput()
               return
             }
-            pendingNativeTextInputRef.current = false
+            if (shouldSkipDeferredMacOsTextInput(text, pendingNativeTextInputXtermDataRef?.current ?? null)) {
+              resetPendingNativeTextInput()
+              terminalTextarea.value = ''
+              return
+            }
+            resetPendingNativeTextInput()
             onDataRef.current(stationId, text)
             terminalTextarea.value = ''
           }
+          // After IME composition ends, reset the deferred input flag so the next
+          // keystroke is not mistakenly treated as a continuation of the old
+          // composition.  Do NOT clear terminalTextarea.value here – xterm manages
+          // the textarea content internally, and wiping it externally causes the
+          // display to get out of sync (e.g. stale text after Backspace).
+          const handleCompositionEnd = () => {
+            queueMicrotask(() => {
+              resetPendingNativeTextInput()
+            })
+          }
           terminalTextarea.addEventListener('input', handleDeferredMacOsImeTextInput)
+          terminalTextarea.addEventListener('compositionend', handleCompositionEnd)
           terminalTextarea.addEventListener('blur', resetPendingNativeTextInput, true)
           removeMacOsImeFallbackListeners = () => {
             resetPendingNativeTextInput()
             terminalTextarea.removeEventListener('input', handleDeferredMacOsImeTextInput)
+            terminalTextarea.removeEventListener('compositionend', handleCompositionEnd)
             terminalTextarea.removeEventListener('blur', resetPendingNativeTextInput, true)
           }
         }
@@ -740,6 +763,11 @@ function StationXtermTerminalView({
         dataDisposable = terminal.onData((data) => {
           if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
             return
+          }
+          if (isMacOsWebKitImeFallbackEnabled && pendingNativeTextInputRef?.current && pendingNativeTextInputXtermDataRef) {
+            // Remember what xterm already consumed during a deferred IME cycle so the
+            // native input fallback does not replay the same committed text.
+            pendingNativeTextInputXtermDataRef.current = (pendingNativeTextInputXtermDataRef.current ?? '') + data
           }
           onDataRef.current(stationId, data)
         })

@@ -157,7 +157,6 @@ import {
   getStationIdleBanner,
   isCodeEditorKeyboardTarget,
   isEditableKeyboardTarget,
-  isTerminalKeyboardTarget,
   isLinuxPlatform,
   isMacOsPlatform,
   isNavItemId,
@@ -432,7 +431,9 @@ export function ShellRoot() {
     fileCanRenderText,
     fileReadLoading,
     fileReadError,
-    fileSearchRequest,
+    isFileSearchModalOpen,
+    setIsFileSearchModalOpen,
+    fileSearchMode,
     fileEditorCommandRequest,
     tabSessionSnapshotEntries,
     tabSessionSnapshotSignature,
@@ -446,7 +447,6 @@ export function ShellRoot() {
     deletePathInWorkspace,
     movePathInWorkspace,
     requestFileSearch,
-    consumeFileSearchRequest,
     requestFileEditorCommand,
     resetFileState,
   } = useShellFileController({
@@ -4049,18 +4049,7 @@ export function ShellRoot() {
   )
 
   const triggerFileSearch = useCallback((mode?: 'file' | 'content') => {
-    const shouldReplayAfterPaneMount = !leftPaneVisibleRef.current
-    setLeftPaneVisible(true)
     requestFileSearch(mode)
-    if (shouldReplayAfterPaneMount && typeof window !== 'undefined') {
-      if (pendingSearchRequestFrameRef.current !== null) {
-        window.cancelAnimationFrame(pendingSearchRequestFrameRef.current)
-      }
-      pendingSearchRequestFrameRef.current = window.requestAnimationFrame(() => {
-        pendingSearchRequestFrameRef.current = null
-        requestFileSearch(mode)
-      })
-    }
   }, [requestFileSearch])
 
   const triggerFileEditorCommand = useCallback(
@@ -4215,10 +4204,10 @@ export function ShellRoot() {
 
       const bindings = shortcutBindingsRef.current
       const isMacOs = nativeWindowTopMacOsRef.current
-      const isTerminalTarget = isTerminalKeyboardTarget(event.target)
+
 
       if (matchesShortcutEvent(event, bindings.taskQuickDispatch, isMacOs)) {
-        if (isTerminalTarget || isShortcutRepeat(event)) {
+        if (isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
@@ -4228,7 +4217,7 @@ export function ShellRoot() {
       }
 
       if (matchesShortcutEvent(event, bindings.openContentSearch, isMacOs)) {
-        if (isTerminalTarget || isShortcutRepeat(event)) {
+        if (isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
@@ -4264,7 +4253,7 @@ export function ShellRoot() {
       }
 
       if (matchesShortcutEvent(event, bindings.openFileSearch, isMacOs)) {
-        if (isTerminalTarget || isShortcutRepeat(event)) {
+        if (isShortcutRepeat(event)) {
           return
         }
         event.preventDefault()
@@ -4469,10 +4458,6 @@ export function ShellRoot() {
   const handleRefreshExternalChannelStatus = useCallback(() => {
     void refreshExternalChannelStatus()
   }, [refreshExternalChannelStatus])
-
-  const handleFileTreeSearchRequestConsumed = useCallback((nonce: number) => {
-    consumeFileSearchRequest(nonce)
-  }, [consumeFileSearchRequest])
 
   const handleFileTreeSelectFile = useCallback(
     (filePath: string, line?: number) => {
@@ -4710,12 +4695,11 @@ export function ShellRoot() {
         locale,
         workspaceId: activeWorkspaceId,
         selectedFilePath: activeFilePath,
-        searchRequest: fileSearchRequest,
-        onSearchRequestConsumed: handleFileTreeSearchRequestConsumed,
         onSelectFile: handleFileTreeSelectFile,
         onCreateFile: createFileInWorkspace,
         onDeletePath: deletePathInWorkspace,
         onMovePath: movePathInWorkspace,
+        onOpenSearch: requestFileSearch,
       }}
       taskCenterPaneProps={taskComposerBaseProps}
       stationOverviewPaneProps={{
@@ -4866,6 +4850,14 @@ export function ShellRoot() {
           setStationOverviewState((prev) => ({ ...prev, query: value }))
         },
         onSelectStation: handleStationSearchSelectStation,
+      }}
+      globalFileSearchModalProps={{
+        open: isFileSearchModalOpen,
+        locale,
+        workspaceId: activeWorkspaceId,
+        initialMode: fileSearchMode,
+        onClose: () => setIsFileSearchModalOpen(false),
+        onSelectFile: handleFileTreeSelectFile,
       }}
     />
       <StationActionCommandSheet

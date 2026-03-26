@@ -20,11 +20,6 @@ import {
 
 type FileSearchMode = 'file' | 'content'
 
-type FileSearchRequest = {
-  mode?: FileSearchMode
-  nonce: number
-}
-
 interface UseShellFileControllerInput {
   activeWorkspaceId: string | null
   locale: Locale
@@ -39,7 +34,9 @@ export interface ShellFileController {
   fileCanRenderText: boolean
   fileReadLoading: boolean
   fileReadError: string | null
-  fileSearchRequest: FileSearchRequest | null
+  isFileSearchModalOpen: boolean
+  fileSearchMode: 'file' | 'content'
+  setIsFileSearchModalOpen: Dispatch<SetStateAction<boolean>>
   fileEditorCommandRequest: FileEditorCommandRequest | null
   tabSessionSnapshotEntries: Array<{ path: string; active: boolean }>
   tabSessionSnapshotSignature: string
@@ -53,7 +50,6 @@ export interface ShellFileController {
   deletePathInWorkspace: (path: string) => Promise<boolean>
   movePathInWorkspace: (fromPath: string, toPath: string) => Promise<boolean>
   requestFileSearch: (mode?: FileSearchMode) => void
-  consumeFileSearchRequest: (nonce: number) => void
   requestFileEditorCommand: (
     type: FileEditorCommandRequest['type'],
     options?: { line?: number; targetPath?: string | null },
@@ -72,7 +68,8 @@ export function useShellFileController({
   const [fileReadMode, setFileReadMode] = useState<FileReadMode>('full')
   const [fileReadLoading, setFileReadLoading] = useState(false)
   const [fileReadError, setFileReadError] = useState<string | null>(null)
-  const [fileSearchRequest, setFileSearchRequest] = useState<FileSearchRequest | null>(null)
+  const [isFileSearchModalOpen, setIsFileSearchModalOpen] = useState(false)
+  const [fileSearchMode, setFileSearchMode] = useState<FileSearchMode>('file')
   const [fileEditorCommandRequest, setFileEditorCommandRequest] =
     useState<FileEditorCommandRequest | null>(null)
   const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode) => Promise<void>>(
@@ -420,19 +417,10 @@ export function useShellFileController({
   }, [activeWorkspaceId, loadFileContent])
 
   const requestFileSearch = useCallback((mode?: FileSearchMode) => {
-    setFileSearchRequest((prev) => ({
-      mode,
-      nonce: (prev?.nonce ?? 0) + 1,
-    }))
-  }, [])
-
-  const consumeFileSearchRequest = useCallback((nonce: number) => {
-    setFileSearchRequest((prev) => {
-      if (!prev || prev.nonce !== nonce) {
-        return prev
-      }
-      return null
-    })
+    if (mode) {
+      setFileSearchMode(mode)
+    }
+    setIsFileSearchModalOpen(true)
   }, [])
 
   const requestFileEditorCommand = useCallback((
@@ -459,7 +447,7 @@ export function useShellFileController({
     setFileReadMode('full')
     setFileReadLoading(false)
     setFileReadError(null)
-    setFileSearchRequest(null)
+    setIsFileSearchModalOpen(false)
     setFileEditorCommandRequest(null)
   }, [])
 
@@ -489,7 +477,9 @@ export function useShellFileController({
     fileCanRenderText,
     fileReadLoading,
     fileReadError,
-    fileSearchRequest,
+    isFileSearchModalOpen,
+    fileSearchMode,
+    setIsFileSearchModalOpen,
     fileEditorCommandRequest,
     tabSessionSnapshotEntries,
     tabSessionSnapshotSignature,
@@ -503,7 +493,6 @@ export function useShellFileController({
     deletePathInWorkspace,
     movePathInWorkspace,
     requestFileSearch,
-    consumeFileSearchRequest,
     requestFileEditorCommand,
     resetFileState,
   }

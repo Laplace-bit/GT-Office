@@ -5,7 +5,7 @@ import type {
   PointerEventHandler,
   RefObject,
 } from 'react'
-import { FileEditorPane, FileTreePane } from '@features/file-explorer'
+import { FileEditorPane, FileTreePane, GlobalFileSearchModal } from '@features/file-explorer'
 import { GitHistoryPane, GitOperationsPane } from '@features/git'
 import { GlobalTaskDispatchOverlay, TaskCenterPane } from '@features/task-center'
 import { SettingsModal } from '@features/settings'
@@ -72,6 +72,7 @@ interface ShellRootViewProps {
   stationManageModalProps: ComponentProps<typeof StationManageModal>
   channelStudioProps: ComponentProps<typeof ChannelStudio>
   stationSearchModalProps: ComponentProps<typeof StationSearchModal>
+  globalFileSearchModalProps: ComponentProps<typeof GlobalFileSearchModal>
 }
 
 interface TelegramDebugToastCardProps {
@@ -434,6 +435,7 @@ interface ShellRootOverlaysProps {
   stationManageModalProps: ComponentProps<typeof StationManageModal>
   channelStudioProps: ComponentProps<typeof ChannelStudio>
   stationSearchModalProps: ComponentProps<typeof StationSearchModal>
+  globalFileSearchModalProps: ComponentProps<typeof GlobalFileSearchModal>
 }
 
 function ShellRootOverlays({
@@ -442,6 +444,7 @@ function ShellRootOverlays({
   stationManageModalProps,
   channelStudioProps,
   stationSearchModalProps,
+  globalFileSearchModalProps,
 }: ShellRootOverlaysProps) {
   return (
     <>
@@ -450,6 +453,7 @@ function ShellRootOverlays({
       <StationManageModal {...stationManageModalProps} />
       <ChannelStudio {...channelStudioProps} />
       <StationSearchModal {...stationSearchModalProps} />
+      <GlobalFileSearchModal {...globalFileSearchModalProps} />
       <NotificationList />
     </>
   )
@@ -501,6 +505,7 @@ export function ShellRootView({
   stationManageModalProps,
   channelStudioProps,
   stationSearchModalProps,
+  globalFileSearchModalProps,
 }: ShellRootViewProps) {
   return (
     <div
@@ -565,6 +570,7 @@ export function ShellRootView({
         stationManageModalProps={stationManageModalProps}
         channelStudioProps={channelStudioProps}
         stationSearchModalProps={stationSearchModalProps}
+        globalFileSearchModalProps={globalFileSearchModalProps}
       />
     </div>
   )

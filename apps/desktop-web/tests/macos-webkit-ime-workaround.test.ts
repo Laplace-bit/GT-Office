@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as macOsWebKitImeWorkaround from '../src/features/terminal/macos-webkit-ime-workaround.js'
 import {
   isMacOsWebKitTextInputEnvironment,
   shouldBypassXtermTextKeyEvent,
@@ -72,7 +73,78 @@ test('keeps generic shifted printable input on the normal xterm path on macOS We
   )
 })
 
-test('keeps xterm key handling for control shortcuts and navigation keys', () => {
+test('defers shifted ASCII symbols with keyCode 229 to the native fallback in WKWebView', () => {
+  // WKWebView can report Shift+2 -> '!' as keyCode 229. Because xterm drops this,
+  // we must bypass xterm and let the native input fallback handle it.
+  assert.equal(
+    shouldBypassXtermTextKeyEvent(
+      {
+        type: 'keydown',
+        key: '!',
+        keyCode: 229,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: true,
+        isComposing: false,
+      },
+      true,
+    ),
+    true,
+  )
+
+  assert.equal(
+    shouldBypassXtermTextKeyEvent(
+      {
+        type: 'keydown',
+        key: '#',
+        keyCode: 229,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: true,
+        isComposing: false,
+      },
+      true,
+    ),
+    true,
+  )
+
+  assert.equal(
+    shouldBypassXtermTextKeyEvent(
+      {
+        type: 'keydown',
+        key: '$',
+        keyCode: 229,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: true,
+        isComposing: false,
+      },
+      true,
+    ),
+    true,
+  )
+})
+
+test('keeps xterm key handling for control shortcuts and navigation keys even if keyCode is 229', () => {
+  assert.equal(
+    shouldBypassXtermTextKeyEvent(
+      {
+        type: 'keydown',
+        key: 'Backspace',
+        keyCode: 229,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        isComposing: false,
+      },
+      true,
+    ),
+    false,
+  )
   assert.equal(
     shouldBypassXtermTextKeyEvent(
       {
@@ -242,4 +314,58 @@ test('forwards deferred macOS text input only when xterm did not already consume
     ),
     false,
   )
+})
+
+test('forwards deferred macOS text input from insertFromComposition events in WKWebView', () => {
+  assert.equal(
+    shouldForwardDeferredMacOsTextInput(
+      {
+        defaultPrevented: false,
+        data: '中',
+        inputType: 'insertFromComposition',
+      },
+      true,
+    ),
+    true,
+  )
+
+  assert.equal(
+    shouldForwardDeferredMacOsTextInput(
+      {
+        defaultPrevented: true,
+        data: '中',
+        inputType: 'insertFromComposition',
+      },
+      true,
+    ),
+    false,
+  )
+})
+
+test('skips deferred native forwarding when xterm already emitted the same committed text', () => {
+  assert.equal(Reflect.has(macOsWebKitImeWorkaround, 'shouldSkipDeferredMacOsTextInput'), true)
+
+  const shouldSkipDeferredMacOsTextInput = Reflect.get(
+    macOsWebKitImeWorkaround,
+    'shouldSkipDeferredMacOsTextInput',
+  ) as ((eventData: string | null, xtermData: string | null) => boolean)
+
+  assert.equal(shouldSkipDeferredMacOsTextInput('，', '，'), true)
+  assert.equal(shouldSkipDeferredMacOsTextInput('。', '，'), false)
+  assert.equal(shouldSkipDeferredMacOsTextInput('，', null), false)
+  assert.equal(shouldSkipDeferredMacOsTextInput(null, '，'), false)
+})
+
+test('skips deferred native forwarding when xterm data contains or overlaps with event data', () => {
+  const shouldSkipDeferredMacOsTextInput = Reflect.get(
+    macOsWebKitImeWorkaround,
+    'shouldSkipDeferredMacOsTextInput',
+  ) as ((eventData: string | null, xtermData: string | null) => boolean)
+
+  // xterm consumed more data that includes the event data.
+  assert.equal(shouldSkipDeferredMacOsTextInput('中', '中文'), true)
+  // Event data suffix matches xterm data.
+  assert.equal(shouldSkipDeferredMacOsTextInput('中文', '文'), true)
+  // No overlap.
+  assert.equal(shouldSkipDeferredMacOsTextInput('中', '文'), false)
 })

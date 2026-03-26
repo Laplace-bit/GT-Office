@@ -24,6 +24,9 @@ const APPLE_WEBKIT_RE = /AppleWebKit/i
 const CHROMIUM_RE = /Chrome|Chromium|CriOS|Edg|EdgiOS/i
 const FIREFOX_RE = /Firefox|FxiOS/i
 const DEFERRED_MACOS_IME_PENDING_INPUT_TYPES = new Set(['insertCompositionText', 'deleteCompositionText'])
+const DEFERRED_MACOS_IME_FORWARD_INPUT_TYPES = new Set(['insertText', 'insertFromComposition'])
+
+// Removed isSinglePrintableAsciiKey helper
 
 export function isMacOsWebKitTextInputEnvironment({ platform, userAgent }: TextInputEnvironmentLike): boolean {
   return /Mac/i.test(platform) && APPLE_WEBKIT_RE.test(userAgent) && !CHROMIUM_RE.test(userAgent) && !FIREFOX_RE.test(userAgent)
@@ -42,6 +45,17 @@ export function shouldBypassXtermTextKeyEvent(
   if (event.ctrlKey || event.metaKey || event.altKey) {
     return false
   }
+  // Control and navigation keys must always be handled by xterm directly,
+  // even if WKWebView mistakenly tags them with keyCode 229 while the IME is active.
+  const isControlKey = [
+    'Backspace', 'Delete', 'Enter', 'Escape', 'Tab',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Home', 'End', 'PageUp', 'PageDown'
+  ].includes(event.key)
+  if (isControlKey) {
+    return false
+  }
+  
   return event.keyCode === 229 || event.key === 'Process' || Boolean(event.isComposing)
 }
 
@@ -60,6 +74,26 @@ export function shouldForwardDeferredMacOsTextInput(
     isMacOsWebKitEnvironment &&
     !event.defaultPrevented &&
     Boolean(event.data) &&
-    event.inputType === 'insertText'
+    DEFERRED_MACOS_IME_FORWARD_INPUT_TYPES.has(event.inputType)
   )
+}
+
+export function shouldSkipDeferredMacOsTextInput(eventData: string | null, xtermData: string | null): boolean {
+  if (!eventData || !xtermData) {
+    return false
+  }
+  // Exact match – xterm already consumed the same text.
+  if (eventData === xtermData) {
+    return true
+  }
+  // Partial containment – xterm consumed more data that includes this text.
+  if (xtermData.length > eventData.length && xtermData.includes(eventData)) {
+    return true
+  }
+  // The event data ends with the xterm data – commonly seen when WKWebView
+  // replays a suffix of the committed composition.
+  if (eventData.length > xtermData.length && eventData.endsWith(xtermData)) {
+    return true
+  }
+  return false
 }

@@ -10,6 +10,7 @@ mod mcp_bridge;
 mod process_utils;
 
 use base64::Engine;
+use rustls::crypto::aws_lc_rs;
 use serde_json::json;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tracing::warn;
@@ -22,6 +23,8 @@ use commands::{
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = aws_lc_rs::default_provider().install_default();
+
     tauri::Builder::default()
         .manage(app_state::AppState::default())
         .setup(|app| {
