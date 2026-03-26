@@ -9,6 +9,7 @@ import {
   isMacOsWebKitTextInputEnvironment,
   shouldBypassXtermTextKeyEvent,
   shouldForwardDeferredMacOsTextInput,
+  shouldKeepDeferredMacOsTextInputPending,
 } from './macos-webkit-ime-workaround'
 
 export interface StationTerminalSink {
@@ -439,24 +440,44 @@ function StationXtermTerminalView({
           // macOS WebKit/WKWebView can route IME + Shift text through delayed input events that
           // xterm 6.0.0 misses on keydown/keypress. Keep xterm in charge of normal composition,
           // but let these shifted text keys fall through to the native input event path.
-          terminal.attachCustomKeyEventHandler(
-            (event) => !shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled),
-          )
+          const pendingNativeTextInputRef = { current: false }
+          terminal.attachCustomKeyEventHandler((event) => {
+            const shouldBypass = shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled)
+            if (shouldBypass) {
+              pendingNativeTextInputRef.current = true
+            }
+            return !shouldBypass
+          })
+          const resetPendingNativeTextInput = () => {
+            pendingNativeTextInputRef.current = false
+          }
           const handleDeferredMacOsImeTextInput = (rawEvent: Event) => {
             const event = rawEvent as InputEvent
+            if (!pendingNativeTextInputRef.current) {
+              return
+            }
+            if (shouldKeepDeferredMacOsTextInputPending(event, isMacOsWebKitImeFallbackEnabled)) {
+              return
+            }
             if (!shouldForwardDeferredMacOsTextInput(event, isMacOsWebKitImeFallbackEnabled)) {
+              pendingNativeTextInputRef.current = false
               return
             }
             const text = event.data
             if (!text) {
+              pendingNativeTextInputRef.current = false
               return
             }
+            pendingNativeTextInputRef.current = false
             onDataRef.current(stationId, text)
             terminalTextarea.value = ''
           }
           terminalTextarea.addEventListener('input', handleDeferredMacOsImeTextInput)
+          terminalTextarea.addEventListener('blur', resetPendingNativeTextInput, true)
           removeMacOsImeFallbackListeners = () => {
+            resetPendingNativeTextInput()
             terminalTextarea.removeEventListener('input', handleDeferredMacOsImeTextInput)
+            terminalTextarea.removeEventListener('blur', resetPendingNativeTextInput, true)
           }
         }
 

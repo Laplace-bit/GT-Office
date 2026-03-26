@@ -23,6 +23,7 @@ export interface TextInputEventLike {
 const APPLE_WEBKIT_RE = /AppleWebKit/i
 const CHROMIUM_RE = /Chrome|Chromium|CriOS|Edg|EdgiOS/i
 const FIREFOX_RE = /Firefox|FxiOS/i
+const DEFERRED_MACOS_IME_PENDING_INPUT_TYPES = new Set(['insertCompositionText', 'deleteCompositionText'])
 
 export function isMacOsWebKitTextInputEnvironment({ platform, userAgent }: TextInputEnvironmentLike): boolean {
   return /Mac/i.test(platform) && APPLE_WEBKIT_RE.test(userAgent) && !CHROMIUM_RE.test(userAgent) && !FIREFOX_RE.test(userAgent)
@@ -38,13 +39,17 @@ export function shouldBypassXtermTextKeyEvent(
   if (event.type !== 'keydown' && event.type !== 'keypress') {
     return false
   }
-  if (event.ctrlKey || event.metaKey || event.altKey || !event.shiftKey) {
+  if (event.ctrlKey || event.metaKey || event.altKey) {
     return false
   }
-  if (event.keyCode === 229 || event.isComposing) {
-    return true
-  }
-  return event.key.length === 1
+  return event.keyCode === 229 || event.key === 'Process' || Boolean(event.isComposing)
+}
+
+export function shouldKeepDeferredMacOsTextInputPending(
+  event: TextInputEventLike,
+  isMacOsWebKitEnvironment: boolean,
+): boolean {
+  return isMacOsWebKitEnvironment && !event.defaultPrevented && DEFERRED_MACOS_IME_PENDING_INPUT_TYPES.has(event.inputType)
 }
 
 export function shouldForwardDeferredMacOsTextInput(

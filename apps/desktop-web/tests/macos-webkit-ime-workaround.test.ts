@@ -4,6 +4,7 @@ import {
   isMacOsWebKitTextInputEnvironment,
   shouldBypassXtermTextKeyEvent,
   shouldForwardDeferredMacOsTextInput,
+  shouldKeepDeferredMacOsTextInputPending,
 } from '../src/features/terminal/macos-webkit-ime-workaround.js'
 
 test('detects macOS WebKit environments, including WKWebView-style user agents', () => {
@@ -35,7 +36,7 @@ test('detects macOS WebKit environments, including WKWebView-style user agents',
   )
 })
 
-test('bypasses xterm key handling for shifted printable input on macOS WebKit', () => {
+test('keeps generic shifted printable input on the normal xterm path on macOS WebKit', () => {
   assert.equal(
     shouldBypassXtermTextKeyEvent(
       {
@@ -50,15 +51,15 @@ test('bypasses xterm key handling for shifted printable input on macOS WebKit', 
       },
       true,
     ),
-    true,
+    false,
   )
 
   assert.equal(
     shouldBypassXtermTextKeyEvent(
       {
         type: 'keypress',
-        key: '@',
-        keyCode: 50,
+        key: '，',
+        keyCode: 188,
         ctrlKey: false,
         metaKey: false,
         altKey: false,
@@ -67,7 +68,7 @@ test('bypasses xterm key handling for shifted printable input on macOS WebKit', 
       },
       true,
     ),
-    true,
+    false,
   )
 })
 
@@ -117,7 +118,7 @@ test('treats IME composition key events as candidates for deferred input forward
         ctrlKey: false,
         metaKey: false,
         altKey: false,
-        shiftKey: true,
+        shiftKey: false,
         isComposing: false,
       },
       true,
@@ -134,12 +135,62 @@ test('treats IME composition key events as candidates for deferred input forward
         ctrlKey: false,
         metaKey: false,
         altKey: false,
-        shiftKey: true,
+        shiftKey: false,
         isComposing: true,
       },
       true,
     ),
     true,
+  )
+})
+
+test('keeps deferred macOS text input pending across intermediate composition events', () => {
+  assert.equal(
+    shouldKeepDeferredMacOsTextInputPending(
+      {
+        defaultPrevented: false,
+        data: '中',
+        inputType: 'insertCompositionText',
+      },
+      true,
+    ),
+    true,
+  )
+
+  assert.equal(
+    shouldKeepDeferredMacOsTextInputPending(
+      {
+        defaultPrevented: false,
+        data: null,
+        inputType: 'deleteCompositionText',
+      },
+      true,
+    ),
+    true,
+  )
+
+  assert.equal(
+    shouldKeepDeferredMacOsTextInputPending(
+      {
+        defaultPrevented: true,
+        data: '中',
+        inputType: 'insertCompositionText',
+      },
+      true,
+    ),
+    false,
+  )
+
+  assert.equal(
+    shouldKeepDeferredMacOsTextInputPending(
+      {
+        defaultPrevented: false,
+        data: '@',
+        inputType: 'insertText',
+      },
+      true,
+    ),
+    false,
   )
 })
 
