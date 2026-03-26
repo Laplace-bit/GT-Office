@@ -213,7 +213,7 @@ export const commandRailDefaultPinnedCommandIdsByProvider: Record<CommandRailPro
 
 export const defaultUiPreferences: UiPreferences = {
   locale: 'zh-CN',
-  themeMode: 'graphite-light',
+  themeMode: 'graphite-dark',
   uiFont: 'sf-pro',
   monoFont: 'jetbrains-mono',
   uiFontSize: 'medium',

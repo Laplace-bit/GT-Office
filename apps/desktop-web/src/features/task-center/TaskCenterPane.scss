@@ -31,6 +31,83 @@
   box-shadow: none;
 }
 
+.task-center-pane--compact {
+  display: grid;
+  grid-template-columns: minmax(#{rem(168)}, auto) minmax(0, 1fr);
+  align-items: end;
+  gap: var(--vb-space-sm);
+  overflow: visible;
+}
+
+.task-center-pane--compact .task-center-target-picker,
+.task-center-pane--compact .task-center-editor {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.task-center-pane--compact .task-center-targets-header,
+.task-center-pane--compact .task-center-editor-header,
+.task-center-pane--compact .task-center-send-row,
+.task-center-pane--compact .task-center-send-shortcut-hint {
+  display: none;
+}
+
+.task-center-pane--compact .task-center-target-tag-trigger {
+  min-height: #{rem(44)};
+  padding: 0 var(--vb-space-sm);
+  border-radius: var(--vb-radius-lg);
+}
+
+.task-center-pane--compact .task-center-target-tag-wrap {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.task-center-pane--compact .task-center-target-tag-chip {
+  flex-shrink: 0;
+  border-radius: var(--vb-radius-full);
+}
+
+.task-center-pane--compact .task-center-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: var(--vb-space-sm);
+}
+
+.task-center-pane--compact .task-center-editor-input-wrap {
+  min-width: 0;
+}
+
+.task-center-pane--compact .task-center-editor-input-wrap textarea {
+  min-height: #{rem(44)};
+  max-height: #{rem(44)};
+  padding: var(--vb-space-sm) var(--vb-space-md);
+  border-radius: var(--vb-radius-lg);
+  line-height: 1.45;
+}
+
+.task-center-pane--compact .task-center-editor-footer {
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
+.task-center-pane--compact .task-center-inline-send {
+  height: #{rem(44)};
+  padding: 0 var(--vb-space-md);
+  border-radius: var(--vb-radius-lg);
+  box-shadow: none;
+}
+
 .task-center-header {
   margin-bottom: var(--vb-space-2xs);
   min-width: 0;
@@ -700,6 +777,18 @@
 }
 
 @container (max-width: 40rem) {
+  .task-center-pane--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .task-center-pane--compact .task-center-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-center-pane--compact .task-center-inline-send {
+    width: 100%;
+  }
+
   .task-center-target-tag-chip {
     width: 100%;
     justify-content: space-between;

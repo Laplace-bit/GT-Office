@@ -33,10 +33,12 @@ interface TaskCenterPaneProps {
   onSearchMentionFiles: (query: string) => void
   onClearMentionSearch: () => void
   variant?: 'pane' | 'overlay'
+  compact?: boolean
   showHeader?: boolean
   title?: string
   description?: string | null
   sendShortcutHint?: string | null
+  onEditorFocusChange?: (focused: boolean) => void
 }
 
 interface MentionRange {
@@ -169,10 +171,12 @@ function TaskCenterPaneView({
   onSearchMentionFiles,
   onClearMentionSearch,
   variant = 'pane',
+  compact = false,
   showHeader = true,
   title,
   description = null,
   sendShortcutHint = null,
+  onEditorFocusChange,
 }: TaskCenterPaneProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const targetTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -374,7 +378,9 @@ function TaskCenterPaneView({
   }
 
   return (
-    <aside className={`panel task-center-pane ${variant === 'overlay' ? 'task-center-pane--overlay' : ''}`}>
+    <aside
+      className={`panel task-center-pane ${variant === 'overlay' ? 'task-center-pane--overlay' : ''} ${compact ? 'task-center-pane--compact' : ''}`}
+    >
       {showHeader ? (
         <header className="task-center-header">
           <h2>{title ?? t(locale, 'taskCenter.title')}</h2>
@@ -527,6 +533,12 @@ function TaskCenterPaneView({
             ref={textareaRef}
             value={draft.markdown}
             placeholder={t(locale, 'taskCenter.markdownPlaceholder')}
+            onFocus={() => {
+              onEditorFocusChange?.(true)
+            }}
+            onBlur={() => {
+              onEditorFocusChange?.(false)
+            }}
             onChange={(event) => {
               const value = event.target.value
               const cursor = event.target.selectionStart ?? value.length
