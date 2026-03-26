@@ -26,6 +26,7 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { FileSearchModal } from './FileSearchModal'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
+import { resolveFileSearchEntries } from './file-search-state'
 import { resolveFileVisual, type FileVisual } from './file-visuals'
 import { addNotification } from '../../stores/notification'
 import './FileTreePane.scss'
@@ -478,6 +479,7 @@ export function FileTreePane({
   const [preferredSearchMode, setPreferredSearchMode] = useState<SearchMode>(() => readPersistedSearchMode())
   const [searchMode, setSearchMode] = useState<SearchMode>(() => readPersistedSearchMode())
   const [searchQuery, setSearchQuery] = useState('')
+  const [fileMatches, setFileMatches] = useState<FsEntry[]>([])
   const [contentMatches, setContentMatches] = useState<FsSearchMatch[]>([])
   const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
   const [searchLoading, setSearchLoading] = useState(false)
@@ -625,6 +627,7 @@ export function FileTreePane({
       setLoadedDirectories({})
       setLoadingDirectories({})
       setSearchQuery('')
+      setFileMatches([])
       setContentMatches([])
       setSearchError(null)
       setSearchLoading(false)
@@ -798,8 +801,10 @@ export function FileTreePane({
   useEffect(() => {
     if (!isSearchModalOpen || !workspaceId || searchMode !== 'content') {
       cancelActiveStreamSearch()
-      setSearchLoading(false)
-      setSearchError(null)
+      if (searchMode === 'content') {
+        setSearchLoading(false)
+        setSearchError(null)
+      }
       return
     }
 
@@ -870,6 +875,57 @@ export function FileTreePane({
     }
   }, [cancelActiveStreamSearch, isSearchModalOpen, locale, searchMode, trimmedSearchQuery, workspaceId])
 
+  useEffect(() => {
+    if (!isSearchModalOpen || !workspaceId || searchMode !== 'file') {
+      if (searchMode === 'file') {
+        setSearchLoading(false)
+        setSearchError(null)
+      }
+      return
+    }
+
+    if (!trimmedSearchQuery) {
+      setFileMatches([])
+      setSearchLoading(false)
+      setSearchError(null)
+      return
+    }
+
+    const requestId = searchRequestSeqRef.current + 1
+    searchRequestSeqRef.current = requestId
+    setSearchLoading(true)
+    setSearchError(null)
+    setFileMatches([])
+
+    const timer = window.setTimeout(() => {
+      void desktopApi
+        .fsSearchFiles(workspaceId, trimmedSearchQuery, 120)
+        .then((response) => {
+          if (searchRequestSeqRef.current !== requestId) {
+            return
+          }
+          setFileMatches(resolveFileSearchEntries(response.matches))
+          setSearchLoading(false)
+        })
+        .catch((error) => {
+          if (searchRequestSeqRef.current !== requestId) {
+            return
+          }
+          setSearchLoading(false)
+          setFileMatches([])
+          setSearchError(
+            t(locale, 'fileTree.searchFailed', {
+              detail: error instanceof Error ? error.message : String(error),
+            }),
+          )
+        })
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [isSearchModalOpen, locale, searchMode, trimmedSearchQuery, workspaceId])
+
   const toggleDirectory = useCallback(
     (directoryPath: string) => {
       const normalizedPath = normalizeDirectoryPath(directoryPath)
@@ -895,30 +951,6 @@ export function FileTreePane({
     () => buildRows(entriesByDirectory, expandedDirectories, loadingDirectories, ROOT_DIR, 0),
     [entriesByDirectory, expandedDirectories, loadingDirectories],
   )
-  const fileMatches = useMemo(() => {
-    if (!trimmedSearchQuery || searchMode !== 'file') {
-      return []
-    }
-    const keyword = trimmedSearchQuery.toLowerCase()
-    const dedup = new Map<string, FsEntry>()
-    for (const entries of Object.values(entriesByDirectory)) {
-      for (const entry of entries) {
-        if (entry.kind !== 'file') {
-          continue
-        }
-        const searchable = `${entry.path} ${entry.name}`.toLowerCase()
-        if (!searchable.includes(keyword)) {
-          continue
-        }
-        if (!dedup.has(entry.path)) {
-          dedup.set(entry.path, entry)
-        }
-      }
-    }
-    return Array.from(dedup.values())
-      .sort((left, right) => left.path.localeCompare(right.path, 'zh-Hans-CN'))
-      .slice(0, 400)
-  }, [entriesByDirectory, searchMode, trimmedSearchQuery])
 
   const rowRangeExtractor = useCallback(
     (range: Range) => {

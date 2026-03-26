@@ -13,6 +13,7 @@
   },
   "include": [
     "tests/**/*.ts",
+    "src/features/file-explorer/file-search-state.ts",
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
     "src/shell/layout/left-pane-layout.ts"
   ]
