@@ -155,7 +155,7 @@ pub fn surface_open_detached_window(
         stations: payload.stations,
     };
 
-    let surface_window = WebviewWindowBuilder::new(
+    let surface_window_builder = WebviewWindowBuilder::new(
         app,
         &window_label,
         build_detached_window_url(&query_payload)?,
@@ -170,12 +170,17 @@ pub fn surface_open_detached_window(
     .resizable(true)
     .decorations(true)
     .shadow(true)
-    .title_bar_style(tauri::TitleBarStyle::Overlay)
-    .hidden_title(true)
     .accept_first_mouse(true)
-    .always_on_top(topmost)
-    .build()
-    .map_err(|error| format!("SURFACE_WINDOW_CREATE_FAILED: {error}"))?;
+    .always_on_top(topmost);
+
+    #[cfg(target_os = "macos")]
+    let surface_window_builder = surface_window_builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    let surface_window = surface_window_builder
+        .build()
+        .map_err(|error| format!("SURFACE_WINDOW_CREATE_FAILED: {error}"))?;
 
     state.bind_window_workspace(&window_label, workspace_id)?;
     emit_surface_window_updated(&app, &window_label, topmost)?;
