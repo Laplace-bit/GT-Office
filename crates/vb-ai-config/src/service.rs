@@ -13,8 +13,8 @@ use vb_abstractions::SettingsScope;
 use vb_security::SecretStore;
 use vb_settings::{JsonSettingsService, SettingsPaths};
 use vb_storage::{
-    AiConfigAuditLogInput, SavedAiProviderInput, SavedAiProviderRecord,
-    SavedClaudeProviderInput, SavedClaudeProviderRecord, SqliteAiConfigRepository,
+    AiConfigAuditLogInput, SavedAiProviderInput, SavedAiProviderRecord, SavedClaudeProviderInput,
+    SavedClaudeProviderRecord, SqliteAiConfigRepository,
 };
 
 use crate::{
@@ -29,9 +29,8 @@ use crate::{
         ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode, ClaudeSavedProviderSnapshot,
         ClaudeSnapshot, CodexConfigSnapshot, CodexDraftInput, CodexNormalizedDraft,
         CodexProviderMode, CodexSavedProviderSnapshot, GeminiAuthMode, GeminiConfigSnapshot,
-        GeminiDraftInput, GeminiNormalizedDraft, GeminiProviderMode,
-        GeminiSavedProviderSnapshot, StoredAiConfigPreview, StoredClaudePreview,
-        StoredCodexPreview, StoredGeminiPreview,
+        GeminiDraftInput, GeminiNormalizedDraft, GeminiProviderMode, GeminiSavedProviderSnapshot,
+        StoredAiConfigPreview, StoredClaudePreview, StoredCodexPreview, StoredGeminiPreview,
     },
 };
 
@@ -242,10 +241,7 @@ impl AiConfigService {
         self.sync_claude_live_settings_at_path(live_settings_path, &normalized)?;
 
         let patch = build_workspace_patch(&normalized, Some(saved_provider_id));
-        if let Err(error) =
-            self.settings
-                .update(SettingsScope::User, None, &patch)
-        {
+        if let Err(error) = self.settings.update(SettingsScope::User, None, &patch) {
             self.restore_file_state(live_settings_path, live_settings_backup.as_deref())?;
             return Err(AiConfigError::Settings(error.to_string()));
         }
@@ -555,7 +551,8 @@ impl AiConfigService {
                 self.audit_repository
                     .set_active_saved_provider("codex", saved_provider_id, now_ms() as i64)
                     .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                let effective =
+                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
                 Ok(AiConfigApplyResponse {
                     workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                     preview_id: format!("saved-provider:{saved_provider_id}"),
@@ -604,7 +601,8 @@ impl AiConfigService {
                 self.audit_repository
                     .set_active_saved_provider("gemini", saved_provider_id, now_ms() as i64)
                     .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                let effective =
+                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
                 Ok(AiConfigApplyResponse {
                     workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                     preview_id: format!("saved-provider:{saved_provider_id}"),
@@ -679,14 +677,11 @@ impl AiConfigService {
                         .map_err(|error| AiConfigError::Storage(error.to_string()))?;
                 } else {
                     self.settings
-                        .update(
-                            SettingsScope::User,
-                            None,
-                            &build_empty_claude_patch(),
-                        )
+                        .update(SettingsScope::User, None, &build_empty_claude_patch())
                         .map_err(|error| AiConfigError::Settings(error.to_string()))?;
                 }
-                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                let effective =
+                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
                 Ok(AiConfigApplyResponse {
                     workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                     preview_id: format!("delete-provider:{saved_provider_id}"),
@@ -694,7 +689,10 @@ impl AiConfigService {
                     applied: true,
                     audit_id: format!("audit:{}", Uuid::new_v4()),
                     effective,
-                    changed_targets: vec!["user_settings".to_string(), "saved_provider_db".to_string()],
+                    changed_targets: vec![
+                        "user_settings".to_string(),
+                        "saved_provider_db".to_string(),
+                    ],
                 })
             }
             AiConfigAgent::Codex => {
@@ -719,7 +717,11 @@ impl AiConfigService {
                         )
                         .map_err(|error| AiConfigError::Settings(error.to_string()))?;
                     self.audit_repository
-                        .set_active_saved_provider("codex", &next.saved_provider_id, now_ms() as i64)
+                        .set_active_saved_provider(
+                            "codex",
+                            &next.saved_provider_id,
+                            now_ms() as i64,
+                        )
                         .map_err(|error| AiConfigError::Storage(error.to_string()))?;
                 } else {
                     self.sync_codex_live_settings(&official_codex_normalized_draft())?;
@@ -727,7 +729,8 @@ impl AiConfigService {
                         .update(SettingsScope::User, None, &Self::build_empty_codex_patch())
                         .map_err(|error| AiConfigError::Settings(error.to_string()))?;
                 }
-                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                let effective =
+                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
                 Ok(AiConfigApplyResponse {
                     workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                     preview_id: format!("delete-provider:{saved_provider_id}"),
@@ -765,7 +768,11 @@ impl AiConfigService {
                         )
                         .map_err(|error| AiConfigError::Settings(error.to_string()))?;
                     self.audit_repository
-                        .set_active_saved_provider("gemini", &next.saved_provider_id, now_ms() as i64)
+                        .set_active_saved_provider(
+                            "gemini",
+                            &next.saved_provider_id,
+                            now_ms() as i64,
+                        )
                         .map_err(|error| AiConfigError::Storage(error.to_string()))?;
                 } else {
                     self.sync_gemini_live_settings(&official_gemini_normalized_draft())?;
@@ -773,7 +780,8 @@ impl AiConfigService {
                         .update(SettingsScope::User, None, &Self::build_empty_gemini_patch())
                         .map_err(|error| AiConfigError::Settings(error.to_string()))?;
                 }
-                let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
+                let effective =
+                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
                 Ok(AiConfigApplyResponse {
                     workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
                     preview_id: format!("delete-provider:{saved_provider_id}"),
@@ -803,10 +811,7 @@ impl AiConfigService {
         read_claude_config_from_value(&effective.values)
     }
 
-    pub fn read_codex_config(
-        &self,
-        _workspace_root: &Path,
-    ) -> AiConfigResult<CodexConfigSnapshot> {
+    pub fn read_codex_config(&self, _workspace_root: &Path) -> AiConfigResult<CodexConfigSnapshot> {
         let effective = self
             .settings
             .load_effective(None)
@@ -986,12 +991,11 @@ impl AiConfigService {
             fingerprint_codex_config(&preview.normalized_draft),
             preview.saved_provider_id.as_deref(),
         )?;
-        let patch =
-            Self::build_codex_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
-        if let Err(error) =
-            self.settings
-                .update(SettingsScope::User, None, &patch)
-        {
+        let patch = Self::build_codex_workspace_patch(
+            &preview.normalized_draft,
+            Some(saved_provider_id.as_str()),
+        );
+        if let Err(error) = self.settings.update(SettingsScope::User, None, &patch) {
             let _ = self.restore_file_state(&auth_path, auth_backup.as_deref());
             let _ = self.restore_file_state(&config_path, config_backup.as_deref());
             return Err(AiConfigError::Settings(error.to_string()));
@@ -1079,12 +1083,11 @@ impl AiConfigService {
             fingerprint_gemini_config(&preview.normalized_draft),
             preview.saved_provider_id.as_deref(),
         )?;
-        let patch =
-            Self::build_gemini_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
-        if let Err(error) =
-            self.settings
-                .update(SettingsScope::User, None, &patch)
-        {
+        let patch = Self::build_gemini_workspace_patch(
+            &preview.normalized_draft,
+            Some(saved_provider_id.as_str()),
+        );
+        if let Err(error) = self.settings.update(SettingsScope::User, None, &patch) {
             let _ = self.restore_file_state(&env_path, env_backup.as_deref());
             let _ = self.restore_file_state(&settings_path, settings_backup.as_deref());
             return Err(AiConfigError::Settings(error.to_string()));
@@ -2583,13 +2586,12 @@ impl AiConfigService {
         } else {
             None
         };
-        let (normalized, api_key_secret) =
-            normalize_claude_draft(
-                GLOBAL_AI_CONFIG_CONTEXT,
-                &current,
-                saved_provider.as_ref(),
-                draft,
-            )?;
+        let (normalized, api_key_secret) = normalize_claude_draft(
+            GLOBAL_AI_CONFIG_CONTEXT,
+            &current,
+            saved_provider.as_ref(),
+            draft,
+        )?;
         let changes = diff_claude_config(&current, &normalized);
         if changes.is_empty() {
             return Err(AiConfigError::Invalid(
@@ -2681,10 +2683,7 @@ impl AiConfigService {
 
         let patch =
             build_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
-        if let Err(error) =
-            self.settings
-                .update(SettingsScope::User, None, &patch)
-        {
+        if let Err(error) = self.settings.update(SettingsScope::User, None, &patch) {
             self.restore_file_state(live_settings_path, live_settings_backup.as_deref())?;
             return Err(AiConfigError::Settings(error.to_string()));
         }

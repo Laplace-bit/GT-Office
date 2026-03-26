@@ -829,9 +829,7 @@ fn map_saved_claude_provider_row(
     })
 }
 
-fn map_saved_ai_provider_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<SavedAiProviderRecord> {
+fn map_saved_ai_provider_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedAiProviderRecord> {
     Ok(SavedAiProviderRecord {
         agent: row.get(0)?,
         saved_provider_id: row.get(1)?,

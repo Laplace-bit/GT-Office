@@ -144,7 +144,11 @@ pub async fn ai_config_read_snapshot(
                 masking: vec!["apiKey".to_string(), "secretRef".to_string()],
             });
         }
-        tracing::debug!("AI config cache expired for context {} (age: {}ms)", cache_key, cache_age_ms);
+        tracing::debug!(
+            "AI config cache expired for context {} (age: {}ms)",
+            cache_key,
+            cache_age_ms
+        );
     }
 
     let workspace_root_for_read = workspace_root.clone();
@@ -297,7 +301,12 @@ pub fn ai_config_switch_saved_provider(
     let _ = state.invalidate_all_ai_config_snapshot_cache();
 
     let response = service
-        .switch_saved_provider(agent, workspace_root.as_deref(), &saved_provider_id, &confirmed_by)
+        .switch_saved_provider(
+            agent,
+            workspace_root.as_deref(),
+            &saved_provider_id,
+            &confirmed_by,
+        )
         .map_err(|error| error.to_string())?;
 
     let _ = app.emit(
@@ -328,7 +337,12 @@ pub fn ai_config_delete_saved_provider(
     let _ = state.invalidate_all_ai_config_snapshot_cache();
 
     let response = service
-        .delete_saved_provider(agent, workspace_root.as_deref(), &saved_provider_id, &confirmed_by)
+        .delete_saved_provider(
+            agent,
+            workspace_root.as_deref(),
+            &saved_provider_id,
+            &confirmed_by,
+        )
         .map_err(|error| error.to_string())?;
 
     let _ = app.emit(

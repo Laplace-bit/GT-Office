@@ -4,9 +4,8 @@ mod sqlite;
 
 pub use agent_repository::SqliteAgentRepository;
 pub use ai_config_repository::{
-    AiConfigAuditLogInput, SavedAiProviderInput, SavedAiProviderRecord,
-    SavedClaudeProviderInput, SavedClaudeProviderRecord,
-    SqliteAiConfigRepository,
+    AiConfigAuditLogInput, SavedAiProviderInput, SavedAiProviderRecord, SavedClaudeProviderInput,
+    SavedClaudeProviderRecord, SqliteAiConfigRepository,
 };
 pub use sqlite::{SqliteStorage, StorageError};
 
