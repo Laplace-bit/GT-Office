@@ -71,7 +71,10 @@
       "Bash(cat > /tmp/research_agents.md << 'EOF'\n# Agent 结构化输出能力调研\n\n## Claude Code CLI\n\n### 环境变量检查\n```bash\n# 查看 Claude Code 是否有禁用 TUI 的选项\nclaude --help | grep -i \"tui\\\\|format\\\\|output\\\\|json\"\n```\n\n### 可能的方案\n1. **CLAUDE_OUTPUT_FORMAT=json** - 可能存在的环境变量\n2. **--format json** - 可能的命令行参数\n3. **TERM=dumb** - 禁用 TUI 的传统方法\n4. **NO_COLOR=1** - 禁用颜色，可能简化输出\n\n## Codex CLI\n\n### 已知特性\n- Codex CLI 是 OpenAI 的工具\n- 可能支持 API 模式或 JSON 输出\n\n### 需要验证\n```bash\ncodex --help | grep -i \"format\\\\|json\\\\|api\"\n```\n\n## 通用方案：环境变量控制\n\n大多数现代 CLI 工具支持：\n- `NO_COLOR=1` - 禁用颜色\n- `TERM=dumb` - 使用简单终端\n- `CI=true` - 模拟 CI 环境，通常会禁用交互式特性\n\n## 实验方案\n\n### 实验 1: 禁用 TUI\n```rust\n// 在启动 agent 时设置环境变量\nlet mut cmd = Command::new\\(\"claude\"\\);\ncmd.env\\(\"NO_COLOR\", \"1\"\\);\ncmd.env\\(\"TERM\", \"dumb\"\\);\ncmd.env\\(\"CLAUDE_NO_TUI\", \"1\"\\);  // 尝试\n```\n\n### 实验 2: 捕获结构化输出\n```rust\n// 如果 agent 支持 JSON 输出\nlet mut cmd = Command::new\\(\"claude\"\\);\ncmd.arg\\(\"--format\"\\).arg\\(\"json\"\\);\n```\n\n### 实验 3: 使用 stderr 分离\n```rust\n// 很多工具将日志输出到 stderr，内容输出到 stdout\n// 我们可以分别捕获\n```\nEOF\ncat /tmp/research_agents.md)",
       "Bash(cargo test:*)",
       "Bash(node:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
