@@ -7,6 +7,10 @@ import {
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
+import {
+  applyWorkbenchContainerCustomLayoutChange,
+  applyWorkbenchContainerLayoutModeChange,
+} from '@features/workspace-hub/workbench-container-layout-state'
 import { desktopApi } from '../integration/desktop-api'
 import {
   buildFloatingContainerId,
@@ -21,9 +25,7 @@ interface UseShellWorkbenchControllerInput {
   detachedWindowOpenInFlightRef: MutableRefObject<Record<string, boolean>>
   tauriRuntime: boolean
   canvasLayoutMode: WorkbenchLayoutMode
-  setCanvasLayoutMode: Dispatch<SetStateAction<WorkbenchLayoutMode>>
   canvasCustomLayout: WorkbenchCustomLayout
-  setCanvasCustomLayout: Dispatch<SetStateAction<WorkbenchCustomLayout>>
   setActiveStationId: Dispatch<SetStateAction<string>>
   launchStationTerminal: (stationId: string) => Promise<void>
   launchStationCliAgent: (stationId: string) => Promise<void>
@@ -63,9 +65,7 @@ export function useShellWorkbenchController({
   detachedWindowOpenInFlightRef,
   tauriRuntime,
   canvasLayoutMode,
-  setCanvasLayoutMode,
   canvasCustomLayout,
-  setCanvasCustomLayout,
   setActiveStationId,
   launchStationTerminal,
   launchStationCliAgent,
@@ -441,39 +441,19 @@ export function useShellWorkbenchController({
 
   const handleCanvasLayoutModeChange = useCallback(
     (containerId: string, mode: WorkbenchLayoutMode) => {
-      setCanvasLayoutMode(mode)
-      setWorkbenchContainers((prev) =>
-        prev.map((container) =>
-          container.id === containerId
-            ? {
-                ...container,
-                layoutMode: mode,
-              }
-            : container,
-        ),
-      )
+      // Layout toggles are container-local state. Updating canvas defaults here causes
+      // unnecessary shell rerenders and can leak stale defaults back into container UX.
+      setWorkbenchContainers((prev) => applyWorkbenchContainerLayoutModeChange(prev, containerId, mode))
     },
-    [setCanvasLayoutMode, setWorkbenchContainers],
+    [setWorkbenchContainers],
   )
 
   const handleCanvasCustomLayoutChange = useCallback(
     (containerId: string, layout: WorkbenchCustomLayout) => {
       const normalized = normalizeCanvasCustomLayout(layout)
-      setCanvasLayoutMode('custom')
-      setCanvasCustomLayout(normalized)
-      setWorkbenchContainers((prev) =>
-        prev.map((container) =>
-          container.id === containerId
-            ? {
-                ...container,
-                layoutMode: 'custom',
-                customLayout: normalized,
-              }
-            : container,
-        ),
-      )
+      setWorkbenchContainers((prev) => applyWorkbenchContainerCustomLayoutChange(prev, containerId, normalized))
     },
-    [setCanvasCustomLayout, setCanvasLayoutMode, setWorkbenchContainers],
+    [setWorkbenchContainers],
   )
 
   const handleCanvasRemoveStation = useCallback(

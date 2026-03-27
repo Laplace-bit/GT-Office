@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Pin, PinOff } from 'lucide-react'
+import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
@@ -67,9 +67,9 @@ function WorkbenchUtilityActionsView({
           disabled={pinDisabled}
         >
           {pinned ? (
-            <PinOff className="vb-icon vb-icon-overview" aria-hidden="true" strokeWidth={1.75} />
+            <PanelRightClose className="vb-icon vb-icon-overview" aria-hidden="true" strokeWidth={1.75} />
           ) : (
-            <Pin className="vb-icon vb-icon-overview" aria-hidden="true" strokeWidth={1.75} />
+            <PanelRightOpen className="vb-icon vb-icon-overview" aria-hidden="true" strokeWidth={1.75} />
           )}
           {isHeader ? null : <span>{pinned ? t(locale, 'workbench.unpinRightDock') : t(locale, 'workbench.pinRightDock')}</span>}
         </button>

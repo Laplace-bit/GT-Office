@@ -1,11 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import {
   BetweenHorizontalStart,
+  BringToFront,
   Grid2x2,
   LayoutPanelLeft,
   MonitorUp,
-  Pin,
-  PinOff,
+  ArrowUpToLine,
+  PictureInPicture2,
+  Rows2,
 } from 'lucide-react'
 import { StationCard } from './StationCard'
 import type { AgentStation } from './station-model'
@@ -98,13 +100,6 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
   { id: 'focus', labelKey: 'workbench.layoutPreset.focus' },
   { id: 'custom', labelKey: 'workbench.layoutPreset.custom' },
 ]
-
-function countLiveStations(
-  stationIds: string[],
-  terminalByStation: Record<string, WorkbenchStationRuntime>,
-): number {
-  return stationIds.filter((stationId) => Boolean(terminalByStation[stationId]?.sessionId)).length
-}
 
 function buildPanelTitle(
   locale: Locale,
@@ -219,10 +214,6 @@ function WorkbenchCanvasPanelView({
   const panelTitle = useMemo(
     () => buildPanelTitle(locale, container, stations, containerIndex),
     [container, containerIndex, locale, stations],
-  )
-  const liveCount = useMemo(
-    () => countLiveStations(container.stationIds, terminalByStation),
-    [container.stationIds, terminalByStation],
   )
   const modeLabel = useMemo(() => {
     if (container.mode === 'floating') {
@@ -484,11 +475,6 @@ function WorkbenchCanvasPanelView({
                   <strong className="canvas-header-pill-value">{stations.length}</strong>
                   <span className="vb-sr-only">{t(locale, 'workbench.stationCount', { count: stations.length })}</span>
                 </span>
-                <span className="canvas-header-pill" role="listitem" title={t(locale, 'workbench.containerLiveCount', { count: liveCount })}>
-                  <AppIcon name="activity" className="canvas-header-pill-icon" aria-hidden="true" />
-                  <strong className="canvas-header-pill-value">{liveCount}</strong>
-                  <span className="vb-sr-only">{t(locale, 'workbench.containerLiveCount', { count: liveCount })}</span>
-                </span>
               </div>
             </div>
           </div>
@@ -509,9 +495,7 @@ function WorkbenchCanvasPanelView({
                   ) : preset.id === 'custom' ? (
                     <Grid2x2 className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
                   ) : (
-                    <span className="canvas-layout-preset-auto" aria-hidden="true">
-                      A
-                    </span>
+                    <Rows2 className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
                   )}
                 </button>
               ))}
@@ -580,10 +564,10 @@ function WorkbenchCanvasPanelView({
                     type="button"
                     className="canvas-header-icon-button"
                     onClick={() => onFloatContainer(container.id)}
-                    aria-label={t(locale, 'workbench.pinContainer')}
-                    title={t(locale, 'workbench.pinContainer')}
+                    aria-label={t(locale, 'workbench.floatContainer')}
+                    title={t(locale, 'workbench.floatContainer')}
                   >
-                    <Pin className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+                    <PictureInPicture2 className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
                   </button>
                 )}
                 <button
@@ -606,9 +590,9 @@ function WorkbenchCanvasPanelView({
                     aria-pressed={container.topmost}
                   >
                     {container.topmost ? (
-                      <PinOff className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+                      <BringToFront className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
                     ) : (
-                      <Pin className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+                      <ArrowUpToLine className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
                     )}
                   </button>
                 ) : null}
@@ -635,9 +619,9 @@ function WorkbenchCanvasPanelView({
                   aria-pressed={container.topmost}
                 >
                   {container.topmost ? (
-                    <PinOff className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+                    <BringToFront className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
                   ) : (
-                    <Pin className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+                    <ArrowUpToLine className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
                   )}
                 </button>
                 <button

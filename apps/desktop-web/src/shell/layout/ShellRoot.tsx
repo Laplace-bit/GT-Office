@@ -229,8 +229,8 @@ export function ShellRoot() {
   const [stationDeletePendingId, setStationDeletePendingId] = useState<string | null>(null)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
   const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
-  const [canvasLayoutMode, setCanvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
-  const [canvasCustomLayout, setCanvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
+  const [canvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
+  const [canvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
   const [activeStationId, setActiveStationId] = useState(initialStations[0]?.id ?? '')
@@ -3432,9 +3432,7 @@ export function ShellRoot() {
     detachedWindowOpenInFlightRef,
     tauriRuntime,
     canvasLayoutMode,
-    setCanvasLayoutMode,
     canvasCustomLayout,
-    setCanvasCustomLayout,
     setActiveStationId,
     launchStationTerminal,
     launchStationCliAgent,

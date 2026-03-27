@@ -1,11 +1,14 @@
-import type { AgentStation } from './station-model'
 import {
   DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
   isWorkbenchLayoutMode,
   normalizeWorkbenchCustomLayout,
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
-} from './workbench-layout-model'
+} from './workbench-layout-model.js'
+
+interface WorkbenchStationRef {
+  id: string
+}
 
 export type WorkbenchContainerMode = 'docked' | 'floating' | 'detached'
 export type WorkbenchContainerResumeMode = Extract<WorkbenchContainerMode, 'docked' | 'floating'>
@@ -126,7 +129,7 @@ export function createWorkbenchContainer(input: {
 }
 
 export function createInitialWorkbenchContainers(
-  stations: AgentStation[],
+  stations: WorkbenchStationRef[],
   createId: () => string,
   layoutDefaults: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } = {
     mode: 'auto',
@@ -158,10 +161,43 @@ function normalizeResumeMode(
   return mode === 'floating' ? 'floating' : 'docked'
 }
 
+function isSameStringArray(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+  return true
+}
+
+function isSameCustomLayout(left: WorkbenchCustomLayout, right: WorkbenchCustomLayout): boolean {
+  return left.columns === right.columns && left.rows === right.rows
+}
+
+function isSameFrame(
+  left: WorkbenchContainerFrame | null,
+  right: WorkbenchContainerFrame | null,
+): boolean {
+  if (left === right) {
+    return true
+  }
+  if (!left || !right) {
+    return false
+  }
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  )
+}
+
 function normalizeContainerSnapshot(
   snapshot: WorkbenchContainerSnapshot,
   stationIdSet: Set<string>,
-  defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout },
   now: number,
 ): WorkbenchContainer | null {
   const id = snapshot.id.trim()
@@ -182,13 +218,13 @@ function normalizeContainerSnapshot(
     snapshot.activeStationId && stationIds.includes(snapshot.activeStationId)
       ? snapshot.activeStationId
       : stationIds[0] ?? null
-  const layoutMode = isWorkbenchLayoutMode(snapshot.layoutMode) ? snapshot.layoutMode : defaultLayout.mode
+  const layoutMode = isWorkbenchLayoutMode(snapshot.layoutMode) ? snapshot.layoutMode : 'auto'
   return {
     id,
     stationIds,
     activeStationId,
     layoutMode,
-    customLayout: normalizeWorkbenchCustomLayout(snapshot.customLayout ?? defaultLayout.customLayout),
+    customLayout: normalizeWorkbenchCustomLayout(snapshot.customLayout),
     mode,
     resumeMode: normalizeResumeMode(mode, snapshot.resumeMode),
     topmost: requestedTopmost,
@@ -203,11 +239,14 @@ function normalizeContainerSnapshot(
 
 function ensureContainerList(
   containers: WorkbenchContainer[],
-  stations: AgentStation[],
+  stations: WorkbenchStationRef[],
   createId: () => string,
   defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout },
 ): WorkbenchContainer[] {
-  const nextContainers = containers.length > 0 ? [...containers] : createInitialWorkbenchContainers(stations, createId, defaultLayout)
+  if (containers.length === 0) {
+    return createInitialWorkbenchContainers(stations, createId, defaultLayout)
+  }
+  const nextContainers = containers
   const stationIdSet = new Set(stations.map((station) => station.id))
   const assignedStationIds = new Set(nextContainers.flatMap((container) => container.stationIds))
   const unassignedStationIds = Array.from(stationIdSet).filter((stationId) => !assignedStationIds.has(stationId))
@@ -218,17 +257,19 @@ function ensureContainerList(
     ? nextContainers.findIndex((container) => container.mode !== 'detached')
     : 0
   const target = nextContainers[targetIndex]
-  nextContainers[targetIndex] = {
+  const mergedTarget = {
     ...target,
     stationIds: [...target.stationIds, ...unassignedStationIds],
     activeStationId: target.activeStationId ?? unassignedStationIds[0] ?? null,
   }
-  return nextContainers
+  const mergedContainers = [...nextContainers]
+  mergedContainers[targetIndex] = mergedTarget
+  return mergedContainers
 }
 
 export function restoreWorkbenchContainers(
   snapshots: WorkbenchContainerSnapshot[] | null | undefined,
-  stations: AgentStation[],
+  stations: WorkbenchStationRef[],
   createId: () => string,
   defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } = {
     mode: 'auto',
@@ -238,14 +279,14 @@ export function restoreWorkbenchContainers(
   const stationIdSet = new Set(stations.map((station) => station.id))
   const now = Date.now()
   const restored = (snapshots ?? [])
-    .map((snapshot) => normalizeContainerSnapshot(snapshot, stationIdSet, defaultLayout, now))
+    .map((snapshot) => normalizeContainerSnapshot(snapshot, stationIdSet, now))
     .filter((container): container is WorkbenchContainer => Boolean(container))
   return ensureContainerList(restored, stations, createId, defaultLayout)
 }
 
 export function reconcileWorkbenchContainers(
   containers: WorkbenchContainer[],
-  stations: AgentStation[],
+  stations: WorkbenchStationRef[],
   createId: () => string,
   defaultLayout: { mode: WorkbenchLayoutMode; customLayout: WorkbenchCustomLayout } = {
     mode: 'auto',
@@ -253,32 +294,56 @@ export function reconcileWorkbenchContainers(
   },
 ): WorkbenchContainer[] {
   const stationIdSet = new Set(stations.map((station) => station.id))
+  let changed = false
   const nextContainers = containers.map((container) => {
     const mode = container.mode
-    const stationIds = container.stationIds.filter((stationId) => stationIdSet.has(stationId))
+    const filteredStationIds = container.stationIds.filter((stationId) => stationIdSet.has(stationId))
+    const stationIds = isSameStringArray(filteredStationIds, container.stationIds)
+      ? container.stationIds
+      : filteredStationIds
+    const activeStationId =
+      container.activeStationId && stationIds.includes(container.activeStationId)
+        ? container.activeStationId
+        : stationIds[0] ?? null
+    const normalizedCustomLayout = normalizeWorkbenchCustomLayout(container.customLayout)
+    const customLayout = isSameCustomLayout(normalizedCustomLayout, container.customLayout)
+      ? container.customLayout
+      : normalizedCustomLayout
+    const normalizedFrame =
+      mode === 'floating' || mode === 'detached'
+        ? normalizeWorkbenchContainerFrame(container.frame) ?? createDefaultFloatingFrame(0)
+        : null
+    const frame = isSameFrame(normalizedFrame, container.frame) ? container.frame : normalizedFrame
+    const topmost = mode === 'docked' ? false : container.topmost
+    const resumeMode =
+      mode === 'floating'
+        ? 'floating'
+        : container.resumeMode === 'floating' && mode !== 'docked'
+          ? 'floating'
+          : 'docked'
+    if (
+      stationIds === container.stationIds &&
+      activeStationId === container.activeStationId &&
+      customLayout === container.customLayout &&
+      frame === container.frame &&
+      topmost === container.topmost &&
+      resumeMode === container.resumeMode
+    ) {
+      return container
+    }
+    changed = true
     return {
       ...container,
       mode,
       stationIds,
-      activeStationId:
-        container.activeStationId && stationIds.includes(container.activeStationId)
-          ? container.activeStationId
-          : stationIds[0] ?? null,
-      customLayout: normalizeWorkbenchCustomLayout(container.customLayout),
-      frame:
-        mode === 'floating' || mode === 'detached'
-          ? normalizeWorkbenchContainerFrame(container.frame) ?? createDefaultFloatingFrame(0)
-          : null,
-      topmost: mode === 'docked' ? false : container.topmost,
-      resumeMode:
-        mode === 'floating'
-          ? 'floating'
-          : container.resumeMode === 'floating' && mode !== 'docked'
-            ? 'floating'
-            : 'docked',
+      activeStationId,
+      customLayout,
+      frame,
+      topmost,
+      resumeMode,
     } satisfies WorkbenchContainer
   })
-  return ensureContainerList(nextContainers, stations, createId, defaultLayout)
+  return ensureContainerList(changed ? nextContainers : containers, stations, createId, defaultLayout)
 }
 
 export function serializeWorkbenchContainers(

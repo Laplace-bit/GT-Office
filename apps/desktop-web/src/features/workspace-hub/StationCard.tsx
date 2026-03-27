@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { GripHorizontal } from 'lucide-react'
+import { GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation, StationRole } from './station-model'
 import { StationActionDock } from './StationActionDock'
 import { resolveStationActions } from './station-action-registry'
@@ -48,14 +48,24 @@ function roleLabel(locale: Locale, role: StationRole): string {
   return t(locale, roleKeyMap[role])
 }
 
-function stationChannelLabel(locale: Locale, channel: string): string {
-  if (channel === 'telegram') {
-    return 'Telegram'
+type StationThroughputLevel = 'low' | 'medium' | 'high'
+
+interface StationThroughputTelemetry {
+  level: StationThroughputLevel
+  ariaLabel: string
+}
+
+function resolveStationThroughputTelemetryLabel(
+  locale: Locale,
+  level: StationThroughputLevel,
+): string {
+  if (level === 'high') {
+    return t(locale, '终端活动速率：高', 'Terminal activity speed: high')
   }
-  if (channel === 'feishu') {
-    return t(locale, '飞书', 'Feishu')
+  if (level === 'medium') {
+    return t(locale, '终端活动速率：中', 'Terminal activity speed: medium')
   }
-  return channel
+  return t(locale, '终端活动速率：低', 'Terminal activity speed: low')
 }
 
 interface StationIconButtonProps {
@@ -162,7 +172,6 @@ function StationCardView({
   active,
   runtime,
   taskSignal,
-  channelBotBindings,
   isFullscreen,
   isFullscreenMode,
   isMiniature,
@@ -188,7 +197,10 @@ function StationCardView({
   const terminalFocusFrameRef = useRef<number | null>(null)
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
+  const previousUnreadCountRef = useRef(runtime?.unreadCount ?? 0)
+  const throughputResetTimerRef = useRef<number | null>(null)
   const [compactLayout, setCompactLayout] = useState(false)
+  const [throughputLevel, setThroughputLevel] = useState<StationThroughputLevel | null>(null)
 
   const cancelScheduledTerminalFocus = useCallback(() => {
     const frameId = terminalFocusFrameRef.current
@@ -260,6 +272,11 @@ function StationCardView({
       pendingTerminalFocusRef.current = false
       terminalFocusRetryBudgetRef.current = 0
       cancelScheduledTerminalFocus()
+      const timerId = throughputResetTimerRef.current
+      if (timerId !== null) {
+        window.clearTimeout(timerId)
+        throughputResetTimerRef.current = null
+      }
     }
   }, [cancelScheduledTerminalFocus])
 
@@ -286,20 +303,34 @@ function StationCardView({
   }, [])
 
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
-  const unreadLabel =
-    runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
   const hasTerminalSession = Boolean(runtime?.sessionId)
   const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
-  const channelBindingSummaries = channelBotBindings ?? []
-  const visibleChannelBindingSummaries = channelBindingSummaries.slice(0, 1)
-  const hiddenChannelBindingCount = Math.max(
-    0,
-    channelBindingSummaries.length - visibleChannelBindingSummaries.length,
-  )
-  const sessionLabel = hasTerminalSession
-    ? t(locale, '实时会话', 'Live session')
-    : t(locale, '待启动', 'Ready')
+  const roleText = roleLabel(locale, station.role)
+  const runtimeStateLabel =
+    runtime?.stateRaw === 'failed' || runtime?.stateRaw === 'killed'
+      ? t(locale, '需处理', 'Attention')
+      : runtime?.stateRaw === 'exited'
+        ? t(locale, '已结束', 'Ended')
+        : hasTerminalSession
+          ? t(locale, '运行中', 'Live')
+          : t(locale, '待命', 'Ready')
+  const runtimeStateTone =
+    runtime?.stateRaw === 'failed' || runtime?.stateRaw === 'killed'
+      ? 'alert'
+      : hasTerminalSession
+        ? 'live'
+        : 'idle'
+  const semanticChipLabel = `${roleText} · ${runtimeStateLabel}`
+  const throughputTelemetry = useMemo<StationThroughputTelemetry | null>(() => {
+    if (!throughputLevel) {
+      return null
+    }
+    return {
+      level: throughputLevel,
+      ariaLabel: resolveStationThroughputTelemetryLabel(locale, throughputLevel),
+    }
+  }, [locale, throughputLevel])
   const requestTerminalFocus = useCallback(() => {
     pendingTerminalFocusRef.current = true
     terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
@@ -353,6 +384,39 @@ function StationCardView({
     },
     [flushPendingTerminalFocus, onBindTerminalSink],
   )
+
+  useEffect(() => {
+    const nextUnreadCount = runtime?.unreadCount ?? 0
+    const previousUnreadCount = previousUnreadCountRef.current
+    previousUnreadCountRef.current = nextUnreadCount
+    const delta = Math.max(0, nextUnreadCount - previousUnreadCount)
+
+    if (nextUnreadCount === 0) {
+      const timerId = throughputResetTimerRef.current
+      if (timerId !== null) {
+        window.clearTimeout(timerId)
+        throughputResetTimerRef.current = null
+      }
+      setThroughputLevel(null)
+      return
+    }
+
+    if (delta <= 0) {
+      return
+    }
+
+    const nextLevel: StationThroughputLevel = delta >= 6 ? 'high' : delta >= 3 ? 'medium' : 'low'
+    setThroughputLevel(nextLevel)
+
+    const timerId = throughputResetTimerRef.current
+    if (timerId !== null) {
+      window.clearTimeout(timerId)
+    }
+    throughputResetTimerRef.current = window.setTimeout(() => {
+      throughputResetTimerRef.current = null
+      setThroughputLevel(null)
+    }, nextLevel === 'high' ? 780 : nextLevel === 'medium' ? 960 : 1180)
+  }, [runtime?.unreadCount])
 
   useEffect(() => {
     const element = rootRef.current
@@ -438,7 +502,14 @@ function StationCardView({
         >
           <div className="station-window-title-row">
             <h3 title={station.name}>{station.name}</h3>
-            <p className="station-window-role-label">{roleLabel(locale, station.role)}</p>
+            <span
+              className={['station-window-semantic-pill', runtimeStateTone].join(' ')}
+              title={semanticChipLabel}
+              aria-label={semanticChipLabel}
+            >
+              <span className="station-window-semantic-pill-dot" aria-hidden="true" />
+              <span className="station-window-semantic-pill-text">{semanticChipLabel}</span>
+            </span>
           </div>
           <div className="station-window-title-subline">
             <p className="station-window-meta-text" title={station.agentWorkdirRel}>
@@ -447,45 +518,22 @@ function StationCardView({
             <span className="station-window-tool-pill" title={station.tool}>
               {station.tool}
             </span>
-            <span
-              className={['station-window-status-pill', hasTerminalSession ? 'live' : 'idle'].join(' ')}
-              title={sessionLabel}
-              aria-label={sessionLabel}
-            >
-              <span className="station-window-status-pill-dot" aria-hidden="true" />
-              {hasTerminalSession ? <span className="vb-sr-only">{sessionLabel}</span> : sessionLabel}
-            </span>
-            {visibleChannelBindingSummaries.length > 0 ? (
-              <div className="station-header-bot-chips" aria-label={t(locale, 'station.channelBindings.aria')}>
-                {visibleChannelBindingSummaries.map((summary) => (
-                  <span
-                    key={`${station.id}:${summary.channel}:${summary.accountId}`}
-                    className="station-header-bot-chip"
-                    title={t(locale, 'station.channelBindings.botRoute', {
-                      channel: stationChannelLabel(locale, summary.channel),
-                      accountId: summary.accountId,
-                      count: summary.routeCount,
-                    })}
-                  >
-                    {summary.accountId}
-                  </span>
-                ))}
-                {hiddenChannelBindingCount > 0 ? (
-                  <span className="station-header-bot-chip station-header-bot-chip-muted">
-                    {t(locale, 'station.channelBindings.more', { count: hiddenChannelBindingCount })}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         </div>
-        {unreadLabel ? (
-          <span
-            className="station-unread-badge"
-            aria-label={t(locale, '未读终端活动', 'Unread terminal activity')}
+        {throughputTelemetry ? (
+          <div
+            className={['station-throughput-monitor', throughputTelemetry.level].join(' ')}
+            role="img"
+            aria-label={throughputTelemetry.ariaLabel}
+            title={throughputTelemetry.ariaLabel}
           >
-            {unreadLabel}
-          </span>
+            <span className="station-throughput-rotor" aria-hidden="true" />
+            <span className="station-throughput-bars" aria-hidden="true">
+              <span className="station-throughput-bar" />
+              <span className="station-throughput-bar" />
+              <span className="station-throughput-bar" />
+            </span>
+          </div>
         ) : null}
         <div className="station-window-header-actions">
           {draggable ? (
@@ -510,7 +558,6 @@ function StationCardView({
             </StationIconButton>
           ) : null}
           <StationIconButton
-            className="station-launch-terminal-btn"
             tooltip={t(locale, 'workbench.launchTerminal')}
             ariaLabel={t(locale, 'workbench.launchTerminal')}
             onClick={(event) => {
@@ -518,10 +565,9 @@ function StationCardView({
               activateStationAndOpenTerminal()
             }}
           >
-            <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+            <Play className="vb-icon vb-icon-station-button station-play-icon" aria-hidden="true" strokeWidth={1.9} />
           </StationIconButton>
           <StationIconButton
-            className="station-launch-cli-btn"
             tooltip={t(locale, 'workbench.launchCliAgent')}
             ariaLabel={t(locale, 'workbench.launchCliAgent')}
             onClick={(event) => {
@@ -588,7 +634,11 @@ function StationCardView({
                 activateStationAndOpenTerminal()
               }}
             >
-              <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              <Play
+                className="vb-icon vb-icon-station-button station-play-icon"
+                aria-hidden="true"
+                strokeWidth={1.9}
+              />
               <span>{t(locale, 'workbench.launchTerminal')}</span>
             </button>
             <button
@@ -663,6 +713,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onStationDragPointerStart === next.onStationDragPointerStart &&
     prev.onStationDragEnd === next.onStationDragEnd &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
+    (prev.runtime?.stateRaw ?? null) === (next.runtime?.stateRaw ?? null) &&
     !didStationTerminalRenderabilityChange(prev.runtime, next.runtime) &&
     (prev.runtime?.unreadCount ?? 0) === (next.runtime?.unreadCount ?? 0) &&
     (prev.taskSignal?.nonce ?? null) === (next.taskSignal?.nonce ?? null) &&
