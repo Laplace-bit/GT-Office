@@ -5,7 +5,6 @@ import {
   type AiAgentSnapshotCard,
   type AiConfigApplyResponse,
   type AiConfigDraftInput,
-  type AiConfigPreviewResponse,
   type AiConfigSnapshot,
   type ClaudeAuthScheme,
   type ClaudeConfigSnapshot,
@@ -35,7 +34,6 @@ import './ProviderWorkspaceModal.scss'
 type ProviderWorkspaceModalProps =
   | {
       agentId: 'claude'
-      workspaceId?: string | null
       locale: Locale
       agent: AiAgentSnapshotCard
       guide: ClaudeSnapshot
@@ -45,7 +43,6 @@ type ProviderWorkspaceModalProps =
     }
   | {
       agentId: 'codex'
-      workspaceId?: string | null
       locale: Locale
       agent: AiAgentSnapshotCard
       guide: CodexSnapshot
@@ -55,7 +52,6 @@ type ProviderWorkspaceModalProps =
     }
   | {
       agentId: 'gemini'
-      workspaceId?: string | null
       locale: Locale
       agent: AiAgentSnapshotCard
       guide: GeminiSnapshot
@@ -177,7 +173,7 @@ function ProviderIconButton({
 }
 
 export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
-  const { agentId, workspaceId, locale, agent, guide, onReload, onSnapshotUpdate, onClose } = props
+  const { agentId, locale, agent, guide, onReload, onSnapshotUpdate, onClose } = props
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [editorMode, setEditorMode] = useState<EditorMode>('create')
   const [editingSavedProviderId, setEditingSavedProviderId] = useState<string | null>(null)
@@ -192,7 +188,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   const [configToml, setConfigToml] = useState('')
   const [authMode, setAuthMode] = useState<GeminiAuthMode>('oauth')
   const [selectedType, setSelectedType] = useState(resolveSelectedType('oauth'))
-  const [preview, setPreview] = useState<AiConfigPreviewResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [switchingSavedProviderId, setSwitchingSavedProviderId] = useState<string | null>(null)
   const [deletingSavedProviderId, setDeletingSavedProviderId] = useState<string | null>(null)
@@ -242,7 +237,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   }
 
   function resetPreview() {
-    setPreview(null)
     clearFeedback()
   }
 
@@ -603,57 +597,44 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
             && (!requiresApiKey || apiKey.trim() || canReuseSecret),
           )
 
-  async function handlePreview() {
-    setLoading(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      let draft: AiConfigDraftInput
-
-      if (agentId === 'claude') {
-        draft = {
-          mode,
-          savedProviderId: editorMode === 'edit' ? editingSavedProviderId : undefined,
-          providerId: mode === 'preset' ? providerId || undefined : undefined,
-          providerName: mode === 'official' ? undefined : providerName.trim() || undefined,
-          baseUrl: mode === 'official' ? undefined : baseUrl.trim() || undefined,
-          model: mode === 'official' ? undefined : model.trim() || undefined,
-          authScheme: mode === 'official' ? undefined : authScheme,
-          apiKey: apiKey.trim() || undefined,
-        } satisfies ClaudeDraftInput
-      } else if (agentId === 'codex') {
-        draft = {
-          mode,
-          savedProviderId: editorMode === 'edit' ? editingSavedProviderId : undefined,
-          providerId: mode === 'preset' ? providerId || undefined : undefined,
-          providerName: mode === 'custom' ? providerName.trim() || undefined : undefined,
-          baseUrl: mode === 'official' ? undefined : baseUrl.trim() || undefined,
-          model: mode === 'official' ? undefined : model.trim() || undefined,
-          apiKey: requiresApiKey ? apiKey.trim() || undefined : undefined,
-          configToml: mode === 'official' ? undefined : configToml.trim() || undefined,
-        } satisfies CodexDraftInput
-      } else {
-        draft = {
-          mode,
-          savedProviderId: editorMode === 'edit' ? editingSavedProviderId : undefined,
-          authMode: mode === 'official' ? undefined : authMode,
-          providerId: mode === 'preset' ? providerId || undefined : undefined,
-          providerName: mode === 'custom' ? providerName.trim() || undefined : undefined,
-          baseUrl: mode === 'official' ? undefined : baseUrl.trim() || undefined,
-          model: mode === 'official' ? undefined : model.trim() || undefined,
-          apiKey: requiresApiKey ? apiKey.trim() || undefined : undefined,
-          selectedType: mode === 'official' ? undefined : selectedType,
-        } satisfies GeminiDraftInput
-      }
-
-      const response = await desktopApi.aiConfigPreviewPatch(workspaceId, agentId, 'global', draft)
-      setPreview(response)
-    } catch (err) {
-      setError(describeUnknownError(err))
-    } finally {
-      setLoading(false)
+  function buildDraftInput(): AiConfigDraftInput {
+    if (agentId === 'claude') {
+      return {
+        mode,
+        savedProviderId: editorMode === 'edit' ? editingSavedProviderId : undefined,
+        providerId: mode === 'preset' ? providerId || undefined : undefined,
+        providerName: mode === 'official' ? undefined : providerName.trim() || undefined,
+        baseUrl: mode === 'official' ? undefined : baseUrl.trim() || undefined,
+        model: mode === 'official' ? undefined : model.trim() || undefined,
+        authScheme: mode === 'official' ? undefined : authScheme,
+        apiKey: apiKey.trim() || undefined,
+      } satisfies ClaudeDraftInput
     }
+
+    if (agentId === 'codex') {
+      return {
+        mode,
+        savedProviderId: editorMode === 'edit' ? editingSavedProviderId : undefined,
+        providerId: mode === 'preset' ? providerId || undefined : undefined,
+        providerName: mode === 'custom' ? providerName.trim() || undefined : undefined,
+        baseUrl: mode === 'official' ? undefined : baseUrl.trim() || undefined,
+        model: mode === 'official' ? undefined : model.trim() || undefined,
+        apiKey: requiresApiKey ? apiKey.trim() || undefined : undefined,
+        configToml: mode === 'official' ? undefined : configToml.trim() || undefined,
+      } satisfies CodexDraftInput
+    }
+
+    return {
+      mode,
+      savedProviderId: editorMode === 'edit' ? editingSavedProviderId : undefined,
+      authMode: mode === 'official' ? undefined : authMode,
+      providerId: mode === 'preset' ? providerId || undefined : undefined,
+      providerName: mode === 'custom' ? providerName.trim() || undefined : undefined,
+      baseUrl: mode === 'official' ? undefined : baseUrl.trim() || undefined,
+      model: mode === 'official' ? undefined : model.trim() || undefined,
+      apiKey: requiresApiKey ? apiKey.trim() || undefined : undefined,
+      selectedType: mode === 'official' ? undefined : selectedType,
+    } satisfies GeminiDraftInput
   }
 
   async function syncAfterMutation(response: AiConfigApplyResponse, message: string) {
@@ -663,15 +644,13 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   }
 
   async function handleApply() {
-    if (!preview) {
-      return
-    }
-
     setLoading(true)
     setError(null)
+    setSuccess(null)
 
     try {
-      const response = await desktopApi.aiConfigApplyPatch(workspaceId, preview.previewId, 'System Admin')
+      const preview = await desktopApi.aiConfigPreviewPatch(null, agentId, 'global', buildDraftInput())
+      const response = await desktopApi.aiConfigApplyPatch(null, preview.previewId, 'System Admin')
       await syncAfterMutation(
         response,
         editorMode === 'edit'
@@ -679,12 +658,16 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
           : t(locale, '模型供应商已保存', 'Provider saved'),
       )
       setViewMode('list')
-      setPreview(null)
       setEditingSavedProviderId(null)
       setEditorMode('create')
       setApiKey('')
     } catch (err) {
-      setError(describeUnknownError(err))
+      const message = describeUnknownError(err)
+      if (message.includes('no effective changes to apply')) {
+        setSuccess(t(locale, '没有可保存的变更', 'No changes to save'))
+      } else {
+        setError(message)
+      }
     } finally {
       setLoading(false)
     }
@@ -697,7 +680,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
 
     try {
       const response = await desktopApi.aiConfigSwitchSavedProvider(
-        workspaceId,
+        null,
         agentId,
         savedProviderId,
         'System Admin',
@@ -724,7 +707,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
 
     try {
       const response = await desktopApi.aiConfigDeleteSavedProvider(
-        workspaceId,
+        null,
         agentId,
         savedProviderId,
         'System Admin',
@@ -733,7 +716,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
       if (editingSavedProviderId === savedProviderId) {
         setViewMode('list')
         setEditingSavedProviderId(null)
-        setPreview(null)
       }
     } catch (err) {
       setError(describeUnknownError(err))
@@ -932,7 +914,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                   className="provider-workspace__back"
                   onClick={() => {
                     setViewMode('list')
-                    setPreview(null)
                     clearFeedback()
                   }}
                 >
@@ -1146,43 +1127,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
               )}
             </div>
 
-            {preview && (
-              <div className="provider-workspace__preview">
-                <div className="provider-workspace__preview-header">
-                  <strong>{t(locale, '预览变更', 'Preview changes')}</strong>
-                  <button
-                    type="button"
-                    className="nav-btn btn-secondary"
-                    disabled={loading}
-                    onClick={() => setPreview(null)}
-                  >
-                    <AppIcon name="pencil" width={15} height={15} />
-                    {t(locale, '继续编辑', 'Keep editing')}
-                  </button>
-                </div>
-                <div className="provider-workspace__preview-list">
-                  {preview.maskedDiff.map((change) => (
-                    <div key={change.key} className="provider-workspace__preview-item">
-                      <span>{change.label}</span>
-                      <div>
-                        <small>{localizeLabel(locale, change.before) || t(locale, '空', 'Empty')}</small>
-                        <strong>{change.secret ? '********' : localizeLabel(locale, change.after) || t(locale, '空', 'Empty')}</strong>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {preview.warnings.length > 0 && (
-                  <div className="provider-workspace__warnings">
-                    {preview.warnings.map((warning, index) => (
-                      <div key={`${warning}-${index}`} className="provider-workspace__warning">
-                        {localizeLabel(locale, warning)}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
             <div className="provider-workspace__footer">
               <button
                 type="button"
@@ -1190,7 +1134,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                 disabled={loading}
                 onClick={() => {
                   setViewMode('list')
-                  setPreview(null)
                   clearFeedback()
                 }}
               >
@@ -1200,21 +1143,12 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
               <div className="provider-workspace__footer-actions">
                 <button
                   type="button"
-                  className="nav-btn btn-secondary"
-                  disabled={!isFormValid || loading}
-                  onClick={() => void handlePreview()}
-                >
-                  <AppIcon name="search" width={15} height={15} />
-                  {loading && !preview ? t(locale, '预览中...', 'Previewing...') : t(locale, '预览变更', 'Preview changes')}
-                </button>
-                <button
-                  type="button"
                   className="nav-btn btn-primary"
-                  disabled={!preview || loading}
+                  disabled={!isFormValid || loading}
                   onClick={() => void handleApply()}
                 >
-                  <AppIcon name={loading && preview ? 'activity' : 'check'} width={15} height={15} />
-                  {loading && preview
+                  <AppIcon name={loading ? 'activity' : 'check'} width={15} height={15} />
+                  {loading
                     ? t(locale, '保存中...', 'Saving...')
                     : editorMode === 'edit'
                       ? t(locale, '保存更新', 'Save changes')

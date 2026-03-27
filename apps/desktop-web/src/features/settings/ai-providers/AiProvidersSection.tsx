@@ -272,7 +272,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
       {configAgentId === 'claude' && configAgent && snapshot && (
         <ProviderWorkspaceModal
           agentId="claude"
-          workspaceId={workspaceId}
           locale={locale}
           agent={configAgent}
           guide={snapshot.snapshot.claude}
@@ -285,7 +284,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
       {configAgentId === 'codex' && configAgent && snapshot && (
         <ProviderWorkspaceModal
           agentId="codex"
-          workspaceId={workspaceId}
           locale={locale}
           agent={configAgent}
           guide={snapshot.snapshot.codex}
@@ -298,7 +296,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
       {configAgentId === 'gemini' && configAgent && snapshot && (
         <ProviderWorkspaceModal
           agentId="gemini"
-          workspaceId={workspaceId}
           locale={locale}
           agent={configAgent}
           guide={snapshot.snapshot.gemini}

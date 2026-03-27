@@ -21,7 +21,6 @@ interface BaseLightProviderConfigModalProps<TGuide extends CodexSnapshot | Gemin
 }
 
 export function CodexConfigModal({
-  workspaceId,
   locale,
   agent,
   guide,
@@ -32,7 +31,6 @@ export function CodexConfigModal({
   return (
     <ProviderWorkspaceModal
       agentId="codex"
-      workspaceId={workspaceId}
       locale={locale}
       agent={agent}
       guide={guide}
@@ -46,7 +44,6 @@ export function CodexConfigModal({
 }
 
 export function GeminiConfigModal({
-  workspaceId,
   locale,
   agent,
   guide,
@@ -57,7 +54,6 @@ export function GeminiConfigModal({
   return (
     <ProviderWorkspaceModal
       agentId="gemini"
-      workspaceId={workspaceId}
       locale={locale}
       agent={agent}
       guide={guide}

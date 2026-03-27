@@ -22,7 +22,6 @@ interface ClaudeConfigModalProps {
 
 export function ClaudeConfigModal({
   locale,
-  workspaceId,
   agent,
   snapshot,
   onReload,
@@ -32,7 +31,6 @@ export function ClaudeConfigModal({
   return (
     <ProviderWorkspaceModal
       agentId="claude"
-      workspaceId={workspaceId}
       locale={locale}
       agent={agent}
       guide={snapshot}

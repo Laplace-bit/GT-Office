@@ -1143,30 +1143,14 @@ impl AiConfigService {
     fn sync_codex_live_settings(&self, normalized: &CodexNormalizedDraft) -> AiConfigResult<()> {
         let auth_path = Self::codex_auth_path()?;
         let config_path = Self::codex_config_path()?;
-        let auth_value = if normalized.has_secret {
-            let secret_ref = normalized.secret_ref.as_deref().ok_or_else(|| {
-                AiConfigError::Invalid("configured Codex secret reference is missing".to_string())
-            })?;
-            let secret = self
-                .secret_store
-                .load(secret_ref)
-                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
-            json!({
-                "OPENAI_API_KEY": secret,
-            })
-        } else {
-            json!({})
-        };
-        let config_text = normalized.config_toml.clone().unwrap_or_default();
-        write_json_atomic(&auth_path, &auth_value)?;
-        write_bytes_atomic(&config_path, config_text.as_bytes())
+        self.sync_codex_auth_file(&auth_path, normalized)?;
+        self.sync_codex_config_file(&config_path, normalized)
     }
 
     fn sync_gemini_live_settings(&self, normalized: &GeminiNormalizedDraft) -> AiConfigResult<()> {
         let env_path = Self::gemini_env_path()?;
         let settings_path = Self::gemini_settings_path()?;
-        let env_text = Self::build_gemini_env_text(&self.secret_store, normalized)?;
-        write_bytes_atomic(&env_path, env_text.as_bytes())?;
+        self.sync_gemini_env_file(&env_path, normalized)?;
 
         let mut root = read_json_object_file(&settings_path)?;
         let root_object = root.as_object_mut().ok_or_else(|| {
@@ -1198,6 +1182,148 @@ impl AiConfigService {
             Value::String(normalized.selected_type.clone()),
         );
         write_json_atomic(&settings_path, &root)
+    }
+
+    fn sync_codex_auth_file(
+        &self,
+        path: &Path,
+        normalized: &CodexNormalizedDraft,
+    ) -> AiConfigResult<()> {
+        let mut auth = read_json_object_file(path)?;
+        let auth_object = auth.as_object_mut().ok_or_else(|| {
+            AiConfigError::LiveSync(format!(
+                "Codex auth root must be an object at {}",
+                path.display()
+            ))
+        })?;
+
+        if normalized.has_secret {
+            let secret_ref = normalized.secret_ref.as_deref().ok_or_else(|| {
+                AiConfigError::Invalid("configured Codex secret reference is missing".to_string())
+            })?;
+            let secret = self
+                .secret_store
+                .load(secret_ref)
+                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
+            auth_object.insert("OPENAI_API_KEY".to_string(), Value::String(secret));
+        } else {
+            auth_object.remove("OPENAI_API_KEY");
+        }
+
+        if auth_object.is_empty() {
+            return remove_file_if_exists(path);
+        }
+
+        write_json_atomic(path, &auth)
+    }
+
+    fn sync_codex_config_file(
+        &self,
+        path: &Path,
+        normalized: &CodexNormalizedDraft,
+    ) -> AiConfigResult<()> {
+        if normalized.mode == CodexProviderMode::Official {
+            let existing_text = std::fs::read_to_string(path).unwrap_or_default();
+            let next_text = Self::strip_codex_managed_provider_fields(&existing_text)?;
+            if next_text.trim().is_empty() {
+                return remove_file_if_exists(path);
+            }
+            return write_bytes_atomic(path, next_text.as_bytes());
+        }
+
+        let config_text = normalized.config_toml.clone().unwrap_or_default();
+        if config_text.trim().is_empty() {
+            return remove_file_if_exists(path);
+        }
+        write_bytes_atomic(path, config_text.as_bytes())
+    }
+
+    fn strip_codex_managed_provider_fields(text: &str) -> AiConfigResult<String> {
+        if text.trim().is_empty() {
+            return Ok(String::new());
+        }
+
+        let mut table = toml::from_str::<toml::Table>(text).map_err(|error| {
+            AiConfigError::Invalid(format!("invalid Codex config TOML: {error}"))
+        })?;
+        let provider_key = table
+            .get("model_provider")
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+
+        table.remove("model_provider");
+        table.remove("base_url");
+
+        if let Some(provider_key) = provider_key {
+            let remove_model_providers = if let Some(model_providers) = table
+                .get_mut("model_providers")
+                .and_then(|value| value.as_table_mut())
+            {
+                model_providers.remove(&provider_key);
+                model_providers.is_empty()
+            } else {
+                false
+            };
+            if remove_model_providers {
+                table.remove("model_providers");
+            }
+        }
+
+        if table.is_empty() {
+            return Ok(String::new());
+        }
+
+        toml::to_string_pretty(&table).map_err(|error| {
+            AiConfigError::Invalid(format!("failed to serialize Codex TOML: {error}"))
+        })
+    }
+
+    fn sync_gemini_env_file(
+        &self,
+        path: &Path,
+        normalized: &GeminiNormalizedDraft,
+    ) -> AiConfigResult<()> {
+        let mut env = parse_simple_env_file(path);
+
+        if let Some(base_url) = normalized
+            .base_url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), base_url.to_string());
+        } else {
+            env.remove("GOOGLE_GEMINI_BASE_URL");
+        }
+
+        if let Some(model) = normalized
+            .model
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            env.insert("GEMINI_MODEL".to_string(), model.to_string());
+        } else {
+            env.remove("GEMINI_MODEL");
+        }
+
+        if normalized.auth_mode == GeminiAuthMode::ApiKey {
+            let secret_ref = normalized.secret_ref.as_deref().ok_or_else(|| {
+                AiConfigError::Invalid("configured Gemini secret reference is missing".to_string())
+            })?;
+            let secret = self
+                .secret_store
+                .load(secret_ref)
+                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
+            env.insert("GEMINI_API_KEY".to_string(), secret);
+        } else {
+            env.remove("GEMINI_API_KEY");
+        }
+
+        if env.is_empty() {
+            return remove_file_if_exists(path);
+        }
+
+        let env_text = serialize_simple_env_file(&env);
+        write_bytes_atomic(path, env_text.as_bytes())
     }
 
     fn codex_runtime_env(&self, workspace_root: &Path) -> AiConfigResult<BTreeMap<String, String>> {
@@ -1610,7 +1736,7 @@ impl AiConfigService {
                         auth_mode: GeminiAuthMode::OAuth,
                         provider_id: Some(preset.provider_id),
                         provider_name: Some(preset.name),
-                        base_url: preset.endpoint,
+                        base_url: None,
                         model: Some(preset.recommended_model),
                         selected_type: GeminiAuthMode::OAuth.selected_type().to_string(),
                         secret_ref: None,
@@ -2010,7 +2136,7 @@ impl AiConfigService {
             .get("secretRef")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
-        Ok(CodexConfigSnapshot {
+        Ok(with_official_codex_config_defaults(CodexConfigSnapshot {
             saved_provider_id,
             active_mode: object
                 .get("activeMode")
@@ -2042,7 +2168,7 @@ impl AiConfigService {
                 .and_then(Value::as_bool)
                 .unwrap_or_else(|| secret_ref.is_some()),
             updated_at_ms: object.get("updatedAtMs").and_then(Value::as_u64),
-        })
+        }))
     }
 
     fn read_gemini_config_from_value(value: &Value) -> AiConfigResult<GeminiConfigSnapshot> {
@@ -2059,7 +2185,7 @@ impl AiConfigService {
             .get("secretRef")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
-        Ok(GeminiConfigSnapshot {
+        Ok(with_official_gemini_config_defaults(GeminiConfigSnapshot {
             saved_provider_id,
             active_mode: object
                 .get("activeMode")
@@ -2095,7 +2221,7 @@ impl AiConfigService {
                 .and_then(Value::as_bool)
                 .unwrap_or_else(|| secret_ref.is_some()),
             updated_at_ms: object.get("updatedAtMs").and_then(Value::as_u64),
-        })
+        }))
     }
 
     fn parse_codex_mode(value: &str) -> Option<CodexProviderMode> {
@@ -3435,6 +3561,24 @@ fn official_codex_normalized_draft() -> CodexNormalizedDraft {
     }
 }
 
+fn with_official_codex_config_defaults(mut config: CodexConfigSnapshot) -> CodexConfigSnapshot {
+    let is_official = config.active_mode == Some(CodexProviderMode::Official)
+        || config.provider_id.as_deref() == Some("codex-official");
+    if !is_official {
+        return config;
+    }
+
+    let defaults = official_codex_normalized_draft();
+    config.provider_id = config.provider_id.or(defaults.provider_id);
+    config.provider_name = config.provider_name.or(defaults.provider_name);
+    config.base_url = None;
+    config.model = config.model.or(defaults.model);
+    config.config_toml = None;
+    config.secret_ref = None;
+    config.has_secret = false;
+    config
+}
+
 fn saved_codex_provider_snapshot_from_record(
     record: SavedAiProviderRecord,
 ) -> AiConfigResult<CodexSavedProviderSnapshot> {
@@ -3445,19 +3589,50 @@ fn saved_codex_provider_snapshot_from_record(
         ))
     })?;
     let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
+    let is_official = mode == CodexProviderMode::Official;
+    let defaults = if is_official {
+        Some(official_codex_normalized_draft())
+    } else {
+        None
+    };
 
     Ok(CodexSavedProviderSnapshot {
         saved_provider_id: record.saved_provider_id,
         mode,
-        provider_id: record.provider_id,
-        provider_name: record.provider_name,
-        base_url: record.base_url,
-        model: record.model,
-        config_toml: extra
-            .get("configToml")
-            .and_then(Value::as_str)
-            .map(|value| value.to_string()),
-        has_secret: record.has_secret,
+        provider_id: record.provider_id.or_else(|| {
+            defaults
+                .as_ref()
+                .and_then(|value| value.provider_id.clone())
+        }),
+        provider_name: if record.provider_name.trim().is_empty() {
+            defaults
+                .as_ref()
+                .and_then(|value| value.provider_name.clone())
+                .unwrap_or_else(|| "aiConfig.agent.codex.title".to_string())
+        } else {
+            record.provider_name
+        },
+        base_url: if is_official { None } else { record.base_url },
+        model: if is_official {
+            record
+                .model
+                .or_else(|| defaults.as_ref().and_then(|value| value.model.clone()))
+        } else {
+            record.model
+        },
+        config_toml: if is_official {
+            None
+        } else {
+            extra
+                .get("configToml")
+                .and_then(Value::as_str)
+                .map(|value| value.to_string())
+        },
+        has_secret: if is_official {
+            false
+        } else {
+            record.has_secret
+        },
         is_active: record.is_active,
         created_at_ms: record.created_at_ms.max(0) as u64,
         updated_at_ms: record.updated_at_ms.max(0) as u64,
@@ -3474,6 +3649,9 @@ fn normalized_from_saved_codex_provider(
             record.mode
         ))
     })?;
+    if mode == CodexProviderMode::Official {
+        return Ok(official_codex_normalized_draft());
+    }
     if mode != CodexProviderMode::Official
         && record.has_secret
         && record
@@ -3530,12 +3708,31 @@ fn official_gemini_normalized_draft() -> GeminiNormalizedDraft {
         auth_mode: GeminiAuthMode::OAuth,
         provider_id: Some(preset.provider_id),
         provider_name: Some(preset.name),
-        base_url: preset.endpoint,
+        base_url: None,
         model: Some(preset.recommended_model),
         selected_type: GeminiAuthMode::OAuth.selected_type().to_string(),
         secret_ref: None,
         has_secret: false,
     }
+}
+
+fn with_official_gemini_config_defaults(mut config: GeminiConfigSnapshot) -> GeminiConfigSnapshot {
+    let is_official = config.active_mode == Some(GeminiProviderMode::Official)
+        || config.provider_id.as_deref() == Some("google-official");
+    if !is_official {
+        return config;
+    }
+
+    let defaults = official_gemini_normalized_draft();
+    config.auth_mode = Some(GeminiAuthMode::OAuth);
+    config.provider_id = config.provider_id.or(defaults.provider_id);
+    config.provider_name = config.provider_name.or(defaults.provider_name);
+    config.base_url = None;
+    config.model = config.model.or(defaults.model);
+    config.selected_type = Some(defaults.selected_type);
+    config.secret_ref = None;
+    config.has_secret = false;
+    config
 }
 
 fn saved_gemini_provider_snapshot_from_record(
@@ -3548,27 +3745,66 @@ fn saved_gemini_provider_snapshot_from_record(
         ))
     })?;
     let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
+    let is_official = mode == GeminiProviderMode::Official;
+    let defaults = if is_official {
+        Some(official_gemini_normalized_draft())
+    } else {
+        None
+    };
     let auth_mode = extra
         .get("authMode")
         .and_then(Value::as_str)
         .and_then(AiConfigService::parse_gemini_auth_mode)
-        .unwrap_or(GeminiAuthMode::OAuth);
-    let selected_type = extra
-        .get("selectedType")
-        .and_then(Value::as_str)
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| auth_mode.selected_type().to_string());
+        .unwrap_or_else(|| {
+            defaults
+                .as_ref()
+                .map(|value| value.auth_mode.clone())
+                .unwrap_or(GeminiAuthMode::OAuth)
+        });
+    let selected_type = if is_official {
+        defaults
+            .as_ref()
+            .map(|value| value.selected_type.clone())
+            .unwrap_or_else(|| GeminiAuthMode::OAuth.selected_type().to_string())
+    } else {
+        extra
+            .get("selectedType")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| auth_mode.selected_type().to_string())
+    };
 
     Ok(GeminiSavedProviderSnapshot {
         saved_provider_id: record.saved_provider_id,
         mode,
         auth_mode,
-        provider_id: record.provider_id,
-        provider_name: record.provider_name,
-        base_url: record.base_url,
-        model: record.model,
+        provider_id: record.provider_id.or_else(|| {
+            defaults
+                .as_ref()
+                .and_then(|value| value.provider_id.clone())
+        }),
+        provider_name: if record.provider_name.trim().is_empty() {
+            defaults
+                .as_ref()
+                .and_then(|value| value.provider_name.clone())
+                .unwrap_or_else(|| "aiConfig.agent.gemini.title".to_string())
+        } else {
+            record.provider_name
+        },
+        base_url: if is_official { None } else { record.base_url },
+        model: if is_official {
+            record
+                .model
+                .or_else(|| defaults.as_ref().and_then(|value| value.model.clone()))
+        } else {
+            record.model
+        },
         selected_type,
-        has_secret: record.has_secret,
+        has_secret: if is_official {
+            false
+        } else {
+            record.has_secret
+        },
         is_active: record.is_active,
         created_at_ms: record.created_at_ms.max(0) as u64,
         updated_at_ms: record.updated_at_ms.max(0) as u64,
@@ -3585,6 +3821,9 @@ fn normalized_from_saved_gemini_provider(
             record.mode
         ))
     })?;
+    if mode == GeminiProviderMode::Official {
+        return Ok(official_gemini_normalized_draft());
+    }
     let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
     let auth_mode = extra
         .get("authMode")
@@ -3761,6 +4000,13 @@ fn parse_simple_env_file(path: &Path) -> BTreeMap<String, String> {
         .collect()
 }
 
+fn serialize_simple_env_file(env: &BTreeMap<String, String>) -> String {
+    env.iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn discover_live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
     let config_path = codex_config_path_from_home(home);
     let auth_path = codex_auth_path_from_home(home);
@@ -3860,7 +4106,7 @@ fn discover_live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapsh
         });
     }
 
-    if has_secret || !config_text.trim().is_empty() {
+    if has_secret || model.is_some() {
         let defaults = official_codex_normalized_draft();
         return Some(CodexConfigSnapshot {
             saved_provider_id: None,
@@ -3990,7 +4236,7 @@ fn discover_live_gemini_config_from_home(home: &Path) -> Option<GeminiConfigSnap
         });
     }
 
-    if has_secret || model.is_some() {
+    if has_secret {
         let defaults = official_gemini_normalized_draft();
         return Some(GeminiConfigSnapshot {
             saved_provider_id: None,
@@ -4179,6 +4425,18 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> AiConfigResult<()> {
                 path.display()
             )));
         }
+    }
+    Ok(())
+}
+
+fn remove_file_if_exists(path: &Path) -> AiConfigResult<()> {
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|error| {
+            AiConfigError::LiveSync(format!(
+                "failed to remove settings file {}: {error}",
+                path.display()
+            ))
+        })?;
     }
     Ok(())
 }
@@ -5534,6 +5792,125 @@ mod tests {
     }
 
     #[test]
+    fn codex_official_mode_removes_managed_provider_fields_but_preserves_unrelated_config() {
+        let dir = temp_dir("codex-official-sync");
+        let service = service_for(&dir);
+
+        with_test_home(&dir, |home| {
+            write_text_file(
+                &home.join(".codex").join("config.toml"),
+                r#"approval_policy = "never"
+model = "gpt-5.4"
+model_provider = "openrouter"
+disable_response_storage = true
+
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+
+[mcp_servers."gto-agent-bridge"]
+command = "npx"
+"#,
+            );
+            write_json_file(
+                &home.join(".codex").join("auth.json"),
+                &json!({
+                    "OPENAI_API_KEY": "openrouter-secret",
+                    "sessionId": "keep-me",
+                }),
+            );
+
+            service
+                .sync_codex_live_settings(&official_codex_normalized_draft())
+                .unwrap();
+
+            let auth = read_json_object_file(&home.join(".codex").join("auth.json")).unwrap();
+            assert!(auth.get("OPENAI_API_KEY").is_none());
+            assert_eq!(auth.get("sessionId"), Some(&json!("keep-me")));
+
+            let config_text = fs::read_to_string(home.join(".codex").join("config.toml")).unwrap();
+            let config = toml::from_str::<toml::Table>(&config_text).unwrap();
+            assert_eq!(
+                config
+                    .get("approval_policy")
+                    .and_then(|value| value.as_str()),
+                Some("never")
+            );
+            assert_eq!(
+                config.get("model").and_then(|value| value.as_str()),
+                Some("gpt-5.4")
+            );
+            assert!(config.get("model_provider").is_none());
+            assert!(!config_text.contains("base_url = "));
+            assert!(config_text.contains("gto-agent-bridge"));
+            assert!(config
+                .get("model_providers")
+                .and_then(|value| value.as_table())
+                .map(|table| !table.contains_key("openrouter"))
+                .unwrap_or(true));
+        });
+    }
+
+    #[test]
+    fn gemini_official_mode_removes_managed_endpoint_and_api_key_but_preserves_other_settings() {
+        let dir = temp_dir("gemini-official-sync");
+        let service = service_for(&dir);
+
+        with_test_home(&dir, |home| {
+            write_text_file(
+                &home.join(".gemini").join(".env"),
+                "GOOGLE_GEMINI_BASE_URL=https://proxy.example.com/v1\nGEMINI_MODEL=gemini-2.5-pro\nGEMINI_API_KEY=secret-value\nUNRELATED_FLAG=keep-me\n",
+            );
+            write_json_file(
+                &home.join(".gemini").join("settings.json"),
+                &json!({
+                    "security": {
+                        "auth": {
+                            "selectedType": "gemini-api-key"
+                        }
+                    },
+                    "mcpServers": {
+                        "gto-agent-bridge": {
+                            "command": "npx"
+                        }
+                    }
+                }),
+            );
+
+            service
+                .sync_gemini_live_settings(&official_gemini_normalized_draft())
+                .unwrap();
+
+            let env = parse_simple_env_file(&home.join(".gemini").join(".env"));
+            assert!(env.get("GOOGLE_GEMINI_BASE_URL").is_none());
+            assert!(env.get("GEMINI_API_KEY").is_none());
+            assert_eq!(
+                env.get("UNRELATED_FLAG").map(String::as_str),
+                Some("keep-me")
+            );
+            assert_eq!(
+                env.get("GEMINI_MODEL").map(String::as_str),
+                Some("gemini-2.5-pro")
+            );
+
+            let settings =
+                read_json_object_file(&home.join(".gemini").join("settings.json")).unwrap();
+            assert_eq!(
+                settings
+                    .pointer("/security/auth/selectedType")
+                    .and_then(Value::as_str),
+                Some("oauth-personal")
+            );
+            assert_eq!(
+                settings
+                    .pointer("/mcpServers/gto-agent-bridge/command")
+                    .and_then(Value::as_str),
+                Some("npx")
+            );
+        });
+    }
+
+    #[test]
     fn managed_env_includes_default_model_aliases_and_preset_extra_env() {
         let env = build_claude_managed_env(
             ClaudeProviderMode::Preset,
@@ -5930,6 +6307,23 @@ mod tests {
 
         assert!(agent_status_result(AiConfigAgent::Codex, &home, None));
         assert!(agent_status_result(AiConfigAgent::Gemini, &home, None));
+    }
+
+    #[test]
+    fn snapshot_does_not_treat_codex_marker_only_config_as_provider_setup() {
+        let dir = temp_dir("codex-marker-only-snapshot");
+        let service = service_for(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-marker-only");
+
+        let snapshot = with_test_home(&dir, |home| {
+            write_codex_marker(home);
+            service
+                .read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(&workspace_root))
+                .unwrap()
+        });
+
+        assert!(snapshot.codex.config.active_mode.is_none());
+        assert!(snapshot.codex.mcp_installed);
     }
 
     #[test]

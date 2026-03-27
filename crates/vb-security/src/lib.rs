@@ -4,12 +4,15 @@ use std::{
     sync::{OnceLock, RwLock},
 };
 
-#[cfg(target_os = "macos")]
-use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
 #[cfg(target_os = "windows")]
 use std::{ffi::c_void, ptr, slice};
+#[cfg(target_os = "macos")]
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use thiserror::Error;
 
@@ -141,12 +144,156 @@ fn memory_load_secret(service_name: &str, reference: &str) -> Result<String, Str
 }
 
 #[cfg(target_os = "macos")]
+fn macos_keychain_path() -> Option<PathBuf> {
+    static MACOS_KEYCHAIN_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    MACOS_KEYCHAIN_PATH
+        .get_or_init(detect_macos_keychain_path)
+        .clone()
+}
+
+#[cfg(target_os = "macos")]
+fn detect_macos_keychain_path() -> Option<PathBuf> {
+    let home_dir = std::env::var_os("HOME").map(PathBuf::from)?;
+    let security_preferences = load_macos_security_preferences(&home_dir);
+    select_macos_keychain_path(&home_dir, security_preferences.as_ref())
+}
+
+#[cfg(target_os = "macos")]
+fn load_macos_security_preferences(home_dir: &Path) -> Option<serde_json::Value> {
+    let preferences_path = home_dir.join("Library/Preferences/com.apple.security.plist");
+    if !preferences_path.is_file() {
+        return None;
+    }
+
+    let output = Command::new("plutil")
+        .args(["-convert", "json", "-o", "-"])
+        .arg(&preferences_path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    serde_json::from_slice(&output.stdout).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn select_macos_keychain_path(
+    home_dir: &Path,
+    security_preferences: Option<&serde_json::Value>,
+) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(security_preferences) = security_preferences {
+        collect_macos_keychain_candidates(home_dir, security_preferences, &mut candidates);
+    }
+    candidates.extend(default_macos_keychain_candidates(home_dir));
+    candidates.extend(discover_macos_keychain_candidates(home_dir));
+    candidates
+        .into_iter()
+        .find(|candidate| is_usable_macos_keychain(candidate))
+}
+
+#[cfg(target_os = "macos")]
+fn collect_macos_keychain_candidates(
+    home_dir: &Path,
+    value: &serde_json::Value,
+    candidates: &mut Vec<PathBuf>,
+) {
+    match value {
+        serde_json::Value::String(raw) => {
+            if let Some(candidate) = normalize_macos_keychain_candidate(home_dir, raw) {
+                candidates.push(candidate);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_macos_keychain_candidates(home_dir, item, candidates);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for value in map.values() {
+                collect_macos_keychain_candidates(home_dir, value, candidates);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_macos_keychain_candidate(home_dir: &Path, raw: &str) -> Option<PathBuf> {
+    let raw = raw.trim();
+    if !(raw.ends_with(".keychain") || raw.ends_with(".keychain-db")) {
+        return None;
+    }
+    if let Some(path) = raw.strip_prefix("~/") {
+        return Some(home_dir.join(path));
+    }
+    if let Some(path) = raw.strip_prefix("$HOME/") {
+        return Some(home_dir.join(path));
+    }
+    if let Some(path) = raw.strip_prefix("file://") {
+        return Some(PathBuf::from(path));
+    }
+
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        return Some(path);
+    }
+
+    Some(home_dir.join("Library/Keychains").join(path))
+}
+
+#[cfg(target_os = "macos")]
+fn default_macos_keychain_candidates(home_dir: &Path) -> [PathBuf; 2] {
+    [
+        home_dir.join("Library/Keychains/login.keychain-db"),
+        home_dir.join("Library/Keychains/login.keychain"),
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn discover_macos_keychain_candidates(home_dir: &Path) -> Vec<PathBuf> {
+    let keychain_dir = home_dir.join("Library/Keychains");
+    let Ok(entries) = std::fs::read_dir(keychain_dir) else {
+        return Vec::new();
+    };
+
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| is_usable_macos_keychain(path))
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn is_usable_macos_keychain(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+
+    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    if file_name.starts_with('.') || file_name == "metadata.keychain-db" {
+        return false;
+    }
+
+    file_name.ends_with(".keychain") || file_name.ends_with(".keychain-db")
+}
+
+#[cfg(target_os = "macos")]
 fn os_store_secret(
     service_name: &str,
     error_namespace: &str,
     reference: &str,
     value: &str,
 ) -> SecurityResult<()> {
+    let keychain_path = macos_keychain_path().ok_or_else(|| SecurityError::StoreFailed {
+        code: format!("{}_STORE_FAILED", error_namespace),
+        message: "no usable macOS keychain configured".to_string(),
+    })?;
+
     let output = Command::new("security")
         .args([
             "add-generic-password",
@@ -158,6 +305,7 @@ fn os_store_secret(
             value,
             "-U",
         ])
+        .arg(&keychain_path)
         .output()
         .map_err(|error| SecurityError::StoreFailed {
             code: format!("{}_STORE_FAILED", error_namespace),
@@ -178,6 +326,11 @@ fn os_load_secret(
     error_namespace: &str,
     reference: &str,
 ) -> SecurityResult<String> {
+    let keychain_path = macos_keychain_path().ok_or_else(|| SecurityError::LoadFailed {
+        code: format!("{}_LOAD_FAILED", error_namespace),
+        message: "no usable macOS keychain configured".to_string(),
+    })?;
+
     let output = Command::new("security")
         .args([
             "find-generic-password",
@@ -187,6 +340,7 @@ fn os_load_secret(
             service_name,
             "-w",
         ])
+        .arg(&keychain_path)
         .output()
         .map_err(|error| SecurityError::LoadFailed {
             code: format!("{}_LOAD_FAILED", error_namespace),
@@ -463,11 +617,72 @@ fn os_load_secret(
 #[cfg(test)]
 mod tests {
     use super::SecretStore;
+    #[cfg(target_os = "macos")]
+    use serde_json::json;
+    #[cfg(target_os = "macos")]
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn rejects_empty_reference() {
         let store = SecretStore::new("gtoffice.test", "TEST_SECRET");
         let error = store.store("  ", "value").unwrap_err().to_string();
         assert!(error.contains("TEST_SECRET_INVALID_REF"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn prefers_existing_login_keychain_when_preferences_point_to_missing_file() {
+        let home_dir = new_test_home("prefers-existing-login-keychain");
+        let login_keychain = home_dir.join("Library/Keychains/login.keychain-db");
+        fs::create_dir_all(login_keychain.parent().expect("login keychain parent"))
+            .expect("create keychain directory");
+        fs::write(&login_keychain, b"").expect("create login keychain");
+
+        let selected = super::select_macos_keychain_path(
+            &home_dir,
+            Some(&json!({
+                "DefaultKeychain": "/missing/broken.keychain-db"
+            })),
+        );
+
+        assert_eq!(selected, Some(login_keychain));
+        remove_test_home(&home_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn returns_none_when_no_usable_keychain_exists() {
+        let home_dir = new_test_home("returns-none-when-missing");
+
+        let selected = super::select_macos_keychain_path(
+            &home_dir,
+            Some(&json!({
+                "DefaultKeychain": "/missing/broken.keychain-db",
+                "SearchList": ["/missing/another.keychain-db"]
+            })),
+        );
+
+        assert_eq!(selected, None);
+        remove_test_home(&home_dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn new_test_home(label: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("vb-security-{label}-{suffix}"));
+        fs::create_dir_all(&path).expect("create test home");
+        path
+    }
+
+    #[cfg(target_os = "macos")]
+    fn remove_test_home(path: &Path) {
+        let _ = fs::remove_dir_all(path);
     }
 }
