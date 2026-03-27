@@ -570,6 +570,7 @@ fn dev_bootstrap_agents(
             state,
             workspace.workspace_id.as_str(),
             tool_kind,
+            true,
             terminal_env,
         )
         .map_err(|error| BridgeError::new("MCP_BRIDGE_TERMINAL_INVALID", error))?;

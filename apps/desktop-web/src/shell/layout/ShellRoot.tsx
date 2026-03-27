@@ -3931,6 +3931,7 @@ export function ShellRoot() {
               cwd: restoreCwd,
               env: terminalEnv,
               agentToolKind: station ? normalizeStationToolKind(station.tool) : 'unknown',
+              injectProviderEnv: false,
             })
             if (
               !shouldApplyStationSessionResult(

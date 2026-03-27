@@ -38,7 +38,7 @@ pub async fn agent_mcp_install_status(
 
 #[tauri::command]
 pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<(), String> {
-    let status = AgentInstaller::install_status(agent);
+    let status = AgentInstaller::install_status_fresh(agent);
 
     if status.installed {
         return Ok(());
@@ -67,7 +67,8 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
 
     if status.success() {
         ensure_global_shell_path_for_local_bin(&window, &progress_event);
-        let verified = AgentInstaller::install_status(agent);
+        AgentInstaller::invalidate_install_status_cache(Some(agent));
+        let verified = AgentInstaller::install_status_fresh(agent);
         if !verified.installed {
             return Err(format!(
                 "{} installer exited successfully, but GT Office still cannot verify `{} --version`.",
@@ -97,7 +98,7 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
 
 #[tauri::command]
 pub async fn uninstall_agent(window: tauri::Window, agent: AgentType) -> Result<(), String> {
-    let status = AgentInstaller::install_status(agent);
+    let status = AgentInstaller::install_status_fresh(agent);
 
     if !status.installed {
         return Ok(());
@@ -134,7 +135,8 @@ pub async fn uninstall_agent(window: tauri::Window, agent: AgentType) -> Result<
         }
     }
 
-    let verified = AgentInstaller::install_status(agent);
+    AgentInstaller::invalidate_install_status_cache(Some(agent));
+    let verified = AgentInstaller::install_status_fresh(agent);
     if verified.installed {
         return Err(format!(
             "{name} uninstall completed, but GT Office still detects `{}` at {}.",

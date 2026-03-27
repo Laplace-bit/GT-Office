@@ -521,7 +521,8 @@ pub fn tool_launch(
 
     let mut env = build_launch_env(&workspace_id, &agent_id, role_key.as_deref(), &station_id);
     env.extend(context_env_map(context.as_ref()));
-    let env = augment_terminal_env_for_agent(&app, state.inner(), &workspace_id, tool_kind, env)?;
+    let env =
+        augment_terminal_env_for_agent(&app, state.inner(), &workspace_id, tool_kind, true, env)?;
 
     let request = TerminalCreateRequest {
         workspace_id: WorkspaceId::new(workspace_id.clone()),

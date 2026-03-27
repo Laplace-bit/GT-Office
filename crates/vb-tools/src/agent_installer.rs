@@ -1,7 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,128 @@ fn configure_background_command(command: &mut Command) {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = command;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "gtoffice-agent-installer-{name}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&base).expect("create temp dir");
+        base
+    }
+
+    fn restore_env_var(key: &str, value: Option<std::ffi::OsString>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+
+    fn with_test_home<T>(dir: &Path, f: impl FnOnce(&Path) -> T) -> T {
+        let _guard = HOME_ENV_LOCK.lock().expect("home env lock");
+        let home = dir.join("mock-home");
+        fs::create_dir_all(&home).expect("create home");
+
+        let previous_home = std::env::var_os("HOME");
+        let previous_userprofile = std::env::var_os("USERPROFILE");
+        let previous_homedrive = std::env::var_os("HOMEDRIVE");
+        let previous_homepath = std::env::var_os("HOMEPATH");
+        let previous_path = std::env::var_os("PATH");
+
+        std::env::set_var("HOME", &home);
+        std::env::remove_var("USERPROFILE");
+        std::env::remove_var("HOMEDRIVE");
+        std::env::remove_var("HOMEPATH");
+        std::env::set_var("PATH", "");
+
+        let result = f(&home);
+
+        restore_env_var("HOME", previous_home);
+        restore_env_var("USERPROFILE", previous_userprofile);
+        restore_env_var("HOMEDRIVE", previous_homedrive);
+        restore_env_var("HOMEPATH", previous_homepath);
+        restore_env_var("PATH", previous_path);
+
+        result
+    }
+
+    #[test]
+    fn install_status_uses_persisted_cache_before_rescanning() {
+        let dir = temp_dir("cache-hit");
+        with_test_home(&dir, |home| {
+            let executable = home.join(".local").join("bin").join(if cfg!(windows) {
+                "codex.cmd"
+            } else {
+                "codex"
+            });
+            fs::create_dir_all(executable.parent().expect("parent")).expect("create bin dir");
+            fs::write(&executable, "@echo off\n").expect("write fake executable");
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+
+                let mut perms = fs::metadata(&executable).expect("metadata").permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&executable, perms).expect("chmod");
+            }
+
+            let cache_dir = home.join(".gtoffice").join("cache");
+            fs::create_dir_all(&cache_dir).expect("create cache dir");
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_millis() as u64;
+            let cache_path = cache_dir.join("agent-install-status.json");
+            let cache_body = serde_json::json!({
+                "version": 1,
+                "entries": {
+                    "codex": {
+                        "checkedAtMs": now_ms,
+                        "status": {
+                            "installed": true,
+                            "executable": executable.display().to_string(),
+                            "requiresNode": true,
+                            "nodeReady": true,
+                            "npmReady": true,
+                            "installAvailable": true,
+                            "uninstallAvailable": true,
+                            "detectedBy": ["cache"],
+                            "issues": []
+                        }
+                    }
+                }
+            });
+            fs::write(
+                &cache_path,
+                serde_json::to_vec_pretty(&cache_body).expect("serialize cache"),
+            )
+            .expect("write cache");
+
+            let status = AgentInstaller::install_status(AgentType::Codex);
+            assert!(status.installed);
+            assert_eq!(
+                status.executable.as_deref(),
+                Some(executable.to_string_lossy().as_ref())
+            );
+            assert_eq!(status.detected_by, vec!["cache".to_string()]);
+        });
     }
 }
 
@@ -43,6 +166,24 @@ pub struct AgentInstallStatus {
     pub issues: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CachedAgentInstallStatus {
+    checked_at_ms: u64,
+    status: AgentInstallStatus,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AgentInstallStatusCacheStore {
+    version: u32,
+    entries: BTreeMap<String, CachedAgentInstallStatus>,
+}
+
+const AGENT_INSTALL_STATUS_CACHE_VERSION: u32 = 1;
+const AGENT_INSTALL_STATUS_POSITIVE_TTL_MS: u64 = 12 * 60 * 60 * 1000;
+const AGENT_INSTALL_STATUS_NEGATIVE_TTL_MS: u64 = 15 * 60 * 1000;
+
 #[derive(Debug, Clone)]
 struct DetectionResult {
     executable: Option<PathBuf>,
@@ -60,15 +201,30 @@ pub struct AgentInstaller;
 
 impl AgentInstaller {
     pub fn install_status(agent: AgentType) -> AgentInstallStatus {
-        let detection = Self::detect_installed(agent);
+        if let Some(status) = Self::load_cached_install_status(agent) {
+            tracing::debug!("agent installer cache hit for {}", Self::cache_key(agent));
+            return status;
+        }
+
+        Self::install_status_fresh(agent)
+    }
+
+    pub fn install_status_fresh(agent: AgentType) -> AgentInstallStatus {
         let requires_node = Self::requires_node_env(agent);
+        let node_runtime_dir = if requires_node {
+            Self::find_node_runtime_dir()
+        } else {
+            None
+        };
+        let detection = Self::detect_installed_with_node_dir(agent, node_runtime_dir.as_deref());
         let node_ready = if requires_node {
-            Self::check_node_env()
+            node_runtime_dir.is_some() || Self::command_succeeds("node", &["-v"])
         } else {
             true
         };
         let npm_ready = if requires_node {
-            Self::check_npm_env()
+            Self::find_executable("npm").executable.is_some()
+                || Self::command_succeeds("npm", &["-v"])
         } else {
             false
         };
@@ -98,7 +254,11 @@ impl AgentInstaller {
         }
 
         let uninstall_available = match agent {
-            AgentType::ClaudeCode => Self::get_uninstall_action(agent).is_some(),
+            AgentType::ClaudeCode => detection
+                .executable
+                .as_deref()
+                .and_then(Self::claude_uninstall_action_for_path)
+                .is_some(),
             AgentType::Codex | AgentType::Gemini => detection.executable.is_some() && npm_ready,
         };
         if matches!(agent, AgentType::ClaudeCode)
@@ -108,7 +268,7 @@ impl AgentInstaller {
             issues.push("Claude CLI uninstall source could not be identified automatically; remove it with the original installer or package manager.".to_string());
         }
 
-        AgentInstallStatus {
+        let status = AgentInstallStatus {
             installed: detection.executable.is_some(),
             executable: detection
                 .executable
@@ -124,7 +284,10 @@ impl AgentInstaller {
             uninstall_available,
             detected_by: detection.detected_by,
             issues,
-        }
+        };
+
+        Self::store_cached_install_status(agent, &status);
+        status
     }
 
     pub fn get_install_command(agent: AgentType) -> (String, Vec<String>) {
@@ -182,8 +345,7 @@ impl AgentInstaller {
     }
 
     pub fn get_uninstall_action(agent: AgentType) -> Option<AgentUninstallAction> {
-        let detection = Self::detect_installed(agent);
-        let executable = detection.executable?;
+        let executable = Self::install_status(agent).executable.map(PathBuf::from)?;
 
         match agent {
             AgentType::Codex => Some(Self::npm_uninstall_action("@openai/codex")),
@@ -204,8 +366,11 @@ impl AgentInstaller {
         }
     }
 
-    fn detect_installed(agent: AgentType) -> DetectionResult {
-        Self::find_executable(Self::executable_name(agent))
+    fn detect_installed_with_node_dir(
+        agent: AgentType,
+        node_runtime_dir: Option<&Path>,
+    ) -> DetectionResult {
+        Self::find_executable_with_node_dir(Self::executable_name(agent), node_runtime_dir)
     }
 
     pub fn check_node_env() -> bool {
@@ -228,48 +393,62 @@ impl AgentInstaller {
     }
 
     fn find_executable(command: &str) -> DetectionResult {
-        let mut searched = BTreeSet::new();
-        let mut candidates: Vec<(PathBuf, Vec<String>)> = Vec::new();
+        Self::find_executable_with_node_dir(command, None)
+    }
 
-        if let Some(path) = Self::resolve_command_in_path(command) {
-            candidates.push((path, vec!["path-env".to_string()]));
+    fn find_executable_with_node_dir(
+        command: &str,
+        node_runtime_dir: Option<&Path>,
+    ) -> DetectionResult {
+        let path_env_path = Self::resolve_command_in_path(command);
+        let shell_path = Self::resolve_command_via_login_shell(command);
+        let shell_ready = if cfg!(target_os = "windows") {
+            path_env_path.is_some()
+        } else {
+            shell_path.is_some()
+        };
+
+        let mut seen_paths = BTreeSet::new();
+        if let Some(result) = Self::try_verified_candidate(
+            command,
+            path_env_path,
+            vec!["path-env".to_string()],
+            shell_ready,
+            &mut seen_paths,
+            node_runtime_dir,
+        ) {
+            return result;
         }
 
+        let mut searched = BTreeSet::new();
         for dir in Self::candidate_search_dirs() {
             if !searched.insert(dir.clone()) {
                 continue;
             }
-            for candidate in Self::executable_candidates(command) {
-                let full_path = dir.join(&candidate);
-                if Self::is_runnable_file(&full_path) {
-                    candidates.push((full_path, vec!["path-scan".to_string()]));
+            for candidate_name in Self::executable_candidates(command) {
+                let full_path = dir.join(&candidate_name);
+                if let Some(result) = Self::try_verified_candidate(
+                    command,
+                    Some(full_path),
+                    vec!["path-scan".to_string()],
+                    shell_ready,
+                    &mut seen_paths,
+                    node_runtime_dir,
+                ) {
+                    return result;
                 }
             }
         }
 
-        let shell_path = Self::resolve_command_via_login_shell(command);
-        let shell_ready = shell_path.is_some();
-        if let Some(path) = shell_path {
-            candidates.push((path, vec!["login-shell".to_string()]));
-        }
-
-        let mut seen_paths = BTreeSet::new();
-        for (candidate, base_labels) in candidates {
-            let key = candidate.display().to_string();
-            if !seen_paths.insert(key) {
-                continue;
-            }
-            if Self::verify_executable(command, &candidate) {
-                let mut labels = base_labels;
-                labels.extend(Self::detection_labels_for_path(&candidate));
-                labels.sort();
-                labels.dedup();
-                return DetectionResult {
-                    executable: Some(candidate),
-                    detected_by: labels,
-                    shell_ready,
-                };
-            }
+        if let Some(result) = Self::try_verified_candidate(
+            command,
+            shell_path,
+            vec!["login-shell".to_string()],
+            shell_ready,
+            &mut seen_paths,
+            node_runtime_dir,
+        ) {
+            return result;
         }
 
         DetectionResult {
@@ -277,6 +456,34 @@ impl AgentInstaller {
             detected_by: Vec::new(),
             shell_ready,
         }
+    }
+
+    fn try_verified_candidate(
+        command: &str,
+        candidate: Option<PathBuf>,
+        base_labels: Vec<String>,
+        shell_ready: bool,
+        seen_paths: &mut BTreeSet<String>,
+        node_runtime_dir: Option<&Path>,
+    ) -> Option<DetectionResult> {
+        let candidate = candidate?;
+        let key = candidate.display().to_string();
+        if !seen_paths.insert(key) {
+            return None;
+        }
+        if !Self::verify_executable(command, &candidate, node_runtime_dir) {
+            return None;
+        }
+
+        let mut labels = base_labels;
+        labels.extend(Self::detection_labels_for_path(&candidate));
+        labels.sort();
+        labels.dedup();
+        Some(DetectionResult {
+            executable: Some(candidate),
+            detected_by: labels,
+            shell_ready,
+        })
     }
 
     fn candidate_search_dirs() -> Vec<PathBuf> {
@@ -486,7 +693,7 @@ impl AgentInstaller {
         None
     }
 
-    fn verify_executable(command_name: &str, path: &Path) -> bool {
+    fn verify_executable(command_name: &str, path: &Path, node_runtime_dir: Option<&Path>) -> bool {
         if !Self::is_runnable_file(path) {
             return false;
         }
@@ -494,7 +701,7 @@ impl AgentInstaller {
         let mut command = Command::new(path);
         configure_background_command(&mut command);
         if Self::node_wrapped_command(command_name) {
-            if let Some(node_dir) = Self::find_node_runtime_dir() {
+            if let Some(node_dir) = node_runtime_dir {
                 let current_path = env::var_os("PATH")
                     .map(|value| env::split_paths(&value).collect::<Vec<_>>())
                     .unwrap_or_default();
@@ -502,7 +709,7 @@ impl AgentInstaller {
                 if let Some(parent) = path.parent() {
                     paths.push(parent.to_path_buf());
                 }
-                paths.push(node_dir);
+                paths.push(node_dir.to_path_buf());
                 paths.extend(current_path);
                 command.env("PATH", env::join_paths(paths).unwrap_or_default());
             }
@@ -538,6 +745,30 @@ impl AgentInstaller {
 
         let shell_node = Self::resolve_command_via_login_shell("node")?;
         shell_node.parent().map(Path::to_path_buf)
+    }
+
+    pub fn invalidate_install_status_cache(agent: Option<AgentType>) {
+        let Some(path) = Self::install_status_cache_path() else {
+            return;
+        };
+        let Some(mut store) = Self::read_install_status_cache_store(&path) else {
+            return;
+        };
+
+        match agent {
+            Some(agent) => {
+                store.entries.remove(Self::cache_key(agent));
+            }
+            None => {
+                store.entries.clear();
+            }
+        }
+
+        if store.entries.is_empty() {
+            let _ = std::fs::remove_file(path);
+            return;
+        }
+        let _ = Self::write_install_status_cache_store(&path, &store);
     }
 
     fn npm_uninstall_action(package_name: &str) -> AgentUninstallAction {
@@ -636,6 +867,103 @@ impl AgentInstaller {
             return None;
         }
         Some(PathBuf::from(value))
+    }
+
+    fn cache_key(agent: AgentType) -> &'static str {
+        match agent {
+            AgentType::ClaudeCode => "claude",
+            AgentType::Codex => "codex",
+            AgentType::Gemini => "gemini",
+        }
+    }
+
+    fn load_cached_install_status(agent: AgentType) -> Option<AgentInstallStatus> {
+        let path = Self::install_status_cache_path()?;
+        let store = Self::read_install_status_cache_store(&path)?;
+        let entry = store.entries.get(Self::cache_key(agent))?;
+        if !Self::cached_status_is_fresh(entry) {
+            return None;
+        }
+
+        let mut status = entry.status.clone();
+        if !status.detected_by.iter().any(|label| label == "cache") {
+            status.detected_by.insert(0, "cache".to_string());
+        }
+        Some(status)
+    }
+
+    fn store_cached_install_status(agent: AgentType, status: &AgentInstallStatus) {
+        let Some(path) = Self::install_status_cache_path() else {
+            return;
+        };
+
+        let mut store = Self::read_install_status_cache_store(&path).unwrap_or_default();
+        store.version = AGENT_INSTALL_STATUS_CACHE_VERSION;
+        store.entries.insert(
+            Self::cache_key(agent).to_string(),
+            CachedAgentInstallStatus {
+                checked_at_ms: Self::now_ms(),
+                status: status.clone(),
+            },
+        );
+        let _ = Self::write_install_status_cache_store(&path, &store);
+    }
+
+    fn install_status_cache_path() -> Option<PathBuf> {
+        Self::user_home_dir().map(|home| {
+            home.join(".gtoffice")
+                .join("cache")
+                .join("agent-install-status.json")
+        })
+    }
+
+    fn read_install_status_cache_store(path: &Path) -> Option<AgentInstallStatusCacheStore> {
+        let raw = std::fs::read(path).ok()?;
+        let store = serde_json::from_slice::<AgentInstallStatusCacheStore>(&raw).ok()?;
+        if store.version != AGENT_INSTALL_STATUS_CACHE_VERSION {
+            return None;
+        }
+        Some(store)
+    }
+
+    fn write_install_status_cache_store(
+        path: &Path,
+        store: &AgentInstallStatusCacheStore,
+    ) -> Option<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok()?;
+        }
+        let body = serde_json::to_vec_pretty(store).ok()?;
+        std::fs::write(path, body).ok()?;
+        Some(())
+    }
+
+    fn cached_status_is_fresh(entry: &CachedAgentInstallStatus) -> bool {
+        let age_ms = Self::now_ms().saturating_sub(entry.checked_at_ms);
+        let ttl_ms = if entry.status.installed {
+            AGENT_INSTALL_STATUS_POSITIVE_TTL_MS
+        } else {
+            AGENT_INSTALL_STATUS_NEGATIVE_TTL_MS
+        };
+        if age_ms > ttl_ms {
+            return false;
+        }
+
+        if entry.status.installed {
+            let Some(executable) = entry.status.executable.as_deref().map(PathBuf::from) else {
+                return false;
+            };
+            return Self::is_runnable_file(&executable);
+        }
+
+        true
+    }
+
+    fn now_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0)
     }
 
     fn is_runnable_file(path: &Path) -> bool {

@@ -2083,6 +2083,7 @@ export const desktopApi = {
       cwdMode?: 'workspace_root' | 'custom'
       env?: Record<string, string>
       agentToolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+      injectProviderEnv?: boolean
     },
   ) {
     return invokeCommand<TerminalCreateResponse>('terminal_create', {
@@ -2092,6 +2093,7 @@ export const desktopApi = {
       cwdMode: options?.cwdMode ?? 'workspace_root',
       env: options?.env ?? null,
       agentToolKind: options?.agentToolKind ?? null,
+      injectProviderEnv: options?.injectProviderEnv ?? null,
     })
   },
   aiConfigReadSnapshot(workspaceId?: string | null, allow?: string | null) {

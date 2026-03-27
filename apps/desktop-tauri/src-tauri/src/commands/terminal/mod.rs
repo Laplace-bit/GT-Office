@@ -147,6 +147,7 @@ pub fn terminal_create(
     cwd_mode: Option<String>,
     env: Option<BTreeMap<String, String>>,
     agent_tool_kind: Option<String>,
+    inject_provider_env: Option<bool>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
@@ -158,6 +159,7 @@ pub fn terminal_create(
         state.inner(),
         &workspace_id,
         tool_kind,
+        inject_provider_env.unwrap_or(true),
         env.unwrap_or_default(),
     )?;
     let request = TerminalCreateRequest {
@@ -326,9 +328,7 @@ pub fn terminal_describe_processes(
         .describe_session_processes(&session_id)
         .map_err(to_terminal_error)?;
     serde_json::to_value(snapshot).map_err(|error| {
-        format!(
-            "TERMINAL_INTERNAL: failed to serialize terminal process snapshot: {error}"
-        )
+        format!("TERMINAL_INTERNAL: failed to serialize terminal process snapshot: {error}")
     })
 }
 

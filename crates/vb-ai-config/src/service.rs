@@ -2737,20 +2737,20 @@ impl AiConfigService {
 
     pub fn read_snapshot(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         workspace_root: Option<&Path>,
     ) -> AiConfigResult<AiConfigSnapshot> {
         let workspace_root = workspace_root.unwrap_or_else(|| Path::new(""));
         let mut claude_config = self.read_claude_config(workspace_root)?;
         let user_home = user_home_dir();
+        let saved_claude_providers = self.list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)?;
         if claude_config.active_mode.is_none() {
             if let Some(home) = user_home.as_deref() {
-                if let Some(live_config) = live_claude_config_from_home(home) {
+                if let Some(live_config) = discover_live_claude_config_from_home(home) {
                     claude_config = live_config;
                 }
             }
         }
-        let saved_claude_providers = self.list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)?;
         if claude_config.saved_provider_id.is_none() {
             claude_config.saved_provider_id = saved_claude_providers
                 .iter()
@@ -2758,14 +2758,14 @@ impl AiConfigService {
                 .map(|item| item.saved_provider_id.clone());
         }
         let mut codex_config = self.read_codex_config(workspace_root)?;
+        let saved_codex_providers = self.list_saved_codex_providers()?;
         if codex_config.active_mode.is_none() {
             if let Some(home) = user_home.as_deref() {
-                if let Some(live_config) = live_codex_config_from_home(home) {
+                if let Some(live_config) = discover_live_codex_config_from_home(home) {
                     codex_config = live_config;
                 }
             }
         }
-        let saved_codex_providers = self.list_saved_codex_providers()?;
         if codex_config.saved_provider_id.is_none() {
             codex_config.saved_provider_id = saved_codex_providers
                 .iter()
@@ -2773,14 +2773,14 @@ impl AiConfigService {
                 .map(|item| item.saved_provider_id.clone());
         }
         let mut gemini_config = self.read_gemini_config(workspace_root)?;
+        let saved_gemini_providers = self.list_saved_gemini_providers()?;
         if gemini_config.active_mode.is_none() {
             if let Some(home) = user_home.as_deref() {
-                if let Some(live_config) = live_gemini_config_from_home(home) {
+                if let Some(live_config) = discover_live_gemini_config_from_home(home) {
                     gemini_config = live_config;
                 }
             }
         }
-        let saved_gemini_providers = self.list_saved_gemini_providers()?;
         if gemini_config.saved_provider_id.is_none() {
             gemini_config.saved_provider_id = saved_gemini_providers
                 .iter()
@@ -3761,7 +3761,7 @@ fn parse_simple_env_file(path: &Path) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
+fn discover_live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
     let config_path = codex_config_path_from_home(home);
     let auth_path = codex_auth_path_from_home(home);
     if !config_path.exists() && !auth_path.exists() {
@@ -3804,7 +3804,7 @@ fn live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
         .and_then(|table| table.get("model"))
         .and_then(|value| value.as_str())
         .map(str::to_string);
-    let has_secret = std::fs::read_to_string(&auth_path)
+    let api_key = std::fs::read_to_string(&auth_path)
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .and_then(|value| {
@@ -3813,8 +3813,8 @@ fn live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         })
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
+        .filter(|value| !value.trim().is_empty());
+    let has_secret = api_key.is_some();
     let updated_at_ms = latest_file_updated_at_ms(&[&config_path, &auth_path]);
 
     if let Some(base_url) = base_url {
@@ -3879,7 +3879,7 @@ fn live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
     None
 }
 
-fn live_gemini_config_from_home(home: &Path) -> Option<GeminiConfigSnapshot> {
+fn discover_live_gemini_config_from_home(home: &Path) -> Option<GeminiConfigSnapshot> {
     let env_path = gemini_env_path_from_home(home);
     let settings_path = gemini_settings_path_from_home(home);
     if !env_path.exists() && !settings_path.exists() {
@@ -3918,10 +3918,11 @@ fn live_gemini_config_from_home(home: &Path) -> Option<GeminiConfigSnapshot> {
         .get("GEMINI_MODEL")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let has_secret = env
+    let api_key = env
         .get("GEMINI_API_KEY")
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let has_secret = api_key.is_some();
     let updated_at_ms = latest_file_updated_at_ms(&[&env_path, &settings_path]);
 
     if let Some(base_url) = base_url {
@@ -4011,7 +4012,7 @@ fn live_gemini_config_from_home(home: &Path) -> Option<GeminiConfigSnapshot> {
     None
 }
 
-fn live_claude_config_from_home(home: &Path) -> Option<ClaudeConfigSnapshot> {
+fn discover_live_claude_config_from_home(home: &Path) -> Option<ClaudeConfigSnapshot> {
     let settings_path = claude_settings_path_from_home(home);
     if !settings_path.exists() {
         return None;
@@ -4019,17 +4020,19 @@ fn live_claude_config_from_home(home: &Path) -> Option<ClaudeConfigSnapshot> {
 
     let settings = read_json_object_file(&settings_path).ok()?;
     let env = settings.get("env").and_then(Value::as_object)?;
-    let auth_scheme = if env
+    let auth_token = env
         .get("ANTHROPIC_AUTH_TOKEN")
         .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty())
-    {
-        Some(ClaudeAuthScheme::AnthropicAuthToken)
-    } else if env
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty());
+    let api_key = env
         .get("ANTHROPIC_API_KEY")
         .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty())
-    {
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty());
+    let auth_scheme = if auth_token.is_some() {
+        Some(ClaudeAuthScheme::AnthropicAuthToken)
+    } else if api_key.is_some() {
         Some(ClaudeAuthScheme::AnthropicApiKey)
     } else {
         None
@@ -5740,6 +5743,115 @@ mod tests {
             Some(claude_preset.auth_scheme)
         );
         assert!(snapshot.claude.config.has_secret);
+    }
+
+    #[test]
+    fn snapshot_reads_live_home_configs_without_persisting_saved_provider_records_when_settings_are_empty(
+    ) {
+        let dir = temp_dir("live-home-import");
+        let service = service_for(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-live-import");
+
+        let codex_preset = codex_provider_presets()
+            .into_iter()
+            .find(|preset| preset.provider_id != "codex-official" && preset.endpoint.is_some())
+            .expect("expected codex preset with endpoint");
+        let codex_endpoint = codex_preset.endpoint.clone().expect("codex endpoint");
+        let codex_model = codex_preset.recommended_model.clone();
+
+        let gemini_preset = gemini_provider_presets()
+            .into_iter()
+            .find(|preset| preset.provider_id != "google-official" && preset.endpoint.is_some())
+            .expect("expected gemini preset with endpoint");
+        let gemini_endpoint = gemini_preset.endpoint.clone().expect("gemini endpoint");
+        let gemini_model = gemini_preset.recommended_model.clone();
+        let gemini_selected_type = gemini_preset.auth_mode.selected_type().to_string();
+        let gemini_api_key = if gemini_preset.auth_mode == GeminiAuthMode::ApiKey
+            || gemini_preset.requires_api_key
+        {
+            Some("gemini-import-key")
+        } else {
+            None
+        };
+
+        let claude_preset = claude_provider_presets()
+            .into_iter()
+            .find(|preset| preset.provider_id != CLAUDE_OFFICIAL_PROVIDER_ID)
+            .expect("expected claude preset");
+        let claude_auth_key = claude_preset.auth_scheme.env_var_name().to_string();
+        let claude_endpoint = claude_preset.endpoint.clone();
+        let claude_model = claude_preset.recommended_model.clone();
+        let claude_extra_env = claude_preset.extra_env.clone();
+
+        let snapshot = with_test_home(&dir, |home| {
+            write_codex_live_config(
+                home,
+                &codex_preset.name,
+                &codex_endpoint,
+                &codex_model,
+                Some("codex-import-key"),
+            );
+            write_gemini_live_config(
+                home,
+                &gemini_selected_type,
+                &gemini_endpoint,
+                &gemini_model,
+                gemini_api_key,
+            );
+            write_claude_live_config(
+                home,
+                &claude_auth_key,
+                "claude-import-key",
+                &claude_endpoint,
+                &claude_model,
+                &claude_extra_env,
+            );
+
+            service
+                .read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(&workspace_root))
+                .expect("snapshot should read live home config without importing it")
+        });
+
+        assert!(snapshot.claude.saved_providers.is_empty());
+        assert!(snapshot.codex.saved_providers.is_empty());
+        assert!(snapshot.gemini.saved_providers.is_empty());
+        assert!(snapshot.claude.config.saved_provider_id.is_none());
+        assert!(snapshot.codex.config.saved_provider_id.is_none());
+        assert!(snapshot.gemini.config.saved_provider_id.is_none());
+        assert!(snapshot.claude.config.secret_ref.is_none());
+        assert!(snapshot.codex.config.secret_ref.is_none());
+        assert!(snapshot.gemini.config.secret_ref.is_none());
+
+        let persisted_codex = service
+            .read_codex_config(&workspace_root)
+            .expect("codex settings should remain empty");
+        assert!(persisted_codex.active_mode.is_none());
+        assert!(persisted_codex.secret_ref.is_none());
+
+        let persisted_gemini = service
+            .read_gemini_config(&workspace_root)
+            .expect("gemini settings should remain empty");
+        assert!(persisted_gemini.active_mode.is_none());
+        assert!(persisted_gemini.secret_ref.is_none());
+
+        let persisted_claude = service
+            .read_claude_config(&workspace_root)
+            .expect("claude settings should remain empty");
+        assert!(persisted_claude.active_mode.is_none());
+        assert!(persisted_claude.secret_ref.is_none());
+
+        assert!(service
+            .list_saved_claude_providers(GLOBAL_AI_CONFIG_CONTEXT)
+            .expect("claude saved providers should remain empty")
+            .is_empty());
+        assert!(service
+            .list_saved_codex_providers()
+            .expect("codex saved providers should remain empty")
+            .is_empty());
+        assert!(service
+            .list_saved_gemini_providers()
+            .expect("gemini saved providers should remain empty")
+            .is_empty());
     }
 
     #[test]

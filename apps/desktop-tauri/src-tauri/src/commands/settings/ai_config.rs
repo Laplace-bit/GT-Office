@@ -49,6 +49,7 @@ pub fn augment_terminal_env_for_agent(
     state: &AppState,
     workspace_id: &str,
     tool_kind: AgentToolKind,
+    include_provider_env: bool,
     mut env: BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, String>, String> {
     let agent = match tool_kind {
@@ -58,12 +59,14 @@ pub fn augment_terminal_env_for_agent(
         _ => return Ok(env),
     };
 
-    let workspace_root = state.workspace_root_path(workspace_id)?;
-    let service = resolve_ai_config_service(app, state)?;
-    let runtime_env = service
-        .build_agent_runtime_env(agent, &workspace_root)
-        .map_err(|error| error.to_string())?;
-    env.extend(runtime_env);
+    if include_provider_env {
+        let workspace_root = state.workspace_root_path(workspace_id)?;
+        let service = resolve_ai_config_service(app, state)?;
+        let runtime_env = service
+            .build_agent_runtime_env(agent, &workspace_root)
+            .map_err(|error| error.to_string())?;
+        env.extend(runtime_env);
+    }
     augment_terminal_command_env(tool_kind, &mut env);
     Ok(env)
 }
