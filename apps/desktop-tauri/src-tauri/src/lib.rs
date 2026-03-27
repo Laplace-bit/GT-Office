@@ -13,6 +13,8 @@ use base64::Engine;
 use rustls::crypto::aws_lc_rs;
 use serde_json::json;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
+#[cfg(target_os = "linux")]
+use tauri::TitleBarStyle;
 use tracing::warn;
 use vb_terminal::TerminalRuntimeEvent;
 
@@ -36,8 +38,16 @@ pub fn run() {
                 .find(|window| window.label == "main")
                 .cloned()
                 .ok_or_else(|| "missing main window config".to_string())?;
-            WebviewWindowBuilder::from_config(app, &main_window_config)
-                .map_err(|error| format!("failed to prepare main window builder: {error}"))?
+            let main_window_builder = WebviewWindowBuilder::from_config(app, &main_window_config)
+                .map_err(|error| format!("failed to prepare main window builder: {error}"))?;
+            #[cfg(target_os = "linux")]
+            let main_window_builder = main_window_builder
+                .decorations(true)
+                .transparent(false)
+                .shadow(false)
+                .title_bar_style(TitleBarStyle::Visible)
+                .hidden_title(false);
+            main_window_builder
                 .build()
                 .map_err(|error| format!("failed to build main window: {error}"))?;
 

@@ -2,12 +2,14 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
+import type { WindowPlatform } from './window-performance-policy'
 import './TopControlBar.scss'
 
 interface TopControlBarProps {
   locale: Locale
   workspacePath: string
   connectionLabel: string
+  windowPlatform: WindowPlatform
   nativeWindowTop: boolean
   nativeWindowTopMacOs: boolean
   nativeWindowTopLinux: boolean
@@ -75,6 +77,7 @@ export function TopControlBar({
   locale,
   workspacePath,
   connectionLabel,
+  windowPlatform,
   nativeWindowTop,
   nativeWindowTopMacOs,
   nativeWindowTopLinux,
@@ -85,13 +88,6 @@ export function TopControlBar({
   onWindowToggleMaximize,
   onWindowClose,
 }: TopControlBarProps) {
-  const windowPlatform = nativeWindowTopMacOs
-    ? 'macos'
-    : nativeWindowTopLinux
-      ? 'linux'
-      : nativeWindowTop
-        ? 'windows'
-        : 'web'
   const workspacePathCandidate = extractWorkspacePathCandidate(workspacePath, connectionLabel)
   const displayWorkspacePath = formatWorkspacePathForDisplay(workspacePathCandidate)
   const workspacePathFallback = t(locale, 'workspace.label.unbound')

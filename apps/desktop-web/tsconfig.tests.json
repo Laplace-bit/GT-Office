@@ -20,6 +20,7 @@
   },
   "include": [
     "tests/**/*.ts",
+    "src/shell/layout/window-performance-policy.ts",
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
     "src/features/terminal/station-terminal-input-buffer.ts",
     "src/features/terminal/station-terminal-runtime-state.ts",

@@ -322,6 +322,23 @@
   }
 }
 
+:root[data-vb-platform='linux'] {
+  .workbench-canvas {
+    background: var(--vb-surface-elevated);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow:
+      0 0 0 rem(1) var(--vb-border-subtle),
+      0 rem(10) rem(24) rgba(15, 23, 42, 0.08);
+  }
+
+  .canvas-header {
+    background: var(--vb-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 .canvas-header-meta {
   display: flex;
   align-items: center;

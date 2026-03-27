@@ -196,6 +196,7 @@ import { useShellStationController } from './useShellStationController'
 import { useShellTaskMentionController } from './useShellTaskMentionController'
 import { useShellWorkbenchController } from './useShellWorkbenchController'
 import { useShellWorkspaceController } from './useShellWorkspaceController'
+import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
 import './ShellRoot.scss'
 
@@ -204,10 +205,19 @@ export function ShellRoot() {
   const stationCounterRef = useRef(nextStationNumber(initialStations))
   const workbenchContainerCounterRef = useRef(initialStations.length + 1)
   const tauriRuntime = desktopApi.isTauriRuntime()
-  const nativeWindowTop = tauriRuntime
-  const nativeWindowTopMacOs = tauriRuntime && isMacOsPlatform()
-  const nativeWindowTopLinux = tauriRuntime && !nativeWindowTopMacOs && isLinuxPlatform()
-  const nativeWindowTopWindows = nativeWindowTop && !nativeWindowTopMacOs && !nativeWindowTopLinux
+  const windowPerformancePolicy = useMemo(
+    () =>
+      resolveWindowPerformancePolicy({
+        tauriRuntime,
+        isMacOs: isMacOsPlatform(),
+        isLinux: isLinuxPlatform(),
+      }),
+    [tauriRuntime],
+  )
+  const nativeWindowTop = windowPerformancePolicy.useCustomWindowChrome
+  const nativeWindowTopMacOs = windowPerformancePolicy.platform === 'macos' && nativeWindowTop
+  const nativeWindowTopLinux = windowPerformancePolicy.platform === 'linux' && nativeWindowTop
+  const nativeWindowTopWindows = windowPerformancePolicy.platform === 'windows' && nativeWindowTop
   const platformDefaultShortcutBindings = useMemo(
     () => getDefaultShortcutBindings(nativeWindowTopMacOs),
     [nativeWindowTopMacOs],
@@ -851,7 +861,7 @@ export function ShellRoot() {
       }
     }
 
-    void desktopApi.windowSetDecorations(nativeWindowTopMacOs)
+    void desktopApi.windowSetDecorations(windowPerformancePolicy.shouldUseNativeDecorations)
     void syncMaximized()
     void desktopApi.subscribeWindowResized(() => {
       const timerId = windowResizeSyncTimerRef.current
@@ -877,7 +887,7 @@ export function ShellRoot() {
         cleanup()
       }
     }
-  }, [nativeWindowTop, nativeWindowTopMacOs])
+  }, [nativeWindowTop, windowPerformancePolicy.shouldUseNativeDecorations])
 
   useEffect(() => {
     const draggingClassName = 'vb-window-dragging'
@@ -941,15 +951,7 @@ export function ShellRoot() {
 
   useEffect(() => {
     const root = document.documentElement
-    const platform = nativeWindowTopMacOs
-      ? 'macos'
-      : nativeWindowTopLinux
-        ? 'linux'
-        : nativeWindowTopWindows
-          ? 'windows'
-          : tauriRuntime
-            ? 'unknown'
-            : 'web'
+    const platform = windowPerformancePolicy.platform
 
     root.setAttribute('data-vb-platform', platform)
 
@@ -958,7 +960,7 @@ export function ShellRoot() {
         root.removeAttribute('data-vb-platform')
       }
     }
-  }, [nativeWindowTopLinux, nativeWindowTopMacOs, nativeWindowTopWindows, tauriRuntime])
+  }, [windowPerformancePolicy.platform])
 
   const handleWindowMinimize = useCallback(() => {
     void desktopApi.windowMinimize()
@@ -1890,8 +1892,11 @@ export function ShellRoot() {
           sessionId: stationTerminalsRef.current[station.id]?.sessionId ?? null,
         }))
         .filter((item): item is { stationId: string; sessionId: string } => Boolean(item.sessionId))
+      const polledStations = windowPerformancePolicy.shouldPollAllLiveStationProcesses
+        ? liveStations
+        : liveStations.filter(({ stationId }) => stationId === activeStationId)
 
-      if (liveStations.length === 0) {
+      if (polledStations.length === 0) {
         if (!cancelled) {
           setStationProcessSnapshots({})
         }
@@ -1899,7 +1904,7 @@ export function ShellRoot() {
       }
 
       const entries = await Promise.all(
-        liveStations.map(async ({ stationId, sessionId }) => {
+        polledStations.map(async ({ stationId, sessionId }) => {
           try {
             const snapshot = await desktopApi.terminalDescribeProcesses(sessionId)
             if (stationTerminalsRef.current[stationId]?.sessionId !== sessionId) {
@@ -1950,13 +1955,20 @@ export function ShellRoot() {
     void refresh()
     const timerId = window.setInterval(() => {
       void refresh()
-    }, 1400)
+    }, windowPerformancePolicy.stationProcessPollIntervalMs)
 
     return () => {
       cancelled = true
       window.clearInterval(timerId)
     }
-  }, [activeWorkspaceId, stationTerminals, stations])
+  }, [
+    activeWorkspaceId,
+    activeStationId,
+    stationTerminals,
+    stations,
+    windowPerformancePolicy.shouldPollAllLiveStationProcesses,
+    windowPerformancePolicy.stationProcessPollIntervalMs,
+  ])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -4851,6 +4863,7 @@ export function ShellRoot() {
         locale,
         workspacePath: workspacePathInput,
         connectionLabel,
+        windowPlatform: windowPerformancePolicy.platform,
         nativeWindowTop,
         nativeWindowTopMacOs,
         nativeWindowTopLinux,
