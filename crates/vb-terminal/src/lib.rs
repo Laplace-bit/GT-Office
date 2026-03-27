@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::{Read, Write},
@@ -133,10 +133,7 @@ struct RawProcessEntry {
 
 fn parse_prefixed_u32(input: &str) -> Option<(u32, &str)> {
     let trimmed = input.trim_start();
-    let digit_count = trimmed
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit())
-        .count();
+    let digit_count = trimmed.chars().take_while(|ch| ch.is_ascii_digit()).count();
     if digit_count == 0 {
         return None;
     }
@@ -245,9 +242,9 @@ fn load_process_table() -> Result<Vec<RawProcessEntry>, String> {
             serde_json::from_value::<WindowsProcessEntry>(item).map(|process| RawProcessEntry {
                 pid: process.process_id,
                 parent_pid: process.parent_process_id,
-                executable: process
-                    .name
-                    .unwrap_or_else(|| derive_executable_name(process.command_line.as_deref().unwrap_or_default())),
+                executable: process.name.unwrap_or_else(|| {
+                    derive_executable_name(process.command_line.as_deref().unwrap_or_default())
+                }),
                 args: process.command_line.unwrap_or_default(),
             })
         })
@@ -273,7 +270,10 @@ fn build_process_tree(
     let mut children_by_parent = HashMap::<u32, Vec<RawProcessEntry>>::new();
     entries.iter().cloned().for_each(|entry| {
         if let Some(parent_pid) = entry.parent_pid {
-            children_by_parent.entry(parent_pid).or_default().push(entry);
+            children_by_parent
+                .entry(parent_pid)
+                .or_default()
+                .push(entry);
         }
     });
 
@@ -1004,9 +1004,8 @@ where
         };
 
         let processes = if let Some(root_pid) = root_pid {
-            let table = load_process_table().map_err(|message| AbstractionError::Internal {
-                message,
-            })?;
+            let table =
+                load_process_table().map_err(|message| AbstractionError::Internal { message })?;
             build_process_tree(root_pid, &table)
         } else {
             Vec::new()

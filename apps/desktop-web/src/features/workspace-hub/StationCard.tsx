@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { GripHorizontal, Play } from 'lucide-react'
+import { Circle, GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation, StationRole } from './station-model'
 import {
   buildStationCardIdentityMeta,
   handleStationCardPrimaryLaunch,
+  resolveStationCardLaunchIcon,
   resolveStationCardLaunchState,
 } from './station-card-header-model'
 import { StationActionDock } from './StationActionDock'
@@ -301,6 +302,7 @@ function StationCardView({
     stateRaw: runtime?.stateRaw ?? null,
     agentRunning,
   })
+  const launchIcon = resolveStationCardLaunchIcon(launchState)
   const primaryLaunchButtonLabel =
     launchState === 'live'
       ? t(locale, 'workbench.focusCliAgent')
@@ -510,7 +512,19 @@ function StationCardView({
               handlePrimaryLaunch()
             }}
           >
-            <Play className="vb-icon vb-icon-station-button station-play-icon" aria-hidden="true" strokeWidth={1.9} />
+            {launchIcon === 'circle' ? (
+              <Circle
+                className="vb-icon vb-icon-station-button station-live-icon"
+                aria-hidden="true"
+                strokeWidth={1.9}
+              />
+            ) : (
+              <Play
+                className="vb-icon vb-icon-station-button station-play-icon"
+                aria-hidden="true"
+                strokeWidth={1.9}
+              />
+            )}
           </StationIconButton>
           <StationIconButton
             className="station-fullscreen-btn"

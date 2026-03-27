@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildStationCardIdentityMeta,
   handleStationCardPrimaryLaunch,
+  resolveStationCardLaunchIcon,
   resolveStationCardLaunchState,
 } from '../src/features/workspace-hub/station-card-header-model.js'
 
@@ -78,4 +79,10 @@ test('header identity meta keeps role first and agent tool second while launch s
   assert.equal(resolveStationCardLaunchState({ sessionId: 'ts_003', stateRaw: null, agentRunning: false }), 'idle')
   assert.equal(resolveStationCardLaunchState({ sessionId: null, stateRaw: 'failed', agentRunning: false }), 'alert')
   assert.equal(resolveStationCardLaunchState({ sessionId: null, stateRaw: null, agentRunning: false }), 'idle')
+})
+
+test('launch icon switches to a softer circle indicator only while the agent is live', () => {
+  assert.equal(resolveStationCardLaunchIcon('idle'), 'play')
+  assert.equal(resolveStationCardLaunchIcon('live'), 'circle')
+  assert.equal(resolveStationCardLaunchIcon('alert'), 'play')
 })

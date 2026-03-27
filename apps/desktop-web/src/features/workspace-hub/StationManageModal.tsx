@@ -3,6 +3,7 @@ import type { AgentRole } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { CreateStationInput, StationRole, UpdateStationInput } from './station-model'
+import { resolveStationManageModalCopy } from './station-manage-copy'
 import './StationManageModal.scss'
 
 interface StationManageModalProps {
@@ -38,7 +39,7 @@ function roleLabel(locale: Locale, role: StationRole): string {
 }
 
 function defaultName(locale: Locale): string {
-  return locale === 'zh-CN' ? '新角色' : 'New Role'
+  return resolveStationManageModalCopy(locale, false).defaultName
 }
 
 function defaultTool(): string {
@@ -92,21 +93,7 @@ export function StationManageModal({
   }, [open, editingStation])
 
   const isEdit = Boolean(editingStation)
-  const title = useMemo(() => {
-    if (locale === 'zh-CN') return isEdit ? '编辑角色' : '新增角色'
-    return isEdit ? 'Edit Role' : 'Create Role'
-  }, [locale, isEdit])
-  const subtitle = useMemo(
-    () =>
-      isEdit
-        ? locale === 'zh-CN'
-          ? '复用新增弹窗编辑角色，删除操作仅在编辑态显示。'
-          : 'Reuse the creation modal for editing. Delete is only shown in edit mode.'
-        : locale === 'zh-CN'
-          ? '配置角色的核心属性与执行环境。'
-          : 'Configure core role attributes and execution environment.',
-    [isEdit, locale],
-  )
+  const copy = useMemo(() => resolveStationManageModalCopy(locale, isEdit), [isEdit, locale])
 
   if (!open) {
     return null
@@ -124,8 +111,8 @@ export function StationManageModal({
       <section className="settings-modal panel station-form-modal" role="dialog" aria-modal="true">
         <header className="settings-modal-header">
           <div>
-            <h2>{title}</h2>
-            <p>{subtitle}</p>
+            <h2>{copy.title}</h2>
+            <p>{copy.subtitle}</p>
           </div>
           <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
             <AppIcon name="close" className="vb-icon" aria-hidden="true" />
@@ -139,7 +126,7 @@ export function StationManageModal({
               type="text"
               value={name}
               disabled={saving || deleting}
-              placeholder={locale === 'zh-CN' ? '例如：产品角色-09' : 'e.g. Product-09'}
+              placeholder={copy.namePlaceholder}
               onChange={(event) => setName(event.target.value)}
             />
           </label>
@@ -224,7 +211,7 @@ export function StationManageModal({
               }}
             >
               <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
-              <span>{deleting ? (locale === 'zh-CN' ? '删除中...' : 'Deleting...') : locale === 'zh-CN' ? '删除角色' : 'Delete'}</span>
+              <span>{deleting ? (locale === 'zh-CN' ? '删除中...' : 'Deleting...') : copy.deleteLabel}</span>
             </button>
           )}
           <button type="button" className="station-form-btn subtle" disabled={saving || deleting} onClick={onClose}>
@@ -258,9 +245,7 @@ export function StationManageModal({
                   ? locale === 'zh-CN'
                     ? '保存'
                     : 'Save'
-                  : locale === 'zh-CN'
-                    ? '创建角色'
-                    : 'Create'}
+                  : copy.submitLabel}
             </span>
           </button>
         </footer>

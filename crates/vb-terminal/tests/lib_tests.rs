@@ -230,7 +230,10 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
         .expect("describe session processes");
 
     assert_eq!(snapshot.session_id, session.session_id);
-    assert!(snapshot.root_pid.is_some(), "expected shell pid to be present");
+    assert!(
+        snapshot.root_pid.is_some(),
+        "expected shell pid to be present"
+    );
     assert!(
         snapshot
             .processes
@@ -239,7 +242,10 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
         "expected process tree to include sleep, got: {:?}",
         snapshot.processes
     );
-    assert!(snapshot.current_process.is_some(), "expected current process to be resolved");
+    assert!(
+        snapshot.current_process.is_some(),
+        "expected current process to be resolved"
+    );
 
     let _ = provider.kill_session(&session.session_id);
 }

@@ -185,7 +185,7 @@ export const messages = {
   'workbench.layoutCustom': { 'zh-CN': '自定义布局设置', 'en-US': 'Custom layout controls' },
   'workbench.layoutColumns': { 'zh-CN': '列', 'en-US': 'Cols' },
   'workbench.layoutRows': { 'zh-CN': '行', 'en-US': 'Rows' },
-  'workbench.addStation': { 'zh-CN': '新增角色', 'en-US': 'Add Role' },
+  'workbench.addStation': { 'zh-CN': '新增agent', 'en-US': 'Add Agent' },
   'workbench.addContainer': { 'zh-CN': '新建容器', 'en-US': 'New Container' },
   'workbench.pinRightDock': { 'zh-CN': '常驻右侧', 'en-US': 'Pin Right Dock' },
   'workbench.unpinRightDock': { 'zh-CN': '取消常驻', 'en-US': 'Unpin Right Dock' },

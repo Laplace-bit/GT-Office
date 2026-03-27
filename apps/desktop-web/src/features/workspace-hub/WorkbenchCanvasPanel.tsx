@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import {
   BetweenHorizontalStart,
   BringToFront,
@@ -6,6 +6,8 @@ import {
   LayoutPanelLeft,
   MonitorUp,
   ArrowUpToLine,
+  PanelRightClose,
+  PanelRightOpen,
   PictureInPicture2,
 } from 'lucide-react'
 import { StationCard } from './StationCard'
@@ -32,7 +34,7 @@ import type {
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
-import { WorkbenchUtilityActions } from './WorkbenchUtilityActions'
+import { orderWorkbenchHeaderActions, type WorkbenchHeaderActionId } from './workbench-header-actions'
 import './WorkbenchCanvas.scss'
 
 interface WorkbenchLayoutPresetDefinition {
@@ -237,6 +239,219 @@ function WorkbenchCanvasPanelView({
   }, [container.mode, locale])
   const canDetach = !detachedReadonly && stations.length > 0
   const canDeleteContainer = !detachedReadonly && stations.length === 0 && typeof onDeleteContainer === 'function'
+  const orderedPrimaryHeaderActions = useMemo(() => {
+    const actions: Array<{ id: WorkbenchHeaderActionId; element: ReactNode }> = []
+
+    if (!detachedReadonly && container.mode === 'floating') {
+      actions.push({
+        id: 'dock',
+        element: (
+          <button
+            key="dock"
+            type="button"
+            className="canvas-header-icon-button"
+            onClick={() => onDockContainer(container.id)}
+            aria-label={t(locale, 'workbench.dockContainer')}
+            title={t(locale, 'workbench.dockContainer')}
+          >
+            <BetweenHorizontalStart className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+          </button>
+        ),
+      })
+    }
+
+    if (!detachedReadonly && container.mode !== 'floating') {
+      actions.push({
+        id: 'float',
+        element: (
+          <button
+            key="float"
+            type="button"
+            className="canvas-header-icon-button"
+            onClick={() => onFloatContainer(container.id)}
+            aria-label={t(locale, 'workbench.floatContainer')}
+            title={t(locale, 'workbench.floatContainer')}
+          >
+            <PictureInPicture2 className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+          </button>
+        ),
+      })
+    }
+
+    if (showUtilityBar && !detachedReadonly && onOpenStationSearch) {
+      actions.push({
+        id: 'search',
+        element: (
+          <button
+            key="search"
+            type="button"
+            className="canvas-header-icon-button"
+            onClick={onOpenStationSearch}
+            aria-label={t(locale, 'station.filter.search')}
+            title={t(locale, 'station.filter.search')}
+          >
+            <AppIcon name="search" className="vb-icon vb-icon-overview" aria-hidden="true" />
+          </button>
+        ),
+      })
+    }
+
+    if (showUtilityBar && !detachedReadonly && onOpenStationManage) {
+      actions.push({
+        id: 'add_agent',
+        element: (
+          <button
+            key="add-agent"
+            type="button"
+            className="canvas-header-icon-button"
+            onClick={onOpenStationManage}
+            aria-label={t(locale, 'workbench.addStation')}
+            title={t(locale, 'workbench.addStation')}
+          >
+            <AppIcon name="user-pen" className="vb-icon vb-icon-overview" aria-hidden="true" />
+          </button>
+        ),
+      })
+    }
+
+    if (showUtilityBar && !detachedReadonly && onCreateContainer) {
+      actions.push({
+        id: 'add_container',
+        element: (
+          <button
+            key="add-container"
+            type="button"
+            className="canvas-header-icon-button"
+            onClick={onCreateContainer}
+            aria-label={t(locale, 'workbench.addContainer')}
+            title={t(locale, 'workbench.addContainer')}
+          >
+            <AppIcon name="copy" className="vb-icon vb-icon-overview" aria-hidden="true" />
+          </button>
+        ),
+      })
+    }
+
+    if (!detachedReadonly) {
+      actions.push({
+        id: 'detach',
+        element: (
+          <button
+            key="detach"
+            type="button"
+            className="canvas-header-icon-button"
+            onClick={() => onDetachContainer(container.id)}
+            aria-label={canDetach ? t(locale, 'workbench.detachContainer') : t(locale, 'workbench.emptyCanvasDetail')}
+            title={canDetach ? t(locale, 'workbench.detachContainer') : t(locale, 'workbench.emptyCanvasDetail')}
+            disabled={!canDetach}
+          >
+            <MonitorUp className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+          </button>
+        ),
+      })
+    }
+
+    if (container.mode === 'detached') {
+      actions.push({
+        id: 'topmost',
+        element: (
+          <button
+            key="topmost"
+            type="button"
+            className={['canvas-header-icon-button', container.topmost ? 'active' : ''].join(' ')}
+            onClick={() => onToggleContainerTopmost(container.id)}
+            aria-label={container.topmost ? t(locale, 'workbench.unpinContainer') : t(locale, 'workbench.pinContainer')}
+            title={container.topmost ? t(locale, 'workbench.unpinContainer') : t(locale, 'workbench.pinContainer')}
+            aria-pressed={container.topmost}
+          >
+            {container.topmost ? (
+              <BringToFront className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+            ) : (
+              <ArrowUpToLine className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+            )}
+          </button>
+        ),
+      })
+    }
+
+    if (showUtilityBar && !detachedReadonly && onTogglePinnedWorkbenchContainer) {
+      actions.push({
+        id: 'pin',
+        element: (
+          <button
+            key="pin"
+            type="button"
+            className={['canvas-header-icon-button', pinned ? 'active' : ''].filter(Boolean).join(' ')}
+            onClick={() => onTogglePinnedWorkbenchContainer(container.id)}
+            aria-label={pinned ? t(locale, 'workbench.unpinRightDock') : t(locale, 'workbench.pinRightDock')}
+            title={pinned ? t(locale, 'workbench.unpinRightDock') : t(locale, 'workbench.pinRightDock')}
+            aria-pressed={pinned}
+            disabled={container.mode !== 'docked'}
+          >
+            {pinned ? (
+              <PanelRightClose className="vb-icon vb-icon-overview" aria-hidden="true" strokeWidth={1.75} />
+            ) : (
+              <PanelRightOpen className="vb-icon vb-icon-overview" aria-hidden="true" strokeWidth={1.75} />
+            )}
+          </button>
+        ),
+      })
+    }
+
+    return orderWorkbenchHeaderActions(actions)
+  }, [
+    canDetach,
+    container.id,
+    container.mode,
+    container.topmost,
+    detachedReadonly,
+    locale,
+    onCreateContainer,
+    onDetachContainer,
+    onDockContainer,
+    onFloatContainer,
+    onOpenStationManage,
+    onOpenStationSearch,
+    onToggleContainerTopmost,
+    onTogglePinnedWorkbenchContainer,
+    pinned,
+    showUtilityBar,
+  ])
+  const secondaryHeaderActions = useMemo(() => {
+    const actions: ReactNode[] = []
+
+    if (detachedReadonly) {
+      actions.push(
+        <button
+          key="return-to-workspace"
+          type="button"
+          className="canvas-header-icon-button"
+          onClick={onReturnToWorkspace}
+          aria-label={t(locale, 'workbench.returnToWorkspace')}
+          title={t(locale, 'workbench.returnToWorkspace')}
+        >
+          <AppIcon name="rotate-ccw" className="vb-icon" aria-hidden="true" />
+        </button>,
+      )
+    }
+
+    if (!detachedReadonly && canDeleteContainer) {
+      actions.push(
+        <button
+          key="delete-container"
+          type="button"
+          className="canvas-header-icon-button is-danger"
+          onClick={() => onDeleteContainer?.(container.id)}
+          aria-label={t(locale, 'workbench.removeContainer')}
+          title={t(locale, 'workbench.removeContainer')}
+        >
+          <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
+        </button>,
+      )
+    }
+
+    return actions
+  }, [canDeleteContainer, container.id, detachedReadonly, locale, onDeleteContainer, onReturnToWorkspace])
   const gridStyle = useMemo<WorkbenchGridStyle | undefined>(() => {
     if (container.layoutMode === 'focus' || stations.length === 0) {
       return undefined
@@ -547,113 +762,8 @@ function WorkbenchCanvasPanelView({
               </div>
             ) : null}
 
-            {showUtilityBar && !detachedReadonly ? (
-              <WorkbenchUtilityActions
-                locale={locale}
-                variant="header"
-                onOpenStationSearch={onOpenStationSearch}
-                onOpenStationManage={onOpenStationManage}
-                pinned={pinned}
-                pinDisabled={container.mode !== 'docked'}
-                onTogglePinnedWorkbenchContainer={
-                  onTogglePinnedWorkbenchContainer
-                    ? () => {
-                        onTogglePinnedWorkbenchContainer(container.id)
-                      }
-                    : undefined
-                }
-                onCreateContainer={onCreateContainer}
-              />
-            ) : null}
-
-            {!detachedReadonly ? (
-              <>
-                {container.mode === 'floating' ? (
-                  <button
-                    type="button"
-                    className="canvas-header-icon-button"
-                    onClick={() => onDockContainer(container.id)}
-                    aria-label={t(locale, 'workbench.dockContainer')}
-                    title={t(locale, 'workbench.dockContainer')}
-                  >
-                    <BetweenHorizontalStart className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="canvas-header-icon-button"
-                    onClick={() => onFloatContainer(container.id)}
-                    aria-label={t(locale, 'workbench.floatContainer')}
-                    title={t(locale, 'workbench.floatContainer')}
-                  >
-                    <PictureInPicture2 className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="canvas-header-icon-button"
-                  onClick={() => onDetachContainer(container.id)}
-                  aria-label={canDetach ? t(locale, 'workbench.detachContainer') : t(locale, 'workbench.emptyCanvasDetail')}
-                  title={canDetach ? t(locale, 'workbench.detachContainer') : t(locale, 'workbench.emptyCanvasDetail')}
-                  disabled={!canDetach}
-                >
-                  <MonitorUp className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                </button>
-                {container.mode === 'detached' ? (
-                  <button
-                    type="button"
-                    className={['canvas-header-icon-button', container.topmost ? 'active' : ''].join(' ')}
-                    onClick={() => onToggleContainerTopmost(container.id)}
-                    aria-label={container.topmost ? t(locale, 'workbench.unpinContainer') : t(locale, 'workbench.pinContainer')}
-                    title={container.topmost ? t(locale, 'workbench.unpinContainer') : t(locale, 'workbench.pinContainer')}
-                    aria-pressed={container.topmost}
-                  >
-                    {container.topmost ? (
-                      <BringToFront className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                    ) : (
-                      <ArrowUpToLine className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                    )}
-                  </button>
-                ) : null}
-                {canDeleteContainer ? (
-                  <button
-                    type="button"
-                    className="canvas-header-icon-button is-danger"
-                    onClick={() => onDeleteContainer?.(container.id)}
-                    aria-label={t(locale, 'workbench.removeContainer')}
-                    title={t(locale, 'workbench.removeContainer')}
-                  >
-                    <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
-                  </button>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={['canvas-header-icon-button', container.topmost ? 'active' : ''].join(' ')}
-                  onClick={() => onToggleContainerTopmost(container.id)}
-                  aria-label={container.topmost ? t(locale, 'workbench.unpinContainer') : t(locale, 'workbench.pinContainer')}
-                  title={container.topmost ? t(locale, 'workbench.unpinContainer') : t(locale, 'workbench.pinContainer')}
-                  aria-pressed={container.topmost}
-                >
-                  {container.topmost ? (
-                    <BringToFront className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                  ) : (
-                    <ArrowUpToLine className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="canvas-header-icon-button"
-                  onClick={onReturnToWorkspace}
-                  aria-label={t(locale, 'workbench.returnToWorkspace')}
-                  title={t(locale, 'workbench.returnToWorkspace')}
-                >
-                  <AppIcon name="rotate-ccw" className="vb-icon" aria-hidden="true" />
-                </button>
-              </>
-            )}
+            {secondaryHeaderActions}
+            {orderedPrimaryHeaderActions.map((action) => action.element)}
           </div>
         </div>
       </header>

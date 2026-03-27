@@ -59,7 +59,11 @@ function WorkbenchUtilityActionsView({
       {onTogglePinnedWorkbenchContainer ? (
         <button
           type="button"
-          className={isHeader ? 'canvas-header-icon-button' : 'canvas-utility-action'}
+          className={
+            isHeader
+              ? ['canvas-header-icon-button', pinned ? 'active' : ''].filter(Boolean).join(' ')
+              : 'canvas-utility-action'
+          }
           onClick={onTogglePinnedWorkbenchContainer}
           aria-label={pinned ? t(locale, 'workbench.unpinRightDock') : t(locale, 'workbench.pinRightDock')}
           title={pinned ? t(locale, 'workbench.unpinRightDock') : t(locale, 'workbench.pinRightDock')}

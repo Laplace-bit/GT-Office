@@ -245,8 +245,8 @@
     color: color-mix(in srgb, var(--vb-success) 80%, white 20%);
 
     &::after {
-      background: color-mix(in srgb, var(--vb-success) 82%, white 18%);
-      box-shadow: 0 0 0 rem(2) color-mix(in srgb, var(--vb-success) 16%, transparent);
+      background: transparent;
+      box-shadow: none;
     }
   }
 
@@ -271,6 +271,10 @@
 
 .station-play-icon {
   fill: currentColor;
+}
+
+.station-live-icon {
+  fill: none;
 }
 
 .station-terminal-shell {

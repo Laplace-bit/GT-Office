@@ -1,4 +1,5 @@
 export type StationCardLaunchState = 'idle' | 'live' | 'alert'
+export type StationCardLaunchIcon = 'play' | 'circle'
 
 export interface StationCardLaunchRuntime {
   sessionId: string | null
@@ -40,6 +41,13 @@ export function resolveStationCardLaunchState(
     return 'live'
   }
   return 'idle'
+}
+
+export function resolveStationCardLaunchIcon(launchState: StationCardLaunchState): StationCardLaunchIcon {
+  if (launchState === 'live') {
+    return 'circle'
+  }
+  return 'play'
 }
 
 export function handleStationCardPrimaryLaunch({
