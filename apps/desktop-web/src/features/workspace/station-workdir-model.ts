@@ -1,11 +1,11 @@
-export type StationRole = 'manager' | 'product' | 'build' | 'quality_release'
+export type StationRole = string
 
 export interface StationWorkdir {
   roleWorkdirRel: string
   agentWorkdirRel: string
 }
 
-const STATION_WORKDIR_ROOT = '.gtoffice/org'
+const STATION_WORKDIR_ROOT = '.gtoffice'
 const SAFE_SEGMENT_PATTERN = /[^a-z0-9._-]+/g
 
 function normalizePathSegment(value: string): string {
@@ -81,17 +81,17 @@ function normalizeRootForJoin(workspaceRoot: string): { root: string; separator:
 }
 
 export function buildRoleWorkdirRel(role: StationRole): string {
-  return `${STATION_WORKDIR_ROOT}/${normalizePathSegment(role)}`
+  return `${STATION_WORKDIR_ROOT}/roles/${normalizePathSegment(role)}`
 }
 
-export function buildAgentWorkdirRel(role: StationRole, stationId: string): string {
-  return `${buildRoleWorkdirRel(role)}/${normalizePathSegment(stationId)}`
+export function buildAgentWorkdirRel(agentName: string): string {
+  return `${STATION_WORKDIR_ROOT}/${normalizePathSegment(agentName)}`
 }
 
-export function buildStationWorkdirs(role: StationRole, stationId: string): StationWorkdir {
+export function buildStationWorkdirs(role: StationRole, agentName: string): StationWorkdir {
   return {
     roleWorkdirRel: buildRoleWorkdirRel(role),
-    agentWorkdirRel: buildAgentWorkdirRel(role, stationId),
+    agentWorkdirRel: buildAgentWorkdirRel(agentName),
   }
 }
 

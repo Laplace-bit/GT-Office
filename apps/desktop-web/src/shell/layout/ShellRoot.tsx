@@ -5005,6 +5005,7 @@ export function ShellRoot() {
       stationManageModalProps={{
         open: isStationManageOpen,
         locale,
+        workspaceId: activeWorkspaceId,
         roles: agentRoles,
         editingStation,
         saving: stationSavePending,
@@ -5022,6 +5023,11 @@ export function ShellRoot() {
           }
         },
         onDelete: (stationId) => removeStation(stationId),
+        onRolesChanged: async () => {
+          if (activeWorkspaceId) {
+            await loadStationsFromDatabase(activeWorkspaceId)
+          }
+        },
       }}
       channelStudioProps={{
         open: isChannelStudioOpen,

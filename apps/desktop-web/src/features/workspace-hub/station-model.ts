@@ -7,9 +7,13 @@ export type { StationRole } from '../workspace/station-workdir-model.js'
 
 export interface CreateStationInput {
   name: string
+  roleId: string
   role: StationRole
+  roleName: string
   tool: string
   workdir: string
+  customWorkdir: boolean
+  promptContent: string
 }
 
 export interface UpdateStationInput extends CreateStationInput {
@@ -21,19 +25,19 @@ export const stationRoleOrder: StationRole[] = ['manager', 'product', 'build', '
 export interface AgentStation {
   id: string
   name: string
+  roleId: string
   role: StationRole
+  roleName: string
   roleWorkdirRel: string
   agentWorkdirRel: string
   customWorkdir: boolean
   tool: string
   toolKind: StationToolKind
+  promptFileName?: string | null
+  promptFileRelativePath?: string | null
   terminalSessionId: string
   state: 'running' | 'idle' | 'blocked'
   workspaceId: string
-}
-
-function isStationRole(value: string): value is StationRole {
-  return value === 'manager' || value === 'product' || value === 'build' || value === 'quality_release'
 }
 
 export function normalizeStationToolKind(tool: string | null | undefined): StationToolKind {
@@ -73,20 +77,24 @@ export function mapAgentProfileToStation(
   rolesById: Map<string, AgentRole>,
 ): AgentStation | null {
   const role = rolesById.get(agent.roleId)
-  if (!role || !isStationRole(role.roleKey)) {
+  if (!role) {
     return null
   }
-  const fallbackWorkdirs = buildStationWorkdirs(role.roleKey, agent.id)
+  const fallbackWorkdirs = buildStationWorkdirs(role.roleKey, agent.name)
   const normalizedWorkdir = agent.workdir?.trim() ?? ''
   const customWorkdir = agent.customWorkdir && normalizedWorkdir.length > 0
   return createAgentStation({
     id: agent.id,
     name: agent.name,
+    roleId: role.id,
     role: role.roleKey,
+    roleName: role.roleName,
     roleWorkdirRel: fallbackWorkdirs.roleWorkdirRel,
     agentWorkdirRel: customWorkdir ? normalizedWorkdir : fallbackWorkdirs.agentWorkdirRel,
     customWorkdir,
-    tool: agent.tool?.trim() ? agent.tool.trim() : 'codex cli',
+    tool: agent.tool?.trim() ? agent.tool.trim() : 'codex',
+    promptFileName: agent.promptFileName,
+    promptFileRelativePath: agent.promptFileRelativePath,
     terminalSessionId: '',
     state: agent.state === 'blocked' ? 'blocked' : 'idle',
     workspaceId: agent.workspaceId,
@@ -99,7 +107,9 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-01',
     name: '管理角色-01',
+    roleId: 'global_role_manager',
     role: 'manager',
+    roleName: 'Manager',
     tool: 'codex cli',
     terminalSessionId: 'ts_101',
     state: 'running',
@@ -108,7 +118,9 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-02',
     name: '产品角色-01',
+    roleId: 'global_role_product',
     role: 'product',
+    roleName: 'Product',
     tool: 'claude code',
     terminalSessionId: 'ts_102',
     state: 'running',
@@ -117,7 +129,9 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-03',
     name: '交付角色-01',
+    roleId: 'global_role_build',
     role: 'build',
+    roleName: 'Build',
     tool: 'codex cli',
     terminalSessionId: 'ts_103',
     state: 'running',
@@ -126,7 +140,9 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-04',
     name: '质量发布-01',
+    roleId: 'global_role_quality_release',
     role: 'quality_release',
+    roleName: 'Quality & Release',
     tool: 'shell',
     terminalSessionId: 'ts_104',
     state: 'idle',
@@ -137,8 +153,10 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
 const defaultStationCards: AgentStation[] = defaultStationSeeds.map((station) =>
   createAgentStation({
     ...station,
-    ...buildStationWorkdirs(station.role, station.id),
+    ...buildStationWorkdirs(station.role, station.name),
     customWorkdir: false,
+    promptFileName: null,
+    promptFileRelativePath: null,
   }),
 )
 

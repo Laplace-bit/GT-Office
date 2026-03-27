@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Circle, GripHorizontal, Play } from 'lucide-react'
-import type { AgentStation, StationRole } from './station-model'
+import type { AgentStation } from './station-model'
 import {
   buildStationCardIdentityMeta,
   handleStationCardPrimaryLaunch,
@@ -39,21 +39,19 @@ const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
 
-const roleKeyMap: Record<
-  StationRole,
-  | 'station.role.manager'
-  | 'station.role.product'
-  | 'station.role.build'
-  | 'station.role.quality_release'
-> = {
-  manager: 'station.role.manager',
-  product: 'station.role.product',
-  build: 'station.role.build',
-  quality_release: 'station.role.quality_release',
-}
-
-function roleLabel(locale: Locale, role: StationRole): string {
-  return t(locale, roleKeyMap[role])
+function roleLabel(locale: Locale, station: AgentStation): string {
+  switch (station.role) {
+    case 'manager':
+      return t(locale, 'station.role.manager')
+    case 'product':
+      return t(locale, 'station.role.product')
+    case 'build':
+      return t(locale, 'station.role.build')
+    case 'quality_release':
+      return t(locale, 'station.role.quality_release')
+    default:
+      return station.roleName || station.role
+  }
 }
 
 interface StationIconButtonProps {
@@ -292,7 +290,7 @@ function StationCardView({
   const hasTerminalSession = Boolean(runtime?.sessionId)
   const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
-  const roleText = roleLabel(locale, station.role)
+  const roleText = roleLabel(locale, station)
   const identityMeta = useMemo(
     () => buildStationCardIdentityMeta(roleText, station.tool),
     [roleText, station.tool],

@@ -94,25 +94,17 @@ export function useShellStationController({
         return
       }
       if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
-        const matchedRole = agentRoles.find((role) => role.roleKey === input.role)
-        if (!matchedRole) {
-          window.alert(
-            localeRef.current === 'zh-CN'
-              ? '未找到可用角色定义，请先检查数据库角色配置。'
-              : 'No matching role definition was found in the database.',
-          )
-          return
-        }
         setStationSavePending(true)
         try {
           await desktopApi.agentCreate({
             workspaceId: activeWorkspaceId,
             name: input.name,
-            roleId: matchedRole.id,
+            roleId: input.roleId,
             tool: input.tool,
             workdir: input.workdir,
-            customWorkdir: true,
+            customWorkdir: input.customWorkdir,
             state: 'ready',
+            promptContent: input.promptContent,
           })
           await loadStationsFromDatabase(activeWorkspaceId)
           setIsStationManageOpen(false)
@@ -156,26 +148,18 @@ export function useShellStationController({
         return
       }
       if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
-        const matchedRole = agentRoles.find((role) => role.roleKey === input.role)
-        if (!matchedRole) {
-          window.alert(
-            localeRef.current === 'zh-CN'
-              ? '未找到可用角色定义，请先检查数据库角色配置。'
-              : 'No matching role definition was found in the database.',
-          )
-          return
-        }
         setStationSavePending(true)
         try {
           await desktopApi.agentUpdate({
             workspaceId: activeWorkspaceId,
             agentId: stationId,
             name: input.name,
-            roleId: matchedRole.id,
+            roleId: input.roleId,
             tool: input.tool,
             workdir: input.workdir,
-            customWorkdir: true,
+            customWorkdir: input.customWorkdir,
             state: 'ready',
+            promptContent: input.promptContent,
           })
           await loadStationsFromDatabase(activeWorkspaceId)
           setIsStationManageOpen(false)
@@ -192,11 +176,13 @@ export function useShellStationController({
             : {
                 ...station,
                 name: input.name,
+                roleId: input.roleId,
                 role: input.role,
+                roleName: input.roleName,
                 tool: input.tool,
                 agentWorkdirRel: input.workdir,
                 roleWorkdirRel: buildRoleWorkdirRel(input.role),
-                customWorkdir: true,
+                customWorkdir: input.customWorkdir,
               },
         ),
       )
