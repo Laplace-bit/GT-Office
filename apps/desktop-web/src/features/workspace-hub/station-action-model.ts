@@ -1,4 +1,4 @@
-import type { AppIconName } from '@shell/ui/icons'
+import type { AppIconName } from '../../shell/ui/icons.js'
 import type {
   ToolCommandArgument,
   ToolCommandCategory,
@@ -10,8 +10,8 @@ import type {
   ToolCommandScopeKind,
   ToolCommandSummary,
   ToolCommandSurfaceTarget,
-} from '@shell/integration/desktop-api'
-import type { AgentStation } from './station-model'
+} from '../../shell/integration/desktop-api.js'
+import type { AgentStation } from './station-model.js'
 
 export type StationProviderKind = ToolCommandProviderKind
 export type StationActionKind = ToolCommandKind

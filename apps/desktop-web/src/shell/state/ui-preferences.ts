@@ -16,6 +16,7 @@ export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
 export type CommandRailProviderId = QuickCommandProviderId
+export type CommandCapsuleSubmitMode = 'insert' | 'insert_and_submit'
 export {
   isQuickCommandProviderId,
   quickCommandDefaultVisibilityByProvider,
@@ -23,6 +24,14 @@ export {
   resolveQuickCommandDescriptionKey,
   resolveQuickCommandDisabledReasonKey,
   resolveQuickCommandPreferenceId,
+}
+
+export interface CustomCommandCapsule {
+  id: string
+  label: string
+  text: string
+  submitMode: CommandCapsuleSubmitMode
+  createdAt: number
 }
 
 export interface CommandRailCommandOption {
@@ -41,10 +50,14 @@ export interface UiPreferences {
   showWorkspaceActionsInRail: boolean
   quickCommandVisibilityByProvider: Record<CommandRailProviderId, boolean>
   pinnedCommandIdsByProvider: Record<string, string[]>
+  customCommandCapsulesByProvider: Record<CommandRailProviderId, CustomCommandCapsule[]>
+  orderedCommandCapsuleIdsByProvider: Record<CommandRailProviderId, string[]>
 }
 
 const STORAGE_KEY = 'gtoffice.ui.preferences.v1'
 export const UI_PREFERENCES_UPDATED_EVENT = 'gtoffice:ui-preferences-updated'
+export const PRESET_COMMAND_CAPSULE_PREFIX = 'preset:'
+export const CUSTOM_COMMAND_CAPSULE_PREFIX = 'custom:'
 
 export const commandRailClaudeCommandOptions: ReadonlyArray<CommandRailCommandOption> = [
   { id: 'add-dir', label: '/add-dir' },
@@ -211,6 +224,37 @@ export const commandRailDefaultPinnedCommandIdsByProvider: Record<CommandRailPro
   gemini: ['resume', 'clear', 'help', 'model', 'mcp-list', 'memory-show', 'stats', 'tools-desc'],
 }
 
+export function buildPresetCommandCapsuleOrderId(commandId: string): string {
+  return `${PRESET_COMMAND_CAPSULE_PREFIX}${commandId.trim().toLowerCase().replace(/\s+/g, '-')}`
+}
+
+export function buildCustomCommandCapsuleOrderId(capsuleId: string): string {
+  return `${CUSTOM_COMMAND_CAPSULE_PREFIX}${capsuleId.trim()}`
+}
+
+function createEmptyCustomCommandCapsulesByProvider(): Record<CommandRailProviderId, CustomCommandCapsule[]> {
+  return {
+    claude: [],
+    codex: [],
+    gemini: [],
+  }
+}
+
+function buildDefaultOrderedCommandCapsuleIdsByProvider(
+  pinnedCommandIdsByProvider: Record<CommandRailProviderId, string[]>,
+): Record<CommandRailProviderId, string[]> {
+  return {
+    claude: pinnedCommandIdsByProvider.claude.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)),
+    codex: pinnedCommandIdsByProvider.codex.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)),
+    gemini: pinnedCommandIdsByProvider.gemini.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)),
+  }
+}
+
+const commandRailDefaultCustomCommandCapsulesByProvider = createEmptyCustomCommandCapsulesByProvider()
+export const commandRailDefaultOrderedCommandCapsuleIdsByProvider = buildDefaultOrderedCommandCapsuleIdsByProvider(
+  commandRailDefaultPinnedCommandIdsByProvider,
+)
+
 export const defaultUiPreferences: UiPreferences = {
   locale: 'zh-CN',
   themeMode: 'graphite-dark',
@@ -221,6 +265,8 @@ export const defaultUiPreferences: UiPreferences = {
   showWorkspaceActionsInRail: true,
   quickCommandVisibilityByProvider: quickCommandDefaultVisibilityByProvider,
   pinnedCommandIdsByProvider: commandRailDefaultPinnedCommandIdsByProvider,
+  customCommandCapsulesByProvider: commandRailDefaultCustomCommandCapsulesByProvider,
+  orderedCommandCapsuleIdsByProvider: commandRailDefaultOrderedCommandCapsuleIdsByProvider,
 }
 
 export const themeOptions: Array<{ value: ThemeMode; labelKey: TranslationKey }> = [
@@ -277,6 +323,34 @@ function normalizeCommandPreferenceValue(
   }
 
   return normalized.replace(/\s+/g, '-')
+}
+
+function normalizeCustomCommandCapsuleId(value: string): string {
+  return value.trim()
+}
+
+function normalizeCustomCommandCapsule(
+  value: unknown,
+): CustomCommandCapsule | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const current = value as Record<string, unknown>
+  const id = typeof current.id === 'string' ? normalizeCustomCommandCapsuleId(current.id) : ''
+  const label = typeof current.label === 'string' ? current.label.trim() : ''
+  const text = typeof current.text === 'string' ? current.text.trim() : ''
+  if (!id || !label || !text) {
+    return null
+  }
+
+  return {
+    id,
+    label,
+    text,
+    submitMode: current.submitMode === 'insert_and_submit' ? 'insert_and_submit' : 'insert',
+    createdAt: typeof current.createdAt === 'number' && Number.isFinite(current.createdAt) ? current.createdAt : 0,
+  }
 }
 
 function dedupeStrings(
@@ -339,6 +413,113 @@ function normalizePinnedCommandIdsByProvider(
   return normalized
 }
 
+function normalizeCustomCommandCapsulesByProvider(
+  value: unknown,
+): Record<CommandRailProviderId, CustomCommandCapsule[]> {
+  const current = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const normalized = createEmptyCustomCommandCapsulesByProvider()
+
+  ;(Object.keys(normalized) as CommandRailProviderId[]).forEach((providerId) => {
+    const values = Array.isArray(current[providerId]) ? current[providerId] : []
+    const seen = new Set<string>()
+    normalized[providerId] = values.reduce<CustomCommandCapsule[]>((acc, entry) => {
+      const capsule = normalizeCustomCommandCapsule(entry)
+      if (!capsule || seen.has(capsule.id)) {
+        return acc
+      }
+      seen.add(capsule.id)
+      acc.push(capsule)
+      return acc
+    }, [])
+  })
+
+  return normalized
+}
+
+function normalizeStoredCommandCapsuleOrderId(
+  providerId: CommandRailProviderId,
+  value: string,
+): string | null {
+  const normalized = value.trim()
+  if (!normalized) {
+    return null
+  }
+  if (normalized.startsWith(PRESET_COMMAND_CAPSULE_PREFIX)) {
+    const commandId = normalizeCommandPreferenceValue(
+      providerId,
+      normalized.slice(PRESET_COMMAND_CAPSULE_PREFIX.length),
+    )
+    return commandId ? buildPresetCommandCapsuleOrderId(commandId) : null
+  }
+  if (normalized.startsWith(CUSTOM_COMMAND_CAPSULE_PREFIX)) {
+    const capsuleId = normalizeCustomCommandCapsuleId(normalized.slice(CUSTOM_COMMAND_CAPSULE_PREFIX.length))
+    return capsuleId ? buildCustomCommandCapsuleOrderId(capsuleId) : null
+  }
+
+  const commandId = normalizeCommandPreferenceValue(providerId, normalized)
+  return commandId ? buildPresetCommandCapsuleOrderId(commandId) : null
+}
+
+function normalizeOrderedCommandCapsuleIdsByProvider(
+  value: unknown,
+  pinnedCommandIdsByProvider: Record<string, string[]>,
+  customCommandCapsulesByProvider: Record<CommandRailProviderId, CustomCommandCapsule[]>,
+): Record<CommandRailProviderId, string[]> {
+  const current = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const normalized = {
+    claude: [] as string[],
+    codex: [] as string[],
+    gemini: [] as string[],
+  }
+
+  ;(Object.keys(normalized) as CommandRailProviderId[]).forEach((providerId) => {
+    const pinnedIds = pinnedCommandIdsByProvider[providerId] ?? []
+    const customIds = customCommandCapsulesByProvider[providerId].map((capsule) => capsule.id)
+    const allowedPresetOrderIds = new Set(pinnedIds.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)))
+    const allowedCustomOrderIds = new Set(customIds.map((capsuleId) => buildCustomCommandCapsuleOrderId(capsuleId)))
+    const seen = new Set<string>()
+    const values = Array.isArray(current[providerId]) ? current[providerId] : []
+
+    values.forEach((value) => {
+      if (typeof value !== 'string') {
+        return
+      }
+      const normalizedValue = normalizeStoredCommandCapsuleOrderId(providerId, value)
+      if (!normalizedValue || seen.has(normalizedValue)) {
+        return
+      }
+      if (
+        !allowedPresetOrderIds.has(normalizedValue) &&
+        !allowedCustomOrderIds.has(normalizedValue)
+      ) {
+        return
+      }
+      seen.add(normalizedValue)
+      normalized[providerId].push(normalizedValue)
+    })
+
+    pinnedIds.forEach((commandId) => {
+      const orderId = buildPresetCommandCapsuleOrderId(commandId)
+      if (seen.has(orderId)) {
+        return
+      }
+      seen.add(orderId)
+      normalized[providerId].push(orderId)
+    })
+
+    customIds.forEach((capsuleId) => {
+      const orderId = buildCustomCommandCapsuleOrderId(capsuleId)
+      if (seen.has(orderId)) {
+        return
+      }
+      seen.add(orderId)
+      normalized[providerId].push(orderId)
+    })
+  })
+
+  return normalized
+}
+
 export function isQuickCommandRailVisible(
   providerId: CommandRailProviderId,
   preferences: Pick<UiPreferences, 'quickCommandVisibilityByProvider'> = defaultUiPreferences,
@@ -388,6 +569,17 @@ export function loadUiPreferences(): UiPreferences {
       parsed.quickCommandVisibilityByProvider,
       parsed.showCommandRail,
     )
+    const normalizedPinnedCommandIdsByProvider = normalizePinnedCommandIdsByProvider(
+      parsed.pinnedCommandIdsByProvider,
+    )
+    const normalizedCustomCommandCapsulesByProvider = normalizeCustomCommandCapsulesByProvider(
+      parsed.customCommandCapsulesByProvider,
+    )
+    const normalizedOrderedCommandCapsuleIdsByProvider = normalizeOrderedCommandCapsuleIdsByProvider(
+      parsed.orderedCommandCapsuleIdsByProvider,
+      normalizedPinnedCommandIdsByProvider,
+      normalizedCustomCommandCapsulesByProvider,
+    )
     const hasQuickCommandVisibilityByProvider =
       parsed.quickCommandVisibilityByProvider != null &&
       typeof parsed.quickCommandVisibilityByProvider === 'object' &&
@@ -412,9 +604,9 @@ export function loadUiPreferences(): UiPreferences {
           ? parsed.showWorkspaceActionsInRail
           : defaultUiPreferences.showWorkspaceActionsInRail,
       quickCommandVisibilityByProvider: normalizedQuickCommandVisibilityByProvider,
-      pinnedCommandIdsByProvider: normalizePinnedCommandIdsByProvider(
-        parsed.pinnedCommandIdsByProvider,
-      ),
+      pinnedCommandIdsByProvider: normalizedPinnedCommandIdsByProvider,
+      customCommandCapsulesByProvider: normalizedCustomCommandCapsulesByProvider,
+      orderedCommandCapsuleIdsByProvider: normalizedOrderedCommandCapsuleIdsByProvider,
     }
   } catch {
     return defaultUiPreferences

@@ -144,9 +144,7 @@
   z-index: 1;
   border-top: 0.0625rem solid color-mix(in srgb, var(--vb-terminal-border) 88%, transparent);
   background: rgba(0, 0, 0, 0.2);
-  box-shadow:
-    inset 0 0.0625rem 0 rgba(255, 255, 255, 0.06),
-    inset 0 -0.0625rem 0 color-mix(in srgb, var(--vb-terminal-shell-shadow) 24%, transparent);
+  box-shadow: inset 0 0.0625rem 0 rgba(255, 255, 255, 0.06);
 }
 
 .terminal-station-pane :where(.station-terminal-host) {
@@ -162,9 +160,7 @@
   gap: 1.125rem;
   padding: 1.125rem;
   min-height: 0;
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--vb-accent) 16%, transparent), transparent 52%),
-    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent), transparent 100%);
+  background: transparent;
 }
 
 .terminal-station-pane-idle-copy {
@@ -191,6 +187,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.625rem;
+  align-items: center;
 }
 
 .terminal-station-pane-idle-button {
@@ -198,38 +195,38 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  min-height: 2.25rem;
+  min-height: 2.1875rem;
   padding: 0 0.875rem;
-  border-radius: 0.75rem;
-  border: 0.0625rem solid var(--vb-border-subtle);
-  background: var(--vb-surface);
+  border-radius: 999rem;
+  border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 92%, transparent);
   color: var(--vb-text);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 650;
   cursor: pointer;
   transition:
     transform 180ms var(--vb-ease-smooth),
     border-color 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth),
-    background 180ms var(--vb-ease-smooth);
+    background 180ms var(--vb-ease-smooth),
+    color 180ms var(--vb-ease-smooth);
 
   &:hover {
     transform: translateY(-0.0625rem);
-    border-color: var(--vb-border-strong);
-    box-shadow: var(--vb-shadow-sm);
+    border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
+    background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
   }
 
   &:focus-visible {
     outline: none;
     box-shadow:
-      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 40%, transparent),
       0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 
   &.primary {
-    border-color: transparent;
-    background: color-mix(in srgb, var(--vb-accent) 90%, black 10%);
-    color: white;
+    border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
+    color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
   }
 }
 

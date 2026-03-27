@@ -24,3 +24,38 @@
   width: 100%;
   height: 100%;
 }
+
+.station-terminal-shell .station-terminal-host .xterm .xterm-viewport,
+.station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element,
+.station-terminal-shell .station-terminal-host .xterm .xterm-screen {
+  width: 100%;
+  height: 100%;
+}
+
+.station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element {
+  --station-terminal-scrollbar-hit-size: 0.7143rem;
+  --station-terminal-scrollbar-edge-gap: 0.1071rem;
+  inset: 0 !important;
+}
+
+.station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: var(--station-terminal-scrollbar-hit-size) !important;
+  right: var(--station-terminal-scrollbar-edge-gap) !important;
+  border-radius: 999rem !important;
+  background: var(--vb-terminal-scrollbar-track);
+  overflow: hidden;
+}
+
+.station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  width: 100% !important;
+  left: 0 !important;
+  box-sizing: border-box;
+  padding-inline: calc((var(--station-terminal-scrollbar-hit-size) - var(--vb-terminal-scrollbar-size)) / 2);
+  border-radius: 999rem !important;
+  background-clip: content-box;
+}
+
+.station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element > .shadow {
+  display: none !important;
+  box-shadow: none !important;
+}

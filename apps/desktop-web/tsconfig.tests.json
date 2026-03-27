@@ -4,6 +4,13 @@
     "lib": ["ES2022", "DOM"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@features/*": ["src/features/*"],
+      "@shell/*": ["src/shell/*"]
+    },
     "types": ["node"],
     "strict": true,
     "skipLibCheck": true,

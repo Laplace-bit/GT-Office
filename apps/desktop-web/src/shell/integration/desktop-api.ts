@@ -2798,14 +2798,15 @@ export const desktopApi = {
     const currentWebviewWindow = webviewWindowApi.getCurrentWebviewWindow()
     const unlistenClosed = await eventApi.listen<SurfaceWindowClosedPayload>(
       'surface/window_closed',
-      (event) => handlers.onWindowClosed?.(event.payload),
+      (event: { payload: SurfaceWindowClosedPayload }) => handlers.onWindowClosed?.(event.payload),
     )
     const unlistenUpdated = await eventApi.listen<SurfaceWindowUpdatedPayload>(
       'surface/window_updated',
-      (event) => handlers.onWindowUpdated?.(event.payload),
+      (event: { payload: SurfaceWindowUpdatedPayload }) => handlers.onWindowUpdated?.(event.payload),
     )
-    const unlistenBridge = await currentWebviewWindow.listen<SurfaceBridgeEventPayload>('surface/bridge', (event) =>
-      handlers.onBridge?.(event.payload),
+    const unlistenBridge = await currentWebviewWindow.listen<SurfaceBridgeEventPayload>(
+      'surface/bridge',
+      (event: { payload: SurfaceBridgeEventPayload }) => handlers.onBridge?.(event.payload),
     )
     return () => {
       unlistenClosed()

@@ -1,9 +1,9 @@
-import type { AgentProfile, AgentRole } from '@shell/integration/desktop-api'
-import { buildStationWorkdirs, type StationRole } from '@features/workspace'
+import type { AgentProfile, AgentRole } from '../../shell/integration/desktop-api.js'
+import { buildStationWorkdirs, type StationRole } from '../workspace/station-workdir-model.js'
 
 export type StationToolKind = 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
 
-export type { StationRole } from '@features/workspace'
+export type { StationRole } from '../workspace/station-workdir-model.js'
 
 export interface CreateStationInput {
   name: string

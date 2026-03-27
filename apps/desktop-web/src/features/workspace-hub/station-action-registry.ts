@@ -1,19 +1,24 @@
-import type { AppIconName } from '@shell/ui/icons'
-import type { ToolCommandSummary } from '@shell/integration/desktop-api'
+import type { AppIconName } from '../../shell/ui/icons.js'
+import type { ToolCommandSummary } from '../../shell/integration/desktop-api.js'
 import {
+  buildCustomCommandCapsuleOrderId,
+  buildPresetCommandCapsuleOrderId,
+  CUSTOM_COMMAND_CAPSULE_PREFIX,
   defaultUiPreferences,
   isQuickCommandProviderId,
+  PRESET_COMMAND_CAPSULE_PREFIX,
   type CommandRailProviderId,
+  type CustomCommandCapsule,
   type UiPreferences,
-} from '@shell/state/ui-preferences'
+} from '../../shell/state/ui-preferences.js'
 import type {
   ResolveStationActionOptions,
   StationActionDescriptor,
   StationActionExecution,
   StationActionGroupKind,
   StationActionRailModel,
-} from './station-action-model'
-import { resolveStationActionPreferenceKey } from './station-action-copy'
+} from './station-action-model.js'
+import { resolveStationActionPreferenceKey } from './station-action-copy.js'
 
 const ICON_MAP: Record<string, AppIconName> = {
   activity: 'activity',
@@ -187,36 +192,178 @@ function getPinnedProviderId(
   return isQuickCommandProviderId(providerKind) ? providerKind : null
 }
 
-function resolvePinnedPreferenceSet(
-  providerKind: StationActionDescriptor['providerKind'],
-  uiPreferences?: Pick<UiPreferences, 'pinnedCommandIdsByProvider'>,
-): Set<string> {
-  const providerId = getPinnedProviderId(providerKind)
-  if (!providerId) {
-    return new Set()
+function resolveRailProviderId(actions: StationActionDescriptor[]): CommandRailProviderId | null {
+  for (const action of actions) {
+    const providerId = getPinnedProviderId(action.providerKind)
+    if (providerId) {
+      return providerId
+    }
   }
-  const source =
+  return null
+}
+
+function resolvePinnedPreferenceIds(
+  providerId: CommandRailProviderId,
+  uiPreferences?: Pick<UiPreferences, 'pinnedCommandIdsByProvider'>,
+): string[] {
+  return (
     uiPreferences?.pinnedCommandIdsByProvider[providerId] ??
     defaultUiPreferences.pinnedCommandIdsByProvider[providerId] ??
     []
-  return new Set(source)
+  )
+}
+
+function resolveCustomCommandCapsules(
+  providerId: CommandRailProviderId,
+  uiPreferences?: Pick<UiPreferences, 'customCommandCapsulesByProvider'>,
+): CustomCommandCapsule[] {
+  return (
+    uiPreferences?.customCommandCapsulesByProvider?.[providerId] ??
+    defaultUiPreferences.customCommandCapsulesByProvider[providerId] ??
+    []
+  )
+}
+
+function resolveOrderedCommandCapsuleIds(
+  providerId: CommandRailProviderId,
+  uiPreferences?: Pick<UiPreferences, 'orderedCommandCapsuleIdsByProvider'>,
+): string[] {
+  return (
+    uiPreferences?.orderedCommandCapsuleIdsByProvider?.[providerId] ??
+    defaultUiPreferences.orderedCommandCapsuleIdsByProvider[providerId] ??
+    []
+  )
+}
+
+function createCustomCommandAction(
+  providerId: CommandRailProviderId,
+  capsule: CustomCommandCapsule,
+  index: number,
+): StationActionDescriptor {
+  const trimmedText = capsule.text.trim()
+  return {
+    id: `custom-command:${providerId}:${capsule.id}`,
+    label: capsule.label,
+    tooltip: trimmedText,
+    icon: trimmedText.startsWith('/') ? 'command' : 'file-text',
+    providerKind: 'any',
+    commandFamily: 'workspace_action',
+    kind: 'semantic',
+    category: 'prompt_insert',
+    surfaceTarget: 'terminal',
+    scopeKind: 'station',
+    priority: 10_000 + index,
+    group: 'prompt',
+    requiresLiveSession: false,
+    supportsDetachedWindow: true,
+    supportsParallelTargets: false,
+    presentation: 'button',
+    defaultPinned: false,
+    execution:
+      capsule.submitMode === 'insert_and_submit'
+        ? { type: 'insert_and_submit', text: capsule.text }
+        : { type: 'insert_text', text: capsule.text },
+  }
 }
 
 function buildRailActions(
   actions: StationActionDescriptor[],
-  uiPreferences?: Pick<UiPreferences, 'pinnedCommandIdsByProvider'>,
+  uiPreferences?: Pick<
+    UiPreferences,
+    'pinnedCommandIdsByProvider' | 'customCommandCapsulesByProvider' | 'orderedCommandCapsuleIdsByProvider'
+  >,
 ): StationActionDescriptor[] {
-  return actions
-    .filter((action) => {
-      const pinnedSet = resolvePinnedPreferenceSet(action.providerKind, uiPreferences)
-      return pinnedSet.has(resolveStationActionPreferenceKey(action))
-    })
-    .sort((left, right) => left.priority - right.priority || left.id.localeCompare(right.id))
+  const providerId = resolveRailProviderId(actions)
+  if (!providerId) {
+    return []
+  }
+
+  const pinnedPreferenceIds = resolvePinnedPreferenceIds(providerId, uiPreferences)
+  const pinnedPreferenceIdSet = new Set(pinnedPreferenceIds)
+  const presetActionsByOrderId = new Map<string, StationActionDescriptor>()
+
+  actions.forEach((action) => {
+    if (getPinnedProviderId(action.providerKind) !== providerId) {
+      return
+    }
+    const preferenceId = resolveStationActionPreferenceKey(action)
+    if (!pinnedPreferenceIdSet.has(preferenceId)) {
+      return
+    }
+    presetActionsByOrderId.set(buildPresetCommandCapsuleOrderId(preferenceId), action)
+  })
+
+  const customActions = resolveCustomCommandCapsules(providerId, uiPreferences)
+  const customActionsByOrderId = new Map<string, StationActionDescriptor>()
+  customActions.forEach((capsule, index) => {
+    customActionsByOrderId.set(
+      buildCustomCommandCapsuleOrderId(capsule.id),
+      createCustomCommandAction(providerId, capsule, index),
+    )
+  })
+
+  const orderedActions: StationActionDescriptor[] = []
+  const usedOrderIds = new Set<string>()
+  resolveOrderedCommandCapsuleIds(providerId, uiPreferences).forEach((orderId) => {
+    if (usedOrderIds.has(orderId)) {
+      return
+    }
+
+    if (orderId.startsWith(PRESET_COMMAND_CAPSULE_PREFIX)) {
+      const action = presetActionsByOrderId.get(orderId)
+      if (!action) {
+        return
+      }
+      usedOrderIds.add(orderId)
+      orderedActions.push(action)
+      return
+    }
+
+    if (orderId.startsWith(CUSTOM_COMMAND_CAPSULE_PREFIX)) {
+      const action = customActionsByOrderId.get(orderId)
+      if (!action) {
+        return
+      }
+      usedOrderIds.add(orderId)
+      orderedActions.push(action)
+    }
+  })
+
+  pinnedPreferenceIds.forEach((preferenceId) => {
+    const orderId = buildPresetCommandCapsuleOrderId(preferenceId)
+    if (usedOrderIds.has(orderId)) {
+      return
+    }
+    const action = presetActionsByOrderId.get(orderId)
+    if (!action) {
+      return
+    }
+    usedOrderIds.add(orderId)
+    orderedActions.push(action)
+  })
+
+  customActions.forEach((capsule) => {
+    const orderId = buildCustomCommandCapsuleOrderId(capsule.id)
+    if (usedOrderIds.has(orderId)) {
+      return
+    }
+    const action = customActionsByOrderId.get(orderId)
+    if (!action) {
+      return
+    }
+    usedOrderIds.add(orderId)
+    orderedActions.push(action)
+  })
+
+  return orderedActions
 }
 
 export function buildStationActionRailModel(
   actions: StationActionDescriptor[],
-  uiPreferences?: Pick<UiPreferences, 'pinnedCommandIdsByProvider'>,
+  uiPreferences?: Pick<
+    UiPreferences,
+    'pinnedCommandIdsByProvider' | 'customCommandCapsulesByProvider' | 'orderedCommandCapsuleIdsByProvider'
+  >,
 ): StationActionRailModel {
   const eligibleActions = buildRailActions(actions, uiPreferences)
 
