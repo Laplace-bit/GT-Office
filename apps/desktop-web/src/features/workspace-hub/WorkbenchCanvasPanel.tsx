@@ -7,9 +7,9 @@ import {
   MonitorUp,
   ArrowUpToLine,
   PictureInPicture2,
-  Rows2,
 } from 'lucide-react'
 import { StationCard } from './StationCard'
+import { StationActivityComet } from './StationActivityComet'
 import type { AgentStation } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
@@ -17,6 +17,8 @@ import {
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
 } from './workbench-layout-model'
+import { resolveWorkbenchLayoutPresetVisual } from './workbench-layout-preset-visuals'
+import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -129,7 +131,7 @@ function FocusRailItem({
   unreadCount: number
   onSelectStation: (stationId: string) => void
 }) {
-  const unreadLabel = unreadCount > 99 ? '99+' : unreadCount > 0 ? String(unreadCount) : null
+  const activitySignal = useStationActivitySignal(unreadCount)
 
   return (
     <button
@@ -144,7 +146,14 @@ function FocusRailItem({
           <strong>{station.name}</strong>
           <span>{station.tool}</span>
         </div>
-        {unreadLabel ? <span className="focus-rail-item-unread">{unreadLabel}</span> : null}
+        {activitySignal ? (
+          <StationActivityComet
+            locale={locale}
+            level={activitySignal}
+            size="compact"
+            className="focus-rail-item-comet"
+          />
+        ) : null}
       </div>
       <p className="focus-rail-item-path">{station.agentWorkdirRel}</p>
     </button>
@@ -485,24 +494,30 @@ function WorkbenchCanvasPanelView({
 
           <div className="canvas-header-actions" role="group" aria-label={t(locale, 'workbench.activeWindow')}>
             <div className="canvas-layout-preset-group" role="group" aria-label={t(locale, 'workbench.layoutPreset')}>
-              {WORKBENCH_LAYOUT_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={['canvas-layout-preset-btn', preset.id === container.layoutMode ? 'active' : ''].join(' ')}
-                  aria-label={t(locale, preset.labelKey)}
-                  title={t(locale, preset.labelKey)}
-                  onClick={() => onLayoutModeChange(container.id, preset.id)}
-                >
-                  {preset.id === 'focus' ? (
-                    <LayoutPanelLeft className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
-                  ) : preset.id === 'custom' ? (
-                    <Grid2x2 className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
-                  ) : (
-                    <Rows2 className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
-                  )}
-                </button>
-              ))}
+              {WORKBENCH_LAYOUT_PRESETS.map((preset) => {
+                const visual = resolveWorkbenchLayoutPresetVisual(preset.id)
+
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={['canvas-layout-preset-btn', preset.id === container.layoutMode ? 'active' : ''].join(' ')}
+                    aria-label={t(locale, preset.labelKey)}
+                    title={t(locale, preset.labelKey)}
+                    onClick={() => onLayoutModeChange(container.id, preset.id)}
+                  >
+                    {visual.kind === 'glyph' ? (
+                      <span className="canvas-layout-preset-glyph" aria-hidden="true">
+                        {visual.value}
+                      </span>
+                    ) : visual.value === 'focus' ? (
+                      <LayoutPanelLeft className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
+                    ) : (
+                      <Grid2x2 className="canvas-layout-preset-icon" aria-hidden="true" strokeWidth={1.75} />
+                    )}
+                  </button>
+                )
+              })}
             </div>
 
             {container.layoutMode === 'custom' ? (

@@ -8,8 +8,10 @@ import {
   resolveStationCardLaunchState,
 } from './station-card-header-model'
 import { StationActionDock } from './StationActionDock'
+import { StationActivityComet } from './StationActivityComet'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
+import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -51,26 +53,6 @@ const roleKeyMap: Record<
 
 function roleLabel(locale: Locale, role: StationRole): string {
   return t(locale, roleKeyMap[role])
-}
-
-type StationThroughputLevel = 'low' | 'medium' | 'high'
-
-interface StationThroughputTelemetry {
-  level: StationThroughputLevel
-  ariaLabel: string
-}
-
-function resolveStationThroughputTelemetryLabel(
-  locale: Locale,
-  level: StationThroughputLevel,
-): string {
-  if (level === 'high') {
-    return t(locale, '终端活动速率：高', 'Terminal activity speed: high')
-  }
-  if (level === 'medium') {
-    return t(locale, '终端活动速率：中', 'Terminal activity speed: medium')
-  }
-  return t(locale, '终端活动速率：低', 'Terminal activity speed: low')
 }
 
 interface StationIconButtonProps {
@@ -207,10 +189,8 @@ function StationCardView({
   const terminalFocusFrameRef = useRef<number | null>(null)
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
-  const previousUnreadCountRef = useRef(runtime?.unreadCount ?? 0)
-  const throughputResetTimerRef = useRef<number | null>(null)
   const [compactLayout, setCompactLayout] = useState(false)
-  const [throughputLevel, setThroughputLevel] = useState<StationThroughputLevel | null>(null)
+  const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
 
   const cancelScheduledTerminalFocus = useCallback(() => {
     const frameId = terminalFocusFrameRef.current
@@ -282,11 +262,6 @@ function StationCardView({
       pendingTerminalFocusRef.current = false
       terminalFocusRetryBudgetRef.current = 0
       cancelScheduledTerminalFocus()
-      const timerId = throughputResetTimerRef.current
-      if (timerId !== null) {
-        window.clearTimeout(timerId)
-        throughputResetTimerRef.current = null
-      }
     }
   }, [cancelScheduledTerminalFocus])
 
@@ -332,15 +307,6 @@ function StationCardView({
       : launchState === 'alert'
         ? t(locale, 'workbench.relaunchCliAgent')
         : t(locale, 'workbench.launchCliAgent')
-  const throughputTelemetry = useMemo<StationThroughputTelemetry | null>(() => {
-    if (!throughputLevel) {
-      return null
-    }
-    return {
-      level: throughputLevel,
-      ariaLabel: resolveStationThroughputTelemetryLabel(locale, throughputLevel),
-    }
-  }, [locale, throughputLevel])
   const requestTerminalFocus = useCallback(() => {
     pendingTerminalFocusRef.current = true
     terminalFocusRetryBudgetRef.current = TERMINAL_FOCUS_MAX_RETRY_FRAMES
@@ -404,39 +370,6 @@ function StationCardView({
     },
     [flushPendingTerminalFocus, onBindTerminalSink],
   )
-
-  useEffect(() => {
-    const nextUnreadCount = runtime?.unreadCount ?? 0
-    const previousUnreadCount = previousUnreadCountRef.current
-    previousUnreadCountRef.current = nextUnreadCount
-    const delta = Math.max(0, nextUnreadCount - previousUnreadCount)
-
-    if (nextUnreadCount === 0) {
-      const timerId = throughputResetTimerRef.current
-      if (timerId !== null) {
-        window.clearTimeout(timerId)
-        throughputResetTimerRef.current = null
-      }
-      setThroughputLevel(null)
-      return
-    }
-
-    if (delta <= 0) {
-      return
-    }
-
-    const nextLevel: StationThroughputLevel = delta >= 6 ? 'high' : delta >= 3 ? 'medium' : 'low'
-    setThroughputLevel(nextLevel)
-
-    const timerId = throughputResetTimerRef.current
-    if (timerId !== null) {
-      window.clearTimeout(timerId)
-    }
-    throughputResetTimerRef.current = window.setTimeout(() => {
-      throughputResetTimerRef.current = null
-      setThroughputLevel(null)
-    }, nextLevel === 'high' ? 780 : nextLevel === 'medium' ? 960 : 1180)
-  }, [runtime?.unreadCount])
 
   useEffect(() => {
     const element = rootRef.current
@@ -538,20 +471,12 @@ function StationCardView({
             </p>
           </div>
         </div>
-        {throughputTelemetry ? (
-          <div
-            className={['station-throughput-monitor', throughputTelemetry.level].join(' ')}
-            role="img"
-            aria-label={throughputTelemetry.ariaLabel}
-            title={throughputTelemetry.ariaLabel}
-          >
-            <span className="station-throughput-rotor" aria-hidden="true" />
-            <span className="station-throughput-bars" aria-hidden="true">
-              <span className="station-throughput-bar" />
-              <span className="station-throughput-bar" />
-              <span className="station-throughput-bar" />
-            </span>
-          </div>
+        {!active && activitySignal ? (
+          <StationActivityComet
+            locale={locale}
+            level={activitySignal}
+            className="station-window-activity-comet"
+          />
         ) : null}
         <div className="station-window-header-actions">
           {draggable ? (

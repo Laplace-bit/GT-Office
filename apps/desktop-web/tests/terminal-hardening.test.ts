@@ -25,6 +25,13 @@ import {
   shouldFlushPendingLaunchCommand,
 } from '../src/features/terminal/station-terminal-runtime-state.js'
 import {
+  resolveWorkbenchLayoutPresetVisual,
+} from '../src/features/workspace-hub/workbench-layout-preset-visuals.js'
+import {
+  resolveStationActivitySignalLevelFromDelta,
+  resolveStationActivitySignalTimeoutMs,
+} from '../src/features/workspace-hub/station-activity-signal-model.js'
+import {
   createBufferedStationInputController,
 } from '../src/features/terminal/station-terminal-input-buffer.js'
 import {
@@ -76,6 +83,37 @@ test('closes runtime only when the closing session still owns the station', () =
     ),
     null,
   )
+})
+
+test('activity signal maps unread deltas into stable speed levels', () => {
+  assert.equal(resolveStationActivitySignalLevelFromDelta(0), null)
+  assert.equal(resolveStationActivitySignalLevelFromDelta(1), 'low')
+  assert.equal(resolveStationActivitySignalLevelFromDelta(2), 'low')
+  assert.equal(resolveStationActivitySignalLevelFromDelta(3), 'medium')
+  assert.equal(resolveStationActivitySignalLevelFromDelta(5), 'medium')
+  assert.equal(resolveStationActivitySignalLevelFromDelta(6), 'high')
+  assert.equal(resolveStationActivitySignalLevelFromDelta(14), 'high')
+})
+
+test('activity signal exposes consistent decay timeouts by speed level', () => {
+  assert.equal(resolveStationActivitySignalTimeoutMs('low'), 1180)
+  assert.equal(resolveStationActivitySignalTimeoutMs('medium'), 960)
+  assert.equal(resolveStationActivitySignalTimeoutMs('high'), 780)
+})
+
+test('layout preset visual resolves auto to the A glyph', () => {
+  assert.deepEqual(resolveWorkbenchLayoutPresetVisual('auto'), {
+    kind: 'glyph',
+    value: 'A',
+  })
+  assert.deepEqual(resolveWorkbenchLayoutPresetVisual('focus'), {
+    kind: 'icon',
+    value: 'focus',
+  })
+  assert.deepEqual(resolveWorkbenchLayoutPresetVisual('custom'), {
+    kind: 'icon',
+    value: 'custom',
+  })
 })
 
 test('flushes buffered input immediately for submit-like input and drains queued tail after in-flight send', async () => {

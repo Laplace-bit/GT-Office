@@ -1,0 +1,130 @@
+@use "../../styles/tokens/responsive" as *;
+
+.station-activity-comet {
+  --station-activity-comet-duration: 1.7s;
+  --station-activity-comet-entry-offset: #{rem(-12)};
+  --station-activity-comet-travel: #{rem(30)};
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: rem(34);
+  height: rem(18);
+  padding-inline: rem(4);
+  border-radius: rem(999);
+  overflow: hidden;
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--vb-accent) 70%, white 30%);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  box-shadow: inset 0 0 0 rem(1) color-mix(in srgb, currentColor 16%, transparent);
+
+  &.is-compact {
+    --station-activity-comet-entry-offset: #{rem(-10)};
+    --station-activity-comet-travel: #{rem(26)};
+    width: rem(30);
+    height: rem(16);
+    padding-inline: rem(3);
+  }
+
+  &.is-low {
+    --station-activity-comet-duration: 1.9s;
+    color: color-mix(in srgb, var(--vb-accent) 66%, white 34%);
+  }
+
+  &.is-medium {
+    --station-activity-comet-duration: 1.25s;
+    color: color-mix(in srgb, var(--vb-warning) 76%, white 24%);
+    background: color-mix(in srgb, var(--vb-warning) 9%, transparent);
+  }
+
+  &.is-high {
+    --station-activity-comet-duration: 0.88s;
+    color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
+    background: color-mix(in srgb, var(--vb-success) 10%, transparent);
+  }
+}
+
+.station-activity-comet-head,
+.station-activity-comet-trail {
+  position: absolute;
+  top: 50%;
+  left: rem(4);
+  transform: translateY(-50%);
+  border-radius: rem(999);
+  animation: station-activity-comet-pass var(--station-activity-comet-duration) linear infinite;
+}
+
+.station-activity-comet-head {
+  width: rem(5);
+  height: rem(5);
+  background: currentColor;
+  box-shadow:
+    0 0 rem(10) color-mix(in srgb, currentColor 40%, transparent),
+    0 0 0 rem(1.5) color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.station-activity-comet-trail {
+  transform-origin: left center;
+  background: color-mix(in srgb, currentColor 72%, transparent);
+  box-shadow: 0 0 rem(8) color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.station-activity-comet-trail.trail-1 {
+  width: rem(7);
+  height: rem(2.4);
+  margin-left: rem(-5);
+  opacity: 0.55;
+}
+
+.station-activity-comet-trail.trail-2 {
+  width: rem(5);
+  height: rem(2);
+  margin-left: rem(-9);
+  opacity: 0.36;
+}
+
+.station-activity-comet-trail.trail-3 {
+  width: rem(3);
+  height: rem(1.7);
+  margin-left: rem(-12);
+  opacity: 0.22;
+}
+
+.station-activity-comet.is-compact .station-activity-comet-head {
+  width: rem(4.5);
+  height: rem(4.5);
+}
+
+.station-activity-comet.is-compact .station-activity-comet-trail.trail-1 {
+  width: rem(6);
+}
+
+.station-activity-comet.is-compact .station-activity-comet-trail.trail-2 {
+  width: rem(4);
+}
+
+.station-activity-comet.is-compact .station-activity-comet-trail.trail-3 {
+  width: rem(2.5);
+}
+
+@keyframes station-activity-comet-pass {
+  0% {
+    transform: translate(var(--station-activity-comet-entry-offset), -50%) scaleX(0.82);
+  }
+
+  18% {
+    transform: translate(rem(-2), -50%) scaleX(0.9);
+  }
+
+  100% {
+    transform: translate(var(--station-activity-comet-travel), -50%) scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-activity-comet-head,
+  .station-activity-comet-trail {
+    animation: none;
+    transform: translate(rem(7), -50%);
+  }
+}

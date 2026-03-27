@@ -441,6 +441,17 @@
   height: rem(13);
 }
 
+.canvas-layout-preset-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: rem(13);
+  font-size: rem(12.5);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
 .canvas-layout-custom-controls {
   display: flex;
   align-items: center;
@@ -660,16 +671,9 @@
     }
   }
 
-  .focus-rail-item-unread {
+  .focus-rail-item-comet {
     flex-shrink: 0;
-    min-width: rem(20);
-    padding: rem(2) rem(7);
-    border-radius: rem(999);
-    background: var(--vb-accent);
-    color: white;
-    font-size: rem(10);
-    font-weight: 700;
-    text-align: center;
+    margin-top: rem(1);
   }
 
   .focus-rail-item-path {

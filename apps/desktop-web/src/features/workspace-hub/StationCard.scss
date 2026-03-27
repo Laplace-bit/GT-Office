@@ -169,75 +169,8 @@
   letter-spacing: 0.03em;
 }
 
-.station-throughput-monitor {
-  display: inline-flex;
-  align-items: center;
-  gap: rem(4);
-  min-height: rem(16);
-  padding: rem(1.5) rem(6);
-  border-radius: rem(999);
-  border: rem(1) solid color-mix(in srgb, var(--vb-accent) 18%, rgba(255, 255, 255, 0.08));
-  background: color-mix(in srgb, var(--vb-accent) 6%, rgba(255, 255, 255, 0.06));
-  color: color-mix(in srgb, var(--vb-accent) 62%, white 38%);
-  --station-throughput-speed: 1.75s;
+.station-window-header > .station-window-activity-comet {
   flex: 0 0 auto;
-}
-
-.station-throughput-rotor {
-  width: rem(8);
-  height: rem(8);
-  border-radius: rem(999);
-  border: rem(1.2) solid color-mix(in srgb, currentColor 36%, transparent);
-  border-top-color: currentColor;
-  animation: station-throughput-rotor-spin var(--station-throughput-speed) linear infinite;
-}
-
-.station-throughput-bars {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: rem(1.5);
-  height: rem(9);
-}
-
-.station-throughput-bar {
-  width: rem(2);
-  border-radius: rem(999);
-  background: currentColor;
-  transform-origin: center bottom;
-  animation: station-throughput-bar-pulse var(--station-throughput-speed) ease-in-out infinite;
-}
-
-.station-throughput-bar:nth-child(1) {
-  height: rem(3);
-}
-
-.station-throughput-bar:nth-child(2) {
-  height: rem(5.5);
-  animation-delay: -0.18s;
-}
-
-.station-throughput-bar:nth-child(3) {
-  height: rem(7);
-  animation-delay: -0.33s;
-}
-
-.station-throughput-monitor.low {
-  --station-throughput-speed: 2.2s;
-  color: color-mix(in srgb, var(--vb-accent) 58%, white 42%);
-}
-
-.station-throughput-monitor.medium {
-  --station-throughput-speed: 1.5s;
-  color: color-mix(in srgb, var(--vb-warning) 74%, white 26%);
-  border-color: color-mix(in srgb, var(--vb-warning) 30%, rgba(255, 255, 255, 0.08));
-  background: color-mix(in srgb, var(--vb-warning) 8%, rgba(255, 255, 255, 0.06));
-}
-
-.station-throughput-monitor.high {
-  --station-throughput-speed: 1s;
-  color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
-  border-color: color-mix(in srgb, var(--vb-success) 32%, rgba(255, 255, 255, 0.08));
-  background: color-mix(in srgb, var(--vb-success) 10%, rgba(255, 255, 255, 0.06));
 }
 
 .station-window-header-actions {
@@ -520,7 +453,7 @@
     margin-left: auto;
   }
 
-  .station-throughput-monitor {
+  .station-window-activity-comet {
     order: 2;
     margin-left: 0;
   }
@@ -586,35 +519,5 @@
     left: rem(12);
     right: rem(12);
     max-width: none;
-  }
-}
-
-@keyframes station-throughput-rotor-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes station-throughput-bar-pulse {
-  0%,
-  100% {
-    transform: scaleY(0.62);
-    opacity: 0.66;
-  }
-
-  50% {
-    transform: scaleY(1);
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .station-throughput-rotor,
-  .station-throughput-bar {
-    animation: none;
   }
 }

@@ -1,8 +1,10 @@
 import { memo, useMemo } from 'react'
 import type { AgentStation, StationRole } from './station-model'
 import { StationActionDock } from './StationActionDock'
+import { StationActivityComet } from './StationActivityComet'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
+import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -115,8 +117,7 @@ function TerminalStationPaneView({
 }: TerminalStationPaneProps) {
   const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
-  const unreadLabel =
-    runtime && runtime.unreadCount > 0 ? (runtime.unreadCount > 99 ? '99+' : String(runtime.unreadCount)) : null
+  const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
   const visibleChannelBindingSummaries = (channelBotBindings ?? []).slice(0, 2)
   const hiddenChannelBindingCount = Math.max(0, (channelBotBindings ?? []).length - visibleChannelBindingSummaries.length)
   const sessionLabel = sessionStateLabel(locale, hasTerminalSession)
@@ -184,13 +185,13 @@ function TerminalStationPaneView({
             <strong>{station.name}</strong>
             <span>{roleLabel(locale, station.role)}</span>
           </div>
-          {unreadLabel ? (
-            <span
-              className="terminal-station-pane-unread"
-              aria-label={t(locale, '未读终端活动', 'Unread terminal activity')}
-            >
-              {unreadLabel}
-            </span>
+          {activitySignal ? (
+            <StationActivityComet
+              locale={locale}
+              level={activitySignal}
+              size="compact"
+              className="terminal-station-pane-comet"
+            />
           ) : null}
         </div>
         <div className="terminal-station-pane-meta-row terminal-station-pane-meta-row-secondary">
