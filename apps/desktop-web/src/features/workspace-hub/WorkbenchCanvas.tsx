@@ -76,6 +76,7 @@ interface WorkbenchCanvasProps {
   containers: WorkbenchContainerModel[]
   activeStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
+  agentRunningByStationId?: Record<string, boolean>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   pinnedWorkbenchContainerId?: string | null
@@ -261,6 +262,7 @@ function WorkbenchCanvasView({
   containers,
   activeStationId,
   terminalByStation,
+  agentRunningByStationId = {},
   taskSignalByStationId,
   channelBotBindingsByStationId = {},
   pinnedWorkbenchContainerId = null,
@@ -571,6 +573,7 @@ function WorkbenchCanvasView({
                     stations={containerStations}
                     activeGlobalStationId={activeStationId}
                     terminalByStation={terminalByStation}
+                    agentRunningByStationId={agentRunningByStationId}
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
@@ -646,6 +649,7 @@ function WorkbenchCanvasView({
                     stations={containerStations}
                     activeGlobalStationId={activeStationId}
                     terminalByStation={terminalByStation}
+                    agentRunningByStationId={agentRunningByStationId}
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}

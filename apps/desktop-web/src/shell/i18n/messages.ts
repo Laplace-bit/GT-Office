@@ -209,6 +209,8 @@ export const messages = {
   'workbench.stateLabel': { 'zh-CN': '状态', 'en-US': 'State' },
   'workbench.launchTerminal': { 'zh-CN': '启动终端会话', 'en-US': 'Launch Terminal Session' },
   'workbench.launchCliAgent': { 'zh-CN': '启动 CLI Agent', 'en-US': 'Launch CLI Agent' },
+  'workbench.focusCliAgent': { 'zh-CN': '聚焦当前 CLI Agent', 'en-US': 'Focus Current CLI Agent' },
+  'workbench.relaunchCliAgent': { 'zh-CN': '重新启动 CLI Agent', 'en-US': 'Relaunch CLI Agent' },
   'workbench.commandPlaceholder': {
     'zh-CN': '输入命令，例如: ls -la 或 codex',
     'en-US': 'Type command, for example: ls -la or codex',

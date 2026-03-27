@@ -316,6 +316,22 @@ pub fn terminal_report_rendered_screen(
     ))
 }
 
+#[tauri::command]
+pub fn terminal_describe_processes(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let snapshot = state
+        .terminal_provider
+        .describe_session_processes(&session_id)
+        .map_err(to_terminal_error)?;
+    serde_json::to_value(snapshot).map_err(|error| {
+        format!(
+            "TERMINAL_INTERNAL: failed to serialize terminal process snapshot: {error}"
+        )
+    })
+}
+
 #[cfg(test)]
 #[path = "../tests/terminal_tests.rs"]
 mod tests;

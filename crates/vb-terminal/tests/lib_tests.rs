@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use vb_abstractions::{
@@ -194,6 +195,51 @@ fn pty_provider_emits_output_event_after_write() {
         observed_output.contains("__VB_TERMINAL_EVENT_TEST__"),
         "terminal output did not include marker, got: {observed_output}"
     );
+
+    let _ = provider.kill_session(&session.session_id);
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
+    let workspace_dir = TempDir::create("gtoffice-terminal-pty-processes");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_dir.path)
+        .expect("open workspace");
+    let provider = PtyTerminalProvider::new(workspace_service, AllowAllPolicyEvaluator);
+
+    let session = provider
+        .create_session(TerminalCreateRequest {
+            workspace_id: workspace.workspace_id.clone(),
+            shell: Some("/bin/bash".to_string()),
+            cwd: None,
+            cwd_mode: TerminalCwdMode::WorkspaceRoot,
+            env: BTreeMap::new(),
+            agent_tool_kind: None,
+        })
+        .expect("create pty session");
+
+    provider
+        .write_session(&session.session_id, "sleep 2\n")
+        .expect("write sleep command");
+    thread::sleep(Duration::from_millis(250));
+
+    let snapshot = provider
+        .describe_session_processes(&session.session_id)
+        .expect("describe session processes");
+
+    assert_eq!(snapshot.session_id, session.session_id);
+    assert!(snapshot.root_pid.is_some(), "expected shell pid to be present");
+    assert!(
+        snapshot
+            .processes
+            .iter()
+            .any(|process| process.args.contains("sleep 2") || process.executable == "sleep"),
+        "expected process tree to include sleep, got: {:?}",
+        snapshot.processes
+    );
+    assert!(snapshot.current_process.is_some(), "expected current process to be resolved");
 
     let _ = provider.kill_session(&session.session_id);
 }

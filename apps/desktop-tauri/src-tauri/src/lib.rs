@@ -165,6 +165,7 @@ pub fn run() {
             terminal::terminal_set_visibility,
             terminal::terminal_read_snapshot,
             terminal::terminal_read_delta,
+            terminal::terminal_describe_processes,
             terminal::terminal_report_rendered_screen,
             git::git_status,
             git::git_init,

@@ -2,6 +2,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation, StationRole } from './station-model'
+import {
+  buildStationCardIdentityMeta,
+  handleStationCardPrimaryLaunch,
+  resolveStationCardLaunchState,
+} from './station-card-header-model'
 import { StationActionDock } from './StationActionDock'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
@@ -72,6 +77,7 @@ interface StationIconButtonProps {
   tooltip: string
   className?: string
   ariaLabel: string
+  ariaPressed?: boolean
   onClick: (event: MouseEvent<HTMLButtonElement>) => void
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void
   draggable?: boolean
@@ -84,6 +90,7 @@ function StationIconButton({
   tooltip,
   className,
   ariaLabel,
+  ariaPressed,
   onClick,
   onPointerDown,
   draggable = false,
@@ -96,6 +103,7 @@ function StationIconButton({
       type="button"
       className={['station-icon-button', className].filter(Boolean).join(' ')}
       aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
       title={tooltip}
       onClick={onClick}
       onPointerDown={onPointerDown}
@@ -120,6 +128,7 @@ interface StationCardProps {
   station: AgentStation
   active: boolean
   runtime?: StationTerminalRuntime
+  agentRunning?: boolean
   taskSignal?: StationTaskSignal
   channelBotBindings?: StationChannelBotBindingSummary[]
   isFullscreen?: boolean
@@ -171,6 +180,7 @@ function StationCardView({
   station,
   active,
   runtime,
+  agentRunning = false,
   taskSignal,
   isFullscreen,
   isFullscreenMode,
@@ -307,21 +317,21 @@ function StationCardView({
   const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
   const roleText = roleLabel(locale, station.role)
-  const runtimeStateLabel =
-    runtime?.stateRaw === 'failed' || runtime?.stateRaw === 'killed'
-      ? t(locale, '需处理', 'Attention')
-      : runtime?.stateRaw === 'exited'
-        ? t(locale, '已结束', 'Ended')
-        : hasTerminalSession
-          ? t(locale, '运行中', 'Live')
-          : t(locale, '待命', 'Ready')
-  const runtimeStateTone =
-    runtime?.stateRaw === 'failed' || runtime?.stateRaw === 'killed'
-      ? 'alert'
-      : hasTerminalSession
-        ? 'live'
-        : 'idle'
-  const semanticChipLabel = `${roleText} · ${runtimeStateLabel}`
+  const identityMeta = useMemo(
+    () => buildStationCardIdentityMeta(roleText, station.tool),
+    [roleText, station.tool],
+  )
+  const launchState = resolveStationCardLaunchState({
+    sessionId: runtime?.sessionId ?? null,
+    stateRaw: runtime?.stateRaw ?? null,
+    agentRunning,
+  })
+  const primaryLaunchButtonLabel =
+    launchState === 'live'
+      ? t(locale, 'workbench.focusCliAgent')
+      : launchState === 'alert'
+        ? t(locale, 'workbench.relaunchCliAgent')
+        : t(locale, 'workbench.launchCliAgent')
   const throughputTelemetry = useMemo<StationThroughputTelemetry | null>(() => {
     if (!throughputLevel) {
       return null
@@ -358,6 +368,16 @@ function StationCardView({
     onSelectStation(station.id)
     requestTerminalFocus()
   }, [onSelectStation, requestTerminalFocus, station.id])
+  const handlePrimaryLaunch = useCallback(() => {
+    handleStationCardPrimaryLaunch({
+      stationId: station.id,
+      sessionId: runtime?.sessionId ?? null,
+      agentRunning,
+      onSelectStation,
+      requestTerminalFocus,
+      onLaunchCliAgent,
+    })
+  }, [agentRunning, onLaunchCliAgent, onSelectStation, requestTerminalFocus, runtime?.sessionId, station.id])
   const activateStationAndOpenTerminal = useCallback(() => {
     activateStationAndFocusTerminal()
     if (shouldAutoLaunchTerminal) {
@@ -502,22 +522,20 @@ function StationCardView({
         >
           <div className="station-window-title-row">
             <h3 title={station.name}>{station.name}</h3>
-            <span
-              className={['station-window-semantic-pill', runtimeStateTone].join(' ')}
-              title={semanticChipLabel}
-              aria-label={semanticChipLabel}
-            >
-              <span className="station-window-semantic-pill-dot" aria-hidden="true" />
-              <span className="station-window-semantic-pill-text">{semanticChipLabel}</span>
-            </span>
+            {identityMeta.map((item) => (
+              <span
+                key={`${station.id}:${item.kind}`}
+                className={['station-window-context-pill', `is-${item.kind}`].join(' ')}
+                title={item.label}
+              >
+                {item.label}
+              </span>
+            ))}
           </div>
           <div className="station-window-title-subline">
             <p className="station-window-meta-text" title={station.agentWorkdirRel}>
               {station.agentWorkdirRel}
             </p>
-            <span className="station-window-tool-pill" title={station.tool}>
-              {station.tool}
-            </span>
           </div>
         </div>
         {throughputTelemetry ? (
@@ -558,25 +576,16 @@ function StationCardView({
             </StationIconButton>
           ) : null}
           <StationIconButton
-            tooltip={t(locale, 'workbench.launchTerminal')}
-            ariaLabel={t(locale, 'workbench.launchTerminal')}
+            className={['station-primary-launch-btn', launchState].join(' ')}
+            tooltip={primaryLaunchButtonLabel}
+            ariaLabel={primaryLaunchButtonLabel}
+            ariaPressed={launchState === 'live'}
             onClick={(event) => {
               event.stopPropagation()
-              activateStationAndOpenTerminal()
+              handlePrimaryLaunch()
             }}
           >
             <Play className="vb-icon vb-icon-station-button station-play-icon" aria-hidden="true" strokeWidth={1.9} />
-          </StationIconButton>
-          <StationIconButton
-            tooltip={t(locale, 'workbench.launchCliAgent')}
-            ariaLabel={t(locale, 'workbench.launchCliAgent')}
-            onClick={(event) => {
-              event.stopPropagation()
-              activateStationAndFocusTerminal()
-              onLaunchCliAgent(station.id)
-            }}
-          >
-            <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
           </StationIconButton>
           <StationIconButton
             className="station-fullscreen-btn"
@@ -616,12 +625,12 @@ function StationCardView({
       ) : (
         <div className="station-terminal-idle-state">
           <div className="station-terminal-idle-copy">
-            <strong>{t(locale, '终端尚未启动', 'Terminal idle')}</strong>
+            <strong>{t(locale, '当前 Agent 尚未启动', 'Agent idle')}</strong>
             <p>
               {t(
                 locale,
-                '先启动终端会话，再进入 CLI 或执行任务派发。',
-                'Launch the terminal session before opening a CLI agent or dispatching tasks.',
+                '直接启动当前 CLI Agent，或先进入纯终端会话。',
+                'Launch the current CLI agent directly, or open a plain terminal session first.',
               )}
             </p>
           </div>
@@ -631,7 +640,7 @@ function StationCardView({
               className="station-terminal-idle-button primary"
               onClick={(event) => {
                 event.stopPropagation()
-                activateStationAndOpenTerminal()
+                handlePrimaryLaunch()
               }}
             >
               <Play
@@ -639,19 +648,18 @@ function StationCardView({
                 aria-hidden="true"
                 strokeWidth={1.9}
               />
-              <span>{t(locale, 'workbench.launchTerminal')}</span>
+              <span>{t(locale, 'workbench.launchCliAgent')}</span>
             </button>
             <button
               type="button"
               className="station-terminal-idle-button"
               onClick={(event) => {
                 event.stopPropagation()
-                activateStationAndFocusTerminal()
-                onLaunchCliAgent(station.id)
+                activateStationAndOpenTerminal()
               }}
             >
-              <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-              <span>{t(locale, 'workbench.launchCliAgent')}</span>
+              <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              <span>{t(locale, 'workbench.launchTerminal')}</span>
             </button>
           </div>
         </div>
@@ -691,6 +699,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.appearanceVersion === next.appearanceVersion &&
     prev.station === next.station &&
     prev.active === next.active &&
+    prev.agentRunning === next.agentRunning &&
     prev.isFullscreen === next.isFullscreen &&
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&

@@ -321,6 +321,21 @@ export interface TerminalDeltaResponse {
   truncated: boolean
 }
 
+export interface TerminalSessionProcessInfo {
+  pid: number
+  parentPid: number | null
+  executable: string
+  args: string
+  depth: number
+}
+
+export interface TerminalDescribeProcessesResponse {
+  sessionId: string
+  rootPid: number | null
+  currentProcess: TerminalSessionProcessInfo | null
+  processes: TerminalSessionProcessInfo[]
+}
+
 export interface RenderedScreenSnapshotRow {
   rowIndex: number
   text: string
@@ -2219,6 +2234,11 @@ export const desktopApi = {
       sessionId,
       afterSeq,
       maxBytes: maxBytes ?? null,
+    })
+  },
+  terminalDescribeProcesses(sessionId: string) {
+    return invokeCommand<TerminalDescribeProcessesResponse>('terminal_describe_processes', {
+      sessionId,
     })
   },
   terminalReportRenderedScreen(snapshot: RenderedScreenSnapshot) {

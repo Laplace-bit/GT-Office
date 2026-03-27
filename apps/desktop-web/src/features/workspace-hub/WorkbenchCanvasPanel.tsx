@@ -51,6 +51,7 @@ interface WorkbenchCanvasPanelProps {
   stations: AgentStation[]
   activeGlobalStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
+  agentRunningByStationId?: Record<string, boolean>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   dropActive?: boolean
@@ -158,6 +159,7 @@ function WorkbenchCanvasPanelView({
   stations,
   activeGlobalStationId,
   terminalByStation,
+  agentRunningByStationId = {},
   taskSignalByStationId,
   channelBotBindingsByStationId = {},
   dropActive = false,
@@ -338,6 +340,7 @@ function WorkbenchCanvasPanelView({
         station={station}
         active={station.id === activeGlobalStationId}
         runtime={terminalByStation[station.id]}
+        agentRunning={agentRunningByStationId[station.id] ?? false}
         taskSignal={taskSignalByStationId[station.id]}
         channelBotBindings={channelBotBindingsByStationId[station.id]}
         isFullscreen={Boolean(options?.fullscreen)}
@@ -376,6 +379,7 @@ function WorkbenchCanvasPanelView({
     ),
     [
       activeGlobalStationId,
+      agentRunningByStationId,
       appearanceVersion,
       channelBotBindingsByStationId,
       container.id,

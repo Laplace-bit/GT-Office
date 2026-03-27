@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::{Read, Write},
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
     sync::mpsc::{self, Receiver, Sender},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -86,6 +88,25 @@ pub struct TerminalDeltaChunk {
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionProcessInfo {
+    pub pid: u32,
+    pub parent_pid: Option<u32>,
+    pub executable: String,
+    pub args: String,
+    pub depth: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionProcessSnapshot {
+    pub session_id: String,
+    pub root_pid: Option<u32>,
+    pub current_process: Option<TerminalSessionProcessInfo>,
+    pub processes: Vec<TerminalSessionProcessInfo>,
+}
+
 #[derive(Debug, Clone)]
 struct DeltaReadResult {
     chunk: Vec<u8>,
@@ -100,6 +121,209 @@ struct DeltaReadResult {
 struct OutputFrame {
     seq: u64,
     chunk: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RawProcessEntry {
+    pid: u32,
+    parent_pid: Option<u32>,
+    executable: String,
+    args: String,
+}
+
+fn parse_prefixed_u32(input: &str) -> Option<(u32, &str)> {
+    let trimmed = input.trim_start();
+    let digit_count = trimmed
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .count();
+    if digit_count == 0 {
+        return None;
+    }
+    let value = trimmed[..digit_count].parse::<u32>().ok()?;
+    Some((value, &trimmed[digit_count..]))
+}
+
+fn derive_executable_name(command_line: &str) -> String {
+    let trimmed = command_line.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let token = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches('"')
+        .trim_matches('\'');
+    Path::new(token)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(token)
+        .to_string()
+}
+
+fn parse_unix_process_table_line(line: &str) -> Option<RawProcessEntry> {
+    let (pid, tail) = parse_prefixed_u32(line)?;
+    let (parent_pid, args_tail) = parse_prefixed_u32(tail)?;
+    let args = args_tail.trim().to_string();
+    if args.is_empty() {
+        return None;
+    }
+    Some(RawProcessEntry {
+        pid,
+        parent_pid: Some(parent_pid),
+        executable: derive_executable_name(&args),
+        args,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn load_process_table() -> Result<Vec<RawProcessEntry>, String> {
+    let output = ProcessCommand::new("ps")
+        .args(["-axww", "-o", "pid=", "-o", "ppid=", "-o", "args="])
+        .output()
+        .map_err(|error| format!("TERMINAL_PROCESS_INSPECT_FAILED: unable to run ps: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "TERMINAL_PROCESS_INSPECT_FAILED: ps exited with status {}",
+            output.status
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_unix_process_table_line)
+        .collect())
+}
+
+#[cfg(target_os = "windows")]
+fn load_process_table() -> Result<Vec<RawProcessEntry>, String> {
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct WindowsProcessEntry {
+        process_id: u32,
+        parent_process_id: Option<u32>,
+        name: Option<String>,
+        command_line: Option<String>,
+    }
+
+    let output = ProcessCommand::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+        ])
+        .output()
+        .map_err(|error| {
+            format!("TERMINAL_PROCESS_INSPECT_FAILED: unable to run PowerShell: {error}")
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "TERMINAL_PROCESS_INSPECT_FAILED: PowerShell exited with status {}",
+            output.status
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let raw = stdout.trim();
+    if raw.is_empty() || raw == "null" {
+        return Ok(Vec::new());
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(raw).map_err(|error| {
+        format!("TERMINAL_PROCESS_INSPECT_FAILED: invalid PowerShell JSON: {error}")
+    })?;
+    let items = match parsed {
+        serde_json::Value::Array(items) => items,
+        item => vec![item],
+    };
+
+    items
+        .into_iter()
+        .map(|item| {
+            serde_json::from_value::<WindowsProcessEntry>(item).map(|process| RawProcessEntry {
+                pid: process.process_id,
+                parent_pid: process.parent_process_id,
+                executable: process
+                    .name
+                    .unwrap_or_else(|| derive_executable_name(process.command_line.as_deref().unwrap_or_default())),
+                args: process.command_line.unwrap_or_default(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            format!("TERMINAL_PROCESS_INSPECT_FAILED: invalid process entry payload: {error}")
+        })
+}
+
+fn build_process_tree(
+    root_pid: u32,
+    entries: &[RawProcessEntry],
+) -> Vec<TerminalSessionProcessInfo> {
+    let entry_by_pid = entries
+        .iter()
+        .cloned()
+        .map(|entry| (entry.pid, entry))
+        .collect::<HashMap<_, _>>();
+    let Some(root) = entry_by_pid.get(&root_pid).cloned() else {
+        return Vec::new();
+    };
+
+    let mut children_by_parent = HashMap::<u32, Vec<RawProcessEntry>>::new();
+    entries.iter().cloned().for_each(|entry| {
+        if let Some(parent_pid) = entry.parent_pid {
+            children_by_parent.entry(parent_pid).or_default().push(entry);
+        }
+    });
+
+    children_by_parent
+        .values_mut()
+        .for_each(|children| children.sort_by_key(|entry| entry.pid));
+
+    let mut queue = VecDeque::from([(root, 0_u16)]);
+    let mut visited = HashSet::new();
+    let mut processes = Vec::new();
+
+    while let Some((entry, depth)) = queue.pop_front() {
+        if !visited.insert(entry.pid) {
+            continue;
+        }
+        processes.push(TerminalSessionProcessInfo {
+            pid: entry.pid,
+            parent_pid: entry.parent_pid,
+            executable: entry.executable.clone(),
+            args: entry.args.clone(),
+            depth,
+        });
+        if let Some(children) = children_by_parent.get(&entry.pid) {
+            children.iter().cloned().for_each(|child| {
+                queue.push_back((child, depth.saturating_add(1)));
+            });
+        }
+    }
+
+    processes
+}
+
+fn select_current_process(
+    processes: &[TerminalSessionProcessInfo],
+) -> Option<TerminalSessionProcessInfo> {
+    if processes.is_empty() {
+        return None;
+    }
+
+    let parent_pids = processes
+        .iter()
+        .filter_map(|process| process.parent_pid)
+        .collect::<HashSet<_>>();
+
+    processes
+        .iter()
+        .filter(|process| process.depth > 0 && !parent_pids.contains(&process.pid))
+        .max_by_key(|process| (process.depth, process.pid))
+        .cloned()
+        .or_else(|| processes.iter().max_by_key(|process| process.pid).cloned())
 }
 
 #[derive(Clone)]
@@ -755,6 +979,46 @@ where
             Ok(sessions) => sessions.contains_key(session_id),
             Err(_) => false,
         }
+    }
+
+    pub fn describe_session_processes(
+        &self,
+        session_id: &str,
+    ) -> AbstractionResult<TerminalSessionProcessSnapshot> {
+        let root_pid = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AbstractionError::Internal {
+                    message: "TERMINAL_INTERNAL: terminal session lock poisoned".to_string(),
+                })?;
+            let session =
+                sessions
+                    .get(session_id)
+                    .ok_or_else(|| AbstractionError::InvalidArgument {
+                        message: format!(
+                            "TERMINAL_SESSION_NOT_FOUND: session '{session_id}' does not exist"
+                        ),
+                    })?;
+            session.child.process_id()
+        };
+
+        let processes = if let Some(root_pid) = root_pid {
+            let table = load_process_table().map_err(|message| AbstractionError::Internal {
+                message,
+            })?;
+            build_process_tree(root_pid, &table)
+        } else {
+            Vec::new()
+        };
+        let current_process = select_current_process(&processes);
+
+        Ok(TerminalSessionProcessSnapshot {
+            session_id: session_id.to_string(),
+            root_pid,
+            current_process,
+            processes,
+        })
     }
 
     pub fn set_session_visibility(

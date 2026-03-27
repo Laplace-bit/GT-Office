@@ -62,6 +62,10 @@ import {
   resolveConnectorAccounts,
 } from '@features/tool-adapter'
 import {
+  isStationAgentProcessRunning,
+  resolveStationCliLaunchCommand,
+} from '@features/workspace-hub/station-agent-runtime-model'
+import {
   appendDetachedTerminalOutput,
   createEmptyWorkbenchStationRuntime,
   DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
@@ -117,6 +121,7 @@ import {
   type StationTerminalRestoreStatePayload,
   type SurfaceDetachedStationPayload,
   type SurfaceBridgeEventPayload,
+  type TerminalDescribeProcessesResponse,
   type TerminalMetaPayload,
   type TerminalOutputPayload,
   type TerminalStatePayload,
@@ -285,12 +290,16 @@ export function ShellRoot() {
   const [stationTerminals, setStationTerminals] = useState<Record<string, StationTerminalRuntime>>(
     () => createInitialStationTerminals(initialStations),
   )
+  const [stationProcessSnapshots, setStationProcessSnapshots] = useState<
+    Record<string, TerminalDescribeProcessesResponse>
+  >({})
   const [toolCommandsByStationId, setToolCommandsByStationId] = useState<Record<string, ToolCommandSummary[]>>({})
   const [pendingStationActionSheet, setPendingStationActionSheet] = useState<{
     station: AgentStation
     action: StationActionDescriptor
   } | null>(null)
   const stationTerminalsRef = useRef(stationTerminals)
+  const stationProcessSnapshotsRef = useRef(stationProcessSnapshots)
   const stationsRef = useRef(initialStations)
   const workbenchContainersRef = useRef(workbenchContainers)
   const canvasLayoutModeRef = useRef(canvasLayoutMode)
@@ -482,12 +491,27 @@ export function ShellRoot() {
   }, [stationTerminals])
 
   useEffect(() => {
+    stationProcessSnapshotsRef.current = stationProcessSnapshots
+  }, [stationProcessSnapshots])
+
+  useEffect(() => {
     stationsRef.current = stations
   }, [stations])
 
   useEffect(() => {
     workbenchContainersRef.current = workbenchContainers
   }, [workbenchContainers])
+
+  useEffect(() => {
+    setStationProcessSnapshots((prev) => {
+      const nextEntries = Object.entries(prev).filter(([stationId, snapshot]) => {
+        const sessionId = stationTerminals[stationId]?.sessionId ?? null
+        return Boolean(sessionId && snapshot.sessionId === sessionId)
+      })
+      const next = Object.fromEntries(nextEntries)
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next
+    })
+  }, [stationTerminals])
 
   useEffect(() => {
     setPinnedWorkbenchContainerId((prev) => {
@@ -1853,6 +1877,89 @@ export function ShellRoot() {
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
+      setStationProcessSnapshots({})
+      return
+    }
+
+    let cancelled = false
+
+    const refresh = async () => {
+      const liveStations = stationsRef.current
+        .map((station) => ({
+          stationId: station.id,
+          sessionId: stationTerminalsRef.current[station.id]?.sessionId ?? null,
+        }))
+        .filter((item): item is { stationId: string; sessionId: string } => Boolean(item.sessionId))
+
+      if (liveStations.length === 0) {
+        if (!cancelled) {
+          setStationProcessSnapshots({})
+        }
+        return
+      }
+
+      const entries = await Promise.all(
+        liveStations.map(async ({ stationId, sessionId }) => {
+          try {
+            const snapshot = await desktopApi.terminalDescribeProcesses(sessionId)
+            if (stationTerminalsRef.current[stationId]?.sessionId !== sessionId) {
+              return [stationId, null] as const
+            }
+            return [stationId, snapshot] as const
+          } catch {
+            return [stationId, stationProcessSnapshotsRef.current[stationId] ?? null] as const
+          }
+        }),
+      )
+
+      if (cancelled) {
+        return
+      }
+
+      const next = Object.fromEntries(
+        entries.filter((entry): entry is [string, TerminalDescribeProcessesResponse] => Boolean(entry[1])),
+      )
+      setStationProcessSnapshots((prev) => {
+        const prevKeys = Object.keys(prev)
+        const nextKeys = Object.keys(next)
+        if (prevKeys.length === nextKeys.length) {
+          const unchanged = nextKeys.every((stationId) => {
+            const prevSnapshot = prev[stationId]
+            const nextSnapshot = next[stationId]
+            return (
+              prevSnapshot?.sessionId === nextSnapshot?.sessionId &&
+              prevSnapshot?.rootPid === nextSnapshot?.rootPid &&
+              prevSnapshot?.currentProcess?.pid === nextSnapshot?.currentProcess?.pid &&
+              prevSnapshot?.currentProcess?.args === nextSnapshot?.currentProcess?.args &&
+              prevSnapshot?.processes.length === nextSnapshot?.processes.length &&
+              prevSnapshot?.processes.every(
+                (process, index) =>
+                  process.pid === nextSnapshot?.processes[index]?.pid &&
+                  process.args === nextSnapshot?.processes[index]?.args,
+              )
+            )
+          })
+          if (unchanged) {
+            return prev
+          }
+        }
+        return next
+      })
+    }
+
+    void refresh()
+    const timerId = window.setInterval(() => {
+      void refresh()
+    }, 1400)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timerId)
+    }
+  }, [activeWorkspaceId, stationTerminals, stations])
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
       return
     }
 
@@ -2987,6 +3094,63 @@ export function ShellRoot() {
     [],
   )
 
+  const updateStationProcessSnapshot = useCallback(
+    (stationId: string, snapshot: TerminalDescribeProcessesResponse | null) => {
+      setStationProcessSnapshots((prev) => {
+        if (!snapshot) {
+          if (!prev[stationId]) {
+            return prev
+          }
+          const next = { ...prev }
+          delete next[stationId]
+          return next
+        }
+
+        const current = prev[stationId]
+        const unchanged =
+          current?.sessionId === snapshot.sessionId &&
+          current?.rootPid === snapshot.rootPid &&
+          current?.currentProcess?.pid === snapshot.currentProcess?.pid &&
+          current?.currentProcess?.args === snapshot.currentProcess?.args &&
+          current?.processes.length === snapshot.processes.length &&
+          current?.processes.every(
+            (process, index) =>
+              process.pid === snapshot.processes[index]?.pid &&
+              process.args === snapshot.processes[index]?.args,
+          )
+        if (unchanged) {
+          return prev
+        }
+
+        return {
+          ...prev,
+          [stationId]: snapshot,
+        }
+      })
+    },
+    [],
+  )
+
+  const inspectStationSessionProcesses = useCallback(
+    async (stationId: string, sessionId: string): Promise<TerminalDescribeProcessesResponse | null> => {
+      if (!desktopApi.isTauriRuntime()) {
+        return null
+      }
+
+      try {
+        const snapshot = await desktopApi.terminalDescribeProcesses(sessionId)
+        if (stationTerminalsRef.current[stationId]?.sessionId !== sessionId) {
+          return null
+        }
+        updateStationProcessSnapshot(stationId, snapshot)
+        return snapshot
+      } catch {
+        return stationProcessSnapshotsRef.current[stationId] ?? null
+      }
+    },
+    [updateStationProcessSnapshot],
+  )
+
   const launchToolProfileForStation = useCallback(
     async (station: AgentStation, profileId: string = station.toolKind) => {
       const workspaceId = activeWorkspaceIdRef.current
@@ -3165,13 +3329,31 @@ export function ShellRoot() {
       if (!station) {
         return
       }
-      const sessionId = await launchToolProfileForStation(station)
-      if (!sessionId) {
+      const currentSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      const launchCommand = resolveStationCliLaunchCommand(station.toolKind)
+      if (!currentSessionId || !launchCommand) {
+        const sessionId = await launchToolProfileForStation(station)
+        if (!sessionId) {
+          return
+        }
+        stationTerminalSinkRef.current[stationId]?.focus()
+        return
+      }
+
+      const processSnapshot = await inspectStationSessionProcesses(stationId, currentSessionId)
+      const agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
+      if (agentRunning) {
+        stationTerminalSinkRef.current[stationId]?.focus()
+        return
+      }
+
+      const launchedInSession = await writeStationTerminalWithSubmit(stationId, launchCommand)
+      if (!launchedInSession) {
         return
       }
       stationTerminalSinkRef.current[stationId]?.focus()
     },
-    [launchToolProfileForStation],
+    [inspectStationSessionProcesses, launchToolProfileForStation, writeStationTerminalWithSubmit],
   )
 
   const ensureTaskTargetRuntime = useCallback(
@@ -3442,6 +3624,17 @@ export function ShellRoot() {
   const terminalSessionCount = useMemo(
     () => Object.values(stationTerminals).filter((runtime) => runtime.sessionId).length,
     [stationTerminals],
+  )
+  const stationAgentRunningById = useMemo(
+    () =>
+      stations.reduce<Record<string, boolean>>((acc, station) => {
+        acc[station.id] = isStationAgentProcessRunning(
+          station.toolKind,
+          stationProcessSnapshots[station.id],
+        )
+        return acc
+      }, {}),
+    [stationProcessSnapshots, stations],
   )
   const toolCommandReloadKey = useMemo(
     () =>
@@ -4552,6 +4745,7 @@ export function ShellRoot() {
     stations,
     activeStationId,
     terminalByStation: stationTerminals,
+    agentRunningByStationId: stationAgentRunningById,
     taskSignalByStationId: stationTaskSignals,
     channelBotBindingsByStationId,
     pinnedWorkbenchContainerId,
