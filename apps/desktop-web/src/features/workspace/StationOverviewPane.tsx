@@ -8,8 +8,6 @@ import {
   buildOrganizationSnapshot,
   defaultStationOverviewState,
   filterStationsForOverview,
-  organizationDepartmentOrder,
-  type OrganizationDepartment,
   type StationOverviewState,
 } from './station-overview-model'
 
@@ -33,41 +31,19 @@ interface StationOverviewRowProps {
   onEditStation: (station: AgentStation) => void
 }
 
-const roleOptions: StationRole[] = ['manager', 'product', 'build', 'quality_release']
-
-const roleKeyMap: Record<
-  StationRole,
-  | 'station.role.manager'
-  | 'station.role.product'
-  | 'station.role.build'
-  | 'station.role.quality_release'
-> = {
-  manager: 'station.role.manager',
-  product: 'station.role.product',
-  build: 'station.role.build',
-  quality_release: 'station.role.quality_release',
-}
-
-const departmentKeyMap: Record<
-  OrganizationDepartment,
-  | 'station.department.leadership'
-  | 'station.department.product_management'
-  | 'station.department.delivery_engineering'
-  | 'station.department.quality_release'
-> = {
-  leadership: 'station.department.leadership',
-  product_management: 'station.department.product_management',
-  delivery_engineering: 'station.department.delivery_engineering',
-  quality_release: 'station.department.quality_release',
-}
-
-
-function roleLabel(locale: Locale, role: StationRole): string {
-  return t(locale, roleKeyMap[role])
-}
-
-function departmentLabel(locale: Locale, department: OrganizationDepartment): string {
-  return t(locale, departmentKeyMap[department])
+function roleLabel(locale: Locale, station: AgentStation): string {
+  switch (station.role) {
+    case 'manager':
+      return t(locale, 'station.role.manager')
+    case 'product':
+      return t(locale, 'station.role.product')
+    case 'build':
+      return t(locale, 'station.role.build')
+    case 'quality_release':
+      return t(locale, 'station.role.quality_release')
+    default:
+      return station.roleName || station.role
+  }
 }
 
 
@@ -92,7 +68,7 @@ const StationOverviewRow = memo(function StationOverviewRow({
       />
       <div className="station-overview-select">
         <strong>{station.name}</strong>
-        <span>{station.agentWorkdirRel}</span>
+        <span>{roleLabel(locale, station)} · {station.agentWorkdirRel}</span>
       </div>
       <button
         type="button"
@@ -128,6 +104,18 @@ export function StationOverviewPane({
   const filteredStations = useMemo(
     () => filterStationsForOverview(stations, runtimeStateByStationId, view),
     [runtimeStateByStationId, stations, view],
+  )
+  const roleOptions = useMemo(
+    () => {
+      const roleMap = new Map<StationRole, string>()
+      stations.forEach((station) => {
+        if (!roleMap.has(station.role)) {
+          roleMap.set(station.role, roleLabel(locale, station))
+        }
+      })
+      return [...roleMap.entries()]
+    },
+    [locale, stations],
   )
 
   const localeIsZh = locale === 'zh-CN'
@@ -184,27 +172,9 @@ export function StationOverviewPane({
                 onChange={(event) => onViewChange({ roleFilter: event.target.value as StationRole | 'all' })}
               >
                 <option value="all">{t(locale, 'station.filter.allRoles')}</option>
-                {roleOptions.map((role) => (
+                {roleOptions.map(([role, label]) => (
                   <option key={role} value={role}>
-                    {roleLabel(locale, role)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t(locale, 'station.filter.department')}
-              <select
-                value={view.departmentFilter}
-                onChange={(event) =>
-                  onViewChange({
-                    departmentFilter: event.target.value as OrganizationDepartment | 'all',
-                  })
-                }
-              >
-                <option value="all">{t(locale, 'station.filter.allDepartments')}</option>
-                {organizationDepartmentOrder.map((department) => (
-                  <option key={department} value={department}>
-                    {departmentLabel(locale, department)}
+                    {label}
                   </option>
                 ))}
               </select>

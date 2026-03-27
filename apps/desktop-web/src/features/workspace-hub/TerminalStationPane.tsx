@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react'
-import type { AgentStation, StationRole } from './station-model'
+import type { AgentStation } from './station-model'
 import { StationActionDock } from './StationActionDock'
 import { StationActivityComet } from './StationActivityComet'
 import { resolveStationActions } from './station-action-registry'
@@ -28,21 +28,19 @@ export interface WorkbenchStationRuntime {
 
 type PaneLaunchMode = 'workspace' | 'detached-readonly'
 
-const roleKeyMap: Record<
-  StationRole,
-  | 'station.role.manager'
-  | 'station.role.product'
-  | 'station.role.build'
-  | 'station.role.quality_release'
-> = {
-  manager: 'station.role.manager',
-  product: 'station.role.product',
-  build: 'station.role.build',
-  quality_release: 'station.role.quality_release',
-}
-
-function roleLabel(locale: Locale, role: StationRole): string {
-  return t(locale, roleKeyMap[role])
+function roleLabel(locale: Locale, station: AgentStation): string {
+  switch (station.role) {
+    case 'manager':
+      return t(locale, 'station.role.manager')
+    case 'product':
+      return t(locale, 'station.role.product')
+    case 'build':
+      return t(locale, 'station.role.build')
+    case 'quality_release':
+      return t(locale, 'station.role.quality_release')
+    default:
+      return station.roleName || station.role
+  }
 }
 
 function stationChannelLabel(locale: Locale, channel: string): string {
@@ -183,7 +181,7 @@ function TerminalStationPaneView({
         <div className="terminal-station-pane-meta-row">
           <div className="terminal-station-pane-title">
             <strong>{station.name}</strong>
-            <span>{roleLabel(locale, station.role)}</span>
+            <span>{roleLabel(locale, station)}</span>
           </div>
           {activitySignal ? (
             <StationActivityComet

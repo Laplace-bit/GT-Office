@@ -753,22 +753,27 @@ export function createStationFromNumber(
   const suffix = String(number).padStart(2, '0')
   const id = `agent-${suffix}`
   const role = input?.role ?? 'product'
+  const roleName = input?.roleName?.trim() || role
   const normalizedWorkdir = normalizeStationWorkdirInput(input?.workdir ?? '')
-  const hasCustomWorkdir =
-    typeof normalizedWorkdir === 'string' && normalizedWorkdir.length > 0
+  const hasCustomWorkdir = input?.customWorkdir ?? false
+  const defaultWorkdir = buildStationWorkdirs(role, input?.name?.trim() || id).agentWorkdirRel
   const workdir = hasCustomWorkdir
-    ? normalizedWorkdir
-    : buildStationWorkdirs(role, id).agentWorkdirRel
+    ? normalizedWorkdir || defaultWorkdir
+    : defaultWorkdir
   const tool = input?.tool?.trim() ? input.tool.trim() : 'codex cli'
   return {
     id,
     name: input?.name?.trim() ? input.name.trim() : `角色-${suffix}`,
+    roleId: input?.roleId?.trim() || `local-role-${role}`,
     role,
+    roleName,
     roleWorkdirRel: buildRoleWorkdirRel(role),
     agentWorkdirRel: workdir,
     customWorkdir: hasCustomWorkdir,
     tool,
     toolKind: normalizeStationToolKind(tool),
+    promptFileName: null,
+    promptFileRelativePath: null,
     terminalSessionId: `ts_${String(number).padStart(3, '0')}`,
     state: 'idle',
     workspaceId: workspaceId ?? 'ws_gtoffice',
@@ -779,9 +784,13 @@ export function createStationEditInput(station: AgentStation): UpdateStationInpu
   return {
     id: station.id,
     name: station.name,
+    roleId: station.roleId,
     role: station.role,
+    roleName: station.roleName,
     tool: station.tool,
     workdir: station.agentWorkdirRel,
+    customWorkdir: station.customWorkdir,
+    promptContent: '',
   }
 }
 

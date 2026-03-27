@@ -56,4 +56,5 @@ pub trait AgentRepository: Send + Sync {
         role_id: &str,
         status: RoleStatus,
     ) -> AgentResult<bool>;
+    fn delete_role(&self, workspace_id: &str, role_id: &str) -> AgentResult<bool>;
 }

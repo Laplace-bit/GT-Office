@@ -1113,12 +1113,15 @@ export interface OrganizationDepartment {
   updatedAtMs: number
 }
 
+export type AgentRoleScope = 'global' | 'workspace'
+
 export interface AgentRole {
   id: string
   workspaceId: string
   roleKey: string
   roleName: string
   departmentId: string
+  scope: AgentRoleScope
   charterPath?: string | null
   policyJson?: string | null
   version: number
@@ -1139,6 +1142,8 @@ export interface AgentProfile {
   state: AgentState
   employeeNo?: string | null
   policySnapshotId?: string | null
+  promptFileName?: string | null
+  promptFileRelativePath?: string | null
   createdAtMs: number
   updatedAtMs: number
 }
@@ -1165,6 +1170,7 @@ export interface AgentCreateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptContent?: string | null
 }
 
 export interface AgentCreateResponse {
@@ -1181,6 +1187,7 @@ export interface AgentUpdateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptContent?: string | null
 }
 
 export interface AgentUpdateResponse {
@@ -1194,6 +1201,39 @@ export interface AgentDeleteRequest {
 
 export interface AgentDeleteResponse {
   deleted: boolean
+}
+
+export interface AgentRoleSaveRequest {
+  workspaceId: string
+  roleId?: string | null
+  roleKey?: string | null
+  roleName: string
+  scope?: AgentRoleScope | null
+}
+
+export interface AgentRoleSaveResponse {
+  role: AgentRole
+}
+
+export interface AgentRoleDeleteRequest {
+  workspaceId: string
+  roleId: string
+  scope?: AgentRoleScope | null
+}
+
+export interface AgentRoleDeleteResponse {
+  deleted: boolean
+}
+
+export interface AgentPromptReadRequest {
+  workspaceId: string
+  agentId: string
+}
+
+export interface AgentPromptReadResponse {
+  promptContent: string
+  promptFileName?: string | null
+  promptFileRelativePath?: string | null
 }
 
 export interface AgentRuntimeRegisterRequest {
@@ -2482,6 +2522,26 @@ export const desktopApi = {
   agentRoleList(workspaceId: string) {
     return invokeCommand<AgentRoleListResponse>('agent_role_list', { workspaceId })
   },
+  agentRoleSave(request: AgentRoleSaveRequest) {
+    return invokeCommand<AgentRoleSaveResponse>('agent_role_save', {
+      request: {
+        workspaceId: request.workspaceId,
+        roleId: request.roleId ?? null,
+        roleKey: request.roleKey ?? null,
+        roleName: request.roleName,
+        scope: request.scope ?? null,
+      },
+    })
+  },
+  agentRoleDelete(request: AgentRoleDeleteRequest) {
+    return invokeCommand<AgentRoleDeleteResponse>('agent_role_delete', {
+      request: {
+        workspaceId: request.workspaceId,
+        roleId: request.roleId,
+        scope: request.scope ?? null,
+      },
+    })
+  },
   agentList(workspaceId: string) {
     return invokeCommand<AgentListResponse>('agent_list', { workspaceId })
   },
@@ -2497,6 +2557,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptContent: request.promptContent ?? null,
       },
     })
   },
@@ -2512,11 +2573,20 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptContent: request.promptContent ?? null,
       },
     })
   },
   agentDelete(request: AgentDeleteRequest) {
     return invokeCommand<AgentDeleteResponse>('agent_delete', {
+      request: {
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
+      },
+    })
+  },
+  agentPromptRead(request: AgentPromptReadRequest) {
+    return invokeCommand<AgentPromptReadResponse>('agent_prompt_read', {
       request: {
         workspaceId: request.workspaceId,
         agentId: request.agentId,

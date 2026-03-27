@@ -78,22 +78,23 @@ export interface DetachedWorkbenchWindowPayload {
 }
 
 function toStationRole(value: string): StationRole {
-  if (value === 'manager' || value === 'product' || value === 'build' || value === 'quality_release') {
-    return value
-  }
-  return 'build'
+  return value
 }
 
 function mapDetachedStation(payload: SurfaceDetachedStationPayload): AgentStation {
   return {
     id: payload.stationId,
     name: payload.name,
+    roleId: payload.stationId,
     role: toStationRole(payload.role),
-    roleWorkdirRel: payload.roleWorkdirRel?.trim() || '.gtoffice/org',
+    roleName: payload.role,
+    roleWorkdirRel: payload.roleWorkdirRel?.trim() || '.gtoffice/roles/detached',
     agentWorkdirRel: payload.agentWorkdirRel,
     customWorkdir: true,
     tool: payload.tool,
     toolKind: normalizeStationToolKind(payload.tool),
+    promptFileName: null,
+    promptFileRelativePath: null,
     terminalSessionId: payload.sessionId?.trim() ?? '',
     state: payload.sessionId ? 'running' : 'idle',
     workspaceId: payload.workspaceId,
