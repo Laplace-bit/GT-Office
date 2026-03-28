@@ -31,4 +31,5 @@ _backups/
 # Local agent runtime artifacts
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.worktrees/
 .superpowers/
