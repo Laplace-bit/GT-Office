@@ -1979,7 +1979,7 @@ test('createAgentCommands().create() requires name and roleId', () => {
 })
 
 
-test('createAgentCommands().update() merges unspecified fields from the current agent', async () => {
+test('createAgentCommands().update() merges unspecified non-prompt fields from the current agent', async () => {
   const backendCalls: Array<{ method: string; params: unknown }> = []
   const backend = {
     list: async ({ workspaceId }: { workspaceId: string }) => {
@@ -1997,6 +1997,7 @@ test('createAgentCommands().update() merges unspecified fields from the current 
             employeeNo: 'E-1',
             state: 'ready',
             promptFileName: 'CLAUDE.md',
+            promptContent: 'Be helpful',
           },
         ],
       }
@@ -2030,8 +2031,6 @@ test('createAgentCommands().update() merges unspecified fields from the current 
         customWorkdir: false,
         employeeNo: 'E-1',
         state: 'ready',
-        promptFileName: 'CLAUDE.md',
-        promptContent: null,
       },
     },
   ])
@@ -2045,8 +2044,6 @@ test('createAgentCommands().update() merges unspecified fields from the current 
     customWorkdir: false,
     employeeNo: 'E-1',
     state: 'ready',
-    promptFileName: 'CLAUDE.md',
-    promptContent: null,
   })
 })
 
@@ -2086,8 +2083,6 @@ test('createAgentCommands().update() preserves immutable identity fields from th
     customWorkdir: false,
     employeeNo: null,
     state: null,
-    promptFileName: null,
-    promptContent: null,
   })
 })
 
@@ -2268,7 +2263,7 @@ test('createAgentCommands().create() throws when roleId is missing', () => {
   )
 })
 
-test('createAgentCommands().update() preserves existing optional fields when patch omits them', async () => {
+test('createAgentCommands().update() preserves existing optional non-prompt fields when patch omits them', async () => {
   const commands = createAgentCommands({
     list: async () => ({
       agents: [{
@@ -2304,8 +2299,42 @@ test('createAgentCommands().update() preserves existing optional fields when pat
     customWorkdir: true,
     employeeNo: 'E-1',
     state: 'ready',
-    promptFileName: 'CLAUDE.md',
-    promptContent: 'Be helpful',
+  })
+})
+
+
+test('createAgentCommands().update() forwards explicit prompt fields only', async () => {
+  const commands = createAgentCommands({
+    list: async () => ({
+      agents: [{
+        id: 'agent-1',
+        workspaceId: 'ws-1',
+        name: 'Alpha',
+        roleId: 'role-1',
+        promptFileName: 'CLAUDE.md',
+        promptContent: 'Be helpful',
+      }],
+    }),
+    update: async (params: Record<string, unknown>) => params,
+  } as never)
+
+  const result = await commands.update({
+    workspaceId: 'ws-1',
+    agentId: 'agent-1',
+    payload: { promptContent: 'New prompt' },
+  })
+
+  assert.deepEqual(result, {
+    agentId: 'agent-1',
+    workspaceId: 'ws-1',
+    name: 'Alpha',
+    roleId: 'role-1',
+    tool: null,
+    workdir: null,
+    customWorkdir: false,
+    employeeNo: null,
+    state: null,
+    promptContent: 'New prompt',
   })
 })
 
@@ -2459,7 +2488,7 @@ test('createAgentCommands().create() forwards prompt content when provided', asy
   assert.equal(result.promptContent, 'Be helpful')
 })
 
-test('createAgentCommands().update() forwards prompt content from merged current value when omitted', async () => {
+test('createAgentCommands().update() omits prompt content when it is not explicitly provided', async () => {
   const commands = createAgentCommands({
     list: async () => ({ agents: [{ id: 'agent-1', workspaceId: 'ws-1', name: 'Alpha', roleId: 'role-1', promptContent: 'Be helpful' }] }),
     update: async (params: Record<string, unknown>) => params,
@@ -2471,7 +2500,7 @@ test('createAgentCommands().update() forwards prompt content from merged current
     payload: { name: 'Alpha Prime' },
   })
 
-  assert.equal(result.promptContent, 'Be helpful')
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'promptContent'), false)
 })
 
 test('createAgentCommands().update() allows replacing tool while keeping required fields', async () => {
@@ -2516,14 +2545,14 @@ test('createAgentCommands().update() preserves null workdir', async () => {
   assert.equal(result.workdir, null)
 })
 
-test('createAgentCommands().update() keeps null prompt content when absent', async () => {
+test('createAgentCommands().update() omits null prompt content when absent', async () => {
   const commands = createAgentCommands({
     list: async () => ({ agents: [{ id: 'agent-1', workspaceId: 'ws-1', name: 'Alpha', roleId: 'role-1', promptContent: null }] }),
     update: async (params: Record<string, unknown>) => params,
   } as never)
 
   const result = await commands.update({ workspaceId: 'ws-1', agentId: 'agent-1', payload: { name: 'Alpha Prime' } })
-  assert.equal(result.promptContent, null)
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'promptContent'), false)
 })
 
 test('createAgentCommands().create() keeps null prompt defaults', async () => {
@@ -2539,14 +2568,14 @@ test('createAgentCommands().create() keeps null prompt defaults', async () => {
   assert.equal(result.promptContent, null)
 })
 
-test('createAgentCommands().update() keeps null prompt file name when absent', async () => {
+test('createAgentCommands().update() omits null prompt file name when absent', async () => {
   const commands = createAgentCommands({
     list: async () => ({ agents: [{ id: 'agent-1', workspaceId: 'ws-1', name: 'Alpha', roleId: 'role-1', promptFileName: null }] }),
     update: async (params: Record<string, unknown>) => params,
   } as never)
 
   const result = await commands.update({ workspaceId: 'ws-1', agentId: 'agent-1', payload: { name: 'Alpha Prime' } })
-  assert.equal(result.promptFileName, null)
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'promptFileName'), false)
 })
 
 test('createAgentCommands().remove() forwards agent identity only', async () => {

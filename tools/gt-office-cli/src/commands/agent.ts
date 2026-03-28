@@ -83,11 +83,33 @@ function toAgentCreateParams(workspaceId: string, payload: Record<string, unknow
   }
 }
 
-function toAgentUpdateParams(workspaceId: string, agentId: string, payload: Record<string, unknown>): AgentUpdateParams {
-  return {
+function toAgentUpdateParams(
+  workspaceId: string,
+  agentId: string,
+  payload: Record<string, unknown>,
+  explicitPayload: Record<string, unknown>,
+): AgentUpdateParams {
+  const params: AgentUpdateParams = {
     agentId,
-    ...toAgentCreateParams(workspaceId, payload),
+    workspaceId,
+    name: asString(payload.name, '--name'),
+    roleId: asString(payload.roleId, '--role-id'),
+    tool: typeof payload.tool === 'string' ? payload.tool : null,
+    workdir: typeof payload.workdir === 'string' ? payload.workdir : null,
+    customWorkdir: typeof payload.customWorkdir === 'boolean' ? payload.customWorkdir : false,
+    employeeNo: typeof payload.employeeNo === 'string' ? payload.employeeNo : null,
+    state: typeof payload.state === 'string' ? payload.state : null,
   }
+
+  if (Object.prototype.hasOwnProperty.call(explicitPayload, 'promptFileName')) {
+    params.promptFileName = typeof payload.promptFileName === 'string' ? payload.promptFileName : null
+  }
+
+  if (Object.prototype.hasOwnProperty.call(explicitPayload, 'promptContent')) {
+    params.promptContent = typeof payload.promptContent === 'string' ? payload.promptContent : null
+  }
+
+  return params
 }
 
 export function createAgentCommands(backend: AgentBackend) {
@@ -110,7 +132,7 @@ export function createAgentCommands(backend: AgentBackend) {
         workspaceId: current.workspaceId ?? params.workspaceId,
       }
 
-      return backend.update<T>(toAgentUpdateParams(params.workspaceId, params.agentId, merged))
+      return backend.update<T>(toAgentUpdateParams(params.workspaceId, params.agentId, merged, params.payload))
     },
     remove<T>(params: { workspaceId: string; agentId: string }) {
       return backend.delete<T>(params)

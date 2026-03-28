@@ -597,6 +597,34 @@ function writeOutput(deps: CliDeps, text: string) {
   deps.stdout?.write(text)
 }
 
+function hasStringProperty(value: unknown, key: 'code' | 'message'): value is Record<typeof key, string> {
+  return typeof value === 'object' && value !== null && key in value && typeof value[key] === 'string'
+}
+
+function readErrorCode(error: unknown) {
+  if (error instanceof CliError) {
+    return error.code
+  }
+
+  if (hasStringProperty(error, 'code')) {
+    return error.code
+  }
+
+  return 'CLI_ERROR'
+}
+
+function readErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (hasStringProperty(error, 'message')) {
+    return error.message
+  }
+
+  return String(error)
+}
+
 export function buildCliMetadata() {
   return {
     name: 'gt-office-cli',
@@ -635,8 +663,8 @@ export async function runCli(argv: string[], deps: CliDeps = {}) {
 
     throw new CliError('UNKNOWN_COMMAND', `Unknown command: ${group}`)
   } catch (error) {
-    const code = error instanceof CliError ? error.code : 'CLI_ERROR'
-    const message = error instanceof Error ? error.message : String(error)
+    const code = readErrorCode(error)
+    const message = readErrorMessage(error)
 
     writeOutput(deps, renderOutput(errorResult(code, message), asJson))
     return 1

@@ -91,6 +91,58 @@ test('runCli rejects missing workspace-id values for agent list', async () => {
   })
 })
 
+test('runCli preserves machine-readable codes from non-CliError Error instances', async () => {
+  const writes: string[] = []
+  const error = new Error('Agent not found in bridge response') as Error & { code: string }
+  error.code = 'AGENT_NOT_FOUND'
+
+  const exitCode = await runCli(['agent', 'list', '--workspace-id', 'ws-1', '--json'], {
+    stdout: {
+      write(chunk: string) {
+        writes.push(chunk)
+      },
+    },
+    createAgentCommands() {
+      return {
+        list: async () => {
+          throw error
+        },
+      }
+    },
+  })
+
+  assert.equal(exitCode, 1)
+  assertErrorEnvelope(writes, {
+    code: 'AGENT_NOT_FOUND',
+    message: 'Agent not found in bridge response',
+  })
+})
+
+test('runCli preserves machine-readable codes from thrown objects with code and message', async () => {
+  const writes: string[] = []
+
+  const exitCode = await runCli(['agent', 'list', '--workspace-id', 'ws-1', '--json'], {
+    stdout: {
+      write(chunk: string) {
+        writes.push(chunk)
+      },
+    },
+    createAgentCommands() {
+      return {
+        list: async () => {
+          throw { code: 'ROLE_IN_USE', message: 'Role is assigned to active agents' }
+        },
+      }
+    },
+  })
+
+  assert.equal(exitCode, 1)
+  assertErrorEnvelope(writes, {
+    code: 'ROLE_IN_USE',
+    message: 'Role is assigned to active agents',
+  })
+})
+
 test('runCli handles agent get in json mode', async () => {
   const writes: string[] = []
   const exitCode = await runCli(['agent', 'get', 'agent-1', '--workspace-id', 'ws-1', '--json'], {
