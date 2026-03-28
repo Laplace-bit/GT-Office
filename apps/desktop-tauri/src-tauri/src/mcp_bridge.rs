@@ -16,7 +16,7 @@ use vb_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
     WorkspaceService,
 };
-use vb_agent::AgentRepository;
+use vb_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
 use vb_storage::{SqliteAgentRepository, SqliteStorage};
 use vb_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
@@ -24,6 +24,11 @@ use vb_task::{
 };
 
 use crate::app_state::AppState;
+use crate::commands::agent::{
+    agent_create, agent_delete, agent_list, agent_prompt_read, agent_role_delete, agent_role_list,
+    agent_role_save, agent_update, AgentCreateRequest, AgentDeleteRequest, AgentPromptReadRequest,
+    AgentRoleDeleteRequest, AgentRoleSaveRequest, AgentUpdateRequest,
+};
 use crate::commands::settings::ai_config::augment_terminal_env_for_agent;
 use crate::commands::task_center::write_terminal_with_submit;
 
@@ -54,10 +59,192 @@ struct BridgeRequest {
 struct BridgeResponse {
     id: String,
     ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<BridgeErrorPayload>,
+    trace_id: String,
+}
+
+impl BridgeResponse {
+    fn success(id: String, data: Value) -> Self {
+        Self {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+            trace_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    fn failure(id: String, error: BridgeErrorPayload) -> Self {
+        Self {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error),
+            trace_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vb_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentState, RoleStatus};
+
+    #[test]
+    fn bridge_response_serializes_stable_success_envelope() {
+        let response = BridgeResponse::success("req-1".to_string(), json!({ "value": 1 }));
+        let value = serde_json::to_value(response).expect("bridge response should serialize");
+
+        assert_eq!(value["ok"], json!(true));
+        assert_eq!(value["data"], json!({ "value": 1 }));
+        assert_eq!(value["error"], Value::Null);
+        assert!(value["traceId"].as_str().is_some_and(|trace_id| !trace_id.is_empty()));
+    }
+
+    #[test]
+    fn bridge_response_serializes_stable_failure_envelope() {
+        let response = BridgeResponse::failure(
+            "req-1".to_string(),
+            BridgeError::new("MCP_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
+        );
+        let value = serde_json::to_value(response).expect("bridge response should serialize");
+
+        assert_eq!(value["ok"], json!(false));
+        assert_eq!(value["data"], Value::Null);
+        assert_eq!(value["error"]["code"], json!("MCP_BRIDGE_AUTH_FAILED"));
+        assert_eq!(value["error"]["message"], json!("invalid bridge token"));
+        assert!(value["traceId"].as_str().is_some_and(|trace_id| !trace_id.is_empty()));
+    }
+
+    #[test]
+    fn resolve_bootstrap_role_key_prefers_agent_role_mapping() {
+        let agents = vec![AgentProfile {
+            id: "agent_alpha".to_string(),
+            workspace_id: "ws-1".to_string(),
+            name: "Alpha".to_string(),
+            role_id: "role_product".to_string(),
+            tool: "claude".to_string(),
+            workdir: Some(".gtoffice/alpha".to_string()),
+            custom_workdir: false,
+            state: AgentState::Ready,
+            employee_no: None,
+            policy_snapshot_id: None,
+            prompt_file_name: Some("CLAUDE.md".to_string()),
+            prompt_file_relative_path: Some(".gtoffice/alpha/CLAUDE.md".to_string()),
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        }];
+        let roles = vec![AgentRole {
+            id: "role_product".to_string(),
+            workspace_id: "ws-1".to_string(),
+            role_key: "product".to_string(),
+            role_name: "Product".to_string(),
+            department_id: "dept_product_management".to_string(),
+            scope: AgentRoleScope::Workspace,
+            charter_path: None,
+            policy_json: Some("{}".to_string()),
+            version: 1,
+            status: RoleStatus::Active,
+            is_system: false,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        }];
+
+        assert_eq!(
+            resolve_bootstrap_role_key("agent_alpha", &agents, &roles),
+            Some("product".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_bootstrap_role_key_falls_back_to_matching_role_key() {
+        let roles = vec![AgentRole {
+            id: "role_build".to_string(),
+            workspace_id: "ws-1".to_string(),
+            role_key: "build".to_string(),
+            role_name: "Build".to_string(),
+            department_id: "dept_delivery_engineering".to_string(),
+            scope: AgentRoleScope::Global,
+            charter_path: None,
+            policy_json: Some("{}".to_string()),
+            version: 1,
+            status: RoleStatus::Active,
+            is_system: true,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        }];
+
+        assert_eq!(
+            resolve_bootstrap_role_key("build", &[], &roles),
+            Some("build".to_string())
+        );
+    }
+
+    #[test]
+    fn build_agent_terminal_env_includes_role_key_when_present() {
+        let env = build_agent_terminal_env("ws-1", "agent_alpha", Some("product"), "station-1");
+
+        assert_eq!(env.get("GTO_WORKSPACE_ID").map(String::as_str), Some("ws-1"));
+        assert_eq!(env.get("GTO_AGENT_ID").map(String::as_str), Some("agent_alpha"));
+        assert_eq!(env.get("GTO_ROLE_KEY").map(String::as_str), Some("product"));
+        assert_eq!(env.get("GTO_STATION_ID").map(String::as_str), Some("station-1"));
+    }
+
+    #[test]
+    fn require_bootstrap_role_key_rejects_missing_role_key() {
+        let error = require_bootstrap_role_key("agent_unknown", None).expect_err("missing role key should fail");
+
+        assert_eq!(error.code, "MCP_BRIDGE_INVALID_PARAMS");
+        assert_eq!(error.message, "bootstrap roleKey is required for target: agent_unknown");
+    }
+
+    #[test]
+    fn map_command_error_preserves_machine_readable_code() {
+        let error = map_command_error("AGENT_NOT_FOUND: missing agent".to_string());
+        let payload = error.payload();
+
+        assert_eq!(payload.code, "AGENT_NOT_FOUND");
+        assert_eq!(payload.message, "missing agent");
+        assert_eq!(payload.details, None);
+    }
+
+    #[test]
+    fn map_command_error_falls_back_to_bridge_internal_for_unstructured_errors() {
+        let error = map_command_error("database unavailable".to_string());
+        let payload = error.payload();
+
+        assert_eq!(payload.code, "MCP_BRIDGE_INTERNAL");
+        assert_eq!(payload.message, "database unavailable");
+        assert_eq!(payload.details, None);
+    }
+
+    #[test]
+    fn seed_agent_defaults_makes_global_roles_visible_for_workspace_listing() {
+        let db_path = std::env::temp_dir().join(format!(
+            "mcp-bridge-seed-agent-defaults-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let storage = SqliteStorage::new(&db_path).expect("create sqlite storage");
+        let repo = SqliteAgentRepository::new(storage);
+        repo.ensure_schema().expect("ensure schema");
+
+        let before = repo.list_roles("ws_alpha").expect("list roles before seed");
+        assert!(
+            !before.iter().any(|role| role.role_key == "build"),
+            "fresh database should not expose built-in global roles before seeding"
+        );
+
+        seed_agent_defaults(&repo, "ws_alpha").expect("seed defaults");
+
+        let after = repo.list_roles("ws_alpha").expect("list roles after seed");
+        assert!(
+            after.iter().any(|role| {
+                role.workspace_id == GLOBAL_ROLE_WORKSPACE_ID && role.role_key == "build"
+            }),
+            "workspace role listing should include seeded global built-in roles"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,13 +309,62 @@ impl BridgeError {
         }
     }
 
-    fn payload(&self) -> BridgeErrorPayload {
-        BridgeErrorPayload {
-            code: self.code.to_string(),
-            message: self.message.clone(),
-            details: self.details.clone(),
+    fn with_code(code: String, message: impl Into<String>) -> Self {
+        Self {
+            code: "MCP_BRIDGE_INTERNAL",
+            message: message.into(),
+            details: Some(json!({ "bridgeErrorCode": code })),
         }
     }
+
+    fn payload(&self) -> BridgeErrorPayload {
+        let code = self
+            .details
+            .as_ref()
+            .and_then(|details| details.get("bridgeErrorCode"))
+            .and_then(Value::as_str)
+            .unwrap_or(self.code)
+            .to_string();
+        BridgeErrorPayload {
+            code,
+            message: self.message.clone(),
+            details: self.details.clone().and_then(|details| match details.get("bridgeErrorCode") {
+                Some(_) if details.as_object().is_some_and(|object| object.len() == 1) => None,
+                _ => Some(details),
+            }),
+        }
+    }
+}
+
+fn parse_command_error(error: &str) -> Option<(String, String)> {
+    let trimmed = error.trim();
+    let (code, message) = trimmed.split_once(':')?;
+    let code = code.trim();
+    let message = message.trim();
+    if code.is_empty() || message.is_empty() {
+        return None;
+    }
+    if !code
+        .chars()
+        .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
+    {
+        return None;
+    }
+    Some((code.to_string(), message.to_string()))
+}
+
+fn map_command_error(error: String) -> BridgeError {
+    match parse_command_error(&error) {
+        Some((code, message)) => BridgeError::with_code(code, message),
+        None => BridgeError::new("MCP_BRIDGE_INTERNAL", error),
+    }
+}
+
+fn seed_agent_defaults(repo: &SqliteAgentRepository, workspace_id: &str) -> Result<(), BridgeError> {
+    repo.seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+    repo.seed_defaults(workspace_id)
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))
 }
 
 pub fn spawn(app: AppHandle, state: AppState) {
@@ -196,46 +432,28 @@ async fn handle_client(
         let request = match serde_json::from_str::<BridgeRequest>(&line) {
             Ok(request) => request,
             Err(error) => {
-                let response = BridgeResponse {
-                    id: "unknown".to_string(),
-                    ok: false,
-                    data: None,
-                    error: Some(
-                        BridgeError::new(
-                            "MCP_BRIDGE_INVALID_REQUEST",
-                            format!("invalid request json: {error}"),
-                        )
-                        .payload(),
-                    ),
-                };
+                let response = BridgeResponse::failure(
+                    "unknown".to_string(),
+                    BridgeError::new(
+                        "MCP_BRIDGE_INVALID_REQUEST",
+                        format!("invalid request json: {error}"),
+                    )
+                    .payload(),
+                );
                 write_response(&mut writer, &response).await?;
                 continue;
             }
         };
 
         let response = if request.token != expected_token {
-            BridgeResponse {
-                id: request.id,
-                ok: false,
-                data: None,
-                error: Some(
-                    BridgeError::new("MCP_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
-                ),
-            }
+            BridgeResponse::failure(
+                request.id,
+                BridgeError::new("MCP_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
+            )
         } else {
             match handle_request(app, state, &request).await {
-                Ok(data) => BridgeResponse {
-                    id: request.id,
-                    ok: true,
-                    data: Some(data),
-                    error: None,
-                },
-                Err(error) => BridgeResponse {
-                    id: request.id,
-                    ok: false,
-                    data: None,
-                    error: Some(error.payload()),
-                },
+                Ok(data) => BridgeResponse::success(request.id, data),
+                Err(error) => BridgeResponse::failure(request.id, error.payload()),
             }
         };
 
@@ -271,6 +489,14 @@ async fn handle_request(
             "directorySnapshotCount": count_directory_snapshots(state),
         })),
         "directory.get" => directory_get(app, state, request.params.clone()),
+        "agent.role_list" => bridge_agent_role_list(app, state, request.params.clone()),
+        "agent.role_save" => bridge_agent_role_save(app, state, request.params.clone()),
+        "agent.role_delete" => bridge_agent_role_delete(app, state, request.params.clone()),
+        "agent.list" => bridge_agent_list(app, state, request.params.clone()),
+        "agent.create" => bridge_agent_create(app, state, request.params.clone()),
+        "agent.update" => bridge_agent_update(app, state, request.params.clone()),
+        "agent.delete" => bridge_agent_delete(app, state, request.params.clone()),
+        "agent.prompt_read" => bridge_agent_prompt_read(app, state, request.params.clone()),
         "dev.bootstrap_agents" => dev_bootstrap_agents(app, state, request.params.clone()),
         "task.dispatch_batch" => dispatch_batch(app, state, request.params.clone()),
         "channel.publish" => publish_channel(app, state, request.params.clone()),
@@ -280,6 +506,154 @@ async fn handle_request(
             format!("unsupported method: {method}"),
         )),
     }
+}
+
+fn bridge_agent_role_list(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct WorkspaceRequest {
+        workspace_id: String,
+    }
+
+    let request: WorkspaceRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.role_list params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_role_list(request.workspace_id, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_role_save(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentRoleSaveRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.role_save params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_role_save(request, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_role_delete(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentRoleDeleteRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.role_delete params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_role_delete(request, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_list(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct WorkspaceRequest {
+        workspace_id: String,
+    }
+
+    let request: WorkspaceRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.list params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_list(request.workspace_id, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_create(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentCreateRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.create params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_create(request, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_update(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentUpdateRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.update params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_update(request, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_delete(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentDeleteRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.delete params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_delete(request, state_guard, app.clone())
+        .map_err(map_command_error)
+}
+
+fn bridge_agent_prompt_read(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentPromptReadRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("agent.prompt_read params invalid: {error}"),
+        )
+    })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_prompt_read(request, state_guard, app.clone())
+        .map_err(map_command_error)
 }
 
 fn count_directory_snapshots(state: &AppState) -> usize {
@@ -317,7 +691,7 @@ fn directory_get(app: &AppHandle, state: &AppState, params: Value) -> Result<Val
     }
 
     refresh_directory_snapshot(app, state, workspace_id)
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error))
+        .map_err(map_command_error)
 }
 
 pub fn refresh_directory_snapshot(
@@ -348,8 +722,7 @@ fn build_directory_snapshot(
 
     let repo = resolve_agent_repository(app)?;
     repo.ensure_schema().map_err(|error| error.to_string())?;
-    repo.seed_defaults(workspace_id)
-        .map_err(|error| error.to_string())?;
+    seed_agent_defaults(&repo, workspace_id).map_err(|error| error.message)?;
 
     let departments = repo
         .list_departments(workspace_id)
@@ -549,6 +922,18 @@ fn dev_bootstrap_agents(
         .open(Path::new(workspace_path))
         .map_err(|error| BridgeError::new("MCP_BRIDGE_WORKSPACE_INVALID", error.to_string()))?;
 
+    let repo = resolve_agent_repository(app)
+        .map_err(map_command_error)?;
+    repo.ensure_schema()
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+    seed_agent_defaults(&repo, workspace.workspace_id.as_str())?;
+    let roles = repo
+        .list_roles(workspace.workspace_id.as_str())
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+    let agents = repo
+        .list_agents(workspace.workspace_id.as_str())
+        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+
     let cwd_mode = parse_bootstrap_cwd_mode(request.cwd_mode.as_deref())?;
     let shell_name = request
         .shell
@@ -563,8 +948,16 @@ fn dev_bootstrap_agents(
 
     let mut bootstrapped_agents = Vec::with_capacity(targets.len());
     for agent_id in targets {
-        let terminal_env =
-            build_agent_terminal_env(workspace.workspace_id.as_str(), &agent_id, None, &agent_id);
+        let role_key = require_bootstrap_role_key(
+            &agent_id,
+            resolve_bootstrap_role_key(&agent_id, &agents, &roles),
+        )?;
+        let terminal_env = build_agent_terminal_env(
+            workspace.workspace_id.as_str(),
+            &agent_id,
+            Some(role_key.as_str()),
+            &agent_id,
+        );
         let terminal_env = augment_terminal_env_for_agent(
             app,
             state,
@@ -600,7 +993,7 @@ fn dev_bootstrap_agents(
                 workspace_id: workspace.workspace_id.to_string(),
                 agent_id: agent_id.clone(),
                 station_id: agent_id.clone(),
-                role_key: None,
+                role_key: Some(role_key.clone()),
                 session_id: session.session_id.clone(),
                 tool_kind,
                 resolved_cwd: Some(session.resolved_cwd.clone()),
@@ -612,6 +1005,7 @@ fn dev_bootstrap_agents(
         bootstrapped_agents.push(json!({
             "agentId": agent_id,
             "stationId": agent_id,
+            "roleKey": role_key,
             "sessionId": session.session_id,
             "toolKind": tool_kind,
             "resolvedCwd": session.resolved_cwd,
@@ -628,6 +1022,48 @@ fn dev_bootstrap_agents(
         "cwdMode": bootstrap_cwd_mode_label(&cwd_mode),
         "agents": bootstrapped_agents,
     }))
+}
+
+fn resolve_bootstrap_role_key(
+    agent_id: &str,
+    agents: &[vb_agent::AgentProfile],
+    roles: &[vb_agent::AgentRole],
+) -> Option<String> {
+    agents
+        .iter()
+        .find(|agent| agent.id == agent_id)
+        .and_then(|agent| roles.iter().find(|role| role.id == agent.role_id))
+        .map(|role| role.role_key.clone())
+        .or_else(|| {
+            roles.iter()
+                .find(|role| role.role_key == agent_id)
+                .map(|role| role.role_key.clone())
+        })
+}
+
+fn require_bootstrap_role_key(agent_id: &str, role_key: Option<String>) -> Result<String, BridgeError> {
+    role_key.ok_or_else(|| {
+        BridgeError::new(
+            "MCP_BRIDGE_INVALID_PARAMS",
+            format!("bootstrap roleKey is required for target: {agent_id}"),
+        )
+    })
+}
+
+fn build_agent_terminal_env(
+    workspace_id: &str,
+    agent_id: &str,
+    role_key: Option<&str>,
+    station_id: &str,
+) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    env.insert("GTO_WORKSPACE_ID".to_string(), workspace_id.to_string());
+    env.insert("GTO_AGENT_ID".to_string(), agent_id.to_string());
+    env.insert("GTO_STATION_ID".to_string(), station_id.to_string());
+    if let Some(role_key) = role_key.map(str::trim).filter(|value| !value.is_empty()) {
+        env.insert("GTO_ROLE_KEY".to_string(), role_key.to_string());
+    }
+    env
 }
 
 fn to_terminal_error(error: AbstractionError) -> String {
@@ -673,22 +1109,6 @@ fn bootstrap_cwd_mode_label(mode: &TerminalCwdMode) -> &'static str {
         TerminalCwdMode::WorkspaceRoot => "workspace_root",
         TerminalCwdMode::Custom => "custom",
     }
-}
-
-fn build_agent_terminal_env(
-    workspace_id: &str,
-    agent_id: &str,
-    role_key: Option<&str>,
-    station_id: &str,
-) -> BTreeMap<String, String> {
-    let mut env = BTreeMap::new();
-    env.insert("GTO_WORKSPACE_ID".to_string(), workspace_id.to_string());
-    env.insert("GTO_AGENT_ID".to_string(), agent_id.to_string());
-    env.insert("GTO_STATION_ID".to_string(), station_id.to_string());
-    if let Some(role_key) = role_key.map(str::trim).filter(|value| !value.is_empty()) {
-        env.insert("GTO_ROLE_KEY".to_string(), role_key.to_string());
-    }
-    env
 }
 
 fn emit_channel_events(

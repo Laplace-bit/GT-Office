@@ -1170,6 +1170,7 @@ export interface AgentCreateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptFileName?: string | null
   promptContent?: string | null
 }
 
@@ -1187,6 +1188,7 @@ export interface AgentUpdateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptFileName?: string | null
   promptContent?: string | null
 }
 
@@ -1209,6 +1211,9 @@ export interface AgentRoleSaveRequest {
   roleKey?: string | null
   roleName: string
   scope?: AgentRoleScope | null
+  status?: 'active' | 'deprecated' | 'disabled' | null
+  charterPath?: string | null
+  policyJson?: string | null
 }
 
 export interface AgentRoleSaveResponse {
@@ -2530,6 +2535,9 @@ export const desktopApi = {
         roleKey: request.roleKey ?? null,
         roleName: request.roleName,
         scope: request.scope ?? null,
+        status: request.status ?? null,
+        charterPath: request.charterPath ?? null,
+        policyJson: request.policyJson ?? null,
       },
     })
   },
@@ -2557,6 +2565,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
       },
     })
@@ -2573,6 +2582,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
       },
     })
