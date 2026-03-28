@@ -5,7 +5,8 @@
   "description": "GT Office monorepo",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "tools/*"
   ],
   "scripts": {
     "dev:web": "npm --workspace apps/desktop-web run dev",
