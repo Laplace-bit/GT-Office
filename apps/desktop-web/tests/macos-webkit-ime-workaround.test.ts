@@ -369,3 +369,81 @@ test('skips deferred native forwarding when xterm data contains or overlaps with
   // No overlap.
   assert.equal(shouldSkipDeferredMacOsTextInput('中', '文'), false)
 })
+
+test('preserves xterm helper textarea state when forwarding deferred macOS text input', () => {
+  assert.equal(Reflect.has(macOsWebKitImeWorkaround, 'resolveDeferredMacOsTextInputHandling'), true)
+
+  const resolveDeferredMacOsTextInputHandling = Reflect.get(
+    macOsWebKitImeWorkaround,
+    'resolveDeferredMacOsTextInputHandling',
+  ) as ((input: {
+    event: {
+      defaultPrevented: boolean
+      data: string | null
+      inputType: string
+    }
+    isMacOsWebKitEnvironment: boolean
+    textareaValue: string
+    xtermData: string | null
+  }) => {
+    action: 'pending' | 'reset' | 'forward'
+    text: string | null
+    nextTextareaValue: string
+  })
+
+  assert.deepEqual(
+    resolveDeferredMacOsTextInputHandling({
+      event: {
+        defaultPrevented: false,
+        data: '中',
+        inputType: 'insertFromComposition',
+      },
+      isMacOsWebKitEnvironment: true,
+      textareaValue: '中',
+      xtermData: null,
+    }),
+    {
+      action: 'forward',
+      text: '中',
+      nextTextareaValue: '中',
+    },
+  )
+})
+
+test('preserves xterm helper textarea state when deferred macOS text input was already consumed by xterm', () => {
+  const resolveDeferredMacOsTextInputHandling = Reflect.get(
+    macOsWebKitImeWorkaround,
+    'resolveDeferredMacOsTextInputHandling',
+  ) as ((input: {
+    event: {
+      defaultPrevented: boolean
+      data: string | null
+      inputType: string
+    }
+    isMacOsWebKitEnvironment: boolean
+    textareaValue: string
+    xtermData: string | null
+  }) => {
+    action: 'pending' | 'reset' | 'forward'
+    text: string | null
+    nextTextareaValue: string
+  })
+
+  assert.deepEqual(
+    resolveDeferredMacOsTextInputHandling({
+      event: {
+        defaultPrevented: false,
+        data: '，',
+        inputType: 'insertText',
+      },
+      isMacOsWebKitEnvironment: true,
+      textareaValue: '，',
+      xtermData: '，',
+    }),
+    {
+      action: 'reset',
+      text: null,
+      nextTextareaValue: '，',
+    },
+  )
+})

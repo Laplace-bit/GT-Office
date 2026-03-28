@@ -20,6 +20,19 @@ export interface TextInputEventLike {
   inputType: string
 }
 
+export interface DeferredMacOsTextInputHandlingInput {
+  event: TextInputEventLike
+  isMacOsWebKitEnvironment: boolean
+  textareaValue: string
+  xtermData: string | null
+}
+
+export interface DeferredMacOsTextInputHandlingResult {
+  action: 'pending' | 'reset' | 'forward'
+  text: string | null
+  nextTextareaValue: string
+}
+
 const APPLE_WEBKIT_RE = /AppleWebKit/i
 const CHROMIUM_RE = /Chrome|Chromium|CriOS|Edg|EdgiOS/i
 const FIREFOX_RE = /Firefox|FxiOS/i
@@ -96,4 +109,50 @@ export function shouldSkipDeferredMacOsTextInput(eventData: string | null, xterm
     return true
   }
   return false
+}
+
+export function resolveDeferredMacOsTextInputHandling({
+  event,
+  isMacOsWebKitEnvironment,
+  textareaValue,
+  xtermData,
+}: DeferredMacOsTextInputHandlingInput): DeferredMacOsTextInputHandlingResult {
+  if (shouldKeepDeferredMacOsTextInputPending(event, isMacOsWebKitEnvironment)) {
+    return {
+      action: 'pending',
+      text: null,
+      nextTextareaValue: textareaValue,
+    }
+  }
+
+  if (!shouldForwardDeferredMacOsTextInput(event, isMacOsWebKitEnvironment)) {
+    return {
+      action: 'reset',
+      text: null,
+      nextTextareaValue: textareaValue,
+    }
+  }
+
+  const text = event.data
+  if (!text) {
+    return {
+      action: 'reset',
+      text: null,
+      nextTextareaValue: textareaValue,
+    }
+  }
+
+  if (shouldSkipDeferredMacOsTextInput(text, xtermData)) {
+    return {
+      action: 'reset',
+      text: null,
+      nextTextareaValue: textareaValue,
+    }
+  }
+
+  return {
+    action: 'forward',
+    text,
+    nextTextareaValue: textareaValue,
+  }
 }

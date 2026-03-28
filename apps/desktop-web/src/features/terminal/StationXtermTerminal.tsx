@@ -7,10 +7,8 @@ import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import {
   isMacOsWebKitTextInputEnvironment,
+  resolveDeferredMacOsTextInputHandling,
   shouldBypassXtermTextKeyEvent,
-  shouldForwardDeferredMacOsTextInput,
-  shouldKeepDeferredMacOsTextInputPending,
-  shouldSkipDeferredMacOsTextInput,
 } from './macos-webkit-ime-workaround'
 
 export interface StationTerminalSink {
@@ -462,26 +460,25 @@ function StationXtermTerminalView({
             if (!pendingNativeTextInputRef?.current) {
               return
             }
-            if (shouldKeepDeferredMacOsTextInputPending(event, isMacOsWebKitImeFallbackEnabled)) {
-              return
-            }
-            if (!shouldForwardDeferredMacOsTextInput(event, isMacOsWebKitImeFallbackEnabled)) {
-              resetPendingNativeTextInput()
-              return
-            }
-            const text = event.data
-            if (!text) {
-              resetPendingNativeTextInput()
-              return
-            }
-            if (shouldSkipDeferredMacOsTextInput(text, pendingNativeTextInputXtermDataRef?.current ?? null)) {
-              resetPendingNativeTextInput()
-              terminalTextarea.value = ''
+            const resolution = resolveDeferredMacOsTextInputHandling({
+              event,
+              isMacOsWebKitEnvironment: isMacOsWebKitImeFallbackEnabled,
+              textareaValue: terminalTextarea.value,
+              xtermData: pendingNativeTextInputXtermDataRef?.current ?? null,
+            })
+            if (resolution.action === 'pending') {
               return
             }
             resetPendingNativeTextInput()
-            onDataRef.current(stationId, text)
-            terminalTextarea.value = ''
+            // Let xterm own the helper textarea lifecycle. Clearing it here desynchronizes
+            // WebKit's native text state from xterm's composition bookkeeping, which can
+            // leave stale glyphs visible after Backspace on macOS.
+            if (resolution.nextTextareaValue !== terminalTextarea.value) {
+              terminalTextarea.value = resolution.nextTextareaValue
+            }
+            if (resolution.action === 'forward' && resolution.text) {
+              onDataRef.current(stationId, resolution.text)
+            }
           }
           // After IME composition ends, reset the deferred input flag so the next
           // keystroke is not mistakenly treated as a continuation of the old
