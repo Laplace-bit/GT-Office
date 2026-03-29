@@ -78,12 +78,13 @@
 | `terminal.write` | `sessionId,input` | `accepted` |
 | `terminal.resize` | `sessionId,cols,rows` | `resized` |
 | `terminal.kill` | `sessionId,signal?` | `killed` |
-| `terminal.report_rendered_screen` | `sessionId,screenRevision,capturedAtMs,rows[]` | `accepted,screenRevision` |
+| `terminal.report_rendered_screen` | `sessionId,screenRevision,capturedAtMs,rows[],toolKind?` | `accepted,screenRevision,humanText?` |
 
 Station 约束（T-072）：
 1. 角色模式优先 `cwdMode=custom`，目录映射 `.gtoffice/org/{role}/{agent_id}`。
 2. `screenRevision` 必须单调递增；乱序/重复快照静默丢弃。
 3. 当 `agentToolKind=claude` 且 workspace 存在生效的 Claude provider 配置时，GT Office 必须在创建 terminal 时自动注入 Claude runtime env；Codex/Gemini v1 不注入额外 provider secret env。
+4. `humanText` 仅作为终端调试窗口的人类视图稳定正文信号，允许为空；为空时前端必须静默，不得回退展示 prompt / tool / status / input 中间态。
 
 ### 3.4 Git
 
