@@ -18,9 +18,7 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import {
-  clearStationTerminalDebugRecords,
   setStationTerminalDebugEnabled,
-  TerminalDebugPanel,
   StationXtermTerminal,
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
@@ -41,6 +39,7 @@ import './StationCard.scss'
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
+const TERMINAL_DEBUG_PANEL_ENABLED = false
 
 function roleLabel(locale: Locale, station: AgentStation): string {
   switch (station.role) {
@@ -192,12 +191,11 @@ function StationCardView({
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
   const [compactLayout, setCompactLayout] = useState(false)
-  const [terminalDebugHidden, setTerminalDebugHidden] = useState(true)
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
 
   useEffect(() => {
-    setStationTerminalDebugEnabled(station.id, active && !terminalDebugHidden)
-  }, [active, station.id, terminalDebugHidden])
+    setStationTerminalDebugEnabled(station.id, TERMINAL_DEBUG_PANEL_ENABLED && active)
+  }, [active, station.id])
 
   const cancelScheduledTerminalFocus = useCallback(() => {
     const frameId = terminalFocusFrameRef.current
@@ -566,15 +564,6 @@ function StationCardView({
             onRenderedScreenSnapshot={active ? onRenderedScreenSnapshot : undefined}
             onRestoreStateCaptured={onRestoreStateCaptured}
           />
-          {active ? (
-            <TerminalDebugPanel
-              stationId={station.id}
-              locale={locale}
-              hidden={terminalDebugHidden}
-              onHiddenChange={setTerminalDebugHidden}
-              onClear={() => clearStationTerminalDebugRecords(station.id)}
-            />
-          ) : null}
         </>
       ) : (
         <div className="station-terminal-idle-state">

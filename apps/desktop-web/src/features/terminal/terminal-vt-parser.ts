@@ -273,10 +273,15 @@ function isToolExecutionLine(line: string): boolean {
   )
 }
 
+function isStationMetadataLine(line: string): boolean {
+  return /^\$\s*(station|role|role_dir|agent_dir|tool):/i.test(line)
+}
+
 function isTerminalBootstrapLine(line: string): boolean {
   return (
     line === '[terminal:running]' ||
     line === '%' ||
+    isStationMetadataLine(line) ||
     /^\$\s*tool:/i.test(line) ||
     /^[^\s@]+@[^\s]+\s+.+[%#$]\s*(claude|codex|gemini)?$/i.test(line) ||
     /Claude Code v\d/i.test(line) ||
@@ -362,7 +367,13 @@ export function parseTerminalDebugHumanEntries(value: string): TerminalHumanEntr
   let index = 0
   while (index < lines.length) {
     const normalized = normalizeHumanLine(lines[index])
-    if (!normalized || isHorizontalRule(normalized) || normalized === '❯' || normalized === '⎿') {
+    if (
+      !normalized ||
+      isHorizontalRule(normalized) ||
+      normalized === '❯' ||
+      normalized === '⎿' ||
+      isTerminalBootstrapLine(normalized)
+    ) {
       index += 1
       continue
     }

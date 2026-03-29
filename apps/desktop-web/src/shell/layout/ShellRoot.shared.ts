@@ -1,4 +1,5 @@
 import { normalizeTaskQuickDispatchOpacity } from '@features/task-center'
+import { buildStationTerminalIdleBanner } from '@features/terminal/station-terminal-idle-banner'
 import {
   DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
   isWorkbenchLayoutMode,
@@ -518,12 +519,7 @@ export function getStationIdleBanner(station: AgentStation | undefined): string 
   if (!station) {
     return ''
   }
-  return `$ station: ${station.name}
-$ role: ${station.role}
-$ role_dir: ${station.roleWorkdirRel}
-$ agent_dir: ${station.agentWorkdirRel}
-$ tool: ${station.tool}
-`
+  return buildStationTerminalIdleBanner()
 }
 
 export function describeError(error: unknown): string {

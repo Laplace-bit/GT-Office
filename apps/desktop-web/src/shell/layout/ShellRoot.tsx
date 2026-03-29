@@ -2802,9 +2802,6 @@ export function ShellRoot() {
               `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
                 sessionId: session.sessionId,
                 cwd: session.resolvedCwd,
-              })}${t(locale, 'system.stationWorkspaceInfo', {
-                roleDir: station.roleWorkdirRel,
-                agentDir: station.agentWorkdirRel,
               })}`,
             )
             setStationTerminalState(stationId, {
@@ -3467,9 +3464,6 @@ export function ShellRoot() {
           `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
             sessionId: terminalSessionId,
             cwd: response.resolvedCwd ?? station.agentWorkdirRel,
-          })}${t(locale, 'system.stationWorkspaceInfo', {
-            roleDir: station.roleWorkdirRel,
-            agentDir: station.agentWorkdirRel,
           })}`,
         )
         setStationTerminalState(station.id, {

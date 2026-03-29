@@ -92,6 +92,20 @@ test('parseTerminalDebugHumanEntries ignores tool execution rows while keeping r
   ])
 })
 
+test('parseTerminalDebugHumanEntries ignores station bootstrap metadata rows', () => {
+  const entries = parseTerminalDebugHumanEntries(
+    '$ station: 研究员\\n' +
+      '$ role: product\\n' +
+      '$ role_dir: .gtoffice/roles/product\\n' +
+      '$ agent_dir: .gtoffice/org/custom/new-agent\\n' +
+      '$ tool: codex cli\\n' +
+      '[terminal:running]\\n' +
+      '我已经准备好继续处理发布收尾。\\n',
+  )
+
+  assert.deepEqual(entries, [{ category: 'reply', text: '我已经准备好继续处理发布收尾。' }])
+})
+
 test('parseTerminalDebugHumanEntries drops redraw fragments and keeps meaningful content', () => {
   const entries = parseTerminalDebugHumanEntries(
     '你好你好\\n' +
@@ -163,4 +177,18 @@ test('parseTerminalDebugScreenEntries keeps only meaningful Codex screen content
     { category: 'input', text: 'INSERT' },
     { category: 'input', text: 'bypass permissions: on' },
   ])
+})
+
+test('parseTerminalDebugScreenEntries ignores station metadata banner rows', () => {
+  const entries = parseTerminalDebugScreenEntries(
+    '$ station: 研究员\n' +
+      '$ role: product\n' +
+      '$ role_dir: .gtoffice/roles/product\n' +
+      '$ agent_dir: .gtoffice/org/custom/new-agent\n' +
+      '$ tool: codex cli\n' +
+      '[terminal:running]\n' +
+      '⏺ 我已经把生产版本的终端展示清理好了。\n',
+  )
+
+  assert.deepEqual(entries, [{ category: 'reply', text: '我已经把生产版本的终端展示清理好了。' }])
 })
