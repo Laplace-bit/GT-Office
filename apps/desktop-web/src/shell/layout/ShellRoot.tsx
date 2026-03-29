@@ -39,9 +39,9 @@ import {
   decodeTerminalBase64Chunk,
   formatTerminalDebugBody,
   formatTerminalDebugPreview,
-  hydrateStationTerminalDebugHumanText,
   isStationTerminalDebugEnabled,
   resetTerminalChunkDecoder,
+  setStationTerminalDebugHumanLog,
   buildClosedStationTerminalRuntime,
   buildSessionBindingRuntimePatch,
   captureMatchingSessionOwnedRestoreState,
@@ -3243,41 +3243,39 @@ export function ShellRoot() {
       if (!desktopApi.isTauriRuntime()) {
         return
       }
-      if (!isStationTerminalDebugEnabled(stationId)) {
-        return
-      }
+      const debugEnabled = isStationTerminalDebugEnabled(stationId)
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       if (!sessionId || snapshot.sessionId !== sessionId) {
         return
       }
       const screenBody = snapshot.rows.map((row) => row.text).join('\n')
-      pushStationTerminalDebugRecord(stationId, {
-        atMs: snapshot.capturedAtMs,
-        sessionId,
-        screenRevision: snapshot.screenRevision,
-        lane: 'xterm',
-        kind: 'screen',
-        source: 'rendered_screen',
-        summary: formatTerminalDebugPreview(
-          snapshot.rows
-            .map((row) => row.trimmedText)
-            .filter((row) => row.length > 0)
-            .join(' | '),
-          84,
-        ),
-        body: screenBody,
-      })
+      if (debugEnabled) {
+        pushStationTerminalDebugRecord(stationId, {
+          atMs: snapshot.capturedAtMs,
+          sessionId,
+          screenRevision: snapshot.screenRevision,
+          lane: 'xterm',
+          kind: 'screen',
+          source: 'rendered_screen',
+          summary: formatTerminalDebugPreview(
+            snapshot.rows
+              .map((row) => row.trimmedText)
+              .filter((row) => row.length > 0)
+              .join(' | '),
+            84,
+          ),
+          body: screenBody,
+        })
+      }
       const station = stationsRef.current.find((item) => item.id === stationId)
       const toolKind = normalizeStationToolKind(station?.tool)
       void desktopApi
         .terminalReportRenderedScreen(snapshot, toolKind)
         .then((response) => {
-          hydrateStationTerminalDebugHumanText(
-            stationId,
-            sessionId,
-            response.screenRevision,
-            response.humanText,
-          )
+          setStationTerminalDebugHumanLog(stationId, {
+            entries: response.humanEntries,
+            eventCount: response.humanEventCount,
+          })
         })
         .catch(() => {
           // Snapshot reporting is best-effort and must not affect terminal interaction.

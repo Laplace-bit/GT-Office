@@ -8,13 +8,14 @@ mod external_tool_profiles;
 mod filesystem_watcher;
 mod mcp_bridge;
 mod process_utils;
+mod terminal_debug;
 
 use base64::Engine;
 use rustls::crypto::aws_lc_rs;
 use serde_json::json;
-use tauri::{Emitter, Manager, WebviewWindowBuilder};
 #[cfg(target_os = "linux")]
 use tauri::TitleBarStyle;
+use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tracing::warn;
 use vb_terminal::TerminalRuntimeEvent;
 
@@ -30,6 +31,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(app_state::AppState::default())
         .setup(|app| {
+            let _ = terminal_debug::dev_log::reset_dev_logs(&app.handle());
             let main_window_config = app
                 .config()
                 .app
@@ -180,6 +182,7 @@ pub fn run() {
             terminal::terminal_read_delta,
             terminal::terminal_describe_processes,
             terminal::terminal_report_rendered_screen,
+            terminal::terminal_debug_clear_human_log,
             git::git_status,
             git::git_init,
             git::git_diff_file,

@@ -236,7 +236,7 @@ AI Config 约束（T-171）：
    - 优先级：`session-log > rendered-screen-fallback > vt-fallback`。
 6. finalize 判定继续以 live terminal 状态为主；只要存在 active interaction prompt，就禁止 finalize。
 7. Codex session log 绑定优先级固定为：`providerSession.logPath > providerSession.providerSessionId > cwd + bind 时间窗 + prompt anchor > 同 cwd 最新活跃日志`。
-8. Codex session log 解析允许包含 assistant commentary；`finalize` 对 channel 只能发送相对最后一次 preview 的新增尾段，delta 为空时不得重复外发整段正文。
+8. Codex session log 的 channel final body 只允许来自 request 绑定后的结构化 assistant `response_item` 输出；其中 `response_item.payload.phase=commentary` 与 `event_msg/agent_message` commentary 一律仅用于调试与观测，不得直接进入 channel 正文。`finalize` 对 channel 只能发送相对最后一次 preview 的新增尾段，delta 为空时不得重复外发整段正文。
 9. session log 文件读取、扫描、重绑必须运行在后台 worker / blocking 段，不得阻塞前端交互线程。
 10. Telegram 交互按钮（inline keyboard）与正文分离，按钮回调需复用同一 reply session。
 11. Telegram callback payload 允许两种前缀：
@@ -308,11 +308,11 @@ AI Config 约束（T-171）：
 
 `external/channel_outbound_result` 约束：
 1. `relayMode` 取值固定为：
-   - `session-log`
+   - `session-log-structured`
    - `rendered-screen-fallback`
    - `vt-fallback`
 2. `confidence` 与 `relayMode` 对应：
-   - `session-log -> high`
+   - `session-log-structured -> high`
    - `rendered-screen-fallback -> medium`
    - `vt-fallback -> low`
 

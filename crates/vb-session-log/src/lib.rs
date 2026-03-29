@@ -1,8 +1,12 @@
+mod codex_structured_output;
+
 use std::{
     env, fs,
-    io::{Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
+
+use codex_structured_output::{extract_codex_user_text, CodexStructuredOutputState};
 
 const LOG_REWIND_BYTES: u64 = 128 * 1024;
 const RESCAN_INTERVAL_MS: u64 = 1_500;
@@ -329,7 +333,7 @@ pub struct CodexSessionBinding {
     carry: Vec<u8>,
     initialized: bool,
     anchor_found: bool,
-    latest_text: String,
+    structured_output: CodexStructuredOutputState,
     health: SessionLogHealth,
     last_rescan_at_ms: u64,
 }
@@ -372,7 +376,7 @@ impl CodexSessionBinding {
             carry: Vec::new(),
             initialized: false,
             anchor_found: false,
-            latest_text: String::new(),
+            structured_output: CodexStructuredOutputState::default(),
             health: SessionLogHealth::Pending,
             last_rescan_at_ms: 0,
         }
@@ -392,7 +396,7 @@ impl CodexSessionBinding {
         };
         self.reset_if_truncated(&path);
 
-        let previous_text = self.latest_text.clone();
+        let previous_text = self.structured_output.snapshot();
         match read_jsonl_lines(&path, self.offset_for_next_read(), &mut self.carry) {
             Ok(read) => {
                 self.offset = read.next_offset;
@@ -412,16 +416,14 @@ impl CodexSessionBinding {
                         continue;
                     }
 
-                    if let Some(text) = extract_codex_assistant_text(&entry) {
-                        self.latest_text = merge_reply_text(&self.latest_text, &text);
-                    }
+                    let _ = self.structured_output.ingest(&entry);
                 }
 
                 self.health = if self.anchor_found {
-                    if self.latest_text.trim().is_empty() {
-                        SessionLogHealth::Pending
-                    } else {
+                    if self.structured_output.has_text() {
                         SessionLogHealth::Active
+                    } else {
+                        SessionLogHealth::Pending
                     }
                 } else {
                     SessionLogHealth::Pending
@@ -433,8 +435,8 @@ impl CodexSessionBinding {
         }
 
         SessionLogPollOutcome {
-            text: trimmed_option(&self.latest_text),
-            delta: diff_tail(&previous_text, &self.latest_text),
+            text: self.structured_output.text(),
+            delta: self.structured_output.delta_from(&previous_text),
             source_path: self.active_log_path.clone(),
             provider_session: self.provider_session.clone(),
             health: self.health,
@@ -463,7 +465,7 @@ impl CodexSessionBinding {
         self.carry.clear();
         self.initialized = false;
         self.anchor_found = false;
-        self.latest_text.clear();
+        self.structured_output.clear();
         self.health = SessionLogHealth::Pending;
     }
 
@@ -505,6 +507,9 @@ impl CodexSessionBinding {
             self.offset = 0;
             self.carry.clear();
             self.initialized = false;
+            self.anchor_found = false;
+            self.structured_output.clear();
+            self.health = SessionLogHealth::Pending;
         }
     }
 }
@@ -832,9 +837,14 @@ fn walk_jsonl_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn extract_codex_session_meta(path: &Path) -> Option<CodexSessionMeta> {
-    let content = fs::read_to_string(path).ok()?;
-    let first_line = content.lines().next()?;
-    let entry = serde_json::from_str::<serde_json::Value>(first_line).ok()?;
+    let file = fs::File::open(path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut first_line = String::new();
+    let read = reader.read_line(&mut first_line).ok()?;
+    if read == 0 {
+        return None;
+    }
+    let entry = serde_json::from_str::<serde_json::Value>(&first_line).ok()?;
     if entry.get("type")?.as_str()? != "session_meta" {
         return None;
     }
@@ -850,11 +860,15 @@ fn extract_codex_session_meta(path: &Path) -> Option<CodexSessionMeta> {
 }
 
 fn codex_log_contains_prompt_anchor(path: &Path, prompt_fingerprint: &str) -> bool {
-    let Ok(content) = fs::read_to_string(path) else {
+    let Ok(file) = fs::File::open(path) else {
         return false;
     };
-    for line in content.lines() {
-        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let Ok(line) = line else {
+            continue;
+        };
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
         if extract_codex_user_text(&entry)
@@ -865,93 +879,6 @@ fn codex_log_contains_prompt_anchor(path: &Path, prompt_fingerprint: &str) -> bo
         }
     }
     false
-}
-
-fn extract_codex_user_text(entry: &serde_json::Value) -> Option<String> {
-    let payload = entry.get("payload");
-    match entry.get("type").and_then(serde_json::Value::as_str) {
-        Some("event_msg") => {
-            let payload = payload?;
-            if payload.get("type")?.as_str()? != "user_message" {
-                return None;
-            }
-            payload.get("message")?.as_str().and_then(trimmed_option)
-        }
-        Some("response_item") => {
-            let payload = payload?;
-            if payload.get("type")?.as_str()? != "message"
-                || payload.get("role")?.as_str()? != "user"
-            {
-                return None;
-            }
-            let content = payload.get("content")?.as_array()?;
-            let mut texts = Vec::new();
-            for item in content {
-                if item.get("type").and_then(serde_json::Value::as_str) != Some("input_text") {
-                    continue;
-                }
-                if let Some(text) = item.get("text").and_then(serde_json::Value::as_str) {
-                    if !text.trim().is_empty() {
-                        texts.push(text.trim().to_string());
-                    }
-                }
-            }
-            trimmed_option(&texts.join("\n"))
-        }
-        _ => None,
-    }
-}
-
-fn extract_codex_assistant_text(entry: &serde_json::Value) -> Option<String> {
-    let payload = entry.get("payload");
-    match entry.get("type").and_then(serde_json::Value::as_str) {
-        Some("response_item") => {
-            let payload = payload?;
-            if payload.get("type")?.as_str()? != "message"
-                || payload.get("role")?.as_str()? != "assistant"
-            {
-                return None;
-            }
-            if let Some(content) = payload.get("content").and_then(serde_json::Value::as_array) {
-                let mut texts = Vec::new();
-                for item in content {
-                    let item_type = item.get("type").and_then(serde_json::Value::as_str);
-                    if !matches!(item_type, Some("output_text" | "text")) {
-                        continue;
-                    }
-                    if let Some(text) = item.get("text").and_then(serde_json::Value::as_str) {
-                        if !text.trim().is_empty() {
-                            texts.push(text.trim().to_string());
-                        }
-                    }
-                }
-                if !texts.is_empty() {
-                    return Some(texts.join("\n"));
-                }
-            }
-            payload
-                .get("message")
-                .and_then(serde_json::Value::as_str)
-                .and_then(trimmed_option)
-        }
-        Some("event_msg") => {
-            let payload = payload?;
-            let payload_type = payload.get("type").and_then(serde_json::Value::as_str)?;
-            if !matches!(
-                payload_type,
-                "agent_message" | "assistant_message" | "assistant" | "assistant_response"
-            ) {
-                return None;
-            }
-            payload
-                .get("message")
-                .or_else(|| payload.get("content"))
-                .or_else(|| payload.get("text"))
-                .and_then(serde_json::Value::as_str)
-                .and_then(trimmed_option)
-        }
-        _ => None,
-    }
 }
 
 fn rewind_offset(path: &Path, rewind_bytes: u64) -> Option<u64> {
@@ -1174,7 +1101,7 @@ mod tests {
 
         let outcome = binding.poll();
         assert_eq!(outcome.health, SessionLogHealth::Active);
-        assert_eq!(outcome.text.as_deref(), Some("partial\nfinal answer"));
+        assert_eq!(outcome.text.as_deref(), Some("final answer"));
         assert_eq!(outcome.source_path.as_deref(), Some(session_path.as_path()));
     }
 
@@ -1241,6 +1168,58 @@ mod tests {
                 .and_then(|session| session.provider_session_id.as_deref()),
             Some("session-older")
         );
-        assert_eq!(outcome.text.as_deref(), Some("older commentary"));
+        assert_eq!(outcome.health, SessionLogHealth::Pending);
+        assert_eq!(outcome.text, None);
+    }
+
+    #[test]
+    fn codex_binding_ignores_commentary_response_items_until_final_answer() {
+        let root = temp_dir("codex-commentary");
+        let work_dir = PathBuf::from("/tmp/project-commentary");
+        let candidate_dir = root.join("2026/03/29");
+        fs::create_dir_all(&candidate_dir).expect("create sessions dir");
+        let session_path = candidate_dir.join("rollout.jsonl");
+        fs::write(
+            &session_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"session-commentary\",\"cwd\":\"{}\"}}}}\n\
+{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"hello world\"}}]}}}}\n\
+{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"commentary\",\"content\":[{{\"type\":\"output_text\",\"text\":\"commentary should be ignored\"}}]}}}}\n",
+                work_dir.display()
+            ),
+        )
+        .expect("write commentary log");
+
+        let runtime = SessionLogRuntime {
+            provider: SessionLogProvider::Codex,
+            resolved_cwd: work_dir.clone(),
+            bind_started_at_ms: None,
+            provider_session: None,
+        };
+        let mut binding = bind_session_log_with_config(
+            &runtime,
+            &SessionLogRequest {
+                dispatched_text: "hello world".to_string(),
+            },
+            SessionLogConfig {
+                codex_sessions_root: Some(root.clone()),
+                ..SessionLogConfig::default()
+            },
+        )
+        .expect("bind session log");
+
+        let commentary_only = binding.poll();
+        assert_eq!(commentary_only.health, SessionLogHealth::Pending);
+        assert_eq!(commentary_only.text, None);
+
+        let mut appended = fs::read_to_string(&session_path).expect("read commentary log");
+        appended.push_str(
+            "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"final answer\"}]}}\n",
+        );
+        fs::write(&session_path, appended).expect("append final answer");
+
+        let final_outcome = binding.poll();
+        assert_eq!(final_outcome.health, SessionLogHealth::Active);
+        assert_eq!(final_outcome.text.as_deref(), Some("final answer"));
     }
 }

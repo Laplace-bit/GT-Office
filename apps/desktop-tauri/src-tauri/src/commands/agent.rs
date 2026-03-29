@@ -325,7 +325,8 @@ mod tests {
 
     impl TempDir {
         fn create() -> Self {
-            let path = std::env::temp_dir().join(format!("gtoffice-agent-cmd-test-{}", Uuid::new_v4()));
+            let path =
+                std::env::temp_dir().join(format!("gtoffice-agent-cmd-test-{}", Uuid::new_v4()));
             fs::create_dir_all(&path).unwrap();
             Self { path }
         }
@@ -492,8 +493,7 @@ mod tests {
         let initial_content = fs::read_to_string(&custom_prompt_path).unwrap();
         assert_eq!(initial_content, "custom prompt");
 
-        if should_write_prompt_file_on_update("Claude Code", None, Some("GEMINI.md"), None, None)
-        {
+        if should_write_prompt_file_on_update("Claude Code", None, Some("GEMINI.md"), None, None) {
             write_prompt_file(
                 &workspace_root,
                 "Agent Alpha",
@@ -505,7 +505,10 @@ mod tests {
             .unwrap();
         }
 
-        assert_eq!(fs::read_to_string(custom_prompt_path).unwrap(), "custom prompt");
+        assert_eq!(
+            fs::read_to_string(custom_prompt_path).unwrap(),
+            "custom prompt"
+        );
     }
 
     #[test]
@@ -543,10 +546,8 @@ mod tests {
         };
 
         let (_, existing_prompt_file_name, _) = read_prompt_file(&workspace_root, &agent).unwrap();
-        let resolved_prompt_file_name = resolve_update_agent_prompt_file_name(
-            existing_prompt_file_name.as_deref(),
-            None,
-        );
+        let resolved_prompt_file_name =
+            resolve_update_agent_prompt_file_name(existing_prompt_file_name.as_deref(), None);
 
         write_prompt_file(
             &workspace_root,

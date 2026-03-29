@@ -1,8 +1,7 @@
 use super::{
     external_reply_finalize_text, extract_rendered_debug_human_text,
-    extract_rendered_interaction_prompt, extract_rendered_reply_text,
-    normalize_carriage_returns, normalize_reply_text, normalize_terminal_text,
-    sanitize_terminal_chunk,
+    extract_rendered_interaction_prompt, extract_rendered_reply_text, normalize_carriage_returns,
+    normalize_reply_text, normalize_terminal_text, sanitize_terminal_chunk,
     should_skip_cli_prompt_line, should_skip_external_reply_line, should_skip_log_prefix_line,
     should_skip_runtime_noise_line, should_skip_startup_banner_line, snapshot_has_ready_prompt,
     AppState, ExternalInteractionAction, ExternalInteractionControlMode, ExternalReplyBodySource,
@@ -571,6 +570,93 @@ fn external_reply_dispatch_emits_preview_then_finalize() {
     assert_eq!(
         final_candidates[0].preview_message_id.as_deref(),
         Some("msg_telegram_preview")
+    );
+}
+
+#[test]
+fn session_log_finalize_keeps_full_text_when_preview_message_will_be_edited() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_telegram_session_log_full".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "12345".to_string(),
+        inbound_message_id: "m_telegram_session_log_full".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-telegram-session-log-full".to_string(),
+        injected_input: Some("纽约天气如何".to_string()),
+    };
+    state
+        .bind_external_reply_session(
+            "s_telegram_session_log_full",
+            target,
+            now_ms_for_test(1_000),
+        )
+        .expect("bind session");
+    state
+        .set_external_reply_session_tool_kind("s_telegram_session_log_full", AgentToolKind::Codex)
+        .expect("set tool kind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_telegram_session_log_full",
+            RenderedScreenSnapshot {
+                session_id: "s_telegram_session_log_full".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 12,
+                base_y: 0,
+                cursor_row: Some(8),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› 纽约天气如何".to_string(),
+                        trimmed_text: "› 纽约天气如何".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text:
+                            "• 截至 2026年2月28日 9:41 am EST，纽约市零星多云，气温 47°F（8°C）。"
+                                .to_string(),
+                        trimmed_text:
+                            "• 截至 2026年2月28日 9:41 am EST，纽约市零星多云，气温 47°F（8°C）。"
+                                .to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered screen");
+    state
+        .set_external_reply_preview_message_id(
+            "s_telegram_session_log_full",
+            "msg_telegram_preview_full",
+        )
+        .expect("set preview message");
+    state
+        .mark_external_reply_session_ended("s_telegram_session_log_full", now_ms_for_test(1_200))
+        .expect("mark ended");
+
+    {
+        let mut guard = state
+            .external_reply_sessions
+            .lock()
+            .expect("lock external reply sessions");
+        let session = guard
+            .get_mut("s_telegram_session_log_full")
+            .expect("reply session should exist");
+        session.session_log_text = "截至 2026年2月28日 9:41 am EST，纽约市零星多云，气温 47°F（8°C）。\n3月22日的新闻提醒，一股冷锋正在逼近，提醒出行关注未来几小时的最新更新。".to_string();
+    }
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(1_500), 200, 20_000, 200, 10)
+        .expect("take final candidates");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].text,
+        "截至 2026年2月28日 9:41 am EST，纽约市零星多云，气温 47°F（8°C）。\n3月22日的新闻提醒，一股冷锋正在逼近，提醒出行关注未来几小时的最新更新。"
     );
 }
 
@@ -2760,8 +2846,7 @@ fn rendered_debug_human_text_requires_confirmed_assistant_block_for_claude() {
         rows: vec![RenderedScreenSnapshotRow {
             row_index: 0,
             text: "-- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)".to_string(),
-            trimmed_text: "-- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)"
-                .to_string(),
+            trimmed_text: "-- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)".to_string(),
             is_blank: false,
         }],
     };
@@ -2892,9 +2977,8 @@ fn rendered_debug_human_text_strips_post_reply_spinner_and_tip_for_claude() {
                 row_index: 3,
                 text: "  ⎿  Tip: Ask Claude to create a todo list when working on complex"
                     .to_string(),
-                trimmed_text:
-                    "⎿  Tip: Ask Claude to create a todo list when working on complex"
-                        .to_string(),
+                trimmed_text: "⎿  Tip: Ask Claude to create a todo list when working on complex"
+                    .to_string(),
                 is_blank: false,
             },
             RenderedScreenSnapshotRow {
@@ -2909,6 +2993,99 @@ fn rendered_debug_human_text_strips_post_reply_spinner_and_tip_for_claude() {
     assert_eq!(
         extract_rendered_debug_human_text(&snapshot, AgentToolKind::Claude),
         "⏺ 现在是 2026-03-28 23:26:17 CST。"
+    );
+}
+
+#[test]
+fn rendered_debug_human_text_keeps_last_final_answer_after_commentary_and_tool_rows() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_debug_codex_commentary_tail".to_string(),
+        screen_revision: 6,
+        captured_at_ms: now_ms_for_test(1_050),
+        viewport_top: 0,
+        viewport_height: 18,
+        base_y: 0,
+        cursor_row: Some(12),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "› 你好".to_string(),
+                trimmed_text: "› 你好".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "• 先读取会话启动所需的技能说明，确认本轮该如何协作。".to_string(),
+                trimmed_text: "• 先读取会话启动所需的技能说明，确认本轮该如何协作。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "• Explored".to_string(),
+                trimmed_text: "• Explored".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  ⎿  Read SKILL.md".to_string(),
+                trimmed_text: "⎿  Read SKILL.md".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "────────────────────────".to_string(),
+                trimmed_text: "────────────────────────".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "• 使用 using-superpowers 来确认本轮协作方式。".to_string(),
+                trimmed_text: "• 使用 using-superpowers 来确认本轮协作方式。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "• 你好，有什么需要我处理的？".to_string(),
+                trimmed_text: "• 你好，有什么需要我处理的？".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "› Improve documentation in @filename".to_string(),
+                trimmed_text: "› Improve documentation in @filename".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    assert_eq!(
+        extract_rendered_debug_human_text(&snapshot, AgentToolKind::Codex),
+        "• 你好，有什么需要我处理的？"
     );
 }
 
@@ -3398,7 +3575,7 @@ fn rendered_reply_finalizes_after_promptless_idle_fallback() {
 }
 
 #[test]
-fn external_reply_finalize_prefers_rendered_text_over_repeated_session_log() {
+fn external_reply_finalize_prefers_structured_session_log_over_rendered_text() {
     let session = ExternalReplyRelaySession {
         target: ExternalReplyRelayTarget {
             trace_id: "trace-finalize-priority-1".to_string(),
@@ -3437,8 +3614,8 @@ fn external_reply_finalize_prefers_rendered_text_over_repeated_session_log() {
     assert_eq!(
         finalize,
         Some((
-            "• clean rendered answer".to_string(),
-            ExternalReplyBodySource::RenderedScreen
+            "• clean rendered answer\n• clean rendered answer".to_string(),
+            ExternalReplyBodySource::SessionLog
         ))
     );
 }
