@@ -1881,7 +1881,7 @@ fn extract_rendered_reply_text_for_tool(
             continue;
         }
 
-        let in_cursor_tail = cursor_row.is_some_and(|cursor| row_index >= cursor);
+        let in_cursor_tail = cursor_row.is_some_and(|cursor| row_index > cursor);
         let is_noise = in_cursor_tail
             || is_echo_of_injected_line(text, injected_input)
             || should_skip_external_reply_line(text)
@@ -2129,7 +2129,7 @@ fn is_ready_prompt_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool
     for prefix in profile.prompt_prefixes() {
         if let Some(after) = trimmed_start.strip_prefix(prefix) {
             if is_placeholder_prompt_content_for_tool(after.trim(), profile) {
-                return true;
+                return !matches!(profile, ToolScreenProfile::Codex);
             }
         }
     }
@@ -2422,7 +2422,10 @@ fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
     });
 
     let best_island = if let Some(idx) = marker_island_idx {
-        islands[idx].clone()
+        islands[idx..]
+            .iter()
+            .flat_map(|island| island.iter().cloned())
+            .collect()
     } else {
         // Fallback: Take the last island that has non-blank content
         islands
@@ -2613,11 +2616,19 @@ fn should_skip_tool_execution_line_for_tool(line: &str, profile: ToolScreenProfi
     if lower.starts_with("tool result") || lower.starts_with("tool output") {
         return true;
     }
-    if lower.starts_with("read ")
-        || lower.starts_with("reading ")
-        || lower.starts_with("shell cwd was reset")
+    if lower.starts_with("shell cwd was reset")
         || lower.contains("(ctrl+o to expand)")
         || lower.starts_with("bash(")
+    {
+        return true;
+    }
+    if lower.starts_with("reading ")
+        && (lower.contains("/") || lower.contains("\\") || lower.ends_with(".rs") || lower.ends_with(".ts"))
+    {
+        return true;
+    }
+    if lower.starts_with("read ")
+        && (lower.contains("(") || lower.contains("/") || lower.contains("\\") || lower.ends_with(".rs") || lower.ends_with(".ts"))
     {
         return true;
     }
