@@ -45,13 +45,17 @@ import {
   type ToolCommandSummary,
 } from '@shell/integration/desktop-api'
 import {
+  appendStationTerminalDebugRecord,
   captureMatchingSessionOwnedRestoreState,
   captureReportedSessionOwnedRestoreState,
   captureSessionOwnedRestoreState,
   createBufferedStationInputController,
   didHydrateChangeSessionBinding,
   didSessionBindingChange,
+  formatTerminalDebugBody,
+  formatTerminalDebugPreview,
   hydrateSettlesSessionBinding,
+  hydrateStationTerminalDebugHumanText,
   patchTouchesSessionBinding,
   resolveNextPendingLaunchCommand,
   retainSessionOwnedRestoreState,
@@ -62,6 +66,7 @@ import {
   type SessionOwnedRestoreState,
   type StationTerminalSink,
   type StationTerminalSinkBindingMeta,
+  type TerminalDebugRecordInput,
 } from '@features/terminal'
 import './DetachedWorkbenchWindow.scss'
 
@@ -113,8 +118,6 @@ function buildInitialRuntimeMap(
   }, {})
 }
 
-const DETACHED_LOG_PREFIX = '[detached-terminal]'
-
 function buildDetachedContainer(payload: DetachedWorkbenchWindowPayload): WorkbenchContainerModel {
   return {
     id: payload.containerId,
@@ -149,9 +152,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     action: StationActionDescriptor
   } | null>(null)
   const [stationRuntimes, setStationRuntimes] = useState<Record<string, WorkbenchStationRuntime>>(() => {
-    const runtimes = buildInitialRuntimeMap(payload.stations)
-    console.log(DETACHED_LOG_PREFIX, 'init runtimes', JSON.stringify(Object.entries(runtimes).map(([k, v]) => [k.slice(0, 8), v.sessionId?.slice(0, 8) ?? null])))
-    return runtimes
+    return buildInitialRuntimeMap(payload.stations)
   })
   const stationRuntimesRef = useRef(stationRuntimes)
   const sinkByStationRef = useRef<Record<string, StationTerminalSink | null>>({})
@@ -163,6 +164,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const pendingFocusStationRef = useRef<Record<string, boolean>>({})
   const pendingLaunchCommandRef = useRef<Record<string, string | null>>({})
   const inputControllerRef = useRef<BufferedStationInputController | null>(null)
+  const terminalDebugRecordSeqRef = useRef(0)
 
   useEffect(() => {
     stationsRef.current = stations
@@ -321,31 +323,77 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     })
   }, [])
 
-  const appendStationTerminalOutput = useCallback((stationId: string, chunk: string) => {
-    if (!chunk) {
-      return
-    }
-    outputCacheRef.current[stationId] = appendDetachedTerminalOutput(outputCacheRef.current[stationId], chunk)
-    sinkByStationRef.current[stationId]?.write(chunk)
-  }, [])
+  const pushStationTerminalDebugRecord = useCallback(
+    (stationId: string, input: TerminalDebugRecordInput) => {
+      terminalDebugRecordSeqRef.current += 1
+      appendStationTerminalDebugRecord(
+        stationId,
+        {
+          id: `${stationId}:detached:${terminalDebugRecordSeqRef.current.toString(16)}`,
+          atMs: input.atMs ?? Date.now(),
+          stationId,
+          sessionId: input.sessionId ?? null,
+          screenRevision: input.screenRevision ?? null,
+          lane: input.lane,
+          kind: input.kind,
+          source: input.source ?? null,
+          summary: input.summary,
+          body: formatTerminalDebugBody(input.body),
+          humanText: input.humanText ?? null,
+        },
+        0,
+      )
+    },
+    [],
+  )
 
-  const resetStationTerminalOutput = useCallback((stationId: string, content = '') => {
-    outputCacheRef.current[stationId] = content
-    sinkByStationRef.current[stationId]?.reset(content)
-  }, [])
+  const appendStationTerminalOutput = useCallback(
+    (stationId: string, chunk: string) => {
+      if (!chunk) {
+        return
+      }
+      outputCacheRef.current[stationId] = appendDetachedTerminalOutput(outputCacheRef.current[stationId], chunk)
+      const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
+      pushStationTerminalDebugRecord(stationId, {
+        sessionId,
+        lane: 'xterm',
+        kind: 'write',
+        source: 'detached_terminal_output_append',
+        summary: formatTerminalDebugPreview(chunk, 84),
+        body: chunk,
+      })
+      sinkByStationRef.current[stationId]?.write(chunk)
+    },
+    [pushStationTerminalDebugRecord],
+  )
+
+  const resetStationTerminalOutput = useCallback(
+    (stationId: string, content = '') => {
+      outputCacheRef.current[stationId] = content
+      const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
+      pushStationTerminalDebugRecord(stationId, {
+        sessionId,
+        lane: 'xterm',
+        kind: 'reset',
+        source: 'detached_terminal_output_reset',
+        summary: formatTerminalDebugPreview(content, 84),
+        body: content,
+      })
+      sinkByStationRef.current[stationId]?.reset(content)
+    },
+    [pushStationTerminalDebugRecord],
+  )
 
   const requestHydrate = useCallback(() => {
     if (hydrateInFlightRef.current) {
       return
     }
     hydrateInFlightRef.current = true
-    console.log(DETACHED_LOG_PREFIX, 'requestHydrate sending')
     void postBridgeMessage({
       kind: 'detached_terminal_hydrate_request',
       workspaceId: payload.workspaceId,
       containerId: payload.containerId,
-    }).catch((err) => {
-      console.error(DETACHED_LOG_PREFIX, 'requestHydrate failed', err)
+    }).catch(() => {
       hydrateInFlightRef.current = false
     })
   }, [payload.containerId, payload.workspaceId, postBridgeMessage])
@@ -456,12 +504,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const applyHydrateSnapshot = useCallback(
     (message: DetachedTerminalHydrateSnapshotMessage) => {
       hydrateInFlightRef.current = false
-      console.log(DETACHED_LOG_PREFIX, 'applyHydrateSnapshot received', {
-        runtimeKeys: Object.keys(message.runtimes),
-        outputKeys: Object.keys(message.outputs),
-        outputLengths: Object.fromEntries(Object.entries(message.outputs).map(([k, v]) => [k.slice(0, 8), v?.length ?? 0])),
-        activeStationId: message.activeStationId?.slice(0, 8),
-      })
       const nextRuntimes = stationsRef.current.reduce<Record<string, WorkbenchStationRuntime>>((acc, station) => {
         acc[station.id] = normalizeDetachedTerminalRuntime(message.runtimes[station.id])
         return acc
@@ -528,10 +570,8 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           nextRuntimes[stationId]?.sessionId ?? null,
         )
         if (restoreState) {
-          console.log(DETACHED_LOG_PREFIX, 'hydrate sink.restore', stationId.slice(0, 8))
           sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         } else {
-          console.log(DETACHED_LOG_PREFIX, 'hydrate sink.reset', stationId.slice(0, 8), 'len=', (nextOutputs[stationId] ?? '').length)
           sink.reset(nextOutputs[stationId] ?? '')
         }
         flushPendingStationFocus(stationId)
@@ -585,19 +625,15 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const handleSurfaceBridge = useCallback(
     (event: SurfaceBridgeEventPayload<DetachedTerminalBridgeMessage>) => {
       if (event.targetWindowLabel !== payload.windowLabel) {
-        console.log(DETACHED_LOG_PREFIX, 'bridge msg filtered: wrong target', event.targetWindowLabel, '!=', payload.windowLabel)
         return
       }
       if (event.sourceWindowLabel !== DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL) {
-        console.log(DETACHED_LOG_PREFIX, 'bridge msg filtered: wrong source', event.sourceWindowLabel)
         return
       }
       const message = event.payload
       if (message.workspaceId !== payload.workspaceId || message.containerId !== payload.containerId) {
-        console.log(DETACHED_LOG_PREFIX, 'bridge msg filtered: wrong workspace/container')
         return
       }
-      console.log(DETACHED_LOG_PREFIX, 'bridge msg received', message.kind)
       switch (message.kind) {
         case 'detached_terminal_hydrate_snapshot':
           applyHydrateSnapshot(message)
@@ -693,7 +729,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           return
         }
         cleanup = unlisten
-        console.log(DETACHED_LOG_PREFIX, 'subscribeSurfaceEvents ready, calling requestHydrate')
         requestHydrate()
       })
     return () => {
@@ -733,7 +768,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       }
 
       sinkByStationRef.current[stationId] = sink
-      console.log(DETACHED_LOG_PREFIX, 'bindSink', stationId.slice(0, 8), 'hasRestoreState=', !!stationTerminalRestoreStateRef.current[stationId], 'hasCachedOutput=', Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId), 'sessionId=', stationRuntimesRef.current[stationId]?.sessionId?.slice(0, 8) ?? null)
 
       const restoreState = retainSessionOwnedRestoreState(
         stationTerminalRestoreStateRef.current[stationId],
@@ -846,10 +880,39 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     if (!sessionId || snapshot.sessionId !== sessionId) {
       return
     }
-    void desktopApi.terminalReportRenderedScreen(snapshot).catch(() => {
-      // Snapshot reporting is best-effort and must not affect terminal interaction.
+    const screenBody = snapshot.rows.map((row) => row.text).join('\n')
+    pushStationTerminalDebugRecord(stationId, {
+      atMs: snapshot.capturedAtMs,
+      sessionId,
+      screenRevision: snapshot.screenRevision,
+      lane: 'xterm',
+      kind: 'screen',
+      source: 'rendered_screen',
+      summary: formatTerminalDebugPreview(
+        snapshot.rows
+          .map((row) => row.trimmedText)
+          .filter((row) => row.length > 0)
+          .join(' | '),
+        84,
+      ),
+      body: screenBody,
     })
-  }, [])
+    const station = stationsRef.current.find((item) => item.id === stationId)
+    const toolKind = normalizeStationToolKind(station?.tool)
+    void desktopApi
+      .terminalReportRenderedScreen(snapshot, toolKind)
+      .then((response) => {
+        hydrateStationTerminalDebugHumanText(
+          stationId,
+          sessionId,
+          response.screenRevision,
+          response.humanText,
+        )
+      })
+      .catch(() => {
+        // Snapshot reporting is best-effort and must not affect terminal interaction.
+      })
+  }, [pushStationTerminalDebugRecord])
 
   const handleSubmitStationActionSheet = useCallback((values: Record<string, string | boolean>) => {
     const pending = pendingStationActionSheet
