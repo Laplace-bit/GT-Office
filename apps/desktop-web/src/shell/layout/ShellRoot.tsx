@@ -34,6 +34,13 @@ import {
   type TaskDraftState,
 } from '@features/task-center'
 import {
+  appendStationTerminalDebugRecord as appendStationTerminalDebugStoreRecord,
+  createTerminalChunkDecoder,
+  decodeTerminalBase64Chunk,
+  formatTerminalDebugBody,
+  formatTerminalDebugPreview,
+  hydrateStationTerminalDebugHumanText,
+  resetTerminalChunkDecoder,
   buildClosedStationTerminalRuntime,
   buildSessionBindingRuntimePatch,
   captureMatchingSessionOwnedRestoreState,
@@ -54,6 +61,9 @@ import {
   shouldMatchDetachedBridgeSession,
   type BufferedStationInputController,
   type SessionOwnedRestoreState,
+  type TerminalChunkDecoder,
+  type TerminalDebugRecord,
+  type TerminalDebugRecordInput,
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
@@ -200,6 +210,8 @@ import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
 import './ShellRoot.scss'
 
+const TERMINAL_DEBUG_RECORD_LIMIT = 0
+
 export function ShellRoot() {
   const initialStations = useMemo(() => createDefaultStations(), [])
   const stationCounterRef = useRef(nextStationNumber(initialStations))
@@ -327,6 +339,8 @@ export function ShellRoot() {
   const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
+  const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
+  const terminalDebugRecordSeqRef = useRef(0)
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
     null,
   )
@@ -1134,16 +1148,46 @@ export function ShellRoot() {
     [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
   )
 
+  const pushStationTerminalDebugRecord = useCallback(
+    (stationId: string, input: TerminalDebugRecordInput) => {
+      terminalDebugRecordSeqRef.current += 1
+      const record: TerminalDebugRecord = {
+        id: `${stationId}:${terminalDebugRecordSeqRef.current.toString(16)}`,
+        atMs: input.atMs ?? Date.now(),
+        stationId,
+        sessionId: input.sessionId ?? null,
+        screenRevision: input.screenRevision ?? null,
+        lane: input.lane,
+        kind: input.kind,
+        source: input.source ?? null,
+        summary: input.summary,
+        body: formatTerminalDebugBody(input.body),
+        humanText: input.humanText ?? null,
+      }
+      appendStationTerminalDebugStoreRecord(stationId, record, TERMINAL_DEBUG_RECORD_LIMIT)
+    },
+    [],
+  )
+
   const appendStationTerminalOutput = useMemo(
     () => (stationId: string, chunk: string) => {
       stationTerminalOutputCacheRef.current[stationId] = appendDetachedTerminalOutput(
         stationTerminalOutputCacheRef.current[stationId],
         chunk,
       )
+      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      pushStationTerminalDebugRecord(stationId, {
+        sessionId,
+        lane: 'xterm',
+        kind: 'write',
+        source: 'append',
+        summary: formatTerminalDebugPreview(chunk, 84),
+        body: chunk,
+      })
       stationTerminalSinkRef.current[stationId]?.write(chunk)
       publishDetachedOutputAppend(stationId, chunk)
     },
-    [publishDetachedOutputAppend],
+    [publishDetachedOutputAppend, pushStationTerminalDebugRecord],
   )
 
   const resetStationTerminalOutput = useMemo(
@@ -1156,10 +1200,19 @@ export function ShellRoot() {
           ? nextContentRaw.slice(nextContentRaw.length - DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS)
           : nextContentRaw
       stationTerminalOutputCacheRef.current[stationId] = nextContent
+      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      pushStationTerminalDebugRecord(stationId, {
+        sessionId,
+        lane: 'xterm',
+        kind: 'reset',
+        source: content == null ? 'fallback' : 'explicit',
+        summary: formatTerminalDebugPreview(nextContent, 84),
+        body: nextContent,
+      })
       stationTerminalSinkRef.current[stationId]?.reset(nextContent)
       publishDetachedOutputReset(stationId, nextContent)
     },
-    [publishDetachedOutputReset],
+    [publishDetachedOutputReset, pushStationTerminalDebugRecord],
   )
 
   const setStationTerminalState = useMemo(
@@ -1592,13 +1645,21 @@ export function ShellRoot() {
         stationTerminalsRef.current[stationId]?.sessionId ?? null,
       )
       if (restoreState) {
+        pushStationTerminalDebugRecord(stationId, {
+          sessionId: stationTerminalsRef.current[stationId]?.sessionId ?? null,
+          lane: 'xterm',
+          kind: 'restore',
+          source: 'session_restore',
+          summary: formatTerminalDebugPreview(restoreState.state.content, 84),
+          body: restoreState.state.content,
+        })
         sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         return
       }
       delete stationTerminalRestoreStateRef.current[stationId]
       sink.reset(cachedContent)
     },
-    [],
+    [pushStationTerminalDebugRecord],
   )
 
   const ensureTerminalSessionVisible = useCallback((sessionId: string) => {
@@ -1619,14 +1680,11 @@ export function ShellRoot() {
   }, [])
 
   const decodeBase64Chunk = useMemo(
-    () => (base64Chunk: string): string => {
-      try {
-        const binary = window.atob(base64Chunk)
-        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-        return new TextDecoder().decode(bytes)
-      } catch {
-        return ''
-      }
+    () => (sessionId: string, base64Chunk: string, stream: boolean): string => {
+      const decoder =
+        terminalChunkDecoderBySessionRef.current[sessionId] ??
+        (terminalChunkDecoderBySessionRef.current[sessionId] = createTerminalChunkDecoder())
+      return decodeTerminalBase64Chunk(decoder, base64Chunk, stream)
     },
     [],
   )
@@ -1659,13 +1717,30 @@ export function ShellRoot() {
               if (!stationId) {
                 return
               }
+              const directText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
+              pushStationTerminalDebugRecord(stationId, {
+                atMs: payload.tsMs,
+                sessionId: payload.sessionId,
+                lane: 'event',
+                kind: 'output',
+                source: 'terminal/output',
+                summary: `seq ${payload.seq} · ${formatTerminalDebugPreview(directText || payload.chunk, 72)}`,
+                body: [
+                  `seq=${payload.seq}`,
+                  `tsMs=${payload.tsMs}`,
+                  `base64=${payload.chunk}`,
+                  '',
+                  'decoded:',
+                  directText,
+                ].join('\n'),
+              })
               const unread = stationId !== activeStationId
               const seq = terminalSessionSeqRef.current[payload.sessionId] ?? 0
               if (payload.seq <= seq) {
                 return
               }
               if (payload.seq === seq + 1) {
-                const text = decodeBase64Chunk(payload.chunk)
+                const text = directText
                 if (text) {
                   appendStationTerminalOutput(stationId, text)
                 }
@@ -1694,7 +1769,26 @@ export function ShellRoot() {
                 ) {
                   return
                 }
-                const text = decodeBase64Chunk(delta.chunk)
+                const text = decodeBase64Chunk(payload.sessionId, delta.chunk, true)
+                pushStationTerminalDebugRecord(stationId, {
+                  sessionId: payload.sessionId,
+                  lane: 'recovery',
+                  kind: 'delta',
+                  source: 'terminal_read_delta',
+                  summary: `delta ${delta.fromSeq ?? '?'}-${delta.toSeq} · ${formatTerminalDebugPreview(text || delta.chunk, 72)}`,
+                  body: [
+                    `afterSeq=${delta.afterSeq}`,
+                    `fromSeq=${delta.fromSeq ?? 'null'}`,
+                    `toSeq=${delta.toSeq}`,
+                    `currentSeq=${delta.currentSeq}`,
+                    `gap=${delta.gap}`,
+                    `truncated=${delta.truncated}`,
+                    `base64=${delta.chunk}`,
+                    '',
+                    'decoded:',
+                    text,
+                  ].join('\n'),
+                })
                 if (text) {
                   appendStationTerminalOutput(stationId, text)
                 }
@@ -1717,7 +1811,29 @@ export function ShellRoot() {
               ) {
                 return
               }
-              resetStationTerminalOutput(stationId, decodeBase64Chunk(snapshot.chunk))
+              const decoder =
+                terminalChunkDecoderBySessionRef.current[payload.sessionId] ??
+                (terminalChunkDecoderBySessionRef.current[payload.sessionId] = createTerminalChunkDecoder())
+              resetTerminalChunkDecoder(decoder)
+              const snapshotText = decodeTerminalBase64Chunk(decoder, snapshot.chunk, false)
+              pushStationTerminalDebugRecord(stationId, {
+                sessionId: payload.sessionId,
+                lane: 'recovery',
+                kind: 'snapshot',
+                source: 'terminal_read_snapshot',
+                summary: `snapshot @${snapshot.currentSeq} · ${formatTerminalDebugPreview(snapshotText || snapshot.chunk, 72)}`,
+                body: [
+                  `currentSeq=${snapshot.currentSeq}`,
+                  `bytes=${snapshot.bytes}`,
+                  `maxBytes=${snapshot.maxBytes}`,
+                  `truncated=${snapshot.truncated}`,
+                  `base64=${snapshot.chunk}`,
+                  '',
+                  'decoded:',
+                  snapshotText,
+                ].join('\n'),
+              })
+              resetStationTerminalOutput(stationId, snapshotText)
               terminalSessionSeqRef.current[payload.sessionId] = snapshot.currentSeq
               if (unread) {
                 incrementStationUnread(stationId, 1)
@@ -1729,6 +1845,15 @@ export function ShellRoot() {
           if (!stationId) {
             return
           }
+          pushStationTerminalDebugRecord(stationId, {
+            atMs: payload.tsMs,
+            sessionId: payload.sessionId,
+            lane: 'event',
+            kind: 'state',
+            source: 'terminal/state_changed',
+            summary: `${payload.from} -> ${payload.to}`,
+            body: [`from=${payload.from}`, `to=${payload.to}`, `tsMs=${payload.tsMs}`].join('\n'),
+          })
           const nextClosedRuntime =
             payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed'
               ? buildClosedStationTerminalRuntime(
@@ -1755,6 +1880,7 @@ export function ShellRoot() {
             delete terminalOutputQueueRef.current[payload.sessionId]
             delete sessionStationRef.current[payload.sessionId]
             delete terminalSessionVisibilityRef.current[payload.sessionId]
+            delete terminalChunkDecoderBySessionRef.current[payload.sessionId]
             if (closedSessionCleanup) {
               stationTerminalInputControllerRef.current?.clear(stationId)
               delete stationSubmitSequenceRef.current[stationId]
@@ -1766,7 +1892,24 @@ export function ShellRoot() {
           if (!stationId) {
             return
           }
-          const tail = decodeBase64Chunk(payload.tailChunk)
+          const tail = decodeBase64Chunk(payload.sessionId, payload.tailChunk, true)
+          pushStationTerminalDebugRecord(stationId, {
+            atMs: payload.tsMs,
+            sessionId: payload.sessionId,
+            lane: 'event',
+            kind: 'meta',
+            source: 'terminal/meta',
+            summary: `chunks ${payload.unreadChunks} · ${formatTerminalDebugPreview(tail || payload.tailChunk, 72)}`,
+            body: [
+              `unreadBytes=${payload.unreadBytes}`,
+              `unreadChunks=${payload.unreadChunks}`,
+              `tsMs=${payload.tsMs}`,
+              `base64=${payload.tailChunk}`,
+              '',
+              'decoded:',
+              tail,
+            ].join('\n'),
+          })
           if (tail) {
             appendStationTerminalOutput(stationId, tail)
           }
@@ -1795,6 +1938,7 @@ export function ShellRoot() {
     appendStationTerminalOutput,
     decodeBase64Chunk,
     incrementStationUnread,
+    pushStationTerminalDebugRecord,
     resetStationTerminalOutput,
     setStationTerminalState,
   ])
@@ -3099,11 +3243,40 @@ export function ShellRoot() {
       if (!sessionId || snapshot.sessionId !== sessionId) {
         return
       }
-      void desktopApi.terminalReportRenderedScreen(snapshot).catch(() => {
-        // Snapshot reporting is best-effort and must not affect terminal interaction.
+      const screenBody = snapshot.rows.map((row) => row.text).join('\n')
+      pushStationTerminalDebugRecord(stationId, {
+        atMs: snapshot.capturedAtMs,
+        sessionId,
+        screenRevision: snapshot.screenRevision,
+        lane: 'xterm',
+        kind: 'screen',
+        source: 'rendered_screen',
+        summary: formatTerminalDebugPreview(
+          snapshot.rows
+            .map((row) => row.trimmedText)
+            .filter((row) => row.length > 0)
+            .join(' | '),
+          84,
+        ),
+        body: screenBody,
       })
+      const station = stationsRef.current.find((item) => item.id === stationId)
+      const toolKind = normalizeStationToolKind(station?.tool)
+      void desktopApi
+        .terminalReportRenderedScreen(snapshot, toolKind)
+        .then((response) => {
+          hydrateStationTerminalDebugHumanText(
+            stationId,
+            sessionId,
+            response.screenRevision,
+            response.humanText,
+          )
+        })
+        .catch(() => {
+          // Snapshot reporting is best-effort and must not affect terminal interaction.
+        })
     },
-    [],
+    [pushStationTerminalDebugRecord],
   )
 
   const updateStationProcessSnapshot = useCallback(

@@ -18,6 +18,8 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import {
+  clearStationTerminalDebugRecords,
+  TerminalDebugPanel,
   StationXtermTerminal,
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
@@ -189,6 +191,7 @@ function StationCardView({
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
   const [compactLayout, setCompactLayout] = useState(false)
+  const [terminalDebugHidden, setTerminalDebugHidden] = useState(true)
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
 
   const cancelScheduledTerminalFocus = useCallback(() => {
@@ -555,9 +558,18 @@ function StationCardView({
             onData={onSendInputData}
             onResize={onResizeTerminal}
             onBindSink={handleBindSink}
-            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+            onRenderedScreenSnapshot={active && !terminalDebugHidden ? onRenderedScreenSnapshot : undefined}
             onRestoreStateCaptured={onRestoreStateCaptured}
           />
+          {active ? (
+            <TerminalDebugPanel
+              stationId={station.id}
+              locale={locale}
+              hidden={terminalDebugHidden}
+              onHiddenChange={setTerminalDebugHidden}
+              onClear={() => clearStationTerminalDebugRecords(station.id)}
+            />
+          ) : null}
         </>
       ) : (
         <div className="station-terminal-idle-state">

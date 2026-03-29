@@ -25,6 +25,9 @@
     "src/features/terminal/station-terminal-input-buffer.ts",
     "src/features/terminal/station-terminal-runtime-state.ts",
     "src/features/terminal/station-terminal-restore-state.ts",
-    "src/features/terminal/station-terminal-document-scope.ts"
+    "src/features/terminal/station-terminal-document-scope.ts",
+    "src/features/terminal/terminal-debug-model.ts",
+    "src/features/terminal/terminal-stream-decoder.ts",
+    "src/features/terminal/terminal-vt-parser.ts"
   ]
 }

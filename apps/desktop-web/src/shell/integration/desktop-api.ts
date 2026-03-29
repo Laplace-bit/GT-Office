@@ -359,6 +359,7 @@ export interface TerminalReportRenderedScreenResponse {
   sessionId: string
   screenRevision: number
   accepted: boolean
+  humanText: string | null
 }
 
 export interface SurfaceDetachedStationPayload {
@@ -2283,7 +2284,7 @@ export const desktopApi = {
       sessionId,
     })
   },
-  terminalReportRenderedScreen(snapshot: RenderedScreenSnapshot) {
+  terminalReportRenderedScreen(snapshot: RenderedScreenSnapshot, toolKind?: string | null) {
     return invokeCommand<TerminalReportRenderedScreenResponse>('terminal_report_rendered_screen', {
       snapshot: {
         sessionId: snapshot.sessionId,
@@ -2301,6 +2302,7 @@ export const desktopApi = {
           isBlank: row.isBlank,
         })),
       },
+      toolKind: toolKind ?? null,
     })
   },
   taskDispatchBatch(request: TaskDispatchBatchRequest) {

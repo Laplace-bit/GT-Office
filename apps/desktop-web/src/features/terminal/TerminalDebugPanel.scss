@@ -1,0 +1,189 @@
+.terminal-debug-panel,
+.terminal-debug-launcher {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 5;
+  border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-elevated) 96%, transparent), color-mix(in srgb, var(--vb-surface) 94%, transparent)),
+    color-mix(in srgb, var(--vb-surface) 92%, transparent);
+  backdrop-filter: blur(1.25rem) saturate(1.1);
+  box-shadow:
+    0 1.25rem 2.5rem color-mix(in srgb, black 20%, transparent),
+    inset 0 0.0625rem 0 color-mix(in srgb, white 12%, transparent);
+}
+
+.terminal-debug-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, calc(100% - 2rem));
+  max-height: min(28rem, calc(100% - 2rem));
+  border-radius: 1rem;
+  overflow: hidden;
+
+  &.collapsed {
+    width: min(20rem, calc(100% - 2rem));
+  }
+}
+
+.terminal-debug-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 2.25rem;
+  padding: 0 0.875rem;
+  border-radius: 999rem;
+  color: var(--vb-text);
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+
+  strong {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    min-height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 999rem;
+    background: color-mix(in srgb, var(--vb-accent) 16%, transparent);
+    color: color-mix(in srgb, var(--vb-accent) 86%, white 14%);
+    font-size: 0.6875rem;
+  }
+}
+
+.terminal-debug-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border-bottom: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 76%, transparent);
+}
+
+.terminal-debug-panel-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+
+  strong {
+    font-size: 0.8125rem;
+    color: var(--vb-text);
+    letter-spacing: -0.01em;
+  }
+
+  span {
+    font-size: 0.6875rem;
+    color: var(--vb-text-muted);
+  }
+}
+
+.terminal-debug-panel-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+
+  button {
+    min-height: 1.75rem;
+    padding: 0 0.625rem;
+    border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
+    border-radius: 999rem;
+    background: color-mix(in srgb, var(--vb-glass-light) 74%, transparent);
+    color: var(--vb-text-muted);
+    font-size: 0.6875rem;
+    font-weight: 650;
+    cursor: pointer;
+  }
+}
+
+.terminal-debug-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.terminal-debug-panel-empty {
+  padding: 1rem 0.875rem;
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--vb-glass-light) 42%, transparent);
+  color: var(--vb-text-muted);
+  font-size: 0.75rem;
+}
+
+.terminal-debug-panel-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+
+  button {
+    min-height: 1.875rem;
+    padding: 0 0.75rem;
+    border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
+    border-radius: 999rem;
+    background: color-mix(in srgb, var(--vb-glass-light) 56%, transparent);
+    color: var(--vb-text-muted);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    cursor: pointer;
+
+    &.active {
+      border-color: color-mix(in srgb, var(--vb-accent) 28%, var(--vb-border-subtle));
+      background: color-mix(in srgb, var(--vb-accent) 14%, transparent);
+      color: var(--vb-text);
+    }
+  }
+}
+
+.terminal-debug-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+
+  header {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: var(--vb-text-subtle);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+}
+
+.terminal-debug-panel-log {
+  margin: 0;
+  padding: 0.75rem 0.8125rem;
+  border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 76%, transparent);
+  border-radius: 0.875rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-elevated) 82%, transparent), color-mix(in srgb, var(--vb-surface) 76%, transparent)),
+    color-mix(in srgb, var(--vb-surface) 78%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--vb-text-muted);
+
+  &.parsed {
+    border-color: color-mix(in srgb, var(--vb-accent) 22%, var(--vb-border-subtle));
+    color: var(--vb-text);
+  }
+
+  &.human {
+    border-color: color-mix(in srgb, #4f8f6b 24%, var(--vb-border-subtle));
+    color: var(--vb-text);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, #dff3e6 14%, var(--vb-surface-elevated)), color-mix(in srgb, var(--vb-surface) 80%, transparent)),
+      color-mix(in srgb, var(--vb-surface) 78%, transparent);
+  }
+
+  &.raw {
+    color: var(--vb-text-muted);
+  }
+}
