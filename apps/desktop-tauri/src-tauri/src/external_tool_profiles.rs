@@ -30,7 +30,7 @@ impl ToolScreenProfile {
     pub fn assistant_markers(self) -> &'static [&'static str] {
         match self {
             Self::Gemini => &["✦ "],
-            Self::Codex | Self::Claude | Self::Generic => &["• "],
+            Self::Codex | Self::Claude | Self::Generic => &["• ", "● ", "⏺ "],
         }
     }
 

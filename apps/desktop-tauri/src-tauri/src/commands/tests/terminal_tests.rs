@@ -126,8 +126,9 @@ fn terminal_delta_response_keeps_contract_fields() {
 
 #[test]
 fn terminal_report_rendered_screen_response_keeps_contract_fields() {
-    let payload = build_terminal_report_rendered_screen_response("ts-1", 12, true);
+    let payload = build_terminal_report_rendered_screen_response("ts-1", 12, true, Some("稳定正文"));
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["screenRevision"], 12);
     assert_eq!(payload["accepted"], true);
+    assert_eq!(payload["humanText"], "稳定正文");
 }

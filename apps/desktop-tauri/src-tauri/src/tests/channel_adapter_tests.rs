@@ -1,9 +1,10 @@
 use super::{
     align_route_with_resolved_workspace, channel_supports_external_reply, codex_event_text,
-    find_command_in_dir, migrate_legacy_wechat_access_policies, normalize_executable_path,
-    nvm_bin_dirs, resolve_cli_candidate, runtime_supports_structured_relay, split_text_for_channel,
-    AgentRuntimeRegistration, AgentToolKind, PersistedChannelAccessPolicy,
-    PersistedChannelStateFile, PersistedRouteBindingRecord,
+    find_command_in_dir, gemini_event_text, migrate_legacy_wechat_access_policies,
+    normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
+    runtime_supports_structured_relay, split_text_for_channel, AgentRuntimeRegistration,
+    AgentToolKind, PersistedChannelAccessPolicy, PersistedChannelStateFile,
+    PersistedRouteBindingRecord,
 };
 use std::path::PathBuf;
 use std::{collections::HashSet, fs};
@@ -42,6 +43,10 @@ fn runtime_supports_structured_relay_only_for_supported_tools_with_cwd() {
         AgentToolKind::Codex,
         Some("/tmp/workspace")
     )));
+    assert!(runtime_supports_structured_relay(&sample_runtime(
+        AgentToolKind::Gemini,
+        Some("/tmp/workspace")
+    )));
     assert!(!runtime_supports_structured_relay(&sample_runtime(
         AgentToolKind::Codex,
         None
@@ -78,6 +83,33 @@ fn codex_event_text_extracts_delta_text_from_updated_item() {
 
     let parsed = codex_event_text(&payload);
     assert_eq!(parsed, Some(("stream ".to_string(), false)));
+}
+
+#[test]
+fn gemini_event_text_extracts_delta_from_parts() {
+    let payload = serde_json::json!({
+        "type": "content_delta",
+        "delta": true,
+        "content": {
+            "parts": [
+                { "text": "stream " }
+            ]
+        }
+    });
+
+    let parsed = gemini_event_text(&payload);
+    assert_eq!(parsed, Some(("stream ".to_string(), false)));
+}
+
+#[test]
+fn gemini_event_text_extracts_final_response() {
+    let payload = serde_json::json!({
+        "type": "result",
+        "response": "hello from gemini"
+    });
+
+    let parsed = gemini_event_text(&payload);
+    assert_eq!(parsed, Some(("hello from gemini".to_string(), true)));
 }
 
 #[test]

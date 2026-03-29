@@ -1,11 +1,13 @@
 use super::{
-    extract_rendered_interaction_prompt, extract_rendered_reply_text, normalize_carriage_returns,
-    normalize_reply_text, normalize_terminal_text, sanitize_terminal_chunk,
+    external_reply_finalize_text, extract_rendered_debug_human_text,
+    extract_rendered_interaction_prompt, extract_rendered_reply_text,
+    normalize_carriage_returns, normalize_reply_text, normalize_terminal_text,
+    sanitize_terminal_chunk,
     should_skip_cli_prompt_line, should_skip_external_reply_line, should_skip_log_prefix_line,
     should_skip_runtime_noise_line, should_skip_startup_banner_line, snapshot_has_ready_prompt,
-    AppState, ExternalInteractionAction, ExternalInteractionControlMode,
-    ExternalReplyDispatchPhase, ExternalReplyRelayTarget, ExternalTerminalKey,
-    RenderedScreenSnapshot, RenderedScreenSnapshotRow,
+    AppState, ExternalInteractionAction, ExternalInteractionControlMode, ExternalReplyBodySource,
+    ExternalReplyDispatchPhase, ExternalReplyRelaySession, ExternalReplyRelayTarget,
+    ExternalTerminalKey, RenderedScreenSnapshot, RenderedScreenSnapshotRow,
 };
 use vb_task::AgentToolKind;
 
@@ -2696,6 +2698,221 @@ fn rendered_screen_codex_banner_does_not_emit_before_prompt_echo() {
 }
 
 #[test]
+fn rendered_debug_human_text_requires_confirmed_assistant_block_for_claude() {
+    let startup_snapshot = RenderedScreenSnapshot {
+        session_id: "s_debug_claude_startup".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_000),
+        viewport_top: 0,
+        viewport_height: 12,
+        base_y: 0,
+        cursor_row: Some(5),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "[terminal:running]".to_string(),
+                trimmed_text: "[terminal:running]".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "%".to_string(),
+                trimmed_text: "%".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "dzlin@duzenglindeMacBook-Air new-agent % claude".to_string(),
+                trimmed_text: "dzlin@duzenglindeMacBook-Air new-agent % claude".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: " ▐▛███▜▌   Claude Code v2.1.86".to_string(),
+                trimmed_text: "▐▛███▜▌   Claude Code v2.1.86".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "▝▜█████▛▘  GPT-5.4 · API Usage Billing".to_string(),
+                trimmed_text: "▝▜█████▛▘  GPT-5.4 · API Usage Billing".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  ▘▘ ▝▝    ~/work/project/.gtoffice/org/custom/new-agent".to_string(),
+                trimmed_text: "▘▘ ▝▝    ~/work/project/.gtoffice/org/custom/new-agent".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let input_snapshot = RenderedScreenSnapshot {
+        session_id: "s_debug_claude_insert".to_string(),
+        screen_revision: 2,
+        captured_at_ms: now_ms_for_test(1_010),
+        viewport_top: 0,
+        viewport_height: 12,
+        base_y: 0,
+        cursor_row: Some(0),
+        cursor_col: Some(0),
+        rows: vec![RenderedScreenSnapshotRow {
+            row_index: 0,
+            text: "-- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)".to_string(),
+            trimmed_text: "-- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)"
+                .to_string(),
+            is_blank: false,
+        }],
+    };
+
+    let tool_snapshot = RenderedScreenSnapshot {
+        session_id: "s_debug_claude_tool".to_string(),
+        screen_revision: 3,
+        captured_at_ms: now_ms_for_test(1_020),
+        viewport_top: 0,
+        viewport_height: 12,
+        base_y: 0,
+        cursor_row: Some(4),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "⏺ Skill(superpowers:using-superpowers)".to_string(),
+                trimmed_text: "⏺ Skill(superpowers:using-superpowers)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "  ⎿  Successfully loaded skill".to_string(),
+                trimmed_text: "⎿  Successfully loaded skill".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "✳ Deciphering… (thought for 3s)".to_string(),
+                trimmed_text: "✳ Deciphering… (thought for 3s)".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let reply_snapshot = RenderedScreenSnapshot {
+        session_id: "s_debug_claude_reply".to_string(),
+        screen_revision: 4,
+        captured_at_ms: now_ms_for_test(1_030),
+        viewport_top: 0,
+        viewport_height: 12,
+        base_y: 0,
+        cursor_row: Some(4),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "⏺ Skill(superpowers:using-superpowers)".to_string(),
+                trimmed_text: "⏺ Skill(superpowers:using-superpowers)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "  ⎿  Successfully loaded skill".to_string(),
+                trimmed_text: "⎿  Successfully loaded skill".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "⏺ 你好呀。有什么要我帮你的？".to_string(),
+                trimmed_text: "⏺ 你好呀。有什么要我帮你的？".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    assert_eq!(
+        extract_rendered_debug_human_text(&startup_snapshot, AgentToolKind::Claude),
+        ""
+    );
+    assert_eq!(
+        extract_rendered_debug_human_text(&input_snapshot, AgentToolKind::Claude),
+        ""
+    );
+    assert_eq!(
+        extract_rendered_debug_human_text(&tool_snapshot, AgentToolKind::Claude),
+        ""
+    );
+    assert_eq!(
+        extract_rendered_debug_human_text(&reply_snapshot, AgentToolKind::Claude),
+        "⏺ 你好呀。有什么要我帮你的？"
+    );
+}
+
+#[test]
+fn rendered_debug_human_text_strips_post_reply_spinner_and_tip_for_claude() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_debug_claude_tail_noise".to_string(),
+        screen_revision: 5,
+        captured_at_ms: now_ms_for_test(1_040),
+        viewport_top: 0,
+        viewport_height: 16,
+        base_y: 0,
+        cursor_row: Some(6),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "⏺ 现在是 2026-03-28 23:26:17 CST。".to_string(),
+                trimmed_text: "⏺ 现在是 2026-03-28 23:26:17 CST。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "* Simmering… (thought for 2s)".to_string(),
+                trimmed_text: "* Simmering… (thought for 2s)".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "  ⎿  Tip: Ask Claude to create a todo list when working on complex"
+                    .to_string(),
+                trimmed_text:
+                    "⎿  Tip: Ask Claude to create a todo list when working on complex"
+                        .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "      tasks to track progress and remain on track".to_string(),
+                trimmed_text: "tasks to track progress and remain on track".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    assert_eq!(
+        extract_rendered_debug_human_text(&snapshot, AgentToolKind::Claude),
+        "⏺ 现在是 2026-03-28 23:26:17 CST。"
+    );
+}
+
+#[test]
 fn menu_response_input_does_not_replace_active_reply_session() {
     let state = AppState::default();
     let original_target = ExternalReplyRelayTarget {
@@ -3177,6 +3394,52 @@ fn rendered_reply_finalizes_after_promptless_idle_fallback() {
     assert_eq!(
         final_candidates[0].text,
         "• 这是一个稳定输出但尚未识别 ready prompt 的回复示例。\n  界面已经没有继续滚动，但终端底部没有标准占位提示。"
+    );
+}
+
+#[test]
+fn external_reply_finalize_prefers_rendered_text_over_repeated_session_log() {
+    let session = ExternalReplyRelaySession {
+        target: ExternalReplyRelayTarget {
+            trace_id: "trace-finalize-priority-1".to_string(),
+            channel: "telegram".to_string(),
+            account_id: "default".to_string(),
+            peer_id: "peer-finalize-priority-1".to_string(),
+            inbound_message_id: "msg-finalize-priority-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            target_agent_id: "agent-01".to_string(),
+            injected_input: Some("hi".to_string()),
+        },
+        tool_kind: AgentToolKind::Codex,
+        resolved_cwd: None,
+        provider_session: None,
+        bind_started_at_ms: 0,
+        created_at_ms: 0,
+        last_chunk_at_ms: 0,
+        last_preview_sent_at_ms: 0,
+        last_finalize_attempt_at_ms: 0,
+        ended: false,
+        vt_parser: vt100::Parser::new(24, 80, 0),
+        last_preview_text: String::new(),
+        preview_message_id: None,
+        last_rendered_snapshot: None,
+        last_rendered_reply_text: "• clean rendered answer".to_string(),
+        session_log_binding: None,
+        session_log_text: "• clean rendered answer\n• clean rendered answer".to_string(),
+        session_log_health: None,
+        active_interaction_prompt: None,
+        interaction_message_id: None,
+        last_interaction_signature: None,
+        permission_prompt_active: false,
+    };
+
+    let finalize = external_reply_finalize_text(&session);
+    assert_eq!(
+        finalize,
+        Some((
+            "• clean rendered answer".to_string(),
+            ExternalReplyBodySource::RenderedScreen
+        ))
     );
 }
 

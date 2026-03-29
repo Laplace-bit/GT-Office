@@ -840,7 +840,7 @@ fn resolve_command_via_login_shell(command_name: &str) -> Option<PathBuf> {
 fn runtime_supports_structured_relay(runtime: &AgentRuntimeRegistration) -> bool {
     matches!(
         runtime.tool_kind,
-        AgentToolKind::Claude | AgentToolKind::Codex
+        AgentToolKind::Claude | AgentToolKind::Codex | AgentToolKind::Gemini
     ) && runtime
         .resolved_cwd
         .as_deref()
@@ -1142,6 +1142,7 @@ async fn run_structured_reply_job(
     match runtime.tool_kind {
         AgentToolKind::Claude => run_claude_structured_relay(app, &target, &runtime, &prompt).await,
         AgentToolKind::Codex => run_codex_structured_relay(app, &target, &runtime, &prompt).await,
+        AgentToolKind::Gemini => run_gemini_structured_relay(app, &target, &runtime, &prompt).await,
         _ => Err(format!(
             "CHANNEL_REPLY_STRUCTURED_UNSUPPORTED: tool {:?} is not supported",
             runtime.tool_kind
@@ -1488,6 +1489,185 @@ async fn stream_codex_once(
         &mut preview_message_id,
         "structured-headless",
         "high",
+    )
+    .await
+}
+
+fn gemini_event_text(event: &Value) -> Option<(String, bool)> {
+    let event_type = event.get("type").and_then(Value::as_str);
+    let is_delta = event
+        .get("delta")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| matches!(event_type, Some("content_delta" | "text_delta")));
+
+    let text = event
+        .get("response")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| event.pointer("/delta/text").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| event.pointer("/content/text").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| {
+            event
+                .pointer("/message/content")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            event
+                .pointer("/candidate/content")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| event.get("text").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| {
+            event
+                .pointer("/content/parts")
+                .and_then(Value::as_array)
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|part| part.get("text").and_then(Value::as_str))
+                        .collect::<String>()
+                })
+                .filter(|text| !text.is_empty())
+        })
+        .or_else(|| {
+            event
+                .pointer("/message/parts")
+                .and_then(Value::as_array)
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|part| part.get("text").and_then(Value::as_str))
+                        .collect::<String>()
+                })
+                .filter(|text| !text.is_empty())
+        })?;
+
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some((text, !is_delta))
+}
+
+async fn run_gemini_structured_relay(
+    app: &AppHandle,
+    target: &ExternalReplyRelayTarget,
+    runtime: &AgentRuntimeRegistration,
+    prompt: &str,
+) -> Result<(), String> {
+    let cwd = runtime
+        .resolved_cwd
+        .as_deref()
+        .map(PathBuf::from)
+        .ok_or_else(|| "CHANNEL_REPLY_RUNTIME_INVALID: resolved cwd is required".to_string())?;
+    let command_path = resolve_structured_cli_command(AgentToolKind::Gemini)
+        .map_err(|error| format!("CHANNEL_REPLY_GEMINI_COMMAND_NOT_FOUND: {error}"))?;
+    let mut command = Command::new(&command_path);
+    configure_tokio_command(&mut command);
+    command
+        .current_dir(cwd)
+        .arg("-p")
+        .arg(prompt)
+        .arg("--output-format")
+        .arg("stream-json")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("CHANNEL_REPLY_GEMINI_SPAWN_FAILED: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "CHANNEL_REPLY_GEMINI_STDOUT_MISSING".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "CHANNEL_REPLY_GEMINI_STDERR_MISSING".to_string())?;
+    let stderr_task = tauri::async_runtime::spawn(async move {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(stderr);
+        let _ = reader.read_to_string(&mut buf).await;
+        buf
+    });
+
+    let mut lines = BufReader::new(stdout).lines();
+    let mut final_text = String::new();
+    let mut last_preview_text = String::new();
+    let mut last_preview_sent_at_ms = 0u64;
+    let mut preview_message_id: Option<String> = None;
+
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_GEMINI_READ_FAILED: {error}"))?
+    {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let event: Value = serde_json::from_str(trimmed).map_err(|error| {
+            format!("CHANNEL_REPLY_GEMINI_JSON_INVALID: {error}; line={trimmed}")
+        })?;
+        if let Some((text, is_final)) = gemini_event_text(&event) {
+            if is_final {
+                final_text = text;
+            } else {
+                final_text.push_str(&text);
+            }
+            let preview_due = now_ms().saturating_sub(last_preview_sent_at_ms)
+                >= EXTERNAL_REPLY_STREAM_THROTTLE_MS;
+            let preview_ready = final_text.chars().count()
+                >= EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS
+                || preview_message_id.is_some();
+            if preview_due && preview_ready && final_text != last_preview_text {
+                deliver_external_reply_text(
+                    app,
+                    target,
+                    ExternalReplyDispatchPhase::Preview,
+                    &final_text,
+                    &mut preview_message_id,
+                    "structured-headless",
+                    "medium",
+                )
+                .await?;
+                last_preview_text = final_text.clone();
+                last_preview_sent_at_ms = now_ms();
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_GEMINI_WAIT_FAILED: {error}"))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_GEMINI_STDERR_JOIN_FAILED: {error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "CHANNEL_REPLY_GEMINI_EXIT_FAILED: status={status}; stderr={}",
+            stderr.trim()
+        ));
+    }
+    if final_text.trim().is_empty() {
+        return Err(format!(
+            "CHANNEL_REPLY_GEMINI_EMPTY: no assistant text produced; stderr={}",
+            stderr.trim()
+        ));
+    }
+
+    deliver_external_reply_text(
+        app,
+        target,
+        ExternalReplyDispatchPhase::Finalize,
+        &final_text,
+        &mut preview_message_id,
+        "structured-headless",
+        "medium",
     )
     .await
 }

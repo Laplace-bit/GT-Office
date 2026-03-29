@@ -1191,13 +1191,6 @@ fn external_reply_preview_text(
 fn external_reply_finalize_text(
     session: &ExternalReplyRelaySession,
 ) -> Option<(String, ExternalReplyBodySource)> {
-    let session_log_text = session.session_log_text.trim();
-    if !session_log_text.is_empty() {
-        return Some((
-            session.session_log_text.clone(),
-            ExternalReplyBodySource::SessionLog,
-        ));
-    }
     let rendered_text = session.last_rendered_reply_text.trim();
     if !rendered_text.is_empty() {
         return Some((
@@ -1205,7 +1198,17 @@ fn external_reply_finalize_text(
             ExternalReplyBodySource::RenderedScreen,
         ));
     }
-    external_reply_vt_text(session).map(|text| (text, ExternalReplyBodySource::VtFallback))
+    if let Some(text) = external_reply_vt_text(session) {
+        return Some((text, ExternalReplyBodySource::VtFallback));
+    }
+    let session_log_text = session.session_log_text.trim();
+    if !session_log_text.is_empty() {
+        return Some((
+            session.session_log_text.clone(),
+            ExternalReplyBodySource::SessionLog,
+        ));
+    }
+    None
 }
 
 fn session_log_finalize_delta(final_text: &str, preview_text: &str) -> Option<String> {
@@ -1777,6 +1780,23 @@ fn extract_rendered_reply_text(
     )
 }
 
+pub(crate) fn extract_rendered_debug_human_text(
+    snapshot: &RenderedScreenSnapshot,
+    tool_kind: AgentToolKind,
+) -> String {
+    let profile = ToolScreenProfile::from_tool_kind(tool_kind);
+    let text = extract_rendered_reply_text_for_tool(
+        snapshot,
+        None,
+        None,
+        profile,
+    );
+    if !rendered_text_contains_confirmed_assistant_block(&text, profile) {
+        return String::new();
+    }
+    extract_last_assistant_block_for_tool(&text, profile).unwrap_or_default()
+}
+
 fn extract_rendered_reply_text_for_tool(
     snapshot: &RenderedScreenSnapshot,
     injected_input: Option<&str>,
@@ -2118,9 +2138,9 @@ fn is_ready_prompt_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool
 
 fn is_editor_mode_line(line: &str) -> bool {
     let trimmed = line.trim();
-    trimmed.eq_ignore_ascii_case("-- insert --")
-        || trimmed.eq_ignore_ascii_case("-- normal --")
-        || trimmed.eq_ignore_ascii_case("-- visual --")
+    trimmed.to_ascii_lowercase().starts_with("-- insert --")
+        || trimmed.to_ascii_lowercase().starts_with("-- normal --")
+        || trimmed.to_ascii_lowercase().starts_with("-- visual --")
 }
 
 fn is_horizontal_rule_line(line: &str) -> bool {
@@ -2162,19 +2182,9 @@ fn pick_best_rendered_reply_island(
         let joined = text.join("\n");
         let char_count = joined.chars().count();
         let line_count = text.len();
-        let has_assistant_marker = text.iter().any(|line| {
-            let trimmed = line.trim_start();
-            let matches_profile_marker = profile
-                .assistant_markers()
-                .iter()
-                .any(|marker| trimmed.starts_with(marker));
-            let matches_generic_marker =
-                profile == ToolScreenProfile::Generic && trimmed.starts_with("● ");
-            (matches_profile_marker || matches_generic_marker)
-                && !trimmed.to_ascii_lowercase().starts_with("• working")
-                && !trimmed.to_ascii_lowercase().starts_with("● working")
-                && !is_tool_block_start_line_for_tool(trimmed, profile)
-        });
+        let has_assistant_marker = text
+            .iter()
+            .any(|line| line_has_assistant_marker_for_tool(line, profile));
         let has_cjk = joined.chars().any(is_cjk_char);
         let has_sentence_punctuation = joined.contains('。')
             || joined.contains('，')
@@ -2254,9 +2264,39 @@ fn looks_like_terminal_command(line: &str) -> bool {
 
 fn trim_display_leader(line: &str) -> &str {
     line.trim_start_matches(|ch: char| {
-        ch.is_whitespace() || matches!(ch, '●' | '•' | '◦' | '✦' | '⎿' | '│' | '┃')
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '●' | '•' | '◦' | '✦' | '⏺' | '⎿' | '│' | '┃' | '*' | '·' | '✳' | '✻' | '✶'
+                    | '✢'
+            )
     })
     .trim()
+}
+
+fn line_has_assistant_marker_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
+    let trimmed = line.trim_start();
+    profile
+        .assistant_markers()
+        .iter()
+        .any(|marker| trimmed.starts_with(marker))
+        && !is_tool_block_start_line_for_tool(trimmed, profile)
+}
+
+fn strip_trailing_ellipsis(value: &str) -> &str {
+    value
+        .trim()
+        .trim_end_matches('…')
+        .trim_end_matches("...")
+        .trim()
+}
+
+fn rendered_text_contains_confirmed_assistant_block(
+    text: &str,
+    profile: ToolScreenProfile,
+) -> bool {
+    text.lines()
+        .any(|line| line_has_assistant_marker_for_tool(line, profile))
 }
 
 fn is_cjk_char(ch: char) -> bool {
@@ -2537,7 +2577,7 @@ fn should_skip_tool_execution_line(line: &str) -> bool {
 fn should_skip_tool_execution_line_for_tool(line: &str, profile: ToolScreenProfile) -> bool {
     let trimmed = line.trim();
     let display_trimmed = trim_display_leader(trimmed);
-    // Claude Code tool markers: Read(file), Edit(file), Bash(cmd), Write(file)
+    // Generic tool-call signature: CapitalizedToken(args)
     if let Some(paren_start) = display_trimmed.find('(') {
         let prefix = &display_trimmed[..paren_start];
         if prefix.chars().all(|c| c.is_ascii_alphanumeric())
@@ -2547,25 +2587,7 @@ fn should_skip_tool_execution_line_for_tool(line: &str, profile: ToolScreenProfi
                 .map_or(false, |c| c.is_ascii_uppercase())
             && display_trimmed.ends_with(')')
         {
-            let known_tools = [
-                "Read",
-                "Edit",
-                "Write",
-                "Bash",
-                "Glob",
-                "Grep",
-                "Search",
-                "Replace",
-                "MultiEdit",
-                "TodoRead",
-                "TodoWrite",
-                "WebFetch",
-                "WebSearch",
-                "NotebookEdit",
-            ];
-            if known_tools.iter().any(|t| prefix == *t) {
-                return true;
-            }
+            return true;
         }
     }
     // Codex CLI tool execution display
@@ -2659,6 +2681,27 @@ fn should_skip_thinking_line(line: &str) -> bool {
     if (lower.starts_with("thinking (") || lower.starts_with("reasoning ("))
         && lower.ends_with(")")
         && lower.contains("s)")
+    {
+        return true;
+    }
+    let normalized = trim_display_leader(trimmed);
+    let normalized = strip_trailing_ellipsis(normalized);
+    if let Some((prefix, suffix)) = normalized.split_once(" (thought for ") {
+        if suffix.ends_with(')') {
+            let prefix = strip_trailing_ellipsis(prefix);
+            if prefix
+                .chars()
+                .all(|ch| ch.is_ascii_alphabetic() || ch == '-')
+                && prefix.to_ascii_lowercase().ends_with("ing")
+            {
+                return true;
+            }
+        }
+    }
+    if normalized
+        .chars()
+        .all(|ch| ch.is_ascii_alphabetic() || ch == '-')
+        && normalized.to_ascii_lowercase().ends_with("ing")
     {
         return true;
     }
@@ -3061,18 +3104,24 @@ fn is_echo_of_injected_line(line: &str, injected_input: Option<&str>) -> bool {
 ///
 /// This makes the function work for agents that don't use `• ` markers.
 fn extract_last_assistant_block(text: &str) -> Option<String> {
+    extract_last_assistant_block_for_tool(text, ToolScreenProfile::Generic)
+}
+
+fn extract_last_assistant_block_for_tool(
+    text: &str,
+    profile: ToolScreenProfile,
+) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut start: Option<usize> = None;
 
-    // Find the LAST assistant block marker (• that's not "• working")
+    // Find the LAST assistant block marker for the current tool profile.
     for (idx, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("• ") && !trimmed.to_ascii_lowercase().starts_with("• working") {
+        if line_has_assistant_marker_for_tool(line, profile) {
             start = Some(idx);
         }
     }
 
-    // If no `• ` marker found, return the full text (line-level filters already applied)
+    // If no assistant marker is found, return the full filtered text.
     let start = match start {
         Some(s) => s,
         None => {
@@ -3090,6 +3139,7 @@ fn extract_last_assistant_block(text: &str) -> Option<String> {
 
     for line in lines.iter().skip(start + 1) {
         let trimmed = line.trim_start();
+        let display_trimmed = trim_display_leader(trimmed);
 
         // Stop if we encounter a user prompt (new input)
         if trimmed.starts_with("› ") {
@@ -3106,19 +3156,17 @@ fn extract_last_assistant_block(text: &str) -> Option<String> {
             continue;
         }
 
-        // Skip "• Working" status lines but continue processing
-        if trimmed.to_ascii_lowercase().starts_with("• working") {
-            continue;
-        }
-
-        // Skip TUI status bar lines that get interleaved during streaming
-        if is_tui_status_bar_line(trimmed) {
-            continue;
-        }
-
-        // Skip only pure CLI prompt lines that are clearly interleaved
-        if is_interleaved_prompt_line(trimmed) {
-            continue;
+        if should_skip_thinking_line(display_trimmed)
+            || should_skip_runtime_noise_line_for_tool(display_trimmed, profile)
+            || should_skip_startup_banner_line_for_tool(display_trimmed, profile)
+            || should_skip_tool_execution_line_for_tool(display_trimmed, profile)
+            || should_skip_log_prefix_line(display_trimmed)
+            || is_permission_prompt_line(display_trimmed)
+            || is_editor_mode_line(display_trimmed)
+            || is_tui_status_bar_line(display_trimmed)
+            || is_interleaved_prompt_line(display_trimmed)
+        {
+            break;
         }
 
         result.push(line.trim_end().to_string());

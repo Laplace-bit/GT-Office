@@ -6,7 +6,7 @@ use vb_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
 
-use crate::app_state::{AppState, RenderedScreenSnapshot};
+use crate::app_state::{extract_rendered_debug_human_text, AppState, RenderedScreenSnapshot};
 use crate::commands::settings::ai_config::{
     agent_tool_kind_from_param, augment_terminal_env_for_agent,
 };
@@ -119,11 +119,13 @@ fn build_terminal_report_rendered_screen_response(
     session_id: &str,
     screen_revision: u64,
     accepted: bool,
+    human_text: Option<&str>,
 ) -> Value {
     json!({
         "sessionId": session_id,
         "screenRevision": screen_revision,
-        "accepted": accepted
+        "accepted": accepted,
+        "humanText": human_text
     })
 }
 
@@ -307,14 +309,18 @@ pub fn terminal_read_delta(
 #[tauri::command]
 pub fn terminal_report_rendered_screen(
     snapshot: RenderedScreenSnapshot,
+    tool_kind: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let resolved_tool_kind = agent_tool_kind_from_param(tool_kind);
     let accepted =
         state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
+    let human_text = extract_rendered_debug_human_text(&snapshot, resolved_tool_kind);
     Ok(build_terminal_report_rendered_screen_response(
         &snapshot.session_id,
         snapshot.screen_revision,
         accepted,
+        (!human_text.trim().is_empty()).then_some(human_text.as_str()),
     ))
 }
 
