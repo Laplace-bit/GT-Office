@@ -85,6 +85,8 @@ git tag -a v0.1.0 -m "GT Office v0.1.0"
 git push origin main --follow-tags
 ```
 
+For public macOS releases, the generated `.app` and `.dmg` must pass Developer ID signing and notarization. The build wrapper now fails fast when Gatekeeper would reject the app bundle. For local unsigned smoke builds only, use `GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1`.
+
 ## Documentation Map
 
 - Requirements: [docs/01_需求与产品设计.md](docs/01_需求与产品设计.md)

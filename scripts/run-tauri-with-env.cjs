@@ -7,6 +7,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { createRequire } = require('node:module')
 const { assertSupportedBundlesForHost } = require('./tauri-bundle-guards.cjs')
+const { assertMacOsAppBundleReadyForDistribution } = require('./macos-distribution-guard.cjs')
 
 const repoRoot = path.resolve(__dirname, '..')
 const workspacePath = path.join(repoRoot, 'apps', 'desktop-tauri')
@@ -325,6 +326,56 @@ function runCommandOrThrow(command, args, options) {
   }
 }
 
+function runCommandCapture(command, args, options) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    shell: false,
+    ...options,
+  })
+
+  return {
+    status: typeof result.status === 'number' ? result.status : 1,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+  }
+}
+
+function shouldAllowUnsignedMacOsBundle(env) {
+  return env.GTO_ALLOW_UNSIGNED_MACOS_BUNDLE === '1'
+}
+
+function assertMacOsBundleDistributionReadiness(appBundlePath, env) {
+  if (process.platform !== 'darwin' || shouldAllowUnsignedMacOsBundle(env)) {
+    return
+  }
+
+  const codesignVerify = runCommandCapture(
+    'codesign',
+    ['--verify', '--deep', '--strict', '--verbose=4', appBundlePath],
+    { env },
+  )
+  const codesignDisplay = runCommandCapture(
+    'codesign',
+    ['-dv', '--verbose=4', appBundlePath],
+    { env },
+  )
+  const spctlCheck = runCommandCapture(
+    'spctl',
+    ['-a', '-vvv', appBundlePath],
+    { env },
+  )
+
+  assertMacOsAppBundleReadyForDistribution(appBundlePath, {
+    codesignVerifyStatus: codesignVerify.status,
+    codesignVerifyOutput: [codesignVerify.stdout, codesignVerify.stderr].filter(Boolean).join('\n').trim(),
+    codesignDisplayOutput: [codesignDisplay.stdout, codesignDisplay.stderr].filter(Boolean).join('\n').trim(),
+    spctlStatus: spctlCheck.status,
+    spctlOutput: [spctlCheck.stdout, spctlCheck.stderr].filter(Boolean).join('\n').trim(),
+  })
+}
+
 function createCustomMacOsDmg(env, tauriArgs) {
   const tauriConfig = readTauriConfig()
   const profileDir = resolveBuildProfile(tauriArgs)
@@ -336,6 +387,8 @@ function createCustomMacOsDmg(env, tauriArgs) {
   if (!fs.existsSync(appBundlePath)) {
     throw new Error(`Expected app bundle not found at ${appBundlePath}`)
   }
+
+  assertMacOsBundleDistributionReadiness(appBundlePath, env)
 
   const dmgDir = path.join(bundleRoot, 'dmg')
   fs.mkdirSync(dmgDir, { recursive: true })
