@@ -20,6 +20,10 @@ function collectMacOsDistributionIssues(details) {
   return issues
 }
 
+function summarizeMacOsDistributionIssues(details) {
+  return collectMacOsDistributionIssues(details).join('\n')
+}
+
 function assertMacOsAppBundleReadyForDistribution(appBundlePath, details) {
   const issues = collectMacOsDistributionIssues(details)
   if (issues.length === 0) {
@@ -37,5 +41,7 @@ function assertMacOsAppBundleReadyForDistribution(appBundlePath, details) {
 }
 
 module.exports = {
+  collectMacOsDistributionIssues,
+  summarizeMacOsDistributionIssues,
   assertMacOsAppBundleReadyForDistribution,
 }

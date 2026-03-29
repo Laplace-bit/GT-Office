@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.1 - 2026-03-29
+
+### Highlights
+
+- Keeps local macOS Tauri builds working without Apple signing credentials by skipping DMG generation instead of hard-failing the build.
+- Prevents accidental re-publication of unsigned macOS DMGs while still preserving a local `.app` build for developer testing.
+- Rolls release metadata forward to `v0.1.1` for a clean replacement release.
+
 ## v0.1.0 - 2026-03-29
 
 Initial tagged GT Office production release.

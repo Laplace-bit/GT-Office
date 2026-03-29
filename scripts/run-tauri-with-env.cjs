@@ -7,7 +7,10 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { createRequire } = require('node:module')
 const { assertSupportedBundlesForHost } = require('./tauri-bundle-guards.cjs')
-const { assertMacOsAppBundleReadyForDistribution } = require('./macos-distribution-guard.cjs')
+const {
+  assertMacOsAppBundleReadyForDistribution,
+  summarizeMacOsDistributionIssues,
+} = require('./macos-distribution-guard.cjs')
 
 const repoRoot = path.resolve(__dirname, '..')
 const workspacePath = path.join(repoRoot, 'apps', 'desktop-tauri')
@@ -346,11 +349,7 @@ function shouldAllowUnsignedMacOsBundle(env) {
   return env.GTO_ALLOW_UNSIGNED_MACOS_BUNDLE === '1'
 }
 
-function assertMacOsBundleDistributionReadiness(appBundlePath, env) {
-  if (process.platform !== 'darwin' || shouldAllowUnsignedMacOsBundle(env)) {
-    return
-  }
-
+function inspectMacOsBundleDistributionReadiness(appBundlePath, env) {
   const codesignVerify = runCommandCapture(
     'codesign',
     ['--verify', '--deep', '--strict', '--verbose=4', appBundlePath],
@@ -367,13 +366,13 @@ function assertMacOsBundleDistributionReadiness(appBundlePath, env) {
     { env },
   )
 
-  assertMacOsAppBundleReadyForDistribution(appBundlePath, {
+  return {
     codesignVerifyStatus: codesignVerify.status,
     codesignVerifyOutput: [codesignVerify.stdout, codesignVerify.stderr].filter(Boolean).join('\n').trim(),
     codesignDisplayOutput: [codesignDisplay.stdout, codesignDisplay.stderr].filter(Boolean).join('\n').trim(),
     spctlStatus: spctlCheck.status,
     spctlOutput: [spctlCheck.stdout, spctlCheck.stderr].filter(Boolean).join('\n').trim(),
-  })
+  }
 }
 
 function createCustomMacOsDmg(env, tauriArgs) {
@@ -388,7 +387,22 @@ function createCustomMacOsDmg(env, tauriArgs) {
     throw new Error(`Expected app bundle not found at ${appBundlePath}`)
   }
 
-  assertMacOsBundleDistributionReadiness(appBundlePath, env)
+  const readinessDetails = inspectMacOsBundleDistributionReadiness(appBundlePath, env)
+  try {
+    if (!shouldAllowUnsignedMacOsBundle(env)) {
+      assertMacOsAppBundleReadyForDistribution(appBundlePath, readinessDetails)
+    }
+  } catch (error) {
+    console.warn(
+      [
+        '[GT Office] Skipping DMG creation because the macOS app bundle is not signed/notarized for public distribution.',
+        summarizeMacOsDistributionIssues(readinessDetails),
+        'A local .app bundle was still produced. Public releases should be source-only until Developer ID signing is configured.',
+        'If you intentionally want to force unsigned DMG creation for local testing, rerun with GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1.',
+      ].join('\n'),
+    )
+    return
+  }
 
   const dmgDir = path.join(bundleRoot, 'dmg')
   fs.mkdirSync(dmgDir, { recursive: true })

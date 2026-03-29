@@ -55,3 +55,20 @@ test('accepts macOS app bundles that pass codesign verification and Gatekeeper a
     }),
   )
 })
+
+test('summarizes macOS distribution issues for warning-only local builds', () => {
+  const { summarizeMacOsDistributionIssues } = loadMacOsDistributionGuard()
+
+  const summary = summarizeMacOsDistributionIssues({
+    codesignVerifyStatus: 1,
+    codesignVerifyOutput: 'code has no resources but signature indicates they must be present',
+    codesignDisplayOutput: 'Signature=adhoc\nTeamIdentifier=not set',
+    spctlStatus: 1,
+    spctlOutput: 'source=no usable signature',
+  })
+
+  assert.match(summary, /codesign verify failed/i)
+  assert.match(summary, /Signature=adhoc/i)
+  assert.match(summary, /TeamIdentifier=not set/i)
+  assert.match(summary, /no usable signature/i)
+})
