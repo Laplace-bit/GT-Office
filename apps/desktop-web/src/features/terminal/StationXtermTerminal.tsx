@@ -6,6 +6,7 @@ import './StationXtermTerminal.scss'
 import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import {
+  consumeDeferredMacOsXtermEcho,
   isMacOsWebKitTextInputEnvironment,
   resolveDeferredMacOsTextInputHandling,
   shouldBypassXtermTextKeyEvent,
@@ -421,6 +422,7 @@ function StationXtermTerminalView({
           platform: window.navigator.platform,
           userAgent: window.navigator.userAgent,
         })
+        let suppressedDeferredXtermEchoRef: { current: string | null } | null = null
         const terminalTextarea = terminal.textarea
         if (terminalTextarea) {
           // Backport the upstream xterm fix that re-syncs the helper textarea before IME
@@ -443,6 +445,7 @@ function StationXtermTerminalView({
           // but let these shifted text keys fall through to the native input event path.
           pendingNativeTextInputRef = { current: false }
           pendingNativeTextInputXtermDataRef = { current: null as string | null }
+          suppressedDeferredXtermEchoRef = { current: null as string | null }
           terminal.attachCustomKeyEventHandler((event) => {
             const shouldBypass = shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled)
             if (shouldBypass) {
@@ -477,6 +480,10 @@ function StationXtermTerminalView({
               terminalTextarea.value = resolution.nextTextareaValue
             }
             if (resolution.action === 'forward' && resolution.text) {
+              const suppressedDeferredXtermEcho = suppressedDeferredXtermEchoRef
+              if (suppressedDeferredXtermEcho) {
+                suppressedDeferredXtermEcho.current = resolution.text
+              }
               onDataRef.current(stationId, resolution.text)
             }
           }
@@ -495,6 +502,10 @@ function StationXtermTerminalView({
           terminalTextarea.addEventListener('blur', resetPendingNativeTextInput, true)
           removeMacOsImeFallbackListeners = () => {
             resetPendingNativeTextInput()
+            const suppressedDeferredXtermEcho = suppressedDeferredXtermEchoRef
+            if (suppressedDeferredXtermEcho) {
+              suppressedDeferredXtermEcho.current = null
+            }
             terminalTextarea.removeEventListener('input', handleDeferredMacOsImeTextInput)
             terminalTextarea.removeEventListener('compositionend', handleCompositionEnd)
             terminalTextarea.removeEventListener('blur', resetPendingNativeTextInput, true)
@@ -765,6 +776,18 @@ function StationXtermTerminalView({
             // Remember what xterm already consumed during a deferred IME cycle so the
             // native input fallback does not replay the same committed text.
             pendingNativeTextInputXtermDataRef.current = (pendingNativeTextInputXtermDataRef.current ?? '') + data
+          }
+          if (isMacOsWebKitImeFallbackEnabled && suppressedDeferredXtermEchoRef) {
+            const echoConsumption = consumeDeferredMacOsXtermEcho(
+              suppressedDeferredXtermEchoRef.current,
+              data,
+            )
+            suppressedDeferredXtermEchoRef.current = echoConsumption.remainingEcho
+            if (!echoConsumption.forwardedData) {
+              return
+            }
+            onDataRef.current(stationId, echoConsumption.forwardedData)
+            return
           }
           onDataRef.current(stationId, data)
         })

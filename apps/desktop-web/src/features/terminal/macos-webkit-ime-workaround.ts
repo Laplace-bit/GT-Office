@@ -111,6 +111,53 @@ export function shouldSkipDeferredMacOsTextInput(eventData: string | null, xterm
   return false
 }
 
+export interface DeferredMacOsXtermEchoConsumption {
+  remainingEcho: string | null
+  forwardedData: string | null
+}
+
+function sharedPrefixLength(left: string, right: string): number {
+  const limit = Math.min(left.length, right.length)
+  let index = 0
+  while (index < limit && left[index] === right[index]) {
+    index += 1
+  }
+  return index
+}
+
+export function consumeDeferredMacOsXtermEcho(
+  pendingEcho: string | null,
+  xtermData: string | null,
+): DeferredMacOsXtermEchoConsumption {
+  if (!xtermData) {
+    return {
+      remainingEcho: pendingEcho,
+      forwardedData: null,
+    }
+  }
+  if (!pendingEcho) {
+    return {
+      remainingEcho: null,
+      forwardedData: xtermData,
+    }
+  }
+
+  const consumedPrefixLength = sharedPrefixLength(pendingEcho, xtermData)
+  if (consumedPrefixLength > 0) {
+    const remainingEcho = pendingEcho.slice(consumedPrefixLength) || null
+    const forwardedData = xtermData.slice(consumedPrefixLength) || null
+    return {
+      remainingEcho,
+      forwardedData,
+    }
+  }
+
+  return {
+    remainingEcho: null,
+    forwardedData: xtermData,
+  }
+}
+
 export function resolveDeferredMacOsTextInputHandling({
   event,
   isMacOsWebKitEnvironment,

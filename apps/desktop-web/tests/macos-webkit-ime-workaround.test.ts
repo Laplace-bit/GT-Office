@@ -447,3 +447,36 @@ test('preserves xterm helper textarea state when deferred macOS text input was a
     },
   )
 })
+
+test('strips late xterm echo after native macOS forwarding', () => {
+  assert.equal(Reflect.has(macOsWebKitImeWorkaround, 'consumeDeferredMacOsXtermEcho'), true)
+
+  const consumeDeferredMacOsXtermEcho = Reflect.get(
+    macOsWebKitImeWorkaround,
+    'consumeDeferredMacOsXtermEcho',
+  ) as ((pendingEcho: string | null, xtermData: string | null) => {
+    remainingEcho: string | null
+    forwardedData: string | null
+  })
+
+  assert.deepEqual(consumeDeferredMacOsXtermEcho('中', '中'), {
+    remainingEcho: null,
+    forwardedData: null,
+  })
+  assert.deepEqual(consumeDeferredMacOsXtermEcho('中', '中文'), {
+    remainingEcho: null,
+    forwardedData: '文',
+  })
+  assert.deepEqual(consumeDeferredMacOsXtermEcho('中文', '中'), {
+    remainingEcho: '文',
+    forwardedData: null,
+  })
+  assert.deepEqual(consumeDeferredMacOsXtermEcho('文', '文'), {
+    remainingEcho: null,
+    forwardedData: null,
+  })
+  assert.deepEqual(consumeDeferredMacOsXtermEcho('中', '文'), {
+    remainingEcho: null,
+    forwardedData: '文',
+  })
+})
