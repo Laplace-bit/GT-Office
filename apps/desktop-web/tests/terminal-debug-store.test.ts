@@ -4,8 +4,10 @@ import {
   appendStationTerminalDebugRecord,
   clearStationTerminalDebugRecords,
   hydrateStationTerminalDebugHumanText,
+  isStationTerminalDebugEnabled,
   readStationTerminalDebugRecords,
   resetTerminalDebugStoreForTests,
+  setStationTerminalDebugEnabled,
 } from '../src/features/terminal/terminal-debug-store.js'
 import type { TerminalDebugRecord } from '../src/features/terminal/terminal-debug-model.js'
 
@@ -106,4 +108,16 @@ test('terminal debug store clears a single station without affecting others', ()
     readStationTerminalDebugRecords('station-b').map((record) => record.id),
     ['b1'],
   )
+})
+
+test('terminal debug store keeps collection disabled by default and toggles per station', () => {
+  assert.equal(isStationTerminalDebugEnabled('station-a'), false)
+  assert.equal(isStationTerminalDebugEnabled('station-b'), false)
+
+  setStationTerminalDebugEnabled('station-a', true)
+  assert.equal(isStationTerminalDebugEnabled('station-a'), true)
+  assert.equal(isStationTerminalDebugEnabled('station-b'), false)
+
+  setStationTerminalDebugEnabled('station-a', false)
+  assert.equal(isStationTerminalDebugEnabled('station-a'), false)
 })

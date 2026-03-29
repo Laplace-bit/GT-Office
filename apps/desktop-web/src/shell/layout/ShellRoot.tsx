@@ -40,6 +40,7 @@ import {
   formatTerminalDebugBody,
   formatTerminalDebugPreview,
   hydrateStationTerminalDebugHumanText,
+  isStationTerminalDebugEnabled,
   resetTerminalChunkDecoder,
   buildClosedStationTerminalRuntime,
   buildSessionBindingRuntimePatch,
@@ -1150,6 +1151,9 @@ export function ShellRoot() {
 
   const pushStationTerminalDebugRecord = useCallback(
     (stationId: string, input: TerminalDebugRecordInput) => {
+      if (!isStationTerminalDebugEnabled(stationId)) {
+        return
+      }
       terminalDebugRecordSeqRef.current += 1
       const record: TerminalDebugRecord = {
         id: `${stationId}:${terminalDebugRecordSeqRef.current.toString(16)}`,
@@ -3237,6 +3241,9 @@ export function ShellRoot() {
   const reportRenderedScreenSnapshot = useMemo(
     () => (stationId: string, snapshot: RenderedScreenSnapshot) => {
       if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      if (!isStationTerminalDebugEnabled(stationId)) {
         return
       }
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null

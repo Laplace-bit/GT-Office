@@ -8,6 +8,7 @@ import {
 const EMPTY_RECORDS: TerminalDebugRecord[] = []
 
 const recordsByStationId = new Map<string, TerminalDebugRecord[]>()
+const enabledByStationId = new Map<string, boolean>()
 const listenersByStationId = new Map<string, Set<() => void>>()
 
 function emitStationTerminalDebugRecords(stationId: string) {
@@ -16,6 +17,18 @@ function emitStationTerminalDebugRecords(stationId: string) {
 
 export function readStationTerminalDebugRecords(stationId: string): TerminalDebugRecord[] {
   return recordsByStationId.get(stationId) ?? EMPTY_RECORDS
+}
+
+export function isStationTerminalDebugEnabled(stationId: string): boolean {
+  return enabledByStationId.get(stationId) ?? false
+}
+
+export function setStationTerminalDebugEnabled(stationId: string, enabled: boolean) {
+  if (enabled) {
+    enabledByStationId.set(stationId, true)
+    return
+  }
+  enabledByStationId.delete(stationId)
 }
 
 export function appendStationTerminalDebugRecord(
@@ -84,5 +97,6 @@ export function useStationTerminalDebugRecords(stationId: string): TerminalDebug
 
 export function resetTerminalDebugStoreForTests() {
   recordsByStationId.clear()
+  enabledByStationId.clear()
   listenersByStationId.clear()
 }

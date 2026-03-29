@@ -19,6 +19,7 @@ import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import {
   clearStationTerminalDebugRecords,
+  setStationTerminalDebugEnabled,
   TerminalDebugPanel,
   StationXtermTerminal,
   type StationTerminalSink,
@@ -193,6 +194,10 @@ function StationCardView({
   const [compactLayout, setCompactLayout] = useState(false)
   const [terminalDebugHidden, setTerminalDebugHidden] = useState(true)
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
+
+  useEffect(() => {
+    setStationTerminalDebugEnabled(station.id, active && !terminalDebugHidden)
+  }, [active, station.id, terminalDebugHidden])
 
   const cancelScheduledTerminalFocus = useCallback(() => {
     const frameId = terminalFocusFrameRef.current
