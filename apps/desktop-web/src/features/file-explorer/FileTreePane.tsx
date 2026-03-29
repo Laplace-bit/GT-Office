@@ -20,6 +20,7 @@ import {
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
+import { buildFileTreeModalKey } from './file-tree-modal-key'
 import { resolveFileVisual, type FileVisual } from './file-visuals'
 import { addNotification } from '../../stores/notification'
 import './FileTreePane.scss'
@@ -1501,7 +1502,7 @@ export function FileTreePane({
         , document.body
       ) : null}
       <FileTreePromptModal
-        key={`${promptModal.open ? 'open' : 'closed'}:${promptModal.title}:${promptModal.defaultValue}`}
+        key={buildFileTreeModalKey('prompt', promptModal.open, promptModal.title, promptModal.defaultValue)}
         open={promptModal.open}
         title={promptModal.title}
         defaultValue={promptModal.defaultValue}
@@ -1510,7 +1511,7 @@ export function FileTreePane({
         onSubmit={promptModal.onSubmit}
       />
       <FileTreeConfirmModal
-        key={`${confirmModal.open ? 'open' : 'closed'}:${confirmModal.title}:${confirmModal.message}`}
+        key={buildFileTreeModalKey('confirm', confirmModal.open, confirmModal.title, confirmModal.message)}
         open={confirmModal.open}
         title={confirmModal.title}
         message={confirmModal.message}
