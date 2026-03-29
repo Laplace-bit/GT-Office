@@ -1,222 +1,279 @@
-# GT-Office CLI Harness Design
+# GT Office CLI Design
 
 ## Summary
 
-为 GT-Office 主仓库新增一个 `cli-anything` 风格的状态化 CLI harness，目标是让 AI agent 能以稳定、可机读、可持续会话的方式操作 GT-Office 的核心产品能力，而不入侵现有业务逻辑。
+Build the first version of `tools/gt-office-cli` on the existing Node/TypeScript path as an agent control-plane CLI for GT Office. Version 1 focuses on agent CRUD, role CRUD, and structured channel message list/read/send. The CLI must support both one-shot subcommands and a default REPL, with `--json` output available on every command.
 
 ## Goals
 
-1. 为 GT-Office 提供一个 agent-first 的 CLI 接口，而不是仅服务开发调试。
-2. CLI 支持 one-shot 子命令与默认 REPL 两种模式。
-3. 所有关键命令支持稳定的 `--json` 输出，便于 AI agent 编排。
-4. CLI 会话状态独立持久化，不污染 GT-Office 现有配置。
-5. 新增代码尽量收敛在独立 workspace 内，通过薄 adapter 接入现有能力。
+- Continue the existing `tools/gt-office-cli` implementation instead of switching stacks.
+- Expose existing GT Office agent-management capabilities through a stable CLI.
+- Expose structured channel messaging capabilities for listing inbox/feed messages and sending structured messages.
+- Keep workspace-affecting commands explicit by requiring `workspace_id` input.
+- Reuse existing backend validation and business rules rather than duplicating them in the CLI.
 
-## Non-Goals
+## Non-goals
 
-1. 不重写 GT-Office 业务规则。
-2. 不把现有 WebUI feature/controller/store 直接搬进 CLI。
-3. 不为了 CLI 改造大面积现有架构。
-4. 不在首期追求面向人类的复杂交互体验，优先保证 agent 稳定调用。
+Version 1 does not include:
 
-## Constraints
+- agent runtime start/stop management
+- terminal transcript retrieval
+- full task orchestration workflows
+- external connector setup for Feishu/Telegram/WeChat
+- channel lifecycle CRUD
+- a separate REPL-only command language
 
-1. Harness 放在仓库内独立 package/workspace，而不是根目录散落文件。
-2. 允许新增 CLI 专用编排层，但代码不要入侵现有逻辑。
-3. 底层约束需遵守现有架构文档，尤其是 `workspace_id` 显式携带、模块边界、最小 diff、最小验证。
-4. 输出模型尽量贴合 `docs/06_API与事件契约草案.md` 中的 `ResultEnvelope`。
+## Existing Foundations
 
-## Relevant Existing Context
+The current repository already has most business capabilities implemented behind the desktop/Tauri layer:
 
-### Architecture alignment
+- Agent and role CRUD exist in Tauri commands and storage/repository code.
+- Prompt file read/write already exists as part of agent management.
+- Structured channel publish/list-message flows already exist in task-center and MCP bridge code.
+- A partial CLI package already exists at `tools/gt-office-cli` with a baseline metadata test.
 
-根据 `docs/02_系统架构与模块目录设计.md`：
+This means the CLI should act as a command surface over existing GT Office capabilities, not as a new business-logic implementation.
 
-- GT-Office 已按 `workspace / filesystem / terminal / git / agent / channel / settings` 等域进行模块化。
-- WebUI 与后端通过 command/event 契约交互。
-- 多工作区与终端等核心能力要求显式上下文，不能被 CLI 的便捷状态绕过。
+## Architecture
 
-### Contract alignment
+The CLI should remain inside `tools/gt-office-cli` and be organized into four layers:
 
-根据 `docs/06_API与事件契约草案.md`：
+### 1. Command layer
 
-- 多数核心域已经有明确 command 契约与稳定错误码。
-- 所有响应建议使用统一 `ResultEnvelope`。
-- `workspaceId` 是大量命令的硬约束。
+Responsible for:
 
-### Product alignment
+- parsing arguments
+- validating command-line-only concerns
+- selecting JSON vs human-readable output
+- invoking core actions
 
-根据 `docs/05_高质量功能设计_核心工作流.md`：
+Suggested files:
 
-- 当前高优先级能力已经围绕 agent/channel/task/settings 等协作域展开。
-- CLI 若要成为“无头 GT-Office”入口，应优先覆盖这些已有主域，而不是额外创造新产品语义。
+- `src/commands/agent.ts`
+- `src/commands/role.ts`
+- `src/commands/channel.ts`
+- `src/commands/directory.ts`
 
-## Recommended Approach
+### 2. Core layer
 
-采用 **方案 A：独立 Node CLI workspace + 轻量 GT-Office 编排层**。
+Responsible for:
 
-### Why this approach
+- command semantics
+- result envelopes
+- output formatting
+- error normalization
+- lightweight derived operations such as `agent get`
 
-1. 最符合“允许新建一套 CLI 专用编排层，但不入侵现有逻辑”。
-2. 最容易实现 `cli-anything` 风格的默认 REPL、状态持久化、稳定 JSON 输出。
-3. 与 monorepo 现有 Node workspace、共享类型和前后端契约更容易协同。
-4. 比 Rust-only CLI 更适合当前阶段快速做出 agent-first harness，而不逼迫现有后端大规模重构。
+Suggested files:
 
-## Rejected Alternatives
+- `src/core/result.ts`
+- `src/core/errors.ts`
+- `src/core/output.ts`
 
-### 方案 B：独立 Rust CLI crate
+### 3. Adapter layer
 
-优点是类型边界和系统层复用更强，但当前产品操作能力大量依赖既有契约和跨层协同。若首期走 Rust-only，更容易把任务扩展成“先补齐大量后端能力暴露”，不符合最小闭环目标。
+Responsible for calling existing GT Office capabilities, without embedding UI concerns.
 
-### 方案 C：外置 sidecar 风格 CLI
+Adapters should be split by capability ownership:
 
-虽然更像“驱动一个运行中的桌面端”，但太依赖正在运行的 GT-Office 实例，不利于稳定测试、脚本化与 agent 编排，也偏离了状态化 harness 的长期目标。
+- agent/role adapters wrap existing desktop backend commands
+- channel adapters wrap channel/MCP-backed messaging capabilities
+- directory adapter optionally exposes agent-directory snapshot inspection for debugging and integration
 
-## Design
+Suggested files:
 
-### 1. Placement and isolation
+- `src/adapters/agent_backend.ts`
+- `src/adapters/channel_backend.ts`
+- `src/adapters/directory_backend.ts`
 
-新 CLI 放在：
+### 4. REPL layer
 
-`tools/gt-office-cli/`
+Responsible for default interactive mode only. The REPL should execute the same subcommands and reuse the same command parser/output path instead of inventing a separate DSL.
 
-该目录作为独立 workspace/package 存在，所有 CLI 相关新增复杂度都应优先收敛到这里，不污染：
+Suggested file:
 
-- `apps/desktop-web/`
-- `apps/desktop-tauri/`
-- `crates/`
+- `src/repl/repl.ts`
 
-只有当 CLI 首期必须使用、且仓库中不存在稳定后端入口时，才允许补充最薄的一层适配；补口也应以“后端能力补齐”为目标，不能把 CLI 逻辑散落到 UI 代码中。
+## Backend Integration Strategy
 
-### 2. Responsibility boundary
+### Agent and role management
 
-CLI harness 只负责三件事：
+Version 1 should directly reuse the existing backend capabilities that already implement validation and persistence:
 
-1. 管理 CLI/REPL 会话状态。
-2. 将命令翻译为对 GT-Office 核心能力的调用。
-3. 以统一 human/json 格式输出结果。
+- `agent_role_list`
+- `agent_role_save`
+- `agent_role_delete`
+- `agent_list`
+- `agent_create`
+- `agent_update`
+- `agent_delete`
+- `agent_prompt_read`
 
-CLI harness 不负责：
+Why this is the right boundary:
 
-1. 定义新的产品业务规则。
-2. 在 command 入口中堆积业务逻辑。
-3. 通过 session convenience 绕过产品层约束。
+- workdir validation already exists
+- provider normalization already exists
+- role-in-use deletion checks already exist
+- prompt file persistence behavior already exists
 
-### 3. Directory structure
+The CLI should not copy those rules into TypeScript beyond basic argument presence/shape checks.
 
-建议目录：
+### Channel management
 
-```text
-tools/gt-office-cli/
-  package.json
-  src/
-    index.ts
-    gt_office_cli.ts
-    core/
-      project-state.ts
-      session-store.ts
-      result-envelope.ts
-    adapters/
-      workspace-adapter.ts
-      filesystem-adapter.ts
-      terminal-adapter.ts
-      git-adapter.ts
-      agent-adapter.ts
-      channel-adapter.ts
-      settings-adapter.ts
-      task-adapter.ts
-    commands/
-      workspace.ts
-      files.ts
-      terminal.ts
-      git.ts
-      agent.ts
-      channel.ts
-      task.ts
-      settings.ts
-      session.ts
-      repl.ts
-    utils/
-      format.ts
-      json-output.ts
-      paths.ts
-      errors.ts
-  tests/
-    TEST.md
-    test_core.ts
-    test_e2e.ts
+Version 1 should reuse the structured channel messaging surface:
+
+- `channel.publish`
+- `channel.list_messages`
+- optional `gto_get_agent_directory` for debugging/directory snapshots
+
+This keeps CLI messaging aligned with the existing GT Office collaboration model, where inbox/feed visibility is based on structured published messages instead of arbitrary terminal output.
+
+## Command Model
+
+### Agent commands
+
+```bash
+gt-office-cli agent list --workspace-id <id> [--json]
+gt-office-cli agent get <agent-id> --workspace-id <id> [--json]
+
+gt-office-cli agent create \
+  --workspace-id <id> \
+  --name <name> \
+  --role-id <roleId> \
+  --tool <claude|codex|gemini> \
+  [--workdir <path>] \
+  [--custom-workdir] \
+  [--prompt-file-name <name>] \
+  [--prompt-content <text>] \
+  [--json]
+
+gt-office-cli agent update <agent-id> \
+  --workspace-id <id> \
+  [--name <name>] \
+  [--role-id <roleId>] \
+  [--tool <claude|codex|gemini>] \
+  [--workdir <path>] \
+  [--custom-workdir=<true|false>] \
+  [--prompt-file-name <name>] \
+  [--prompt-content <text>] \
+  [--state <ready|paused|blocked|terminated>] \
+  [--json]
+
+gt-office-cli agent delete <agent-id> --workspace-id <id> [--json]
+gt-office-cli agent prompt read <agent-id> --workspace-id <id> [--json]
 ```
 
-### 4. Command model
+Notes:
 
-CLI 采用双模式：
+- `agent get` is a CLI convenience operation layered over the existing list/detail data source.
+- `agent update` may update persisted state, but version 1 does not manage runtime lifecycle.
+- Prompt inspection is first-class because agent management already couples to provider-specific prompt files.
 
-1. **one-shot 子命令**：适用于脚本、CI、AI agent 编排。
-2. **默认 REPL**：无子命令时进入交互模式，适用于长会话和连续操作。
+### Role commands
 
-首期命令组：
+```bash
+gt-office-cli role list --workspace-id <id> [--json]
 
-- `workspace`: `list/open/close/active/context`
-- `files`: `ls/read/write/search/move/copy/delete`
-- `terminal`: `create/select/write/resize/kill/status`
-- `git`: `status/diff/log/stage/unstage/commit/branches/checkout`
-- `agent`: `list/create/update/delete/assign/runtime`
-- `channel`: `dispatch/status/handover/inbox`
-- `task`: `list/show/watch`
-- `settings`: `get/update/reset`
-- `session`: `show/save/load/reset`
-- `repl`: 显式进入 REPL；但无子命令时默认进入
+gt-office-cli role create \
+  --workspace-id <id> \
+  --role-key <key> \
+  --role-name <name> \
+  [--scope <workspace|global>] \
+  [--status <active|deprecated|disabled>] \
+  [--charter-path <path>] \
+  [--policy-json <json>] \
+  [--json]
 
-命令命名要尽量贴合 GT-Office 现有主域，不另造抽象名词。
+gt-office-cli role update <role-id> \
+  --workspace-id <id> \
+  [--role-key <key>] \
+  [--role-name <name>] \
+  [--status <active|deprecated|disabled>] \
+  [--charter-path <path>] \
+  [--policy-json <json>] \
+  [--json]
 
-### 5. State model
+gt-office-cli role delete <role-id> --workspace-id <id> [--json]
+```
 
-CLI 维护一个轻量 session 状态，至少包含：
+Notes:
 
-- `activeWorkspaceId`
-- `activeWorkspaceRoot`
-- `selectedTerminalSessionId`
-- `selectedAgentId`
-- `outputMode`
-- 最近一次成功调用的上下文元数据
+- `scope` is supported because the backend model supports workspace/global roles.
+- `policy-json` is passed as a raw JSON string in version 1; file-based policy input can wait.
 
-持久化位置应为 CLI 自己的状态目录，而不是 GT-Office 业务配置：
+### Channel commands
 
-- macOS/Linux: `~/.config/gt-office-cli/session.json` 或等价 XDG 目录
-- Windows: 平台等价用户状态目录
+```bash
+gt-office-cli channel list-messages \
+  --workspace-id <id> \
+  [--target-agent-id <id>] \
+  [--sender-agent-id <id>] \
+  [--task-id <id>] \
+  [--limit <n>] \
+  [--json]
 
-关键原则：
+gt-office-cli channel send \
+  --workspace-id <id> \
+  --channel-kind <direct|group|broadcast> \
+  --channel-id <id> \
+  [--sender-agent-id <id>] \
+  [--target-agent-id <id> ...] \
+  --message-type <task_instruction|status|handover> \
+  --payload <json> \
+  [--idempotency-key <key>] \
+  [--json]
+```
 
-- CLI 顶层可以从 session 自动补全参数。
-- adapter 层向 GT-Office 能力发起调用时，仍需显式携带 `workspaceId` 等关键上下文。
-- CLI convenience 不能破坏 `docs/06` 中的显式上下文约束。
+Notes:
 
-### 6. Adapter strategy
+- `list-messages` exposes the current structured inbox/feed surface and should not imply raw transcript retrieval.
+- `payload` remains raw JSON so the CLI stays transport-oriented and does not invent an extra message schema.
+- Multiple `--target-agent-id` values should be supported for group/broadcast cases.
 
-`adapters/` 构成 CLI 专用 capability facade。
+### Optional debugging command
 
-每个 adapter：
+```bash
+gt-office-cli directory snapshot --workspace-id <id> [--json]
+```
 
-- 只负责一个域的能力映射。
-- 接收 CLI 参数与 session context。
-- 输出标准化 data/error 结构。
-- 隐藏底层调用细节。
+Purpose:
 
-底层接入优先级：
+- inspect roles
+- inspect agents
+- inspect runtimes
+- help with CLI debugging and integration workflows
 
-1. 现有稳定契约（优先）
-2. 现有可复用后端模块或共享类型
-3. CLI 内部薄 adapter 补口
-4. 明确禁止：直接复用或迁移 WebUI feature/store/controller 作为 CLI 核心依赖
+This is useful but secondary to the main version-1 control plane.
 
-### 7. Output and error model
+## Workspace Rule
 
-所有命令都应支持：
+All commands that affect or read workspace-scoped state must explicitly require `--workspace-id`.
 
-- human-readable 输出
-- `--json` machine-readable 输出
+Reasoning:
 
-CLI 用户可见的 `--json` 模式统一对齐稳定的 `ResultEnvelope` 风格：成功响应固定返回 `ok / data / error / traceId`，失败响应固定返回 `ok / data / error / traceId`，其中未使用的分支显式为 `null`，便于脚本和 agent 端做稳定解码。底层本地 desktop bridge 传输层仍可额外携带请求相关字段（例如 bridge response 的 `id`），但这不改变 CLI 对外承诺的结果 envelope。
+- the project rule requires explicit `workspace_id` for multi-workspace operations
+- CLI commands should avoid guessing the target workspace
+- explicit workspace input reduces accidental cross-workspace operations
+
+## Output Model
+
+Every command supports two output modes.
+
+### Human-readable mode
+
+Short, readable summaries suitable for direct terminal use.
+
+Examples:
+
+- agent list: `name / id / role / tool / state / workdir`
+- role list: `name / key / scope / status`
+- channel list-messages: `time / from / to / type / taskId`
+
+### JSON mode
+
+All JSON output should use a stable envelope:
+
+Successful result:
 
 ```json
 {
@@ -226,6 +283,8 @@ CLI 用户可见的 `--json` 模式统一对齐稳定的 `ResultEnvelope` 风格
   "traceId": "..."
 }
 ```
+
+Failure result:
 
 ```json
 {
@@ -239,79 +298,138 @@ CLI 用户可见的 `--json` 模式统一对齐稳定的 `ResultEnvelope` 风格
 }
 ```
 
-错误模型要求：
+## Error Model
 
-- 优先复用 GT-Office 已有错误码，例如：
-  - `SECURITY_PATH_DENIED`
-  - `CHANNEL_ROUTE_NOT_FOUND`
-  - `AGENT_OFFLINE`
-  - `MCP_INVALID_PARAMS`
-- 仅在 harness 层新增最少错误码，例如：
-  - `CLI_SESSION_NOT_INITIALIZED`
-  - `CLI_ACTIVE_WORKSPACE_REQUIRED`
-  - `CLI_TERMINAL_NOT_SELECTED`
-  - `CLI_UNSUPPORTED_BACKEND`
+Version 1 should keep errors simple and predictable.
 
-这样可区分“GT-Office 本体错误”与“CLI 会话编排错误”。
+### CLI input errors
 
-### 8. Testing and validation
+Handled directly in the CLI layer for argument/shape problems, for example:
 
-首期验证重点是“agent 可稳定调用”，不是复杂的人类交互体验。
+- missing required option
+- malformed JSON payload
+- invalid enum value
 
-最小验证矩阵：
+Recommended codes:
 
-1. **核心单测**
-   - session store
-   - result envelope
-   - 参数解析
-   - adapter mock 行为
+- `MISSING_REQUIRED_OPTION`
+- `INVALID_ARGUMENT`
+- `INVALID_JSON`
 
-2. **契约级集成测试**
-   - `workspace/files/terminal/git/agent/channel/task/settings` 至少各一条主路径
-   - 验证 `--json` 输出结构稳定
-   - 验证 session 自动补全不绕过底层 `workspaceId` 约束
+### Domain/backend errors
 
-3. **端到端测试**
-   - open workspace
-   - create/select terminal
-   - write command
-   - query git status
-   - dispatch channel/agent action
-   - save/load session
+Returned by adapters with minimal transformation, preserving backend meaning when possible, for example:
 
-4. **仓库级最小验证**
-   - `npm run typecheck`
-   - `npm run build:tauri`
-   - `cargo check --workspace`
-   - CLI workspace 自身 build/test
+- `ROLE_IN_USE`
+- `AGENT_NOT_FOUND`
+- `WORKDIR_INVALID`
+- `WORKSPACE_ID_REQUIRED`
 
-如果某项暂时无法验证，必须明确记录：`未验证 + 原因`。
+This avoids semantic drift between desktop and CLI behavior.
+
+## REPL Design
+
+The CLI must enter REPL mode when invoked with no subcommand.
+
+The REPL should:
+
+- display a banner
+- support `help`
+- support `exit` / `quit`
+- run the same command strings as the one-shot CLI
+- reuse the same execution path, error model, and output modes
+
+The REPL should not add a separate DSL, hidden state variables, or advanced interactive UX in version 1.
+
+Not included in version 1 REPL scope:
+
+- command completion
+- advanced history management
+- session variables
+- rich forms or wizard UI
+
+## Directory Layout
+
+Suggested package layout:
+
+```text
+tools/gt-office-cli/
+  src/
+    gt_office_cli.ts
+    commands/
+      agent.ts
+      role.ts
+      channel.ts
+      directory.ts
+    core/
+      result.ts
+      errors.ts
+      output.ts
+    adapters/
+      agent_backend.ts
+      channel_backend.ts
+      directory_backend.ts
+    repl/
+      repl.ts
+  tests/
+    test_core.ts
+    test_e2e.ts
+    TEST.md
+  package.json
+  tsconfig.json
+  README.md
+```
+
+This keeps the CLI within the repository’s `tools/` boundary and makes the command/core/adapter separation explicit.
+
+## Testing Strategy
+
+The HARNESS process requires a real verification path. For this Node/TypeScript implementation, version 1 should use an equivalent layered test strategy.
+
+### Core tests
+
+Cover:
+
+- result envelope creation
+- output formatters
+- error normalization
+- command-level derived behavior such as `agent get`
+- payload parsing and argument mapping
+
+### CLI integration / E2E tests
+
+Cover:
+
+- `agent list`
+- `agent create -> update -> delete`
+- `role create -> update -> delete`
+- `channel send -> channel list-messages`
+- `--json` parsing
+- default REPL entry, one command execution, and exit
+
+### Dependency strategy
+
+Version 1 should prefer adapter mocks/fakes rather than requiring a live desktop UI runtime for all tests.
+
+Reasoning:
+
+- the CLI boundary is still being established
+- contract stability matters first
+- true backend integration can be added later as a narrower follow-up once the command surface is stable
 
 ## Acceptance Criteria
 
-该设计落地后，首个可接受版本至少满足：
+Version 1 is complete when all of the following are true:
 
-1. `tools/gt-office-cli/` 作为独立 workspace 存在。
-2. CLI 默认进入 REPL，且支持 one-shot 子命令。
-3. 关键命令具有稳定 `--json` 输出。
-4. session 状态独立持久化，不污染 GT-Office 原有配置。
-5. CLI 通过 adapter/orchestration 层调用 GT-Office 能力，而不是直接依赖 UI 逻辑。
-6. 多工作区相关命令在底层调用时仍显式传递 `workspaceId`。
-7. 完成至少一条贯穿 `workspace -> terminal -> git -> channel/agent` 的可验证主路径。
-
-## Risks and mitigation
-
-### 风险 1：现有能力缺少稳定无头入口
-
-缓解：先以 adapter 封装缺口；若确需补能力，补在后端边界，不把逻辑放到 UI。
-
-### 风险 2：CLI 状态便利性破坏现有架构约束
-
-缓解：顶层只做自动补全；adapter 与底层调用始终显式携带关键上下文字段。
-
-### 风险 3：命令组过大，首期范围失控
-
-缓解：优先按现有主域建壳，首期只打通最小主路径，再逐步扩展子命令。
+- one-shot commands support agent CRUD
+- one-shot commands support role CRUD
+- one-shot commands support structured channel send/list-messages
+- every command supports `--json`
+- invoking `gt-office-cli` with no subcommand starts the REPL
+- the REPL can execute the same commands as one-shot mode
+- tests cover the minimum control-plane flows
+- README documents usage, scope, and current limitations
+- implementation does not expand into runtime management, external connectors, or orchestration beyond this approved scope
 
 ## Final recommendation
 

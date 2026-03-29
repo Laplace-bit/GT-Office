@@ -355,11 +355,23 @@ export interface RenderedScreenSnapshot {
   rows: RenderedScreenSnapshotRow[]
 }
 
+export interface TerminalDebugHumanEntry {
+  atMs: number
+  text: string
+}
+
 export interface TerminalReportRenderedScreenResponse {
   sessionId: string
   screenRevision: number
   accepted: boolean
   humanText: string | null
+  humanEntries: TerminalDebugHumanEntry[]
+  humanEventCount: number
+}
+
+export interface TerminalDebugClearHumanLogResponse {
+  sessionId: string
+  cleared: boolean
 }
 
 export interface SurfaceDetachedStationPayload {
@@ -1171,6 +1183,7 @@ export interface AgentCreateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptFileName?: string | null
   promptContent?: string | null
 }
 
@@ -1188,6 +1201,7 @@ export interface AgentUpdateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptFileName?: string | null
   promptContent?: string | null
 }
 
@@ -1210,6 +1224,9 @@ export interface AgentRoleSaveRequest {
   roleKey?: string | null
   roleName: string
   scope?: AgentRoleScope | null
+  status?: 'active' | 'deprecated' | 'disabled' | null
+  charterPath?: string | null
+  policyJson?: string | null
 }
 
 export interface AgentRoleSaveResponse {
@@ -2305,6 +2322,11 @@ export const desktopApi = {
       toolKind: toolKind ?? null,
     })
   },
+  terminalDebugClearHumanLog(sessionId: string) {
+    return invokeCommand<TerminalDebugClearHumanLogResponse>('terminal_debug_clear_human_log', {
+      sessionId,
+    })
+  },
   taskDispatchBatch(request: TaskDispatchBatchRequest) {
     return invokeCommand<TaskDispatchBatchResponse>('task_dispatch_batch', {
       request: {
@@ -2532,6 +2554,9 @@ export const desktopApi = {
         roleKey: request.roleKey ?? null,
         roleName: request.roleName,
         scope: request.scope ?? null,
+        status: request.status ?? null,
+        charterPath: request.charterPath ?? null,
+        policyJson: request.policyJson ?? null,
       },
     })
   },
@@ -2559,6 +2584,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
       },
     })
@@ -2575,6 +2601,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
       },
     })
