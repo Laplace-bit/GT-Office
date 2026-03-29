@@ -22,6 +22,7 @@ use crate::commands::git::status_coordinator::GitStatusCoordinator;
 use crate::daemon_bridge::DaemonBridge;
 use crate::external_tool_profiles::ToolScreenProfile;
 use crate::filesystem_watcher::WorkspaceWatcherRegistry;
+use crate::terminal_debug::human_log::{TerminalDebugHumanLogSnapshot, TerminalDebugHumanLogState};
 
 #[derive(Debug, Clone)]
 pub struct ExternalReplyRelayTarget {
@@ -241,7 +242,7 @@ pub enum ExternalReplyBodySource {
 impl ExternalReplyBodySource {
     pub(crate) fn relay_mode(self) -> &'static str {
         match self {
-            Self::SessionLog => "session-log",
+            Self::SessionLog => "session-log-structured",
             Self::RenderedScreen => "rendered-screen-fallback",
             Self::VtFallback => "vt-fallback",
         }
@@ -339,6 +340,7 @@ pub struct AppState {
     window_workspace_bindings: Arc<Mutex<HashMap<String, String>>>,
     workspace_watchers: WorkspaceWatcherRegistry,
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
+    terminal_debug_human_logs: Arc<Mutex<HashMap<String, TerminalDebugHumanLogState>>>,
     mcp_directory_snapshots: Arc<Mutex<HashMap<String, Value>>>,
     ai_config_previews: Arc<Mutex<HashMap<String, StoredAiConfigPreview>>>,
     ai_config_snapshot_cache: Arc<Mutex<HashMap<String, AiConfigSnapshotCache>>>,
@@ -363,6 +365,7 @@ impl Default for AppState {
             window_workspace_bindings: Arc::new(Mutex::new(HashMap::new())),
             workspace_watchers: WorkspaceWatcherRegistry::default(),
             external_reply_sessions: Arc::new(Mutex::new(HashMap::new())),
+            terminal_debug_human_logs: Arc::new(Mutex::new(HashMap::new())),
             mcp_directory_snapshots: Arc::new(Mutex::new(HashMap::new())),
             ai_config_previews: Arc::new(Mutex::new(HashMap::new())),
             ai_config_snapshot_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -371,6 +374,30 @@ impl Default for AppState {
 }
 
 impl AppState {
+    pub fn update_terminal_debug_human_log(
+        &self,
+        session_id: &str,
+        at_ms: u64,
+        human_text: &str,
+    ) -> Result<TerminalDebugHumanLogSnapshot, String> {
+        let mut logs = self.terminal_debug_human_logs.lock().map_err(|_| {
+            "TERMINAL_DEBUG_HUMAN_LOG_LOCK_POISONED: terminal debug human log lock poisoned"
+                .to_string()
+        })?;
+        let state = logs.entry(session_id.to_string()).or_default();
+        let _ = state.push_reply(at_ms, human_text);
+        Ok(state.snapshot())
+    }
+
+    pub fn clear_terminal_debug_human_log(&self, session_id: &str) -> Result<(), String> {
+        let mut logs = self.terminal_debug_human_logs.lock().map_err(|_| {
+            "TERMINAL_DEBUG_HUMAN_LOG_LOCK_POISONED: terminal debug human log lock poisoned"
+                .to_string()
+        })?;
+        logs.remove(session_id);
+        Ok(())
+    }
+
     pub fn bind_window_workspace(
         &self,
         window_label: &str,
@@ -896,6 +923,13 @@ impl AppState {
         Ok(())
     }
 
+    pub fn has_external_reply_sessions(&self) -> bool {
+        self.external_reply_sessions
+            .lock()
+            .ok()
+            .is_some_and(|guard| !guard.is_empty())
+    }
+
     pub fn refresh_external_reply_session_logs(&self) -> Result<(), String> {
         let mut guard = self.external_reply_sessions.lock().map_err(|_| {
             "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
@@ -1100,7 +1134,9 @@ impl AppState {
                 let Some((text, body_source)) = finalize.clone() else {
                     continue;
                 };
-                let final_text = if body_source == ExternalReplyBodySource::SessionLog {
+                let final_text = if body_source == ExternalReplyBodySource::SessionLog
+                    && session.preview_message_id.is_none()
+                {
                     session_log_finalize_delta(&text, &session.last_preview_text)
                 } else {
                     Some(text)
@@ -1191,6 +1227,13 @@ fn external_reply_preview_text(
 fn external_reply_finalize_text(
     session: &ExternalReplyRelaySession,
 ) -> Option<(String, ExternalReplyBodySource)> {
+    let session_log_text = session.session_log_text.trim();
+    if !session_log_text.is_empty() {
+        return Some((
+            session.session_log_text.clone(),
+            ExternalReplyBodySource::SessionLog,
+        ));
+    }
     let rendered_text = session.last_rendered_reply_text.trim();
     if !rendered_text.is_empty() {
         return Some((
@@ -1200,13 +1243,6 @@ fn external_reply_finalize_text(
     }
     if let Some(text) = external_reply_vt_text(session) {
         return Some((text, ExternalReplyBodySource::VtFallback));
-    }
-    let session_log_text = session.session_log_text.trim();
-    if !session_log_text.is_empty() {
-        return Some((
-            session.session_log_text.clone(),
-            ExternalReplyBodySource::SessionLog,
-        ));
     }
     None
 }
@@ -1785,16 +1821,30 @@ pub(crate) fn extract_rendered_debug_human_text(
     tool_kind: AgentToolKind,
 ) -> String {
     let profile = ToolScreenProfile::from_tool_kind(tool_kind);
-    let text = extract_rendered_reply_text_for_tool(
-        snapshot,
-        None,
-        None,
-        profile,
-    );
-    if !rendered_text_contains_confirmed_assistant_block(&text, profile) {
+    let text = extract_rendered_reply_text_for_tool(snapshot, None, None, profile);
+    if rendered_text_contains_confirmed_assistant_block(&text, profile) {
+        let candidate = extract_last_assistant_block_for_tool(&text, profile).unwrap_or_default();
+        if is_rendered_debug_human_block_actionable(&candidate, profile) {
+            return candidate;
+        }
+    }
+
+    let full_screen_text = snapshot
+        .rows
+        .iter()
+        .map(|row| row.text.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !rendered_text_contains_confirmed_assistant_block(&full_screen_text, profile) {
         return String::new();
     }
-    extract_last_assistant_block_for_tool(&text, profile).unwrap_or_default()
+    let candidate =
+        extract_last_assistant_block_for_tool(&full_screen_text, profile).unwrap_or_default();
+    if is_rendered_debug_human_block_actionable(&candidate, profile) {
+        candidate
+    } else {
+        String::new()
+    }
 }
 
 fn extract_rendered_reply_text_for_tool(
@@ -2267,7 +2317,18 @@ fn trim_display_leader(line: &str) -> &str {
         ch.is_whitespace()
             || matches!(
                 ch,
-                '●' | '•' | '◦' | '✦' | '⏺' | '⎿' | '│' | '┃' | '*' | '·' | '✳' | '✻' | '✶'
+                '●' | '•'
+                    | '◦'
+                    | '✦'
+                    | '⏺'
+                    | '⎿'
+                    | '│'
+                    | '┃'
+                    | '*'
+                    | '·'
+                    | '✳'
+                    | '✻'
+                    | '✶'
                     | '✢'
             )
     })
@@ -2623,12 +2684,19 @@ fn should_skip_tool_execution_line_for_tool(line: &str, profile: ToolScreenProfi
         return true;
     }
     if lower.starts_with("reading ")
-        && (lower.contains("/") || lower.contains("\\") || lower.ends_with(".rs") || lower.ends_with(".ts"))
+        && (lower.contains("/")
+            || lower.contains("\\")
+            || lower.ends_with(".rs")
+            || lower.ends_with(".ts"))
     {
         return true;
     }
     if lower.starts_with("read ")
-        && (lower.contains("(") || lower.contains("/") || lower.contains("\\") || lower.ends_with(".rs") || lower.ends_with(".ts"))
+        && (lower.contains("(")
+            || lower.contains("/")
+            || lower.contains("\\")
+            || lower.ends_with(".rs")
+            || lower.ends_with(".ts"))
     {
         return true;
     }
@@ -3118,10 +3186,7 @@ fn extract_last_assistant_block(text: &str) -> Option<String> {
     extract_last_assistant_block_for_tool(text, ToolScreenProfile::Generic)
 }
 
-fn extract_last_assistant_block_for_tool(
-    text: &str,
-    profile: ToolScreenProfile,
-) -> Option<String> {
+fn extract_last_assistant_block_for_tool(text: &str, profile: ToolScreenProfile) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut start: Option<usize> = None;
 
@@ -3203,6 +3268,23 @@ fn extract_last_assistant_block_for_tool(
     } else {
         Some(joined)
     }
+}
+
+fn is_rendered_debug_human_block_actionable(text: &str, profile: ToolScreenProfile) -> bool {
+    let Some(first_line) = text.lines().map(str::trim).find(|line| !line.is_empty()) else {
+        return false;
+    };
+
+    let display_line = trim_display_leader(first_line);
+    !display_line.is_empty()
+        && !should_skip_tool_execution_line_for_tool(display_line, profile)
+        && !should_skip_runtime_noise_line_for_tool(display_line, profile)
+        && !should_skip_startup_banner_line_for_tool(display_line, profile)
+        && !should_skip_cli_prompt_line_for_tool(display_line, profile)
+        && !should_skip_log_prefix_line(display_line)
+        && !is_permission_prompt_line(display_line)
+        && !is_tui_status_bar_line(display_line)
+        && !is_interleaved_prompt_line(display_line)
 }
 
 /// Detect lines that are clearly interleaved CLI prompts within an assistant block.

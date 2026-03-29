@@ -143,6 +143,64 @@ mod tests {
             assert_eq!(status.detected_by, vec!["cache".to_string()]);
         });
     }
+
+    #[test]
+    fn launch_executable_hint_prefers_cached_path() {
+        let dir = temp_dir("launch-hint-cache");
+        with_test_home(&dir, |home| {
+            let executable = home.join(".local").join("bin").join(if cfg!(windows) {
+                "codex.cmd"
+            } else {
+                "codex"
+            });
+            fs::create_dir_all(executable.parent().expect("parent")).expect("create bin dir");
+            fs::write(&executable, "@echo off\n").expect("write fake executable");
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+
+                let mut perms = fs::metadata(&executable).expect("metadata").permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&executable, perms).expect("chmod");
+            }
+
+            let cache_dir = home.join(".gtoffice").join("cache");
+            fs::create_dir_all(&cache_dir).expect("create cache dir");
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_millis() as u64;
+            let cache_path = cache_dir.join("agent-install-status.json");
+            let cache_body = serde_json::json!({
+                "version": 1,
+                "entries": {
+                    "codex": {
+                        "checkedAtMs": now_ms,
+                        "status": {
+                            "installed": true,
+                            "executable": executable.display().to_string(),
+                            "requiresNode": true,
+                            "nodeReady": true,
+                            "npmReady": true,
+                            "installAvailable": true,
+                            "uninstallAvailable": true,
+                            "detectedBy": ["cache"],
+                            "issues": []
+                        }
+                    }
+                }
+            });
+            fs::write(
+                &cache_path,
+                serde_json::to_vec_pretty(&cache_body).expect("serialize cache"),
+            )
+            .expect("write cache");
+
+            let hint = AgentInstaller::launch_executable_hint(AgentType::Codex);
+            assert_eq!(hint.as_deref(), Some(executable.to_string_lossy().as_ref()));
+        });
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -366,6 +424,17 @@ impl AgentInstaller {
         }
     }
 
+    pub fn launch_executable_hint(agent: AgentType) -> Option<String> {
+        if let Some(cached) = Self::load_cached_install_status(agent) {
+            if let Some(executable) = cached.executable {
+                return Some(executable);
+            }
+        }
+
+        let command = Self::executable_name(agent);
+        Self::find_executable_hint(command).map(|path| path.display().to_string())
+    }
+
     fn detect_installed_with_node_dir(
         agent: AgentType,
         node_runtime_dir: Option<&Path>,
@@ -394,6 +463,27 @@ impl AgentInstaller {
 
     fn find_executable(command: &str) -> DetectionResult {
         Self::find_executable_with_node_dir(command, None)
+    }
+
+    fn find_executable_hint(command: &str) -> Option<PathBuf> {
+        if let Some(path) = Self::resolve_command_in_path(command) {
+            return Some(path);
+        }
+
+        let mut searched = BTreeSet::new();
+        for dir in Self::candidate_search_dirs() {
+            if !searched.insert(dir.clone()) {
+                continue;
+            }
+            for candidate_name in Self::executable_candidates(command) {
+                let full_path = dir.join(&candidate_name);
+                if Self::is_runnable_file(&full_path) {
+                    return Some(full_path);
+                }
+            }
+        }
+
+        None
     }
 
     fn find_executable_with_node_dir(

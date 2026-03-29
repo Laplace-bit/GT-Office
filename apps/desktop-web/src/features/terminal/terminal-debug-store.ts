@@ -1,13 +1,20 @@
 import { useSyncExternalStore } from 'react'
-import {
-  appendTerminalDebugRecord,
-  hydrateTerminalDebugRecordHumanText,
-  type TerminalDebugRecord,
-} from './terminal-debug-model.js'
+import type { TerminalDebugHumanEntry } from '../../shell/integration/desktop-api.js'
+import type { TerminalDebugRecord } from './terminal-debug-model.js'
+
+export interface StationTerminalDebugHumanLog {
+  entries: TerminalDebugHumanEntry[]
+  eventCount: number
+}
+
+const EMPTY_HUMAN_LOG: StationTerminalDebugHumanLog = {
+  entries: [],
+  eventCount: 0,
+}
 
 const EMPTY_RECORDS: TerminalDebugRecord[] = []
 
-const recordsByStationId = new Map<string, TerminalDebugRecord[]>()
+const humanLogByStationId = new Map<string, StationTerminalDebugHumanLog>()
 const enabledByStationId = new Map<string, boolean>()
 const listenersByStationId = new Map<string, Set<() => void>>()
 
@@ -15,8 +22,8 @@ function emitStationTerminalDebugRecords(stationId: string) {
   listenersByStationId.get(stationId)?.forEach((listener) => listener())
 }
 
-export function readStationTerminalDebugRecords(stationId: string): TerminalDebugRecord[] {
-  return recordsByStationId.get(stationId) ?? EMPTY_RECORDS
+export function readStationTerminalDebugHumanLog(stationId: string): StationTerminalDebugHumanLog {
+  return humanLogByStationId.get(stationId) ?? EMPTY_HUMAN_LOG
 }
 
 export function isStationTerminalDebugEnabled(stationId: string): boolean {
@@ -31,41 +38,31 @@ export function setStationTerminalDebugEnabled(stationId: string, enabled: boole
   enabledByStationId.delete(stationId)
 }
 
-export function appendStationTerminalDebugRecord(
+export function setStationTerminalDebugHumanLog(
   stationId: string,
-  record: TerminalDebugRecord,
-  limit: number,
+  nextLog: StationTerminalDebugHumanLog,
 ) {
-  const current = readStationTerminalDebugRecords(stationId)
-  const next = appendTerminalDebugRecord(current, record, limit)
-  recordsByStationId.set(stationId, next)
-  emitStationTerminalDebugRecords(stationId)
-}
-
-export function hydrateStationTerminalDebugHumanText(
-  stationId: string,
-  sessionId: string | null,
-  screenRevision: number,
-  humanText: string | null | undefined,
-) {
-  const current = recordsByStationId.get(stationId)
-  if (!current?.length) {
+  const current = humanLogByStationId.get(stationId)
+  const unchanged =
+    current?.eventCount === nextLog.eventCount &&
+    current?.entries.length === nextLog.entries.length &&
+    current?.entries.every(
+      (entry, index) =>
+        entry.atMs === nextLog.entries[index]?.atMs && entry.text === nextLog.entries[index]?.text,
+    )
+  if (unchanged) {
     return
   }
-  const next = hydrateTerminalDebugRecordHumanText(current, sessionId, screenRevision, humanText)
-  if (next === current) {
-    return
-  }
-  recordsByStationId.set(stationId, next)
+  humanLogByStationId.set(stationId, nextLog)
   emitStationTerminalDebugRecords(stationId)
 }
 
 export function clearStationTerminalDebugRecords(stationId: string) {
-  const current = recordsByStationId.get(stationId)
-  if (!current?.length) {
+  const current = humanLogByStationId.get(stationId)
+  if (!current?.eventCount) {
     return
   }
-  recordsByStationId.set(stationId, EMPTY_RECORDS)
+  humanLogByStationId.set(stationId, EMPTY_HUMAN_LOG)
   emitStationTerminalDebugRecords(stationId)
 }
 
@@ -88,15 +85,39 @@ export function subscribeStationTerminalDebugRecords(
   }
 }
 
-export function useStationTerminalDebugRecords(stationId: string): TerminalDebugRecord[] {
+export function useStationTerminalDebugHumanLog(
+  stationId: string,
+): StationTerminalDebugHumanLog {
   return useSyncExternalStore(
     (listener) => subscribeStationTerminalDebugRecords(stationId, listener),
-    () => readStationTerminalDebugRecords(stationId),
+    () => readStationTerminalDebugHumanLog(stationId),
   )
 }
 
 export function resetTerminalDebugStoreForTests() {
-  recordsByStationId.clear()
+  humanLogByStationId.clear()
   enabledByStationId.clear()
   listenersByStationId.clear()
+}
+
+// Compatibility no-ops for record-based callers while the remaining frontend plumbing is removed.
+export function appendStationTerminalDebugRecord(
+  _stationId: string,
+  _record: TerminalDebugRecord,
+  _limit: number,
+) {}
+
+export function hydrateStationTerminalDebugHumanText(
+  _stationId: string,
+  _sessionId: string | null,
+  _screenRevision: number,
+  _humanText: string | null | undefined,
+) {}
+
+export function readStationTerminalDebugRecords(_stationId: string): TerminalDebugRecord[] {
+  return EMPTY_RECORDS
+}
+
+export function useStationTerminalDebugRecords(_stationId: string): TerminalDebugRecord[] {
+  return EMPTY_RECORDS
 }

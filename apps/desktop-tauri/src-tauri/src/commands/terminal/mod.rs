@@ -11,6 +11,11 @@ use crate::commands::settings::ai_config::{
     agent_tool_kind_from_param, augment_terminal_env_for_agent,
 };
 use crate::commands::task_center::write_terminal_with_submit;
+use crate::terminal_debug::dev_log::{
+    append_dev_log_async, build_rendered_screen_parsed_log_entry,
+    build_rendered_screen_raw_log_entry, TerminalDebugLogKind,
+};
+use crate::terminal_debug::human_log::TerminalDebugHumanEntry;
 
 fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
     match cwd_mode.as_deref().unwrap_or("workspace_root") {
@@ -120,12 +125,15 @@ fn build_terminal_report_rendered_screen_response(
     screen_revision: u64,
     accepted: bool,
     human_text: Option<&str>,
+    human_entries: &[TerminalDebugHumanEntry],
 ) -> Value {
     json!({
         "sessionId": session_id,
         "screenRevision": screen_revision,
         "accepted": accepted,
-        "humanText": human_text
+        "humanText": human_text,
+        "humanEntries": human_entries,
+        "humanEventCount": human_entries.len()
     })
 }
 
@@ -310,18 +318,56 @@ pub fn terminal_read_delta(
 pub fn terminal_report_rendered_screen(
     snapshot: RenderedScreenSnapshot,
     tool_kind: Option<String>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let resolved_tool_kind = agent_tool_kind_from_param(tool_kind);
     let accepted =
         state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
     let human_text = extract_rendered_debug_human_text(&snapshot, resolved_tool_kind);
+    let human_log = state.update_terminal_debug_human_log(
+        &snapshot.session_id,
+        snapshot.captured_at_ms,
+        &human_text,
+    )?;
+    append_dev_log_async(
+        app.clone(),
+        TerminalDebugLogKind::Raw,
+        build_rendered_screen_raw_log_entry(
+            &snapshot.session_id,
+            snapshot.screen_revision,
+            resolved_tool_kind,
+            &snapshot,
+        ),
+    );
+    append_dev_log_async(
+        app.clone(),
+        TerminalDebugLogKind::Parsed,
+        build_rendered_screen_parsed_log_entry(
+            &snapshot.session_id,
+            snapshot.screen_revision,
+            &human_log.entries,
+        ),
+    );
     Ok(build_terminal_report_rendered_screen_response(
         &snapshot.session_id,
         snapshot.screen_revision,
         accepted,
         (!human_text.trim().is_empty()).then_some(human_text.as_str()),
+        &human_log.entries,
     ))
+}
+
+#[tauri::command]
+pub fn terminal_debug_clear_human_log(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    state.clear_terminal_debug_human_log(&session_id)?;
+    Ok(json!({
+        "sessionId": session_id,
+        "cleared": true
+    }))
 }
 
 #[tauri::command]

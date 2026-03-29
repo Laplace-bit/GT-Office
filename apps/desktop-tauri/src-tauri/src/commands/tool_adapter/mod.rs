@@ -1504,8 +1504,18 @@ fn gemini_event_text(event: &Value) -> Option<(String, bool)> {
         .get("response")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .or_else(|| event.pointer("/delta/text").and_then(Value::as_str).map(str::to_string))
-        .or_else(|| event.pointer("/content/text").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| {
+            event
+                .pointer("/delta/text")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            event
+                .pointer("/content/text")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .or_else(|| {
             event
                 .pointer("/message/content")
@@ -1518,7 +1528,12 @@ fn gemini_event_text(event: &Value) -> Option<(String, bool)> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         })
-        .or_else(|| event.get("text").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| {
+            event
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .or_else(|| {
             event
                 .pointer("/content/parts")
@@ -1816,12 +1831,14 @@ pub(crate) fn spawn_external_reply_flush_worker(app: AppHandle, state: AppState)
 }
 
 async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> Result<(), String> {
-    let state_for_logs = state.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        state_for_logs.refresh_external_reply_session_logs()
-    })
-    .await
-    .map_err(|error| format!("CHANNEL_REPLY_LOG_REFRESH_JOIN_FAILED: {error}"))??;
+    if state.has_external_reply_sessions() {
+        let state_for_logs = state.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            state_for_logs.refresh_external_reply_session_logs()
+        })
+        .await
+        .map_err(|error| format!("CHANNEL_REPLY_LOG_REFRESH_JOIN_FAILED: {error}"))??;
+    }
 
     let interaction_candidates = state.take_external_interaction_dispatch_candidates()?;
     for candidate in interaction_candidates {

@@ -79,8 +79,7 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
         _ => return,
     };
 
-    let status = AgentInstaller::install_status(agent_type);
-    let Some(executable) = status.executable else {
+    let Some(executable) = AgentInstaller::launch_executable_hint(agent_type) else {
         return;
     };
 

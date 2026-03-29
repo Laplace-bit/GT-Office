@@ -55,10 +55,10 @@ import {
   formatTerminalDebugBody,
   formatTerminalDebugPreview,
   hydrateSettlesSessionBinding,
-  hydrateStationTerminalDebugHumanText,
   patchTouchesSessionBinding,
   resolveNextPendingLaunchCommand,
   retainSessionOwnedRestoreState,
+  setStationTerminalDebugHumanLog,
   shouldClearPendingFocusIntent,
   shouldClearPendingLaunchCommand,
   shouldFlushPendingLaunchCommand,
@@ -902,12 +902,10 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     void desktopApi
       .terminalReportRenderedScreen(snapshot, toolKind)
       .then((response) => {
-        hydrateStationTerminalDebugHumanText(
-          stationId,
-          sessionId,
-          response.screenRevision,
-          response.humanText,
-        )
+        setStationTerminalDebugHumanLog(stationId, {
+          entries: response.humanEntries,
+          eventCount: response.humanEventCount,
+        })
       })
       .catch(() => {
         // Snapshot reporting is best-effort and must not affect terminal interaction.

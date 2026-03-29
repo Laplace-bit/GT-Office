@@ -186,8 +186,11 @@ pub fn agent_runtime_register(
     }
 
     let registered = state.task_service.register_runtime(request.clone());
-    let _ =
-        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    crate::mcp_bridge::spawn_refresh_directory_snapshot(
+        app.clone(),
+        state.inner().clone(),
+        request.workspace_id.clone(),
+    );
     Ok(json!({
         "workspaceId": request.workspace_id,
         "agentId": request.agent_id,
@@ -217,8 +220,11 @@ pub fn agent_runtime_unregister(
     let unregistered = state
         .task_service
         .unregister_runtime(&request.workspace_id, &request.agent_id);
-    let _ =
-        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    crate::mcp_bridge::spawn_refresh_directory_snapshot(
+        app.clone(),
+        state.inner().clone(),
+        request.workspace_id.clone(),
+    );
     Ok(json!({
         "workspaceId": request.workspace_id,
         "agentId": request.agent_id,

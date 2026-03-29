@@ -563,7 +563,7 @@ function StationCardView({
             onData={onSendInputData}
             onResize={onResizeTerminal}
             onBindSink={handleBindSink}
-            onRenderedScreenSnapshot={active && !terminalDebugHidden ? onRenderedScreenSnapshot : undefined}
+            onRenderedScreenSnapshot={active ? onRenderedScreenSnapshot : undefined}
             onRestoreStateCaptured={onRestoreStateCaptured}
           />
           {active ? (

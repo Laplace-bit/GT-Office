@@ -24,7 +24,7 @@ use crate::{
         settings::ai_config::augment_terminal_env_for_agent,
         task_center::write_terminal_with_submit,
     },
-    mcp_bridge::refresh_directory_snapshot,
+    mcp_bridge::spawn_refresh_directory_snapshot,
 };
 
 const AI_CONFIG_CACHE_TTL_MS: u64 = 5_000;
@@ -567,7 +567,7 @@ pub fn tool_launch(
             provider_session: None,
             online: true,
         });
-    let _ = refresh_directory_snapshot(&app, state.inner(), &workspace_id);
+    spawn_refresh_directory_snapshot(app.clone(), state.inner().clone(), workspace_id.clone());
 
     Ok(json!({
         "workspaceId": workspace_id,
