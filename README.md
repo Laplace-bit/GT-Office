@@ -12,6 +12,7 @@ Current release tag target: `v0.1.1`.
 - Multi-station workbench for manager / product / build / quality-release style agent collaboration
 - Tool adapter and external connector foundation for Telegram, WeChat, and related routing workflows
 - MCP bridge support for dispatch, handoff, and status reporting across agents
+- Production desktop bundles ship the GT Office MCP bridge as local resources for one-click local installation
 
 ## Monorepo Layout
 
@@ -86,6 +87,13 @@ git push origin main --follow-tags
 ```
 
 For public macOS releases, the generated `.app` and `.dmg` must pass Developer ID signing and notarization. When signing is not configured, the build keeps the local `.app` bundle but skips DMG creation so unsigned artifacts are not accidentally published. For local unsigned DMG smoke builds only, use `GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1`.
+
+## MCP Packaging
+
+- GT Office production bundles embed the MCP bridge resources and sidecar binary directly in the desktop app.
+- Desktop-triggered MCP installation now prefers bundled local resources and writes client config locally without relying on `npx`.
+- Claude Code can install the MCP bridge without Node as long as the desktop bundle is present.
+- Codex CLI and Gemini CLI still require their own official Node/npm-based installation for the CLI itself; only the MCP bridge installation is local-bundled.
 
 ## Documentation Map
 

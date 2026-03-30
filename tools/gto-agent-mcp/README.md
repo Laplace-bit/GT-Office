@@ -15,7 +15,7 @@ node tools/gto-agent-mcp/bin/gto-agent-mcp.mjs serve
 # 安装到 CLI Agent 用户配置（开发态，写入本地 command）
 node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs
 
-# 安装为发布态入口（推荐用于发布包 / 一键安装）
+# 安装为发布态入口（仅用于独立 npm 分发场景）
 node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs --mode npx
 
 # 指定目标工作区（用于 Claude 新版 project-scope MCP 配置）
@@ -28,10 +28,12 @@ node tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs --workspace /mnt/c/projec
 - `--mode npx`：写入 `npx -y @gtoffice/agent-mcp-bridge@<version> serve`，适合发布分发
 - `--mode auto`：优先尝试 `npx`，无法解析发布包信息时回退本地命令
 
-GT Office 桌面端的一键安装也遵循同一策略：
+GT Office 桌面端的一键安装策略：
 
-- debug/dev 构建默认写入本地命令，避免影响仓库联调
-- release 构建默认写入 `npx` 入口，避免把本机 `target/.../debug/...` 路径扩散到用户配置
+- debug/dev 构建可继续走仓库本地命令，便于联调
+- release 构建优先使用桌面包内置 sidecar 与资源，并由 Rust fallback 直接写入客户端配置
+- 桌面端不再要求用户通过 `npx` 安装 MCP bridge
+- `--mode npx` 保留给 MCP 独立 npm 分发场景
 
 ## 运行时依赖
 

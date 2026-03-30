@@ -1,6 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tauri::{Emitter, Manager, State};
 
@@ -184,54 +184,78 @@ pub async fn install_agent_mcp(
         format!("🚀 Installing GT Office MCP bridge for {name}..."),
     );
 
-    let installer_path = resolve_existing_mcp_installer_path(&window)?;
     let target = match agent {
         AgentType::ClaudeCode => "claude",
         AgentType::Codex => "codex",
         AgentType::Gemini => "gemini",
     };
 
-    let mut mcp_cmd = Command::new("node");
-    configure_std_command(&mut mcp_cmd);
-    mcp_cmd.arg(&installer_path).arg("--target").arg(target);
-    if matches!(agent, AgentType::ClaudeCode) {
-        mcp_cmd.arg("--workspace").arg(&workspace_root);
-    }
+    if let Some(local_entry) = resolve_local_bundled_mcp_server_entry(&window) {
+        let home_dir = user_home_dir()
+            .ok_or_else(|| "Unable to resolve user home directory for MCP installation.".to_string())?;
+        emit_progress(
+            &window,
+            &progress_event,
+            format!(
+                "ℹ️ Using bundled local MCP sidecar: {}",
+                local_entry.command.display()
+            ),
+        );
+        let command = local_entry.command.display().to_string();
+        let args = local_entry.args.clone();
+        let workspace_root_for_install = workspace_root.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let arg_refs = args.iter().map(|value| value.as_str()).collect::<Vec<_>>();
+            AgentInstaller::install_mcp_bridge_config(
+                &home_dir,
+                &workspace_root_for_install,
+                &[target],
+                &command,
+                &arg_refs,
+                &std::collections::BTreeMap::new(),
+            )
+        })
+        .await
+        .map_err(|error| format!("MCP local install task failed: {error}"))??;
+    } else {
+        let installer_path = resolve_existing_mcp_installer_path(&window)?;
+        let mut mcp_cmd = Command::new("node");
+        configure_std_command(&mut mcp_cmd);
+        mcp_cmd.arg(&installer_path).arg("--target").arg(target);
+        if matches!(agent, AgentType::ClaudeCode) {
+            mcp_cmd.arg("--workspace").arg(&workspace_root);
+        }
 
-    let mcp_output = run_command_capture_output(&mut mcp_cmd)
-        .map_err(|error| format!("MCP installer failed to start: {error}"))?;
-    if !mcp_output.status.success() {
-        return Err(format!(
-            "MCP installer failed: {}",
-            format_command_failure(&mcp_output)
-        ));
-    }
+        let mcp_output = run_command_capture_output(&mut mcp_cmd)
+            .map_err(|error| format!("MCP installer failed to start: {error}"))?;
+        if !mcp_output.status.success() {
+            return Err(format!(
+                "MCP installer failed: {}",
+                format_command_failure(&mcp_output)
+            ));
+        }
 
-    emit_progress(
-        &window,
-        &progress_event,
-        format!("ℹ️ MCP installer script: {}", installer_path.display()),
-    );
-    let stdout = String::from_utf8_lossy(&mcp_output.stdout)
-        .trim()
-        .to_string();
-    if !stdout.is_empty() {
-        emit_progress(&window, &progress_event, stdout);
-    }
+        emit_progress(
+            &window,
+            &progress_event,
+            format!(
+                "ℹ️ Bundled sidecar not found; falling back to installer script: {}",
+                installer_path.display()
+            ),
+        );
+        let stdout = String::from_utf8_lossy(&mcp_output.stdout)
+            .trim()
+            .to_string();
+        if !stdout.is_empty() {
+            emit_progress(&window, &progress_event, stdout);
+        }
 
-    let stderr = String::from_utf8_lossy(&mcp_output.stderr)
-        .trim()
-        .to_string();
-    if !stderr.is_empty() {
-        emit_progress(&window, &progress_event, format!("⚠️ {stderr}"));
-    }
-
-    let mcp_status = mcp_output.status;
-    if !mcp_status.success() {
-        return Err(format!(
-            "MCP installer exited with error code: {:?}",
-            mcp_status.code()
-        ));
+        let stderr = String::from_utf8_lossy(&mcp_output.stderr)
+            .trim()
+            .to_string();
+        if !stderr.is_empty() {
+            emit_progress(&window, &progress_event, format!("⚠️ {stderr}"));
+        }
     }
 
     let _ = state.invalidate_ai_config_snapshot_cache(&workspace_id);
@@ -287,6 +311,12 @@ fn workspace_relative_installer_candidates() -> Vec<PathBuf> {
     ]
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LocalMcpServerEntry {
+    command: PathBuf,
+    args: Vec<String>,
+}
+
 fn resolve_existing_mcp_installer_path(window: &tauri::Window) -> Result<PathBuf, String> {
     if let Ok(resource_path) = window.app_handle().path().resource_dir() {
         let installer_script =
@@ -305,6 +335,68 @@ fn resolve_existing_mcp_installer_path(window: &tauri::Window) -> Result<PathBuf
     let fallback = PathBuf::from("tools/gto-agent-mcp/bin/gto-agent-mcp-install.mjs");
     ensure_installer_script_exists(&fallback)?;
     Ok(fallback)
+}
+
+fn resolve_local_bundled_mcp_server_entry(window: &tauri::Window) -> Option<LocalMcpServerEntry> {
+    let mut candidate_dirs = Vec::new();
+    if let Ok(path) = window.app_handle().path().resource_dir() {
+        candidate_dirs.push(path);
+    }
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            candidate_dirs.push(parent.to_path_buf());
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidate_dirs.push(cwd.join("apps/desktop-tauri/src-tauri/binaries"));
+    }
+
+    for dir in candidate_dirs {
+        if let Some(entry) = resolve_local_bundled_mcp_server_entry_from_dir(&dir) {
+            return Some(entry);
+        }
+    }
+
+    None
+}
+
+fn resolve_local_bundled_mcp_server_entry_from_dir(dir: &Path) -> Option<LocalMcpServerEntry> {
+    let exact_name = if cfg!(target_os = "windows") {
+        "gto-agent-mcp-sidecar.exe".to_string()
+    } else {
+        "gto-agent-mcp-sidecar".to_string()
+    };
+    let exact_path = dir.join(&exact_name);
+    if exact_path.is_file() {
+        return Some(LocalMcpServerEntry {
+            command: exact_path,
+            args: vec!["serve".to_string()],
+        });
+    }
+
+    let prefix = "gto-agent-mcp-sidecar-";
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(prefix) {
+            continue;
+        }
+        if cfg!(target_os = "windows") && !name.ends_with(".exe") {
+            continue;
+        }
+        return Some(LocalMcpServerEntry {
+            command: path,
+            args: vec!["serve".to_string()],
+        });
+    }
+
+    None
 }
 
 fn user_home_dir() -> Option<PathBuf> {
@@ -417,6 +509,60 @@ fn ensure_global_shell_path_for_local_bin(window: &tauri::Window, progress_event
                 ),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "gtoffice-agentic-one-{name}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&base).expect("create temp dir");
+        base
+    }
+
+    #[test]
+    fn resolve_local_bundled_mcp_server_entry_prefers_exact_sidecar_name() {
+        let dir = temp_dir("mcp-sidecar-exact");
+        let sidecar_name = if cfg!(target_os = "windows") {
+            "gto-agent-mcp-sidecar.exe"
+        } else {
+            "gto-agent-mcp-sidecar"
+        };
+        let sidecar_path = dir.join(sidecar_name);
+        fs::write(&sidecar_path, b"#!/bin/sh\n").expect("write sidecar");
+
+        let entry =
+            resolve_local_bundled_mcp_server_entry_from_dir(&dir).expect("resolve bundled entry");
+
+        assert_eq!(entry.command, sidecar_path);
+        assert_eq!(entry.args, vec!["serve".to_string()]);
+    }
+
+    #[test]
+    fn resolve_local_bundled_mcp_server_entry_accepts_suffixed_release_sidecar_name() {
+        let dir = temp_dir("mcp-sidecar-suffixed");
+        let sidecar_name = if cfg!(target_os = "windows") {
+            "gto-agent-mcp-sidecar-x86_64-pc-windows-msvc.exe"
+        } else {
+            "gto-agent-mcp-sidecar-aarch64-apple-darwin"
+        };
+        let sidecar_path = dir.join(sidecar_name);
+        fs::write(&sidecar_path, b"#!/bin/sh\n").expect("write sidecar");
+
+        let entry =
+            resolve_local_bundled_mcp_server_entry_from_dir(&dir).expect("resolve suffixed entry");
+
+        assert_eq!(entry.command, sidecar_path);
+        assert_eq!(entry.args, vec!["serve".to_string()]);
     }
 }
 

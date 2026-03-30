@@ -43,7 +43,6 @@ const EXTERNAL_REPLY_MAX_WAIT_MS: u64 = 15 * 60 * 1000;
 const EXTERNAL_REPLY_STREAM_THROTTLE_MS: u64 = 800; // 降低到800ms，更快的预览更新
 const EXTERNAL_REPLY_STREAM_MIN_INITIAL_CHARS: usize = 16; // 降低到16个字符，更早开始发送
 const EXTERNAL_REPLY_MAX_TEXT_CHARS: usize = 3_800;
-const EXTERNAL_REPLY_APPEND_DEBUG_SOURCE: bool = true;
 const CHANNEL_STATE_FILE_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]
@@ -2050,23 +2049,11 @@ fn summarize_external_text(text: &str, max_chars: usize) -> Option<String> {
 
 fn append_external_reply_debug_source(
     text: &str,
-    phase: ExternalReplyDispatchPhase,
-    relay_mode: &str,
-    confidence: &str,
+    _phase: ExternalReplyDispatchPhase,
+    _relay_mode: &str,
+    _confidence: &str,
 ) -> String {
-    if !EXTERNAL_REPLY_APPEND_DEBUG_SOURCE {
-        return text.to_string();
-    }
-    let phase = match phase {
-        ExternalReplyDispatchPhase::Preview => "preview",
-        ExternalReplyDispatchPhase::Finalize => "finalize",
-    };
-    let suffix = format!("\n\n[source={relay_mode} confidence={confidence} phase={phase}]");
-    if text.trim_end().ends_with(&suffix) {
-        text.to_string()
-    } else {
-        format!("{}{}", text.trim_end(), suffix)
-    }
+    text.to_string()
 }
 
 fn build_external_content_preview(text: &str) -> Option<String> {
@@ -3340,3 +3327,24 @@ pub fn channel_external_inbound(
 #[cfg(test)]
 #[path = "../../tests/channel_adapter_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod external_reply_source_tests {
+    use super::*;
+
+    #[test]
+    fn append_external_reply_debug_source_keeps_original_text() {
+        let original = "真实回复正文";
+        let rendered = append_external_reply_debug_source(
+            original,
+            ExternalReplyDispatchPhase::Finalize,
+            "session-log-structured",
+            "high",
+        );
+
+        assert_eq!(rendered, original);
+        assert!(!rendered.contains("[source="));
+        assert!(!rendered.contains("confidence="));
+        assert!(!rendered.contains("phase="));
+    }
+}
