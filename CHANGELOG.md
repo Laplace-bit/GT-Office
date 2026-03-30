@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.2 - 2026-03-30
+
+### Highlights
+
+- Removes external channel reply suffixes such as `[source=... confidence=... phase=...]` from user-facing message bodies.
+- Keeps MCP installation local-bundled inside the desktop app and prefers Rust fallback config writing over `npx`.
+- Reintroduces manual unsigned macOS DMG packaging for users willing to bypass Gatekeeper locally.
+
 ## v0.1.1 - 2026-03-29
 
 ### Highlights

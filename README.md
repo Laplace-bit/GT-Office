@@ -2,7 +2,7 @@
 
 GT Office is a cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support in the codebase. It combines workspace-aware files, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
 
-Current release tag target: `v0.1.1`.
+Current release tag target: `v0.1.2`.
 
 ## What It Includes
 
@@ -74,7 +74,7 @@ npm run build:tauri
 
 ## Release
 
-Root package version: `0.1.1`
+Root package version: `0.1.2`
 
 Recommended release sequence:
 
@@ -82,11 +82,21 @@ Recommended release sequence:
 npm run typecheck
 cargo check --workspace
 npm run build:tauri
-git tag -a v0.1.1 -m "GT Office v0.1.1"
+git tag -a v0.1.2 -m "GT Office v0.1.2"
 git push origin main --follow-tags
 ```
 
 For public macOS releases, the generated `.app` and `.dmg` must pass Developer ID signing and notarization. When signing is not configured, the build keeps the local `.app` bundle but skips DMG creation so unsigned artifacts are not accidentally published. For local unsigned DMG smoke builds only, use `GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1`.
+
+If you intentionally distribute an unsigned macOS build for manual local testing:
+
+1. Build with `GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1 npm run build:tauri`
+2. Ask users to move the app into `/Applications`
+3. On first launch, use `Open Anyway` in `System Settings > Privacy & Security`, or remove quarantine manually:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/GT\ Office.app
+```
 
 ## MCP Packaging
 
