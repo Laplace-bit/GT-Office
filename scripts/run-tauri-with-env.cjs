@@ -11,6 +11,10 @@ const {
   assertMacOsAppBundleReadyForDistribution,
   summarizeMacOsDistributionIssues,
 } = require('./macos-distribution-guard.cjs')
+const {
+  shouldRepairUnsignedMacOsBundle,
+  buildAdhocCodesignArgs,
+} = require('./macos-unsigned-bundle.cjs')
 
 const repoRoot = path.resolve(__dirname, '..')
 const workspacePath = path.join(repoRoot, 'apps', 'desktop-tauri')
@@ -388,15 +392,21 @@ function createCustomMacOsDmg(env, tauriArgs) {
   }
 
   const readinessDetails = inspectMacOsBundleDistributionReadiness(appBundlePath, env)
+  if (shouldAllowUnsignedMacOsBundle(env) && shouldRepairUnsignedMacOsBundle(readinessDetails)) {
+    console.warn('[GT Office] Repairing local unsigned macOS app bundle with ad-hoc codesign before DMG creation.')
+    runCommandOrThrow('codesign', buildAdhocCodesignArgs(appBundlePath), { env })
+  }
+
+  const postRepairReadinessDetails = inspectMacOsBundleDistributionReadiness(appBundlePath, env)
   try {
     if (!shouldAllowUnsignedMacOsBundle(env)) {
-      assertMacOsAppBundleReadyForDistribution(appBundlePath, readinessDetails)
+      assertMacOsAppBundleReadyForDistribution(appBundlePath, postRepairReadinessDetails)
     }
   } catch (error) {
     console.warn(
       [
         '[GT Office] Skipping DMG creation because the macOS app bundle is not signed/notarized for public distribution.',
-        summarizeMacOsDistributionIssues(readinessDetails),
+        summarizeMacOsDistributionIssues(postRepairReadinessDetails),
         'A local .app bundle was still produced. Public releases should be source-only until Developer ID signing is configured.',
         'If you intentionally want to force unsigned DMG creation for local testing, rerun with GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1.',
       ].join('\n'),
