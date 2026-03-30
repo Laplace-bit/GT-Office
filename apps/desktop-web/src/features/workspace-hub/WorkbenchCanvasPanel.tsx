@@ -50,6 +50,7 @@ interface WorkbenchGridStyle extends CSSProperties {
 interface WorkbenchCanvasPanelProps {
   locale: Locale
   appearanceVersion: string
+  performanceDebugEnabled?: boolean
   container: WorkbenchContainerModel
   containerIndex: number
   stations: AgentStation[]
@@ -165,6 +166,7 @@ function FocusRailItem({
 function WorkbenchCanvasPanelView({
   locale,
   appearanceVersion,
+  performanceDebugEnabled = false,
   container,
   containerIndex,
   stations,
@@ -561,6 +563,7 @@ function WorkbenchCanvasPanelView({
         key={station.id}
         locale={locale}
         appearanceVersion={appearanceVersion}
+        performanceDebugEnabled={performanceDebugEnabled}
         station={station}
         active={station.id === activeGlobalStationId}
         runtime={terminalByStation[station.id]}
@@ -605,6 +608,7 @@ function WorkbenchCanvasPanelView({
       activeGlobalStationId,
       agentRunningByStationId,
       appearanceVersion,
+      performanceDebugEnabled,
       channelBotBindingsByStationId,
       container.id,
       detachedReadonly,

@@ -4,6 +4,7 @@ export interface WindowPerformancePolicyInput {
   tauriRuntime: boolean
   isMacOs: boolean
   isLinux: boolean
+  performanceDebugEnabled?: boolean
 }
 
 export interface WindowPerformancePolicy {
@@ -36,7 +37,7 @@ export function resolveWindowPerformancePolicy(
       useCustomWindowChrome: true,
       shouldUseNativeDecorations: true,
       stationProcessPollIntervalMs: DEFAULT_STATION_PROCESS_POLL_INTERVAL_MS,
-      shouldPollAllLiveStationProcesses: true,
+      shouldPollAllLiveStationProcesses: input.performanceDebugEnabled !== true,
     }
   }
 

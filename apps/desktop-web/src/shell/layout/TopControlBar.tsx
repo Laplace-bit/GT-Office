@@ -14,8 +14,12 @@ interface TopControlBarProps {
   nativeWindowTopMacOs: boolean
   nativeWindowTopLinux: boolean
   windowMaximized: boolean
+  performanceDebugEnabled: boolean
   onPickWorkspaceDirectory: () => void
+  onBatchLaunchAgents: () => void
+  batchLaunchDisabled: boolean
   onOpenSettings: () => void
+  onTogglePerformanceDebug: () => void
   onWindowMinimize: () => void
   onWindowToggleMaximize: () => void
   onWindowClose: () => void
@@ -82,8 +86,12 @@ export function TopControlBar({
   nativeWindowTopMacOs,
   nativeWindowTopLinux,
   windowMaximized,
+  performanceDebugEnabled,
   onPickWorkspaceDirectory,
+  onBatchLaunchAgents,
+  batchLaunchDisabled,
   onOpenSettings,
+  onTogglePerformanceDebug,
   onWindowMinimize,
   onWindowToggleMaximize,
   onWindowClose,
@@ -102,14 +110,23 @@ export function TopControlBar({
     {
       key: 'batch-launch',
       label: t(locale, 'topControlBar.batchLaunchAgents'),
+      action: onBatchLaunchAgents,
       icon: 'bolt' as AppIconName,
-      disabled: true,
+      disabled: batchLaunchDisabled,
     },
     {
       key: 'open-settings',
       label: t(locale, 'topControlBar.openSettings'),
       action: onOpenSettings,
       icon: 'settings' as AppIconName,
+    },
+    {
+      key: 'toggle-performance-debug',
+      label: performanceDebugEnabled
+        ? t(locale, 'topControlBar.performanceDebug.disable')
+        : t(locale, 'topControlBar.performanceDebug.enable'),
+      action: onTogglePerformanceDebug,
+      icon: 'activity' as AppIconName,
     },
   ]
   const windowActionButtons: TopActionButton[] = [
@@ -201,12 +218,21 @@ export function TopControlBar({
               <button
                 type="button"
                 onClick={btn.action}
-                className="vb-top-action-button"
+                className={[
+                  'vb-top-action-button',
+                  btn.key === 'toggle-performance-debug' ? 'with-label' : '',
+                  btn.key === 'toggle-performance-debug' && performanceDebugEnabled ? 'active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 aria-label={btn.label}
                 title={btn.label}
                 disabled={btn.disabled}
               >
                 <AppIcon name={btn.icon} className="vb-icon vb-icon-top-action" aria-hidden="true" />
+                {btn.key === 'toggle-performance-debug' ? (
+                  <span className="vb-top-action-label">Perf</span>
+                ) : null}
               </button>
             </span>
           ))}

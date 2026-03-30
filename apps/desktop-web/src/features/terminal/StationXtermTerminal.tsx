@@ -37,7 +37,9 @@ export type StationTerminalSinkBindingHandler = (
 interface StationXtermTerminalProps {
   stationId: string
   sessionId: string | null
+  isActive?: boolean
   appearanceVersion: string
+  performanceDebugEnabled?: boolean
   onActivateStation: () => void
   onData: (stationId: string, data: string) => void
   onResize: (stationId: string, cols: number, rows: number) => void
@@ -252,7 +254,9 @@ function getTerminalTheme(host?: HTMLElement | null): ITheme {
 function StationXtermTerminalView({
   stationId,
   sessionId,
+  isActive = false,
   appearanceVersion,
+  performanceDebugEnabled = false,
   onActivateStation,
   onData,
   onResize,
@@ -273,6 +277,11 @@ function StationXtermTerminalView({
   const appearanceSyncFrameRef = useRef<number | null>(null)
   const focusTerminalRequestRef = useRef<(() => void) | null>(null)
   const focusRetryFrameRef = useRef<number | null>(null)
+  const pendingAutoFocusRef = useRef(false)
+  const lastAutoFocusStateRef = useRef<{ active: boolean; sessionId: string | null }>({
+    active: false,
+    sessionId: null,
+  })
 
   const syncTerminalAppearance = useCallback(() => {
     const terminal = terminalRef.current
@@ -285,11 +294,6 @@ function StationXtermTerminalView({
     terminal.options.fontSize = resolveTerminalFontSize(host)
     terminal.options.theme = getTerminalTheme(host)
     terminal.options.overviewRuler = { width: TERMINAL_OVERVIEW_RULER_WIDTH }
-    terminal.options.cursorStyle = 'bar'
-    terminal.options.cursorWidth = 2
-    terminal.options.cursorBlink = hostRef.current?.matches(':focus-within') ?? false
-    ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
-      'bar'
     try {
       fitAddonRef.current?.fit()
     } catch {
@@ -330,6 +334,18 @@ function StationXtermTerminalView({
   }, [sessionId])
 
   useEffect(() => {
+    const previous = lastAutoFocusStateRef.current
+    const sessionChanged = previous.sessionId !== sessionId
+    const shouldAutoFocus = isActive && (!previous.active || sessionChanged)
+    lastAutoFocusStateRef.current = { active: isActive, sessionId }
+    if (!shouldAutoFocus) {
+      return
+    }
+    pendingAutoFocusRef.current = true
+    focusTerminalRequestRef.current?.()
+  }, [isActive, sessionId])
+
+  useEffect(() => {
     const terminal = terminalRef.current
     if (!terminal) {
       return
@@ -352,6 +368,7 @@ function StationXtermTerminalView({
         window.cancelAnimationFrame(focusFrameId)
       }
       focusTerminalRequestRef.current = null
+      pendingAutoFocusRef.current = false
     }
   }, [])
 
@@ -364,7 +381,6 @@ function StationXtermTerminalView({
     let active = true
     let dataDisposable: { dispose: () => void } | null = null
     let resizeDisposable: { dispose: () => void } | null = null
-    let removeFocusListeners: (() => void) | null = null
     let resizeObserver: ResizeObserver | null = null
     let appearanceObserver: MutationObserver | null = null
     let refreshFrameId: number | null = null
@@ -392,9 +408,6 @@ function StationXtermTerminalView({
 
         const terminal = new xtermModule.Terminal({
           convertEol: true,
-          cursorBlink: false,
-          cursorStyle: 'bar',
-          cursorWidth: 2,
           fontFamily: readCssVar('--vb-font-mono', resolveTerminalDocument(host, document)),
           fontSize: resolveTerminalFontSize(host),
           fontWeight: '500',
@@ -405,9 +418,6 @@ function StationXtermTerminalView({
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1,
         })
-        // Keep inactive cursor subtle and slim instead of default thick outline block.
-        ;(terminal.options as typeof terminal.options & { cursorInactiveStyle?: string }).cursorInactiveStyle =
-          'bar'
         const fitAddon = new fitModule.FitAddon()
         const serializeAddon = new serializeModule.SerializeAddon()
         terminal.loadAddon(fitAddon)
@@ -555,7 +565,11 @@ function StationXtermTerminalView({
           attemptFocus()
         }
         focusTerminalRequestRef.current = () => {
+          pendingAutoFocusRef.current = false
           requestTerminalFocus()
+        }
+        if (pendingAutoFocusRef.current) {
+          focusTerminalRequestRef.current()
         }
 
         const refreshTerminal = () => {
@@ -571,6 +585,9 @@ function StationXtermTerminalView({
           })
         }
         const captureSerializedRestoreState = () => {
+          if (performanceDebugEnabled) {
+            return
+          }
           try {
             serializedRestoreState = serializeAddon.serialize({
               scrollback: TERMINAL_SERIALIZE_SCROLLBACK_LINES,
@@ -593,6 +610,9 @@ function StationXtermTerminalView({
           }
         }
         const scheduleSerializedRestoreStateCapture = () => {
+          if (performanceDebugEnabled) {
+            return
+          }
           if (serializeFrameId !== null) {
             return
           }
@@ -651,7 +671,7 @@ function StationXtermTerminalView({
           }
         }
         const flushRenderedScreenSnapshot = () => {
-          if (!onRenderedScreenSnapshotRef.current) {
+          if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
             return
           }
           if (reportFrameId !== null) {
@@ -684,7 +704,7 @@ function StationXtermTerminalView({
           })
         }
         const scheduleRenderedScreenSnapshot = () => {
-          if (!onRenderedScreenSnapshotRef.current) {
+          if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
             return
           }
           const now = Date.now()
@@ -791,37 +811,6 @@ function StationXtermTerminalView({
           }
           onDataRef.current(stationId, data)
         })
-        const setBlinkState = (enabled: boolean) => {
-          if (terminal.options.cursorBlink !== enabled) {
-            terminal.options.cursorBlink = enabled
-          }
-          terminal.refresh(0, Math.max(0, terminal.rows - 1))
-        }
-        const handleFocusIn = () => {
-          setBlinkState(true)
-        }
-        const handleFocusOut = (event: FocusEvent) => {
-          const relatedTarget = event.relatedTarget
-          if (relatedTarget instanceof Node && host.contains(relatedTarget)) {
-            return
-          }
-          if (host.matches(':focus-within')) {
-            return
-          }
-          setBlinkState(false)
-        }
-        host.addEventListener('focusin', handleFocusIn)
-        host.addEventListener('focusout', handleFocusOut)
-        removeFocusListeners = () => {
-          host.removeEventListener('focusin', handleFocusIn)
-          host.removeEventListener('focusout', handleFocusOut)
-        }
-        if (host.matches(':focus-within')) {
-          setBlinkState(true)
-        } else {
-          setBlinkState(false)
-        }
-
         // Sync terminal size with backend PTY
         resizeDisposable = terminal.onResize(({ cols, rows }) => {
           onResizeRef.current(stationId, cols, rows)
@@ -935,7 +924,6 @@ function StationXtermTerminalView({
       })
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
-      removeFocusListeners?.()
       removeCompositionStartSyncListener?.()
       removeMacOsImeFallbackListeners?.()
       resizeObserver?.disconnect()
@@ -966,7 +954,7 @@ function StationXtermTerminalView({
     }
   }, [
     onBindSink,
-    onRenderedScreenSnapshot,
+    performanceDebugEnabled,
     scheduleTerminalAppearanceSync,
     sessionId,
     stationId,

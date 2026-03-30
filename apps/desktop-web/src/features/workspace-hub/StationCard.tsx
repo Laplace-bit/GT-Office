@@ -108,6 +108,7 @@ interface StationTerminalRuntime {
 interface StationCardProps {
   locale: Locale
   appearanceVersion: string
+  performanceDebugEnabled?: boolean
   station: AgentStation
   active: boolean
   runtime?: StationTerminalRuntime
@@ -160,6 +161,7 @@ function buildTaskAckLine(locale: Locale, nonce: number): string {
 function StationCardView({
   locale,
   appearanceVersion,
+  performanceDebugEnabled = false,
   station,
   active,
   runtime,
@@ -471,11 +473,6 @@ function StationCardView({
               </span>
             ))}
           </div>
-          <div className="station-window-title-subline">
-            <p className="station-window-meta-text" title={station.agentWorkdirRel}>
-              {station.agentWorkdirRel}
-            </p>
-          </div>
         </div>
         {!active && activitySignal ? (
           <StationActivityComet
@@ -556,12 +553,14 @@ function StationCardView({
           <StationXtermTerminal
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
+            isActive={active}
             appearanceVersion={appearanceVersion}
+            performanceDebugEnabled={performanceDebugEnabled}
             onActivateStation={activateStationFromTerminal}
             onData={onSendInputData}
             onResize={onResizeTerminal}
             onBindSink={handleBindSink}
-            onRenderedScreenSnapshot={active ? onRenderedScreenSnapshot : undefined}
+            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
             onRestoreStateCaptured={onRestoreStateCaptured}
           />
         </>
@@ -640,6 +639,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
   return (
     prev.locale === next.locale &&
     prev.appearanceVersion === next.appearanceVersion &&
+    prev.performanceDebugEnabled === next.performanceDebugEnabled &&
     prev.station === next.station &&
     prev.active === next.active &&
     prev.agentRunning === next.agentRunning &&

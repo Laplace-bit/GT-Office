@@ -108,6 +108,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: #{rem(4)};
   border-radius: var(--vb-radius-sm);
   background: var(--vb-chip);
   border: var(--vb-border-width) solid var(--vb-border);
@@ -126,10 +127,30 @@
     transform: scale(0.96);
   }
 
+  &.active {
+    background: color-mix(in srgb, var(--vb-accent) 16%, var(--vb-chip));
+    border-color: color-mix(in srgb, var(--vb-accent) 38%, var(--vb-border));
+    color: var(--vb-accent);
+    box-shadow: var(--vb-shadow-sm);
+  }
+
+  &.with-label {
+    width: auto;
+    min-width: calc(var(--vb-top-control-button-size) + #{rem(18)});
+    padding: 0 #{rem(7)};
+  }
+
   .vb-icon {
     width: #{rem(13)};
     height: #{rem(13)};
   }
+}
+
+.vb-top-action-label {
+  font-size: #{rem(10)};
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
 
 .vb-window-controls {

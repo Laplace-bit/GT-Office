@@ -193,12 +193,6 @@ function TerminalStationPaneView({
           ) : null}
         </div>
         <div className="terminal-station-pane-meta-row terminal-station-pane-meta-row-secondary">
-          <span
-            className="terminal-station-pane-chip terminal-station-pane-chip-path"
-            title={station.agentWorkdirRel}
-          >
-            {station.agentWorkdirRel}
-          </span>
           <span className="terminal-station-pane-chip" title={station.tool}>
             {station.tool}
           </span>
@@ -231,6 +225,7 @@ function TerminalStationPaneView({
           <StationXtermTerminal
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
+            isActive={active}
             appearanceVersion={appearanceVersion}
             onActivateStation={() => onSelectStation(station.id)}
             onData={onSendInputData}

@@ -27,6 +27,7 @@ test('preserves custom chrome on macos', () => {
       tauriRuntime: true,
       isMacOs: true,
       isLinux: false,
+      performanceDebugEnabled: false,
     }),
     {
       platform: 'macos',
@@ -34,6 +35,24 @@ test('preserves custom chrome on macos', () => {
       shouldUseNativeDecorations: true,
       stationProcessPollIntervalMs: 1400,
       shouldPollAllLiveStationProcesses: true,
+    },
+  )
+})
+
+test('uses conservative live-station polling when performance debug is enabled on macos', () => {
+  assert.deepEqual(
+    resolveWindowPerformancePolicy({
+      tauriRuntime: true,
+      isMacOs: true,
+      isLinux: false,
+      performanceDebugEnabled: true,
+    }),
+    {
+      platform: 'macos',
+      useCustomWindowChrome: true,
+      shouldUseNativeDecorations: true,
+      stationProcessPollIntervalMs: 1400,
+      shouldPollAllLiveStationProcesses: false,
     },
   )
 })

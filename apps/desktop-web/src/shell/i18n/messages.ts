@@ -751,6 +751,8 @@ export const messages = {
   'topControlBar.openWorkspace': { 'zh-CN': '打开工作区', 'en-US': 'Open Workspace' },
   'topControlBar.refreshGit': { 'zh-CN': '刷新 Git', 'en-US': 'Refresh Git' },
   'topControlBar.openSettings': { 'zh-CN': '打开设置', 'en-US': 'Open Settings' },
+  'topControlBar.performanceDebug.enable': { 'zh-CN': '开启性能调试', 'en-US': 'Enable Performance Debug' },
+  'topControlBar.performanceDebug.disable': { 'zh-CN': '关闭性能调试', 'en-US': 'Disable Performance Debug' },
   'topControlBar.openChannels': { 'zh-CN': '打开通道工作台', 'en-US': 'Open Channel Studio' },
   'topControlBar.commandPalette': { 'zh-CN': '全局命令台', 'en-US': 'Command Palette' },
   'topControlBar.batchLaunchAgents': { 'zh-CN': '批量启动 Agent', 'en-US': 'Batch Launch Agents' },

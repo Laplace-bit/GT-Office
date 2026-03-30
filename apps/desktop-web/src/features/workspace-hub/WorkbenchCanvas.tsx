@@ -69,6 +69,7 @@ interface StationPointerDragState {
 interface WorkbenchCanvasProps {
   locale: Locale
   appearanceVersion: string
+  performanceDebugEnabled?: boolean
   showStage?: boolean
   showFloatingPortal?: boolean
   floatingVisibility?: 'all' | 'topmost' | 'non_topmost'
@@ -255,6 +256,7 @@ function resolveContainerIdAtPoint(clientX: number, clientY: number): string | n
 function WorkbenchCanvasView({
   locale,
   appearanceVersion,
+  performanceDebugEnabled = false,
   showStage = true,
   showFloatingPortal = true,
   floatingVisibility = 'all',
@@ -568,6 +570,7 @@ function WorkbenchCanvasView({
                     key={container.id}
                     locale={locale}
                     appearanceVersion={appearanceVersion}
+                    performanceDebugEnabled={performanceDebugEnabled}
                     container={container}
                     containerIndex={index}
                     stations={containerStations}
@@ -644,6 +647,7 @@ function WorkbenchCanvasView({
                   <WorkbenchCanvasPanel
                     locale={locale}
                     appearanceVersion={appearanceVersion}
+                    performanceDebugEnabled={performanceDebugEnabled}
                     container={container}
                     containerIndex={dockedContainers.length + index}
                     stations={containerStations}

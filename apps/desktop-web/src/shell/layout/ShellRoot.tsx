@@ -145,6 +145,10 @@ import {
   saveUiPreferences,
   UI_PREFERENCES_UPDATED_EVENT,
 } from '../state/ui-preferences'
+import {
+  loadPerformanceDebugState,
+  savePerformanceDebugState,
+} from '../state/performance-debug'
 import { pickDirectory } from '../integration/directory-picker'
 import {
   EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT,
@@ -218,14 +222,16 @@ export function ShellRoot() {
   const stationCounterRef = useRef(nextStationNumber(initialStations))
   const workbenchContainerCounterRef = useRef(initialStations.length + 1)
   const tauriRuntime = desktopApi.isTauriRuntime()
+  const [performanceDebugState, setPerformanceDebugState] = useState(loadPerformanceDebugState)
   const windowPerformancePolicy = useMemo(
     () =>
       resolveWindowPerformancePolicy({
         tauriRuntime,
         isMacOs: isMacOsPlatform(),
         isLinux: isLinuxPlatform(),
+        performanceDebugEnabled: performanceDebugState.enabled,
       }),
-    [tauriRuntime],
+    [performanceDebugState.enabled, tauriRuntime],
   )
   const nativeWindowTop = windowPerformancePolicy.useCustomWindowChrome
   const nativeWindowTopMacOs = windowPerformancePolicy.platform === 'macos' && nativeWindowTop
@@ -258,6 +264,16 @@ export function ShellRoot() {
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
   const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
   const [canvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
+
+  const togglePerformanceDebug = useCallback(() => {
+    setPerformanceDebugState((prev) => {
+      const next = {
+        enabled: !prev.enabled,
+      }
+      savePerformanceDebugState(next)
+      return next
+    })
+  }, [])
   const [canvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
@@ -309,6 +325,7 @@ export function ShellRoot() {
     null,
   )
   const [windowMaximized, setWindowMaximized] = useState(false)
+  const [isBatchLaunchingAgents, setIsBatchLaunchingAgents] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
   const [stationTerminals, setStationTerminals] = useState<Record<string, StationTerminalRuntime>>(
     () => createInitialStationTerminals(initialStations),
@@ -1878,7 +1895,9 @@ export function ShellRoot() {
           } else if (payload.to !== 'exited' && payload.to !== 'killed' && payload.to !== 'failed') {
             setStationTerminalState(stationId, { stateRaw: payload.to })
           }
-          appendStationTerminalOutput(stationId, `\n[terminal:${payload.to}]\n`)
+          if (payload.to !== 'running') {
+            appendStationTerminalOutput(stationId, `\n[terminal:${payload.to}]\n`)
+          }
           if (payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed') {
             delete terminalSessionSeqRef.current[payload.sessionId]
             delete terminalOutputQueueRef.current[payload.sessionId]
@@ -2951,6 +2970,47 @@ export function ShellRoot() {
     [appendStationTerminalOutput, ensureStationTerminalSession, locale, submitStationTerminal],
   )
 
+  const resetStationTerminalToAgentWorkdir = useCallback(
+    async (stationId: string): Promise<boolean> => {
+      if (!desktopApi.isTauriRuntime()) {
+        return false
+      }
+
+      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      const workspaceId = activeWorkspaceIdRef.current
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      if (!sessionId || !workspaceId || !station) {
+        return false
+      }
+
+      const workspaceRoot = await resolveWorkspaceRoot(workspaceId)
+      if (!workspaceRoot) {
+        return false
+      }
+
+      const agentWorkspaceCwd = resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
+      const resetCommand = `cd "${agentWorkspaceCwd.replace(/"/g, '\\"')}"`
+
+      try {
+        await desktopApi.terminalWriteWithSubmit(
+          sessionId,
+          resetCommand,
+          stationSubmitSequenceRef.current[stationId] ?? '\r',
+        )
+        return true
+      } catch (error) {
+        appendStationTerminalOutput(
+          stationId,
+          t(locale, 'system.sendFailed', {
+            detail: describeError(error),
+          }),
+        )
+        return false
+      }
+    },
+    [appendStationTerminalOutput, locale, resolveWorkspaceRoot],
+  )
+
   const reconcileStationRuntimeRegistration = useCallback(
     async (input: { workspaceId: string; stationId: string; expectedSessionId: string | null }) => {
       if (!desktopApi.isTauriRuntime()) {
@@ -3237,7 +3297,7 @@ export function ShellRoot() {
 
   const reportRenderedScreenSnapshot = useMemo(
     () => (stationId: string, snapshot: RenderedScreenSnapshot) => {
-      if (!desktopApi.isTauriRuntime()) {
+      if (!desktopApi.isTauriRuntime() || performanceDebugState.enabled) {
         return
       }
       const debugEnabled = isStationTerminalDebugEnabled(stationId)
@@ -3278,7 +3338,7 @@ export function ShellRoot() {
           // Snapshot reporting is best-effort and must not affect terminal interaction.
         })
     },
-    [pushStationTerminalDebugRecord],
+    [performanceDebugState.enabled, pushStationTerminalDebugRecord],
   )
 
   const updateStationProcessSnapshot = useCallback(
@@ -3367,10 +3427,11 @@ export function ShellRoot() {
             stationId: station.id,
             roleKey: station.role,
             toolKind: station.toolKind,
+            cwd: station.agentWorkdirRel,
             agentWorkdirRel: station.agentWorkdirRel,
             roleWorkdirRel: station.roleWorkdirRel,
-            resolvedCwd: stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
-            cwdMode: stationTerminalsRef.current[station.id]?.cwdMode ?? 'custom',
+            resolvedCwd: null,
+            cwdMode: 'custom',
           },
         })
 
@@ -3471,7 +3532,7 @@ export function ShellRoot() {
           stateRaw: 'running',
           unreadCount: 0,
           shell: response.shell ?? null,
-          cwdMode: stationTerminalsRef.current[station.id]?.cwdMode ?? 'custom',
+          cwdMode: response.resolvedCwd ? 'custom' : 'workspace_root',
           resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
         })
 
@@ -3531,13 +3592,22 @@ export function ShellRoot() {
         return
       }
 
+      const resetCwd = await resetStationTerminalToAgentWorkdir(stationId)
+      if (!resetCwd) {
+        return
+      }
       const launchedInSession = await writeStationTerminalWithSubmit(stationId, launchCommand)
       if (!launchedInSession) {
         return
       }
       stationTerminalSinkRef.current[stationId]?.focus()
     },
-    [inspectStationSessionProcesses, launchToolProfileForStation, writeStationTerminalWithSubmit],
+    [
+      inspectStationSessionProcesses,
+      launchToolProfileForStation,
+      resetStationTerminalToAgentWorkdir,
+      writeStationTerminalWithSubmit,
+    ],
   )
 
   const ensureTaskTargetRuntime = useCallback(
@@ -3820,6 +3890,19 @@ export function ShellRoot() {
       }, {}),
     [stationProcessSnapshots, stations],
   )
+  const batchLaunchableAgentCount = useMemo(
+    () =>
+      stations.reduce((count, station) => {
+        if (!resolveStationCliLaunchCommand(station.toolKind)) {
+          return count
+        }
+        if (stationAgentRunningById[station.id]) {
+          return count
+        }
+        return count + 1
+      }, 0),
+    [stationAgentRunningById, stations],
+  )
   const toolCommandReloadKey = useMemo(
     () =>
       stations
@@ -3848,6 +3931,48 @@ export function ShellRoot() {
   const handleCanvasOpenStationSearch = useCallback(() => {
     setIsStationSearchOpen(true)
   }, [])
+
+  const handleBatchLaunchAgents = useCallback(async () => {
+    if (isBatchLaunchingAgents) {
+      return
+    }
+    setIsBatchLaunchingAgents(true)
+    try {
+      for (const station of stationsRef.current) {
+        const launchCommand = resolveStationCliLaunchCommand(station.toolKind)
+        if (!launchCommand) {
+          continue
+        }
+
+        const sessionId = stationTerminalsRef.current[station.id]?.sessionId ?? null
+        let agentRunning = isStationAgentProcessRunning(
+          station.toolKind,
+          stationProcessSnapshotsRef.current[station.id],
+        )
+        if (sessionId) {
+          const processSnapshot = await inspectStationSessionProcesses(station.id, sessionId)
+          agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
+        }
+        if (agentRunning) {
+          continue
+        }
+
+        if (!sessionId) {
+          await launchToolProfileForStation(station)
+          continue
+        }
+
+        await writeStationTerminalWithSubmit(station.id, launchCommand)
+      }
+    } finally {
+      setIsBatchLaunchingAgents(false)
+    }
+  }, [
+    inspectStationSessionProcesses,
+    isBatchLaunchingAgents,
+    launchToolProfileForStation,
+    writeStationTerminalWithSubmit,
+  ])
 
   const loadToolCommandsForStations = useCallback(async () => {
     const workspaceId = activeWorkspaceIdRef.current
@@ -4081,6 +4206,7 @@ export function ShellRoot() {
         }
 
         const stationIdSet = new Set(stationsRef.current.map((station) => station.id))
+        const workspaceRoot = await resolveWorkspaceRoot(workspaceId)
         const restorableTerminals = restored.terminals
           .filter((terminal) => stationIdSet.has(terminal.stationId))
           .sort((left, right) => Number(right.active) - Number(left.active))
@@ -4095,12 +4221,13 @@ export function ShellRoot() {
           ) {
             return
           }
-          const restoreCwdMode =
-            terminal.cwdMode === 'custom' && terminal.resolvedCwd ? 'custom' : 'workspace_root'
-          const restoreCwd = restoreCwdMode === 'custom' ? terminal.resolvedCwd : null
-
           try {
             const station = stationsRef.current.find((item) => item.id === terminal.stationId)
+            const restoreCwd =
+              station && workspaceRoot
+                ? resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
+                : terminal.resolvedCwd
+            const restoreCwdMode = restoreCwd ? 'custom' : 'workspace_root'
             const terminalEnv = station
               ? {
                   GTO_WORKSPACE_ID: workspaceId,
@@ -4926,6 +5053,7 @@ export function ShellRoot() {
   const workbenchCanvasBaseProps = {
     locale,
     appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`,
+    performanceDebugEnabled: performanceDebugState.enabled,
     showFloatingPortal: true as const,
     stations,
     activeStationId,
@@ -5040,10 +5168,16 @@ export function ShellRoot() {
         nativeWindowTopMacOs,
         nativeWindowTopLinux,
         windowMaximized,
+        performanceDebugEnabled: performanceDebugState.enabled,
         onPickWorkspaceDirectory: () => {
           void handlePickWorkspaceDirectory()
         },
+        onBatchLaunchAgents: () => {
+          void handleBatchLaunchAgents()
+        },
+        batchLaunchDisabled: isBatchLaunchingAgents || batchLaunchableAgentCount === 0,
         onOpenSettings: handleOpenSettings,
+        onTogglePerformanceDebug: togglePerformanceDebug,
         onWindowMinimize: handleWindowMinimize,
         onWindowToggleMaximize: handleWindowToggleMaximize,
         onWindowClose: handleWindowClose,
