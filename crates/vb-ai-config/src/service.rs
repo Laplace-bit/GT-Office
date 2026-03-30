@@ -2934,9 +2934,9 @@ impl AiConfigService {
             let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
             let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
             let claude_mcp =
-                scope.spawn(|| claude_mcp_installed_for_workspace(&workspace_root_for_mcp));
-            let codex_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Codex));
-            let gemini_mcp = scope.spawn(|| check_mcp_installed(AiConfigAgent::Gemini));
+                scope.spawn(|| claude_mcp_status_for_workspace(&workspace_root_for_mcp));
+            let codex_mcp = scope.spawn(|| detect_light_agent_mcp_status(AiConfigAgent::Codex));
+            let gemini_mcp = scope.spawn(|| detect_light_agent_mcp_status(AiConfigAgent::Gemini));
 
             (
                 claude_install
@@ -2950,18 +2950,24 @@ impl AiConfigService {
                     .unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
                 claude_mcp
                     .join()
-                    .unwrap_or_else(|_| claude_mcp_installed_for_workspace(workspace_root)),
+                    .unwrap_or_else(|_| claude_mcp_status_for_workspace(workspace_root)),
                 codex_mcp
                     .join()
-                    .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Codex)),
+                    .unwrap_or_else(|_| detect_light_agent_mcp_status(AiConfigAgent::Codex)),
                 gemini_mcp
                     .join()
-                    .unwrap_or_else(|_| check_mcp_installed(AiConfigAgent::Gemini)),
+                    .unwrap_or_else(|_| detect_light_agent_mcp_status(AiConfigAgent::Gemini)),
             )
         });
 
-        codex_snapshot.mcp_installed = codex_mcp_installed;
-        gemini_snapshot.mcp_installed = gemini_mcp_installed;
+        codex_snapshot.mcp_installed = !matches!(
+            codex_mcp_installed,
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
+        gemini_snapshot.mcp_installed = !matches!(
+            gemini_mcp_installed,
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
 
         Ok(AiConfigSnapshot {
             agents: vec![
@@ -2970,7 +2976,11 @@ impl AiConfigService {
                     title: "aiConfig.agent.claude.title".to_string(),
                     subtitle: "aiConfig.agent.claude.subtitle".to_string(),
                     install_status: claude_install_status,
-                    mcp_installed: claude_mcp_installed,
+                    mcp_installed: !matches!(
+                        claude_mcp_installed,
+                        crate::models::AiAgentMcpStatus::NotInstalled
+                    ),
+                    mcp_status: claude_mcp_installed,
                     config_status: if claude_config.active_mode.is_some() {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {
@@ -2984,6 +2994,7 @@ impl AiConfigService {
                     subtitle: "aiConfig.agent.codex.subtitle".to_string(),
                     install_status: codex_install_status,
                     mcp_installed: codex_snapshot.mcp_installed,
+                    mcp_status: codex_mcp_installed,
                     config_status: if codex_snapshot.config.active_mode.is_some() {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {
@@ -2997,6 +3008,7 @@ impl AiConfigService {
                     subtitle: "aiConfig.agent.gemini.subtitle".to_string(),
                     install_status: gemini_install_status,
                     mcp_installed: gemini_snapshot.mcp_installed,
+                    mcp_status: gemini_mcp_installed,
                     config_status: if gemini_snapshot.config.active_mode.is_some() {
                         crate::models::AiAgentConfigStatus::Configured
                     } else {
@@ -4719,59 +4731,107 @@ fn user_home_dir() -> Option<PathBuf> {
 }
 
 pub fn claude_mcp_installed_for_workspace(workspace_root: &Path) -> bool {
-    let home = match user_home_dir() {
-        Some(path) => path,
-        None => return false,
-    };
-    claude_mcp_installed_for_workspace_at_home(&home, workspace_root)
+    !matches!(
+        claude_mcp_status_for_workspace(workspace_root),
+        crate::models::AiAgentMcpStatus::NotInstalled
+    )
 }
 
-fn claude_mcp_installed_for_workspace_at_home(home: &Path, workspace_root: &Path) -> bool {
+fn claude_mcp_status_for_workspace(workspace_root: &Path) -> crate::models::AiAgentMcpStatus {
+    let home = match user_home_dir() {
+        Some(path) => path,
+        None => return crate::models::AiAgentMcpStatus::NotInstalled,
+    };
+    claude_mcp_status_for_workspace_at_home(&home, workspace_root)
+}
+
+fn claude_mcp_status_for_workspace_at_home(
+    home: &Path,
+    workspace_root: &Path,
+) -> crate::models::AiAgentMcpStatus {
     let claude_json_path = home.join(".claude.json");
     let Ok(root) = read_json_object_file(&claude_json_path) else {
-        return false;
+        return crate::models::AiAgentMcpStatus::NotInstalled;
     };
     let workspace_key = workspace_root.to_string_lossy();
     root.get("projects")
         .and_then(Value::as_object)
         .and_then(|projects| projects.get(workspace_key.as_ref()))
         .and_then(Value::as_object)
+        .filter(|project| !claude_project_has_stale_active_worktree_session(project))
         .and_then(|project| project.get("mcpServers"))
         .and_then(Value::as_object)
-        .is_some_and(|servers| servers.contains_key(GTO_AGENT_BRIDGE_SERVER_ID))
+        .and_then(|servers| servers.get(GTO_AGENT_BRIDGE_SERVER_ID))
+        .map(resolve_mcp_status_from_value)
+        .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled)
 }
 
-fn check_mcp_installed(agent: AiConfigAgent) -> bool {
+fn claude_project_has_stale_active_worktree_session(project: &serde_json::Map<String, Value>) -> bool {
+    project
+        .get("activeWorktreeSession")
+        .and_then(Value::as_object)
+        .and_then(|session| session.get("worktreePath"))
+        .and_then(Value::as_str)
+        .is_some_and(|worktree_path| !Path::new(worktree_path).exists())
+}
+
+fn detect_light_agent_mcp_status(agent: AiConfigAgent) -> crate::models::AiAgentMcpStatus {
     let home = match user_home_dir() {
         Some(path) => path,
-        None => return false,
+        None => return crate::models::AiAgentMcpStatus::NotInstalled,
     };
 
-    let paths = match agent {
-        AiConfigAgent::Claude => vec![
-            home.join(".claude.json"),
-            home.join(".claude").join("settings.json"),
-        ],
-        AiConfigAgent::Codex => vec![home.join(".codex").join("config.toml")],
-        AiConfigAgent::Gemini => vec![home.join(".gemini").join("settings.json")],
-    };
-
-    paths.iter().any(|path| file_contains_bridge_marker(path))
-}
-
-fn file_contains_bridge_marker(path: &Path) -> bool {
-    if !path.exists() {
-        return false;
-    }
-    std::fs::read_to_string(path)
-        .map(|content| content.contains(GTO_AGENT_BRIDGE_SERVER_ID))
-        .unwrap_or(false)
-}
-
-fn workspace_scoped_mcp_installed(agent: AiConfigAgent, workspace_root: Option<&Path>) -> bool {
     match agent {
-        AiConfigAgent::Claude => workspace_root.is_some_and(claude_mcp_installed_for_workspace),
-        AiConfigAgent::Codex | AiConfigAgent::Gemini => check_mcp_installed(agent),
+        AiConfigAgent::Claude => crate::models::AiAgentMcpStatus::NotInstalled,
+        AiConfigAgent::Codex => {
+            detect_mcp_status_from_text_file(&home.join(".codex").join("config.toml"))
+        }
+        AiConfigAgent::Gemini => {
+            detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json"))
+        }
+    }
+}
+
+fn detect_mcp_status_from_text_file(path: &Path) -> crate::models::AiAgentMcpStatus {
+    if !path.exists() {
+        return crate::models::AiAgentMcpStatus::NotInstalled;
+    }
+
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return crate::models::AiAgentMcpStatus::NotInstalled;
+    };
+    if !content.contains(GTO_AGENT_BRIDGE_SERVER_ID) {
+        return crate::models::AiAgentMcpStatus::NotInstalled;
+    }
+    resolve_mcp_status_from_command_text(&content)
+}
+
+fn resolve_mcp_status_from_value(value: &Value) -> crate::models::AiAgentMcpStatus {
+    let command = value
+        .as_object()
+        .and_then(|object| object.get("command"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    resolve_mcp_status_from_command_text(command)
+}
+
+fn resolve_mcp_status_from_command_text(command: &str) -> crate::models::AiAgentMcpStatus {
+    if command.contains("gto-agent-mcp-sidecar") {
+        crate::models::AiAgentMcpStatus::InstalledSidecar
+    } else {
+        crate::models::AiAgentMcpStatus::InstalledLegacyNode
+    }
+}
+
+fn workspace_scoped_mcp_status(
+    agent: AiConfigAgent,
+    workspace_root: Option<&Path>,
+) -> crate::models::AiAgentMcpStatus {
+    match agent {
+        AiConfigAgent::Claude => workspace_root
+            .map(claude_mcp_status_for_workspace)
+            .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
+        AiConfigAgent::Codex | AiConfigAgent::Gemini => detect_light_agent_mcp_status(agent),
     }
 }
 
@@ -4787,7 +4847,17 @@ pub fn agent_mcp_installed_for_workspace(
     agent: vb_tools::agent_installer::AgentType,
     workspace_root: Option<&Path>,
 ) -> bool {
-    workspace_scoped_mcp_installed(agent_type_to_config_agent(agent), workspace_root)
+    !matches!(
+        workspace_scoped_mcp_status(agent_type_to_config_agent(agent), workspace_root),
+        crate::models::AiAgentMcpStatus::NotInstalled
+    )
+}
+
+pub fn agent_mcp_status_for_workspace(
+    agent: vb_tools::agent_installer::AgentType,
+    workspace_root: Option<&Path>,
+) -> crate::models::AiAgentMcpStatus {
+    workspace_scoped_mcp_status(agent_type_to_config_agent(agent), workspace_root)
 }
 
 #[cfg(test)]
@@ -4822,9 +4892,24 @@ fn create_workspace(dir: &Path, name: &str) -> PathBuf {
 
 #[cfg(test)]
 fn write_codex_marker(home: &Path) {
+    write_codex_marker_with_command(home, "npx");
+}
+
+#[cfg(test)]
+fn write_codex_marker_with_command(home: &Path, command: &str) {
     write_text_file(
         &home.join(".codex").join("config.toml"),
-        GTO_AGENT_BRIDGE_SERVER_ID,
+        &format!(
+            r#"{begin}
+[mcp_servers."{server}"]
+command = "{command}"
+{end}
+"#,
+            begin = "# BEGIN gto-agent-bridge",
+            server = GTO_AGENT_BRIDGE_SERVER_ID,
+            command = command,
+            end = "# END gto-agent-bridge"
+        ),
     );
 }
 
@@ -4854,10 +4939,24 @@ fn write_codex_live_config(
 }
 
 #[cfg(test)]
-fn write_gemini_marker(home: &Path) {
-    write_text_file(
+fn write_gemini_sidecar_marker(home: &Path) {
+    write_gemini_marker_with_command(
+        home,
+        "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar",
+    );
+}
+
+#[cfg(test)]
+fn write_gemini_marker_with_command(home: &Path, command: &str) {
+    write_json_file(
         &home.join(".gemini").join("settings.json"),
-        GTO_AGENT_BRIDGE_SERVER_ID,
+        &json!({
+            "mcpServers": {
+                GTO_AGENT_BRIDGE_SERVER_ID: {
+                    "command": command
+                }
+            }
+        }),
     );
 }
 
@@ -4923,6 +5022,20 @@ fn write_claude_live_config(
 
 #[cfg(test)]
 fn write_claude_workspace_config(home: &Path, workspace_root: &Path) {
+    write_claude_workspace_config_with_command(home, workspace_root, "npx");
+}
+
+#[cfg(test)]
+fn write_claude_sidecar_workspace_config(home: &Path, workspace_root: &Path) {
+    write_claude_workspace_config_with_command(
+        home,
+        workspace_root,
+        "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar",
+    );
+}
+
+#[cfg(test)]
+fn write_claude_workspace_config_with_command(home: &Path, workspace_root: &Path, command: &str) {
     write_json_file(
         &home.join(".claude.json"),
         &json!({
@@ -4931,7 +5044,7 @@ fn write_claude_workspace_config(home: &Path, workspace_root: &Path) {
                     "mcpServers": {
                         GTO_AGENT_BRIDGE_SERVER_ID: {
                             "type": "stdio",
-                            "command": "npx"
+                            "command": command
                         }
                     }
                 }
@@ -4939,7 +5052,33 @@ fn write_claude_workspace_config(home: &Path, workspace_root: &Path) {
             "mcpServers": {
                 GTO_AGENT_BRIDGE_SERVER_ID: {
                     "type": "stdio",
-                    "command": "npx"
+                    "command": command
+                }
+            }
+        }),
+    );
+}
+
+#[cfg(test)]
+fn write_claude_workspace_config_with_stale_worktree(
+    home: &Path,
+    workspace_root: &Path,
+    command: &str,
+) {
+    write_json_file(
+        &home.join(".claude.json"),
+        &json!({
+            "projects": {
+                workspace_root.to_string_lossy().to_string(): {
+                    "activeWorktreeSession": {
+                        "worktreePath": workspace_root.join(".claude").join("worktrees").join("missing").to_string_lossy().to_string()
+                    },
+                    "mcpServers": {
+                        GTO_AGENT_BRIDGE_SERVER_ID: {
+                            "type": "stdio",
+                            "command": command
+                        }
+                    }
                 }
             }
         }),
@@ -5002,21 +5141,25 @@ fn write_invalid_claude_json(home: &Path) {
 }
 
 #[cfg(test)]
-fn claude_status_for_home(home: &Path, workspace_root: &Path) -> bool {
-    claude_mcp_installed_for_workspace_at_home(home, workspace_root)
+fn claude_status_for_home(home: &Path, workspace_root: &Path) -> crate::models::AiAgentMcpStatus {
+    claude_mcp_status_for_workspace_at_home(home, workspace_root)
 }
 
 #[cfg(test)]
-fn agent_status_result(agent: AiConfigAgent, home: &Path, workspace_root: Option<&Path>) -> bool {
+fn agent_status_result(
+    agent: AiConfigAgent,
+    home: &Path,
+    workspace_root: Option<&Path>,
+) -> crate::models::AiAgentMcpStatus {
     match agent {
-        AiConfigAgent::Claude => {
-            workspace_root.is_some_and(|root| claude_status_for_home(home, root))
-        }
+        AiConfigAgent::Claude => workspace_root
+            .map(|root| claude_status_for_home(home, root))
+            .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
         AiConfigAgent::Codex => {
-            file_contains_bridge_marker(&home.join(".codex").join("config.toml"))
+            detect_mcp_status_from_text_file(&home.join(".codex").join("config.toml"))
         }
         AiConfigAgent::Gemini => {
-            file_contains_bridge_marker(&home.join(".gemini").join("settings.json"))
+            detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json"))
         }
     }
 }
@@ -6237,14 +6380,48 @@ command = "npx"
         let home = create_test_home(&dir);
         let workspace_root = create_workspace(&dir, "workspace-a");
 
+        write_claude_sidecar_workspace_config(&home, &workspace_root);
+
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_root),
+            crate::models::AiAgentMcpStatus::InstalledSidecar
+        );
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Claude, &home, Some(&workspace_root)),
+            crate::models::AiAgentMcpStatus::InstalledSidecar
+        );
+    }
+
+    #[test]
+    fn claude_workspace_mcp_status_marks_legacy_node_entries_for_migration() {
+        let dir = temp_dir("claude-workspace-mcp-legacy");
+        let home = create_test_home(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-a");
+
         write_claude_workspace_config(&home, &workspace_root);
 
-        assert!(claude_status_for_home(&home, &workspace_root));
-        assert!(agent_status_result(
-            AiConfigAgent::Claude,
-            &home,
-            Some(&workspace_root)
-        ));
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_root),
+            crate::models::AiAgentMcpStatus::InstalledLegacyNode
+        );
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Claude, &home, Some(&workspace_root)),
+            crate::models::AiAgentMcpStatus::InstalledLegacyNode
+        );
+    }
+
+    #[test]
+    fn claude_workspace_mcp_status_treats_stale_active_worktree_session_as_not_installed() {
+        let dir = temp_dir("claude-stale-worktree-mcp");
+        let home = create_test_home(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-a");
+
+        write_claude_workspace_config_with_stale_worktree(&home, &workspace_root, "npx");
+
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_root),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
     }
 
     #[test]
@@ -6256,13 +6433,18 @@ command = "npx"
 
         write_claude_workspace_configs(&home, &[&workspace_a]);
 
-        assert!(claude_status_for_home(&home, &workspace_a));
-        assert!(!claude_status_for_home(&home, &workspace_b));
-        assert!(!agent_status_result(
-            AiConfigAgent::Claude,
-            &home,
-            Some(&workspace_b)
-        ));
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_a),
+            crate::models::AiAgentMcpStatus::InstalledLegacyNode
+        );
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_b),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Claude, &home, Some(&workspace_b)),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
     }
 
     #[test]
@@ -6273,12 +6455,14 @@ command = "npx"
 
         write_claude_top_level_marker_only(&home);
 
-        assert!(!claude_status_for_home(&home, &workspace_root));
-        assert!(!agent_status_result(
-            AiConfigAgent::Claude,
-            &home,
-            Some(&workspace_root)
-        ));
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_root),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Claude, &home, Some(&workspace_root)),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
     }
 
     #[test]
@@ -6289,24 +6473,32 @@ command = "npx"
 
         write_invalid_claude_json(&home);
 
-        assert!(!claude_status_for_home(&home, &workspace_root));
-        assert!(!agent_status_result(
-            AiConfigAgent::Claude,
-            &home,
-            Some(&workspace_root)
-        ));
+        assert_eq!(
+            claude_status_for_home(&home, &workspace_root),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Claude, &home, Some(&workspace_root)),
+            crate::models::AiAgentMcpStatus::NotInstalled
+        );
     }
 
     #[test]
-    fn codex_and_gemini_status_still_use_global_marker_files() {
+    fn codex_and_gemini_status_distinguish_legacy_and_sidecar_entries() {
         let dir = temp_dir("light-agents-global-marker");
         let home = create_test_home(&dir);
 
         write_codex_marker(&home);
-        write_gemini_marker(&home);
+        write_gemini_sidecar_marker(&home);
 
-        assert!(agent_status_result(AiConfigAgent::Codex, &home, None));
-        assert!(agent_status_result(AiConfigAgent::Gemini, &home, None));
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Codex, &home, None),
+            crate::models::AiAgentMcpStatus::InstalledLegacyNode
+        );
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Gemini, &home, None),
+            crate::models::AiAgentMcpStatus::InstalledSidecar
+        );
     }
 
     #[test]
@@ -6324,6 +6516,15 @@ command = "npx"
 
         assert!(snapshot.codex.config.active_mode.is_none());
         assert!(snapshot.codex.mcp_installed);
+        assert_eq!(
+            snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.agent == AiConfigAgent::Codex)
+                .expect("codex agent")
+                .mcp_status,
+            crate::models::AiAgentMcpStatus::InstalledLegacyNode
+        );
     }
 
     #[test]

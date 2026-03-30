@@ -159,6 +159,7 @@ pub fn run() {
             agentic_one::install_agent,
             agentic_one::uninstall_agent,
             agentic_one::install_agent_mcp,
+            agentic_one::uninstall_agent_mcp,
             file_explorer::fs_list_dir,
             file_explorer::fs_read_file,
             file_explorer::fs_read_file_full,

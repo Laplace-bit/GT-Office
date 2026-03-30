@@ -1300,17 +1300,6 @@ fn resolve_mcp_command(app: &AppHandle) -> Option<McpCommandSpec> {
         }
     }
 
-    if let Ok(cwd) = env::current_dir() {
-        let script = cwd.join("tools/gto-agent-mcp/bin/gto-agent-mcp.mjs");
-        if script.exists() && script.is_file() {
-            let node = env::var("GTO_MCP_NODE").unwrap_or_else(|_| "node".to_string());
-            return Some(McpCommandSpec {
-                command: node,
-                args: vec![script.to_string_lossy().to_string(), "serve".to_string()],
-            });
-        }
-    }
-
     None
 }
 

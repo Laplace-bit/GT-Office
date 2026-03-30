@@ -37,10 +37,7 @@ function defaultServerCommand() {
       args: ['serve'],
     }
   }
-  return {
-    command: process.execPath,
-    args: [path.join(repoRoot, 'tools', 'gto-agent-mcp', 'bin', 'gto-agent-mcp.mjs'), 'serve'],
-  }
+  throw new Error(`Rust MCP sidecar not found: ${sidecarCandidate}`)
 }
 
 function parseArgs(argv) {

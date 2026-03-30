@@ -124,6 +124,7 @@ struct GetDirectoryArgs {
 
 #[derive(Debug, Deserialize)]
 struct DispatchArgs {
+    #[serde(default)]
     workspace_id: String,
     targets: Vec<String>,
     title: String,
@@ -134,6 +135,7 @@ struct DispatchArgs {
 
 #[derive(Debug, Deserialize)]
 struct ReportStatusArgs {
+    #[serde(default)]
     workspace_id: String,
     #[serde(default)]
     sender_agent_id: Option<String>,
@@ -147,6 +149,7 @@ struct ReportStatusArgs {
 
 #[derive(Debug, Deserialize)]
 struct HandoverArgs {
+    #[serde(default)]
     workspace_id: String,
     #[serde(default)]
     sender_agent_id: Option<String>,
@@ -406,10 +409,18 @@ fn call_tool(name: &str, arguments: Value) -> Result<Value, ToolError> {
 }
 
 fn current_agent_context() -> Value {
-    let workspace_id = env::var(ENV_WORKSPACE_ID).ok().filter(|value| !value.trim().is_empty());
-    let agent_id = env::var(ENV_AGENT_ID).ok().filter(|value| !value.trim().is_empty());
-    let role_key = env::var(ENV_ROLE_KEY).ok().filter(|value| !value.trim().is_empty());
-    let station_id = env::var(ENV_STATION_ID).ok().filter(|value| !value.trim().is_empty());
+    let workspace_id = env::var(ENV_WORKSPACE_ID)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let agent_id = env::var(ENV_AGENT_ID)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let role_key = env::var(ENV_ROLE_KEY)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let station_id = env::var(ENV_STATION_ID)
+        .ok()
+        .filter(|value| !value.trim().is_empty());
 
     if workspace_id.is_none() && agent_id.is_none() && role_key.is_none() && station_id.is_none() {
         return Value::Null;
@@ -547,7 +558,11 @@ fn infer_sender_agent_id_from_directory(
     let workspace_id = preferred_workspace_id
         .filter(|value| !value.trim().is_empty())
         .map(|value| value.to_string())
-        .or_else(|| resolve_directory_workspace_id(None).ok().map(|(workspace_id, _)| workspace_id))
+        .or_else(|| {
+            resolve_directory_workspace_id(None)
+                .ok()
+                .map(|(workspace_id, _)| workspace_id)
+        })
         .ok_or_else(|| {
             ToolError::new(
                 "MCP_INVALID_PARAMS",
@@ -575,7 +590,10 @@ fn resolve_sender_agent_id(
     explicit: Option<String>,
     preferred_workspace_id: Option<&str>,
 ) -> Result<(String, &'static str), ToolError> {
-    if let Some(agent_id) = explicit.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()) {
+    if let Some(agent_id) = explicit
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
         return Ok((agent_id, "explicit"));
     }
 
@@ -613,7 +631,9 @@ fn validate_workspace_id(
     Ok(Some(value.to_string()))
 }
 
-fn resolve_directory_workspace_id(explicit: Option<&str>) -> Result<(String, &'static str), ToolError> {
+fn resolve_directory_workspace_id(
+    explicit: Option<&str>,
+) -> Result<(String, &'static str), ToolError> {
     if let Some(workspace_id) = validate_workspace_id(explicit, true)? {
         return Ok((workspace_id, "explicit"));
     }
@@ -691,13 +711,11 @@ fn gto_dispatch_task(arguments: Value) -> Result<Value, ToolError> {
         )
     })?;
     let (workspace_id, _) = resolve_directory_workspace_id(Some(args.workspace_id.as_str()))?;
-    let (sender_agent_id, sender_resolved_from) = match resolve_sender_agent_id(
-        args.sender_agent_id.clone(),
-        Some(workspace_id.as_str()),
-    ) {
-        Ok(resolved) => (Some(resolved.0), resolved.1),
-        Err(_) => (None, "human"),
-    };
+    let (sender_agent_id, sender_resolved_from) =
+        match resolve_sender_agent_id(args.sender_agent_id.clone(), Some(workspace_id.as_str())) {
+            Ok(resolved) => (Some(resolved.0), resolved.1),
+            Err(_) => (None, "human"),
+        };
 
     if args.targets.is_empty() {
         return Err(ToolError::new(
@@ -872,7 +890,11 @@ fn gto_health() -> Result<Value, ToolError> {
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(|value| value.to_string())
-        .or_else(|| resolve_directory_workspace_id(None).ok().map(|(workspace_id, _)| workspace_id));
+        .or_else(|| {
+            resolve_directory_workspace_id(None)
+                .ok()
+                .map(|(workspace_id, _)| workspace_id)
+        });
     let runtime = match load_runtime_config_with_path(preferred_workspace_id.as_deref()) {
         Ok((runtime_path, runtime)) => json!({
             "runtimePath": runtime_path,
@@ -882,10 +904,11 @@ fn gto_health() -> Result<Value, ToolError> {
         }),
         Err(error) => error.as_json(),
     };
-    let (bridge, bridge_available) = match call_bridge("health", json!({}), preferred_workspace_id.as_deref()) {
-        Ok(bridge) => (bridge, true),
-        Err(error) => (error.as_json(), false),
-    };
+    let (bridge, bridge_available) =
+        match call_bridge("health", json!({}), preferred_workspace_id.as_deref()) {
+            Ok(bridge) => (bridge, true),
+            Err(error) => (error.as_json(), false),
+        };
     let directory_args = self_context
         .get("workspaceId")
         .and_then(Value::as_str)
@@ -1129,7 +1152,10 @@ fn load_directory_snapshot(workspace_id: &str) -> Result<Value, ToolError> {
     workspaces.get(workspace_id).cloned().ok_or_else(|| {
         ToolError::new(
             "MCP_BRIDGE_UNAVAILABLE",
-            format!("directory snapshot for workspace '{}' was not found", workspace_id),
+            format!(
+                "directory snapshot for workspace '{}' was not found",
+                workspace_id
+            ),
         )
     })
 }
@@ -1187,7 +1213,10 @@ fn load_directory_workspaces() -> Result<std::collections::BTreeMap<String, Valu
         .unwrap_or_else(fallback_directory_path);
     Err(ToolError::new(
         "MCP_BRIDGE_UNAVAILABLE",
-        format!("directory snapshot file not found: {}", directory_path.display()),
+        format!(
+            "directory snapshot file not found: {}",
+            directory_path.display()
+        ),
     )
     .with_details(json!({
         "directoryPath": directory_path,
@@ -1474,4 +1503,64 @@ fn write_mcp_message<W: Write>(
     }
     writer.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn dispatch_args_allow_missing_workspace_id() {
+        let args: DispatchArgs = serde_json::from_value(json!({
+            "targets": ["agent-1"],
+            "title": "title",
+            "markdown": "body"
+        }))
+        .expect("dispatch args should deserialize without workspace_id");
+
+        assert!(args.workspace_id.is_empty());
+    }
+
+    #[test]
+    fn report_status_args_allow_missing_workspace_id() {
+        let args: ReportStatusArgs = serde_json::from_value(json!({
+            "target_agent_ids": ["agent-1"],
+            "status": "working"
+        }))
+        .expect("report_status args should deserialize without workspace_id");
+
+        assert!(args.workspace_id.is_empty());
+    }
+
+    #[test]
+    fn handover_args_allow_missing_workspace_id() {
+        let args: HandoverArgs = serde_json::from_value(json!({
+            "target_agent_ids": ["agent-1"],
+            "summary": "done"
+        }))
+        .expect("handover args should deserialize without workspace_id");
+
+        assert!(args.workspace_id.is_empty());
+    }
+
+    #[test]
+    fn resolve_directory_workspace_id_falls_back_to_env() {
+        let _guard = ENV_LOCK.lock().expect("env lock should succeed");
+        let previous = env::var(ENV_WORKSPACE_ID).ok();
+
+        env::set_var(ENV_WORKSPACE_ID, "ws:test-from-env");
+
+        let resolved = resolve_directory_workspace_id(None)
+            .expect("workspace id should resolve from env when explicit arg is missing");
+
+        match previous {
+            Some(value) => env::set_var(ENV_WORKSPACE_ID, value),
+            None => env::remove_var(ENV_WORKSPACE_ID),
+        }
+
+        assert_eq!(resolved, ("ws:test-from-env".to_string(), "env"));
+    }
 }

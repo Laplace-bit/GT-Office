@@ -108,6 +108,10 @@
     }
   }
 
+  &__path {
+    word-break: break-all;
+  }
+
   &__details {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -143,6 +147,14 @@
     align-items: center;
     justify-content: space-between;
     gap: rem(16);
+  }
+
+  &__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: rem(10);
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .service-note {

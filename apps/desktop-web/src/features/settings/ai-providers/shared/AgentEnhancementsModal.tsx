@@ -14,25 +14,46 @@ type EnhancementTab = 'mcp' | 'skills'
 interface AgentEnhancementsModalProps {
   locale: Locale
   agent: AiAgentSnapshotCard | null
+  workspaceRoot?: string | null
   installingMcp: boolean
+  uninstallingMcp: boolean
+  migratingMcp: boolean
   onInstallMcp: () => void
+  onUninstallMcp: () => void
+  onMigrateMcp: () => void
   onClose: () => void
 }
 
 export function AgentEnhancementsModal({
   locale,
   agent,
+  workspaceRoot,
   installingMcp,
+  uninstallingMcp,
+  migratingMcp,
   onInstallMcp,
+  onUninstallMcp,
+  onMigrateMcp,
   onClose,
 }: AgentEnhancementsModalProps) {
   const [tab, setTab] = useState<EnhancementTab>('mcp')
 
   const mcpState = agent ? resolveMcpEnhancementState(agent) : 'not_installed'
-  const serviceStatusTone = mcpState === 'installed' ? 'is-installed' : 'is-idle'
+  const serviceStatusTone =
+    mcpState === 'installed'
+      ? 'is-installed'
+      : mcpState === 'legacy_node' || mcpState === 'preconfigured'
+        ? 'is-pending'
+        : 'is-idle'
   const serviceStatusLabel = useMemo(() => {
     if (mcpState === 'installed') {
       return t(locale, 'aiConfig.services.mcpStateInstalled')
+    }
+    if (mcpState === 'legacy_node') {
+      return t(locale, 'aiConfig.services.mcpStateLegacyNode')
+    }
+    if (mcpState === 'preconfigured') {
+      return t(locale, 'aiConfig.services.mcpStatePreconfigured')
     }
     return t(locale, 'aiConfig.services.mcpStateNotInstalled')
   }, [locale, mcpState])
@@ -87,6 +108,12 @@ export function AgentEnhancementsModal({
                   <strong>{t(locale, 'aiConfig.services.scopePerAgent')}</strong>
                 </div>
                 <div className="detail-item">
+                  <span>{t(locale, 'aiConfig.services.targetWorkspace')}</span>
+                  <strong className="enhancement-service-card__path">
+                    {workspaceRoot || t(locale, 'aiConfig.services.targetWorkspaceUnknown')}
+                  </strong>
+                </div>
+                <div className="detail-item">
                   <span>{t(locale, 'aiConfig.services.prerequisite')}</span>
                   <strong>
                     {agent.installStatus.installed
@@ -94,30 +121,76 @@ export function AgentEnhancementsModal({
                       : t(locale, 'aiConfig.services.prerequisiteCli')}
                   </strong>
                 </div>
+                <div className="detail-item">
+                  <span>{t(locale, 'aiConfig.services.runtime')}</span>
+                  <strong>
+                    {mcpState === 'legacy_node'
+                      ? t(locale, 'aiConfig.services.runtimeLegacyNode')
+                      : mcpState === 'installed' || mcpState === 'preconfigured'
+                        ? t(locale, 'aiConfig.services.runtimeSidecar')
+                        : t(locale, 'aiConfig.services.runtimeMissing')}
+                  </strong>
+                </div>
               </div>
 
               <div className="enhancement-service-card__footer">
                 <div className="service-note">
-                  {t(locale, 'aiConfig.services.mcpNote')}
+                  {mcpState === 'legacy_node'
+                    ? t(locale, 'aiConfig.services.mcpLegacyNote')
+                    : t(locale, 'aiConfig.services.mcpNote')}
                 </div>
-                {mcpState === 'installed' ? (
-                  <button type="button" className="nav-btn btn-secondary" disabled>
-                    <AppIcon name="check" width={16} height={16} />
-                    {t(locale, 'aiConfig.services.installedAction')}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="nav-btn btn-primary"
-                    disabled={installingMcp}
-                    onClick={onInstallMcp}
-                  >
-                    <AppIcon name="cloud-download" width={16} height={16} />
-                    {installingMcp
-                      ? t(locale, 'aiConfig.card.installing')
-                      : t(locale, 'aiConfig.services.installMcpAction')}
-                  </button>
-                )}
+                <div className="enhancement-service-card__actions">
+                  {mcpState === 'legacy_node' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="nav-btn btn-secondary"
+                        disabled={uninstallingMcp || migratingMcp}
+                        onClick={onUninstallMcp}
+                      >
+                        <AppIcon name={uninstallingMcp ? 'activity' : 'trash'} width={16} height={16} />
+                        {uninstallingMcp
+                          ? t(locale, 'aiConfig.services.uninstallingMcpAction')
+                          : t(locale, 'aiConfig.services.uninstallMcpAction')}
+                      </button>
+                      <button
+                        type="button"
+                        className="nav-btn btn-primary"
+                        disabled={migratingMcp}
+                        onClick={onMigrateMcp}
+                      >
+                        <AppIcon name={migratingMcp ? 'activity' : 'sync'} width={16} height={16} />
+                        {migratingMcp
+                          ? t(locale, 'aiConfig.services.migratingMcpAction')
+                          : t(locale, 'aiConfig.services.migrateMcpAction')}
+                      </button>
+                    </>
+                  ) : mcpState === 'installed' || mcpState === 'preconfigured' ? (
+                    <button
+                      type="button"
+                      className="nav-btn btn-secondary"
+                      disabled={uninstallingMcp}
+                      onClick={onUninstallMcp}
+                    >
+                      <AppIcon name={uninstallingMcp ? 'activity' : 'trash'} width={16} height={16} />
+                      {uninstallingMcp
+                        ? t(locale, 'aiConfig.services.uninstallingMcpAction')
+                        : t(locale, 'aiConfig.services.uninstallMcpAction')}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="nav-btn btn-primary"
+                      disabled={installingMcp}
+                      onClick={onInstallMcp}
+                    >
+                      <AppIcon name="cloud-download" width={16} height={16} />
+                      {installingMcp
+                        ? t(locale, 'aiConfig.card.installing')
+                        : t(locale, 'aiConfig.services.installMcpAction')}
+                    </button>
+                  )}
+                </div>
               </div>
             </article>
           </div>

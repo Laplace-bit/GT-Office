@@ -726,6 +726,7 @@ export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
 export type ClaudeAuthScheme = 'anthropic_api_key' | 'anthropic_auth_token'
 
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
+export type AiAgentMcpStatus = 'not_installed' | 'installed_sidecar' | 'installed_legacy_node'
 
 export interface AiAgentInstallStatus {
   installed: boolean
@@ -745,6 +746,7 @@ export interface AiAgentSnapshotCard {
   subtitle: string
   installStatus: AiAgentInstallStatus
   mcpInstalled: boolean
+  mcpStatus: AiAgentMcpStatus
   configStatus: AiAgentConfigStatus
   activeSummary?: string | null
 }
@@ -2210,7 +2212,7 @@ export const desktopApi = {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
   agentMcpInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId?: string) {
-    return invokeCommand<boolean>('agent_mcp_install_status', { agent, workspaceId })
+    return invokeCommand<AiAgentMcpStatus>('agent_mcp_install_status', { agent, workspaceId })
   },
   installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent', { agent })
@@ -2220,6 +2222,9 @@ export const desktopApi = {
   },
   installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
     return invokeCommand<void>('install_agent_mcp', { agent, workspaceId })
+  },
+  uninstallAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
+    return invokeCommand<void>('uninstall_agent_mcp', { agent, workspaceId })
   },
   surfaceOpenDetachedWindow(payload: SurfaceOpenDetachedWindowRequest) {
     return invokeCommand<SurfaceOpenDetachedWindowResponse>('surface_open_detached_window', {

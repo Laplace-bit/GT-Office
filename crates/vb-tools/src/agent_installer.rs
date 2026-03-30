@@ -214,7 +214,9 @@ mod tests {
             let mut env = BTreeMap::new();
             env.insert(
                 "GTO_MCP_RUNTIME_FILE".to_string(),
-                home.join(".gtoffice/mcp/runtime.json").display().to_string(),
+                home.join(".gtoffice/mcp/runtime.json")
+                    .display()
+                    .to_string(),
             );
 
             AgentInstaller::install_mcp_bridge_config(
@@ -256,11 +258,15 @@ mod tests {
             let mut env = BTreeMap::new();
             env.insert(
                 "GTO_MCP_RUNTIME_FILE".to_string(),
-                home.join(".gtoffice/mcp/runtime.json").display().to_string(),
+                home.join(".gtoffice/mcp/runtime.json")
+                    .display()
+                    .to_string(),
             );
             env.insert(
                 "GTO_AGENT_COMMUNICATION_POLICY_FILE".to_string(),
-                home.join(".gtoffice/mcp/agent-communication.md").display().to_string(),
+                home.join(".gtoffice/mcp/agent-communication.md")
+                    .display()
+                    .to_string(),
             );
 
             AgentInstaller::install_mcp_bridge_config(
@@ -274,19 +280,309 @@ mod tests {
             .expect("install claude mcp config");
 
             let claude_legacy = home.join(".claude/settings.json");
-            let legacy_text = fs::read_to_string(&claude_legacy).expect("read claude legacy config");
-            assert!(legacy_text.contains("\"gto-agent-bridge\""));
-            assert!(legacy_text.contains("\"command\": \"/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar\""));
+            assert!(!claude_legacy.exists());
 
             let claude_modern = home.join(".claude.json");
-            let modern_text = fs::read_to_string(&claude_modern).expect("read claude modern config");
+            let modern_text =
+                fs::read_to_string(&claude_modern).expect("read claude modern config");
             assert!(modern_text.contains("\"projects\""));
             assert!(modern_text.contains(workspace_root.to_string_lossy().as_ref()));
             assert!(modern_text.contains("\"gto-agent-bridge\""));
+            assert!(!modern_text.contains("\"mcpServers\": {\n    \"gto-agent-bridge\""));
 
             let claude_rules = home.join(".claude/CLAUDE.md");
             let claude_rules_text = fs::read_to_string(&claude_rules).expect("read claude rules");
             assert!(claude_rules_text.contains("# BEGIN gto-agent-bridge"));
+        });
+    }
+
+    #[test]
+    fn install_mcp_bridge_config_prunes_stale_claude_active_worktree_session() {
+        let dir = temp_dir("mcp-claude-stale-worktree");
+        with_test_home(&dir, |home| {
+            let workspace_root = dir.join("workspace");
+            fs::create_dir_all(&workspace_root).expect("create workspace");
+
+            let stale_worktree = workspace_root.join(".claude").join("worktrees").join("missing-worktree");
+            fs::write(
+                home.join(".claude.json"),
+                format!(
+                    r#"{{
+  "projects": {{
+    "{}": {{
+      "hasTrustDialogAccepted": true,
+      "activeWorktreeSession": {{
+        "worktreePath": "{}"
+      }}
+    }}
+  }}
+}}
+"#,
+                    workspace_root.display(),
+                    stale_worktree.display(),
+                ),
+            )
+            .expect("write stale claude project config");
+
+            AgentInstaller::install_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["claude"],
+                "/Applications/GT Office.app/Contents/MacOS/gto-agent-mcp-sidecar",
+                &["serve"],
+                &BTreeMap::new(),
+            )
+            .expect("install claude mcp config");
+
+            let root: Value = serde_json::from_str(
+                &fs::read_to_string(home.join(".claude.json")).expect("read claude config"),
+            )
+            .expect("parse claude config");
+            let workspace_key = workspace_root.display().to_string();
+            let project = root["projects"][&workspace_key]
+                .as_object()
+                .expect("workspace project object");
+            assert!(
+                !project.contains_key("activeWorktreeSession"),
+                "expected stale activeWorktreeSession to be pruned after install, got: {project:?}"
+            );
+            assert!(project
+                .get("mcpServers")
+                .and_then(Value::as_object)
+                .is_some_and(|servers| servers.contains_key("gto-agent-bridge")));
+        });
+    }
+
+    #[test]
+    fn uninstall_mcp_bridge_config_removes_managed_entries_and_rules() {
+        let dir = temp_dir("mcp-uninstall");
+        with_test_home(&dir, |home| {
+            let workspace_root = dir.join("workspace");
+            fs::create_dir_all(&workspace_root).expect("create workspace");
+
+            AgentInstaller::install_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["claude", "codex", "gemini"],
+                "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar",
+                &["serve"],
+                &BTreeMap::new(),
+            )
+            .expect("install mcp config");
+
+            AgentInstaller::uninstall_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["claude", "codex", "gemini"],
+            )
+            .expect("uninstall mcp config");
+
+            let codex_text = fs::read_to_string(home.join(".codex").join("config.toml"))
+                .expect("read codex config");
+            assert!(!codex_text.contains("gto-agent-bridge"));
+
+            let gemini_text = fs::read_to_string(home.join(".gemini").join("settings.json"))
+                .expect("read gemini settings");
+            assert!(!gemini_text.contains("gto-agent-bridge"));
+
+            let claude_legacy = home.join(".claude").join("settings.json");
+            if claude_legacy.exists() {
+                let claude_legacy_text =
+                    fs::read_to_string(&claude_legacy).expect("read claude settings");
+                assert!(!claude_legacy_text.contains("gto-agent-bridge"));
+            }
+
+            let claude_modern_text =
+                fs::read_to_string(home.join(".claude.json")).expect("read claude modern config");
+            assert!(!claude_modern_text.contains("gto-agent-bridge"));
+            assert!(!claude_modern_text.contains(workspace_root.to_string_lossy().as_ref()));
+
+            let codex_rules_text = fs::read_to_string(home.join(".codex").join("AGENTS.md"))
+                .expect("read codex rules");
+            assert!(!codex_rules_text.contains("# BEGIN gto-agent-bridge"));
+
+            let claude_rules_text = fs::read_to_string(home.join(".claude").join("CLAUDE.md"))
+                .expect("read claude rules");
+            assert!(!claude_rules_text.contains("# BEGIN gto-agent-bridge"));
+
+            let gemini_rules_text = fs::read_to_string(home.join(".gemini").join("GEMINI.md"))
+                .expect("read gemini rules");
+            assert!(!gemini_rules_text.contains("# BEGIN gto-agent-bridge"));
+        });
+    }
+
+    #[test]
+    fn uninstall_mcp_bridge_config_preserves_unrelated_user_content() {
+        let dir = temp_dir("mcp-uninstall-preserve");
+        with_test_home(&dir, |home| {
+            let workspace_root = dir.join("workspace");
+            fs::create_dir_all(&workspace_root).expect("create workspace");
+
+            fs::create_dir_all(home.join(".codex")).expect("create codex dir");
+            fs::create_dir_all(home.join(".claude")).expect("create claude dir");
+            fs::create_dir_all(home.join(".gemini")).expect("create gemini dir");
+
+            fs::write(
+                home.join(".codex").join("config.toml"),
+                r#"
+model = "gpt-5"
+
+[mcp_servers.custom-tools]
+command = "/usr/local/bin/custom-mcp"
+args = ["serve"]
+"#,
+            )
+            .expect("write codex config");
+
+            fs::write(
+                home.join(".claude").join("CLAUDE.md"),
+                "# Team Rules\n\nKeep answers concise.\n",
+            )
+            .expect("write claude rules");
+            fs::write(
+                home.join(".codex").join("AGENTS.md"),
+                "# Existing Codex Rules\n\nDo not modify custom sections.\n",
+            )
+            .expect("write codex rules");
+            fs::write(
+                home.join(".gemini").join("GEMINI.md"),
+                "# Existing Gemini Rules\n\nPrefer local tools first.\n",
+            )
+            .expect("write gemini rules");
+
+            fs::write(
+                home.join(".gemini").join("settings.json"),
+                r#"{
+  "theme": "dark",
+  "mcpServers": {
+    "custom-tools": {
+      "command": "/usr/local/bin/custom-mcp"
+    }
+  }
+}
+"#,
+            )
+            .expect("write gemini settings");
+
+            fs::write(
+                home.join(".claude").join("settings.json"),
+                r#"{
+  "env": {
+    "EXISTING": "1"
+  },
+  "mcpServers": {
+    "custom-tools": {
+      "type": "stdio",
+      "command": "/usr/local/bin/custom-mcp"
+    }
+  }
+}
+"#,
+            )
+            .expect("write claude settings");
+
+            fs::write(
+                home.join(".claude.json"),
+                format!(
+                    r#"{{
+  "projects": {{
+    "{}": {{
+      "mcpServers": {{
+        "custom-tools": {{
+          "type": "stdio",
+          "command": "/usr/local/bin/custom-mcp"
+        }}
+      }}
+    }},
+    "{}-other": {{
+      "mcpServers": {{
+        "gto-agent-bridge": {{
+          "type": "stdio",
+          "command": "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar"
+        }}
+      }}
+    }}
+  }},
+  "mcpServers": {{
+    "custom-tools": {{
+      "type": "stdio",
+      "command": "/usr/local/bin/custom-mcp"
+    }},
+    "gto-agent-bridge": {{
+      "type": "stdio",
+      "command": "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar"
+    }}
+  }}
+}}
+"#,
+                    workspace_root.display(),
+                    workspace_root.display()
+                ),
+            )
+            .expect("write claude project config");
+
+            AgentInstaller::install_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["claude", "codex", "gemini"],
+                "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar",
+                &["serve"],
+                &BTreeMap::new(),
+            )
+            .expect("install mcp config");
+
+            AgentInstaller::uninstall_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["claude", "codex", "gemini"],
+            )
+            .expect("uninstall mcp config");
+
+            let codex_text = fs::read_to_string(home.join(".codex").join("config.toml"))
+                .expect("read codex config");
+            assert!(codex_text.contains("[mcp_servers.custom-tools]"));
+            assert!(!codex_text.contains("[mcp_servers.gto-agent-bridge]"));
+
+            let gemini_text = fs::read_to_string(home.join(".gemini").join("settings.json"))
+                .expect("read gemini settings");
+            assert!(gemini_text.contains("\"custom-tools\""));
+            assert!(gemini_text.contains("\"theme\": \"dark\""));
+            assert!(!gemini_text.contains("\"gto-agent-bridge\""));
+
+            let claude_legacy_text = fs::read_to_string(home.join(".claude").join("settings.json"))
+                .expect("read claude settings");
+            assert!(claude_legacy_text.contains("\"custom-tools\""));
+            assert!(claude_legacy_text.contains("\"EXISTING\": \"1\""));
+            assert!(!claude_legacy_text.contains("\"gto-agent-bridge\""));
+
+            let claude_modern_text =
+                fs::read_to_string(home.join(".claude.json")).expect("read claude modern config");
+            assert!(claude_modern_text.contains("\"custom-tools\""));
+            assert!(claude_modern_text.contains(&format!("{}-other", workspace_root.display())));
+            assert!(claude_modern_text.contains("\"gto-agent-bridge\""));
+            assert!(claude_modern_text.contains("/usr/local/bin/custom-mcp"));
+            assert!(!claude_modern_text.contains(
+                "\"mcpServers\": {\n    \"custom-tools\": {\n      \"type\": \"stdio\",\n      \"command\": \"/usr/local/bin/custom-mcp\"\n    },\n    \"gto-agent-bridge\""
+            ));
+            assert!(!claude_modern_text.contains(&format!(
+                "\"{}\": {{\n      \"mcpServers\": {{\n        \"gto-agent-bridge\"",
+                workspace_root.display()
+            )));
+
+            let claude_rules_text = fs::read_to_string(home.join(".claude").join("CLAUDE.md"))
+                .expect("read claude rules");
+            assert!(claude_rules_text.contains("Keep answers concise."));
+            assert!(!claude_rules_text.contains("# BEGIN gto-agent-bridge"));
+
+            let codex_rules_text = fs::read_to_string(home.join(".codex").join("AGENTS.md"))
+                .expect("read codex rules");
+            assert!(codex_rules_text.contains("Do not modify custom sections."));
+            assert!(!codex_rules_text.contains("# BEGIN gto-agent-bridge"));
+
+            let gemini_rules_text = fs::read_to_string(home.join(".gemini").join("GEMINI.md"))
+                .expect("read gemini rules");
+            assert!(gemini_rules_text.contains("Prefer local tools first."));
+            assert!(!gemini_rules_text.contains("# BEGIN gto-agent-bridge"));
         });
     }
 }
@@ -360,7 +656,10 @@ impl AgentInstaller {
     ) -> Result<(), String> {
         let home_dir = home_dir.to_path_buf();
         let workspace_root = workspace_root.to_path_buf();
-        let global_policy = home_dir.join(".gtoffice").join("mcp").join("agent-communication.md");
+        let global_policy = home_dir
+            .join(".gtoffice")
+            .join("mcp")
+            .join("agent-communication.md");
         let policy_body = Self::build_mcp_communication_policy();
         Self::ensure_managed_markdown(&global_policy, &policy_body)?;
 
@@ -377,10 +676,6 @@ impl AgentInstaller {
         for target in targets {
             match target.trim().to_ascii_lowercase().as_str() {
                 "claude" => {
-                    Self::ensure_json_mcp_server(
-                        &home_dir.join(".claude").join("settings.json"),
-                        &entry,
-                    )?;
                     Self::ensure_claude_project_mcp_server(
                         &home_dir.join(".claude.json"),
                         &entry,
@@ -392,10 +687,7 @@ impl AgentInstaller {
                     )?;
                 }
                 "codex" => {
-                    Self::ensure_codex_toml(
-                        &home_dir.join(".codex").join("config.toml"),
-                        &entry,
-                    )?;
+                    Self::ensure_codex_toml(&home_dir.join(".codex").join("config.toml"), &entry)?;
                     Self::ensure_managed_markdown(
                         &home_dir.join(".codex").join("AGENTS.md"),
                         &policy_body,
@@ -423,6 +715,42 @@ impl AgentInstaller {
                 }
                 other => {
                     return Err(format!("unsupported MCP install target: {other}"));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn uninstall_mcp_bridge_config(
+        home_dir: &Path,
+        workspace_root: &Path,
+        targets: &[&str],
+    ) -> Result<(), String> {
+        for target in targets {
+            match target.trim().to_ascii_lowercase().as_str() {
+                "claude" => {
+                    Self::remove_json_mcp_server(&home_dir.join(".claude").join("settings.json"))?;
+                    Self::remove_claude_project_mcp_server(
+                        &home_dir.join(".claude.json"),
+                        workspace_root,
+                    )?;
+                    Self::remove_managed_markdown(&home_dir.join(".claude").join("CLAUDE.md"))?;
+                }
+                "codex" => {
+                    Self::remove_codex_mcp_toml(&home_dir.join(".codex").join("config.toml"))?;
+                    Self::remove_managed_markdown(&home_dir.join(".codex").join("AGENTS.md"))?;
+                }
+                "gemini" => {
+                    Self::remove_json_mcp_server(&home_dir.join(".gemini").join("settings.json"))?;
+                    Self::remove_managed_markdown(&home_dir.join(".gemini").join("GEMINI.md"))?;
+                }
+                "qwen" => {
+                    Self::remove_json_mcp_server(&home_dir.join(".qwen").join("settings.json"))?;
+                    Self::remove_managed_markdown(&home_dir.join(".qwen").join("QWEN.md"))?;
+                }
+                other => {
+                    return Err(format!("unsupported MCP uninstall target: {other}"));
                 }
             }
         }
@@ -1149,8 +1477,12 @@ impl AgentInstaller {
 
     fn ensure_managed_markdown(path: &Path, body: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("create managed markdown dir {} failed: {error}", parent.display()))?;
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "create managed markdown dir {} failed: {error}",
+                    parent.display()
+                )
+            })?;
         }
 
         let current = fs::read_to_string(path).unwrap_or_default();
@@ -1184,6 +1516,39 @@ impl AgentInstaller {
             .map_err(|error| format!("write managed markdown {} failed: {error}", path.display()))
     }
 
+    fn remove_managed_markdown(path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let current = fs::read_to_string(path)
+            .map_err(|error| format!("read managed markdown {} failed: {error}", path.display()))?;
+        let mut next_lines = Vec::new();
+        let mut skipping = false;
+        for line in current.lines() {
+            let trimmed = line.trim();
+            if trimmed == MCP_MANAGED_BEGIN {
+                skipping = true;
+                continue;
+            }
+            if trimmed == MCP_MANAGED_END {
+                skipping = false;
+                continue;
+            }
+            if !skipping {
+                next_lines.push(line.to_string());
+            }
+        }
+        let next = next_lines.join("\n").trim().to_string();
+        let body = if next.is_empty() {
+            String::new()
+        } else {
+            format!("{next}\n")
+        };
+        fs::write(path, body)
+            .map_err(|error| format!("write managed markdown {} failed: {error}", path.display()))
+    }
+
     fn ensure_json_mcp_server(path: &Path, entry: &McpServerEntry) -> Result<(), String> {
         let mut root = Self::read_json_root(path)?;
         let object = root
@@ -1196,6 +1561,24 @@ impl AgentInstaller {
             .as_object_mut()
             .ok_or_else(|| format!("invalid mcpServers root for {}", path.display()))?;
         servers_object.insert(MCP_SERVER_ID.to_string(), entry.to_json());
+        Self::write_json(path, &root)
+    }
+
+    fn remove_json_mcp_server(path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let mut root = Self::read_json_root(path)?;
+        let object = root
+            .as_object_mut()
+            .ok_or_else(|| format!("invalid JSON root for {}", path.display()))?;
+        if let Some(servers_object) = object.get_mut("mcpServers").and_then(Value::as_object_mut) {
+            servers_object.remove(MCP_SERVER_ID);
+            if servers_object.is_empty() {
+                object.remove("mcpServers");
+            }
+        }
         Self::write_json(path, &root)
     }
 
@@ -1221,6 +1604,7 @@ impl AgentInstaller {
         let project_object = project_entry
             .as_object_mut()
             .ok_or_else(|| format!("invalid Claude project entry for {}", path.display()))?;
+        Self::prune_stale_claude_active_worktree_session(project_object);
         let project_servers = project_object
             .entry("mcpServers".to_string())
             .or_insert_with(|| Value::Object(Default::default()));
@@ -1229,24 +1613,91 @@ impl AgentInstaller {
             .ok_or_else(|| format!("invalid Claude project mcpServers for {}", path.display()))?;
         project_servers_object.insert(MCP_SERVER_ID.to_string(), entry.to_claude_json());
 
-        let root_servers = object
-            .entry("mcpServers".to_string())
-            .or_insert_with(|| Value::Object(Default::default()));
-        let root_servers_object = root_servers
+        Self::write_json(path, &root)
+    }
+
+    fn prune_stale_claude_active_worktree_session(project_object: &mut serde_json::Map<String, Value>) {
+        let should_remove = project_object
+            .get("activeWorktreeSession")
+            .and_then(Value::as_object)
+            .and_then(|session| session.get("worktreePath"))
+            .and_then(Value::as_str)
+            .is_some_and(|worktree_path| !Path::new(worktree_path).exists());
+        if should_remove {
+            project_object.remove("activeWorktreeSession");
+        }
+    }
+
+    fn remove_claude_project_mcp_server(path: &Path, workspace_root: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let mut root = Self::read_json_root(path)?;
+        let object = root
             .as_object_mut()
-            .ok_or_else(|| format!("invalid Claude root mcpServers for {}", path.display()))?;
-        root_servers_object.insert(MCP_SERVER_ID.to_string(), entry.to_claude_json());
+            .ok_or_else(|| format!("invalid JSON root for {}", path.display()))?;
+
+        if let Some(projects_object) = object.get_mut("projects").and_then(Value::as_object_mut) {
+            let workspace_key = workspace_root.display().to_string();
+            if let Some(project_object) = projects_object
+                .get_mut(&workspace_key)
+                .and_then(Value::as_object_mut)
+            {
+                if let Some(project_servers_object) = project_object
+                    .get_mut("mcpServers")
+                    .and_then(Value::as_object_mut)
+                {
+                    project_servers_object.remove(MCP_SERVER_ID);
+                    if project_servers_object.is_empty() {
+                        project_object.remove("mcpServers");
+                    }
+                }
+
+                if project_object.is_empty() {
+                    projects_object.remove(&workspace_key);
+                }
+            }
+
+            if projects_object.is_empty() {
+                object.remove("projects");
+            }
+        }
+
+        if let Some(root_servers_object) =
+            object.get_mut("mcpServers").and_then(Value::as_object_mut)
+        {
+            root_servers_object.remove(MCP_SERVER_ID);
+            if root_servers_object.is_empty() {
+                object.remove("mcpServers");
+            }
+        }
 
         Self::write_json(path, &root)
     }
 
     fn ensure_codex_toml(path: &Path, entry: &McpServerEntry) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("create codex config dir {} failed: {error}", parent.display()))?;
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "create codex config dir {} failed: {error}",
+                    parent.display()
+                )
+            })?;
         }
         let current = fs::read_to_string(path).unwrap_or_default();
         let next = entry.render_codex_toml(&current);
+        fs::write(path, next)
+            .map_err(|error| format!("write codex config {} failed: {error}", path.display()))
+    }
+
+    fn remove_codex_mcp_toml(path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let current = fs::read_to_string(path).unwrap_or_default();
+        let next = McpServerEntry::strip_codex_mcp_toml(&current);
         fs::write(path, next)
             .map_err(|error| format!("write codex config {} failed: {error}", path.display()))
     }
@@ -1263,8 +1714,12 @@ impl AgentInstaller {
 
     fn write_json(path: &Path, value: &Value) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("create JSON config dir {} failed: {error}", parent.display()))?;
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "create JSON config dir {} failed: {error}",
+                    parent.display()
+                )
+            })?;
         }
         let raw = serde_json::to_string_pretty(value)
             .map_err(|error| format!("serialize JSON config {} failed: {error}", path.display()))?;
@@ -1416,6 +1871,36 @@ impl McpServerEntry {
     }
 
     fn render_codex_toml(&self, current: &str) -> String {
+        let mut next = Self::strip_codex_mcp_toml(current);
+        next = next.trim_end().to_string();
+        if !next.is_empty() {
+            next.push_str("\n\n");
+        }
+        next.push_str(MCP_MANAGED_BEGIN);
+        next.push('\n');
+        next.push_str(&format!("[mcp_servers.{MCP_SERVER_ID}]\n"));
+        next.push_str(&format!("command = {}\n", toml_quote(&self.command)));
+        let args_literal = self
+            .args
+            .iter()
+            .map(|value| toml_quote(value))
+            .collect::<Vec<_>>()
+            .join(", ");
+        next.push_str(&format!("args = [{args_literal}]\n"));
+        let env_literal = self
+            .env
+            .iter()
+            .map(|(key, value)| format!("{key} = {}", toml_quote(value)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        next.push_str(&format!("env = {{ {env_literal} }}\n"));
+        next.push_str("startup_timeout_sec = 20\n");
+        next.push_str(MCP_MANAGED_END);
+        next.push('\n');
+        next
+    }
+
+    fn strip_codex_mcp_toml(current: &str) -> String {
         let mut lines = Vec::new();
         let mut skipping = false;
         let mut in_legacy_table = false;
@@ -1449,32 +1934,12 @@ impl McpServerEntry {
             lines.push(line.to_string());
         }
 
-        let mut next = lines.join("\n").trim_end().to_string();
-        if !next.is_empty() {
-            next.push_str("\n\n");
+        let next = lines.join("\n").trim().to_string();
+        if next.is_empty() {
+            String::new()
+        } else {
+            format!("{next}\n")
         }
-        next.push_str(MCP_MANAGED_BEGIN);
-        next.push('\n');
-        next.push_str(&format!("[mcp_servers.{MCP_SERVER_ID}]\n"));
-        next.push_str(&format!("command = {}\n", toml_quote(&self.command)));
-        let args_literal = self
-            .args
-            .iter()
-            .map(|value| toml_quote(value))
-            .collect::<Vec<_>>()
-            .join(", ");
-        next.push_str(&format!("args = [{args_literal}]\n"));
-        let env_literal = self
-            .env
-            .iter()
-            .map(|(key, value)| format!("{key} = {}", toml_quote(value)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        next.push_str(&format!("env = {{ {env_literal} }}\n"));
-        next.push_str("startup_timeout_sec = 20\n");
-        next.push_str(MCP_MANAGED_END);
-        next.push('\n');
-        next
     }
 }
 

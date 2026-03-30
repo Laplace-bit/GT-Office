@@ -163,7 +163,8 @@ pub fn normalize_agent_slug(value: &str) -> String {
     let mut output = String::with_capacity(lowered.len());
     let mut last_was_dash = false;
     for ch in lowered.chars() {
-        let allowed = ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-');
+        let allowed =
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-');
         if allowed {
             output.push(ch);
             last_was_dash = false;
@@ -183,7 +184,10 @@ pub fn normalize_agent_slug(value: &str) -> String {
 }
 
 pub fn default_agent_workdir(name: &str) -> String {
-    format!("{DEFAULT_AGENT_WORKDIR_ROOT}/{}", normalize_agent_slug(name))
+    format!(
+        "{DEFAULT_AGENT_WORKDIR_ROOT}/{}",
+        normalize_agent_slug(name)
+    )
 }
 
 pub fn prompt_file_relative_path(workdir: &str, tool: &str) -> Option<String> {
@@ -197,11 +201,14 @@ pub fn prompt_file_relative_path(workdir: &str, tool: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_agent_workdir, prompt_file_relative_path, prompt_file_name_for_tool};
+    use super::{default_agent_workdir, prompt_file_name_for_tool, prompt_file_relative_path};
 
     #[test]
     fn default_agent_workdir_uses_shallow_gtoffice_root() {
-        assert_eq!(default_agent_workdir("My Product Agent"), ".gtoffice/my-product-agent");
+        assert_eq!(
+            default_agent_workdir("My Product Agent"),
+            ".gtoffice/my-product-agent"
+        );
         assert_eq!(default_agent_workdir("  "), ".gtoffice/agent");
     }
 

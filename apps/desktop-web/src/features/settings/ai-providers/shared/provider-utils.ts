@@ -19,11 +19,14 @@ export function describeUnknownError(value: unknown): string {
   return String(value)
 }
 
-export type AgentEnhancementState = 'not_installed' | 'preconfigured' | 'installed'
+export type AgentEnhancementState = 'not_installed' | 'preconfigured' | 'installed' | 'legacy_node'
 
 export function resolveMcpEnhancementState(agent: AiAgentSnapshotCard): AgentEnhancementState {
+  if (agent.mcpStatus === 'installed_legacy_node') {
+    return 'legacy_node'
+  }
   if (!agent.installStatus.installed) {
-    return 'not_installed'
+    return agent.mcpInstalled ? 'preconfigured' : 'not_installed'
   }
   if (!agent.mcpInstalled) {
     return 'not_installed'
@@ -32,5 +35,5 @@ export function resolveMcpEnhancementState(agent: AiAgentSnapshotCard): AgentEnh
 }
 
 export function resolveEnabledEnhancementCount(agent: AiAgentSnapshotCard): number {
-  return agent.installStatus.installed && agent.mcpInstalled ? 1 : 0
+  return agent.mcpInstalled ? 1 : 0
 }

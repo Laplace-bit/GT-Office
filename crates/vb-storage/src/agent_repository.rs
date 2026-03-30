@@ -47,7 +47,8 @@ impl SqliteAgentRepository {
 
     fn hydrate_agent_profile(mut agent: AgentProfile) -> AgentProfile {
         if let Some(workdir) = agent.workdir.as_deref() {
-            agent.prompt_file_name = prompt_file_name_for_tool(agent.tool.as_str()).map(str::to_string);
+            agent.prompt_file_name =
+                prompt_file_name_for_tool(agent.tool.as_str()).map(str::to_string);
             agent.prompt_file_relative_path =
                 prompt_file_relative_path(workdir, agent.tool.as_str());
         }
@@ -144,11 +145,11 @@ impl AgentRepository for SqliteAgentRepository {
             columns
         };
         let existing_role_columns = {
-            let mut stmt =
-                conn.prepare("PRAGMA table_info(agent_roles)")
-                    .map_err(|error| AgentError::Storage {
-                        message: error.to_string(),
-                    })?;
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(agent_roles)")
+                .map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?;
             let rows = stmt
                 .query_map([], |row| row.get::<_, String>(1))
                 .map_err(|error| AgentError::Storage {
@@ -177,7 +178,10 @@ impl AgentRepository for SqliteAgentRepository {
                 "ALTER TABLE agents ADD COLUMN role_workspace_id TEXT NOT NULL DEFAULT ''",
             ),
         ] {
-            if existing_agent_columns.iter().any(|column| column == statement.0) {
+            if existing_agent_columns
+                .iter()
+                .any(|column| column == statement.0)
+            {
                 continue;
             }
             conn.execute(statement.1, [])
@@ -687,7 +691,12 @@ mod tests {
         "__global__"
     }
 
-    fn sample_role(workspace_id: &str, role_id: &str, role_key: &str, role_name: &str) -> AgentRole {
+    fn sample_role(
+        workspace_id: &str,
+        role_id: &str,
+        role_key: &str,
+        role_name: &str,
+    ) -> AgentRole {
         AgentRole {
             id: role_id.to_string(),
             workspace_id: workspace_id.to_string(),
@@ -736,7 +745,9 @@ mod tests {
         let roles = repo.list_roles("ws_alpha").expect("list roles");
 
         assert!(roles.iter().any(|role| role.id == "role_global_strategy"));
-        assert!(roles.iter().any(|role| role.id == "role_workspace_architect"));
+        assert!(roles
+            .iter()
+            .any(|role| role.id == "role_workspace_architect"));
     }
 
     #[test]
