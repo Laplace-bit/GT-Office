@@ -3,8 +3,8 @@
 GT Office 是一个面向 macOS 和 Windows 的跨平台 AI Agent 桌面工作台，代码库同时支持 Linux 开发调试。它把 workspace 感知的文件操作、真实 PTY 终端、Git 工作流、多 Agent 协作、tool adapters 和外部通道路由整合到同一个桌面壳层中。  
 GT Office is a cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support in the codebase. It combines workspace-aware files, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
 
-当前发布目标版本：`v0.1.2`  
-Current release target: `v0.1.2`
+当前发布目标版本：`v0.1.3`  
+Current release target: `v0.1.3`
 
 ## 功能概览 | What It Includes
 
@@ -95,8 +95,8 @@ npm run build:tauri
 
 ## 发布说明 | Release
 
-根 package 版本：`0.1.2`  
-Root package version: `0.1.2`
+根 package 版本：`0.1.3`  
+Root package version: `0.1.3`
 
 推荐发布顺序：  
 Recommended release sequence:
@@ -105,7 +105,7 @@ Recommended release sequence:
 npm run typecheck
 cargo check --workspace
 npm run build:tauri
-git tag -a v0.1.2 -m "GT Office v0.1.2"
+git tag -a v0.1.3 -m "GT Office v0.1.3"
 git push origin main --follow-tags
 ```
 

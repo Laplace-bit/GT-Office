@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.3 - 2026-03-30
+
+### Highlights
+
+- Repairs unsigned local macOS app bundles with ad-hoc codesign before DMG creation, so manual local installs no longer require users to re-sign the app themselves.
+- Keeps the unsigned local testing distribution model while reducing the number of manual post-install steps.
+
 ## v0.1.2 - 2026-03-30
 
 ### Highlights
