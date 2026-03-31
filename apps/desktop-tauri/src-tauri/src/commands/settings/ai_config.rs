@@ -44,6 +44,10 @@ fn resolve_ai_workspace_root(
         .transpose()
 }
 
+fn should_inject_provider_env(tool_kind: AgentToolKind, include_provider_env: bool) -> bool {
+    include_provider_env && matches!(tool_kind, AgentToolKind::Codex | AgentToolKind::Gemini)
+}
+
 pub fn augment_terminal_env_for_agent(
     app: &AppHandle,
     state: &AppState,
@@ -59,13 +63,27 @@ pub fn augment_terminal_env_for_agent(
         _ => return Ok(env),
     };
 
-    if include_provider_env {
+    let inject_provider_env = should_inject_provider_env(tool_kind, include_provider_env);
+    tracing::debug!(
+        ?tool_kind,
+        include_provider_env,
+        inject_provider_env,
+        workspace_id,
+        "evaluated terminal provider env injection"
+    );
+
+    if inject_provider_env {
         let workspace_root = state.workspace_root_path(workspace_id)?;
         let service = resolve_ai_config_service(app, state)?;
         let runtime_env = service
             .build_agent_runtime_env(agent, &workspace_root)
             .map_err(|error| error.to_string())?;
         env.extend(runtime_env);
+    } else if include_provider_env && tool_kind == AgentToolKind::Claude {
+        tracing::debug!(
+            workspace_id,
+            "skipping Claude provider env injection so live settings hot-switching can take effect"
+        );
     }
     augment_terminal_command_env(tool_kind, &mut env);
     Ok(env)
@@ -370,5 +388,22 @@ pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {
         "gemini" => AgentToolKind::Gemini,
         "shell" => AgentToolKind::Shell,
         _ => AgentToolKind::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claude_provider_env_injection_is_disabled_for_hot_switching() {
+        assert!(!should_inject_provider_env(AgentToolKind::Claude, true));
+    }
+
+    #[test]
+    fn codex_and_gemini_provider_env_injection_remain_enabled() {
+        assert!(should_inject_provider_env(AgentToolKind::Codex, true));
+        assert!(should_inject_provider_env(AgentToolKind::Gemini, true));
+        assert!(!should_inject_provider_env(AgentToolKind::Codex, false));
     }
 }

@@ -192,6 +192,25 @@ fn dock_icon(tool_kind: AgentToolKind) -> &'static str {
     }
 }
 
+fn profile_tooltip(tool_kind: AgentToolKind) -> String {
+    match tool_kind {
+        AgentToolKind::Claude => {
+            "Launch Claude with GT Office live provider config and hot-switch-compatible settings"
+                .to_string()
+        }
+        AgentToolKind::Codex | AgentToolKind::Gemini => format!(
+            "Launch {} with workspace-aware GT Office provider config",
+            profile_title(tool_kind)
+        ),
+        AgentToolKind::Shell | AgentToolKind::Unknown => {
+            format!(
+                "Launch {} in the current workspace",
+                profile_title(tool_kind)
+            )
+        }
+    }
+}
+
 fn build_profile_value(
     workspace_id: &str,
     snapshot: &AiConfigSnapshot,
@@ -255,7 +274,7 @@ fn build_profile_value(
         "toolKind": canonical_profile_id(tool_kind),
         "label": profile_title(tool_kind),
         "shortLabel": profile_title(tool_kind),
-        "tooltip": format!("Launch {} with workspace-aware GT Office provider config", profile_title(tool_kind)),
+        "tooltip": profile_tooltip(tool_kind),
         "icon": dock_icon(tool_kind),
         "providerKind": canonical_profile_id(tool_kind),
         "category": "launch_tool",
