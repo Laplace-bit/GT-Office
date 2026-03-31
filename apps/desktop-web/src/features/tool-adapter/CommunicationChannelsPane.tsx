@@ -1,12 +1,14 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import type { TaskDispatchRecord } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import type { ChannelRouteBinding } from '@shell/integration/desktop-api'
+import type { UiFont } from '@shell/state/ui-preferences'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { ChannelMessageList } from './ChannelMessageList'
 import './CommunicationChannelsPane.scss'
 
-type ExternalChannelEventItem = {
+export type ExternalChannelEventItem = {
   id: string
   tsMs: number
   kind: 'inbound' | 'routed' | 'dispatch' | 'reply' | 'outbound' | 'error'
@@ -24,7 +26,6 @@ type ExternalChannelEventItem = {
   conversationKey?: string
 }
 
-type EventDirection = 'inbound' | 'outbound'
 type ConversationGroup = {
   key: string
   label: string
@@ -33,7 +34,9 @@ type ConversationGroup = {
 }
 
 interface CommunicationChannelsPaneProps {
+  appearanceVersion: string
   locale: Locale
+  uiFont: UiFont
   agentNameMap: Record<string, string>
   dispatchHistory: TaskDispatchRecord[]
   retryingTaskId: string | null
@@ -68,31 +71,6 @@ function externalChannelLabel(locale: Locale, channel: string): string {
     return t(locale, '飞书', 'Feishu')
   }
   return channel
-}
-
-function eventStatusClass(event: ExternalChannelEventItem): string {
-  if (event.status === 'failed' || event.kind === 'error') {
-    return 'failed'
-  }
-  if (event.status === 'sent' || event.kind === 'outbound') {
-    return 'sent'
-  }
-  return 'received'
-}
-
-function resolveEventDirection(event: ExternalChannelEventItem): EventDirection {
-  if (event.kind === 'inbound' || event.status === 'received') {
-    return 'inbound'
-  }
-  return 'outbound'
-}
-
-function resolveEventContent(event: ExternalChannelEventItem): string {
-  return event.primary.trim() || event.secondary?.trim() || event.detail?.trim() || '-'
-}
-
-function shouldShowFailureDetail(event: ExternalChannelEventItem): boolean {
-  return Boolean(event.detail && (event.status === 'failed' || event.kind === 'error'))
 }
 
 function resolveConversationKey(event: ExternalChannelEventItem): string {
@@ -167,7 +145,9 @@ function resolveConversationDisplayLabel(
 }
 
 function CommunicationChannelsPaneView({
+  appearanceVersion,
   locale,
+  uiFont,
   agentNameMap,
   dispatchHistory,
   retryingTaskId,
@@ -181,8 +161,6 @@ function CommunicationChannelsPaneView({
   void onRetryDispatchTask
   void onRefreshExternalStatus
 
-  const feedScrollRef = useRef<HTMLDivElement | null>(null)
-  const hasInitialAutoScrollRef = useRef(false)
   const [activeConversationKey, setActiveConversationKey] = useState<string | null>(null)
   const orderedEvents = useMemo(
     () => [...externalEvents].sort((left, right) => left.tsMs - right.tsMs),
@@ -233,7 +211,6 @@ function CommunicationChannelsPaneView({
     return conversationGroups[0]
   }, [activeConversationKey, conversationGroups])
   const activeEvents = activeConversation?.events ?? []
-  const latestEvent = activeEvents.length ? activeEvents[activeEvents.length - 1] : null
 
   useEffect(() => {
     if (conversationGroups.length === 0) {
@@ -247,32 +224,6 @@ function CommunicationChannelsPaneView({
       return conversationGroups[0]?.key ?? null
     })
   }, [conversationGroups])
-
-  useEffect(() => {
-    hasInitialAutoScrollRef.current = false
-  }, [activeConversation?.key])
-
-  useEffect(() => {
-    const host = feedScrollRef.current
-    if (!host) {
-      return
-    }
-    if (!latestEvent) {
-      hasInitialAutoScrollRef.current = false
-      return
-    }
-
-    if (!hasInitialAutoScrollRef.current) {
-      host.scrollTop = host.scrollHeight
-      hasInitialAutoScrollRef.current = true
-      return
-    }
-
-    const distanceFromBottom = host.scrollHeight - host.scrollTop - host.clientHeight
-    if (distanceFromBottom <= 96) {
-      host.scrollTop = host.scrollHeight
-    }
-  }, [latestEvent?.id, latestEvent?.tsMs])
 
   return (
     <aside className="panel communication-channels-pane">
@@ -305,38 +256,21 @@ function CommunicationChannelsPaneView({
               })}
             </div>
           ) : null}
-          <div className="communication-channels-feed-scroll" ref={feedScrollRef}>
-            {activeEvents.length === 0 ? (
+          {activeEvents.length === 0 ? (
+            <div className="communication-channels-feed-scroll">
               <div className="communication-channels-empty" role="status">
                 <AppIcon name="channels" aria-hidden="true" />
                 <p>{t(locale, 'taskCenter.external.events.empty')}</p>
               </div>
-            ) : (
-              <ol className="communication-channels-message-list">
-                {activeEvents.map((event) => {
-                  const content = resolveEventContent(event)
-                  const statusClass = eventStatusClass(event)
-                  const direction = resolveEventDirection(event)
-
-                  return (
-                    <li key={event.id} className={`communication-channels-message-row is-${direction}`}>
-                      <article
-                        className={`communication-channels-bubble ${statusClass === 'failed' ? 'is-failed' : ''}`}
-                        title={content}
-                      >
-                        <p className="communication-channels-message-content">{content}</p>
-                        {shouldShowFailureDetail(event) ? (
-                          <p className="communication-channels-message-detail" title={event.detail}>
-                            {event.detail}
-                          </p>
-                        ) : null}
-                      </article>
-                    </li>
-                  )
-                })}
-              </ol>
-            )}
-          </div>
+            </div>
+          ) : (
+            <ChannelMessageList
+              appearanceVersion={appearanceVersion}
+              conversationKey={activeConversation?.key ?? null}
+              events={activeEvents}
+              uiFont={uiFont}
+            />
+          )}
         </div>
       </section>
     </aside>

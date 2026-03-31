@@ -5228,7 +5228,9 @@ export function ShellRoot() {
         controller: gitController,
       }}
       communicationChannelsPaneProps={{
+        appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.uiFont}:${uiPreferences.uiFontSize}`,
         locale,
+        uiFont: uiPreferences.uiFont,
         agentNameMap: stationNameMap,
         dispatchHistory: taskDispatchHistory,
         retryingTaskId: taskRetryingTaskId,
