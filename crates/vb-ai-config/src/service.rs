@@ -124,6 +124,15 @@ impl AiConfigService {
         path: &Path,
         normalized: &ClaudeNormalizedDraft,
     ) -> AiConfigResult<()> {
+        let root = self.build_claude_live_settings_value(path, normalized)?;
+        write_json_atomic(path, &root)
+    }
+
+    fn build_claude_live_settings_value(
+        &self,
+        path: &Path,
+        normalized: &ClaudeNormalizedDraft,
+    ) -> AiConfigResult<Value> {
         let mut root = read_json_object_file(path)?;
         let managed_env = if normalized.mode == ClaudeProviderMode::Official {
             BTreeMap::new()
@@ -151,38 +160,93 @@ impl AiConfigService {
             )?
         };
 
-        let root_object = root.as_object_mut().ok_or_else(|| {
-            AiConfigError::LiveSync(format!(
-                "Claude settings root must be an object at {}",
-                path.display()
-            ))
-        })?;
+        apply_claude_env_overrides_to_value(
+            &mut root,
+            &managed_env,
+            &managed_claude_env_keys(),
+            path,
+        )?;
+        Ok(root)
+    }
 
-        if !root_object.contains_key("env") && managed_env.is_empty() {
-            return Ok(());
+    fn build_sanitized_saved_claude_settings_json(
+        &self,
+        path: &Path,
+        normalized: &ClaudeNormalizedDraft,
+    ) -> AiConfigResult<Option<String>> {
+        let mut root = read_json_object_file(path)?;
+        let managed_env = if normalized.mode == ClaudeProviderMode::Official {
+            BTreeMap::new()
+        } else {
+            let secret_ref = normalized
+                .secret_ref
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    AiConfigError::LiveSync(
+                        "configured Claude secret reference is missing for live sync".to_string(),
+                    )
+                })?;
+            let secret = self
+                .secret_store
+                .load(secret_ref)
+                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
+            build_claude_managed_env(
+                normalized.mode.clone(),
+                normalized.provider_id.as_deref(),
+                normalized.base_url.as_deref(),
+                normalized.model.as_deref(),
+                normalized.auth_scheme.as_ref(),
+                Some(secret.as_str()),
+            )?
+        };
+        apply_claude_env_overrides_to_value(
+            &mut root,
+            &managed_env,
+            &core_managed_claude_env_keys(),
+            path,
+        )?;
+        strip_managed_claude_secret_values(&mut root)?;
+        serde_json::to_string(&root)
+            .map(Some)
+            .map_err(|error| AiConfigError::Storage(error.to_string()))
+    }
+
+    fn hydrate_saved_claude_settings_json(
+        &self,
+        settings_json: Option<&str>,
+        normalized: &ClaudeNormalizedDraft,
+    ) -> AiConfigResult<Option<Value>> {
+        let Some(settings_json) = settings_json.filter(|value| !value.trim().is_empty()) else {
+            return Ok(None);
+        };
+
+        let mut root = serde_json::from_str::<Value>(settings_json)
+            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+        if normalized.mode == ClaudeProviderMode::Official {
+            strip_managed_claude_secret_values(&mut root)?;
+        } else {
+            let secret_ref = normalized
+                .secret_ref
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    AiConfigError::Storage(
+                        "saved Claude provider is missing secret reference".to_string(),
+                    )
+                })?;
+            let secret = self
+                .secret_store
+                .load(secret_ref)
+                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
+            inject_claude_secret_env_to_value(
+                &mut root,
+                normalized.auth_scheme.as_ref(),
+                secret.as_str(),
+            )?;
         }
 
-        let env_value = root_object
-            .entry("env".to_string())
-            .or_insert_with(|| json!({}));
-        let env_object = env_value.as_object_mut().ok_or_else(|| {
-            AiConfigError::LiveSync(format!(
-                "Claude settings env must be an object at {}",
-                path.display()
-            ))
-        })?;
-
-        for key in managed_claude_env_keys() {
-            env_object.remove(key.as_str());
-        }
-        for (key, value) in managed_env {
-            env_object.insert(key, Value::String(value));
-        }
-        if env_object.is_empty() {
-            root_object.remove("env");
-        }
-
-        write_json_atomic(path, &root)
+        Ok(Some(root))
     }
 
     pub fn list_saved_claude_providers(
@@ -246,7 +310,14 @@ impl AiConfigService {
             "switching saved Claude provider and syncing live settings"
         );
 
-        self.sync_claude_live_settings_at_path(live_settings_path, &normalized)?;
+        if let Some(root) = self.hydrate_saved_claude_settings_json(
+            saved_provider.settings_json.as_deref(),
+            &normalized,
+        )? {
+            write_json_atomic(live_settings_path, &root)?;
+        } else {
+            self.sync_claude_live_settings_at_path(live_settings_path, &normalized)?;
+        }
 
         let patch = build_workspace_patch(&normalized, Some(saved_provider_id));
         if let Err(error) = self.settings.update(SettingsScope::User, None, &patch) {
@@ -350,6 +421,7 @@ impl AiConfigService {
         workspace_id: &str,
         saved_provider_id: &str,
         normalized: &ClaudeNormalizedDraft,
+        settings_json: Option<String>,
         applied_at_ms: u64,
     ) -> AiConfigResult<ClaudeSavedProviderSnapshot> {
         let record = self
@@ -369,6 +441,7 @@ impl AiConfigService {
                     .map(|auth| auth_to_string(auth).to_string()),
                 secret_ref: normalized.secret_ref.clone(),
                 has_secret: normalized.has_secret,
+                settings_json,
                 created_at_ms: applied_at_ms as i64,
                 updated_at_ms: applied_at_ms as i64,
                 last_applied_at_ms: applied_at_ms as i64,
@@ -2826,7 +2899,22 @@ impl AiConfigService {
                 .map_err(|error| AiConfigError::Secret(error.to_string()))?;
         }
 
-        self.sync_claude_live_settings_at_path(live_settings_path, &preview.normalized_draft)?;
+        let settings_json = self.build_sanitized_saved_claude_settings_json(
+            live_settings_path,
+            &preview.normalized_draft,
+        )?;
+        let hydrated_live_settings = self
+            .hydrate_saved_claude_settings_json(
+                settings_json.as_deref(),
+                &preview.normalized_draft,
+            )?
+            .ok_or_else(|| {
+                AiConfigError::Storage(
+                    "expected Claude live settings snapshot to be available after apply"
+                        .to_string(),
+                )
+            })?;
+        write_json_atomic(live_settings_path, &hydrated_live_settings)?;
 
         let patch =
             build_workspace_patch(&preview.normalized_draft, Some(saved_provider_id.as_str()));
@@ -2846,6 +2934,7 @@ impl AiConfigService {
             GLOBAL_AI_CONFIG_CONTEXT,
             &saved_provider_id,
             &preview.normalized_draft,
+            settings_json,
             applied_at_ms,
         )?;
 
@@ -3953,15 +4042,7 @@ fn build_claude_managed_env(
 }
 
 fn managed_claude_env_keys() -> Vec<String> {
-    let mut keys = vec![
-        "ANTHROPIC_API_KEY".to_string(),
-        "ANTHROPIC_AUTH_TOKEN".to_string(),
-        "ANTHROPIC_BASE_URL".to_string(),
-        "ANTHROPIC_MODEL".to_string(),
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
-        "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
-        "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
-    ];
+    let mut keys = core_managed_claude_env_keys();
     for preset in claude_provider_presets() {
         for key in preset.extra_env.keys() {
             if !keys.iter().any(|existing| existing == key) {
@@ -3970,6 +4051,100 @@ fn managed_claude_env_keys() -> Vec<String> {
         }
     }
     keys
+}
+
+fn core_managed_claude_env_keys() -> Vec<String> {
+    vec![
+        "ANTHROPIC_API_KEY".to_string(),
+        "ANTHROPIC_AUTH_TOKEN".to_string(),
+        "ANTHROPIC_BASE_URL".to_string(),
+        "ANTHROPIC_MODEL".to_string(),
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
+        "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
+        "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
+    ]
+}
+
+fn apply_claude_env_overrides_to_value(
+    root: &mut Value,
+    managed_env: &BTreeMap<String, String>,
+    removable_keys: &[String],
+    path: &Path,
+) -> AiConfigResult<()> {
+    let root_object = root.as_object_mut().ok_or_else(|| {
+        AiConfigError::LiveSync(format!(
+            "Claude settings root must be an object at {}",
+            path.display()
+        ))
+    })?;
+
+    if !root_object.contains_key("env") && managed_env.is_empty() {
+        return Ok(());
+    }
+
+    let env_value = root_object
+        .entry("env".to_string())
+        .or_insert_with(|| json!({}));
+    let env_object = env_value.as_object_mut().ok_or_else(|| {
+        AiConfigError::LiveSync(format!(
+            "Claude settings env must be an object at {}",
+            path.display()
+        ))
+    })?;
+
+    for key in removable_keys {
+        env_object.remove(key.as_str());
+    }
+    for (key, value) in managed_env {
+        env_object.insert(key.clone(), Value::String(value.clone()));
+    }
+    if env_object.is_empty() {
+        root_object.remove("env");
+    }
+
+    Ok(())
+}
+
+fn strip_managed_claude_secret_values(root: &mut Value) -> AiConfigResult<()> {
+    let Some(env_object) = root.get_mut("env").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    env_object.remove("ANTHROPIC_API_KEY");
+    env_object.remove("ANTHROPIC_AUTH_TOKEN");
+    if env_object.is_empty() {
+        root.as_object_mut()
+            .ok_or_else(|| {
+                AiConfigError::Storage("Claude settings root must remain an object".to_string())
+            })?
+            .remove("env");
+    }
+    Ok(())
+}
+
+fn inject_claude_secret_env_to_value(
+    root: &mut Value,
+    auth_scheme: Option<&crate::models::ClaudeAuthScheme>,
+    secret: &str,
+) -> AiConfigResult<()> {
+    let root_object = root.as_object_mut().ok_or_else(|| {
+        AiConfigError::Storage("Claude settings root must be an object".to_string())
+    })?;
+    let env_value = root_object
+        .entry("env".to_string())
+        .or_insert_with(|| json!({}));
+    let env_object = env_value.as_object_mut().ok_or_else(|| {
+        AiConfigError::Storage("Claude settings env must be an object".to_string())
+    })?;
+    env_object.remove("ANTHROPIC_API_KEY");
+    env_object.remove("ANTHROPIC_AUTH_TOKEN");
+    let auth_scheme = auth_scheme.ok_or_else(|| {
+        AiConfigError::Storage("saved Claude provider is missing auth scheme".to_string())
+    })?;
+    env_object.insert(
+        auth_scheme.env_var_name().to_string(),
+        Value::String(secret.to_string()),
+    );
+    Ok(())
 }
 
 fn claude_settings_path_from_home(home: &Path) -> PathBuf {
@@ -5695,6 +5870,146 @@ mod tests {
         );
 
         let live_settings = read_json_object_file(&live_settings_path).unwrap();
+        assert_eq!(
+            live_settings["env"]["ANTHROPIC_BASE_URL"],
+            json!("https://api.deepseek.com/anthropic")
+        );
+        assert_eq!(
+            live_settings["env"]["ANTHROPIC_AUTH_TOKEN"],
+            json!("deepseek-secret")
+        );
+    }
+
+    #[test]
+    fn switching_saved_claude_provider_restores_saved_live_settings_snapshot() {
+        let dir = temp_dir("saved-switch-live-snapshot");
+        let workspace_root = dir.join("workspace");
+        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
+        let service = service_for(&dir);
+        let workspace_id = workspace_id("saved-switch-live-snapshot");
+        let live_settings_path = live_settings_path_for(&dir);
+        fs::create_dir_all(live_settings_path.parent().unwrap()).unwrap();
+
+        fs::write(
+            &live_settings_path,
+            serde_json::to_vec_pretty(&json!({
+                "env": {
+                    "UNRELATED_FLAG": "alpha",
+                    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 4096
+                },
+                "permissions": {
+                    "allow_file_access": true
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let (_, deepseek_stored) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
+                    provider_id: Some("deepseek".to_string()),
+                    provider_name: None,
+                    base_url: None,
+                    model: None,
+                    auth_scheme: None,
+                    api_key: Some("deepseek-secret".to_string()),
+                },
+            )
+            .unwrap();
+        let deepseek_stored = match deepseek_stored {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
+        let first = service
+            .apply_claude_preview_with_live_settings_path(
+                &workspace_id,
+                &workspace_root,
+                "tester",
+                &deepseek_stored,
+                &live_settings_path,
+            )
+            .unwrap();
+        let deepseek_saved_id = first
+            .effective
+            .claude
+            .saved_providers
+            .iter()
+            .find(|item| item.provider_id.as_deref() == Some("deepseek"))
+            .map(|item| item.saved_provider_id.clone())
+            .expect("deepseek saved provider");
+
+        fs::write(
+            &live_settings_path,
+            serde_json::to_vec_pretty(&json!({
+                "env": {
+                    "UNRELATED_FLAG": "beta",
+                    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": 8192
+                },
+                "permissions": {
+                    "allow_file_access": false
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let (_, minimax_stored) = service
+            .preview_claude_patch(
+                &workspace_id,
+                &workspace_root,
+                "workspace",
+                ClaudeDraftInput {
+                    mode: ClaudeProviderMode::Preset,
+                    saved_provider_id: None,
+                    provider_id: Some("minimax".to_string()),
+                    provider_name: None,
+                    base_url: None,
+                    model: None,
+                    auth_scheme: None,
+                    api_key: Some("minimax-secret".to_string()),
+                },
+            )
+            .unwrap();
+        let minimax_stored = match minimax_stored {
+            StoredAiConfigPreview::Claude(p) => p,
+            _ => panic!("Expected Claude preview"),
+        };
+        service
+            .apply_claude_preview_with_live_settings_path(
+                &workspace_id,
+                &workspace_root,
+                "tester",
+                &minimax_stored,
+                &live_settings_path,
+            )
+            .unwrap();
+
+        service
+            .switch_saved_claude_provider_with_live_settings_path(
+                &workspace_id,
+                &workspace_root,
+                &deepseek_saved_id,
+                "tester",
+                &live_settings_path,
+            )
+            .unwrap();
+
+        let live_settings = read_json_object_file(&live_settings_path).unwrap();
+        assert_eq!(live_settings["env"]["UNRELATED_FLAG"], json!("alpha"));
+        assert_eq!(
+            live_settings["env"]["CLAUDE_CODE_MAX_OUTPUT_TOKENS"],
+            json!(4096)
+        );
+        assert_eq!(
+            live_settings["permissions"]["allow_file_access"],
+            json!(true)
+        );
         assert_eq!(
             live_settings["env"]["ANTHROPIC_BASE_URL"],
             json!("https://api.deepseek.com/anthropic")
