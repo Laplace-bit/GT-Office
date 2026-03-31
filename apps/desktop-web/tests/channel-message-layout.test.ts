@@ -1,6 +1,40 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeChannelMessageLayout } from '../src/features/tool-adapter/channel-message-layout.js'
+import { createRequire } from 'node:module'
+
+type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
+type MessageDirection = 'inbound' | 'outbound'
+type MessageStatus = 'received' | 'sent' | 'failed'
+
+type ChannelMessageLayoutInput = {
+  content: string
+  detail: string | null
+  uiFont: UiFont
+  maxContentWidth: number
+  contentFont: string
+  detailFont: string
+  contentLineHeight: number
+  detailLineHeight: number
+  bubblePaddingX: number
+  bubblePaddingY: number
+  bubbleBorderWidth: number
+  direction: MessageDirection
+  status: MessageStatus
+}
+
+type ChannelMessageLayoutResult = {
+  bubbleWidth: number
+  bubbleHeight: number
+  maxBubbleWidth: number
+  maxWidthLineCount: number
+  tightLineCount: number
+  usedFallback: boolean
+}
+
+function loadComputeChannelMessageLayout(): (input: ChannelMessageLayoutInput) => ChannelMessageLayoutResult {
+  return createRequire(import.meta.url)('../src/features/tool-adapter/channel-message-layout.js')
+    .computeChannelMessageLayout as (input: ChannelMessageLayoutInput) => ChannelMessageLayoutResult
+}
 
 const baseLayoutInput = {
   content: 'Preview updated. Final reply will only append the delta once validation passes.',
@@ -16,18 +50,20 @@ const baseLayoutInput = {
   bubbleBorderWidth: 1,
   direction: 'inbound',
   status: 'received',
-}
+} as const satisfies ChannelMessageLayoutInput
 
 test('tight width preserves wrapped line count', () => {
+  const computeChannelMessageLayout = loadComputeChannelMessageLayout()
   const layout = computeChannelMessageLayout({ ...baseLayoutInput })
 
   assert.equal(layout.usedFallback, false)
   assert.equal(layout.tightLineCount, layout.maxWidthLineCount)
-  assert.ok(layout.bubbleWidth <= layout.maxBubbleWidth)
+  assert.ok(layout.bubbleWidth < layout.maxBubbleWidth)
 })
 
 test('row height grows when detail text is present', () => {
-  const withoutDetail = computeChannelMessageLayout({ ...baseLayoutInput, detail: null, status: 'received' })
+  const computeChannelMessageLayout = loadComputeChannelMessageLayout()
+  const withoutDetail = computeChannelMessageLayout({ ...baseLayoutInput, detail: null, status: 'failed' })
   const withDetail = computeChannelMessageLayout({
     ...baseLayoutInput,
     detail: 'Webhook rejected preview update.',
@@ -38,6 +74,7 @@ test('row height grows when detail text is present', () => {
 })
 
 test('system-ui forces fallback sizing', () => {
+  const computeChannelMessageLayout = loadComputeChannelMessageLayout()
   const layout = computeChannelMessageLayout({
     ...baseLayoutInput,
     uiFont: 'system-ui',
