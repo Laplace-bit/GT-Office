@@ -12,6 +12,7 @@ use crate::terminal_debug::human_log::TerminalDebugHumanEntry;
 pub enum TerminalDebugLogKind {
     Raw,
     Parsed,
+    FrontendFocus,
 }
 
 impl TerminalDebugLogKind {
@@ -19,8 +20,23 @@ impl TerminalDebugLogKind {
         match self {
             Self::Raw => "raw.log",
             Self::Parsed => "parsed.log",
+            Self::FrontendFocus => "frontend-focus.log",
         }
     }
+}
+
+pub fn should_write_terminal_debug_log_for_build(
+    kind: TerminalDebugLogKind,
+    debug_assertions: bool,
+) -> bool {
+    match kind {
+        TerminalDebugLogKind::Raw | TerminalDebugLogKind::Parsed => debug_assertions,
+        TerminalDebugLogKind::FrontendFocus => true,
+    }
+}
+
+fn should_write_terminal_debug_log(kind: TerminalDebugLogKind) -> bool {
+    should_write_terminal_debug_log_for_build(kind, cfg!(debug_assertions))
 }
 
 fn resolve_terminal_debug_log_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -37,7 +53,7 @@ fn resolve_terminal_debug_log_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data.join("terminal-debug"))
 }
 
-fn resolve_terminal_debug_log_path(
+pub fn resolve_terminal_debug_log_path(
     app: &AppHandle,
     kind: TerminalDebugLogKind,
 ) -> Result<PathBuf, String> {
@@ -67,7 +83,7 @@ pub fn append_dev_log(
     kind: TerminalDebugLogKind,
     content: &str,
 ) -> Result<(), String> {
-    if !cfg!(debug_assertions) || content.is_empty() {
+    if !should_write_terminal_debug_log(kind) || content.is_empty() {
         return Ok(());
     }
     let path = resolve_terminal_debug_log_path(app, kind)?;
@@ -87,7 +103,7 @@ pub fn append_dev_log(
 }
 
 pub fn append_dev_log_async(app: AppHandle, kind: TerminalDebugLogKind, content: String) {
-    if !cfg!(debug_assertions) || content.is_empty() {
+    if !should_write_terminal_debug_log(kind) || content.is_empty() {
         return;
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -128,4 +144,18 @@ pub fn build_rendered_screen_parsed_log_entry(
             .join("\n")
     };
     format!("[session={session_id}] [screenRevision={screen_revision}]\n{body}\n\n")
+}
+
+pub fn build_frontend_focus_log_entry(
+    at_ms: u64,
+    station_id: &str,
+    session_id: Option<&str>,
+    kind: &str,
+    detail: Option<&str>,
+) -> String {
+    let session = session_id.unwrap_or("none");
+    let detail = detail.unwrap_or("[none]");
+    format!(
+        "[atMs={at_ms}] [station={station_id}] [session={session}] [kind={kind}]\n{detail}\n\n"
+    )
 }

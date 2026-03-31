@@ -1,3 +1,5 @@
+import { desktopApi } from '../../shell/integration/desktop-api.js'
+
 export type StationTerminalPointerDownFocusStrategy = 'immediate' | 'defer-until-active'
 
 export interface StationTerminalPointerDownFocusPlanInput {
@@ -36,6 +38,16 @@ const DEFAULT_STATION_TERMINAL_FOCUS_DIAGNOSTIC_LIMIT = 40
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type DiagnosticsWindow = Window & {
   __GTO_TERMINAL_FOCUS_DIAGNOSTICS_INSTALLED__?: boolean
+}
+
+export interface RecordStationTerminalFocusDiagnosticInput {
+  targetWindow: Window
+  stationId: string
+  sessionId: string | null
+  kind: StationTerminalFocusDiagnosticKind
+  detail?: string
+  atMs?: number
+  appendSystemLog?: (entry: StationTerminalFocusDiagnosticEvent) => Promise<unknown> | unknown
 }
 
 export function resolveStationTerminalPointerDownFocusPlan({
@@ -115,6 +127,43 @@ export function persistStationTerminalFocusDiagnosticEvent(
   }
 }
 
+export async function recordStationTerminalFocusDiagnostic({
+  targetWindow,
+  stationId,
+  sessionId,
+  kind,
+  detail,
+  atMs = Date.now(),
+  appendSystemLog,
+}: RecordStationTerminalFocusDiagnosticInput): Promise<StationTerminalFocusDiagnosticEvent> {
+  const record: StationTerminalFocusDiagnosticEvent = {
+    atMs,
+    stationId,
+    sessionId,
+    kind,
+    detail,
+  }
+
+  persistStationTerminalFocusDiagnosticEvent(targetWindow, record)
+
+  const appendLog =
+    appendSystemLog ??
+    (desktopApi.isTauriRuntime()
+      ? (entry: StationTerminalFocusDiagnosticEvent) =>
+          desktopApi.terminalDebugAppendFrontendFocusLog(entry)
+      : null)
+
+  if (appendLog) {
+    try {
+      await appendLog(record)
+    } catch {
+      // Backend logging must never break terminal interaction or local trace persistence.
+    }
+  }
+
+  return record
+}
+
 export function installStationTerminalWindowDiagnostics(targetWindow: Window): void {
   const diagnosticWindow = targetWindow as DiagnosticsWindow
   if (diagnosticWindow.__GTO_TERMINAL_FOCUS_DIAGNOSTICS_INSTALLED__) {
@@ -124,8 +173,8 @@ export function installStationTerminalWindowDiagnostics(targetWindow: Window): v
   diagnosticWindow.__GTO_TERMINAL_FOCUS_DIAGNOSTICS_INSTALLED__ = true
 
   targetWindow.addEventListener('error', (event) => {
-    persistStationTerminalFocusDiagnosticEvent(targetWindow, {
-      atMs: Date.now(),
+    void recordStationTerminalFocusDiagnostic({
+      targetWindow,
       stationId: 'window',
       sessionId: null,
       kind: 'window-error',
@@ -140,8 +189,8 @@ export function installStationTerminalWindowDiagnostics(targetWindow: Window): v
         : typeof event.reason === 'string'
           ? event.reason
           : 'unknown rejection'
-    persistStationTerminalFocusDiagnosticEvent(targetWindow, {
-      atMs: Date.now(),
+    void recordStationTerminalFocusDiagnostic({
+      targetWindow,
       stationId: 'window',
       sessionId: null,
       kind: 'unhandled-rejection',

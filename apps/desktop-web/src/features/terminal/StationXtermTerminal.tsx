@@ -13,9 +13,14 @@ import {
 } from './macos-webkit-ime-workaround'
 import {
   installStationTerminalWindowDiagnostics,
-  persistStationTerminalFocusDiagnosticEvent,
+  recordStationTerminalFocusDiagnostic,
   resolveStationTerminalPointerDownFocusPlan,
+  type StationTerminalFocusDiagnosticKind,
 } from './station-terminal-focus-diagnostics'
+import {
+  resolveStationTerminalFocusRequest,
+  shouldFlushPendingStationTerminalFocus,
+} from './station-terminal-focus-runtime'
 
 export interface StationTerminalSink {
   write: (chunk: string) => void
@@ -282,6 +287,7 @@ function StationXtermTerminalView({
   const appearanceSyncFrameRef = useRef<number | null>(null)
   const focusTerminalRequestRef = useRef<(() => void) | null>(null)
   const focusRetryFrameRef = useRef<number | null>(null)
+  const focusRuntimeReadyRef = useRef(false)
   const pendingAutoFocusRef = useRef(false)
   const isMacOsWebKitEnvironmentRef = useRef(
     typeof window !== 'undefined'
@@ -297,12 +303,12 @@ function StationXtermTerminalView({
   })
 
   const recordFocusDiagnostic = useCallback(
-    (kind: Parameters<typeof persistStationTerminalFocusDiagnosticEvent>[1]['kind'], detail?: string) => {
+    (kind: StationTerminalFocusDiagnosticKind, detail?: string) => {
       if (typeof window === 'undefined') {
         return
       }
-      persistStationTerminalFocusDiagnosticEvent(window, {
-        atMs: Date.now(),
+      void recordStationTerminalFocusDiagnostic({
+        targetWindow: window,
         stationId,
         sessionId,
         kind,
@@ -378,7 +384,14 @@ function StationXtermTerminalView({
       return
     }
     pendingAutoFocusRef.current = true
-    focusTerminalRequestRef.current?.()
+    if (
+      shouldFlushPendingStationTerminalFocus({
+        pendingAutoFocus: pendingAutoFocusRef.current,
+        focusRuntimeReady: focusRuntimeReadyRef.current,
+      })
+    ) {
+      focusTerminalRequestRef.current?.()
+    }
   }, [isActive, sessionId])
 
   useEffect(() => {
@@ -403,6 +416,7 @@ function StationXtermTerminalView({
         focusRetryFrameRef.current = null
         window.cancelAnimationFrame(focusFrameId)
       }
+      focusRuntimeReadyRef.current = false
       focusTerminalRequestRef.current = null
       pendingAutoFocusRef.current = false
     }
@@ -570,6 +584,18 @@ function StationXtermTerminalView({
           }
           return host.matches(':focus-within')
         }
+        const refreshTerminal = () => {
+          terminal.refresh(0, Math.max(0, terminal.rows - 1))
+        }
+        const scheduleRefresh = () => {
+          if (refreshFrameId !== null) {
+            return
+          }
+          refreshFrameId = window.requestAnimationFrame(() => {
+            refreshFrameId = null
+            refreshTerminal()
+          })
+        }
         const requestTerminalFocus = (retryFrames = 8) => {
           cancelScheduledTerminalFocus()
           let remainingFrames = Math.max(0, retryFrames)
@@ -602,24 +628,23 @@ function StationXtermTerminalView({
           attemptFocus()
         }
         focusTerminalRequestRef.current = () => {
-          pendingAutoFocusRef.current = false
-          requestTerminalFocus()
-        }
-        if (pendingAutoFocusRef.current) {
-          focusTerminalRequestRef.current()
-        }
-
-        const refreshTerminal = () => {
-          terminal.refresh(0, Math.max(0, terminal.rows - 1))
-        }
-        const scheduleRefresh = () => {
-          if (refreshFrameId !== null) {
+          const resolution = resolveStationTerminalFocusRequest({
+            focusRuntimeReady: focusRuntimeReadyRef.current,
+          })
+          pendingAutoFocusRef.current = resolution.shouldPersistPending
+          if (!resolution.shouldDispatch) {
             return
           }
-          refreshFrameId = window.requestAnimationFrame(() => {
-            refreshFrameId = null
-            refreshTerminal()
+          requestTerminalFocus()
+        }
+        focusRuntimeReadyRef.current = true
+        if (
+          shouldFlushPendingStationTerminalFocus({
+            pendingAutoFocus: pendingAutoFocusRef.current,
+            focusRuntimeReady: focusRuntimeReadyRef.current,
           })
+        ) {
+          focusTerminalRequestRef.current()
         }
         const captureSerializedRestoreState = () => {
           if (performanceDebugEnabled) {
@@ -986,6 +1011,7 @@ function StationXtermTerminalView({
         window.cancelAnimationFrame(focusRetryFrameRef.current)
         focusRetryFrameRef.current = null
       }
+      focusRuntimeReadyRef.current = false
       focusTerminalRequestRef.current = null
       terminalRef.current?.dispose()
       terminalRef.current = null

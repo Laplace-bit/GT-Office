@@ -374,6 +374,14 @@ export interface TerminalDebugClearHumanLogResponse {
   cleared: boolean
 }
 
+export interface TerminalDebugAppendFrontendFocusLogResponse {
+  stationId: string
+  sessionId: string | null
+  kind: string
+  accepted: boolean
+  logPath: string
+}
+
 export interface SurfaceDetachedStationPayload {
   stationId: string
   name: string
@@ -2331,6 +2339,26 @@ export const desktopApi = {
     return invokeCommand<TerminalDebugClearHumanLogResponse>('terminal_debug_clear_human_log', {
       sessionId,
     })
+  },
+  terminalDebugAppendFrontendFocusLog(entry: {
+    atMs: number
+    stationId: string
+    sessionId?: string | null
+    kind: string
+    detail?: string | null
+  }) {
+    return invokeCommand<TerminalDebugAppendFrontendFocusLogResponse>(
+      'terminal_debug_append_frontend_focus_log',
+      {
+        entry: {
+          atMs: entry.atMs,
+          stationId: entry.stationId,
+          sessionId: entry.sessionId ?? null,
+          kind: entry.kind,
+          detail: entry.detail ?? null,
+        },
+      },
+    )
   },
   taskDispatchBatch(request: TaskDispatchBatchRequest) {
     return invokeCommand<TaskDispatchBatchResponse>('task_dispatch_batch', {
