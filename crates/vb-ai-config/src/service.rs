@@ -2935,8 +2935,14 @@ impl AiConfigService {
             let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
             let claude_mcp =
                 scope.spawn(|| claude_mcp_status_for_workspace(&workspace_root_for_mcp));
-            let codex_mcp = scope.spawn(|| detect_light_agent_mcp_status(AiConfigAgent::Codex));
-            let gemini_mcp = scope.spawn(|| detect_light_agent_mcp_status(AiConfigAgent::Gemini));
+            let codex_mcp =
+                scope.spawn(|| detect_light_agent_mcp_status(AiConfigAgent::Codex, None));
+            let gemini_mcp = scope.spawn(|| {
+                detect_light_agent_mcp_status(
+                    AiConfigAgent::Gemini,
+                    Some(&workspace_root_for_mcp),
+                )
+            });
 
             (
                 claude_install
@@ -2953,10 +2959,15 @@ impl AiConfigService {
                     .unwrap_or_else(|_| claude_mcp_status_for_workspace(workspace_root)),
                 codex_mcp
                     .join()
-                    .unwrap_or_else(|_| detect_light_agent_mcp_status(AiConfigAgent::Codex)),
+                    .unwrap_or_else(|_| detect_light_agent_mcp_status(AiConfigAgent::Codex, None)),
                 gemini_mcp
                     .join()
-                    .unwrap_or_else(|_| detect_light_agent_mcp_status(AiConfigAgent::Gemini)),
+                    .unwrap_or_else(|_| {
+                        detect_light_agent_mcp_status(
+                            AiConfigAgent::Gemini,
+                            Some(workspace_root),
+                        )
+                    }),
             )
         });
 
@@ -4775,7 +4786,10 @@ fn claude_project_has_stale_active_worktree_session(project: &serde_json::Map<St
         .is_some_and(|worktree_path| !Path::new(worktree_path).exists())
 }
 
-fn detect_light_agent_mcp_status(agent: AiConfigAgent) -> crate::models::AiAgentMcpStatus {
+fn detect_light_agent_mcp_status(
+    agent: AiConfigAgent,
+    workspace_root: Option<&Path>,
+) -> crate::models::AiAgentMcpStatus {
     let home = match user_home_dir() {
         Some(path) => path,
         None => return crate::models::AiAgentMcpStatus::NotInstalled,
@@ -4786,9 +4800,27 @@ fn detect_light_agent_mcp_status(agent: AiConfigAgent) -> crate::models::AiAgent
         AiConfigAgent::Codex => {
             detect_mcp_status_from_text_file(&home.join(".codex").join("config.toml"))
         }
-        AiConfigAgent::Gemini => {
-            detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json"))
+        AiConfigAgent::Gemini => combine_mcp_status(
+            detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json")),
+            workspace_root
+                .map(|root| detect_mcp_status_from_text_file(&root.join(".gemini").join("settings.json")))
+                .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
+        ),
+    }
+}
+
+fn combine_mcp_status(
+    left: crate::models::AiAgentMcpStatus,
+    right: crate::models::AiAgentMcpStatus,
+) -> crate::models::AiAgentMcpStatus {
+    use crate::models::AiAgentMcpStatus;
+    match (left, right) {
+        (AiAgentMcpStatus::InstalledSidecar, _) | (_, AiAgentMcpStatus::InstalledSidecar) => {
+            AiAgentMcpStatus::InstalledSidecar
         }
+        (AiAgentMcpStatus::InstalledLegacyNode, _)
+        | (_, AiAgentMcpStatus::InstalledLegacyNode) => AiAgentMcpStatus::InstalledLegacyNode,
+        _ => AiAgentMcpStatus::NotInstalled,
     }
 }
 
@@ -4831,7 +4863,9 @@ fn workspace_scoped_mcp_status(
         AiConfigAgent::Claude => workspace_root
             .map(claude_mcp_status_for_workspace)
             .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
-        AiConfigAgent::Codex | AiConfigAgent::Gemini => detect_light_agent_mcp_status(agent),
+        AiConfigAgent::Codex | AiConfigAgent::Gemini => {
+            detect_light_agent_mcp_status(agent, workspace_root)
+        }
     }
 }
 
@@ -4950,6 +4984,20 @@ fn write_gemini_sidecar_marker(home: &Path) {
 fn write_gemini_marker_with_command(home: &Path, command: &str) {
     write_json_file(
         &home.join(".gemini").join("settings.json"),
+        &json!({
+            "mcpServers": {
+                GTO_AGENT_BRIDGE_SERVER_ID: {
+                    "command": command
+                }
+            }
+        }),
+    );
+}
+
+#[cfg(test)]
+fn write_workspace_gemini_marker_with_command(workspace_root: &Path, command: &str) {
+    write_json_file(
+        &workspace_root.join(".gemini").join("settings.json"),
         &json!({
             "mcpServers": {
                 GTO_AGENT_BRIDGE_SERVER_ID: {
@@ -5158,9 +5206,12 @@ fn agent_status_result(
         AiConfigAgent::Codex => {
             detect_mcp_status_from_text_file(&home.join(".codex").join("config.toml"))
         }
-        AiConfigAgent::Gemini => {
-            detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json"))
-        }
+        AiConfigAgent::Gemini => combine_mcp_status(
+            detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json")),
+            workspace_root
+                .map(|root| detect_mcp_status_from_text_file(&root.join(".gemini").join("settings.json")))
+                .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
+        ),
     }
 }
 
@@ -6497,6 +6548,23 @@ command = "npx"
         );
         assert_eq!(
             agent_status_result(AiConfigAgent::Gemini, &home, None),
+            crate::models::AiAgentMcpStatus::InstalledSidecar
+        );
+    }
+
+    #[test]
+    fn gemini_workspace_status_detects_project_level_settings() {
+        let dir = temp_dir("gemini-workspace-marker");
+        let home = create_test_home(&dir);
+        let workspace_root = create_workspace(&dir, "workspace-a");
+
+        write_workspace_gemini_marker_with_command(
+            &workspace_root,
+            "/Applications/GT Office.app/Contents/Resources/gto-agent-mcp-sidecar",
+        );
+
+        assert_eq!(
+            agent_status_result(AiConfigAgent::Gemini, &home, Some(&workspace_root)),
             crate::models::AiAgentMcpStatus::InstalledSidecar
         );
     }

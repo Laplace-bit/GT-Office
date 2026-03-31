@@ -297,6 +297,35 @@ mod tests {
     }
 
     #[test]
+    fn install_mcp_bridge_config_writes_gemini_workspace_entry() {
+        let dir = temp_dir("mcp-gemini-workspace-config");
+        with_test_home(&dir, |home| {
+            let workspace_root = dir.join("workspace");
+            fs::create_dir_all(&workspace_root).expect("create workspace");
+
+            AgentInstaller::install_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["gemini"],
+                "/Applications/GT Office.app/Contents/MacOS/gto-agent-mcp-sidecar",
+                &["serve"],
+                &BTreeMap::new(),
+            )
+            .expect("install gemini mcp config");
+
+            let user_text = fs::read_to_string(home.join(".gemini").join("settings.json"))
+                .expect("read user gemini settings");
+            assert!(user_text.contains("\"gto-agent-bridge\""));
+
+            let workspace_text = fs::read_to_string(
+                workspace_root.join(".gemini").join("settings.json"),
+            )
+            .expect("read workspace gemini settings");
+            assert!(workspace_text.contains("\"gto-agent-bridge\""));
+        });
+    }
+
+    #[test]
     fn install_mcp_bridge_config_prunes_stale_claude_active_worktree_session() {
         let dir = temp_dir("mcp-claude-stale-worktree");
         with_test_home(&dir, |home| {
@@ -585,6 +614,45 @@ args = ["serve"]
             assert!(!gemini_rules_text.contains("# BEGIN gto-agent-bridge"));
         });
     }
+
+    #[test]
+    fn uninstall_mcp_bridge_config_removes_gemini_workspace_entry() {
+        let dir = temp_dir("mcp-uninstall-gemini-workspace");
+        with_test_home(&dir, |home| {
+            let workspace_root = dir.join("workspace");
+            fs::create_dir_all(workspace_root.join(".gemini")).expect("create workspace gemini dir");
+
+            fs::write(
+                workspace_root.join(".gemini").join("settings.json"),
+                r#"{
+  "mcpServers": {
+    "gto-agent-bridge": {
+      "command": "/Applications/GT Office.app/Contents/MacOS/gto-agent-mcp-sidecar"
+    },
+    "custom-tools": {
+      "command": "/usr/local/bin/custom-mcp"
+    }
+  }
+}
+"#,
+            )
+            .expect("write workspace gemini settings");
+
+            AgentInstaller::uninstall_mcp_bridge_config(
+                home,
+                &workspace_root,
+                &["gemini"],
+            )
+            .expect("uninstall gemini mcp config");
+
+            let workspace_text = fs::read_to_string(
+                workspace_root.join(".gemini").join("settings.json"),
+            )
+            .expect("read workspace gemini settings");
+            assert!(workspace_text.contains("\"custom-tools\""));
+            assert!(!workspace_text.contains("\"gto-agent-bridge\""));
+        });
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -698,6 +766,10 @@ impl AgentInstaller {
                         &home_dir.join(".gemini").join("settings.json"),
                         &entry,
                     )?;
+                    Self::ensure_json_mcp_server(
+                        &workspace_root.join(".gemini").join("settings.json"),
+                        &entry,
+                    )?;
                     Self::ensure_managed_markdown(
                         &home_dir.join(".gemini").join("GEMINI.md"),
                         &policy_body,
@@ -743,6 +815,9 @@ impl AgentInstaller {
                 }
                 "gemini" => {
                     Self::remove_json_mcp_server(&home_dir.join(".gemini").join("settings.json"))?;
+                    Self::remove_json_mcp_server(
+                        &workspace_root.join(".gemini").join("settings.json"),
+                    )?;
                     Self::remove_managed_markdown(&home_dir.join(".gemini").join("GEMINI.md"))?;
                 }
                 "qwen" => {

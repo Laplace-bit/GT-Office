@@ -37,12 +37,22 @@ pub async fn agent_mcp_install_status(
 
     tauri::async_runtime::spawn_blocking(move || match agent {
         AgentType::ClaudeCode => {
-            let project_roots = resolve_claude_project_roots(
+            let project_roots = resolve_provider_project_roots(
                 &app_handle,
                 workspace_id.as_deref(),
                 workspace_root.as_deref(),
+                "claude",
             )?;
-            Ok(aggregate_claude_project_mcp_status(&project_roots))
+            Ok(aggregate_project_mcp_status(AgentType::ClaudeCode, &project_roots))
+        }
+        AgentType::Gemini => {
+            let project_roots = resolve_provider_project_roots(
+                &app_handle,
+                workspace_id.as_deref(),
+                workspace_root.as_deref(),
+                "gemini",
+            )?;
+            Ok(aggregate_project_mcp_status(AgentType::Gemini, &project_roots))
         }
         _ => Ok(agent_mcp_status_for_workspace(agent, workspace_root.as_deref())),
     })
@@ -175,12 +185,25 @@ pub async fn install_agent_mcp(
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let project_roots = match agent {
         AgentType::ClaudeCode => {
-            resolve_claude_project_roots(window.app_handle(), Some(&workspace_id), Some(&workspace_root))?
+            resolve_provider_project_roots(
+                window.app_handle(),
+                Some(&workspace_id),
+                Some(&workspace_root),
+                "claude",
+            )?
+        }
+        AgentType::Gemini => {
+            resolve_provider_project_roots(
+                window.app_handle(),
+                Some(&workspace_id),
+                Some(&workspace_root),
+                "gemini",
+            )?
         }
         _ => vec![workspace_root.clone()],
     };
 
-    if !matches!(agent, AgentType::ClaudeCode)
+    if !matches!(agent, AgentType::ClaudeCode | AgentType::Gemini)
         && tauri::async_runtime::spawn_blocking({
             let workspace_root_for_check = workspace_root.clone();
             move || agent_mcp_installed_for_workspace(agent, Some(workspace_root_for_check.as_path()))
@@ -239,7 +262,7 @@ pub async fn install_agent_mcp(
     .map_err(|error| format!("AGENT_MCP_STATUS_TASK_FAILED: {error}"))?;
     if !verified_ok {
         return Err(format!(
-            "GT Office MCP bridge install did not complete cleanly for {name}; one or more Claude project scopes are still missing the MCP entry."
+            "GT Office MCP bridge install did not complete cleanly for {name}; one or more project scopes are still missing the MCP entry."
         ));
     }
 
@@ -262,7 +285,20 @@ pub async fn uninstall_agent_mcp(
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let project_roots = match agent {
         AgentType::ClaudeCode => {
-            resolve_claude_project_roots(window.app_handle(), Some(&workspace_id), Some(&workspace_root))?
+            resolve_provider_project_roots(
+                window.app_handle(),
+                Some(&workspace_id),
+                Some(&workspace_root),
+                "claude",
+            )?
+        }
+        AgentType::Gemini => {
+            resolve_provider_project_roots(
+                window.app_handle(),
+                Some(&workspace_id),
+                Some(&workspace_root),
+                "gemini",
+            )?
         }
         _ => vec![workspace_root.clone()],
     };
@@ -322,7 +358,7 @@ pub async fn uninstall_agent_mcp(
 
     if !verified_ok {
         return Err(format!(
-            "GT Office MCP bridge uninstall did not complete cleanly for {name}; one or more Claude project scopes still keep the MCP entry."
+            "GT Office MCP bridge uninstall did not complete cleanly for {name}; one or more project scopes still keep the MCP entry."
         ));
     }
 
@@ -426,10 +462,11 @@ fn resolve_agent_repository(app: &tauri::AppHandle) -> Result<SqliteAgentReposit
     Ok(SqliteAgentRepository::new(storage))
 }
 
-fn resolve_claude_project_roots(
+fn resolve_provider_project_roots(
     app: &tauri::AppHandle,
     workspace_id: Option<&str>,
     workspace_root: Option<&Path>,
+    provider_hint: &str,
 ) -> Result<Vec<PathBuf>, String> {
     let mut roots = std::collections::BTreeSet::new();
     if let Some(workspace_root) = workspace_root {
@@ -447,7 +484,12 @@ fn resolve_claude_project_roots(
     repo.ensure_schema().map_err(|error| error.to_string())?;
     let agents = repo.list_agents(workspace_id).map_err(|error| error.to_string())?;
     for agent in agents {
-        if !agent.tool.trim().to_ascii_lowercase().contains("claude") {
+        if !agent
+            .tool
+            .trim()
+            .to_ascii_lowercase()
+            .contains(provider_hint)
+        {
             continue;
         }
         let Some(workdir) = agent.workdir.as_deref().filter(|value| !value.trim().is_empty()) else {
@@ -459,11 +501,11 @@ fn resolve_claude_project_roots(
     Ok(roots.into_iter().collect())
 }
 
-fn aggregate_claude_project_mcp_status(project_roots: &[PathBuf]) -> AiAgentMcpStatus {
+fn aggregate_project_mcp_status(agent: AgentType, project_roots: &[PathBuf]) -> AiAgentMcpStatus {
     let mut saw_legacy = false;
     let mut saw_installed = false;
     for project_root in project_roots {
-        match agent_mcp_status_for_workspace(AgentType::ClaudeCode, Some(project_root.as_path())) {
+        match agent_mcp_status_for_workspace(agent, Some(project_root.as_path())) {
             AiAgentMcpStatus::NotInstalled => return AiAgentMcpStatus::NotInstalled,
             AiAgentMcpStatus::InstalledLegacyNode => {
                 saw_legacy = true;
@@ -773,6 +815,72 @@ mod tests {
                     "/projects/{}/mcpServers/gto-agent-bridge",
                     project_root.display().to_string().replace('/', "~1")
                 ))
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn install_then_uninstall_mcp_updates_all_gemini_project_roots_in_workspace() {
+        let dir = temp_dir("mcp-gemini-multi-root");
+        let home = dir.join("home");
+        let workspace_root = dir.join("workspace");
+        let agent_root = workspace_root.join(".gtoffice").join("gemini-agent");
+        fs::create_dir_all(&home).expect("create home");
+        fs::create_dir_all(&workspace_root).expect("create workspace");
+        fs::create_dir_all(&agent_root).expect("create agent root");
+        fs::write(agent_root.join("GEMINI.md"), "# agent\n").expect("write prompt");
+
+        let sidecar_path = dir.join("gto-agent-mcp-sidecar");
+        fs::write(&sidecar_path, b"#!/bin/sh\n").expect("write sidecar");
+        let local_entry = LocalMcpServerEntry {
+            command: sidecar_path,
+            args: vec!["serve".to_string()],
+        };
+
+        let project_roots = vec![workspace_root.clone(), agent_root.clone()];
+        install_agent_mcp_at_home(AgentType::Gemini, &project_roots, &home, &local_entry)
+            .expect("install mcp");
+
+        let user_after_install: Value = serde_json::from_str(
+            &fs::read_to_string(home.join(".gemini").join("settings.json"))
+                .expect("read user gemini config"),
+        )
+        .expect("parse user gemini config");
+        assert!(user_after_install
+            .pointer("/mcpServers/gto-agent-bridge/command")
+            .is_some());
+
+        for project_root in [&workspace_root, &agent_root] {
+            let project_after_install: Value = serde_json::from_str(
+                &fs::read_to_string(project_root.join(".gemini").join("settings.json"))
+                    .expect("read project gemini config"),
+            )
+            .expect("parse project gemini config");
+            assert!(project_after_install
+                .pointer("/mcpServers/gto-agent-bridge/command")
+                .is_some());
+        }
+
+        uninstall_agent_mcp_at_home(AgentType::Gemini, &project_roots, &home)
+            .expect("uninstall mcp");
+
+        let user_after_uninstall: Value = serde_json::from_str(
+            &fs::read_to_string(home.join(".gemini").join("settings.json"))
+                .expect("read user gemini config"),
+        )
+        .expect("parse user gemini config");
+        assert!(user_after_uninstall
+            .pointer("/mcpServers/gto-agent-bridge")
+            .is_none());
+
+        for project_root in [&workspace_root, &agent_root] {
+            let project_after_uninstall: Value = serde_json::from_str(
+                &fs::read_to_string(project_root.join(".gemini").join("settings.json"))
+                    .expect("read project gemini config"),
+            )
+            .expect("parse project gemini config");
+            assert!(project_after_uninstall
+                .pointer("/mcpServers/gto-agent-bridge")
                 .is_none());
         }
     }
