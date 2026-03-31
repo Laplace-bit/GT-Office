@@ -125,6 +125,29 @@ pub fn bind_session_log_with_config(
     }
 }
 
+pub fn latest_claude_session_id_for_cwd(
+    resolved_cwd: &Path,
+    config: SessionLogConfig,
+) -> Option<String> {
+    let projects_root = config.claude_projects_root.unwrap_or_else(|| {
+        config
+            .home_dir
+            .or_else(resolve_user_home_dir)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".claude")
+            .join("projects")
+    });
+    let project_dir = candidate_claude_project_dirs(&projects_root, resolved_cwd)
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .unwrap_or_else(|| projects_root.join(claude_project_key_for_path(resolved_cwd)));
+    resolve_latest_claude_session(&project_dir, resolved_cwd).and_then(|path| {
+        path.file_stem()
+            .map(|value| value.to_string_lossy().trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ClaudeSessionBinding {
     prompt_fingerprint: String,
@@ -1103,6 +1126,28 @@ mod tests {
         assert_eq!(outcome.health, SessionLogHealth::Active);
         assert_eq!(outcome.text.as_deref(), Some("final answer"));
         assert_eq!(outcome.source_path.as_deref(), Some(session_path.as_path()));
+    }
+
+    #[test]
+    fn latest_claude_session_id_for_cwd_returns_latest_jsonl_stem() {
+        let root = temp_dir("claude-latest-session");
+        let work_dir = PathBuf::from("/tmp/project/.gtoffice/calude");
+        let project_dir = root.join(claude_project_key_for_path(&work_dir));
+        fs::create_dir_all(&project_dir).expect("create project dir");
+        fs::write(project_dir.join("older-session.jsonl"), "{}\n").expect("write older session");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(project_dir.join("newer-session.jsonl"), "{}\n").expect("write newer session");
+
+        let session_id = latest_claude_session_id_for_cwd(
+            &work_dir,
+            SessionLogConfig {
+                claude_projects_root: Some(root),
+                ..SessionLogConfig::default()
+            },
+        )
+        .expect("latest session id");
+
+        assert_eq!(session_id, "newer-session");
     }
 
     #[test]

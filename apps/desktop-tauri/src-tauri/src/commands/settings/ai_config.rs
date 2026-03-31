@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -8,12 +9,17 @@ use vb_ai_config::{
     AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
     CodexDraftInput, GeminiDraftInput, StoredAiConfigPreview,
 };
+use vb_session_log::{latest_claude_session_id_for_cwd, SessionLogConfig};
 use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
-use vb_task::AgentToolKind;
+use vb_task::{AgentRuntimeRegistration, AgentToolKind};
+use vb_terminal::TerminalSessionProcessSnapshot;
 use vb_tools::agent_installer::{AgentInstaller, AgentType};
 
 use crate::app_state::AppState;
+use crate::commands::task_center::write_terminal_with_submit;
 const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
+const CLAUDE_SESSION_REFRESH_INTERRUPT: &str = "\u{3}";
+const CLAUDE_SESSION_REFRESH_DELAY_MS: u64 = 150;
 
 fn resolve_ai_config_repository(app: &AppHandle) -> Result<SqliteAiConfigRepository, String> {
     let base_dir = app
@@ -46,6 +52,175 @@ fn resolve_ai_workspace_root(
 
 fn should_inject_provider_env(tool_kind: AgentToolKind, include_provider_env: bool) -> bool {
     include_provider_env && matches!(tool_kind, AgentToolKind::Codex | AgentToolKind::Gemini)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClaudeRefreshPlan {
+    command: String,
+    submit_sequence: String,
+}
+
+fn is_shell_safe_arg(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '-' | '_' | '.' | '/' | ':' | '=' | '@' | '+')
+        })
+}
+
+fn shell_escape_arg(value: &str) -> String {
+    if is_shell_safe_arg(value) {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+fn build_claude_refresh_command(session_id: Option<&str>, model: &str) -> Option<String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return None;
+    }
+
+    let model_arg = shell_escape_arg(model);
+    let session_id = session_id.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then_some(trimmed)
+    });
+    Some(match session_id {
+        Some(session_id) => {
+            format!(
+                "claude --resume {} --model {}",
+                shell_escape_arg(session_id),
+                model_arg
+            )
+        }
+        None => format!("claude --continue --model {model_arg}"),
+    })
+}
+
+fn terminal_snapshot_has_running_claude(snapshot: &TerminalSessionProcessSnapshot) -> bool {
+    snapshot
+        .current_process
+        .iter()
+        .chain(snapshot.processes.iter())
+        .any(|process| {
+            let executable = process.executable.to_ascii_lowercase();
+            let args = process.args.to_ascii_lowercase();
+            executable.contains("claude") || args.contains("claude")
+        })
+}
+
+fn claude_refresh_session_id(runtime: &AgentRuntimeRegistration) -> Option<String> {
+    runtime
+        .provider_session
+        .as_ref()
+        .and_then(|session| {
+            session
+                .provider_session_id
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    session
+                        .log_path
+                        .as_ref()
+                        .and_then(|path| Path::new(path).file_stem())
+                        .map(|value| value.to_string_lossy().trim().to_string())
+                        .filter(|value| !value.is_empty())
+                })
+        })
+        .or_else(|| {
+            runtime.resolved_cwd.as_deref().and_then(|cwd| {
+                latest_claude_session_id_for_cwd(Path::new(cwd), SessionLogConfig::default())
+            })
+        })
+}
+
+fn build_claude_refresh_plan(
+    runtime: &AgentRuntimeRegistration,
+    snapshot: &TerminalSessionProcessSnapshot,
+    model: &str,
+) -> Option<ClaudeRefreshPlan> {
+    if runtime.tool_kind != AgentToolKind::Claude || !terminal_snapshot_has_running_claude(snapshot)
+    {
+        return None;
+    }
+
+    let session_id = claude_refresh_session_id(runtime);
+    let command = build_claude_refresh_command(session_id.as_deref(), model)?;
+    Some(ClaudeRefreshPlan {
+        command,
+        submit_sequence: runtime
+            .submit_sequence
+            .clone()
+            .unwrap_or_else(|| "\r".to_string()),
+    })
+}
+
+fn refresh_running_claude_runtimes(state: &AppState, model: Option<&str>) {
+    let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    for runtime in state.task_service.list_runtimes(None) {
+        if runtime.tool_kind != AgentToolKind::Claude {
+            continue;
+        }
+
+        let snapshot = match state
+            .terminal_provider
+            .describe_session_processes(&runtime.session_id)
+        {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %runtime.session_id,
+                    error = %error,
+                    "failed to inspect Claude runtime before session refresh"
+                );
+                continue;
+            }
+        };
+        let Some(plan) = build_claude_refresh_plan(&runtime, &snapshot, model) else {
+            continue;
+        };
+
+        tracing::info!(
+            workspace_id = %runtime.workspace_id,
+            agent_id = %runtime.agent_id,
+            session_id = %runtime.session_id,
+            command = %plan.command,
+            "refreshing running Claude runtime after provider switch"
+        );
+
+        if let Err(error) = state
+            .terminal_provider
+            .write_session(&runtime.session_id, CLAUDE_SESSION_REFRESH_INTERRUPT)
+        {
+            tracing::warn!(
+                session_id = %runtime.session_id,
+                error = %error,
+                "failed to interrupt running Claude session before refresh"
+            );
+            continue;
+        }
+
+        std::thread::sleep(Duration::from_millis(CLAUDE_SESSION_REFRESH_DELAY_MS));
+
+        if let Err(error) = write_terminal_with_submit(
+            state,
+            &runtime.session_id,
+            &plan.command,
+            &plan.submit_sequence,
+        ) {
+            tracing::warn!(
+                session_id = %runtime.session_id,
+                error = %error,
+                "failed to relaunch Claude session with refreshed model"
+            );
+        }
+    }
 }
 
 pub fn augment_terminal_env_for_agent(
@@ -280,6 +455,13 @@ pub fn ai_config_apply_patch(
             "changedKeys": changed_keys,
         }),
     );
+
+    if matches!(preview, StoredAiConfigPreview::Claude(_)) {
+        refresh_running_claude_runtimes(
+            state.inner(),
+            response.effective.claude.config.model.as_deref(),
+        );
+    }
     Ok(response)
 }
 
@@ -317,6 +499,7 @@ pub fn ai_config_switch_saved_provider(
     let service = resolve_ai_config_service(&app, &state)?;
     let agent = AiConfigAgent::parse(&agent)
         .ok_or_else(|| "AI_CONFIG_AGENT_UNSUPPORTED: unsupported agent".to_string())?;
+    let refresh_claude_runtime = agent == AiConfigAgent::Claude;
 
     let _ = state.invalidate_all_ai_config_snapshot_cache();
 
@@ -337,6 +520,13 @@ pub fn ai_config_switch_saved_provider(
             "changedKeys": [],
         }),
     );
+
+    if refresh_claude_runtime {
+        refresh_running_claude_runtimes(
+            state.inner(),
+            response.effective.claude.config.model.as_deref(),
+        );
+    }
     Ok(response)
 }
 
@@ -393,7 +583,46 @@ pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {
 
 #[cfg(test)]
 mod tests {
+    use vb_task::{AgentProviderSessionMetadata, AgentRuntimeRegistration};
+    use vb_terminal::{TerminalSessionProcessInfo, TerminalSessionProcessSnapshot};
+
     use super::*;
+
+    fn claude_runtime() -> AgentRuntimeRegistration {
+        AgentRuntimeRegistration {
+            workspace_id: "ws-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            station_id: "station-1".to_string(),
+            role_key: None,
+            session_id: "term-1".to_string(),
+            tool_kind: AgentToolKind::Claude,
+            resolved_cwd: Some("/tmp/project/.gtoffice/calude".to_string()),
+            submit_sequence: Some("\r".to_string()),
+            provider_session: Some(AgentProviderSessionMetadata {
+                provider: AgentToolKind::Claude,
+                provider_session_id: Some("session-123".to_string()),
+                log_path: None,
+                session_started_at_ms: None,
+                discovery_confidence: None,
+            }),
+            online: true,
+        }
+    }
+
+    fn process_snapshot(executable: &str, args: &str) -> TerminalSessionProcessSnapshot {
+        TerminalSessionProcessSnapshot {
+            session_id: "term-1".to_string(),
+            root_pid: Some(100),
+            current_process: Some(TerminalSessionProcessInfo {
+                pid: 200,
+                parent_pid: Some(100),
+                executable: executable.to_string(),
+                args: args.to_string(),
+                depth: 1,
+            }),
+            processes: vec![],
+        }
+    }
 
     #[test]
     fn claude_provider_env_injection_is_disabled_for_hot_switching() {
@@ -405,5 +634,41 @@ mod tests {
         assert!(should_inject_provider_env(AgentToolKind::Codex, true));
         assert!(should_inject_provider_env(AgentToolKind::Gemini, true));
         assert!(!should_inject_provider_env(AgentToolKind::Codex, false));
+    }
+
+    #[test]
+    fn build_claude_refresh_command_prefers_resume_session_id() {
+        let command = build_claude_refresh_command(Some("session-123"), "kimi-k2.5")
+            .expect("refresh command");
+        assert_eq!(command, "claude --resume session-123 --model kimi-k2.5");
+    }
+
+    #[test]
+    fn build_claude_refresh_command_falls_back_to_continue_when_session_id_is_missing() {
+        let command = build_claude_refresh_command(None, "kimi-k2.5").expect("refresh command");
+        assert_eq!(command, "claude --continue --model kimi-k2.5");
+    }
+
+    #[test]
+    fn build_claude_refresh_plan_skips_non_claude_processes() {
+        let runtime = claude_runtime();
+        let snapshot = process_snapshot("/bin/zsh", "zsh");
+        assert_eq!(
+            build_claude_refresh_plan(&runtime, &snapshot, "kimi-k2.5"),
+            None
+        );
+    }
+
+    #[test]
+    fn build_claude_refresh_plan_uses_resume_for_running_claude_process() {
+        let runtime = claude_runtime();
+        let snapshot = process_snapshot("/Users/dzlin/.local/bin/claude", "claude");
+        assert_eq!(
+            build_claude_refresh_plan(&runtime, &snapshot, "kimi-k2.5"),
+            Some(ClaudeRefreshPlan {
+                command: "claude --resume session-123 --model kimi-k2.5".to_string(),
+                submit_sequence: "\r".to_string(),
+            })
+        );
     }
 }
