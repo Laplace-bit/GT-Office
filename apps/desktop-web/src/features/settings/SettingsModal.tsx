@@ -6,6 +6,7 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
 import type { MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
+import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
 import type { ShortcutBinding } from '@features/keybindings'
 import './SettingsModal.scss'
 
@@ -144,7 +145,7 @@ export function SettingsModal({
       className="settings-modal-backdrop"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
-          onClose()
+          requestStandardModalClose('backdrop', onClose)
         }
       }}
     >
@@ -206,7 +207,7 @@ export function SettingsModal({
             <button
               type="button"
               className="settings-content-close"
-              onClick={onClose}
+              onClick={() => requestStandardModalClose('explicit', onClose)}
               aria-label={t(locale, 'settingsModal.close')}
             >
               <AppIcon name="close" width={20} height={20} aria-hidden="true" />

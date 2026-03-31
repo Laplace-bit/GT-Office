@@ -1,5 +1,6 @@
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
 import type { AgentStation } from './station-model'
 import './StationSearchModal.scss'
 
@@ -31,7 +32,7 @@ export function StationSearchModal({
       className="settings-modal-backdrop"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
-          onClose()
+          requestStandardModalClose('backdrop', onClose)
         }
       }}
     >
@@ -41,7 +42,11 @@ export function StationSearchModal({
             <h2>{locale === 'zh-CN' ? '搜索角色' : 'Search Roles'}</h2>
             <p>{locale === 'zh-CN' ? '输入关键字实时过滤中央角色。' : 'Type to filter roles in real time.'}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
+          <button
+            type="button"
+            onClick={() => requestStandardModalClose('explicit', onClose)}
+            aria-label={t(locale, 'settingsModal.close')}
+          >
             <AppIcon name="close" className="vb-icon" aria-hidden="true" />
           </button>
         </header>

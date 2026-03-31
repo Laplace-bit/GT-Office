@@ -9,6 +9,7 @@ import {
   type FsEntry,
   type FsSearchMatch,
 } from '@shell/integration/desktop-api'
+import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { resolveFileVisual } from './file-visuals'
@@ -340,7 +341,7 @@ export function GlobalFileSearchModal({
       className="settings-modal-backdrop"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
-          onClose()
+          requestStandardModalClose('backdrop', onClose)
         }
       }}
     >
@@ -352,7 +353,11 @@ export function GlobalFileSearchModal({
               <p>{t(locale, 'fileSearch.subtitle')}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
+          <button
+            type="button"
+            onClick={() => requestStandardModalClose('explicit', onClose)}
+            aria-label={t(locale, 'settingsModal.close')}
+          >
             <AppIcon name="close" className="vb-icon" aria-hidden="true" />
           </button>
         </header>

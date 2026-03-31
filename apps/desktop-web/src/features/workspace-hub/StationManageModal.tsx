@@ -7,6 +7,7 @@ import {
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
 
 import type { CreateStationInput, UpdateStationInput } from './station-model'
 import {
@@ -108,7 +109,7 @@ function RoleManageModal({
       className="settings-modal-backdrop station-role-modal-backdrop"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
-          onClose()
+          requestStandardModalClose('backdrop', onClose)
         }
       }}
     >
@@ -122,7 +123,11 @@ function RoleManageModal({
                 : 'Create, edit, and delete roles. Workspace roles override global roles.'}
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
+          <button
+            type="button"
+            onClick={() => requestStandardModalClose('explicit', onClose)}
+            aria-label={t(locale, 'settingsModal.close')}
+          >
             <AppIcon name="close" className="vb-icon" aria-hidden="true" />
           </button>
         </header>
@@ -215,7 +220,11 @@ function RoleManageModal({
               <span>{locale === 'zh-CN' ? '删除角色' : 'Delete Role'}</span>
             </button>
           )}
-          <button type="button" className="station-form-btn subtle" onClick={onClose}>
+          <button
+            type="button"
+            className="station-form-btn subtle"
+            onClick={() => requestStandardModalClose('explicit', onClose)}
+          >
             {locale === 'zh-CN' ? '关闭' : 'Close'}
           </button>
           <button
@@ -386,7 +395,7 @@ export function StationManageModal({
         className="settings-modal-backdrop"
         onClick={(event) => {
           if (event.target === event.currentTarget) {
-            onClose()
+            requestStandardModalClose('backdrop', onClose)
           }
         }}
       >
@@ -396,7 +405,11 @@ export function StationManageModal({
               <h2>{copy.title}</h2>
               <p>{copy.subtitle}</p>
             </div>
-            <button type="button" onClick={onClose} aria-label={t(locale, 'settingsModal.close')}>
+            <button
+              type="button"
+              onClick={() => requestStandardModalClose('explicit', onClose)}
+              aria-label={t(locale, 'settingsModal.close')}
+            >
               <AppIcon name="close" className="vb-icon" aria-hidden="true" />
             </button>
           </header>
@@ -543,7 +556,12 @@ export function StationManageModal({
                 <span>{deleting ? (locale === 'zh-CN' ? '删除中...' : 'Deleting...') : copy.deleteLabel}</span>
               </button>
             )}
-            <button type="button" className="station-form-btn subtle" disabled={saving || deleting} onClick={onClose}>
+            <button
+              type="button"
+              className="station-form-btn subtle"
+              disabled={saving || deleting}
+              onClick={() => requestStandardModalClose('explicit', onClose)}
+            >
               {locale === 'zh-CN' ? '取消' : 'Cancel'}
             </button>
             <button
