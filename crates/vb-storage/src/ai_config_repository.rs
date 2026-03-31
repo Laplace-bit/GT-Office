@@ -38,6 +38,7 @@ pub struct SavedClaudeProviderInput {
     pub auth_scheme: Option<String>,
     pub secret_ref: Option<String>,
     pub has_secret: bool,
+    pub settings_json: Option<String>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
     pub last_applied_at_ms: i64,
@@ -57,6 +58,7 @@ pub struct SavedClaudeProviderRecord {
     pub auth_scheme: Option<String>,
     pub secret_ref: Option<String>,
     pub has_secret: bool,
+    pub settings_json: Option<String>,
     pub is_active: bool,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
@@ -126,6 +128,10 @@ impl SqliteAiConfigRepository {
             .map_err(|error| AiConfigRepositoryError::Storage {
                 message: error.to_string(),
             })?;
+        let _ = conn.execute(
+            "ALTER TABLE ai_config_saved_claude_providers ADD COLUMN settings_json TEXT",
+            [],
+        );
         Ok(())
     }
 
@@ -244,6 +250,7 @@ impl SqliteAiConfigRepository {
                     auth_scheme,
                     secret_ref,
                     has_secret,
+                    settings_json,
                     is_active,
                     created_at_ms,
                     updated_at_ms,
@@ -275,6 +282,7 @@ impl SqliteAiConfigRepository {
                         auth_scheme,
                         secret_ref,
                         has_secret,
+                        settings_json,
                         is_active,
                         created_at_ms,
                         updated_at_ms,
@@ -330,11 +338,12 @@ impl SqliteAiConfigRepository {
                 auth_scheme,
                 secret_ref,
                 has_secret,
+                settings_json,
                 is_active,
                 created_at_ms,
                 updated_at_ms,
                 last_applied_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12, ?13, ?14)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14, ?15)
             ON CONFLICT(saved_provider_id) DO UPDATE SET
                 fingerprint = excluded.fingerprint,
                 mode = excluded.mode,
@@ -345,6 +354,7 @@ impl SqliteAiConfigRepository {
                 auth_scheme = excluded.auth_scheme,
                 secret_ref = excluded.secret_ref,
                 has_secret = excluded.has_secret,
+                settings_json = excluded.settings_json,
                 is_active = 1,
                 updated_at_ms = excluded.updated_at_ms,
                 last_applied_at_ms = excluded.last_applied_at_ms",
@@ -360,6 +370,7 @@ impl SqliteAiConfigRepository {
                 input.auth_scheme,
                 input.secret_ref,
                 input.has_secret,
+                input.settings_json,
                 created_at_ms,
                 input.updated_at_ms,
                 input.last_applied_at_ms,
@@ -399,11 +410,12 @@ impl SqliteAiConfigRepository {
                     auth_scheme,
                     secret_ref,
                     has_secret,
+                    settings_json,
                     is_active,
                     created_at_ms,
                     updated_at_ms,
                     last_applied_at_ms
-                 FROM ai_config_saved_claude_providers
+                FROM ai_config_saved_claude_providers
                  WHERE workspace_id = ?1
                  ORDER BY created_at_ms DESC, saved_provider_id DESC",
             )
@@ -445,6 +457,7 @@ impl SqliteAiConfigRepository {
                 auth_scheme,
                 secret_ref,
                 has_secret,
+                settings_json,
                 is_active,
                 created_at_ms,
                 updated_at_ms,
@@ -822,10 +835,11 @@ fn map_saved_claude_provider_row(
         auth_scheme: row.get(8)?,
         secret_ref: row.get(9)?,
         has_secret: row.get(10)?,
-        is_active: row.get::<_, i64>(11)? != 0,
-        created_at_ms: row.get(12)?,
-        updated_at_ms: row.get(13)?,
-        last_applied_at_ms: row.get(14)?,
+        settings_json: row.get(11)?,
+        is_active: row.get::<_, i64>(12)? != 0,
+        created_at_ms: row.get(13)?,
+        updated_at_ms: row.get(14)?,
+        last_applied_at_ms: row.get(15)?,
     })
 }
 
@@ -877,6 +891,7 @@ CREATE TABLE IF NOT EXISTS ai_config_saved_claude_providers (
   auth_scheme TEXT,
   secret_ref TEXT,
   has_secret INTEGER NOT NULL DEFAULT 0,
+  settings_json TEXT,
   is_active INTEGER NOT NULL DEFAULT 0,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
