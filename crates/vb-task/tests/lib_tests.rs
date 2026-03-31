@@ -541,6 +541,107 @@ fn resolve_external_route_in_workspace_ignores_other_workspace_matches() {
 }
 
 #[test]
+fn resolve_external_route_preferring_workspace_breaks_same_score_ties() {
+    let service = TaskService::default();
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-old".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "role:build".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-current".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "role:manager".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+
+    let inbound = ExternalInboundMessage {
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Direct,
+        peer_id: "user-001".to_string(),
+        sender_id: "user-001".to_string(),
+        sender_name: None,
+        message_id: "msg-1".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    };
+
+    let resolved = service
+        .resolve_external_route_preferring_workspace("ws-current", &inbound)
+        .expect("preferred route");
+    assert_eq!(resolved.workspace_id, "ws-current");
+    assert_eq!(resolved.target_agent_id, "role:manager");
+}
+
+#[test]
+fn resolve_external_route_preferring_workspace_does_not_override_higher_score_match() {
+    let service = TaskService::default();
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-current".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "role:manager".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-other".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: Some("user-*".to_string()),
+        target_agent_id: "assistant-a".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+
+    let inbound = ExternalInboundMessage {
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Direct,
+        peer_id: "user-001".to_string(),
+        sender_id: "user-001".to_string(),
+        sender_name: None,
+        message_id: "msg-1".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    };
+
+    let resolved = service
+        .resolve_external_route_preferring_workspace("ws-current", &inbound)
+        .expect("higher score route");
+    assert_eq!(resolved.workspace_id, "ws-other");
+    assert_eq!(resolved.target_agent_id, "assistant-a");
+    assert_eq!(resolved.matched_by, "binding.peer");
+}
+
+#[test]
 fn resolve_external_route_skips_disabled_bindings() {
     let service = TaskService::default();
     service.upsert_route_binding(ChannelRouteBinding {

@@ -662,7 +662,19 @@ impl TaskService {
         &self,
         inbound: &ExternalInboundMessage,
     ) -> Option<ExternalRouteResolution> {
-        self.resolve_external_route_matching(inbound, |_| true)
+        self.resolve_external_route_matching(inbound, |_| true, None)
+    }
+
+    pub fn resolve_external_route_preferring_workspace(
+        &self,
+        preferred_workspace_id: &str,
+        inbound: &ExternalInboundMessage,
+    ) -> Option<ExternalRouteResolution> {
+        let preferred_workspace_id = preferred_workspace_id.trim();
+        if preferred_workspace_id.is_empty() {
+            return self.resolve_external_route(inbound);
+        }
+        self.resolve_external_route_matching(inbound, |_| true, Some(preferred_workspace_id))
     }
 
     pub fn resolve_external_route_in_workspace(
@@ -676,13 +688,14 @@ impl TaskService {
         }
         self.resolve_external_route_matching(inbound, |binding| {
             binding.workspace_id == workspace_id
-        })
+        }, None)
     }
 
     fn resolve_external_route_matching<F>(
         &self,
         inbound: &ExternalInboundMessage,
         workspace_filter: F,
+        preferred_workspace_id: Option<&str>,
     ) -> Option<ExternalRouteResolution>
     where
         F: Fn(&ChannelRouteBinding) -> bool,
@@ -695,7 +708,7 @@ impl TaskService {
         }
 
         let guard = self.state.read().ok()?;
-        let mut candidates: Vec<(i32, &ChannelRouteBinding, String)> = Vec::new();
+        let mut candidates: Vec<(i32, i32, &ChannelRouteBinding, String)> = Vec::new();
         for binding in &guard.route_bindings {
             if !workspace_filter(binding) {
                 continue;
@@ -720,11 +733,14 @@ impl TaskService {
                 }
             }
             let score = route_score(binding);
+            let preferred_workspace_score = preferred_workspace_id
+                .map(|workspace_id| i32::from(binding.workspace_id == workspace_id))
+                .unwrap_or(0);
             let matched_by = resolve_matched_by(binding);
-            candidates.push((score, binding, matched_by));
+            candidates.push((score, preferred_workspace_score, binding, matched_by));
         }
-        candidates.sort_by(|a, b| b.0.cmp(&a.0));
-        let (_, selected, matched_by) = candidates.first()?;
+        candidates.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        let (_, _, selected, matched_by) = candidates.first()?;
         Some(ExternalRouteResolution {
             workspace_id: selected.workspace_id.clone(),
             target_agent_id: selected.target_agent_id.clone(),

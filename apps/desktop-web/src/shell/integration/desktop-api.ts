@@ -1778,6 +1778,7 @@ export interface ExternalChannelRoutedPayload {
   workspaceId: string
   targetAgentId: string
   matchedBy: string
+  resolvedTargets?: string[] | null
 }
 
 export interface ExternalChannelDispatchProgressPayload {

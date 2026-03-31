@@ -2227,10 +2227,41 @@ export function ShellRoot() {
           emitTelegramInboundDebugToast(payload)
         },
         onExternalRouted: (payload) => {
-          bindExternalTraceTarget(payload.traceId, payload.targetAgentId)
+          const resolvedTarget =
+            payload.resolvedTargets?.find((value) => typeof value === 'string' && value.trim().length > 0) ??
+            payload.targetAgentId
+          bindExternalTraceTarget(payload.traceId, resolvedTarget)
         },
         onExternalDispatchProgress: (payload) => {
           bindExternalTraceTarget(payload.traceId, payload.targetAgentId)
+          if (payload.status !== 'failed') {
+            return
+          }
+          const traceContext = externalTraceContextRef.current[payload.traceId]
+          const endpointKey =
+            traceContext?.endpointKey ??
+            buildExternalEndpointKey({
+              channel: traceContext?.channel,
+              accountId: traceContext?.accountId,
+              peerKind: traceContext?.peerKind,
+              peerId: traceContext?.peerId,
+            })
+          appendExternalChannelEvent({
+            kind: 'error',
+            primary: payload.detail?.trim() || 'Dispatch failed',
+            channel: traceContext?.channel,
+            status: 'failed',
+            detail: payload.detail ?? 'Dispatch failed',
+            mergeKey: `dispatch-failed:${payload.traceId}:${payload.targetAgentId}`,
+            traceId: payload.traceId,
+            accountId: traceContext?.accountId,
+            peerKind: traceContext?.peerKind,
+            peerId: traceContext?.peerId,
+            senderId: traceContext?.senderId,
+            targetAgentId: payload.targetAgentId,
+            endpointKey,
+            conversationKey: buildExternalConversationKey(endpointKey, payload.targetAgentId),
+          })
         },
         onExternalReply: () => {
           // `external/channel_reply` is an internal channel ack mirrored from task dispatch,

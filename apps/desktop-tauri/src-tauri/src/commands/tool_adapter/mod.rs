@@ -2169,6 +2169,16 @@ fn route_from_hints(message: &ExternalInboundMessage) -> Option<ExternalRouteRes
     })
 }
 
+fn active_workspace_id(state: &AppState) -> Option<String> {
+    state
+        .workspace_service
+        .list()
+        .ok()?
+        .into_iter()
+        .find(|workspace| workspace.active)
+        .map(|workspace| workspace.workspace_id.to_string())
+}
+
 fn align_route_with_resolved_workspace(
     state: &AppState,
     message: &ExternalInboundMessage,
@@ -2509,10 +2519,15 @@ pub(crate) fn process_external_inbound_message(
         return Ok(response);
     }
 
-    let route = state
-        .task_service
-        .resolve_external_route(&message)
-        .or_else(|| route_from_hints(&message));
+    let route = route_from_hints(&message)
+        .or_else(|| {
+            active_workspace_id(state).and_then(|workspace_id| {
+                state
+                    .task_service
+                    .resolve_external_route_preferring_workspace(&workspace_id, &message)
+            })
+        })
+        .or_else(|| state.task_service.resolve_external_route(&message));
     let Some(route) = route else {
         let response = ExternalInboundResponse {
             trace_id: trace_id.clone(),
