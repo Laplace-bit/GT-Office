@@ -300,9 +300,10 @@ function StationCardView({
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
   const roleText = roleLabel(locale, station)
   const identityMeta = useMemo(
-    () => buildStationCardIdentityMeta(roleText, station.tool),
-    [roleText, station.tool],
+    () => buildStationCardIdentityMeta(station.name, roleText, station.tool),
+    [roleText, station.name, station.tool],
   )
+  const identityTitle = useMemo(() => identityMeta.map((item) => item.label).join(' · '), [identityMeta])
   const launchState = resolveStationCardLaunchState({
     sessionId: runtime?.sessionId ?? null,
     stateRaw: runtime?.stateRaw ?? null,
@@ -462,16 +463,16 @@ function StationCardView({
           }
         >
           <div className="station-window-title-row">
-            <h3 title={station.name}>{station.name}</h3>
-            {identityMeta.map((item) => (
-              <span
-                key={`${station.id}:${item.kind}`}
-                className={['station-window-context-pill', `is-${item.kind}`].join(' ')}
-                title={item.label}
-              >
-                {item.label}
-              </span>
-            ))}
+            <div className="station-window-identity-pill" title={identityTitle}>
+              {identityMeta.map((item) => (
+                <span
+                  key={`${station.id}:${item.kind}`}
+                  className={['station-window-identity-segment', `is-${item.kind}`].join(' ')}
+                >
+                  {item.label}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
         {!active && activitySignal ? (

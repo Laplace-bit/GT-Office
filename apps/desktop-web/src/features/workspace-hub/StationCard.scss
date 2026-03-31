@@ -71,16 +71,15 @@
   align-items: center;
   justify-content: space-between;
   gap: rem(6);
-  background: var(--vb-glass-lighter);
-  border-bottom: rem(1) solid var(--vb-border-subtle);
+  background: transparent;
+  border-bottom: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
 }
 
 .station-window-title-wrap {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: rem(2);
+  align-items: center;
 
   &.station-window-drag-source {
     cursor: grab;
@@ -95,22 +94,8 @@
 .station-window-title-row {
   display: flex;
   align-items: center;
-  gap: rem(4);
   min-width: 0;
-  flex-wrap: wrap;
-  row-gap: rem(2);
-
-  h3 {
-    flex: 0 1 auto;
-    font-size: rem(12.5);
-    font-weight: 700;
-    color: var(--vb-text);
-    margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    letter-spacing: -0.01em;
-  }
+  max-width: 100%;
 }
 
 :root[data-vb-platform='linux'] {
@@ -137,42 +122,74 @@
   }
 
   .station-window-header {
-    background: var(--vb-surface);
+    background: transparent;
   }
 }
 
-.station-window-context-pill,
-.station-window-tool-pill {
+.station-window-identity-pill {
   display: inline-flex;
   align-items: center;
-  min-height: rem(16);
+  gap: rem(6);
+  min-height: rem(24);
+  min-width: 0;
   max-width: 100%;
-  padding: 0 rem(7);
+  padding: rem(3) rem(10);
   border-radius: rem(999);
-  border: rem(1) solid var(--vb-border-subtle);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, rgba(255, 255, 255, 0.06));
+  background: color-mix(in srgb, var(--vb-surface) 70%, transparent);
+  box-shadow:
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.08),
+    0 rem(1) rem(2) rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(rem(16)) saturate(160%);
+  -webkit-backdrop-filter: blur(rem(16)) saturate(160%);
+}
+
+.station-window-identity-segment {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+
+  & + &::before {
+    content: '·';
+    margin-right: rem(6);
+    color: color-mix(in srgb, var(--vb-text-muted) 78%, transparent);
+  }
+}
+
+.station-window-identity-segment.is-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: rem(12.5);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--vb-text);
+}
+
+.station-window-identity-segment.is-role,
+.station-window-identity-segment.is-tool {
+  flex: 0 0 auto;
   font-size: rem(9.25);
   font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.station-window-context-pill {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--vb-text-muted);
-}
-
-.station-window-context-pill.is-role {
-  color: color-mix(in srgb, var(--vb-accent) 64%, white 36%);
-  border-color: color-mix(in srgb, var(--vb-accent) 24%, rgba(255, 255, 255, 0.08));
-  background: color-mix(in srgb, var(--vb-accent) 8%, rgba(255, 255, 255, 0.05));
-}
-
-.station-window-tool-pill {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--vb-text-muted);
-  padding-inline: rem(6);
   letter-spacing: 0.03em;
+  line-height: 1.2;
+}
+
+.station-window-identity-segment.is-role {
+  color: color-mix(in srgb, var(--vb-accent) 64%, white 36%);
+}
+
+.station-window-identity-segment.is-tool {
+  color: var(--vb-text-muted);
+}
+
+:root[data-vb-platform='linux'] {
+  .station-window-identity-pill {
+    background: color-mix(in srgb, var(--vb-surface) 94%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .station-window-header > .station-window-activity-comet {
@@ -419,25 +436,13 @@
 
   .station-window-title-wrap {
     width: 100%;
-    gap: rem(2);
   }
 
   .station-window-title-row {
-    gap: rem(5);
-
-    h3 {
-      white-space: normal;
-      display: -webkit-box;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      overflow-wrap: anywhere;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-    }
+    width: 100%;
   }
 
-  .station-window-context-pill {
-    font-size: rem(9);
+  .station-window-identity-pill {
     max-width: 100%;
   }
 
@@ -483,7 +488,7 @@
     align-items: flex-start;
   }
 
-  .station-window-context-pill {
+  .station-window-identity-pill {
     max-width: 100%;
   }
 

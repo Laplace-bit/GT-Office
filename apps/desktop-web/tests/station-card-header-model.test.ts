@@ -70,8 +70,9 @@ test('primary launch still starts cli agent when the terminal session exists but
   assert.deepEqual(calls, ['select:agent-03', 'focus', 'launch:agent-03'])
 })
 
-test('header identity meta keeps role first and agent tool second while launch state follows actual agent runtime', () => {
-  assert.deepEqual(buildStationCardIdentityMeta('产品角色', 'codex cli'), [
+test('header identity meta exposes name, role, and tool in grouped order while launch state follows actual agent runtime', () => {
+  assert.deepEqual(buildStationCardIdentityMeta('Alpha', '产品角色', 'codex cli'), [
+    { kind: 'name', label: 'Alpha' },
     { kind: 'role', label: '产品角色' },
     { kind: 'tool', label: 'codex cli' },
   ])
