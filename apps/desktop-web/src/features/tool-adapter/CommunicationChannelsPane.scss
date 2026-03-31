@@ -1,13 +1,38 @@
 @use '../../styles/tokens/responsive' as *;
 
 .communication-channels-pane {
-  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 90%, rgba(255, 255, 255, 0.32));
-  --communication-surface-border: color-mix(in srgb, var(--vb-border) 84%, transparent);
+  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 88%, rgba(255, 255, 255, 0.44));
+  --communication-surface-border: color-mix(in srgb, var(--vb-border) 80%, rgba(255, 255, 255, 0.22));
   --communication-header-divider: color-mix(in srgb, var(--vb-border-subtle) 85%, transparent);
-  --communication-inbound-bubble-bg: color-mix(in srgb, var(--vb-accent) 14%, rgba(255, 255, 255, 0.82));
-  --communication-inbound-bubble-border: color-mix(in srgb, var(--vb-accent) 34%, var(--vb-border));
-  --communication-outbound-bubble-bg: color-mix(in srgb, var(--vb-panel-bg) 92%, rgba(255, 255, 255, 0.42));
-  --communication-outbound-bubble-border: color-mix(in srgb, var(--vb-border) 88%, transparent);
+  --communication-tab-bg: color-mix(in srgb, rgba(255, 255, 255, 0.6) 78%, transparent);
+  --communication-tab-active-bg: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.9),
+    color-mix(in srgb, rgba(232, 240, 255, 0.9) 64%, rgba(255, 255, 255, 0.74))
+  );
+  --communication-tab-active-border: color-mix(in srgb, rgba(125, 151, 198, 0.55) 70%, transparent);
+  --communication-tab-count-bg: rgba(255, 255, 255, 0.64);
+  --communication-inbound-bubble-bg: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.84),
+    color-mix(in srgb, rgba(247, 249, 252, 0.94) 72%, rgba(231, 238, 247, 0.92))
+  );
+  --communication-inbound-bubble-border: color-mix(in srgb, rgba(140, 154, 179, 0.34) 76%, transparent);
+  --communication-outbound-bubble-bg: linear-gradient(
+    180deg,
+    rgba(245, 250, 255, 0.94),
+    color-mix(in srgb, rgba(217, 235, 255, 0.94) 58%, rgba(224, 244, 239, 0.9))
+  );
+  --communication-outbound-bubble-border: color-mix(in srgb, rgba(120, 159, 215, 0.42) 78%, transparent);
+  --communication-bubble-shadow: rgba(15, 23, 42, 0.08);
+  --communication-bubble-highlight: rgba(255, 255, 255, 0.52);
+  --communication-failed-bubble-bg: linear-gradient(
+    180deg,
+    rgba(255, 244, 242, 0.96),
+    color-mix(in srgb, rgba(255, 227, 220, 0.92) 56%, rgba(255, 240, 236, 0.94))
+  );
+  --communication-failed-bubble-border: color-mix(in srgb, rgba(226, 86, 67, 0.42) 76%, transparent);
+  --communication-failed-detail: color-mix(in srgb, var(--vb-error) 70%, var(--vb-text-muted));
 
   display: flex;
   flex-direction: column;
@@ -32,12 +57,37 @@
 }
 
 :root[data-theme='graphite-dark'] .communication-channels-pane {
-  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 90%, #000000 10%);
-  --communication-surface-border: color-mix(in srgb, var(--vb-border) 92%, #000000 8%);
-  --communication-inbound-bubble-bg: color-mix(in srgb, var(--vb-accent) 16%, rgba(12, 19, 29, 0.9));
-  --communication-inbound-bubble-border: color-mix(in srgb, var(--vb-accent) 38%, rgba(255, 255, 255, 0.18));
-  --communication-outbound-bubble-bg: color-mix(in srgb, var(--vb-panel-bg) 84%, #050607 16%);
-  --communication-outbound-bubble-border: color-mix(in srgb, var(--vb-border) 88%, rgba(0, 0, 0, 0.36));
+  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 86%, rgba(4, 8, 16, 0.48));
+  --communication-surface-border: color-mix(in srgb, var(--vb-border) 80%, rgba(0, 0, 0, 0.22));
+  --communication-tab-bg: color-mix(in srgb, rgba(11, 18, 29, 0.92) 72%, rgba(255, 255, 255, 0.04));
+  --communication-tab-active-bg: linear-gradient(
+    180deg,
+    rgba(24, 37, 57, 0.96),
+    color-mix(in srgb, rgba(31, 54, 88, 0.94) 54%, rgba(18, 30, 49, 0.94))
+  );
+  --communication-tab-active-border: color-mix(in srgb, rgba(112, 143, 208, 0.4) 74%, transparent);
+  --communication-tab-count-bg: rgba(255, 255, 255, 0.08);
+  --communication-inbound-bubble-bg: linear-gradient(
+    180deg,
+    rgba(21, 29, 41, 0.96),
+    color-mix(in srgb, rgba(19, 27, 39, 0.96) 72%, rgba(9, 15, 24, 0.96))
+  );
+  --communication-inbound-bubble-border: color-mix(in srgb, rgba(112, 128, 157, 0.24) 78%, transparent);
+  --communication-outbound-bubble-bg: linear-gradient(
+    180deg,
+    rgba(20, 41, 58, 0.96),
+    color-mix(in srgb, rgba(22, 54, 83, 0.96) 48%, rgba(19, 40, 57, 0.96))
+  );
+  --communication-outbound-bubble-border: color-mix(in srgb, rgba(108, 156, 222, 0.26) 76%, transparent);
+  --communication-bubble-shadow: rgba(0, 0, 0, 0.36);
+  --communication-bubble-highlight: rgba(255, 255, 255, 0.12);
+  --communication-failed-bubble-bg: linear-gradient(
+    180deg,
+    rgba(72, 29, 31, 0.94),
+    color-mix(in srgb, rgba(98, 36, 40, 0.94) 56%, rgba(57, 24, 28, 0.94))
+  );
+  --communication-failed-bubble-border: color-mix(in srgb, rgba(255, 123, 116, 0.3) 74%, transparent);
+  --communication-failed-detail: color-mix(in srgb, rgba(255, 160, 150, 0.78) 76%, var(--vb-text-muted));
 }
 
 .communication-channels-header h2 {
@@ -50,7 +100,8 @@
 
 .communication-channels-surface {
   background:
-    linear-gradient(180deg, color-mix(in srgb, rgba(255, 255, 255, 0.5) 40%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, rgba(255, 255, 255, 0.58) 38%, transparent), transparent 34%),
+    radial-gradient(circle at top right, rgba(121, 162, 255, 0.16), transparent 28%),
     var(--communication-surface-bg);
   border: rem(1) solid var(--communication-surface-border);
   border-radius: rem(24);
@@ -64,6 +115,7 @@
 :root[data-theme='graphite-dark'] .communication-channels-surface {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 38%),
+    radial-gradient(circle at top right, rgba(90, 128, 218, 0.18), transparent 32%),
     var(--communication-surface-bg);
   box-shadow:
     0 rem(16) rem(42) rgba(0, 0, 0, 0.45),
@@ -80,8 +132,8 @@
 .communication-channels-tabs {
   display: flex;
   align-items: center;
-  gap: rem(12);
-  padding: 0 rem(14);
+  gap: rem(8);
+  padding: rem(10) rem(14) rem(8);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -104,24 +156,24 @@
   gap: rem(8);
   min-width: 0;
   max-width: min(52%, rem(420));
-  padding: rem(9) 0 rem(8);
-  border: 0;
-  border-bottom: rem(2) solid transparent;
-  background: transparent;
+  padding: rem(8) rem(10);
+  border: rem(1) solid transparent;
+  border-radius: rem(12);
+  background: var(--communication-tab-bg);
   color: var(--vb-text-muted);
   cursor: pointer;
   transition:
     color var(--vb-duration-fast) var(--vb-ease-out),
+    background var(--vb-duration-fast) var(--vb-ease-out),
     border-color var(--vb-duration-fast) var(--vb-ease-out);
-
-  &:hover {
-    color: var(--vb-text);
-    border-bottom-color: color-mix(in srgb, var(--vb-accent) 36%, transparent);
-  }
 
   &.is-active {
     color: var(--vb-text);
-    border-bottom-color: var(--vb-accent);
+    background: var(--communication-tab-active-bg);
+    border-color: var(--communication-tab-active-border);
+    box-shadow:
+      inset 0 rem(1) 0 rgba(255, 255, 255, 0.18),
+      0 rem(10) rem(24) rgba(15, 23, 42, 0.08);
   }
 }
 
@@ -143,6 +195,9 @@
   font-size: rem(10);
   font-weight: 500;
   line-height: 1;
+  padding: rem(3) rem(5);
+  border-radius: var(--vb-radius-full);
+  background: var(--communication-tab-count-bg);
 }
 
 .communication-channels-empty {
@@ -199,58 +254,48 @@
   flex-direction: column;
   gap: rem(6);
   max-width: min(88%, rem(720));
-  animation: communication-message-enter var(--vb-duration-normal) var(--vb-ease-out);
-
-  &.is-inbound {
-    align-self: flex-end;
-  }
-
-  &.is-outbound {
-    align-self: flex-start;
-  }
+  animation: communication-message-enter 220ms cubic-bezier(0.22, 0.88, 0.3, 1.08);
 }
 
 .communication-channels-bubble {
+  position: relative;
   padding: rem(10) rem(12);
-  border-radius: rem(17);
+  border-radius: rem(18);
   border: rem(1) solid var(--communication-outbound-bubble-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 56%),
-    var(--communication-outbound-bubble-bg);
+  background: var(--communication-outbound-bubble-bg);
   box-shadow:
-    0 rem(1) 0 rgba(255, 255, 255, 0.14) inset,
-    0 rem(8) rem(20) rgba(15, 23, 42, 0.09);
-  backdrop-filter: blur(rem(16));
-  transition:
-    background var(--vb-duration-fast) var(--vb-ease-out),
-    border-color var(--vb-duration-fast) var(--vb-ease-out),
-    box-shadow var(--vb-duration-fast) var(--vb-ease-out);
+    0 rem(1) 0 var(--communication-bubble-highlight) inset,
+    0 rem(14) rem(28) var(--communication-bubble-shadow);
+  backdrop-filter: blur(rem(18)) saturate(140%);
+  -webkit-backdrop-filter: blur(rem(18)) saturate(140%);
+}
 
-  &:hover {
-    box-shadow:
-      0 rem(1) 0 rgba(255, 255, 255, 0.32) inset,
-      0 rem(10) rem(22) rgba(15, 23, 42, 0.1);
-  }
+.communication-channels-bubble::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: rem(1);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0));
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 .communication-channels-message-row.is-inbound .communication-channels-bubble {
   border-color: var(--communication-inbound-bubble-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 56%),
-    var(--communication-inbound-bubble-bg);
-}
-
-:root[data-theme='graphite-dark'] .communication-channels-bubble:hover {
-  box-shadow:
-    0 rem(1) 0 rgba(255, 255, 255, 0.12) inset,
-    0 rem(10) rem(24) rgba(0, 0, 0, 0.45);
+  background: var(--communication-inbound-bubble-bg);
 }
 
 .communication-channels-bubble.is-failed {
-  border-color: color-mix(in srgb, var(--vb-error) 45%, var(--vb-border-strong));
-  background:
-    linear-gradient(180deg, rgba(255, 69, 58, 0.12), transparent 56%),
-    color-mix(in srgb, var(--vb-error-bg) 32%, var(--communication-outbound-bubble-bg));
+  border-color: var(--communication-failed-bubble-border);
+  background: var(--communication-failed-bubble-bg);
+  box-shadow:
+    0 rem(1) 0 color-mix(in srgb, rgba(255, 255, 255, 0.24) 72%, transparent) inset,
+    0 rem(16) rem(30) rgba(95, 23, 18, 0.16);
 }
 
 .communication-channels-message-content {
@@ -273,15 +318,24 @@
   word-break: break-word;
 }
 
+.communication-channels-bubble.is-failed .communication-channels-message-detail {
+  color: var(--communication-failed-detail);
+}
+
 @keyframes communication-message-enter {
   from {
     opacity: 0;
-    transform: translateY(rem(4));
+    transform: translateY(rem(6)) scale(0.985);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translateY(0) scale(1.01);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -318,7 +372,7 @@
     animation: none;
   }
 
-  .communication-channels-bubble {
+  .communication-channels-tab {
     transition: none;
   }
 }

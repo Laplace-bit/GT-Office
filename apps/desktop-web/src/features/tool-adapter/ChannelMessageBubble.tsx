@@ -30,7 +30,6 @@ export function ChannelMessageBubble({
     <div
       className={`communication-channels-message-row is-${direction}`}
       style={{
-        animation: 'none',
         maxWidth: toRem(laneWidth),
         width: '100%',
         ...style,
