@@ -27,6 +27,14 @@ import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon, type AppIconName } from '@shell/ui/icons'
 
 import { AiConfigOverlay } from './AiConfigOverlay'
+import {
+  filterSavedProviders,
+  localizeLabel,
+  resolveModeLabel,
+  resolveSavedProviderFacts,
+  resolveSavedProviderMeta,
+  type ProviderMode,
+} from './provider-workspace-presenter.js'
 import { describeUnknownError } from './provider-utils'
 
 import './ProviderWorkspaceModal.scss'
@@ -60,46 +68,10 @@ type ProviderWorkspaceModalProps =
       onClose: () => void
     }
 
-type ProviderMode = 'official' | 'preset' | 'custom'
 type EditorMode = 'create' | 'edit' | 'duplicate'
 type ViewMode = 'list' | 'editor'
-type SavedProvider =
-  | ClaudeSavedProviderSnapshot
-  | CodexSavedProviderSnapshot
-  | GeminiSavedProviderSnapshot
 
 const CUSTOM_PROVIDER_ID = 'custom-gateway'
-
-function formatSavedProviderTimestamp(locale: Locale, value: number | null | undefined): string {
-  if (!value || value <= 0) {
-    return t(locale, '未更新', 'Never updated')
-  }
-
-  return new Intl.DateTimeFormat(locale === 'zh-CN' ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value))
-}
-
-function resolveModeLabel(locale: Locale, mode: ProviderMode): string {
-  if (mode === 'official') {
-    return t(locale, '官方', 'Official')
-  }
-  if (mode === 'preset') {
-    return t(locale, '预设', 'Preset')
-  }
-  return t(locale, '自定义', 'Custom')
-}
-
-function localizeLabel(locale: Locale, value?: string | null): string {
-  if (!value) {
-    return ''
-  }
-  return translateMaybeKey(locale, value) || value
-}
 
 function resolveSelectedType(authMode: GeminiAuthMode): string {
   return authMode === 'oauth' ? 'oauth-personal' : 'gemini-api-key'
@@ -107,39 +79,6 @@ function resolveSelectedType(authMode: GeminiAuthMode): string {
 
 function resolveAgentDisplayName(locale: Locale, agent: AiAgentSnapshotCard): string {
   return translateMaybeKey(locale, agent.title)
-}
-
-function resolveActiveSummary(
-  locale: Locale,
-  config: ClaudeConfigSnapshot | CodexConfigSnapshot | GeminiConfigSnapshot,
-): string {
-  if (!config.activeMode) {
-    return t(locale, '尚未配置模型供应商', 'No provider configured yet')
-  }
-
-  const provider = localizeLabel(locale, config.providerName) || t(locale, '未命名供应商', 'Unnamed provider')
-  const model = config.model?.trim() || t(locale, '默认模型', 'Default model')
-  return `${resolveModeLabel(locale, config.activeMode)} · ${provider} · ${model}`
-}
-
-function filterSavedProviders(locale: Locale, providers: SavedProvider[], keyword: string): SavedProvider[] {
-  const query = keyword.trim().toLowerCase()
-  if (!query) {
-    return providers
-  }
-
-  return providers.filter((provider) => {
-    const haystack = [
-      localizeLabel(locale, provider.providerName),
-      provider.model ?? '',
-      provider.baseUrl ?? '',
-      provider.providerId ?? '',
-    ]
-      .join(' ')
-      .toLowerCase()
-
-    return haystack.includes(query)
-  })
 }
 
 interface ProviderIconButtonProps {
@@ -724,8 +663,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
     }
   }
 
-  const latestUpdatedAtMs = savedProviders.reduce((latest, item) => Math.max(latest, item.updatedAtMs), currentConfig.updatedAtMs ?? 0)
-  const toolbarSummary = resolveActiveSummary(locale, currentConfig)
   const editorTitle =
     editorMode === 'edit'
       ? t(locale, '编辑模型供应商', 'Edit provider')
@@ -740,28 +677,6 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
       onClose={onClose}
     >
       <div className="provider-workspace">
-        <header className="provider-workspace__header">
-          <div className="provider-workspace__summary-card">
-            <div className="provider-workspace__summary-top">
-              <strong>{t(locale, '当前生效', 'Active')}</strong>
-              <span>{savedProviders.length} {t(locale, '份配置', 'configs')}</span>
-            </div>
-            <h4>{toolbarSummary}</h4>
-            <p>
-              {t(locale, '最近更新', 'Last updated')}: {formatSavedProviderTimestamp(locale, latestUpdatedAtMs)}
-            </p>
-          </div>
-
-          <div className="provider-workspace__summary-card is-secondary">
-            <div className="provider-workspace__summary-top">
-              <strong>{t(locale, 'CLI 状态', 'CLI status')}</strong>
-              <span>{agent.installStatus.installed ? t(locale, '已安装', 'Installed') : t(locale, '未安装', 'Not installed')}</span>
-            </div>
-            <h4>{agent.installStatus.executable || t(locale, '等待安装 CLI', 'CLI not installed yet')}</h4>
-            <p>{translateMaybeKey(locale, agent.subtitle)}</p>
-          </div>
-        </header>
-
         {error && <div className="provider-workspace__feedback is-error">{error}</div>}
         {success && <div className="provider-workspace__feedback is-success">{success}</div>}
 
@@ -769,8 +684,8 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
           <section className="provider-workspace__panel">
             <div className="provider-workspace__toolbar">
               <div>
-                <h4>{t(locale, '模型供应商', 'Model Providers')}</h4>
-                <p>{t(locale, '打开后直接管理已配置列表，新增、切换、复制和删除都在这里完成。', 'Manage your configured providers here. Add, switch, duplicate, or delete without leaving this view.')}</p>
+                <h4>{t(locale, '已保存供应商', 'Saved providers')}</h4>
+                <p>{t(locale, '这里集中管理已保存配置，可直接新增、切换、复制或删除。', 'Manage saved provider configurations here. Add, switch, duplicate, or delete from one place.')}</p>
               </div>
               <div className="provider-workspace__toolbar-actions">
                 <label className="provider-workspace__search-wrap">
@@ -816,14 +731,16 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                     loading
                     || switchingSavedProviderId === savedProvider.savedProviderId
                     || deletingSavedProviderId === savedProvider.savedProviderId
+                  const savedProviderMeta = resolveSavedProviderMeta(locale, agentId, savedProvider)
+                  const savedProviderFacts = resolveSavedProviderFacts(locale, savedProvider)
 
                   return (
                     <article
                       key={savedProvider.savedProviderId}
                       className={`provider-workspace__item ${savedProvider.isActive ? 'is-active' : ''}`}
                     >
-                      <div className="provider-workspace__item-top">
-                        <div>
+                      <div className="provider-workspace__item-main">
+                        <div className="provider-workspace__item-top">
                           <div className="provider-workspace__item-title">
                             <strong>{localizeLabel(locale, savedProvider.providerName)}</strong>
                             {savedProvider.isActive && (
@@ -834,70 +751,58 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                             )}
                           </div>
                           <div className="provider-workspace__item-meta">
-                            <span>{resolveModeLabel(locale, savedProvider.mode)}</span>
-                            {savedProvider.model && <span>{savedProvider.model}</span>}
-                            {savedProvider.hasSecret && <span>{t(locale, '密钥已托管', 'Secret vaulted')}</span>}
-                            {agentId === 'gemini' && (
-                              <span>{(savedProvider as GeminiSavedProviderSnapshot).authMode === 'oauth' ? 'OAuth' : 'API Key'}</span>
-                            )}
+                            {savedProviderMeta.map((meta, index) => (
+                              <span key={`${meta}-${index}`}>{meta}</span>
+                            ))}
                           </div>
                         </div>
 
-                        <div className="provider-workspace__item-actions">
-                          {savedProvider.isActive ? (
-                            <ProviderIconButton
-                              icon="check"
-                              label={t(locale, '当前生效', 'Active')}
-                              disabled
-                              tone="active"
-                            />
-                          ) : (
-                            <ProviderIconButton
-                              icon={switchingSavedProviderId === savedProvider.savedProviderId ? 'activity' : 'check'}
-                              label={
-                                switchingSavedProviderId === savedProvider.savedProviderId
-                                  ? t(locale, '切换中...', 'Switching...')
-                                  : t(locale, '设为当前', 'Set active')
-                              }
-                              disabled={isBusy}
-                              onClick={() => void handleSwitchSavedProvider(savedProvider.savedProviderId)}
-                            />
-                          )}
-                          <ProviderIconButton
-                            icon="pencil"
-                            label={t(locale, '编辑', 'Edit')}
-                            disabled={isBusy}
-                            onClick={() => openEditEditor(savedProvider.savedProviderId)}
-                          />
-                          <ProviderIconButton
-                            icon="copy"
-                            label={t(locale, '复制', 'Duplicate')}
-                            disabled={isBusy}
-                            onClick={() => openDuplicateEditor(savedProvider.savedProviderId)}
-                          />
-                          <ProviderIconButton
-                            icon={deletingSavedProviderId === savedProvider.savedProviderId ? 'activity' : 'trash'}
-                            label={
-                              deletingSavedProviderId === savedProvider.savedProviderId
-                                ? t(locale, '删除中...', 'Deleting...')
-                                : t(locale, '删除', 'Delete')
-                            }
-                            disabled={isBusy}
-                            tone="danger"
-                            onClick={() => void handleDeleteSavedProvider(savedProvider.savedProviderId)}
-                          />
+                        <div className="provider-workspace__item-facts">
+                          {savedProviderFacts.map((fact) => (
+                            <div key={fact.label} className="provider-workspace__item-fact">
+                              <span>{fact.label}</span>
+                              <strong title={fact.value}>{fact.value}</strong>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
-                      <div className="provider-workspace__item-grid">
-                        <div>
-                          <span>{t(locale, 'Endpoint', 'Endpoint')}</span>
-                          <strong>{savedProvider.baseUrl || t(locale, '官方模式由 CLI 原生托管', 'Managed natively by the CLI')}</strong>
-                        </div>
-                        <div>
-                          <span>{t(locale, '最近应用', 'Last applied')}</span>
-                          <strong>{formatSavedProviderTimestamp(locale, savedProvider.lastAppliedAtMs)}</strong>
-                        </div>
+                      <div className="provider-workspace__item-actions">
+                        {!savedProvider.isActive && (
+                          <ProviderIconButton
+                            icon={switchingSavedProviderId === savedProvider.savedProviderId ? 'activity' : 'check'}
+                            label={
+                              switchingSavedProviderId === savedProvider.savedProviderId
+                                ? t(locale, '切换中...', 'Switching...')
+                                : t(locale, '设为当前', 'Set active')
+                            }
+                            disabled={isBusy}
+                            onClick={() => void handleSwitchSavedProvider(savedProvider.savedProviderId)}
+                          />
+                        )}
+                        <ProviderIconButton
+                          icon="pencil"
+                          label={t(locale, '编辑', 'Edit')}
+                          disabled={isBusy}
+                          onClick={() => openEditEditor(savedProvider.savedProviderId)}
+                        />
+                        <ProviderIconButton
+                          icon="copy"
+                          label={t(locale, '复制', 'Duplicate')}
+                          disabled={isBusy}
+                          onClick={() => openDuplicateEditor(savedProvider.savedProviderId)}
+                        />
+                        <ProviderIconButton
+                          icon={deletingSavedProviderId === savedProvider.savedProviderId ? 'activity' : 'trash'}
+                          label={
+                            deletingSavedProviderId === savedProvider.savedProviderId
+                              ? t(locale, '删除中...', 'Deleting...')
+                              : t(locale, '删除', 'Delete')
+                          }
+                          disabled={isBusy}
+                          tone="danger"
+                          onClick={() => void handleDeleteSavedProvider(savedProvider.savedProviderId)}
+                        />
                       </div>
                     </article>
                   )
