@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  resolveLatestChannelMessageScrollTop,
   resolveChannelRowEstimate,
   shouldAutoScrollChannelFeed,
 } from '../src/features/tool-adapter/channel-message-list-model.js'
@@ -46,4 +47,28 @@ test('later updates should not auto-scroll when user is far from bottom', () => 
 
 test('row estimate uses layout-driven height when available', () => {
   assert.equal(resolveChannelRowEstimate(88, 42), 88)
+})
+
+test('scroll target aligns the latest message top when there is enough room below it', () => {
+  assert.equal(
+    resolveLatestChannelMessageScrollTop({
+      latestMessageStart: 480,
+      latestMessageHeight: 120,
+      scrollHeight: 1000,
+      clientHeight: 240,
+    }),
+    480,
+  )
+})
+
+test('scroll target clamps to max scroll when the latest message start exceeds the scrollable range', () => {
+  assert.equal(
+    resolveLatestChannelMessageScrollTop({
+      latestMessageStart: 920,
+      latestMessageHeight: 120,
+      scrollHeight: 1000,
+      clientHeight: 240,
+    }),
+    760,
+  )
 })

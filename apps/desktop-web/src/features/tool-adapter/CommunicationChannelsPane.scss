@@ -36,10 +36,10 @@
 
   display: flex;
   flex-direction: column;
-  gap: rem(12);
+  gap: 0;
   height: 100%;
   min-height: 0;
-  padding: rem(12);
+  padding: 0;
   overflow-y: auto;
   overflow-x: hidden;
   container-type: inline-size;
@@ -57,45 +57,37 @@
 }
 
 :root[data-theme='graphite-dark'] .communication-channels-pane {
-  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 86%, rgba(4, 8, 16, 0.48));
-  --communication-surface-border: color-mix(in srgb, var(--vb-border) 80%, rgba(0, 0, 0, 0.22));
-  --communication-tab-bg: color-mix(in srgb, rgba(11, 18, 29, 0.92) 72%, rgba(255, 255, 255, 0.04));
+  --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 92%, rgba(8, 10, 14, 0.42));
+  --communication-surface-border: color-mix(in srgb, rgba(255, 255, 255, 0.08) 52%, transparent);
+  --communication-tab-bg: transparent;
   --communication-tab-active-bg: linear-gradient(
     180deg,
-    rgba(24, 37, 57, 0.96),
-    color-mix(in srgb, rgba(31, 54, 88, 0.94) 54%, rgba(18, 30, 49, 0.94))
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.04)
   );
-  --communication-tab-active-border: color-mix(in srgb, rgba(112, 143, 208, 0.4) 74%, transparent);
+  --communication-tab-active-border: transparent;
   --communication-tab-count-bg: rgba(255, 255, 255, 0.08);
   --communication-inbound-bubble-bg: linear-gradient(
     180deg,
-    rgba(21, 29, 41, 0.96),
-    color-mix(in srgb, rgba(19, 27, 39, 0.96) 72%, rgba(9, 15, 24, 0.96))
+    rgba(31, 34, 40, 0.94),
+    rgba(24, 27, 32, 0.96)
   );
-  --communication-inbound-bubble-border: color-mix(in srgb, rgba(112, 128, 157, 0.24) 78%, transparent);
+  --communication-inbound-bubble-border: transparent;
   --communication-outbound-bubble-bg: linear-gradient(
     180deg,
-    rgba(20, 41, 58, 0.96),
-    color-mix(in srgb, rgba(22, 54, 83, 0.96) 48%, rgba(19, 40, 57, 0.96))
+    rgba(58, 64, 76, 0.94),
+    rgba(46, 52, 63, 0.96)
   );
-  --communication-outbound-bubble-border: color-mix(in srgb, rgba(108, 156, 222, 0.26) 76%, transparent);
-  --communication-bubble-shadow: rgba(0, 0, 0, 0.36);
-  --communication-bubble-highlight: rgba(255, 255, 255, 0.12);
+  --communication-outbound-bubble-border: transparent;
+  --communication-bubble-shadow: rgba(0, 0, 0, 0.28);
+  --communication-bubble-highlight: rgba(255, 255, 255, 0.06);
   --communication-failed-bubble-bg: linear-gradient(
     180deg,
-    rgba(72, 29, 31, 0.94),
-    color-mix(in srgb, rgba(98, 36, 40, 0.94) 56%, rgba(57, 24, 28, 0.94))
+    rgba(78, 36, 39, 0.94),
+    rgba(64, 29, 33, 0.96)
   );
-  --communication-failed-bubble-border: color-mix(in srgb, rgba(255, 123, 116, 0.3) 74%, transparent);
+  --communication-failed-bubble-border: transparent;
   --communication-failed-detail: color-mix(in srgb, rgba(255, 160, 150, 0.78) 76%, var(--vb-text-muted));
-}
-
-.communication-channels-header h2 {
-  margin: 0;
-  color: var(--vb-text);
-  font-size: rem(15);
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
 .communication-channels-surface {
@@ -114,12 +106,12 @@
 
 :root[data-theme='graphite-dark'] .communication-channels-surface {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 38%),
-    radial-gradient(circle at top right, rgba(90, 128, 218, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 34%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.06), transparent 28%),
     var(--communication-surface-bg);
   box-shadow:
-    0 rem(16) rem(42) rgba(0, 0, 0, 0.45),
-    inset 0 rem(1) 0 rgba(255, 255, 255, 0.12);
+    0 rem(16) rem(42) rgba(0, 0, 0, 0.42),
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.08);
 }
 
 .communication-channels-feed {
@@ -127,18 +119,18 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  gap: rem(10);
 }
 
 .communication-channels-tabs {
   display: flex;
   align-items: center;
   gap: rem(8);
-  padding: rem(10) rem(14) rem(8);
+  padding: rem(2) rem(12) rem(8);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--vb-border-strong) transparent;
-  border-bottom: rem(1) solid var(--communication-header-divider);
 
   &::-webkit-scrollbar {
     height: rem(5);
@@ -175,6 +167,19 @@
       inset 0 rem(1) 0 rgba(255, 255, 255, 0.18),
       0 rem(10) rem(24) rgba(15, 23, 42, 0.08);
   }
+}
+
+:root[data-theme='graphite-dark'] .communication-channels-tab {
+  padding-inline: rem(6);
+  border-width: 0;
+  border-radius: rem(10);
+  color: color-mix(in srgb, var(--vb-text) 72%, rgba(255, 255, 255, 0.28));
+}
+
+:root[data-theme='graphite-dark'] .communication-channels-tab.is-active {
+  box-shadow:
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.08),
+    0 rem(8) rem(18) rgba(0, 0, 0, 0.2);
 }
 
 .communication-channels-tab-title {
@@ -226,7 +231,7 @@
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: rem(14);
+  padding: 0 rem(12) rem(8);
   scrollbar-width: thin;
   scrollbar-color: var(--vb-border-strong) transparent;
 
@@ -270,6 +275,14 @@
   -webkit-backdrop-filter: blur(rem(18)) saturate(140%);
 }
 
+:root[data-theme='graphite-dark'] .communication-channels-bubble {
+  border-width: 0;
+  border-radius: rem(16);
+  box-shadow:
+    0 rem(12) rem(24) var(--communication-bubble-shadow),
+    inset 0 rem(1) 0 var(--communication-bubble-highlight);
+}
+
 .communication-channels-bubble::after {
   content: '';
   position: absolute;
@@ -285,6 +298,10 @@
   pointer-events: none;
 }
 
+:root[data-theme='graphite-dark'] .communication-channels-bubble::after {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+}
+
 .communication-channels-message-row.is-inbound .communication-channels-bubble {
   border-color: var(--communication-inbound-bubble-border);
   background: var(--communication-inbound-bubble-bg);
@@ -298,6 +315,12 @@
     0 rem(16) rem(30) rgba(95, 23, 18, 0.16);
 }
 
+:root[data-theme='graphite-dark'] .communication-channels-bubble.is-failed {
+  box-shadow:
+    0 rem(12) rem(24) rgba(42, 12, 14, 0.24),
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.05);
+}
+
 .communication-channels-message-content {
   margin: 0;
   color: var(--vb-text);
@@ -306,6 +329,13 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.communication-channels-bubble.is-collapsed .communication-channels-message-content {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .communication-channels-message-detail {
@@ -320,6 +350,18 @@
 
 .communication-channels-bubble.is-failed .communication-channels-message-detail {
   color: var(--communication-failed-detail);
+}
+
+.communication-channels-message-toggle {
+  margin-top: rem(8);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--vb-text-muted) 88%, transparent);
+  font-size: rem(11);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
 }
 
 @keyframes communication-message-enter {

@@ -227,52 +227,46 @@ function CommunicationChannelsPaneView({
 
   return (
     <aside className="panel communication-channels-pane">
-      <header className="communication-channels-header">
-        <h2>{t(locale, 'pane.channels.title')}</h2>
-      </header>
-
-      <section className="communication-channels-surface">
-        <div className="communication-channels-feed">
-          {conversationGroups.length > 0 ? (
-            <div className="communication-channels-tabs" role="tablist" aria-label={t(locale, '双端会话', 'Conversations')}>
-              {conversationGroups.map((group) => {
-                const isActive = group.key === activeConversation?.key
-                return (
-                  <button
-                    key={group.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    className={`communication-channels-tab ${isActive ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setActiveConversationKey(group.key)
-                    }}
-                    title={group.label}
-                  >
-                    <span className="communication-channels-tab-title">{group.label}</span>
-                    <span className="communication-channels-tab-count">{group.events.length}</span>
-                  </button>
-                )
-              })}
+      <div className="communication-channels-feed">
+        {conversationGroups.length > 0 ? (
+          <div className="communication-channels-tabs" role="tablist" aria-label={t(locale, '双端会话', 'Conversations')}>
+            {conversationGroups.map((group) => {
+              const isActive = group.key === activeConversation?.key
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`communication-channels-tab ${isActive ? 'is-active' : ''}`}
+                  onClick={() => {
+                    setActiveConversationKey(group.key)
+                  }}
+                  title={group.label}
+                >
+                  <span className="communication-channels-tab-title">{group.label}</span>
+                  <span className="communication-channels-tab-count">{group.events.length}</span>
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
+        {activeEvents.length === 0 ? (
+          <div className="communication-channels-feed-scroll">
+            <div className="communication-channels-empty" role="status">
+              <AppIcon name="channels" aria-hidden="true" />
+              <p>{t(locale, 'taskCenter.external.events.empty')}</p>
             </div>
-          ) : null}
-          {activeEvents.length === 0 ? (
-            <div className="communication-channels-feed-scroll">
-              <div className="communication-channels-empty" role="status">
-                <AppIcon name="channels" aria-hidden="true" />
-                <p>{t(locale, 'taskCenter.external.events.empty')}</p>
-              </div>
-            </div>
-          ) : (
-            <ChannelMessageList
-              appearanceVersion={appearanceVersion}
-              conversationKey={activeConversation?.key ?? null}
-              events={activeEvents}
-              uiFont={uiFont}
-            />
-          )}
-        </div>
-      </section>
+          </div>
+        ) : (
+          <ChannelMessageList
+            appearanceVersion={appearanceVersion}
+            conversationKey={activeConversation?.key ?? null}
+            events={activeEvents}
+            uiFont={uiFont}
+          />
+        )}
+      </div>
     </aside>
   )
 }

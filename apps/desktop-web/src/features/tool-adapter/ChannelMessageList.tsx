@@ -9,6 +9,7 @@ import {
   type ChannelMessageLayoutResult,
 } from './channel-message-layout'
 import {
+  resolveLatestChannelMessageScrollTop,
   resolveChannelRowEstimate,
   shouldAutoScrollChannelFeed,
 } from './channel-message-list-model'
@@ -215,7 +216,12 @@ export function ChannelMessageList({
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      host.scrollTop = host.scrollHeight
+      host.scrollTop = resolveLatestChannelMessageScrollTop({
+        latestMessageStart: Math.max(0, virtualizer.getTotalSize() - latestRow.rowHeight),
+        latestMessageHeight: latestRow.rowHeight,
+        scrollHeight: host.scrollHeight,
+        clientHeight: host.clientHeight,
+      })
       hasInitialAutoScrollRef.current = true
     })
 

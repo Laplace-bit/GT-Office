@@ -29,6 +29,7 @@
     "src/features/terminal/terminal-debug-model.ts",
     "src/features/terminal/terminal-stream-decoder.ts",
     "src/features/terminal/terminal-vt-parser.ts",
+    "src/features/tool-adapter/channel-message-bubble-model.ts",
     "src/features/tool-adapter/channel-message-layout.ts"
   ]
 }

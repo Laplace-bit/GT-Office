@@ -26,3 +26,18 @@ export function resolveChannelRowEstimate(layoutHeight: number, minRowHeight: nu
 
   return Math.max(layoutHeight, safeMinRowHeight)
 }
+
+export function resolveLatestChannelMessageScrollTop(input: {
+  latestMessageStart: number
+  latestMessageHeight: number
+  scrollHeight: number
+  clientHeight: number
+}): number {
+  const latestMessageStart = Number.isFinite(input.latestMessageStart) ? Math.max(0, input.latestMessageStart) : 0
+  const latestMessageHeight = Number.isFinite(input.latestMessageHeight) ? Math.max(0, input.latestMessageHeight) : 0
+  const scrollHeight = Number.isFinite(input.scrollHeight) ? Math.max(0, input.scrollHeight) : 0
+  const clientHeight = Number.isFinite(input.clientHeight) ? Math.max(0, input.clientHeight) : 0
+  const maxScrollTop = Math.max(0, scrollHeight - clientHeight)
+
+  return Math.min(Math.max(0, latestMessageStart), Math.max(maxScrollTop, latestMessageHeight > clientHeight ? latestMessageStart : 0))
+}
