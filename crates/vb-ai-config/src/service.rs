@@ -238,6 +238,14 @@ impl AiConfigService {
         let current = self.read_claude_config(workspace_root)?;
         let live_settings_backup = self.snapshot_file_state(&live_settings_path)?;
 
+        tracing::info!(
+            workspace_id,
+            saved_provider_id,
+            provider_id = normalized.provider_id.as_deref().unwrap_or("unknown"),
+            live_settings_path = %live_settings_path.display(),
+            "switching saved Claude provider and syncing live settings"
+        );
+
         self.sync_claude_live_settings_at_path(live_settings_path, &normalized)?;
 
         let patch = build_workspace_patch(&normalized, Some(saved_provider_id));
@@ -2796,6 +2804,19 @@ impl AiConfigService {
         )?;
         let live_settings_backup = self.snapshot_file_state(live_settings_path)?;
 
+        tracing::info!(
+            workspace_id,
+            preview_id = preview.preview_id.as_str(),
+            saved_provider_id = saved_provider_id.as_str(),
+            provider_id = preview
+                .normalized_draft
+                .provider_id
+                .as_deref()
+                .unwrap_or("unknown"),
+            live_settings_path = %live_settings_path.display(),
+            "applying Claude provider preview and syncing live settings"
+        );
+
         if let (Some(secret_ref), Some(secret_value)) = (
             preview.normalized_draft.secret_ref.as_deref(),
             preview.api_key_secret.as_deref(),
@@ -2938,10 +2959,7 @@ impl AiConfigService {
             let codex_mcp =
                 scope.spawn(|| detect_light_agent_mcp_status(AiConfigAgent::Codex, None));
             let gemini_mcp = scope.spawn(|| {
-                detect_light_agent_mcp_status(
-                    AiConfigAgent::Gemini,
-                    Some(&workspace_root_for_mcp),
-                )
+                detect_light_agent_mcp_status(AiConfigAgent::Gemini, Some(&workspace_root_for_mcp))
             });
 
             (
@@ -2960,14 +2978,9 @@ impl AiConfigService {
                 codex_mcp
                     .join()
                     .unwrap_or_else(|_| detect_light_agent_mcp_status(AiConfigAgent::Codex, None)),
-                gemini_mcp
-                    .join()
-                    .unwrap_or_else(|_| {
-                        detect_light_agent_mcp_status(
-                            AiConfigAgent::Gemini,
-                            Some(workspace_root),
-                        )
-                    }),
+                gemini_mcp.join().unwrap_or_else(|_| {
+                    detect_light_agent_mcp_status(AiConfigAgent::Gemini, Some(workspace_root))
+                }),
             )
         });
 
@@ -4777,7 +4790,9 @@ fn claude_mcp_status_for_workspace_at_home(
         .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled)
 }
 
-fn claude_project_has_stale_active_worktree_session(project: &serde_json::Map<String, Value>) -> bool {
+fn claude_project_has_stale_active_worktree_session(
+    project: &serde_json::Map<String, Value>,
+) -> bool {
     project
         .get("activeWorktreeSession")
         .and_then(Value::as_object)
@@ -4803,7 +4818,9 @@ fn detect_light_agent_mcp_status(
         AiConfigAgent::Gemini => combine_mcp_status(
             detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json")),
             workspace_root
-                .map(|root| detect_mcp_status_from_text_file(&root.join(".gemini").join("settings.json")))
+                .map(|root| {
+                    detect_mcp_status_from_text_file(&root.join(".gemini").join("settings.json"))
+                })
                 .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
         ),
     }
@@ -4818,8 +4835,9 @@ fn combine_mcp_status(
         (AiAgentMcpStatus::InstalledSidecar, _) | (_, AiAgentMcpStatus::InstalledSidecar) => {
             AiAgentMcpStatus::InstalledSidecar
         }
-        (AiAgentMcpStatus::InstalledLegacyNode, _)
-        | (_, AiAgentMcpStatus::InstalledLegacyNode) => AiAgentMcpStatus::InstalledLegacyNode,
+        (AiAgentMcpStatus::InstalledLegacyNode, _) | (_, AiAgentMcpStatus::InstalledLegacyNode) => {
+            AiAgentMcpStatus::InstalledLegacyNode
+        }
         _ => AiAgentMcpStatus::NotInstalled,
     }
 }
@@ -5209,7 +5227,9 @@ fn agent_status_result(
         AiConfigAgent::Gemini => combine_mcp_status(
             detect_mcp_status_from_text_file(&home.join(".gemini").join("settings.json")),
             workspace_root
-                .map(|root| detect_mcp_status_from_text_file(&root.join(".gemini").join("settings.json")))
+                .map(|root| {
+                    detect_mcp_status_from_text_file(&root.join(".gemini").join("settings.json"))
+                })
                 .unwrap_or(crate::models::AiAgentMcpStatus::NotInstalled),
         ),
     }
