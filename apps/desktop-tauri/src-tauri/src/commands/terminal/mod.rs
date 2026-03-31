@@ -1,7 +1,9 @@
 use base64::Engine;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tauri::{AppHandle, State};
+use tracing::warn;
 use vb_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
@@ -12,10 +14,21 @@ use crate::commands::settings::ai_config::{
 };
 use crate::commands::task_center::write_terminal_with_submit;
 use crate::terminal_debug::dev_log::{
-    append_dev_log_async, build_rendered_screen_parsed_log_entry,
-    build_rendered_screen_raw_log_entry, TerminalDebugLogKind,
+    append_dev_log, append_dev_log_async, build_frontend_focus_log_entry,
+    build_rendered_screen_parsed_log_entry, build_rendered_screen_raw_log_entry,
+    resolve_terminal_debug_log_path, TerminalDebugLogKind,
 };
 use crate::terminal_debug::human_log::TerminalDebugHumanEntry;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalFrontendFocusLogEntry {
+    pub at_ms: u64,
+    pub station_id: String,
+    pub session_id: Option<String>,
+    pub kind: String,
+    pub detail: Option<String>,
+}
 
 fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
     match cwd_mode.as_deref().unwrap_or("workspace_root") {
@@ -134,6 +147,21 @@ fn build_terminal_report_rendered_screen_response(
         "humanText": human_text,
         "humanEntries": human_entries,
         "humanEventCount": human_entries.len()
+    })
+}
+
+fn build_terminal_debug_append_frontend_focus_log_response(
+    station_id: &str,
+    session_id: Option<&str>,
+    kind: &str,
+    log_path: &str,
+) -> Value {
+    json!({
+        "stationId": station_id,
+        "sessionId": session_id,
+        "kind": kind,
+        "accepted": true,
+        "logPath": log_path,
     })
 }
 
@@ -368,6 +396,39 @@ pub fn terminal_debug_clear_human_log(
         "sessionId": session_id,
         "cleared": true
     }))
+}
+
+#[tauri::command]
+pub fn terminal_debug_append_frontend_focus_log(
+    entry: TerminalFrontendFocusLogEntry,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let log_path = resolve_terminal_debug_log_path(&app, TerminalDebugLogKind::FrontendFocus)?
+        .to_string_lossy()
+        .to_string();
+    let content = build_frontend_focus_log_entry(
+        entry.at_ms,
+        &entry.station_id,
+        entry.session_id.as_deref(),
+        &entry.kind,
+        entry.detail.as_deref(),
+    );
+    append_dev_log(&app, TerminalDebugLogKind::FrontendFocus, &content).map_err(|error| {
+        warn!(
+            station_id = %entry.station_id,
+            session_id = entry.session_id.as_deref().unwrap_or("none"),
+            kind = %entry.kind,
+            error = %error,
+            "failed to append frontend focus diagnostic log"
+        );
+        error
+    })?;
+    Ok(build_terminal_debug_append_frontend_focus_log_response(
+        &entry.station_id,
+        entry.session_id.as_deref(),
+        &entry.kind,
+        &log_path,
+    ))
 }
 
 #[tauri::command]

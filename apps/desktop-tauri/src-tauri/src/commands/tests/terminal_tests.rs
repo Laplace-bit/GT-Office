@@ -4,6 +4,10 @@ use super::{
     build_terminal_snapshot_response, build_terminal_visibility_response,
     build_terminal_write_response, parse_cwd_mode, resolve_terminal_submit_sequence,
 };
+use crate::terminal_debug::dev_log::{
+    build_frontend_focus_log_entry, should_write_terminal_debug_log_for_build,
+    TerminalDebugLogKind,
+};
 use crate::commands::task_center::build_terminal_submit_chunks;
 use vb_abstractions::TerminalCwdMode;
 
@@ -133,4 +137,35 @@ fn terminal_report_rendered_screen_response_keeps_contract_fields() {
     assert_eq!(payload["accepted"], true);
     assert_eq!(payload["humanText"], "稳定正文");
     assert_eq!(payload["humanEventCount"], 0);
+}
+
+#[test]
+fn frontend_focus_terminal_debug_log_persists_in_release_builds() {
+    assert!(should_write_terminal_debug_log_for_build(
+        TerminalDebugLogKind::FrontendFocus,
+        false
+    ));
+    assert!(!should_write_terminal_debug_log_for_build(
+        TerminalDebugLogKind::Raw,
+        false
+    ));
+    assert!(!should_write_terminal_debug_log_for_build(
+        TerminalDebugLogKind::Parsed,
+        false
+    ));
+}
+
+#[test]
+fn frontend_focus_log_entry_keeps_contract_fields() {
+    let entry = build_frontend_focus_log_entry(
+        1_717_171_717,
+        "station-a",
+        Some("session-a"),
+        "pointerdown",
+        Some("active=0"),
+    );
+    assert!(entry.contains("[station=station-a]"));
+    assert!(entry.contains("[session=session-a]"));
+    assert!(entry.contains("[kind=pointerdown]"));
+    assert!(entry.contains("active=0"));
 }

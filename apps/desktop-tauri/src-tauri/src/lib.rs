@@ -184,6 +184,7 @@ pub fn run() {
             terminal::terminal_describe_processes,
             terminal::terminal_report_rendered_screen,
             terminal::terminal_debug_clear_human_log,
+            terminal::terminal_debug_append_frontend_focus_log,
             git::git_status,
             git::git_init,
             git::git_diff_file,
