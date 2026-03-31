@@ -11,6 +11,11 @@ import {
   resolveDeferredMacOsTextInputHandling,
   shouldBypassXtermTextKeyEvent,
 } from './macos-webkit-ime-workaround'
+import {
+  installStationTerminalWindowDiagnostics,
+  persistStationTerminalFocusDiagnosticEvent,
+  resolveStationTerminalPointerDownFocusPlan,
+} from './station-terminal-focus-diagnostics'
 
 export interface StationTerminalSink {
   write: (chunk: string) => void
@@ -278,10 +283,34 @@ function StationXtermTerminalView({
   const focusTerminalRequestRef = useRef<(() => void) | null>(null)
   const focusRetryFrameRef = useRef<number | null>(null)
   const pendingAutoFocusRef = useRef(false)
+  const isMacOsWebKitEnvironmentRef = useRef(
+    typeof window !== 'undefined'
+      ? isMacOsWebKitTextInputEnvironment({
+          platform: window.navigator.platform,
+          userAgent: window.navigator.userAgent,
+        })
+      : false,
+  )
   const lastAutoFocusStateRef = useRef<{ active: boolean; sessionId: string | null }>({
     active: false,
     sessionId: null,
   })
+
+  const recordFocusDiagnostic = useCallback(
+    (kind: Parameters<typeof persistStationTerminalFocusDiagnosticEvent>[1]['kind'], detail?: string) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      persistStationTerminalFocusDiagnosticEvent(window, {
+        atMs: Date.now(),
+        stationId,
+        sessionId,
+        kind,
+        detail,
+      })
+    },
+    [sessionId, stationId],
+  )
 
   const syncTerminalAppearance = useCallback(() => {
     const terminal = terminalRef.current
@@ -332,6 +361,13 @@ function StationXtermTerminalView({
     screenRevisionRef.current = 0
     lastSnapshotSignatureRef.current = ''
   }, [sessionId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    installStationTerminalWindowDiagnostics(window)
+  }, [])
 
   useEffect(() => {
     const previous = lastAutoFocusStateRef.current
@@ -428,10 +464,7 @@ function StationXtermTerminalView({
         fitAddonRef.current = fitAddon
         scheduleTerminalAppearanceSync()
 
-        const isMacOsWebKitImeFallbackEnabled = isMacOsWebKitTextInputEnvironment({
-          platform: window.navigator.platform,
-          userAgent: window.navigator.userAgent,
-        })
+        const isMacOsWebKitImeFallbackEnabled = isMacOsWebKitEnvironmentRef.current
         let suppressedDeferredXtermEchoRef: { current: string | null } | null = null
         const terminalTextarea = terminal.textarea
         if (terminalTextarea) {
@@ -544,13 +577,17 @@ function StationXtermTerminalView({
             if (!active) {
               return
             }
+            recordFocusDiagnostic('focus-request', `remainingFrames=${remainingFrames}`)
             try {
               terminal.focus()
-            } catch {
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'unknown focus failure'
+              recordFocusDiagnostic('focus-error', message)
               return
             }
-            scheduleRefresh()
             if (terminalHasDomFocus()) {
+              scheduleRefresh()
+              recordFocusDiagnostic('focus-success')
               return
             }
             if (remainingFrames <= 0) {
@@ -904,6 +941,8 @@ function StationXtermTerminalView({
         onBindSink(stationId, sink)
       },
     ).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      recordFocusDiagnostic('xterm-init-failed', message)
       console.warn('[StationXtermTerminal] Failed to load or initialize xterm runtime.', {
         stationId,
         sessionId,
@@ -955,6 +994,7 @@ function StationXtermTerminalView({
   }, [
     onBindSink,
     performanceDebugEnabled,
+    recordFocusDiagnostic,
     scheduleTerminalAppearanceSync,
     sessionId,
     stationId,
@@ -971,9 +1011,24 @@ function StationXtermTerminalView({
         if (event.button !== 0) {
           return
         }
-        // Activate/focus on pointer down so first click lands in terminal input reliably.
-        onActivateStation()
-        focusTerminalRequestRef.current?.()
+        const focusPlan = resolveStationTerminalPointerDownFocusPlan({
+          isActive,
+          isMacOsWebKitEnvironment: isMacOsWebKitEnvironmentRef.current,
+        })
+        recordFocusDiagnostic(
+          'pointerdown',
+          `active=${isActive ? 1 : 0};macosWebKit=${isMacOsWebKitEnvironmentRef.current ? 1 : 0};focusStrategy=${focusPlan.focusStrategy}`,
+        )
+        // On macOS WebKit, let the activation-driven autofocus path own the focus handoff.
+        // Immediate focus here can race the hidden textarea across two frames and black-screen the WebView.
+        if (focusPlan.activateStation) {
+          onActivateStation()
+        }
+        if (focusPlan.focusStrategy === 'immediate') {
+          focusTerminalRequestRef.current?.()
+          return
+        }
+        recordFocusDiagnostic('focus-deferred', 'await-active-terminal')
       }}
       onClick={(event) => {
         // Stop bubbling so card body click does not override terminal-first interaction.
@@ -1037,12 +1092,6 @@ function StationXtermTerminalView({
           return true
         }
         forwardDeltaToGrid()
-      }}
-      onPointerDown={(event) => {
-        if (event.target !== event.currentTarget) {
-          return
-        }
-        focusTerminalRequestRef.current?.()
       }}
     >
       <div ref={hostRef} className="station-terminal-host" />
