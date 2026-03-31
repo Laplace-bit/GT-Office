@@ -18,6 +18,11 @@ import {
   resolveProviderLabel,
   type ManagedAgentProvider,
 } from './agent-management-model'
+import { StationDeleteBindingCleanupDialog } from './StationDeleteBindingCleanupDialog'
+import type {
+  StationDeleteCleanupState,
+  StationDeleteCleanupStrategy,
+} from './station-delete-binding-cleanup-model'
 import { resolveStationManageModalCopy } from './station-manage-copy'
 
 import './StationManageModal.scss'
@@ -30,10 +35,16 @@ interface StationManageModalProps {
   editingStation?: UpdateStationInput | null
   saving?: boolean
   deleting?: boolean
+  deleteCleanupState?: StationDeleteCleanupState | null
+  deleteCleanupSubmitting?: boolean
   onClose: () => void
   onPickWorkdir: () => Promise<string | null>
   onSubmit: (input: CreateStationInput | UpdateStationInput) => Promise<void> | void
   onDelete?: (stationId: string) => Promise<void> | void
+  onDeleteCleanupClose?: () => void
+  onDeleteCleanupStrategyChange?: (strategy: StationDeleteCleanupStrategy) => void
+  onDeleteCleanupReplacementChange?: (agentId: string) => void
+  onDeleteCleanupConfirm?: () => void
   onRolesChanged?: () => Promise<void> | void
 }
 
@@ -271,10 +282,16 @@ export function StationManageModal({
   editingStation,
   saving = false,
   deleting = false,
+  deleteCleanupState = null,
+  deleteCleanupSubmitting = false,
   onClose,
   onPickWorkdir,
   onSubmit,
   onDelete,
+  onDeleteCleanupClose,
+  onDeleteCleanupStrategyChange,
+  onDeleteCleanupReplacementChange,
+  onDeleteCleanupConfirm,
   onRolesChanged,
 }: StationManageModalProps) {
   const [name, setName] = useState('')
@@ -545,7 +562,7 @@ export function StationManageModal({
                 type="button"
                 className="station-form-btn danger"
                 style={{ marginRight: 'auto' }}
-                disabled={saving || deleting}
+                disabled={saving || deleting || deleteCleanupSubmitting}
                 onClick={() => {
                   if (editingStation) {
                     void onDelete(editingStation.id)
@@ -615,6 +632,17 @@ export function StationManageModal({
         onChanged={async () => {
           await onRolesChanged?.()
         }}
+      />
+
+      <StationDeleteBindingCleanupDialog
+        open={Boolean(deleteCleanupState)}
+        locale={locale}
+        state={deleteCleanupState}
+        submitting={deleteCleanupSubmitting}
+        onClose={() => onDeleteCleanupClose?.()}
+        onStrategyChange={(strategy) => onDeleteCleanupStrategyChange?.(strategy)}
+        onReplacementAgentChange={(agentId) => onDeleteCleanupReplacementChange?.(agentId)}
+        onConfirm={() => onDeleteCleanupConfirm?.()}
       />
     </>
   )

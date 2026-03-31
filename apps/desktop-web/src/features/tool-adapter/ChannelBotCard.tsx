@@ -12,6 +12,7 @@ interface ChannelBotCardProps {
   agents: AgentProfile[]
   onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
+  onToggleBindingEnabled: (binding: ChannelRouteBinding, nextEnabled: boolean) => void
   onHealthCheckBinding: (binding: ChannelRouteBinding) => void
   healthCheckingKey: string | null
   loading: boolean
@@ -44,6 +45,7 @@ export function ChannelBotCard({
   agents,
   onEditBinding,
   onDeleteBinding,
+  onToggleBindingEnabled,
   onHealthCheckBinding,
   healthCheckingKey,
   loading,
@@ -102,6 +104,7 @@ export function ChannelBotCard({
             const isHealthChecking = healthCheckingKey === routeHealthKey
             const accountId = normalizeChannelAccountId(binding.accountId)
             const botName = (binding.botName ?? '').trim() || (accountId === 'default' ? t(locale, '未识别 Bot', 'Unknown Bot') : accountId)
+            const enabled = binding.enabled !== false
             const bindingSummary = `${botName} - ${targetLabel} - ${formatBindingCreatedAt(locale, binding.createdAtMs)}`
 
             return (
@@ -115,6 +118,8 @@ export function ChannelBotCard({
                       kind: binding.peerKind ?? '*',
                       pattern: binding.peerPattern || '*',
                     })}
+                    {' · '}
+                    {enabled ? t(locale, '已启用', 'Enabled') : t(locale, '已停用', 'Disabled')}
                   </p>
                 </div>
                 <div className="channel-bot-route-actions">
@@ -127,6 +132,16 @@ export function ChannelBotCard({
                     title={t(locale, '健康检查', 'Health Check')}
                   >
                     <AppIcon name="activity" className="vb-icon" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="channel-route-icon-btn"
+                    onClick={() => onToggleBindingEnabled(binding, !enabled)}
+                    disabled={loading}
+                    aria-label={enabled ? t(locale, '停用绑定', 'Disable Binding') : t(locale, '启用绑定', 'Enable Binding')}
+                    title={enabled ? t(locale, '停用绑定', 'Disable Binding') : t(locale, '启用绑定', 'Enable Binding')}
+                  >
+                    <AppIcon name={enabled ? 'minus' : 'check'} className="vb-icon" aria-hidden="true" />
                   </button>
                   <button
                     type="button"

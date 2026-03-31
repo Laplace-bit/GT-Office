@@ -77,6 +77,11 @@ import {
   resolveStationCliLaunchCommand,
 } from '@features/workspace-hub/station-agent-runtime-model'
 import {
+  buildStationDeleteCleanupRequest,
+  buildStationDeleteCleanupState,
+  type StationDeleteCleanupState,
+} from '@features/workspace-hub/station-delete-binding-cleanup-model'
+import {
   appendDetachedTerminalOutput,
   createEmptyWorkbenchStationRuntime,
   DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
@@ -261,6 +266,9 @@ export function ShellRoot() {
   const [isStationManageOpen, setIsStationManageOpen] = useState(false)
   const [editingStation, setEditingStation] = useState<UpdateStationInput | null>(null)
   const [stationDeletePendingId, setStationDeletePendingId] = useState<string | null>(null)
+  const [stationDeleteCleanupTargetId, setStationDeleteCleanupTargetId] = useState<string | null>(null)
+  const [stationDeleteCleanupState, setStationDeleteCleanupState] = useState<StationDeleteCleanupState | null>(null)
+  const [stationDeleteCleanupSubmitting, setStationDeleteCleanupSubmitting] = useState(false)
   const [isStationSearchOpen, setIsStationSearchOpen] = useState(false)
   const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
   const [canvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
@@ -3726,8 +3734,8 @@ export function ShellRoot() {
     taskDispatchHistoryLimit: TASK_DISPATCH_HISTORY_LIMIT,
   })
 
-  const removeStation = useMemo(
-    () => async (stationId: string) => {
+  const cleanupRemovedStationRuntimeState = useCallback(
+    async (stationId: string, workspaceId: string | null) => {
       const runtime = stationTerminalsRef.current[stationId]
       const mappedSessionId =
         Object.entries(sessionStationRef.current).find(([, mappedStationId]) => mappedStationId === stationId)?.[0] ??
@@ -3745,7 +3753,7 @@ export function ShellRoot() {
                 detail,
               }),
             )
-            return
+            return false
           }
         }
       } else if (targetSessionId) {
@@ -3756,14 +3764,13 @@ export function ShellRoot() {
           }),
         )
       } else if (runtime?.sessionId) {
-        // Defensive branch: runtime has stale session id but mapping lookup missed it.
         appendStationTerminalOutput(
           stationId,
           t(locale, 'system.killFailed', {
             detail: runtime.sessionId,
           }),
         )
-        return
+        return false
       }
 
       setStationTerminalState(stationId, {
@@ -3809,36 +3816,139 @@ export function ShellRoot() {
         delete next[stationId]
         return next
       })
-      const workspaceId = activeWorkspaceIdRef.current
-      if (workspaceId && desktopApi.isTauriRuntime()) {
-        setStationDeletePendingId(stationId)
-        try {
-          await desktopApi.agentDelete({
-            workspaceId,
-            agentId: stationId,
-          })
-          await loadStationsFromDatabase(workspaceId)
-        } finally {
-          setStationDeletePendingId(null)
-        }
-      }
       if (workspaceId && desktopApi.isTauriRuntime()) {
         void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
           // Runtime sync effect will retry if this one fails.
         })
       }
+      return true
+    },
+    [appendStationTerminalOutput, clearStationTaskSignalTimer, locale, setStations, setStationTerminalState],
+  )
+
+  const removeStation = useCallback(
+    async (stationId: string) => {
+      const workspaceId = activeWorkspaceIdRef.current
+      if (workspaceId && desktopApi.isTauriRuntime()) {
+        setStationDeletePendingId(stationId)
+        try {
+          const response = await desktopApi.agentDelete({
+            workspaceId,
+            agentId: stationId,
+          })
+          if (!response.deleted) {
+            if (
+              response.errorCode === 'AGENT_DELETE_BLOCKED_BY_CHANNEL_BINDINGS'
+              && response.blockingBindings?.length
+            ) {
+              setStationDeleteCleanupTargetId(stationId)
+              setStationDeleteCleanupState(
+                buildStationDeleteCleanupState(
+                  response,
+                  stationsRef.current
+                    .filter((station) => station.workspaceId === workspaceId)
+                    .map((station) => ({
+                      id: station.id,
+                      name: station.name,
+                    })),
+                  stationId,
+                ),
+              )
+            }
+            return
+          }
+        } finally {
+          setStationDeletePendingId(null)
+        }
+      }
+
+      const removed = await cleanupRemovedStationRuntimeState(stationId, workspaceId)
+      if (!removed) {
+        return
+      }
+      if (workspaceId && desktopApi.isTauriRuntime()) {
+        await loadStationsFromDatabase(workspaceId)
+      }
+      setStationDeleteCleanupTargetId(null)
+      setStationDeleteCleanupState(null)
       setIsStationManageOpen(false)
       setEditingStation(null)
     },
-    [
-      appendStationTerminalOutput,
-      clearStationTaskSignalTimer,
-      loadStationsFromDatabase,
-      locale,
-      setStations,
-      setStationTerminalState,
-    ],
+    [cleanupRemovedStationRuntimeState, loadStationsFromDatabase],
   )
+
+  const handleStationDeleteCleanupChange = useCallback((patch: Partial<StationDeleteCleanupState>) => {
+    setStationDeleteCleanupState((prev) => (prev ? { ...prev, ...patch } : prev))
+  }, [])
+
+  const handleStationDeleteCleanupClose = useCallback(() => {
+    if (stationDeleteCleanupSubmitting) {
+      return
+    }
+    setStationDeleteCleanupTargetId(null)
+    setStationDeleteCleanupState(null)
+  }, [stationDeleteCleanupSubmitting])
+
+  const handleStationDeleteCleanupConfirm = useCallback(async () => {
+    if (!stationDeleteCleanupState || !stationDeleteCleanupTargetId) {
+      return
+    }
+    const workspaceId = activeWorkspaceIdRef.current
+    if (!workspaceId || !desktopApi.isTauriRuntime()) {
+      return
+    }
+
+    setStationDeleteCleanupSubmitting(true)
+    setStationDeletePendingId(stationDeleteCleanupTargetId)
+    try {
+      const response = await desktopApi.agentDelete({
+        workspaceId,
+        agentId: stationDeleteCleanupTargetId,
+        ...buildStationDeleteCleanupRequest(stationDeleteCleanupState),
+      })
+      if (!response.deleted) {
+        if (
+          response.errorCode === 'AGENT_DELETE_BLOCKED_BY_CHANNEL_BINDINGS'
+          && response.blockingBindings?.length
+        ) {
+          setStationDeleteCleanupState(
+            buildStationDeleteCleanupState(
+              response,
+              stationsRef.current
+                .filter((station) => station.workspaceId === workspaceId)
+                .map((station) => ({
+                  id: station.id,
+                  name: station.name,
+                })),
+              stationDeleteCleanupTargetId,
+            ),
+          )
+        }
+        return
+      }
+
+      const removed = await cleanupRemovedStationRuntimeState(
+        stationDeleteCleanupTargetId,
+        workspaceId,
+      )
+      if (!removed) {
+        return
+      }
+      await loadStationsFromDatabase(workspaceId)
+      setStationDeleteCleanupTargetId(null)
+      setStationDeleteCleanupState(null)
+      setIsStationManageOpen(false)
+      setEditingStation(null)
+    } finally {
+      setStationDeleteCleanupSubmitting(false)
+      setStationDeletePendingId(null)
+    }
+  }, [
+    cleanupRemovedStationRuntimeState,
+    loadStationsFromDatabase,
+    stationDeleteCleanupState,
+    stationDeleteCleanupTargetId,
+  ])
 
   const {
     workbenchContainerSnapshotEntries,
@@ -5331,9 +5441,14 @@ export function ShellRoot() {
         editingStation,
         saving: stationSavePending,
         deleting: stationDeletePendingId === editingStation?.id,
+        deleteCleanupState:
+          stationDeleteCleanupTargetId === editingStation?.id ? stationDeleteCleanupState : null,
+        deleteCleanupSubmitting: stationDeleteCleanupSubmitting,
         onClose: () => {
           setIsStationManageOpen(false)
           setEditingStation(null)
+          setStationDeleteCleanupTargetId(null)
+          setStationDeleteCleanupState(null)
         },
         onPickWorkdir: handlePickStationWorkdir,
         onSubmit: (input) => {
@@ -5344,6 +5459,14 @@ export function ShellRoot() {
           }
         },
         onDelete: (stationId) => removeStation(stationId),
+        onDeleteCleanupClose: handleStationDeleteCleanupClose,
+        onDeleteCleanupStrategyChange: (strategy) =>
+          handleStationDeleteCleanupChange({ strategy }),
+        onDeleteCleanupReplacementChange: (replacementAgentId) =>
+          handleStationDeleteCleanupChange({ replacementAgentId }),
+        onDeleteCleanupConfirm: () => {
+          void handleStationDeleteCleanupConfirm()
+        },
         onRolesChanged: async () => {
           if (activeWorkspaceId) {
             await loadStationsFromDatabase(activeWorkspaceId)

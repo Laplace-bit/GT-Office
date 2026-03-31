@@ -14,6 +14,7 @@ interface ChannelOverviewProps {
   agents: AgentProfile[]
   onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
+  onToggleBindingEnabled: (binding: ChannelRouteBinding, nextEnabled: boolean) => void
   onHealthCheckBinding: (binding: ChannelRouteBinding) => void
   healthCheckingKey: string | null
   loading: boolean
@@ -29,6 +30,7 @@ export function ChannelOverview({
   agents,
   onEditBinding,
   onDeleteBinding,
+  onToggleBindingEnabled,
   onHealthCheckBinding,
   healthCheckingKey,
   loading
@@ -96,6 +98,7 @@ export function ChannelOverview({
               agents={agents}
               onEditBinding={onEditBinding}
               onDeleteBinding={onDeleteBinding}
+              onToggleBindingEnabled={onToggleBindingEnabled}
               onHealthCheckBinding={onHealthCheckBinding}
               healthCheckingKey={healthCheckingKey}
               loading={loading}

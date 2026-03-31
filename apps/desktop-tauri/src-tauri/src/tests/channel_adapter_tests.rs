@@ -4,11 +4,13 @@ use super::{
     normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
     runtime_supports_structured_relay, split_text_for_channel, AgentRuntimeRegistration,
     AgentToolKind, PersistedChannelAccessPolicy, PersistedChannelStateFile,
-    PersistedRouteBindingRecord,
+    PersistedRouteBindingRecord, validate_binding_target_selector,
 };
 use std::path::PathBuf;
 use std::{collections::HashSet, fs};
 use uuid::Uuid;
+use vb_agent::{AgentRepository, AgentState, CreateAgentInput};
+use vb_storage::{SqliteAgentRepository, SqliteStorage};
 use vb_task::{
     ChannelRouteBinding, ExternalInboundMessage, ExternalPeerKind, ExternalRouteResolution,
 };
@@ -31,6 +33,42 @@ fn sample_runtime(
         provider_session: None,
         online: true,
     }
+}
+
+fn temp_agent_repo(label: &str) -> SqliteAgentRepository {
+    let db_path = std::env::temp_dir().join(format!(
+        "gtoffice-channel-binding-target-{label}-{}.db",
+        Uuid::new_v4()
+    ));
+    let storage = SqliteStorage::new(&db_path).expect("create sqlite storage");
+    let repo = SqliteAgentRepository::new(storage);
+    repo.ensure_schema().expect("ensure schema");
+    repo
+}
+
+fn seed_workspace_agent(repo: &SqliteAgentRepository, workspace_id: &str, agent_id: &str) {
+    repo.seed_defaults(vb_agent::GLOBAL_ROLE_WORKSPACE_ID)
+        .expect("seed global roles");
+    repo.seed_defaults(workspace_id).expect("seed workspace roles");
+    let role_id = repo
+        .list_roles(workspace_id)
+        .expect("list roles")
+        .into_iter()
+        .find(|role| role.role_key == "product")
+        .expect("product role")
+        .id;
+    repo.create_agent(CreateAgentInput {
+        workspace_id: workspace_id.to_string(),
+        agent_id: Some(agent_id.to_string()),
+        name: "Agent Product".to_string(),
+        role_id,
+        tool: "codex".to_string(),
+        workdir: Some(".gtoffice/agent-product".to_string()),
+        custom_workdir: false,
+        employee_no: None,
+        state: AgentState::Ready,
+    })
+    .expect("create agent");
 }
 
 #[test]
@@ -236,6 +274,7 @@ fn migrate_legacy_wechat_access_policies_promotes_pairing_to_open_once() {
                     priority: 100,
                     created_at_ms: None,
                     bot_name: None,
+                    enabled: true,
                 },
                 workspace_root: None,
             },
@@ -250,6 +289,7 @@ fn migrate_legacy_wechat_access_policies_promotes_pairing_to_open_once() {
                     priority: 100,
                     created_at_ms: None,
                     bot_name: None,
+                    enabled: true,
                 },
                 workspace_root: None,
             },
@@ -301,6 +341,7 @@ fn align_route_with_resolved_workspace_rebinds_to_matching_binding_in_fallback_w
             priority: 100,
             created_at_ms: None,
             bot_name: None,
+            enabled: true,
         });
     state
         .task_service
@@ -314,6 +355,7 @@ fn align_route_with_resolved_workspace_rebinds_to_matching_binding_in_fallback_w
             priority: 100,
             created_at_ms: None,
             bot_name: None,
+            enabled: true,
         });
 
     let route = align_route_with_resolved_workspace(
@@ -360,6 +402,7 @@ fn align_route_with_resolved_workspace_rejects_cross_workspace_target_without_lo
             priority: 100,
             created_at_ms: None,
             bot_name: None,
+            enabled: true,
         });
 
     let error = align_route_with_resolved_workspace(
@@ -388,4 +431,28 @@ fn align_route_with_resolved_workspace_rejects_cross_workspace_target_without_lo
     .expect_err("mismatched route should fail");
 
     assert!(error.contains("CHANNEL_ROUTE_WORKSPACE_MISMATCH"));
+}
+
+#[test]
+fn validate_binding_target_selector_accepts_existing_agent_and_role_targets() {
+    let repo = temp_agent_repo("existing-agent");
+    seed_workspace_agent(&repo, "ws-1", "agent-1");
+
+    validate_binding_target_selector(&repo, "ws-1", "agent-1")
+        .expect("direct agent target should be accepted");
+    validate_binding_target_selector(&repo, "ws-1", "role:manager")
+        .expect("role selector should be accepted");
+}
+
+#[test]
+fn validate_binding_target_selector_rejects_missing_direct_agent() {
+    let repo = temp_agent_repo("missing-agent");
+    repo.seed_defaults(vb_agent::GLOBAL_ROLE_WORKSPACE_ID)
+        .expect("seed global roles");
+    repo.seed_defaults("ws-1").expect("seed workspace roles");
+
+    let error = validate_binding_target_selector(&repo, "ws-1", "agent-missing")
+        .expect_err("missing direct target should be rejected");
+
+    assert!(error.contains("CHANNEL_TARGET_NOT_AVAILABLE"));
 }

@@ -1,3 +1,4 @@
+mod binding_target_validation;
 pub mod command_catalog;
 pub mod tool_profiles;
 
@@ -36,6 +37,8 @@ use crate::{
     connectors::{feishu, telegram, wechat},
     process_utils::configure_tokio_command,
 };
+
+pub(crate) use binding_target_validation::validate_binding_target_selector;
 
 const EXTERNAL_REPLY_FLUSH_LOOP_MS: u64 = 700;
 const EXTERNAL_REPLY_IDLE_FLUSH_MS: u64 = 2_000; // 降低到2秒，更快响应
@@ -312,7 +315,7 @@ fn write_channel_state_file(
     fs::write(path, payload).map_err(|error| format!("CHANNEL_STATE_WRITE_FAILED: {error}"))
 }
 
-fn persist_route_bindings(app: &AppHandle, state: &AppState) -> Result<(), String> {
+pub(crate) fn persist_route_bindings(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let mut state_file = read_channel_state_file(app)?;
     state_file.version = CHANNEL_STATE_FILE_VERSION;
     state_file.route_bindings = state
@@ -2708,6 +2711,54 @@ Approve this identity in Channel settings or switch policy to open."
         }
     };
 
+    let repo = match resolve_agent_repository(app) {
+        Ok(repo) => repo,
+        Err(error) => {
+            let response = ExternalInboundResponse {
+                trace_id: trace_id.clone(),
+                status: ExternalInboundStatus::Failed,
+                idempotent_hit: false,
+                workspace_id: Some(resolved_workspace_id.clone()),
+                target_agent_id: Some(route.target_agent_id.clone()),
+                task_id: None,
+                pairing_code: None,
+                detail: Some(error.clone()),
+            };
+            emit_external_error(
+                app,
+                &response.trace_id,
+                "CHANNEL_TARGET_NOT_AVAILABLE",
+                &error,
+            );
+            state
+                .task_service
+                .store_external_idempotency(idempotency_key, response.clone());
+            return Ok(response);
+        }
+    };
+    if let Err(error) = validate_binding_target_selector(&repo, &resolved_workspace_id, &route.target_agent_id) {
+        let response = ExternalInboundResponse {
+            trace_id: trace_id.clone(),
+            status: ExternalInboundStatus::Failed,
+            idempotent_hit: false,
+            workspace_id: Some(resolved_workspace_id.clone()),
+            target_agent_id: Some(route.target_agent_id.clone()),
+            task_id: None,
+            pairing_code: None,
+            detail: Some(error.clone()),
+        };
+        emit_external_error(
+            app,
+            &response.trace_id,
+            "CHANNEL_TARGET_NOT_AVAILABLE",
+            &error,
+        );
+        state
+            .task_service
+            .store_external_idempotency(idempotency_key, response.clone());
+        return Ok(response);
+    }
+
     let dispatch_targets = match resolve_dispatch_targets(
         state,
         app,
@@ -3180,6 +3231,10 @@ pub async fn channel_binding_upsert(
     if binding.target_agent_id.trim().is_empty() {
         return Err("CHANNEL_BINDING_INVALID: targetAgentId is required".to_string());
     }
+    let repo = resolve_agent_repository(&app)?;
+    repo.ensure_schema()
+        .map_err(|error| format!("CHANNEL_BINDING_TARGET_INVALID: {error}"))?;
+    validate_binding_target_selector(&repo, &binding.workspace_id, &binding.target_agent_id)?;
     let needs_bot_name = binding
         .bot_name
         .as_deref()

@@ -14,6 +14,13 @@ use vb_storage::{SqliteAgentRepository, SqliteStorage};
 
 use crate::app_state::AppState;
 
+mod binding_cleanup;
+
+use binding_cleanup::{
+    apply_direct_agent_binding_cleanup, collect_direct_agent_binding_dependencies,
+    DirectBindingCleanupMode,
+};
+
 fn to_command_error(error: impl ToString) -> String {
     error.to_string()
 }
@@ -79,6 +86,39 @@ fn parse_role_status(value: Option<String>) -> Result<vb_agent::RoleStatus, Stri
         Some("deprecated") => Ok(vb_agent::RoleStatus::Deprecated),
         Some("disabled") => Ok(vb_agent::RoleStatus::Disabled),
         Some(other) => Err(format!("AGENT_ROLE_STATUS_INVALID: {other}")),
+    }
+}
+
+fn parse_direct_binding_cleanup_mode(
+    value: Option<&str>,
+    replacement_agent_id: Option<&str>,
+) -> Result<Option<DirectBindingCleanupMode>, String> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    match value {
+        "reject" => Ok(None),
+        "disable" => Ok(Some(DirectBindingCleanupMode::Disable)),
+        "delete" => Ok(Some(DirectBindingCleanupMode::Delete)),
+        "rebind" => {
+            let replacement_agent_id = replacement_agent_id
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    "CHANNEL_BINDING_REPLACEMENT_AGENT_INVALID: replacementAgentId is required"
+                        .to_string()
+                })?;
+            if replacement_agent_id.starts_with("role:") {
+                return Err(
+                    "CHANNEL_BINDING_REPLACEMENT_AGENT_INVALID: replacementAgentId must be a direct agent id"
+                        .to_string(),
+                );
+            }
+            Ok(Some(DirectBindingCleanupMode::Rebind {
+                replacement_agent_id: replacement_agent_id.to_string(),
+            }))
+        }
+        other => Err(format!("AGENT_DELETE_CLEANUP_MODE_INVALID: {other}")),
     }
 }
 
@@ -311,8 +351,13 @@ mod tests {
 
     use uuid::Uuid;
     use vb_agent::{AgentProfile, AgentState};
+    use vb_task::{ChannelRouteBinding, ExternalPeerKind, TaskService};
 
     use super::{
+        binding_cleanup::{
+            apply_direct_agent_binding_cleanup, collect_direct_agent_binding_dependencies,
+            DirectBindingCleanupMode,
+        },
         parse_agent_state, parse_role_scope, parse_role_status, read_prompt_file,
         resolve_agent_tool, resolve_prompt_file_name, resolve_update_agent_prompt_file_name,
         resolve_update_agent_tool, role_scope_workspace_id, should_write_prompt_file_on_update,
@@ -585,6 +630,101 @@ mod tests {
             resolve_prompt_file_name("codex", Some("README.md")).unwrap_err(),
             "AGENT_PROMPT_FILE_INVALID: README.md"
         );
+    }
+
+    #[test]
+    fn collect_direct_agent_binding_dependencies_ignores_roles_and_other_workspaces() {
+        let service = TaskService::default();
+        service.upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-1".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: "agent-1".to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        });
+        service.upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-1".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: Some("manager-*".to_string()),
+            target_agent_id: "role:manager".to_string(),
+            priority: 90,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        });
+        service.upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-2".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: "agent-1".to_string(),
+            priority: 80,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        });
+
+        let bindings = collect_direct_agent_binding_dependencies(&service, "ws-1", "agent-1");
+
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].target_agent_id, "agent-1");
+        assert_eq!(bindings[0].workspace_id, "ws-1");
+    }
+
+    #[test]
+    fn apply_direct_agent_binding_cleanup_can_disable_and_rebind_matches() {
+        let service = TaskService::default();
+        let original = ChannelRouteBinding {
+            workspace_id: "ws-1".to_string(),
+            channel: "telegram".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: "agent-1".to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        };
+        service.upsert_route_binding(original.clone());
+
+        let disabled = apply_direct_agent_binding_cleanup(
+            &service,
+            "ws-1",
+            "agent-1",
+            DirectBindingCleanupMode::Disable,
+        )
+        .expect("disable cleanup");
+        assert_eq!(disabled.matched_count, 1);
+
+        let after_disable = service.list_route_bindings(Some("ws-1"));
+        assert_eq!(after_disable.len(), 1);
+        assert!(!after_disable[0].enabled);
+
+        service.upsert_route_binding(original);
+        let rebound = apply_direct_agent_binding_cleanup(
+            &service,
+            "ws-1",
+            "agent-1",
+            DirectBindingCleanupMode::Rebind {
+                replacement_agent_id: "agent-2".to_string(),
+            },
+        )
+        .expect("rebind cleanup");
+        assert_eq!(rebound.matched_count, 1);
+
+        let after_rebind = service.list_route_bindings(Some("ws-1"));
+        assert_eq!(after_rebind.len(), 1);
+        assert_eq!(after_rebind[0].target_agent_id, "agent-2");
+        assert!(after_rebind[0].enabled);
     }
 }
 
@@ -869,6 +1009,10 @@ pub fn agent_update(
 pub struct AgentDeleteRequest {
     pub workspace_id: String,
     pub agent_id: String,
+    #[serde(default)]
+    pub cleanup_mode: Option<String>,
+    #[serde(default)]
+    pub replacement_agent_id: Option<String>,
 }
 
 #[tauri::command]
@@ -880,12 +1024,67 @@ pub fn agent_delete(
     ensure_workspace_exists(&state, &request.workspace_id)?;
     let repo = resolve_agent_repository(&app)?;
     repo.ensure_schema().map_err(to_command_error)?;
+    let cleanup_mode = parse_direct_binding_cleanup_mode(
+        request.cleanup_mode.as_deref(),
+        request.replacement_agent_id.as_deref(),
+    )?;
+    let blocking_bindings = collect_direct_agent_binding_dependencies(
+        &state.task_service,
+        &request.workspace_id,
+        &request.agent_id,
+    );
+    if !blocking_bindings.is_empty() && cleanup_mode.is_none() {
+        return Ok(json!({
+            "deleted": false,
+            "errorCode": "AGENT_DELETE_BLOCKED_BY_CHANNEL_BINDINGS",
+            "blockingBindings": blocking_bindings,
+        }));
+    }
+    let binding_cleanup = if let Some(cleanup_mode) = cleanup_mode {
+        if let DirectBindingCleanupMode::Rebind {
+            replacement_agent_id,
+        } = &cleanup_mode
+        {
+            if replacement_agent_id == &request.agent_id {
+                return Err(
+                    "CHANNEL_BINDING_REPLACEMENT_AGENT_INVALID: replacementAgentId must differ from the deleted agent"
+                        .to_string(),
+                );
+            }
+            crate::commands::tool_adapter::validate_binding_target_selector(
+                &repo,
+                &request.workspace_id,
+                replacement_agent_id,
+            )?;
+        }
+        let cleanup = apply_direct_agent_binding_cleanup(
+            &state.task_service,
+            &request.workspace_id,
+            &request.agent_id,
+            cleanup_mode,
+        )?;
+        state.task_service.clear_external_idempotency_cache();
+        crate::commands::tool_adapter::persist_route_bindings(&app, state.inner())?;
+        Some(cleanup)
+    } else {
+        None
+    };
     let deleted = repo
         .delete_agent(&request.workspace_id, &request.agent_id)
         .map_err(to_command_error)?;
     let _ =
         crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
-    Ok(json!({ "deleted": deleted }))
+    Ok(json!({
+        "deleted": deleted,
+        "bindingCleanup": binding_cleanup.as_ref().map(|cleanup| json!({
+            "matchedCount": cleanup.matched_count,
+            "updatedCount": cleanup.updated_count,
+            "deletedCount": cleanup.deleted_count,
+            "disabledCount": cleanup.disabled_count,
+            "reboundToAgentId": cleanup.rebound_to_agent_id,
+        })),
+        "blockingBindings": Value::Null,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

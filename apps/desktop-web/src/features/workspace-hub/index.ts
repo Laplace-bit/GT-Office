@@ -18,6 +18,7 @@ export type {
 } from './station-action-model'
 export { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
 export { StationManageModal } from './StationManageModal'
+export { StationDeleteBindingCleanupDialog } from './StationDeleteBindingCleanupDialog'
 export { StationSearchModal } from './StationSearchModal'
 export { TerminalStationPane } from './TerminalStationPane'
 export type { WorkbenchStationRuntime } from './TerminalStationPane'

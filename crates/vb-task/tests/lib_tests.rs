@@ -451,6 +451,7 @@ fn resolve_external_route_prefers_specific_binding() {
         priority: 0,
         created_at_ms: None,
         bot_name: None,
+        enabled: true,
     };
     let specific_binding = ChannelRouteBinding {
         workspace_id: "ws-alpha".to_string(),
@@ -462,6 +463,7 @@ fn resolve_external_route_prefers_specific_binding() {
         priority: 10,
         created_at_ms: None,
         bot_name: None,
+        enabled: true,
     };
     service.upsert_route_binding(generic_binding);
     service.upsert_route_binding(specific_binding);
@@ -500,6 +502,7 @@ fn resolve_external_route_in_workspace_ignores_other_workspace_matches() {
         priority: 100,
         created_at_ms: None,
         bot_name: None,
+        enabled: true,
     });
     service.upsert_route_binding(ChannelRouteBinding {
         workspace_id: "ws-current".to_string(),
@@ -511,6 +514,7 @@ fn resolve_external_route_in_workspace_ignores_other_workspace_matches() {
         priority: 100,
         created_at_ms: None,
         bot_name: None,
+        enabled: true,
     });
 
     let inbound = ExternalInboundMessage {
@@ -534,6 +538,87 @@ fn resolve_external_route_in_workspace_ignores_other_workspace_matches() {
     assert_eq!(resolved.workspace_id, "ws-current");
     assert_eq!(resolved.target_agent_id, "role:manager");
     assert_eq!(resolved.matched_by, "binding.account");
+}
+
+#[test]
+fn resolve_external_route_skips_disabled_bindings() {
+    let service = TaskService::default();
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-default".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "agent-disabled".to_string(),
+        priority: 200,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: false,
+    });
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-default".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "agent-live".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+
+    let resolved = service.resolve_external_route(&ExternalInboundMessage {
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Direct,
+        peer_id: "user-001".to_string(),
+        sender_id: "user-001".to_string(),
+        sender_name: None,
+        message_id: "msg-1".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    });
+
+    let route = resolved.expect("route");
+    assert_eq!(route.target_agent_id, "agent-live");
+}
+
+#[test]
+fn resolve_external_route_returns_none_when_only_match_is_disabled() {
+    let service = TaskService::default();
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-default".to_string(),
+        channel: "telegram".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "agent-disabled".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: false,
+    });
+
+    let resolved = service.resolve_external_route(&ExternalInboundMessage {
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Direct,
+        peer_id: "user-001".to_string(),
+        sender_id: "user-001".to_string(),
+        sender_name: None,
+        message_id: "msg-1".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    });
+
+    assert!(resolved.is_none());
 }
 
 #[test]

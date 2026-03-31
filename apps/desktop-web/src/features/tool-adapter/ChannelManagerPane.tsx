@@ -151,6 +151,32 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
     }
   }
 
+  const handleToggleBindingEnabled = async (binding: ChannelRouteBinding, nextEnabled: boolean) => {
+    setLoading(true)
+    setErrorMessage(null)
+    try {
+      await desktopApi.channelBindingUpsert({
+        ...binding,
+        enabled: nextEnabled,
+      })
+      await loadBindingsAndRoles()
+      setStatusMessage(
+        nextEnabled
+          ? t(locale, '已启用路由绑定。', 'Route binding enabled.')
+          : t(locale, '已停用路由绑定。', 'Route binding disabled.'),
+      )
+      setTimeout(() => setStatusMessage(null), 3000)
+    } catch (error) {
+      setErrorMessage(
+        t(locale, '更新绑定状态失败: {detail}', 'Failed to update binding status: {detail}', {
+          detail: describeError(error),
+        }),
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleHealthCheckBinding = async (binding: ChannelRouteBinding) => {
     const healthCheckKey = buildHealthCheckKey(binding)
     setHealthCheckingKey(healthCheckKey)
@@ -260,6 +286,7 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
         agents={agents}
         onEditBinding={handleEditBinding}
         onDeleteBinding={handleDeleteBinding}
+        onToggleBindingEnabled={handleToggleBindingEnabled}
         onHealthCheckBinding={handleHealthCheckBinding}
         healthCheckingKey={healthCheckingKey}
         loading={loading}

@@ -29,6 +29,13 @@ export interface WorkspaceRestoreSessionResponse {
   terminals: unknown[]
 }
 
+export interface DesktopAppInfoResponse {
+  name: string
+  version: string
+  identifier: string
+  tauriVersion: string
+}
+
 export interface GitStatusFile {
   path: string
   staged: boolean
@@ -1222,10 +1229,21 @@ export interface AgentUpdateResponse {
 export interface AgentDeleteRequest {
   workspaceId: string
   agentId: string
+  cleanupMode?: 'reject' | 'rebind' | 'disable' | 'delete' | null
+  replacementAgentId?: string | null
 }
 
 export interface AgentDeleteResponse {
   deleted: boolean
+  errorCode?: string | null
+  blockingBindings?: ChannelRouteBinding[] | null
+  bindingCleanup?: {
+    matchedCount: number
+    updatedCount: number
+    deletedCount: number
+    disabledCount: number
+    reboundToAgentId?: string | null
+  } | null
 }
 
 export interface AgentRoleSaveRequest {
@@ -1514,6 +1532,7 @@ export interface ChannelRouteBinding {
   priority?: number
   createdAtMs?: number | null
   botName?: string | null
+  enabled?: boolean
 }
 
 export interface ChannelAdapterStatusResponse {
@@ -1847,6 +1866,28 @@ async function getWindowController(): Promise<RuntimeWindowController> {
 
 export const desktopApi = {
   isTauriRuntime,
+  async appGetInfo(): Promise<DesktopAppInfoResponse | null> {
+    if (!isTauriRuntime()) {
+      return null
+    }
+    try {
+      const appApi = await import('@tauri-apps/api/app')
+      const [name, version, identifier, tauriVersion] = await Promise.all([
+        appApi.getName(),
+        appApi.getVersion(),
+        appApi.getIdentifier(),
+        appApi.getTauriVersion(),
+      ])
+      return {
+        name,
+        version,
+        identifier,
+        tauriVersion,
+      }
+    } catch {
+      return null
+    }
+  },
   systemPickDirectory(defaultPath?: string | null) {
     return invokeCommand<string | null>('system_pick_directory', {
       defaultPath: defaultPath ?? null,
@@ -2500,6 +2541,7 @@ export const desktopApi = {
         priority: binding.priority ?? 0,
         createdAtMs: binding.createdAtMs ?? null,
         botName: binding.botName ?? null,
+        enabled: binding.enabled ?? true,
       },
     })
   },
@@ -2644,6 +2686,8 @@ export const desktopApi = {
       request: {
         workspaceId: request.workspaceId,
         agentId: request.agentId,
+        cleanupMode: request.cleanupMode ?? null,
+        replacementAgentId: request.replacementAgentId ?? null,
       },
     })
   },

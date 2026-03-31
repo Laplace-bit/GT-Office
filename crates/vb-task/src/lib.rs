@@ -186,6 +186,8 @@ pub struct ChannelRouteBinding {
     pub created_at_ms: Option<u64>,
     #[serde(default)]
     pub bot_name: Option<String>,
+    #[serde(default = "default_binding_enabled")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -698,6 +700,9 @@ impl TaskService {
             if !workspace_filter(binding) {
                 continue;
             }
+            if !binding.enabled {
+                continue;
+            }
             if normalize_token(&binding.channel) != channel {
                 continue;
             }
@@ -1112,6 +1117,10 @@ fn normalize_account_id(value: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn default_binding_enabled() -> bool {
+    true
 }
 
 fn normalize_binding(mut binding: ChannelRouteBinding) -> ChannelRouteBinding {
