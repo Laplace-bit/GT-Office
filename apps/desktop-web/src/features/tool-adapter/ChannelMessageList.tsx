@@ -8,7 +8,6 @@ import {
   type ChannelMessageLayoutResult,
 } from './channel-message-layout'
 
-const DEFAULT_ROOT_FONT_SIZE = 14
 const AUTO_SCROLL_THRESHOLD = 96
 const BUBBLE_PADDING_X = 12
 const BUBBLE_PADDING_Y = 10
@@ -30,7 +29,6 @@ type ChannelMessageRow = {
   detail: string | null
   failed: boolean
   layout: ChannelMessageLayoutResult
-  isCollapsed: boolean
 }
 
 interface ChannelMessageListProps {
@@ -40,9 +38,7 @@ interface ChannelMessageListProps {
   uiFont: UiFont
 }
 
-function toRem(value: number): string {
-  return `${value / DEFAULT_ROOT_FONT_SIZE}rem`
-}
+
 
 function resolveEventDirection(event: ExternalChannelEventItem): MessageDirection {
   if (event.kind === 'inbound' || event.status === 'received') {
@@ -174,10 +170,9 @@ export function ChannelMessageList({
         detail,
         failed,
         layout,
-        isCollapsed: collapsedIds.has(event.id),
       }
     })
-  }, [events, fontFamily, laneWidth, maxContentWidth, uiFont, collapsedIds])
+  }, [events, fontFamily, laneWidth, maxContentWidth, uiFont])
 
   useEffect(() => {
     hasInitialAutoScrollRef.current = false
@@ -227,7 +222,7 @@ export function ChannelMessageList({
               detail={row.detail}
               failed={row.failed}
               layout={row.layout}
-              isCollapsed={row.isCollapsed}
+              isCollapsed={collapsedIds.has(row.id)}
               onToggleCollapse={() => {
                 setCollapsedIds((prev) => {
                   const next = new Set(prev)
