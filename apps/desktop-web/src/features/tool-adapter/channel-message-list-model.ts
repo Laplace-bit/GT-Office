@@ -4,6 +4,7 @@ export function shouldAutoScrollChannelFeed(input: {
   scrollTop: number
   clientHeight: number
   threshold: number
+  anchorScrollTop?: number | null
 }): boolean {
   if (!input.hasInitialAutoScroll) {
     return true
@@ -14,8 +15,11 @@ export function shouldAutoScrollChannelFeed(input: {
   const clientHeight = Number.isFinite(input.clientHeight) ? input.clientHeight : 0
   const threshold = Number.isFinite(input.threshold) ? Math.max(0, input.threshold) : 0
   const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+  const anchorScrollTop = Number.isFinite(input.anchorScrollTop)
+    ? Math.max(0, input.anchorScrollTop as number)
+    : null
 
-  return distanceFromBottom <= threshold
+  return distanceFromBottom <= threshold || (anchorScrollTop !== null && Math.abs(scrollTop - anchorScrollTop) <= threshold)
 }
 
 export function resolveChannelRowEstimate(layoutHeight: number, minRowHeight: number): number {

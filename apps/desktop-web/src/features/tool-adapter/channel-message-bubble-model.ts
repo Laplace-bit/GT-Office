@@ -1,5 +1,6 @@
 export const DEFAULT_CHANNEL_MESSAGE_COLLAPSE_CHAR_LIMIT = 160
 export const DEFAULT_CHANNEL_MESSAGE_COLLAPSE_LINE_LIMIT = 3
+export const DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT = 28
 
 export function shouldAllowChannelMessageCollapse(input: {
   contentLength: number
@@ -17,4 +18,8 @@ export function shouldAllowChannelMessageCollapse(input: {
       : DEFAULT_CHANNEL_MESSAGE_COLLAPSE_LINE_LIMIT
 
   return input.contentLength > charLimit || input.lineCount > lineLimit
+}
+
+export function resolveChannelMessageToggleReserveHeight(canCollapse: boolean): number {
+  return canCollapse ? DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT : 0
 }

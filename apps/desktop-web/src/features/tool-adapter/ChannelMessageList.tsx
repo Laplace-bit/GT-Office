@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import type { UiFont } from '@shell/state/ui-preferences'
 import type { ExternalChannelEventItem } from './CommunicationChannelsPane'
 import { ChannelMessageBubble } from './ChannelMessageBubble'
@@ -8,11 +7,6 @@ import {
   computeChannelMessageLayout,
   type ChannelMessageLayoutResult,
 } from './channel-message-layout'
-import {
-  resolveLatestChannelMessageScrollTop,
-  resolveChannelRowEstimate,
-  shouldAutoScrollChannelFeed,
-} from './channel-message-list-model'
 
 const DEFAULT_ROOT_FONT_SIZE = 14
 const AUTO_SCROLL_THRESHOLD = 96
@@ -23,11 +17,8 @@ const CONTENT_FONT_SIZE = 12
 const DETAIL_FONT_SIZE = 11
 const CONTENT_LINE_HEIGHT = 17.4
 const DETAIL_LINE_HEIGHT = 14.85
-const MESSAGE_ROW_GAP = 10
-const MIN_ROW_HEIGHT = 42
 const MAX_MESSAGE_LANE_WIDTH = 720
 const MESSAGE_LANE_RATIO = 0.88
-const VIRTUAL_OVERSCAN = 8
 
 type MessageDirection = 'inbound' | 'outbound'
 
@@ -39,7 +30,7 @@ type ChannelMessageRow = {
   detail: string | null
   failed: boolean
   layout: ChannelMessageLayoutResult
-  rowHeight: number
+  isCollapsed: boolean
 }
 
 interface ChannelMessageListProps {
@@ -101,6 +92,7 @@ export function ChannelMessageList({
   const hasInitialAutoScrollRef = useRef(false)
   const [scrollContentWidth, setScrollContentWidth] = useState(0)
   const fontFamily = useMemo(() => resolveUiFontFamily(), [appearanceVersion])
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     clearChannelMessageLayoutCache()
@@ -117,11 +109,23 @@ export function ChannelMessageList({
     }
 
     updateWidth()
+    let resizeTimerId: ReturnType<typeof setTimeout> | null = null
     const observer = new ResizeObserver(() => {
-      updateWidth()
+      if (resizeTimerId !== null) {
+        clearTimeout(resizeTimerId)
+      }
+      resizeTimerId = setTimeout(() => {
+        resizeTimerId = null
+        updateWidth()
+      }, 120)
     })
     observer.observe(element)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      if (resizeTimerId !== null) {
+        clearTimeout(resizeTimerId)
+      }
+    }
   }, [])
 
   const laneWidth = useMemo(
@@ -161,7 +165,6 @@ export function ChannelMessageList({
         direction,
         status: failed ? 'failed' : direction === 'inbound' ? 'received' : 'sent',
       })
-      const rowHeight = resolveChannelRowEstimate(layout.bubbleHeight + MESSAGE_ROW_GAP, MIN_ROW_HEIGHT)
 
       return {
         id: event.id,
@@ -171,104 +174,74 @@ export function ChannelMessageList({
         detail,
         failed,
         layout,
-        rowHeight,
+        isCollapsed: collapsedIds.has(event.id),
       }
     })
-  }, [events, fontFamily, laneWidth, maxContentWidth, uiFont])
-
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: (index) => rows[index]?.rowHeight ?? MIN_ROW_HEIGHT,
-    overscan: VIRTUAL_OVERSCAN,
-  })
-
-  useEffect(() => {
-    virtualizer.measure()
-  }, [rows, virtualizer])
+  }, [events, fontFamily, laneWidth, maxContentWidth, uiFont, collapsedIds])
 
   useEffect(() => {
     hasInitialAutoScrollRef.current = false
   }, [conversationKey])
 
-  const latestRow = rows.length > 0 ? rows[rows.length - 1] : null
+  const latestRowId = rows.length > 0 ? rows[rows.length - 1].id : null
 
   useEffect(() => {
     const host = scrollRef.current
     if (!host) {
       return
     }
-    if (!latestRow) {
+    if (!latestRowId) {
       hasInitialAutoScrollRef.current = false
       return
     }
 
-    const shouldScroll = shouldAutoScrollChannelFeed({
-      hasInitialAutoScroll: hasInitialAutoScrollRef.current,
-      scrollHeight: host.scrollHeight,
-      scrollTop: host.scrollTop,
-      clientHeight: host.clientHeight,
-      threshold: AUTO_SCROLL_THRESHOLD,
-    })
-
-    if (!shouldScroll) {
+    if (!hasInitialAutoScrollRef.current) {
+      host.scrollTop = host.scrollHeight
+      hasInitialAutoScrollRef.current = true
       return
     }
 
-    const frameId = window.requestAnimationFrame(() => {
-      host.scrollTop = resolveLatestChannelMessageScrollTop({
-        latestMessageStart: Math.max(0, virtualizer.getTotalSize() - latestRow.rowHeight),
-        latestMessageHeight: latestRow.rowHeight,
-        scrollHeight: host.scrollHeight,
-        clientHeight: host.clientHeight,
+    const distanceFromBottom = host.scrollHeight - host.scrollTop - host.clientHeight
+    if (distanceFromBottom <= AUTO_SCROLL_THRESHOLD) {
+      const frameId = window.requestAnimationFrame(() => {
+        host.scrollTop = host.scrollHeight
       })
-      hasInitialAutoScrollRef.current = true
-    })
-
-    return () => window.cancelAnimationFrame(frameId)
-  }, [latestRow?.id, latestRow?.tsMs, rows.length, virtualizer])
+      return () => window.cancelAnimationFrame(frameId)
+    }
+  }, [latestRowId, rows.length])
 
   return (
     <div className="communication-channels-feed-scroll" ref={scrollRef}>
-      <ol
-        className="communication-channels-message-list"
-        style={{
-          display: 'block',
-          position: 'relative',
-          height: toRem(virtualizer.getTotalSize()),
-        }}
-      >
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const row = rows[virtualItem.index]
-          if (!row) {
-            return null
-          }
-
-          return (
-            <li
-              key={row.id}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: toRem(row.rowHeight),
-                transform: `translateY(${toRem(virtualItem.start)})`,
-                display: 'flex',
-                justifyContent: row.direction === 'inbound' ? 'flex-end' : 'flex-start',
+      <ol className="communication-channels-message-list">
+        {rows.map((row) => (
+          <li
+            key={row.id}
+            style={{
+              display: 'flex',
+              justifyContent: row.direction === 'inbound' ? 'flex-end' : 'flex-start',
+            }}
+          >
+            <ChannelMessageBubble
+              direction={row.direction}
+              content={row.content}
+              detail={row.detail}
+              failed={row.failed}
+              layout={row.layout}
+              isCollapsed={row.isCollapsed}
+              onToggleCollapse={() => {
+                setCollapsedIds((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(row.id)) {
+                    next.delete(row.id)
+                  } else {
+                    next.add(row.id)
+                  }
+                  return next
+                })
               }}
-            >
-              <ChannelMessageBubble
-                direction={row.direction}
-                content={row.content}
-                detail={row.detail}
-                failed={row.failed}
-                laneWidth={laneWidth}
-                layout={row.layout}
-              />
-            </li>
-          )
-        })}
+            />
+          </li>
+        ))}
       </ol>
     </div>
   )

@@ -120,13 +120,14 @@
   height: 100%;
   min-height: 0;
   gap: rem(10);
+  padding: rem(10) rem(12) rem(8);
 }
 
 .communication-channels-tabs {
   display: flex;
   align-items: center;
   gap: rem(8);
-  padding: rem(2) rem(12) rem(8);
+  padding: 0 0 rem(8);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -231,12 +232,12 @@
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 rem(12) rem(8);
+  padding: 0 0 rem(8);
   scrollbar-width: thin;
   scrollbar-color: var(--vb-border-strong) transparent;
 
   &::-webkit-scrollbar {
-    width: rem(6);
+    width: rem(3);
   }
 
   &::-webkit-scrollbar-thumb {
@@ -335,7 +336,7 @@
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: var(--communication-collapse-lines, 3);
 }
 
 .communication-channels-message-detail {

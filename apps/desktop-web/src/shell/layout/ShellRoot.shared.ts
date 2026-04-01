@@ -171,16 +171,19 @@ function isDigitsOnly(value: string): boolean {
 
 export function summarizeExternalChannelText(
   value: string | null | undefined,
-  maxChars = 160,
+  maxChars = 4096,
 ): string | null {
-  const normalized = (value ?? '').replace(/\s+/g, ' ').trim()
+  const normalized = (value ?? '')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   if (!normalized) {
     return null
   }
   if (normalized.length <= maxChars) {
     return normalized
   }
-  return `${normalized.slice(0, maxChars)}...`
+  return `${normalized.slice(0, maxChars)}…`
 }
 
 export function normalizeExternalChannel(value: string | null | undefined): string {

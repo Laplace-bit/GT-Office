@@ -27,6 +27,21 @@ test('later updates should auto-scroll when near bottom threshold', () => {
       scrollTop: 820,
       clientHeight: 120,
       threshold: 96,
+      anchorScrollTop: null,
+    }),
+    true,
+  )
+})
+
+test('later updates should auto-scroll when already aligned to the previous latest message top', () => {
+  assert.equal(
+    shouldAutoScrollChannelFeed({
+      hasInitialAutoScroll: true,
+      scrollHeight: 1600,
+      scrollTop: 920,
+      clientHeight: 280,
+      threshold: 96,
+      anchorScrollTop: 940,
     }),
     true,
   )
@@ -40,6 +55,7 @@ test('later updates should not auto-scroll when user is far from bottom', () => 
       scrollTop: 300,
       clientHeight: 120,
       threshold: 96,
+      anchorScrollTop: null,
     }),
     false,
   )

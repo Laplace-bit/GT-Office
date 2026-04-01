@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_CHANNEL_MESSAGE_COLLAPSE_CHAR_LIMIT,
   DEFAULT_CHANNEL_MESSAGE_COLLAPSE_LINE_LIMIT,
+  DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT,
+  resolveChannelMessageToggleReserveHeight,
   shouldAllowChannelMessageCollapse,
 } from '../src/features/tool-adapter/channel-message-bubble-model.js'
 
@@ -40,4 +42,9 @@ test('collapses messages that exceed the line limit even if the text is shorter'
     }),
     true,
   )
+})
+
+test('reserves toggle height only when collapse affordance is visible', () => {
+  assert.equal(resolveChannelMessageToggleReserveHeight(true), DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT)
+  assert.equal(resolveChannelMessageToggleReserveHeight(false), 0)
 })

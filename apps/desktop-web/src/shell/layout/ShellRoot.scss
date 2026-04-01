@@ -128,7 +128,8 @@
   -webkit-backdrop-filter: blur(#{rem(32)}) saturate(180%);
   border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-sm);
-  transition: width 0.1s ease-out, background-color 0.3s ease;
+  transition: background-color 0.3s ease;
+  contain: layout style;
   z-index: 5;
 }
 
@@ -191,6 +192,7 @@
   border: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--vb-shadow-md);
   transition: background-color 0.3s ease;
+  contain: layout style;
 
   > * {
     flex: 1 1 auto;
@@ -200,12 +202,12 @@
 }
 
 .shell-right-pane-resizer {
-  margin-left: calc(var(--vb-space-xs) / -2);
-  margin-right: calc(var(--vb-space-xs) / -2);
+  margin-left: #{rem(-6)};
+  margin-right: #{rem(-6)};
 }
 
 .shell-main-content > .shell-right-pane-resizer {
-  flex: 0 0 var(--vb-space-xs);
+  flex: 0 0 #{rem(12)};
 }
 
 .shell-right-pane::before,
@@ -286,12 +288,13 @@
 }
 
 .shell-column-resizer {
-  width: var(--vb-space-xs);
-  flex: 0 0 var(--vb-space-xs);
-  margin: 0 calc(var(--vb-space-xs) / -2);
+  width: #{rem(12)};
+  flex: 0 0 #{rem(12)};
+  margin: 0 #{rem(-6)};
   cursor: col-resize;
   position: relative;
   z-index: 20;
+  touch-action: none;
   transition: background-color 0.2s ease;
 
   &::before {
@@ -304,7 +307,7 @@
     transform: translateX(-50%);
     border-radius: var(--vb-radius-full);
     background: transparent;
-    transition: background-color 0.2s ease;
+    transition: background-color 0.15s ease;
   }
 
   &:hover::before,
@@ -316,6 +319,45 @@
     background: var(--vb-accent);
     height: 60%;
     top: 20%;
+  }
+}
+
+// ── Extreme resize performance ──────────────────────────────────────────────
+// When .shell-pane-resizing is active (toggled via direct DOM, zero React renders):
+// 1. Disable backdrop-filter — the single most expensive CSS property during reflow
+// 2. Add will-change: width — promotes panes to their own compositor layer
+// 3. Block pointer-events on children — prevents iframe/webview cursor stealing
+// 4. Disable all transitions — eliminates interpolation lag
+// 5. Use contain: strict on panes — limits layout recalculation scope
+.shell-pane-resizing {
+  // Kill all child pointer events to prevent cursor flicker from iframes/webviews.
+  .shell-left-pane,
+  .shell-main-pane,
+  .shell-right-pane {
+    pointer-events: none;
+    will-change: width;
+    contain: layout style paint;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+  }
+
+  .shell-left-pane::before,
+  .shell-main-pane::before,
+  .shell-right-pane::before {
+    display: none;
+  }
+
+  // The resizer itself must remain interactive.
+  .shell-column-resizer {
+    pointer-events: auto;
+  }
+
+  // Suppress all transitions globally during resize.
+  * {
+    transition: none !important;
+    animation: none !important;
   }
 }
 

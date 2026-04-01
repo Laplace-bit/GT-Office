@@ -29,6 +29,7 @@ const preparedCache = new Map<string, PreparedTextWithSegments>()
 const BINARY_SEARCH_ITERATIONS = 24
 const MIN_CONTENT_WIDTH = 1
 const FONT_SIZE_PATTERN = /(\d+(?:\.\d+)?)\s*px/i
+const DETAIL_MARGIN_TOP = 6
 
 type TextMetricsLike = {
   width: number
@@ -145,38 +146,90 @@ function toBubbleChromeHeight(input: ChannelMessageLayoutInput): number {
   return (input.bubblePaddingY + input.bubbleBorderWidth) * 2
 }
 
-function estimateFallbackBlockHeight(text: string, width: number, lineHeight: number): { lineCount: number; height: number } {
+function estimateFallbackBlockHeight(text: string, width: number, lineHeight: number, font: string): { lineCount: number; height: number; tightWidth: number } {
   const safeLineHeight = toSafeLineHeight(lineHeight)
-  const normalized = text.trim().length === 0 ? ' ' : text
-  const averageCharWidth = safeLineHeight * 0.55
-  const charsPerLine = Math.max(1, Math.floor(width / averageCharWidth))
+  const safeWidth = toSafeContentWidth(width)
+  const fontSize = parseFontSize(font)
+  const normalized = text.length === 0 ? ' ' : text
   const hardBreakLines = normalized.split('\n')
 
-  let lineCount = 0
+  let totalLines = 0
+  let tightWidth = 0
+
   for (const line of hardBreakLines) {
-    const collapsedLine = line.replace(/\s+/g, ' ').trim()
-    const measuredLength = collapsedLine.length === 0 ? 1 : collapsedLine.length
-    lineCount += Math.max(1, Math.ceil(measuredLength / charsPerLine))
+    if (line.length === 0) {
+      totalLines += 1
+      continue
+    }
+
+    const words = line.split(/(\s+)/)
+    let currentLineWidth = 0
+    let currentLineChunks = 1
+
+    for (const word of words) {
+      if (word.length === 0) continue
+
+      const isSpace = /^\s+$/.test(word)
+      let wordWidth = 0
+      for (const char of word) {
+        wordWidth += estimateCharacterWidth(char, fontSize)
+      }
+
+      if (currentLineWidth + wordWidth <= safeWidth) {
+        currentLineWidth += wordWidth
+      } else if (isSpace) {
+        continue
+      } else {
+        if (wordWidth > safeWidth) {
+          for (const char of word) {
+            const cw = estimateCharacterWidth(char, fontSize)
+            if (currentLineWidth + cw > safeWidth && currentLineWidth > 0) {
+              tightWidth = Math.max(tightWidth, currentLineWidth)
+              currentLineChunks += 1
+              currentLineWidth = cw
+            } else {
+              currentLineWidth += cw
+            }
+          }
+        } else {
+          tightWidth = Math.max(tightWidth, currentLineWidth)
+          currentLineChunks += 1
+          currentLineWidth = wordWidth
+        }
+      }
+    }
+    tightWidth = Math.max(tightWidth, currentLineWidth)
+    totalLines += currentLineChunks
   }
 
   return {
-    lineCount,
-    height: lineCount * safeLineHeight,
+    lineCount: totalLines,
+    height: totalLines * safeLineHeight,
+    tightWidth: Math.max(MIN_CONTENT_WIDTH, tightWidth),
   }
 }
 
 function computeFallbackLayout(input: ChannelMessageLayoutInput): ChannelMessageLayoutResult {
   const maxContentWidth = toSafeContentWidth(input.maxContentWidth)
   const chromeWidth = toBubbleChromeWidth(input)
-  const maxBubbleWidth = maxContentWidth + chromeWidth
-  const contentLayout = estimateFallbackBlockHeight(input.content, maxContentWidth, input.contentLineHeight)
+  
+  const contentLayout = estimateFallbackBlockHeight(input.content, maxContentWidth, input.contentLineHeight, input.contentFont)
   const detailLayout = input.detail
-    ? estimateFallbackBlockHeight(input.detail, maxContentWidth, input.detailLineHeight)
-    : { lineCount: 0, height: 0 }
+    ? estimateFallbackBlockHeight(input.detail, maxContentWidth, input.detailLineHeight, input.detailFont)
+    : null
+
+  const tightMeasuredWidth = Math.max(
+    contentLayout.tightWidth,
+    detailLayout ? detailLayout.tightWidth : 0
+  )
+  
+  const detailHeight = detailLayout ? detailLayout.height + DETAIL_MARGIN_TOP : 0
+  const maxBubbleWidth = maxContentWidth + chromeWidth
+  const bubbleWidth = Math.min(tightMeasuredWidth + chromeWidth, maxBubbleWidth)
 
   return {
-    bubbleWidth: maxBubbleWidth,
-    bubbleHeight: contentLayout.height + detailLayout.height + toBubbleChromeHeight(input),
+    bubbleWidth,
+    bubbleHeight: contentLayout.height + detailHeight + toBubbleChromeHeight(input),
     maxBubbleWidth,
     maxWidthLineCount: contentLayout.lineCount,
     tightLineCount: contentLayout.lineCount,
@@ -240,7 +293,23 @@ export function computeChannelMessageLayout(input: ChannelMessageLayoutInput): C
   const chromeWidth = toBubbleChromeWidth(input)
   const maxBubbleWidth = maxContentWidth + chromeWidth
 
-  if (input.uiFont === 'system-ui') {
+  const averageContentCharWidth = input.contentLineHeight * 0.55
+  const contentCharsPerLine = Math.max(1, Math.floor(maxContentWidth / averageContentCharWidth))
+  
+  const averageDetailCharWidth = input.detailLineHeight * 0.55
+  const detailCharsPerLine = Math.max(1, Math.floor(maxContentWidth / averageDetailCharWidth))
+
+  // Use pretext for all font types — the fontFamily resolve already reads
+  // the actual CSS custom property, so it works for system-ui too.
+  const hasLongUnbreakableWord = (text: string, charsPerLine: number) => {
+    const normalized = text.replace(/[\u3400-\u9fff\uac00-\ud7af\u3040-\u30ff]/gu, ' ')
+    return normalized.split(/\s+/).some(word => word.length > charsPerLine)
+  }
+
+  const needsFallback = hasLongUnbreakableWord(input.content, contentCharsPerLine) ||
+                        (input.detail ? hasLongUnbreakableWord(input.detail, detailCharsPerLine) : false)
+
+  if (needsFallback) {
     return computeFallbackLayout(input)
   }
 
@@ -250,18 +319,24 @@ export function computeChannelMessageLayout(input: ChannelMessageLayoutInput): C
     const tightContentWidth = findTightWidth(contentPrepared, maxContentWidth, input.contentLineHeight)
     const tightContentLayout = estimateBlockHeight(contentPrepared, tightContentWidth, input.contentLineHeight)
 
+    // Use the larger of tight/max content heights as a safety guard against
+    // binary-search precision edge cases (off-by-subpixel → one extra wrap line).
+    const contentHeight = Math.max(tightContentLayout.height, maxContentLayout.height)
+
     let tightMeasuredWidth = tightContentWidth
     let detailHeight = 0
     if (input.detail) {
       const detailPrepared = prepareCached(input.detail, input.detailFont)
       const tightDetailWidth = findTightWidth(detailPrepared, maxContentWidth, input.detailLineHeight)
-      const detailLayout = estimateBlockHeight(detailPrepared, tightDetailWidth, input.detailLineHeight)
+      const maxDetailLayout = estimateBlockHeight(detailPrepared, maxContentWidth, input.detailLineHeight)
+      const tightDetailLayout = estimateBlockHeight(detailPrepared, tightDetailWidth, input.detailLineHeight)
       tightMeasuredWidth = Math.max(tightMeasuredWidth, tightDetailWidth)
-      detailHeight = detailLayout.height
+      const dHeight = Math.max(tightDetailLayout.height, maxDetailLayout.height)
+      detailHeight = dHeight + DETAIL_MARGIN_TOP
     }
 
     const bubbleWidth = Math.min(tightMeasuredWidth + chromeWidth, maxBubbleWidth)
-    const bubbleHeight = tightContentLayout.height + detailHeight + toBubbleChromeHeight(input)
+    const bubbleHeight = contentHeight + detailHeight + toBubbleChromeHeight(input)
     return {
       bubbleWidth,
       bubbleHeight,

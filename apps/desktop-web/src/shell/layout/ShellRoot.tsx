@@ -253,8 +253,8 @@ export function ShellRoot() {
   )
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
   const [rightPaneWidth, setRightPaneWidth] = useState(loadRightPaneWidthPreference)
-  const [leftPaneResizing, setLeftPaneResizing] = useState(false)
-  const [rightPaneResizing, setRightPaneResizing] = useState(false)
+  const leftPaneWidthRef = useRef(leftPaneWidth)
+  const rightPaneWidthRef = useRef(rightPaneWidth)
   const [leftPaneWidthMax, setLeftPaneWidthMax] = useState(LEFT_PANE_WIDTH_MAX)
   const [rightPaneWidthMax, setRightPaneWidthMax] = useState(RIGHT_PANE_WIDTH_MAX)
   const [leftPaneVisible, setLeftPaneVisible] = useState(true)
@@ -367,10 +367,10 @@ export function ShellRoot() {
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
   const terminalDebugRecordSeqRef = useRef(0)
-  const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
+  const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number; rafId: number | null; lastClientX: number; currentWidth: number } | null>(
     null,
   )
-  const rightPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
+  const rightPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number; rafId: number | null; lastClientX: number; currentWidth: number } | null>(
     null,
   )
   const shellContainerRef = useRef<HTMLDivElement | null>(null)
@@ -4919,49 +4919,100 @@ export function ShellRoot() {
     }
   }, [isShortcutRepeat])
 
+  // Sync refs when React state settles (only on mount and post-resize commit).
+  useEffect(() => {
+    leftPaneWidthRef.current = leftPaneWidth
+  }, [leftPaneWidth])
+  useEffect(() => {
+    rightPaneWidthRef.current = rightPaneWidth
+  }, [rightPaneWidth])
+
   const handleLeftPaneResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault()
       event.stopPropagation()
 
       const pointerId = event.pointerId
+      const startWidth = leftPaneWidthRef.current
+      const startX = event.clientX
+
       leftPaneResizeRef.current = {
         pointerId,
-        startX: event.clientX,
-        startWidth: leftPaneWidth,
+        startX,
+        startWidth,
+        rafId: null,
+        lastClientX: startX,
+        currentWidth: startWidth,
       }
-      setLeftPaneResizing(true)
 
       const dragHandle = event.currentTarget
       dragHandle.setPointerCapture(pointerId)
 
-      const previousBodyCursor = document.body.style.cursor
-      const previousBodyUserSelect = document.body.style.userSelect
+      // Toggle visual feedback via DOM classes — zero React renders.
+      dragHandle.classList.add('active')
+      const shellContainer = shellContainerRef.current
+      if (shellContainer) {
+        shellContainer.classList.add('shell-pane-resizing')
+      }
+
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
 
       const finishResize = (releasedPointerId: number) => {
-        if (leftPaneResizeRef.current?.pointerId !== releasedPointerId) {
+        const ref = leftPaneResizeRef.current
+        if (!ref || ref.pointerId !== releasedPointerId) {
           return
         }
+        if (ref.rafId) {
+          cancelAnimationFrame(ref.rafId)
+        }
+        const finalWidth = ref.currentWidth
         leftPaneResizeRef.current = null
-        setLeftPaneResizing(false)
-        document.body.style.cursor = previousBodyCursor
-        document.body.style.userSelect = previousBodyUserSelect
+
+        // Restore body styles.
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+
+        // Remove visual feedback classes.
+        dragHandle.classList.remove('active')
+        if (shellContainer) {
+          shellContainer.classList.remove('shell-pane-resizing')
+        }
+
         if (dragHandle.hasPointerCapture(releasedPointerId)) {
           dragHandle.releasePointerCapture(releasedPointerId)
         }
         window.removeEventListener('pointermove', handlePointerMove)
         window.removeEventListener('pointerup', handlePointerUp)
         window.removeEventListener('pointercancel', handlePointerCancel)
+
+        // Single React commit at the end with the final value.
+        leftPaneWidthRef.current = finalWidth
+        setLeftPaneWidth(finalWidth)
       }
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        if (leftPaneResizeRef.current?.pointerId !== moveEvent.pointerId) {
+        const ref = leftPaneResizeRef.current
+        if (!ref || ref.pointerId !== moveEvent.pointerId) {
           return
         }
-        const delta = moveEvent.clientX - leftPaneResizeRef.current.startX
-        setLeftPaneWidth(clampLeftPaneWidth(leftPaneResizeRef.current.startWidth + delta, leftPaneWidthMax))
+        // Always read clientX synchronously (before RAF) so the value isn't stale.
+        ref.lastClientX = moveEvent.clientX
+
+        if (ref.rafId === null) {
+          ref.rafId = requestAnimationFrame(() => {
+            const innerRef = leftPaneResizeRef.current
+            if (!innerRef) return
+
+            innerRef.rafId = null
+            const delta = innerRef.lastClientX - innerRef.startX
+            const newWidth = clampLeftPaneWidth(innerRef.startWidth + delta, leftPaneWidthMax)
+
+            innerRef.currentWidth = newWidth
+            // Direct DOM write — bypasses React entirely.
+            shellMainRef.current?.style.setProperty('--shell-left-pane-width', `${newWidth}px`)
+          })
+        }
       }
 
       const handlePointerUp = (upEvent: PointerEvent) => {
@@ -4976,7 +5027,7 @@ export function ShellRoot() {
       window.addEventListener('pointerup', handlePointerUp)
       window.addEventListener('pointercancel', handlePointerCancel)
     },
-    [leftPaneWidth, leftPaneWidthMax],
+    [leftPaneWidthMax],
   )
 
   const handleLeftPaneResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -4998,43 +5049,80 @@ export function ShellRoot() {
       event.stopPropagation()
 
       const pointerId = event.pointerId
+      const startWidth = rightPaneWidthRef.current
+      const startX = event.clientX
+
       rightPaneResizeRef.current = {
         pointerId,
-        startX: event.clientX,
-        startWidth: rightPaneWidth,
+        startX,
+        startWidth,
+        rafId: null,
+        lastClientX: startX,
+        currentWidth: startWidth,
       }
-      setRightPaneResizing(true)
 
       const dragHandle = event.currentTarget
       dragHandle.setPointerCapture(pointerId)
 
-      const previousBodyCursor = document.body.style.cursor
-      const previousBodyUserSelect = document.body.style.userSelect
+      dragHandle.classList.add('active')
+      const shellContainer = shellContainerRef.current
+      if (shellContainer) {
+        shellContainer.classList.add('shell-pane-resizing')
+      }
+
       document.body.style.cursor = 'col-resize'
       document.body.style.userSelect = 'none'
 
       const finishResize = (releasedPointerId: number) => {
-        if (rightPaneResizeRef.current?.pointerId !== releasedPointerId) {
+        const ref = rightPaneResizeRef.current
+        if (!ref || ref.pointerId !== releasedPointerId) {
           return
         }
+        if (ref.rafId) {
+          cancelAnimationFrame(ref.rafId)
+        }
+        const finalWidth = ref.currentWidth
         rightPaneResizeRef.current = null
-        setRightPaneResizing(false)
-        document.body.style.cursor = previousBodyCursor
-        document.body.style.userSelect = previousBodyUserSelect
+
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+
+        dragHandle.classList.remove('active')
+        if (shellContainer) {
+          shellContainer.classList.remove('shell-pane-resizing')
+        }
+
         if (dragHandle.hasPointerCapture(releasedPointerId)) {
           dragHandle.releasePointerCapture(releasedPointerId)
         }
         window.removeEventListener('pointermove', handlePointerMove)
         window.removeEventListener('pointerup', handlePointerUp)
         window.removeEventListener('pointercancel', handlePointerCancel)
+
+        rightPaneWidthRef.current = finalWidth
+        setRightPaneWidth(finalWidth)
       }
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
-        if (rightPaneResizeRef.current?.pointerId !== moveEvent.pointerId) {
+        const ref = rightPaneResizeRef.current
+        if (!ref || ref.pointerId !== moveEvent.pointerId) {
           return
         }
-        const delta = rightPaneResizeRef.current.startX - moveEvent.clientX
-        setRightPaneWidth(clampRightPaneWidth(rightPaneResizeRef.current.startWidth + delta, rightPaneWidthMax))
+        ref.lastClientX = moveEvent.clientX
+
+        if (ref.rafId === null) {
+          ref.rafId = requestAnimationFrame(() => {
+            const innerRef = rightPaneResizeRef.current
+            if (!innerRef) return
+
+            innerRef.rafId = null
+            const delta = innerRef.startX - innerRef.lastClientX
+            const newWidth = clampRightPaneWidth(innerRef.startWidth + delta, rightPaneWidthMax)
+
+            innerRef.currentWidth = newWidth
+            shellMainRef.current?.style.setProperty('--shell-right-pane-width', `${newWidth}px`)
+          })
+        }
       }
 
       const handlePointerUp = (upEvent: PointerEvent) => {
@@ -5049,7 +5137,7 @@ export function ShellRoot() {
       window.addEventListener('pointerup', handlePointerUp)
       window.addEventListener('pointercancel', handlePointerCancel)
     },
-    [rightPaneWidth, rightPaneWidthMax],
+    [rightPaneWidthMax],
   )
 
   const handleRightPaneResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -5334,8 +5422,8 @@ export function ShellRoot() {
       }}
       activeNavId={activeNavId}
       leftPaneVisible={leftPaneVisible}
-      leftPaneResizing={leftPaneResizing}
-      rightPaneResizing={rightPaneResizing}
+      leftPaneResizing={false}
+      rightPaneResizing={false}
       leftPaneWidth={leftPaneWidth}
       leftPaneWidthMax={leftPaneWidthMax}
       rightPaneWidth={rightPaneWidth}

@@ -226,7 +226,7 @@ function CommunicationChannelsPaneView({
   }, [conversationGroups])
 
   return (
-    <aside className="panel communication-channels-pane">
+    <aside className="communication-channels-pane">
       <div className="communication-channels-feed">
         {conversationGroups.length > 0 ? (
           <div className="communication-channels-tabs" role="tablist" aria-label={t(locale, '双端会话', 'Conversations')}>
@@ -242,7 +242,6 @@ function CommunicationChannelsPaneView({
                   onClick={() => {
                     setActiveConversationKey(group.key)
                   }}
-                  title={group.label}
                 >
                   <span className="communication-channels-tab-title">{group.label}</span>
                   <span className="communication-channels-tab-count">{group.events.length}</span>

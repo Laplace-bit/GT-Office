@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import type { ChannelMessageLayoutResult } from './channel-message-layout'
 import {
+  DEFAULT_CHANNEL_MESSAGE_COLLAPSE_LINE_LIMIT,
   shouldAllowChannelMessageCollapse,
 } from './channel-message-bubble-model'
 
@@ -15,9 +16,10 @@ interface ChannelMessageBubbleProps {
   content: string
   detail: string | null
   failed: boolean
-  laneWidth: number
   layout: ChannelMessageLayoutResult
   style?: CSSProperties
+  isCollapsed?: boolean
+  onToggleCollapse?: () => void
 }
 
 export function ChannelMessageBubble({
@@ -25,31 +27,39 @@ export function ChannelMessageBubble({
   content,
   detail,
   failed,
-  laneWidth,
   layout,
   style,
+  isCollapsed,
+  onToggleCollapse,
 }: ChannelMessageBubbleProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [internalCollapsed, setInternalCollapsed] = useState(false)
+  const collapsed = isCollapsed ?? internalCollapsed
+
   const canCollapse = shouldAllowChannelMessageCollapse({
     contentLength: content.length,
     lineCount: layout.tightLineCount,
   })
-  const collapsed = canCollapse && !expanded
+  const collapsedState = canCollapse && collapsed
+
+  const handleToggle = () => {
+    if (onToggleCollapse) {
+      onToggleCollapse()
+    } else {
+      setInternalCollapsed((current) => !current)
+    }
+  }
 
   return (
     <div
       className={`communication-channels-message-row is-${direction}`}
-      style={{
-        maxWidth: toRem(laneWidth),
-        width: '100%',
-        ...style,
-      }}
+      style={style}
     >
       <article
-        className={`communication-channels-bubble ${failed ? 'is-failed' : ''} ${collapsed ? 'is-collapsed' : ''}`}
+        className={`communication-channels-bubble ${failed ? 'is-failed' : ''} ${collapsedState ? 'is-collapsed' : ''}`}
         style={{
           width: toRem(layout.bubbleWidth),
-        }}
+          ['--communication-collapse-lines' as const]: DEFAULT_CHANNEL_MESSAGE_COLLAPSE_LINE_LIMIT,
+        } as CSSProperties}
       >
         <p className="communication-channels-message-content">{content}</p>
         {detail ? (
@@ -61,11 +71,9 @@ export function ChannelMessageBubble({
           <button
             type="button"
             className="communication-channels-message-toggle"
-            onClick={() => {
-              setExpanded((current) => !current)
-            }}
+            onClick={handleToggle}
           >
-            {collapsed ? '展开' : '收起'}
+            {collapsedState ? '展开' : '收起'}
           </button>
         ) : null}
       </article>
