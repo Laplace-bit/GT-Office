@@ -5,6 +5,7 @@ import {
   type CreateStationInput,
   type UpdateStationInput,
 } from '@features/workspace-hub'
+import { resolveStationMutationErrorMessage } from '@features/workspace-hub/station-mutation-error'
 import { buildRoleWorkdirRel } from '@features/workspace'
 import { desktopApi, type AgentRole } from '../integration/desktop-api'
 import type { Locale } from '../i18n/ui-locale'
@@ -108,6 +109,9 @@ export function useShellStationController({
           })
           await loadStationsFromDatabase(activeWorkspaceId)
           setIsStationManageOpen(false)
+        } catch (error) {
+          console.error('failed to create agent', error)
+          window.alert(resolveStationMutationErrorMessage(localeRef.current, 'create', error))
         } finally {
           setStationSavePending(false)
         }
@@ -164,6 +168,9 @@ export function useShellStationController({
           await loadStationsFromDatabase(activeWorkspaceId)
           setIsStationManageOpen(false)
           setEditingStation(null)
+        } catch (error) {
+          console.error('failed to update agent', error)
+          window.alert(resolveStationMutationErrorMessage(localeRef.current, 'update', error))
         } finally {
           setStationSavePending(false)
         }
