@@ -54,6 +54,128 @@ impl SqliteAgentRepository {
         }
         agent
     }
+
+    fn agents_table_uses_legacy_role_foreign_key(
+        conn: &rusqlite::Connection,
+    ) -> AgentResult<bool> {
+        let mut stmt = conn
+            .prepare("PRAGMA foreign_key_list(agents)")
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let mut legacy_pairs = Vec::new();
+        let mut migrated_pairs = Vec::new();
+        for row in rows {
+            let (fk_id, table_name, from_column, to_column) =
+                row.map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?;
+            if table_name != "agent_roles" {
+                continue;
+            }
+            match fk_id {
+                0 => legacy_pairs.push((from_column.clone(), to_column.clone())),
+                1 => migrated_pairs.push((from_column, to_column)),
+                _ => migrated_pairs.push((from_column, to_column)),
+            }
+        }
+
+        if legacy_pairs.is_empty() && migrated_pairs.is_empty() {
+            return Ok(false);
+        }
+
+        let has_legacy_workspace_fk = legacy_pairs
+            .iter()
+            .any(|(from, to)| from == "workspace_id" && to == "workspace_id");
+        let has_role_workspace_fk = legacy_pairs
+            .iter()
+            .chain(migrated_pairs.iter())
+            .any(|(from, to)| from == "role_workspace_id" && to == "workspace_id");
+
+        Ok(has_legacy_workspace_fk && !has_role_workspace_fk)
+    }
+
+    fn migrate_agents_table_role_foreign_key(
+        conn: &rusqlite::Connection,
+    ) -> AgentResult<()> {
+        conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = OFF;
+            BEGIN IMMEDIATE;
+            CREATE TABLE agents__gto_migrated (
+              id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              role_id TEXT NOT NULL,
+              role_workspace_id TEXT NOT NULL DEFAULT '',
+              tool TEXT NOT NULL DEFAULT 'codex cli',
+              workdir TEXT,
+              custom_workdir INTEGER NOT NULL DEFAULT 0,
+              state TEXT NOT NULL,
+              employee_no TEXT,
+              policy_snapshot_id TEXT,
+              created_at_ms INTEGER NOT NULL,
+              updated_at_ms INTEGER NOT NULL,
+              PRIMARY KEY (id, workspace_id),
+              FOREIGN KEY (role_id, role_workspace_id)
+                REFERENCES agent_roles(id, workspace_id)
+                ON DELETE RESTRICT
+            );
+            INSERT INTO agents__gto_migrated (
+              id,
+              workspace_id,
+              name,
+              role_id,
+              role_workspace_id,
+              tool,
+              workdir,
+              custom_workdir,
+              state,
+              employee_no,
+              policy_snapshot_id,
+              created_at_ms,
+              updated_at_ms
+            )
+            SELECT
+              id,
+              workspace_id,
+              name,
+              role_id,
+              COALESCE(NULLIF(role_workspace_id, ''), workspace_id),
+              tool,
+              workdir,
+              custom_workdir,
+              state,
+              employee_no,
+              policy_snapshot_id,
+              created_at_ms,
+              updated_at_ms
+            FROM agents;
+            DROP TABLE agents;
+            ALTER TABLE agents__gto_migrated RENAME TO agents;
+            CREATE INDEX IF NOT EXISTS idx_agents_workspace_role
+              ON agents(workspace_id, role_id);
+            COMMIT;
+            PRAGMA foreign_keys = ON;
+            "#,
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })
+    }
 }
 
 const AGENT_SCHEMA: &str = r#"
@@ -212,6 +334,9 @@ impl AgentRepository for SqliteAgentRepository {
         .map_err(|error| AgentError::Storage {
             message: error.to_string(),
         })?;
+        if Self::agents_table_uses_legacy_role_foreign_key(&conn)? {
+            Self::migrate_agents_table_role_foreign_key(&conn)?;
+        }
         Ok(())
     }
 
@@ -674,6 +799,7 @@ impl AgentRepository for SqliteAgentRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use vb_agent::{AgentRoleScope, AgentState, RoleStatus};
 
     fn test_repo(label: &str) -> SqliteAgentRepository {
@@ -681,10 +807,86 @@ mod tests {
             "vb-storage-agent-repo-{label}-{}.db",
             uuid::Uuid::new_v4()
         ));
+        if db_path.exists() {
+            let _ = std::fs::remove_file(&db_path);
+        }
         let storage = SqliteStorage::new(&db_path).expect("create sqlite storage");
         let repo = SqliteAgentRepository::new(storage);
         repo.ensure_schema().expect("ensure schema");
         repo
+    }
+
+    fn repo_for_db_path(db_path: &Path) -> SqliteAgentRepository {
+        let storage = SqliteStorage::new(db_path).expect("create sqlite storage");
+        SqliteAgentRepository::new(storage)
+    }
+
+    fn install_legacy_agent_schema(db_path: &Path) {
+        if db_path.exists() {
+            let _ = std::fs::remove_file(db_path);
+        }
+        let connection = rusqlite::Connection::open(db_path).expect("open sqlite db");
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = ON;
+                CREATE TABLE org_departments (
+                  id TEXT NOT NULL,
+                  workspace_id TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  description TEXT,
+                  order_index INTEGER NOT NULL DEFAULT 0,
+                  is_system INTEGER NOT NULL DEFAULT 1,
+                  created_at_ms INTEGER NOT NULL,
+                  updated_at_ms INTEGER NOT NULL,
+                  PRIMARY KEY (id, workspace_id)
+                );
+                CREATE TABLE agent_roles (
+                  id TEXT NOT NULL,
+                  workspace_id TEXT NOT NULL,
+                  role_key TEXT NOT NULL,
+                  role_name TEXT NOT NULL,
+                  department_id TEXT NOT NULL,
+                  charter_path TEXT,
+                  policy_json TEXT,
+                  version INTEGER NOT NULL DEFAULT 1,
+                  status TEXT NOT NULL DEFAULT 'active',
+                  is_system INTEGER NOT NULL DEFAULT 1,
+                  created_at_ms INTEGER NOT NULL,
+                  updated_at_ms INTEGER NOT NULL,
+                  PRIMARY KEY (id, workspace_id),
+                  UNIQUE (workspace_id, role_key),
+                  FOREIGN KEY (department_id, workspace_id)
+                    REFERENCES org_departments(id, workspace_id)
+                    ON DELETE RESTRICT
+                );
+                CREATE TABLE agents (
+                  id TEXT NOT NULL,
+                  workspace_id TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  role_id TEXT NOT NULL,
+                  tool TEXT NOT NULL DEFAULT 'codex cli',
+                  workdir TEXT,
+                  custom_workdir INTEGER NOT NULL DEFAULT 0,
+                  state TEXT NOT NULL,
+                  employee_no TEXT,
+                  policy_snapshot_id TEXT,
+                  created_at_ms INTEGER NOT NULL,
+                  updated_at_ms INTEGER NOT NULL,
+                  PRIMARY KEY (id, workspace_id),
+                  FOREIGN KEY (role_id, workspace_id)
+                    REFERENCES agent_roles(id, workspace_id)
+                    ON DELETE RESTRICT
+                );
+                CREATE INDEX idx_agent_roles_workspace_key
+                  ON agent_roles(workspace_id, role_key);
+                CREATE INDEX idx_agent_roles_workspace_department
+                  ON agent_roles(workspace_id, department_id);
+                CREATE INDEX idx_agents_workspace_role
+                  ON agents(workspace_id, role_id);
+                "#,
+            )
+            .expect("install legacy schema");
     }
 
     fn global_workspace_id() -> &'static str {
@@ -777,5 +979,38 @@ mod tests {
         });
 
         assert!(created.is_ok(), "expected global roles to be assignable");
+    }
+
+    #[test]
+    fn ensure_schema_migrates_legacy_agents_foreign_key_for_global_roles() {
+        let db_path = std::env::temp_dir().join(format!(
+            "vb-storage-agent-repo-legacy-fk-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        install_legacy_agent_schema(&db_path);
+
+        let repo = repo_for_db_path(&db_path);
+        repo.ensure_schema().expect("migrate legacy schema");
+        repo.seed_defaults(global_workspace_id())
+            .expect("seed global defaults");
+        repo.seed_defaults("ws_alpha")
+            .expect("seed workspace defaults");
+
+        let created = repo.create_agent(CreateAgentInput {
+            workspace_id: "ws_alpha".to_string(),
+            agent_id: Some("agent_alpha".to_string()),
+            name: "Alpha".to_string(),
+            role_id: "global_role_manager".to_string(),
+            tool: "codex".to_string(),
+            workdir: Some(".gtoffice/alpha".to_string()),
+            custom_workdir: false,
+            employee_no: None,
+            state: AgentState::Ready,
+        });
+
+        assert!(
+            created.is_ok(),
+            "expected legacy schema migration to preserve global role assignment, got: {created:?}"
+        );
     }
 }
