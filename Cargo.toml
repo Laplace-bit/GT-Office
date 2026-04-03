@@ -8,6 +8,7 @@ members = [
   "crates/vb-workspace",
   "crates/vb-filesystem",
   "crates/vb-terminal",
+  "crates/vb-terminal-core",
   "crates/vb-git",
   "crates/vb-tools",
   "crates/vb-changefeed",
