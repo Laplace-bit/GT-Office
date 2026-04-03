@@ -332,11 +332,14 @@
   word-break: break-word;
 }
 
-.communication-channels-bubble.is-collapsed .communication-channels-message-content {
-  display: -webkit-box;
+.communication-channels-message-content-viewport {
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--communication-collapse-lines, 3);
+  height: auto;
+  transition: height 240ms cubic-bezier(0.22, 0.88, 0.3, 1);
+}
+
+.communication-channels-bubble.is-animating-height .communication-channels-message-content-viewport {
+  will-change: height;
 }
 
 .communication-channels-message-detail {
@@ -354,7 +357,7 @@
 }
 
 .communication-channels-message-toggle {
-  margin-top: rem(8);
+  margin-top: rem(4);
   padding: 0;
   border: 0;
   background: transparent;
@@ -416,6 +419,10 @@
   }
 
   .communication-channels-tab {
+    transition: none;
+  }
+
+  .communication-channels-message-content-viewport {
     transition: none;
   }
 }

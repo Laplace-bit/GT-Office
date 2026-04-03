@@ -4,6 +4,8 @@ import {
   DEFAULT_CHANNEL_MESSAGE_COLLAPSE_CHAR_LIMIT,
   DEFAULT_CHANNEL_MESSAGE_COLLAPSE_LINE_LIMIT,
   DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT,
+  resolveChannelMessageAnimationStartHeight,
+  resolveChannelMessageAnimationTargetHeight,
   resolveChannelMessageToggleReserveHeight,
   shouldAllowChannelMessageCollapse,
 } from '../src/features/tool-adapter/channel-message-bubble-model.js'
@@ -47,4 +49,45 @@ test('collapses messages that exceed the line limit even if the text is shorter'
 test('reserves toggle height only when collapse affordance is visible', () => {
   assert.equal(resolveChannelMessageToggleReserveHeight(true), DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT)
   assert.equal(resolveChannelMessageToggleReserveHeight(false), 0)
+})
+
+test('collapsed state targets the collapsed measured height', () => {
+  assert.equal(
+    resolveChannelMessageAnimationTargetHeight({
+      collapsed: true,
+      collapsedHeight: 84,
+      expandedHeight: 164,
+    }),
+    84,
+  )
+})
+
+test('expanded state targets the full measured height', () => {
+  assert.equal(
+    resolveChannelMessageAnimationTargetHeight({
+      collapsed: false,
+      collapsedHeight: 84,
+      expandedHeight: 164,
+    }),
+    164,
+  )
+})
+
+test('animation starts from the opposite measured state', () => {
+  assert.equal(
+    resolveChannelMessageAnimationStartHeight({
+      collapsed: true,
+      collapsedHeight: 84,
+      expandedHeight: 164,
+    }),
+    164,
+  )
+  assert.equal(
+    resolveChannelMessageAnimationStartHeight({
+      collapsed: false,
+      collapsedHeight: 84,
+      expandedHeight: 164,
+    }),
+    84,
+  )
 })

@@ -23,3 +23,27 @@ export function shouldAllowChannelMessageCollapse(input: {
 export function resolveChannelMessageToggleReserveHeight(canCollapse: boolean): number {
   return canCollapse ? DEFAULT_CHANNEL_MESSAGE_TOGGLE_HEIGHT : 0
 }
+
+function toSafeMeasuredHeight(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0
+}
+
+export function resolveChannelMessageAnimationTargetHeight(input: {
+  collapsed: boolean
+  collapsedHeight: number
+  expandedHeight: number
+}): number {
+  const collapsedHeight = toSafeMeasuredHeight(input.collapsedHeight)
+  const expandedHeight = Math.max(collapsedHeight, toSafeMeasuredHeight(input.expandedHeight))
+  return input.collapsed ? collapsedHeight : expandedHeight
+}
+
+export function resolveChannelMessageAnimationStartHeight(input: {
+  collapsed: boolean
+  collapsedHeight: number
+  expandedHeight: number
+}): number {
+  const collapsedHeight = toSafeMeasuredHeight(input.collapsedHeight)
+  const expandedHeight = Math.max(collapsedHeight, toSafeMeasuredHeight(input.expandedHeight))
+  return input.collapsed ? expandedHeight : collapsedHeight
+}
