@@ -1,11 +1,15 @@
+import fsSync from 'node:fs'
+import path from 'node:path'
 import { createAgentBackend } from './adapters/agent_backend.js'
-import { createDefaultBridgeClient } from './adapters/bridge_client.js'
+import { createDefaultBridgeClient, loadDirectoryState, type DirectoryStateSnapshot } from './adapters/bridge_client.js'
 import { createChannelBackend } from './adapters/channel_backend.js'
 import { createDirectoryBackend } from './adapters/directory_backend.js'
+import { createTaskBackend } from './adapters/task_backend.js'
 import { createAgentCommands } from './commands/agent.js'
 import { createChannelCommands } from './commands/channel.js'
 import { createDirectoryCommands } from './commands/directory.js'
 import { createRoleCommands } from './commands/role.js'
+import { createTaskCommands } from './commands/task.js'
 import { createRepl } from './repl/repl.js'
 import { CliError } from './core/errors.js'
 import { renderOutput } from './core/output.js'
@@ -23,10 +27,12 @@ interface CliDeps {
   stdin?: unknown
   stdout?: WritableLike
   write?: (chunk: string) => void
+  cwd?: string
   bridge?: unknown
   createAgentBackend?: (bridge: unknown) => unknown
   createChannelBackend?: (bridge: unknown) => unknown
   createDirectoryBackend?: (bridge: unknown) => unknown
+  createTaskBackend?: (bridge: unknown) => unknown
   createAgentCommands?: (backend: unknown) => {
     list(params: { workspaceId: string }): Promise<unknown>
     get(params: { workspaceId: string; agentId: string }): Promise<unknown>
@@ -42,6 +48,33 @@ interface CliDeps {
   createDirectoryCommands?: (backend: unknown) => {
     snapshot(params: { workspaceId: string }): Promise<unknown>
   }
+  createTaskCommands?: (backend: unknown) => {
+    sendTask(params: {
+      workspaceId: string
+      senderAgentId?: string | null
+      targetAgentIds: string[]
+      title: string
+      markdown: string
+    }): Promise<unknown>
+    replyStatus(params: {
+      workspaceId: string
+      senderAgentId?: string | null
+      targetAgentIds: string[]
+      taskId: string
+      detail: string
+    }): Promise<unknown>
+    handover(params: {
+      workspaceId: string
+      senderAgentId?: string | null
+      targetAgentIds: string[]
+      taskId: string
+      summary: string
+      blockers: string[]
+      nextSteps: string[]
+    }): Promise<unknown>
+    inbox(params: { workspaceId: string; agentId?: string | null; limit?: number }): Promise<unknown>
+    taskThread(params: { workspaceId: string; taskId: string }): Promise<unknown>
+  }
   createRoleCommands?: (backend: unknown) => {
     list(params: { workspaceId: string }): Promise<unknown>
     create(params: { workspaceId: string; payload: unknown }): Promise<unknown>
@@ -51,14 +84,100 @@ interface CliDeps {
   repl?: ReplLike
 }
 
-function requireWorkspaceId(argv: string[]) {
+type DirectoryAgentRecord = {
+  agentId?: string
+  name?: string
+  resolvedCwd?: string | null
+  online?: boolean
+}
+
+type WorkspaceDirectoryRecord = {
+  workspaceId?: string
+  agents?: DirectoryAgentRecord[]
+  runtimes?: Array<{ resolvedCwd?: string | null; agentId?: string }>
+}
+
+async function requireWorkspaceId(argv: string[], deps: CliDeps) {
   const workspaceId = readOption(argv, '--workspace-id')
+    ?? readEnvVar('GTO_WORKSPACE_ID')
+    ?? await resolveWorkspaceIdFromContext(deps)
 
   if (!workspaceId) {
     throw new CliError('MISSING_REQUIRED_OPTION', 'Option --workspace-id is required')
   }
 
   return workspaceId
+}
+
+function normalizedCwd(deps: CliDeps) {
+  return path.resolve(deps.cwd ?? process.cwd())
+}
+
+function discoverWorkspaceRootFromCwd(cwd: string) {
+  let current = cwd
+  for (;;) {
+    const marker = path.join(current, '.gtoffice', 'session.snapshot.json')
+    if (path.dirname(marker) && path.isAbsolute(marker) && fsSync.existsSync(marker)) {
+      return current
+    }
+    const parent = path.dirname(current)
+    if (parent === current) {
+      return null
+    }
+    current = parent
+  }
+}
+
+function candidateCwds(workspace: WorkspaceDirectoryRecord) {
+  return [
+    ...(workspace.runtimes ?? []).map((item) => item.resolvedCwd).filter(Boolean),
+    ...(workspace.agents ?? []).map((item) => item.resolvedCwd).filter(Boolean),
+  ] as string[]
+}
+
+function bestWorkspaceForRoot(directory: DirectoryStateSnapshot, workspaceRoot: string) {
+  const workspaces = Object.values(directory.workspaces ?? {}) as WorkspaceDirectoryRecord[]
+  let best: { workspaceId: string; score: number } | null = null
+
+  for (const workspace of workspaces) {
+    const workspaceId = workspace.workspaceId?.trim()
+    if (!workspaceId) {
+      continue
+    }
+    const score = candidateCwds(workspace)
+      .filter((cwd) => cwd === workspaceRoot || cwd.startsWith(`${workspaceRoot}${path.sep}`))
+      .length
+    if (score <= 0) {
+      continue
+    }
+    if (!best || score > best.score) {
+      best = { workspaceId, score }
+    }
+  }
+
+  if (best) {
+    return best.workspaceId
+  }
+
+  if (workspaces.length === 1) {
+    return workspaces[0].workspaceId?.trim() || null
+  }
+
+  return null
+}
+
+async function resolveWorkspaceIdFromContext(deps: CliDeps) {
+  const cwd = normalizedCwd(deps)
+  const workspaceRoot = discoverWorkspaceRootFromCwd(cwd)
+  if (!workspaceRoot) {
+    return null
+  }
+  try {
+    const directory = await loadDirectoryState()
+    return bestWorkspaceForRoot(directory, workspaceRoot)
+  } catch {
+    return null
+  }
 }
 
 function readRoleArgAt(argv: string[], index: number) {
@@ -174,6 +293,23 @@ function ensureNoRolePayload(argv: string[]) {
 
 function readStringOption(argv: string[], name: string) {
   return readOption(argv, name) ?? undefined
+}
+
+function readEnvVar(name: string) {
+  const value = process.env[name]?.trim()
+  return value ? value : undefined
+}
+
+function readCurrentAgentId(argv: string[]) {
+  return readStringOption(argv, '--agent-id') ?? readEnvVar('GTO_AGENT_ID')
+}
+
+function requireCurrentAgentId(argv: string[]) {
+  const agentId = readCurrentAgentId(argv)
+  if (!agentId) {
+    throw new CliError('MISSING_REQUIRED_OPTION', 'Option --agent-id is required')
+  }
+  return agentId
 }
 
 function readBooleanFlag(argv: string[], name: string) {
@@ -344,6 +480,18 @@ function requireRawPayload(argv: string[]) {
   return payload
 }
 
+function requireTextOption(argv: string[], name: string) {
+  const value = readStringOption(argv, name)
+  if (!value) {
+    throw new CliError('MISSING_REQUIRED_OPTION', `Option ${name} is required`)
+  }
+  return value
+}
+
+function requireTaskId(argv: string[]) {
+  return requireTextOption(argv, '--task-id')
+}
+
 function requireChannelId(argv: string[]) {
   const channelId = readOption(argv, '--channel-id')
 
@@ -393,6 +541,14 @@ function readRepeatedOption(argv: string[], name: string) {
   return values
 }
 
+function requireTargetAgentIds(argv: string[]) {
+  const targetAgentIds = readRepeatedOption(argv, '--target-agent-id')
+  if (targetAgentIds.length === 0) {
+    throw new CliError('MISSING_REQUIRED_OPTION', 'Option --target-agent-id is required')
+  }
+  return targetAgentIds
+}
+
 function readLimitOption(argv: string[]) {
   const raw = readOption(argv, '--limit')
 
@@ -406,6 +562,31 @@ function readLimitOption(argv: string[]) {
   }
 
   return parsed
+}
+
+function readTimeoutSec(argv: string[]) {
+  const raw = readOption(argv, '--timeout-sec')
+  if (!raw) {
+    return 120
+  }
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new CliError('INVALID_ARGUMENT', 'Option --timeout-sec must be a positive integer')
+  }
+  return parsed
+}
+
+function readPositional(argv: string[], index: number) {
+  const values = argv.filter((arg) => !arg.startsWith('--'))
+  return values[index] ?? null
+}
+
+function summarizeTitle(text: string) {
+  const compact = text.trim().replace(/\s+/g, ' ')
+  if (!compact) {
+    return '未命名任务'
+  }
+  return compact.length > 48 ? `${compact.slice(0, 48)}…` : compact
 }
 
 function wrapOutput(result: unknown) {
@@ -433,9 +614,218 @@ function createDirectoryCliCommands(deps: CliDeps) {
   return commandsFactory(backend)
 }
 
+function createTaskCliCommands(deps: CliDeps) {
+  const backendFactory = deps.createTaskBackend ?? createTaskBackend
+  const commandsFactory = deps.createTaskCommands ?? createTaskCommands
+  const backend = backendFactory(resolveBridge(deps))
+  return commandsFactory(backend)
+}
+
+async function loadWorkspaceDirectory(workspaceId: string, deps: CliDeps) {
+  const commands = createDirectoryCliCommands(deps)
+  return await commands.snapshot<{
+    workspaceId?: string
+    agents?: DirectoryAgentRecord[]
+    runtimes?: Array<{ resolvedCwd?: string | null; agentId?: string }>
+  }>({ workspaceId })
+}
+
+function resolveAgentByRef(
+  workspaceId: string,
+  directory: { agents?: DirectoryAgentRecord[] },
+  ref: string,
+) {
+  const normalized = ref.trim().toLowerCase()
+  if (!normalized) {
+    throw new CliError('INVALID_ARGUMENT', 'Agent reference must not be empty')
+  }
+  const matches = (directory.agents ?? []).filter((agent) => {
+    const agentId = agent.agentId?.trim().toLowerCase()
+    const name = agent.name?.trim().toLowerCase()
+    return agentId === normalized || name === normalized
+  })
+  if (matches.length === 0) {
+    throw new CliError('AGENT_NOT_FOUND', `Agent not found in workspace ${workspaceId}: ${ref}`)
+  }
+  if (matches.length > 1) {
+    throw new CliError('AGENT_AMBIGUOUS', `Agent reference is ambiguous in workspace ${workspaceId}: ${ref}`)
+  }
+  const agentId = matches[0].agentId?.trim()
+  if (!agentId) {
+    throw new CliError('AGENT_NOT_FOUND', `Agent id missing in directory snapshot: ${ref}`)
+  }
+  return {
+    agentId,
+    name: matches[0].name?.trim() || agentId,
+  }
+}
+
+async function waitForReply(
+  taskCommands: ReturnType<typeof createTaskCliCommands>,
+  channelCommands: ReturnType<typeof createChannelCliCommands>,
+  workspaceId: string,
+  taskId: string,
+  senderAgentId: string,
+  timeoutSec: number,
+) {
+  const deadline = Date.now() + timeoutSec * 1000
+  for (;;) {
+    const thread = await loadTaskThread(taskCommands, channelCommands, workspaceId, taskId)
+    const waitState = thread.waitState
+    if (waitState && typeof waitState === 'object' && waitState.kind === 'interaction_required') {
+      return {
+        workspaceId,
+        taskId,
+        thread: thread.thread ?? null,
+        interactionRequired: waitState,
+      }
+    }
+    const messages = thread.thread?.messages ?? []
+    const reply = [...messages].reverse().find((message) => {
+      const sender = typeof message.senderAgentId === 'string' ? message.senderAgentId : ''
+      const type = typeof message.type === 'string' ? message.type : ''
+      return sender !== senderAgentId && (type === 'status' || type === 'handover')
+    })
+    if (reply) {
+      return {
+        workspaceId,
+        taskId,
+        thread: thread.thread ?? null,
+        reply,
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new CliError('WAIT_TIMEOUT', `Timed out waiting for reply on task ${taskId}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+}
+
+async function loadTaskThread(
+  taskCommands: ReturnType<typeof createTaskCliCommands>,
+  channelCommands: ReturnType<typeof createChannelCliCommands>,
+  workspaceId: string,
+  taskId: string,
+) {
+  try {
+    return await taskCommands.taskThread<{
+      workspaceId?: string
+      thread?: {
+        summary?: Record<string, unknown>
+        messages?: Array<Record<string, unknown>>
+      } | null
+      waitState?: Record<string, unknown> | null
+    }>({ workspaceId, taskId })
+  } catch (error) {
+    if (!(error instanceof CliError) && !(error instanceof Error && 'code' in error)) {
+      throw error
+    }
+    const code = error instanceof CliError
+      ? error.code
+      : String((error as { code?: unknown }).code ?? '')
+    if (code !== 'LOCAL_BRIDGE_METHOD_UNSUPPORTED' && code !== 'MCP_BRIDGE_METHOD_UNSUPPORTED') {
+      throw error
+    }
+    const fallback = await channelCommands.listMessages<{
+      messages?: Array<Record<string, unknown>>
+    }>({
+      workspaceId,
+      taskId,
+      limit: 200,
+    })
+    const messages = [...(fallback.messages ?? [])].sort((left, right) => {
+      const leftTs = typeof left.tsMs === 'number' ? left.tsMs : 0
+      const rightTs = typeof right.tsMs === 'number' ? right.tsMs : 0
+      return leftTs - rightTs
+    })
+    const latest = messages[messages.length - 1] ?? null
+    return {
+      workspaceId,
+      thread: {
+        summary: latest
+          ? {
+              taskId,
+              state: typeof latest.type === 'string'
+                ? latest.type === 'handover'
+                  ? 'handed_over'
+                  : latest.type === 'status'
+                    ? 'replied'
+                    : 'open'
+                : 'open',
+            }
+          : { taskId, state: 'open' },
+        messages,
+      },
+      waitState: null,
+    }
+  }
+}
+
+async function loadInboxThreads(
+  taskCommands: ReturnType<typeof createTaskCliCommands>,
+  channelCommands: ReturnType<typeof createChannelCliCommands>,
+  workspaceId: string,
+  agentId: string,
+  limit?: number,
+) {
+  try {
+    return await taskCommands.inbox<{
+      workspaceId?: string
+      agentId?: string
+      threads?: Array<Record<string, unknown>>
+    }>({
+      workspaceId,
+      agentId,
+      limit,
+    })
+  } catch (error) {
+    if (!(error instanceof CliError) && !(error instanceof Error && 'code' in error)) {
+      throw error
+    }
+    const code = error instanceof CliError
+      ? error.code
+      : String((error as { code?: unknown }).code ?? '')
+    if (code !== 'LOCAL_BRIDGE_METHOD_UNSUPPORTED' && code !== 'MCP_BRIDGE_METHOD_UNSUPPORTED') {
+      throw error
+    }
+    const fallback = await channelCommands.listMessages<{
+      messages?: Array<Record<string, unknown>>
+    }>({
+      workspaceId,
+      targetAgentId: agentId,
+      limit: Math.max(limit ?? 20, 200),
+    })
+    const grouped = new Map<string, Record<string, unknown>>()
+    for (const message of fallback.messages ?? []) {
+      const payload = (typeof message.payload === 'object' && message.payload !== null)
+        ? message.payload as Record<string, unknown>
+        : {}
+      const taskId = typeof payload.taskId === 'string' ? payload.taskId : null
+      if (!taskId) {
+        continue
+      }
+      if (grouped.has(taskId)) {
+        continue
+      }
+      grouped.set(taskId, {
+        taskId,
+        title: typeof payload.title === 'string' ? payload.title : taskId,
+        latestTargetAgentId: message.targetAgentId,
+        updatedAtMs: message.tsMs,
+        state: message.type === 'handover' ? 'handed_over' : message.type === 'status' ? 'replied' : 'open',
+      })
+    }
+    return {
+      workspaceId,
+      agentId,
+      threads: [...grouped.values()].slice(0, limit ?? 20),
+    }
+  }
+}
+
 async function handleRoleCommand(argv: string[], deps: CliDeps) {
   const [, command] = argv
-  const workspaceId = requireWorkspaceId(argv)
+  const workspaceId = await requireWorkspaceId(argv, deps)
   const commands = createRoleCliCommands(deps)
 
   if (command === 'list') {
@@ -478,9 +868,10 @@ function groupAndCommand(argv: string[]) {
 
 async function handleAgentCommand(argv: string[], deps: CliDeps) {
   const normalizedArgv = normalizeAgentArgv(argv)
-  const workspaceId = requireWorkspaceId(normalizedArgv)
+  const workspaceId = await requireWorkspaceId(normalizedArgv, deps)
   const command = normalizeAgentCommand(argv)
   const commands = createAgentCliCommands(deps)
+  const taskCommands = createTaskCliCommands(deps)
 
   ensureNoLegacyPayload(normalizedArgv)
 
@@ -514,12 +905,69 @@ async function handleAgentCommand(argv: string[], deps: CliDeps) {
     return wrapOutput(await commands.promptRead({ workspaceId, agentId: requireAgentIdForCommand(normalizedArgv) }))
   }
 
+  if (command === 'send-task') {
+    return wrapOutput(
+      await taskCommands.sendTask({
+        workspaceId,
+        senderAgentId: readCurrentAgentId(normalizedArgv) ?? null,
+        targetAgentIds: requireTargetAgentIds(normalizedArgv),
+        title: requireTextOption(normalizedArgv, '--title'),
+        markdown: requireTextOption(normalizedArgv, '--markdown'),
+      }),
+    )
+  }
+
+  if (command === 'reply-status') {
+    return wrapOutput(
+      await taskCommands.replyStatus({
+        workspaceId,
+        senderAgentId: readCurrentAgentId(normalizedArgv) ?? null,
+        targetAgentIds: requireTargetAgentIds(normalizedArgv),
+        taskId: requireTaskId(normalizedArgv),
+        detail: requireTextOption(normalizedArgv, '--detail'),
+      }),
+    )
+  }
+
+  if (command === 'handover') {
+    return wrapOutput(
+      await taskCommands.handover({
+        workspaceId,
+        senderAgentId: readCurrentAgentId(normalizedArgv) ?? null,
+        targetAgentIds: requireTargetAgentIds(normalizedArgv),
+        taskId: requireTaskId(normalizedArgv),
+        summary: requireTextOption(normalizedArgv, '--summary'),
+        blockers: readRepeatedOption(normalizedArgv, '--blocker'),
+        nextSteps: readRepeatedOption(normalizedArgv, '--next-step'),
+      }),
+    )
+  }
+
+  if (command === 'inbox') {
+    return wrapOutput(
+      await taskCommands.inbox({
+        workspaceId,
+        agentId: requireCurrentAgentId(normalizedArgv),
+        limit: readLimitOption(normalizedArgv),
+      }),
+    )
+  }
+
+  if (command === 'task-thread') {
+    return wrapOutput(
+      await taskCommands.taskThread({
+        workspaceId,
+        taskId: requireTaskId(normalizedArgv),
+      }),
+    )
+  }
+
   throw new CliError('UNKNOWN_COMMAND', `Unknown command: ${groupAndCommand(argv)}`)
 }
 
 async function handleChannelCommand(argv: string[], deps: CliDeps) {
   const [, command] = argv
-  const workspaceId = requireWorkspaceId(argv)
+  const workspaceId = await requireWorkspaceId(argv, deps)
   const commands = createChannelCliCommands(deps)
 
   if (command === 'list-messages') {
@@ -556,12 +1004,102 @@ async function handleDirectoryCommand(argv: string[], deps: CliDeps) {
   const [, command] = argv
 
   if (command === 'snapshot') {
-    const workspaceId = requireWorkspaceId(argv)
+    const workspaceId = await requireWorkspaceId(argv, deps)
     const commands = createDirectoryCliCommands(deps)
     return wrapOutput(await commands.snapshot({ workspaceId }))
   }
 
   throw new CliError('UNKNOWN_COMMAND', `Unknown command: ${groupAndCommand(argv)}`)
+}
+
+async function handleTopLevelCommand(argv: string[], deps: CliDeps) {
+  const [command] = argv
+
+  if (command === 'agents') {
+    const workspaceId = await requireWorkspaceId(argv, deps)
+    const directory = await loadWorkspaceDirectory(workspaceId, deps)
+    return wrapOutput({ workspaceId, agents: directory.agents ?? [] })
+  }
+
+  if (command === 'send') {
+    const fromRef = readPositional(argv, 1)
+    const toRef = readPositional(argv, 2)
+    const text = readPositional(argv, 3)
+    if (!fromRef || !toRef || !text) {
+      throw new CliError('INVALID_ARGUMENT', 'Usage: gto send <from> <to> <text>')
+    }
+    const workspaceId = await requireWorkspaceId(argv, deps)
+    const directory = await loadWorkspaceDirectory(workspaceId, deps)
+    const from = resolveAgentByRef(workspaceId, directory, fromRef)
+    const to = resolveAgentByRef(workspaceId, directory, toRef)
+    const taskCommands = createTaskCliCommands(deps)
+    const channelCommands = createChannelCliCommands(deps)
+    const sendResult = await taskCommands.sendTask<{
+      batchId?: string
+      taskId?: string | null
+      targetAgentIds?: string[]
+      title?: string
+      results?: unknown[]
+    }>({
+      workspaceId,
+      senderAgentId: from.agentId,
+      targetAgentIds: [to.agentId],
+      title: readStringOption(argv, '--title') ?? summarizeTitle(text),
+      markdown: text,
+    })
+    if (argv.includes('--wait')) {
+      const taskId = typeof sendResult.taskId === 'string' ? sendResult.taskId : null
+      if (!taskId) {
+        throw new CliError('TASK_NOT_FOUND', 'Send result did not include taskId')
+      }
+      const waited = await waitForReply(taskCommands, channelCommands, workspaceId, taskId, from.agentId, readTimeoutSec(argv))
+      return wrapOutput({
+        send: sendResult,
+        wait: waited,
+      })
+    }
+    return wrapOutput(sendResult)
+  }
+
+  if (command === 'inbox') {
+    const agentRef = readPositional(argv, 1) ?? readCurrentAgentId(argv)
+    if (!agentRef) {
+      throw new CliError('INVALID_ARGUMENT', 'Usage: gto inbox <agent>')
+    }
+    const workspaceId = await requireWorkspaceId(argv, deps)
+    const directory = await loadWorkspaceDirectory(workspaceId, deps)
+    const agent = resolveAgentByRef(workspaceId, directory, agentRef)
+    const taskCommands = createTaskCliCommands(deps)
+    const channelCommands = createChannelCliCommands(deps)
+    return wrapOutput(await loadInboxThreads(taskCommands, channelCommands, workspaceId, agent.agentId, readLimitOption(argv)))
+  }
+
+  if (command === 'thread') {
+    const taskId = readPositional(argv, 1)
+    if (!taskId) {
+      throw new CliError('INVALID_ARGUMENT', 'Usage: gto thread <taskId>')
+    }
+    const workspaceId = await requireWorkspaceId(argv, deps)
+    const taskCommands = createTaskCliCommands(deps)
+    const channelCommands = createChannelCliCommands(deps)
+    return wrapOutput(await loadTaskThread(taskCommands, channelCommands, workspaceId, taskId))
+  }
+
+  if (command === 'wait') {
+    const taskId = readPositional(argv, 1)
+    const fromRef = readStringOption(argv, '--from') ?? readCurrentAgentId(argv)
+    if (!taskId || !fromRef) {
+      throw new CliError('INVALID_ARGUMENT', 'Usage: gto wait <taskId> --from <agent>')
+    }
+    const workspaceId = await requireWorkspaceId(argv, deps)
+    const directory = await loadWorkspaceDirectory(workspaceId, deps)
+    const from = resolveAgentByRef(workspaceId, directory, fromRef)
+    const taskCommands = createTaskCliCommands(deps)
+    const channelCommands = createChannelCliCommands(deps)
+    return wrapOutput(await waitForReply(taskCommands, channelCommands, workspaceId, taskId, from.agentId, readTimeoutSec(argv)))
+  }
+
+  throw new CliError('UNKNOWN_COMMAND', `Unknown command: ${command}`)
 }
 
 function renderSuccess(deps: CliDeps, result: unknown, asJson: boolean) {
@@ -627,10 +1165,35 @@ function readErrorMessage(error: unknown) {
 
 export function buildCliMetadata() {
   return {
-    name: 'gt-office-cli',
+    name: 'gto',
     defaultMode: 'repl',
     supportsJson: true,
   } as const
+}
+
+function renderHelpText() {
+  return [
+    'gto: local GT Office agent CLI',
+    '',
+    'Top-level commands',
+    '  gto agents [--workspace-id <id>] [--json]',
+    '  gto send <from> <to> <text> [--workspace-id <id>] [--title <title>] [--wait] [--timeout-sec <seconds>] [--json]',
+    '  gto inbox <agent> [--workspace-id <id>] [--limit <n>] [--json]',
+    '  gto thread <taskId> [--workspace-id <id>] [--json]',
+    '  gto wait <taskId> --from <agent> [--workspace-id <id>] [--timeout-sec <seconds>] [--json]',
+    '',
+    'Advanced groups',
+    '  gto agent ...',
+    '  gto role ...',
+    '  gto channel ...',
+    '  gto directory snapshot ...',
+    '',
+    'Help',
+    '  gto help',
+    '  gto --help',
+    '  gto -h',
+    '  gto -help',
+  ].join('\n')
 }
 
 export async function runCli(argv: string[], deps: CliDeps = {}) {
@@ -645,6 +1208,10 @@ export async function runCli(argv: string[], deps: CliDeps = {}) {
   const [group] = argv
 
   try {
+    if (group === 'help' || group === '--help' || group === '-h' || group === '-help') {
+      return renderSuccess(deps, renderHelpText(), asJson)
+    }
+
     if (group === 'agent') {
       return renderSuccess(deps, await handleAgentCommand(argv, deps), asJson)
     }
@@ -659,6 +1226,10 @@ export async function runCli(argv: string[], deps: CliDeps = {}) {
 
     if (group === 'directory') {
       return renderSuccess(deps, await handleDirectoryCommand(argv, deps), asJson)
+    }
+
+    if (group === 'agents' || group === 'send' || group === 'inbox' || group === 'thread' || group === 'wait') {
+      return renderSuccess(deps, await handleTopLevelCommand(argv, deps), asJson)
     }
 
     throw new CliError('UNKNOWN_COMMAND', `Unknown command: ${group}`)

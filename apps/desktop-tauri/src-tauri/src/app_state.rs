@@ -34,6 +34,20 @@ pub struct ExternalReplyRelayTarget {
     pub workspace_id: String,
     pub target_agent_id: String,
     pub injected_input: Option<String>,
+    pub task_id: Option<String>,
+    pub reply_to_agent_id: Option<String>,
+}
+
+impl ExternalReplyRelayTarget {
+    pub(crate) fn is_task_wait(&self) -> bool {
+        self.task_id
+            .as_deref()
+            .is_some_and(|task_id| !task_id.trim().is_empty())
+            && self
+                .reply_to_agent_id
+                .as_deref()
+                .is_some_and(|agent_id| !agent_id.trim().is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +70,28 @@ pub struct ExternalReplyDispatchCandidate {
     pub preview_message_id: Option<String>,
     pub phase: ExternalReplyDispatchPhase,
     pub body_source: ExternalReplyBodySource,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskWaitPromptSnapshot {
+    pub kind: String,
+    pub title: String,
+    pub options: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskWaitStateSnapshot {
+    pub kind: String,
+    pub task_id: String,
+    pub target_agent_id: String,
+    pub session_id: String,
+    pub prompt: TaskWaitPromptSnapshot,
 }
 
 fn channel_supports_preview(channel: &str) -> bool {
@@ -484,7 +520,8 @@ impl AppState {
         snapshot: Value,
     ) -> Result<(), String> {
         let mut snapshots = self.mcp_directory_snapshots.lock().map_err(|_| {
-            "MCP_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned".to_string()
+            "LOCAL_BRIDGE_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned"
+                .to_string()
         })?;
         snapshots.insert(workspace_id.to_string(), snapshot);
         Ok(())
@@ -492,14 +529,16 @@ impl AppState {
 
     pub fn mcp_directory_snapshot(&self, workspace_id: &str) -> Result<Option<Value>, String> {
         let snapshots = self.mcp_directory_snapshots.lock().map_err(|_| {
-            "MCP_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned".to_string()
+            "LOCAL_BRIDGE_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned"
+                .to_string()
         })?;
         Ok(snapshots.get(workspace_id).cloned())
     }
 
     pub fn clear_mcp_directory_snapshot(&self, workspace_id: &str) -> Result<(), String> {
         let mut snapshots = self.mcp_directory_snapshots.lock().map_err(|_| {
-            "MCP_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned".to_string()
+            "LOCAL_BRIDGE_DIRECTORY_STATE_LOCK_POISONED: directory snapshot lock poisoned"
+                .to_string()
         })?;
         snapshots.remove(workspace_id);
         Ok(())
@@ -1011,6 +1050,9 @@ impl AppState {
         let mut candidates = Vec::new();
 
         for (session_id, session) in guard.iter() {
+            if session.target.is_task_wait() {
+                continue;
+            }
             if let Some(prompt) = session.active_interaction_prompt.as_ref() {
                 let signature = prompt.signature();
                 let already_sent = session.last_interaction_signature.as_deref()
@@ -1041,6 +1083,51 @@ impl AppState {
         }
 
         Ok(candidates)
+    }
+
+    pub fn task_wait_state(
+        &self,
+        workspace_id: &str,
+        task_id: &str,
+    ) -> Result<Option<TaskWaitStateSnapshot>, String> {
+        let guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        for (session_id, session) in guard.iter() {
+            if !session.target.is_task_wait() {
+                continue;
+            }
+            if session.target.workspace_id != workspace_id {
+                continue;
+            }
+            if session.target.task_id.as_deref() != Some(task_id) {
+                continue;
+            }
+            let Some(prompt) = session.active_interaction_prompt.as_ref() else {
+                continue;
+            };
+            return Ok(Some(TaskWaitStateSnapshot {
+                kind: "interaction_required".to_string(),
+                task_id: task_id.to_string(),
+                target_agent_id: session.target.target_agent_id.clone(),
+                session_id: session_id.clone(),
+                prompt: TaskWaitPromptSnapshot {
+                    kind: match prompt.kind {
+                        ExternalInteractionPromptKind::Permission => "permission".to_string(),
+                        ExternalInteractionPromptKind::Menu => "menu".to_string(),
+                    },
+                    title: prompt.title.clone(),
+                    options: prompt
+                        .options
+                        .iter()
+                        .map(|item| item.label.clone())
+                        .collect(),
+                    selected_index: prompt.selected_index,
+                    hint: prompt.hint.clone(),
+                },
+            }));
+        }
+        Ok(None)
     }
 
     pub fn take_external_reply_dispatch_candidates(
@@ -1205,6 +1292,129 @@ impl AppState {
             if guard.remove(&session_id).is_some() {
                 debug!(session_id = %session_id, "dropping finalized external reply session without text");
             }
+        }
+
+        Ok(candidates)
+    }
+
+    pub fn take_task_reply_dispatch_candidates(
+        &self,
+        now_ms: u64,
+        idle_threshold_ms: u64,
+        max_wait_ms: u64,
+        finalize_retry_ms: u64,
+    ) -> Result<Vec<ExternalReplyDispatchCandidate>, String> {
+        let mut guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        let mut candidates = Vec::new();
+        let mut drop_session_ids = Vec::new();
+
+        for (session_id, session) in guard.iter_mut() {
+            if !session.target.is_task_wait() {
+                continue;
+            }
+
+            let task_id = match session.target.task_id.as_deref() {
+                Some(task_id) if !task_id.trim().is_empty() => task_id,
+                _ => {
+                    drop_session_ids.push(session_id.clone());
+                    continue;
+                }
+            };
+            let explicit_reply_exists = self
+                .task_service
+                .get_task_thread(&session.target.workspace_id, task_id)
+                .is_some_and(|thread| {
+                    thread.messages.iter().any(|message| {
+                        message.sender_agent_id.as_deref()
+                            == Some(session.target.target_agent_id.as_str())
+                            && matches!(
+                                message.message_type,
+                                vb_task::ChannelMessageType::Status
+                                    | vb_task::ChannelMessageType::Handover
+                            )
+                    })
+                });
+            if explicit_reply_exists {
+                drop_session_ids.push(session_id.clone());
+                continue;
+            }
+
+            let finalize = external_reply_finalize_text(session);
+            let finalize_text = finalize
+                .as_ref()
+                .map(|(text, _)| text.clone())
+                .unwrap_or_default();
+            let has_text = !finalize_text.is_empty();
+            let idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms) >= idle_threshold_ms;
+            let promptless_rendered_idle_elapsed = now_ms.saturating_sub(session.last_chunk_at_ms)
+                >= idle_threshold_ms.saturating_mul(3);
+            let expired = now_ms.saturating_sub(session.created_at_ms) >= max_wait_ms;
+            let rendered_has_text = !session.last_rendered_reply_text.trim().is_empty();
+            let rendered_ready_for_finalize =
+                session
+                    .last_rendered_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| {
+                        snapshot_has_ready_prompt_for_tool(
+                            snapshot,
+                            ToolScreenProfile::from_tool_kind(session.tool_kind),
+                        )
+                    });
+            let interaction_blocked =
+                session.active_interaction_prompt.is_some() || session.permission_prompt_active;
+            let promptless_rendered_finalize = has_text
+                && rendered_has_text
+                && session.last_rendered_snapshot.is_some()
+                && !rendered_ready_for_finalize
+                && promptless_rendered_idle_elapsed
+                && !interaction_blocked;
+            let should_finalize_with_text = has_text
+                && !interaction_blocked
+                && (session.ended
+                    || expired
+                    || (idle_elapsed
+                        && (session.last_rendered_snapshot.is_none()
+                            || !rendered_has_text
+                            || rendered_ready_for_finalize))
+                    || promptless_rendered_finalize);
+            let should_drop_without_text = !has_text
+                && !interaction_blocked
+                && (session.ended
+                    || expired
+                    || (idle_elapsed
+                        && session.last_rendered_snapshot.is_some()
+                        && (!rendered_has_text || rendered_ready_for_finalize)));
+
+            if should_drop_without_text {
+                drop_session_ids.push(session_id.clone());
+                continue;
+            }
+            if !should_finalize_with_text {
+                continue;
+            }
+            let finalize_due = now_ms.saturating_sub(session.last_finalize_attempt_at_ms)
+                >= finalize_retry_ms.max(1);
+            if !finalize_due {
+                continue;
+            }
+            session.last_finalize_attempt_at_ms = now_ms;
+            let Some((text, body_source)) = finalize.clone() else {
+                continue;
+            };
+            candidates.push(ExternalReplyDispatchCandidate {
+                session_id: session_id.clone(),
+                target: session.target.clone(),
+                text,
+                preview_message_id: None,
+                phase: ExternalReplyDispatchPhase::Finalize,
+                body_source,
+            });
+        }
+
+        for session_id in drop_session_ids {
+            guard.remove(&session_id);
         }
 
         Ok(candidates)

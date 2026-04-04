@@ -1,4 +1,4 @@
-# GT Office CLI Tests
+# GTO CLI Tests
 
 ## Test Inventory Plan
 - `test_core.ts`: 12 unit tests planned

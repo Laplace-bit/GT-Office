@@ -10,7 +10,7 @@ use vb_task::{
     ChannelPublishRequest, ChannelRouteBinding, DispatchSender, DispatchSenderType,
     ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
     ExternalInboundStatus, ExternalPeerKind, TaskDispatchBatchRequest, TaskDispatchStatus,
-    TaskService,
+    TaskService, TaskThreadState,
 };
 
 fn now_ms() -> u64 {
@@ -229,10 +229,12 @@ fn dispatch_batch_includes_managed_mcp_reply_instruction_for_agent_sender() {
         },
     );
 
-    assert!(written_command.contains("gto_report_status"));
-    assert!(written_command.contains("target_agent_ids"));
+    assert!(written_command.contains("gto agent reply-status"));
+    assert!(written_command.contains("--target-agent-id"));
     assert!(written_command.contains("manager"));
-    assert!(written_command.contains("GT Office MCP Reply"));
+    assert!(written_command.contains("GT Office Reply"));
+    assert!(written_command.contains("<your reply text>"));
+    assert!(written_command.contains("<summary>"));
     assert_eq!(outcome.response.results[0].task_file_path, None);
     assert!(!workspace_root.join(".gtoffice/tasks").exists());
 
@@ -434,6 +436,224 @@ fn dispatch_batch_runtime_lf_submit_is_canonicalized_to_cr() {
 
     assert_eq!(written_submit_sequences.len(), 1);
     assert_eq!(written_submit_sequences[0], "\r");
+
+    let _ = fs::remove_dir_all(workspace_root);
+}
+
+#[test]
+fn list_task_threads_groups_messages_by_task_and_tracks_latest_state() {
+    let service = TaskService::default();
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "manager".to_string(),
+        station_id: "manager".to_string(),
+        role_key: None,
+        session_id: "ts-manager".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        provider_session: None,
+        online: true,
+    });
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "worker".to_string(),
+        station_id: "worker".to_string(),
+        role_key: None,
+        session_id: "ts-worker".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        provider_session: None,
+        online: true,
+    });
+
+    let workspace_root = new_workspace_root();
+    let dispatch = service.dispatch_batch(
+        &TaskDispatchBatchRequest {
+            workspace_id: "ws-1".to_string(),
+            sender: DispatchSender {
+                sender_type: DispatchSenderType::Agent,
+                agent_id: Some("manager".to_string()),
+            },
+            targets: vec!["worker".to_string()],
+            title: "Review API contract".to_string(),
+            markdown: "Check the new API contract and reply with blockers.".to_string(),
+            attachments: vec![],
+            submit_sequences: HashMap::new(),
+        },
+        &workspace_root,
+        |_, _, _| Ok(()),
+    );
+    let task_id = dispatch.response.results[0].task_id.clone();
+
+    let _ = service.publish(&ChannelPublishRequest {
+        workspace_id: "ws-1".to_string(),
+        channel: ChannelDescriptor {
+            kind: ChannelKind::Direct,
+            id: "manager".to_string(),
+        },
+        sender_agent_id: Some("worker".to_string()),
+        target_agent_ids: vec!["manager".to_string()],
+        message_type: ChannelMessageType::Status,
+        payload: json!({
+            "taskId": task_id,
+            "detail": "Blocked on product answer",
+        }),
+        idempotency_key: None,
+    });
+
+    let threads = service.list_task_threads("ws-1", Some("manager"), 20);
+
+    assert_eq!(threads.len(), 1);
+    assert_eq!(threads[0].task_id, dispatch.response.results[0].task_id);
+    assert_eq!(threads[0].title, "Review API contract");
+    assert_eq!(threads[0].state, TaskThreadState::Replied);
+    assert_eq!(threads[0].latest_message_type, ChannelMessageType::Status);
+    assert_eq!(threads[0].latest_sender_agent_id.as_deref(), Some("worker"));
+
+    let _ = fs::remove_dir_all(workspace_root);
+}
+
+#[test]
+fn get_task_thread_returns_chronological_messages_for_task() {
+    let service = TaskService::default();
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "manager".to_string(),
+        station_id: "manager".to_string(),
+        role_key: None,
+        session_id: "ts-manager".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        provider_session: None,
+        online: true,
+    });
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "worker".to_string(),
+        station_id: "worker".to_string(),
+        role_key: None,
+        session_id: "ts-worker".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        provider_session: None,
+        online: true,
+    });
+
+    let workspace_root = new_workspace_root();
+    let dispatch = service.dispatch_batch(
+        &TaskDispatchBatchRequest {
+            workspace_id: "ws-1".to_string(),
+            sender: DispatchSender {
+                sender_type: DispatchSenderType::Agent,
+                agent_id: Some("manager".to_string()),
+            },
+            targets: vec!["worker".to_string()],
+            title: "Prepare handover".to_string(),
+            markdown: "Summarize the implementation status.".to_string(),
+            attachments: vec![],
+            submit_sequences: HashMap::new(),
+        },
+        &workspace_root,
+        |_, _, _| Ok(()),
+    );
+    let task_id = dispatch.response.results[0].task_id.clone();
+
+    let _ = service.publish(&ChannelPublishRequest {
+        workspace_id: "ws-1".to_string(),
+        channel: ChannelDescriptor {
+            kind: ChannelKind::Direct,
+            id: "manager".to_string(),
+        },
+        sender_agent_id: Some("worker".to_string()),
+        target_agent_ids: vec!["manager".to_string()],
+        message_type: ChannelMessageType::Handover,
+        payload: json!({
+            "taskId": task_id,
+            "summary": "Handover ready",
+            "nextSteps": ["review diff"],
+            "blockers": [],
+        }),
+        idempotency_key: None,
+    });
+
+    let thread = service
+        .get_task_thread("ws-1", dispatch.response.results[0].task_id.as_str())
+        .expect("thread should exist");
+
+    assert_eq!(thread.summary.task_id, dispatch.response.results[0].task_id);
+    assert_eq!(thread.summary.title, "Prepare handover");
+    assert_eq!(thread.summary.state, TaskThreadState::HandedOver);
+    assert_eq!(thread.messages.len(), 2);
+    assert_eq!(thread.messages[0].message_type, ChannelMessageType::TaskInstruction);
+    assert_eq!(thread.messages[1].message_type, ChannelMessageType::Handover);
+    assert_eq!(
+        thread.messages[0].payload.get("taskId").and_then(|value| value.as_str()),
+        Some(dispatch.response.results[0].task_id.as_str()),
+    );
+    assert_eq!(
+        thread.messages[1].payload.get("taskId").and_then(|value| value.as_str()),
+        Some(dispatch.response.results[0].task_id.as_str()),
+    );
+
+    let _ = fs::remove_dir_all(workspace_root);
+}
+
+#[test]
+fn unregister_runtime_purges_agent_message_threads_by_default() {
+    let service = TaskService::default();
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "manager".to_string(),
+        station_id: "manager".to_string(),
+        role_key: None,
+        session_id: "ts-manager".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        provider_session: None,
+        online: true,
+    });
+    service.register_runtime(AgentRuntimeRegistration {
+        workspace_id: "ws-1".to_string(),
+        agent_id: "worker".to_string(),
+        station_id: "worker".to_string(),
+        role_key: None,
+        session_id: "ts-worker".to_string(),
+        tool_kind: AgentToolKind::default(),
+        resolved_cwd: None,
+        submit_sequence: None,
+        provider_session: None,
+        online: true,
+    });
+
+    let workspace_root = new_workspace_root();
+    let dispatch = service.dispatch_batch(
+        &TaskDispatchBatchRequest {
+            workspace_id: "ws-1".to_string(),
+            sender: DispatchSender {
+                sender_type: DispatchSenderType::Agent,
+                agent_id: Some("manager".to_string()),
+            },
+            targets: vec!["worker".to_string()],
+            title: "Temporary task".to_string(),
+            markdown: "This task should disappear when worker closes.".to_string(),
+            attachments: vec![],
+            submit_sequences: HashMap::new(),
+        },
+        &workspace_root,
+        |_, _, _| Ok(()),
+    );
+
+    assert_eq!(service.list_task_threads("ws-1", Some("worker"), 20).len(), 1);
+    assert!(service.unregister_runtime("ws-1", "worker"));
+    assert!(service.list_task_threads("ws-1", Some("worker"), 20).is_empty());
+    assert!(service
+        .get_task_thread("ws-1", dispatch.response.results[0].task_id.as_str())
+        .is_none());
 
     let _ = fs::remove_dir_all(workspace_root);
 }

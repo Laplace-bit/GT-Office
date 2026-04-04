@@ -741,8 +741,6 @@ export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
 export type ClaudeAuthScheme = 'anthropic_api_key' | 'anthropic_auth_token'
 
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
-export type AiAgentMcpStatus = 'not_installed' | 'installed_sidecar' | 'installed_legacy_node'
-
 export interface AiAgentInstallStatus {
   installed: boolean
   executable?: string | null
@@ -760,8 +758,6 @@ export interface AiAgentSnapshotCard {
   title: string
   subtitle: string
   installStatus: AiAgentInstallStatus
-  mcpInstalled: boolean
-  mcpStatus: AiAgentMcpStatus
   configStatus: AiAgentConfigStatus
   activeSummary?: string | null
 }
@@ -923,7 +919,6 @@ export interface CodexSnapshot {
   presets: CodexProviderPreset[]
   config: CodexConfigSnapshot
   savedProviders: CodexSavedProviderSnapshot[]
-  mcpInstalled: boolean
 }
 
 export interface GeminiSnapshot {
@@ -935,7 +930,6 @@ export interface GeminiSnapshot {
   presets: GeminiProviderPreset[]
   config: GeminiConfigSnapshot
   savedProviders: GeminiSavedProviderSnapshot[]
-  mcpInstalled: boolean
 }
 
 export interface AiConfigSnapshot {
@@ -1083,6 +1077,27 @@ export interface AgentInstallStatus {
   executable?: string | null
   requiresNode: boolean
   nodeReady: boolean
+}
+
+export interface GtoCliStatus {
+  installed: boolean
+  managed: boolean
+  commandPath?: string | null
+  targetScriptPath?: string | null
+  nodeReady: boolean
+  installAvailable: boolean
+  uninstallAvailable: boolean
+  issue?: string | null
+}
+
+export interface GtoSkillStatus {
+  installed: boolean
+  managed: boolean
+  targetDir?: string | null
+  sourceDir?: string | null
+  installAvailable: boolean
+  uninstallAvailable: boolean
+  issue?: string | null
 }
 
 export interface GitUpdatedPayload {
@@ -1897,6 +1912,24 @@ export const desktopApi = {
   systemGtoDoctor() {
     return invokeCommand<Record<string, unknown>>('system_gto_doctor')
   },
+  systemGtoCliStatus() {
+    return invokeCommand<GtoCliStatus>('system_gto_cli_status', {})
+  },
+  systemGtoCliInstall() {
+    return invokeCommand<GtoCliStatus>('system_gto_cli_install', {})
+  },
+  systemGtoCliUninstall() {
+    return invokeCommand<GtoCliStatus>('system_gto_cli_uninstall', {})
+  },
+  systemGtoSkillStatus(agent: 'claude' | 'codex' | 'gemini') {
+    return invokeCommand<GtoSkillStatus>('system_gto_skill_status', { agent })
+  },
+  systemGtoSkillInstall(agent: 'claude' | 'codex' | 'gemini') {
+    return invokeCommand<GtoSkillStatus>('system_gto_skill_install', { agent })
+  },
+  systemGtoSkillUninstall(agent: 'claude' | 'codex' | 'gemini') {
+    return invokeCommand<GtoSkillStatus>('system_gto_skill_uninstall', { agent })
+  },
   workspaceGetWindowActive() {
     return invokeCommand<WorkspaceWindowActiveResponse>('workspace_get_window_active')
   },
@@ -2261,20 +2294,11 @@ export const desktopApi = {
   agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
-  agentMcpInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId?: string) {
-    return invokeCommand<AiAgentMcpStatus>('agent_mcp_install_status', { agent, workspaceId })
-  },
   installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent', { agent })
   },
   uninstallAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('uninstall_agent', { agent })
-  },
-  installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
-    return invokeCommand<void>('install_agent_mcp', { agent, workspaceId })
-  },
-  uninstallAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
-    return invokeCommand<void>('uninstall_agent_mcp', { agent, workspaceId })
   },
   surfaceOpenDetachedWindow(payload: SurfaceOpenDetachedWindowRequest) {
     return invokeCommand<SurfaceOpenDetachedWindowResponse>('surface_open_detached_window', {

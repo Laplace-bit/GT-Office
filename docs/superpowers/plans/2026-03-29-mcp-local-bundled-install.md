@@ -24,7 +24,7 @@
 
 **Files:**
 - Modify: `apps/desktop-tauri/src-tauri/src/commands/agentic_one.rs`
-- Modify: `apps/desktop-tauri/src-tauri/src/mcp_bridge.rs` if path resolution needs shared helpers
+- Modify: `apps/desktop-tauri/src-tauri/src/local_bridge.rs` if path resolution needs shared helpers
 
 - [ ] **Step 1: Write failing command/helper tests for bundled install selection**
 - [ ] **Step 2: Run targeted cargo test to verify failure**

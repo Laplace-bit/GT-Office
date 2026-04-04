@@ -32,13 +32,13 @@ export function createRepl({ dispatch }: { dispatch: (argv: string[]) => Promise
         output: output as NodeJS.WritableStream,
       })
 
-      output.write('GT Office CLI\n')
+      output.write('GTO CLI\n')
 
       for (;;) {
         let line: string
 
         try {
-          line = await rl.question('gt-office-cli> ')
+          line = await rl.question('gto> ')
         } catch (error) {
           const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : null
           if (code === 'ERR_USE_AFTER_CLOSE') {

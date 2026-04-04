@@ -151,14 +151,6 @@ pub enum AiAgentConfigStatus {
     GuidanceOnly,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum AiAgentMcpStatus {
-    NotInstalled,
-    InstalledSidecar,
-    InstalledLegacyNode,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiAgentInstallStatus {
@@ -180,8 +172,6 @@ pub struct AiAgentSnapshotCard {
     pub title: String,
     pub subtitle: String,
     pub install_status: AiAgentInstallStatus,
-    pub mcp_installed: bool,
-    pub mcp_status: AiAgentMcpStatus,
     pub config_status: AiAgentConfigStatus,
     pub active_summary: Option<String>,
 }
@@ -304,7 +294,6 @@ pub struct CodexSnapshot {
     pub presets: Vec<CodexProviderPreset>,
     pub config: CodexConfigSnapshot,
     pub saved_providers: Vec<CodexSavedProviderSnapshot>,
-    pub mcp_installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -318,7 +307,6 @@ pub struct GeminiSnapshot {
     pub presets: Vec<GeminiProviderPreset>,
     pub config: GeminiConfigSnapshot,
     pub saved_providers: Vec<GeminiSavedProviderSnapshot>,
-    pub mcp_installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -152,6 +152,32 @@ export function resolveClosedStationSessionCleanup(
   }
 }
 
+export function resolveClosedStationRuntimeRegistrationCleanup(
+  runtime:
+    | {
+        workspaceId: string
+        sessionId: string
+      }
+    | null
+    | undefined,
+  closedSessionId: string | null | undefined,
+):
+  | {
+      workspaceId: string
+      sessionId: string
+    }
+  | null {
+  const normalizedClosedSessionId = closedSessionId ?? null
+  const workspaceId = runtime?.workspaceId?.trim() ?? ''
+  if (!normalizedClosedSessionId || !workspaceId || runtime?.sessionId !== normalizedClosedSessionId) {
+    return null
+  }
+  return {
+    workspaceId,
+    sessionId: runtime.sessionId,
+  }
+}
+
 export function resolveDroppedStationSessionCleanup(sessionId: string | null | undefined): {
   sessionId: string
   signal: 'TERM'

@@ -13,8 +13,8 @@ Current release target: `v0.1.3`
 - Git status, diff, history, branch, stash, and refresh coordination
 - Multi-station workbench for manager / product / build / quality-release collaboration
 - Tool adapter and external connector foundation for Telegram, WeChat, and related workflows
-- MCP bridge support for dispatch, handoff, and status reporting across agents
-- Production desktop bundles ship the GT Office MCP bridge as local resources for one-click local installation
+- The `gto` local CLI supports agent directory lookup, task dispatch, status replies, and handoff
+- The desktop app ships a local bridge runtime that `gto` connects to on the same machine
 
 ## Monorepo Layout
 
@@ -22,7 +22,7 @@ Current release target: `v0.1.3`
 - `apps/desktop-tauri`: Tauri shell, native bridge, and packaging entry
 - `crates/`: Rust domain modules such as terminal, git, workspace, task, storage, and settings
 - `packages/shared-types`: shared contracts between frontend and backend
-- `tools/`: CLI and MCP sidecar utilities
+- `tools/`: CLI and local-bridge utilities
 - `docs/`: product, architecture, workflow, contract, dependency, and handoff docs
 
 ## Requirements
@@ -107,12 +107,11 @@ Manual installation steps:
 xattr -dr com.apple.quarantine /Applications/GT\ Office.app
 ```
 
-## MCP Packaging
+## Local CLI and Bridge
 
-- Production desktop bundles embed the MCP bridge resources and sidecar binary directly in the app
-- Desktop-triggered MCP installation prefers bundled local resources and uses a Rust fallback to write client config directly
-- `Claude Code` can install the MCP bridge without Node as long as the desktop bundle is present
-- `Codex CLI` and `Gemini CLI` still rely on their official Node/npm distribution for the CLI itself; only MCP bridge installation is localized
+- The desktop app exposes local bridge runtime metadata so `gto` can discover and connect to the running GT Office instance
+- `gto` is the recommended local entrypoint for agent collaboration, including directory lookup, task dispatch, status reporting, and thread inspection
+- The current surface is local-only and does not provide a remote service API
 
 ## Documentation Map
 

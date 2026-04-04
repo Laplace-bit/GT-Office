@@ -4,6 +4,7 @@ import { StationActionDock } from './StationActionDock'
 import { StationActivityComet } from './StationActivityComet'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
+import { resolveStationTaskAckEmoji } from './station-task-ack-emoji'
 import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
@@ -53,21 +54,6 @@ function stationChannelLabel(locale: Locale, channel: string): string {
   return channel
 }
 
-function buildTaskAckLine(locale: Locale, nonce: number): string {
-  const zh = [
-    '任务收到，终端已进入执行状态。',
-    '收到，本工作站开始处理当前任务。',
-    '已锁定任务，准备进入编码流程。',
-  ]
-  const en = [
-    'Task received. Terminal is primed for execution.',
-    'Acknowledged. This station is processing the task.',
-    'Locked in. Entering the coding flow now.',
-  ]
-  const list = locale === 'zh-CN' ? zh : en
-  return list[Math.abs(nonce) % list.length]
-}
-
 function sessionStateLabel(locale: Locale, hasTerminalSession: boolean): string {
   return hasTerminalSession ? t(locale, '实时会话', 'Live session') : t(locale, '待启动', 'Ready')
 }
@@ -113,7 +99,7 @@ function TerminalStationPaneView({
   onRunAction,
   commands = [],
 }: TerminalStationPaneProps) {
-  const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
+  const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
   const visibleChannelBindingSummaries = (channelBotBindings ?? []).slice(0, 2)
@@ -159,9 +145,7 @@ function TerminalStationPaneView({
     <section className={['terminal-station-pane', active ? 'active' : ''].join(' ')}>
       {taskSignal ? (
         <div key={taskSignal.nonce} className="terminal-station-pane-task-bubble" role="status" aria-live="polite">
-          <strong>{locale === 'zh-CN' ? '任务收到啦' : 'Task received'}</strong>
-          <p>{taskBubbleLine}</p>
-          <span>{taskSignal.taskId}</span>
+          <strong aria-label={locale === 'zh-CN' ? '任务收到' : 'Task received'}>{taskAckEmoji}</strong>
         </div>
       ) : null}
 

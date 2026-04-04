@@ -155,7 +155,5 @@ pub fn build_frontend_focus_log_entry(
 ) -> String {
     let session = session_id.unwrap_or("none");
     let detail = detail.unwrap_or("[none]");
-    format!(
-        "[atMs={at_ms}] [station={station_id}] [session={session}] [kind={kind}]\n{detail}\n\n"
-    )
+    format!("[atMs={at_ms}] [station={station_id}] [session={session}] [kind={kind}]\n{detail}\n\n")
 }

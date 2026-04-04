@@ -5,7 +5,8 @@ use tauri::{AppHandle, Emitter, State};
 use vb_abstractions::AbstractionError;
 use vb_task::{
     AgentRuntimeRegistration, ChannelAckEvent, ChannelMessageEvent, ChannelPublishRequest,
-    TaskDispatchBatchRequest, TaskDispatchProgressEvent,
+    TaskDispatchBatchRequest, TaskDispatchProgressEvent, TaskGetThreadRequest,
+    TaskListThreadsRequest,
 };
 
 use crate::app_state::AppState;
@@ -132,8 +133,47 @@ pub fn task_dispatch_batch(
 
     emit_dispatch_progress_events(&app, &outcome.progress_events);
     emit_channel_events(&app, &outcome.message_events, &outcome.ack_events);
+    crate::commands::tool_adapter::bind_task_wait_reply_sessions(
+        state.inner(),
+        &request,
+        &outcome.response.results,
+    );
 
     serde_json::to_value(outcome.response).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn task_list_threads(
+    request: TaskListThreadsRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if request.workspace_id.trim().is_empty() {
+        return Err("TASK_THREAD_LIST_INVALID: workspaceId is required".to_string());
+    }
+    let threads = state.task_service.list_task_threads(
+        &request.workspace_id,
+        request.agent_id.as_deref(),
+        request.limit.unwrap_or(20) as usize,
+    );
+    Ok(json!({ "threads": threads }))
+}
+
+#[tauri::command]
+pub fn task_get_thread(
+    request: TaskGetThreadRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if request.workspace_id.trim().is_empty() {
+        return Err("TASK_THREAD_GET_INVALID: workspaceId is required".to_string());
+    }
+    if request.task_id.trim().is_empty() {
+        return Err("TASK_THREAD_GET_INVALID: taskId is required".to_string());
+    }
+    let thread = state
+        .task_service
+        .get_task_thread(&request.workspace_id, &request.task_id);
+    let wait_state = state.task_wait_state(&request.workspace_id, &request.task_id)?;
+    Ok(json!({ "thread": thread, "waitState": wait_state }))
 }
 
 #[tauri::command]
@@ -186,7 +226,7 @@ pub fn agent_runtime_register(
     }
 
     let registered = state.task_service.register_runtime(request.clone());
-    crate::mcp_bridge::spawn_refresh_directory_snapshot(
+    crate::local_bridge::spawn_refresh_directory_snapshot(
         app.clone(),
         state.inner().clone(),
         request.workspace_id.clone(),
@@ -220,7 +260,7 @@ pub fn agent_runtime_unregister(
     let unregistered = state
         .task_service
         .unregister_runtime(&request.workspace_id, &request.agent_id);
-    crate::mcp_bridge::spawn_refresh_directory_snapshot(
+    crate::local_bridge::spawn_refresh_directory_snapshot(
         app.clone(),
         state.inner().clone(),
         request.workspace_id.clone(),
