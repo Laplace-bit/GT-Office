@@ -8,6 +8,7 @@ pub struct RenderedScreen {
 }
 
 impl RenderedScreen {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         todo!("Implement in Task 4")
     }
