@@ -389,6 +389,36 @@ export interface TerminalDebugAppendFrontendFocusLogResponse {
   logPath: string
 }
 
+// New terminal API types for rendered screen and snapshot
+export interface RenderedScreen {
+  sessionId: string
+  revision: number
+  content: number[] // Vec<u8> serialized as array
+  cols: number
+  rows: number
+  cursorRow: number
+  cursorCol: number
+  scrollbackLines: number
+  title: string | null
+}
+
+export interface TerminalSnapshot {
+  sessionId: string
+  revision: number
+  lastLines: string
+  cursorRow: number
+  totalLines: number
+  unreadBytes: number
+  timestamp: number
+}
+
+export interface OutputChunk {
+  sessionId: string
+  seq: number
+  data: number[]
+  tsMs: number
+}
+
 export interface SurfaceDetachedStationPayload {
   stationId: string
   name: string
@@ -2353,6 +2383,21 @@ export const desktopApi = {
   },
   terminalDescribeProcesses(sessionId: string) {
     return invokeCommand<TerminalDescribeProcessesResponse>('terminal_describe_processes', {
+      sessionId,
+    })
+  },
+  terminalActivate(sessionId: string) {
+    return invokeCommand<RenderedScreen>('terminal_activate', {
+      sessionId,
+    })
+  },
+  terminalGetRenderedScreen(sessionId: string) {
+    return invokeCommand<RenderedScreen>('terminal_get_rendered_screen', {
+      sessionId,
+    })
+  },
+  terminalOpenOutputChannel(sessionId: string) {
+    return invokeCommand<{ sessionId: string; channelBound: boolean }>('terminal_open_output_channel', {
       sessionId,
     })
   },
