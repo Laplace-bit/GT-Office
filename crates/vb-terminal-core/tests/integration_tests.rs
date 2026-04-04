@@ -1,6 +1,6 @@
 // crates/vb-terminal-core/tests/integration_tests.rs
 
-use vb_terminal_core::{OutputRouter, SessionVisibility, OutputRouterConfig};
+use vb_terminal_core::{OutputRouter, OutputRouterConfig, SessionVisibility};
 
 #[test]
 fn test_full_session_lifecycle() {
