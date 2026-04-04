@@ -14,6 +14,6 @@ pub mod vt_engine;
 
 pub use output_router::{OutputRouter, SessionVisibility};
 pub use scrollback::ScrollbackStore;
-pub use snapshot::RenderedScreen;
+pub use snapshot::{RenderedScreen, TerminalSnapshot};
 pub use types::*;
 pub use vt_engine::VtEngine;

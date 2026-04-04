@@ -11,6 +11,16 @@ pub enum SessionVisibility {
     Hidden,
 }
 
+impl SessionVisibility {
+    pub fn is_active(&self) -> bool {
+        matches!(self, SessionVisibility::Active)
+    }
+
+    pub fn is_visible(&self) -> bool {
+        matches!(self, SessionVisibility::Visible | SessionVisibility::Active)
+    }
+}
+
 /// Output chunk with sequence number
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
