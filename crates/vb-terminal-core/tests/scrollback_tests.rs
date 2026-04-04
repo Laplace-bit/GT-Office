@@ -19,6 +19,19 @@ fn test_scrollback_push_and_extract() {
 }
 
 #[test]
+fn test_scrollback_not_wrapped_order() {
+    let mut store = ScrollbackStore::new(100);
+
+    // Push less than capacity
+    store.push(b"hello".as_slice());
+
+    let content = store.extract_all();
+    // Content must be at START, not at end
+    assert_eq!(&content[..5], b"hello");
+    assert_eq!(content.len(), 5);
+}
+
+#[test]
 fn test_scrollback_ring_overflow() {
     let mut store = ScrollbackStore::new(10); // Very small buffer
 
@@ -28,6 +41,9 @@ fn test_scrollback_ring_overflow() {
 
     let content = store.extract_all();
     assert_eq!(content.len(), 10);
+    // After wrapping, oldest data should be overwritten
+    // Content should be "67890ABCDE" (last 10 bytes)
+    assert!(content.windows(5).any(|w| w == b"ABCDE"));
 }
 
 #[test]

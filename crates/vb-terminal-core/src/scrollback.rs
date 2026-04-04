@@ -6,6 +6,7 @@
 pub struct ScrollbackStore {
     buffer: Vec<u8>,
     write_pos: usize,
+    total_bytes_written: usize,
     total_lines: usize,
     max_bytes: usize,
 }
@@ -16,6 +17,7 @@ impl ScrollbackStore {
         Self {
             buffer: vec![0; max_bytes],
             write_pos: 0,
+            total_bytes_written: 0,
             total_lines: 0,
             max_bytes,
         }
@@ -27,18 +29,24 @@ impl ScrollbackStore {
             self.buffer[self.write_pos] = byte;
             self.write_pos = (self.write_pos + 1) % self.max_bytes;
         }
+        self.total_bytes_written += chunk.len();
         self.total_lines += chunk.iter().filter(|&&b| b == b'\n').count();
     }
 
     /// Extract all content from the ring buffer
     /// Returns bytes in chronological order
     pub fn extract_all(&self) -> Vec<u8> {
-        let mut result = Vec::with_capacity(self.max_bytes);
-        // Read from write_pos to end
-        result.extend_from_slice(&self.buffer[self.write_pos..]);
-        // Read from start to write_pos
-        result.extend_from_slice(&self.buffer[..self.write_pos]);
-        result
+        let total = self.total_bytes_written.min(self.max_bytes);
+        if self.total_bytes_written <= self.max_bytes {
+            // Buffer not wrapped - data starts at 0
+            self.buffer[..total].to_vec()
+        } else {
+            // Buffer wrapped - oldest data is at write_pos
+            let mut result = Vec::with_capacity(self.max_bytes);
+            result.extend_from_slice(&self.buffer[self.write_pos..]);
+            result.extend_from_slice(&self.buffer[..self.write_pos]);
+            result
+        }
     }
 
     /// Get total line count
@@ -46,8 +54,8 @@ impl ScrollbackStore {
         self.total_lines
     }
 
-    /// Get current byte count (always equals max_bytes after first fill)
-    pub fn byte_count(&self) -> usize {
+    /// Get buffer capacity
+    pub fn capacity(&self) -> usize {
         self.max_bytes
     }
 
@@ -55,6 +63,7 @@ impl ScrollbackStore {
     pub fn clear(&mut self) {
         self.buffer.fill(0);
         self.write_pos = 0;
+        self.total_bytes_written = 0;
         self.total_lines = 0;
     }
 }
