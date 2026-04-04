@@ -23,6 +23,12 @@ use vb_abstractions::{
     TerminalCwdMode, TerminalProvider, TerminalSession, WorkspaceService,
 };
 
+// Re-export from vb-terminal-core
+pub use vb_terminal_core::{
+    OutputRouter, OutputRouterConfig, RenderedScreen, ScrollbackStore, SessionVisibility,
+    TerminalSnapshot, VtEngine,
+};
+
 pub fn module_name() -> &'static str {
     "vb-terminal"
 }
