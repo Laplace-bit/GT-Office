@@ -31,6 +31,9 @@
     "src/features/terminal/terminal-vt-parser.ts",
     "src/features/tool-adapter/channel-message-bubble-model.ts",
     "src/features/tool-adapter/channel-message-layout.ts",
-    "src/features/workspace-hub/station-mutation-error.ts"
+    "src/features/workspace-hub/station-task-ack-emoji.ts",
+    "src/features/workspace-hub/station-mutation-error.ts",
+    "src/shell/i18n/messages.ts",
+    "src/shell/i18n/ui-locale.ts"
   ]
 }

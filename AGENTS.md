@@ -1,3 +1,15 @@
+# GT Office Agent Communication Policy
+
+When communicating with another GT Office agent, use `gto` by default. If it is not on `PATH`, use `node tools/gto/bin/gto.mjs`.
+
+- Use `gto directory snapshot --workspace-id <id> --json` or `node tools/gto/bin/gto.mjs directory snapshot --workspace-id <id> --json` to discover agents when you do not already know the target agent id.
+- Use `gto agent send-task --target-agent-id <agent> --title <title> --markdown <markdown> --json` when you need another agent to execute or answer in its own terminal.
+- Use `gto agent reply-status --task-id <task> --target-agent-id <agent> --detail <text> --json` for short replies and progress updates.
+- Use `gto agent handover --task-id <task> --target-agent-id <agent> --summary <text> --json` for completion summaries, blockers, and next steps.
+- Use `gto agent inbox --agent-id <agent> --json` and `gto agent task-thread --task-id <task> --json` to inspect open threads and message history.
+- Always keep the returned `taskId` and include it in every follow-up status or handover reply.
+- When `GTO_WORKSPACE_ID` and `GTO_AGENT_ID` are present in the environment, prefer the CLI defaults instead of repeating those flags manually.
+
 # 项目目标
 
 构建一个跨平台 AI Agent 管理桌面应用，支持 macOS 和 Windows。核心能力围绕：

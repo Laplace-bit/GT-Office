@@ -12,6 +12,7 @@ import { StationActionDock } from './StationActionDock'
 import { StationActivityComet } from './StationActivityComet'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
+import { resolveStationTaskAckEmoji } from './station-task-ack-emoji'
 import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
@@ -141,21 +142,6 @@ interface StationCardProps {
   onStationDragStart?: (event: DragEvent<HTMLButtonElement>, stationId: string) => void
   onStationDragPointerStart?: (event: ReactPointerEvent<HTMLElement>, stationId: string) => void
   onStationDragEnd?: () => void
-}
-
-function buildTaskAckLine(locale: Locale, nonce: number): string {
-  const zh = [
-    '任务收到，终端已进入执行状态。',
-    '收到，本工作站开始处理当前任务。',
-    '已锁定任务，准备进入编码流程。',
-  ]
-  const en = [
-    'Task received. Terminal is primed for execution.',
-    'Acknowledged. This station is processing the task.',
-    'Locked in. Entering the coding flow now.',
-  ]
-  const list = locale === 'zh-CN' ? zh : en
-  return list[Math.abs(nonce) % list.length]
 }
 
 function StationCardView({
@@ -294,7 +280,7 @@ function StationCardView({
     }
   }, [])
 
-  const taskBubbleLine = taskSignal ? buildTaskAckLine(locale, taskSignal.nonce) : ''
+  const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
   const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
@@ -441,9 +427,7 @@ function StationCardView({
     >
       {taskSignal ? (
         <div key={taskSignal.nonce} className="station-task-ack-bubble" role="status" aria-live="polite">
-          <strong>{locale === 'zh-CN' ? '任务收到啦' : 'Task received'}</strong>
-          <p>{taskBubbleLine}</p>
-          <span>{taskSignal.taskId}</span>
+          <strong aria-label={locale === 'zh-CN' ? '任务收到' : 'Task received'}>{taskAckEmoji}</strong>
         </div>
       ) : null}
 

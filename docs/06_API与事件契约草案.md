@@ -106,7 +106,7 @@ Station 约束（T-072）：
 1. Git 命令必须显式传 `workspaceId`。
 2. 变更命令成功后必须触发一次 Git 状态协调刷新；`git/updated` 由协调器在状态真正变化后统一发出。
 
-### 3.5 Task / Channel / MCP（核心协作链路）
+### 3.5 Task / Channel / Local Bridge（核心协作链路）
 
 | Command | Req（关键字段） | Resp（关键字段） |
 |---|---|---|
@@ -117,34 +117,29 @@ Station 约束（T-072）：
 | `agent.runtime_register` | `workspaceId,agentId,stationId,sessionId,roleKey?,toolKind?,resolvedCwd?,submitSequence?,providerSession?` | `registered,providerSession?` |
 | `agent.runtime_unregister` | `workspaceId,agentId` | `unregistered` |
 
-MCP Bridge（T-171）：
-1. 方法：`health`、`directory.get`、`task.dispatch_batch`、`channel.publish`、`channel.list_messages`。
+Local Bridge（T-171）：
+1. 方法：`health`、`directory.get`、`task.dispatch_batch`、`task.list_threads`、`task.get_thread`、`channel.publish`、`channel.list_messages`。
 2. 仅监听 `127.0.0.1`，token 必填。
 3. 默认超时 `8s`，网络级失败最多重试 2 次。
-4. 安装目标：Claude/Codex/Gemini/Qwen；server id 统一 `gto-agent-bridge`，安装必须幂等。
-   - 安装器除写入 MCP server 外，还应写入一份受管的 agent communication policy，并尽可能落到各 CLI 的默认指令文件位置。
 5. `directory.get` 返回 `workspaceId,directoryVersion,updatedAtMs,departments[],roles[],agents[],runtimes[]`，其中 `agents[]` 必须合并 repo agent 与 runtime-only agent。
-6. public MCP tool 采用“两步式”：
-   - 先 `gto_get_agent_directory(workspace_id?)`
-   - 再 `gto_dispatch_task / gto_report_status / gto_handover`
-7. `gto_get_agent_directory.workspace_id` 可省略；解析优先级：显式参数 > `GTO_WORKSPACE_ID` 环境变量 > `directory.json` 中最近更新的 workspace snapshot。
-8. `gto_dispatch_task.workspace_id`、`gto_report_status.workspace_id`、`gto_handover.workspace_id` 可省略；解析优先级与 `gto_get_agent_directory` 一致。
-9. `gto_dispatch_task.targets`、`gto_report_status.target_agent_ids`、`gto_handover.target_agent_ids` 语义固定为 `agent_id[]`。
-10. `gto_report_status`、`gto_handover` 中 `sender_agent_id` 可省略；解析优先级：显式参数 > `GTO_AGENT_ID` 环境变量 > 当前 cwd/目录自识别 > 报错。
-11. `gto_health` 在 bridge 不可达时仍应返回 `runtime/bridge/directory/self` 诊断摘要；bridge 正常时返回值应收敛为最小可执行字段，避免污染 agent 对话。
-12. public tool description 必须短而硬约束，明确“GT Office agent 间通信默认走本 MCP”，而不是输出长段操作教程。
-13. `gto_dispatch_task` 负责把文本写入目标 agent terminal，并使用 runtime 的 `submitSequence` 自动提交；为兼容交互式 CLI，提交链路需允许在主 `submitSequence` 后追加一次硬回车兜底。
-14. `gto_report_status`、`gto_handover` 是协作消息记录，不负责向目标 terminal 注入或执行命令；agent 需要“让对方执行一段文本”时必须使用 `gto_dispatch_task`。
+6. 当前推荐的 agent-facing 协作入口是本机 `gto` CLI，而不是 public MCP tool。
+7. `gto directory snapshot.workspace_id` 可省略；解析优先级：显式参数 > `GTO_WORKSPACE_ID` 环境变量 > `directory.json` 中最近更新的 workspace snapshot。
+8. `gto agent send-task.workspace_id`、`gto agent reply-status.workspace_id`、`gto agent handover.workspace_id` 可省略；解析优先级与 `gto directory snapshot` 一致。
+9. `gto agent send-task.targets`、`gto agent reply-status.target_agent_ids`、`gto agent handover.target_agent_ids` 语义固定为 `agent_id[]`。
+10. `gto agent reply-status`、`gto agent handover` 中 `sender_agent_id` 可省略；解析优先级：显式参数 > `GTO_AGENT_ID` 环境变量 > 当前 cwd/目录自识别 > 报错。
+11. `gto health` 在 bridge 不可达时仍应返回 `runtime/bridge/directory/self` 诊断摘要；bridge 正常时返回值应收敛为最小可执行字段，避免污染 agent 对话。
+12. `gto agent send-task` 负责把文本写入目标 agent terminal，并使用 runtime 的 `submitSequence` 自动提交；为兼容交互式 CLI，提交链路需允许在主 `submitSequence` 后追加一次硬回车兜底。
+13. `gto agent reply-status`、`gto agent handover` 是协作消息记录，不负责向目标 terminal 注入或执行命令；agent 需要“让对方执行一段文本”时必须使用 `gto agent send-task`。
 15. 若 `workspace_id` 形如 `agent-01` 而非 `ws:...`，必须返回明确提示，不允许让 agent 把 `agent_id` 当成 `workspace_id`。
-16. 若 bridge 不可达但目录快照可读，发送类 tool 必须返回专门错误 `MCP_BRIDGE_SEND_UNAVAILABLE`，明确说明“目录可读但发送不可用”。
+16. 若 bridge 不可达但目录快照可读，发送类命令必须返回专门错误 `LOCAL_BRIDGE_SEND_UNAVAILABLE`，明确说明“目录可读但发送不可用”。
 17. agent/station terminal 创建时必须注入：
    - `GTO_WORKSPACE_ID`
    - `GTO_AGENT_ID`
    - `GTO_ROLE_KEY`
    - `GTO_STATION_ID`
-18. 若 GT Office 桌面端运行于 Windows、agent/MCP 运行于 WSL，public MCP tool 仍必须可用；runtime 与 directory 的候选选择必须优先命中“包含目标 workspace snapshot 的同一状态根”，避免目录来自一侧、发送却连到另一侧死端口。
-19. `channel.list_messages` / `gto_list_messages` 用于读取 sender 自己收到的 `status/handover` inbox；默认按“当前 agent”过滤。
-20. 纯终端打印但未经过 `channel.publish` 的文本，不属于 inbox，可见于目标 agent 本地 terminal，但不可被 sender 通过 `gto_list_messages` 拉取。
+18. 若 GT Office 桌面端运行于 Windows、agent/CLI 运行于 WSL，本机 `gto` 仍必须可用；runtime 与 directory 的候选选择必须优先命中“包含目标 workspace snapshot 的同一状态根”，避免目录来自一侧、发送却连到另一侧死端口。
+19. `task.list_threads` / `task.get_thread` 是当前 sender 读取任务线程与回传正文的标准入口；默认按“当前 agent”过滤。
+20. 纯终端打印但未经过 `channel.publish` 的文本，不属于任务线程，可见于目标 agent 本地 terminal，但不可被 sender 通过 `gto` thread/inbox 拉取。
 21. `agent.runtime_register.providerSession` 为 provider 专属会话绑定元数据；当前用于 Codex/Claude session log 绑定，字段最少包含 `provider,providerSessionId?,logPath?,sessionStartedAtMs?,discoveryConfidence?`。
 
 ### 3.6 Settings / Keymap / AI Config
@@ -162,10 +157,7 @@ MCP Bridge（T-171）：
 | `ai_config.apply_patch` | `workspaceId,previewId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `ai_config.switch_saved_claude_provider` | `workspaceId,savedProviderId,confirmedBy` | `applied,auditId,effective,changedTargets[]` |
 | `agent_install_status` | `agent` | `installed,executable?,requiresNode,nodeReady,npmReady,installAvailable,uninstallAvailable,detectedBy[],issues[]` |
-| `agent_mcp_install_status` | `agent` | `mcpStatus=not_installed\|installed_sidecar\|installed_legacy_node` |
 | `install_agent` | `agent` | `ok`（成功后前端需重新查询 `agent_install_status`） |
-| `install_agent_mcp` | `agent` | `ok`（成功后前端需重新查询 `ai_config.read_snapshot` 或 `agent_mcp_install_status`） |
-| `uninstall_agent_mcp` | `agent` | `ok`（成功后前端需重新查询 `ai_config.read_snapshot` 或 `agent_mcp_install_status`） |
 
 AI Config 约束（T-171）：
 1. v1 仅 Claude 支持进阶供应商配置；Codex/Gemini 只返回轻量引导信息。
@@ -174,7 +166,7 @@ AI Config 约束（T-171）：
 4. Claude `preview_patch` 必须拒绝缺失 `baseUrl/model/apiKey` 且无已有 `secretRef` 的新配置。
 5. `apply_patch` 必须把 API Key 写入系统凭据库，只在工作区配置保存 `secretRef`；Claude 应用时还必须同步 GT Office 受管 env 键到 `~/.claude/settings.json`。
 6. `ai_config.read_snapshot` 返回的 Claude 预设目录必须包含 `websiteUrl/apiKeyUrl/billingUrl/recommendedModel/endpoint/authScheme/setupSteps[]`，以支撑新手引导。
-7. Claude live sync 必须保留 `~/.claude/settings.json` 中与当前供应商无关的根字段和 `env` 键，例如 `mcpServers`、`permissions` 及用户自定义 env；仅允许增删 GT Office 受管的 Claude provider 键。
+7. Claude live sync 必须保留 `~/.claude/settings.json` 中与当前供应商无关的根字段和 `env` 键，例如 `permissions` 及用户自定义 env；仅允许增删 GT Office 受管的 Claude provider 键。
 8. `ai_config.read_snapshot.snapshot.claude` 必须返回 `savedProviders[]`，其中每项至少包含 `savedProviderId,mode,providerId,providerName,baseUrl,model,authScheme,hasSecret,isActive,createdAtMs,updatedAtMs,lastAppliedAtMs`。
 9. `ai_config.switch_saved_claude_provider` 必须基于数据库中的 saved provider 切换当前生效 Claude 配置，并同步工作区配置、live settings 与 active saved provider 标记。
 10. Claude 选择 `official` 并应用时，也必须落一条可切换的 saved provider 记录；后续从 saved list 切回官方时，应清除 GT Office 托管的 Claude env 覆盖并恢复原生官方模式。
@@ -183,14 +175,8 @@ AI Config 约束（T-171）：
 13. `savedProviders[]` 的返回顺序必须稳定反映“保存顺序”；从列表切换当前配置时只能更新 `isActive` 和应用结果，不能因为激活状态变化把目标项重排到数组前面。
 14. `settings.values.ui.taskQuickDispatch.opacity` 用于控制全局任务派发浮层面板透明度，建议范围 `0.55 - 1.00`。
 15. `settings.values.keybindings.overrides[]` 中允许命令 `task.center.quick_dispatch`；默认键位为 `Mod+Shift+K`，用于任意主界面唤起全局任务派发浮层。
-16. `AiAgentSnapshotCard` 必须返回 `mcpInstalled`，供设置页在每个 agent 项中单独展示 MCP 状态。
-17. `install_agent` 只负责安装 CLI，本身不得再触发 MCP 安装。
-18. `install_agent_mcp` 必须支持按单个 agent 定向安装 MCP 配置，不得隐式修改其他 agent 的配置文件。
-19. `uninstall_agent_mcp` 必须支持按单个 agent 定向移除 GT Office 受管 MCP 配置与受管协作规则块，不得破坏用户自定义 MCP server。
-20. 设置页 UI 必须将 MCP 收口到“增强服务”弹窗中，不在 agent 卡片主操作区直接暴露原始 MCP 状态术语。
-21. “增强服务”弹窗至少预留 `MCP` 与 `Skills` 两个 tab；当前版本只有 `MCP` tab 具备真实服务项。
-22. 当 `mcpInstalled=true` 但 `installStatus.installed=false` 时，前端必须显示“已预配置，待 CLI 可用”之类的依赖态，而不是直接显示“已安装”。
-23. 当 `mcpStatus=installed_legacy_node` 时，前端必须明确提示迁移到 Rust sidecar，不得把旧版 Node 配置误显示为最新已安装态。
+16. `install_agent` 只负责安装 CLI，本身不得再触发其他协作配置写入。
+17. 设置页 UI 不再暴露 MCP 安装、迁移、卸载状态；增强服务弹窗当前仅保留 Skills 分类和后续扩展位。
 24. `install_agent` 成功返回前必须执行一次真实 CLI 复检；至少要求能定位到受支持的可执行文件并通过版本探测，不得仅以安装脚本退出码判定成功。
 25. `uninstall_agent` 成功返回前必须确认本机已不再检测到对应 CLI；Claude 在可识别来源时应支持 native/homebrew/npm 受管卸载。
 
@@ -324,7 +310,7 @@ AI Config 约束（T-171）：
 格式：`<DOMAIN>_<REASON>`。
 
 域：
-`WORKSPACE`、`FS`、`TERMINAL`、`GIT`、`TOOL`、`SECURITY`、`TASK`、`SETTINGS`、`KEYMAP`、`AI_CONFIG`、`AGENT`、`CHANNEL`、`HOOK`、`POLICY`、`OBS`、`CACHE`、`MCP_BRIDGE`、`DAEMON`、`SEARCH`。
+`WORKSPACE`、`FS`、`TERMINAL`、`GIT`、`TOOL`、`SECURITY`、`TASK`、`SETTINGS`、`KEYMAP`、`AI_CONFIG`、`AGENT`、`CHANNEL`、`HOOK`、`POLICY`、`OBS`、`CACHE`、`LOCAL_BRIDGE`、`DAEMON`、`SEARCH`。
 
 首批关键错误码：
 1. `WORKSPACE_NOT_FOUND`
@@ -349,9 +335,9 @@ AI Config 约束（T-171）：
 20. `CHANNEL_CONNECTOR_UNCONFIGURED`
 21. `CHANNEL_CONNECTOR_AUTH_FAILED`
 22. `CHANNEL_CONNECTOR_WEBHOOK_MISSING`
-23. `MCP_BRIDGE_UNAVAILABLE`
-24. `MCP_BRIDGE_AUTH_FAILED`
-25. `MCP_BRIDGE_TIMEOUT`
+23. `LOCAL_BRIDGE_UNAVAILABLE`
+24. `LOCAL_BRIDGE_AUTH_FAILED`
+25. `LOCAL_BRIDGE_TIMEOUT`
 26. `HOOK_CIRCUIT_OPEN`
 27. `DAEMON_CONNECTION_CLOSED`
 28. `SEARCH_BACKPRESSURE_DROPPED`

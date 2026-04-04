@@ -38,7 +38,10 @@
     "externalBin": [
       "binaries/gto-agent-mcp-sidecar"
     ],
-    "resources": [],
+    "resources": [
+      "../../../tools/gto/bin/gto.mjs",
+      "../../../.codex/skills/gto-agent-communication"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

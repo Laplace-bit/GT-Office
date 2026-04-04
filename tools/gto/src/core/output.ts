@@ -57,6 +57,18 @@ export function renderMessageList(messages: Array<Record<string, unknown>>) {
     .join('\n')
 }
 
+export function renderTaskThreadList(threads: Array<Record<string, unknown>>) {
+  return threads
+    .map((thread) => [
+      formatValue(thread.taskId),
+      formatValue(thread.state),
+      formatValue(thread.title),
+      formatValue(thread.latestTargetAgentId),
+      formatValue(thread.updatedAtMs),
+    ].join(' / '))
+    .join('\n')
+}
+
 function renderHumanData(data: unknown): string {
   if (Array.isArray(data)) {
     return data.map((item) => formatValue(item)).join('\n')
@@ -76,6 +88,10 @@ function renderHumanData(data: unknown): string {
 
   if (Array.isArray(data.messages)) {
     return renderMessageList(data.messages as Array<Record<string, unknown>>)
+  }
+
+  if (Array.isArray(data.threads)) {
+    return renderTaskThreadList(data.threads as Array<Record<string, unknown>>)
   }
 
   return JSON.stringify(data, null, 2)

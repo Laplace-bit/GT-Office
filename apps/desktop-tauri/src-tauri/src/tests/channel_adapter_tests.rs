@@ -2,9 +2,9 @@ use super::{
     align_route_with_resolved_workspace, channel_supports_external_reply, codex_event_text,
     find_command_in_dir, gemini_event_text, migrate_legacy_wechat_access_policies,
     normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
-    runtime_supports_structured_relay, split_text_for_channel, AgentRuntimeRegistration,
-    AgentToolKind, PersistedChannelAccessPolicy, PersistedChannelStateFile,
-    PersistedRouteBindingRecord, validate_binding_target_selector,
+    runtime_supports_structured_relay, split_text_for_channel, validate_binding_target_selector,
+    AgentRuntimeRegistration, AgentToolKind, PersistedChannelAccessPolicy,
+    PersistedChannelStateFile, PersistedRouteBindingRecord,
 };
 use std::path::PathBuf;
 use std::{collections::HashSet, fs};
@@ -49,7 +49,8 @@ fn temp_agent_repo(label: &str) -> SqliteAgentRepository {
 fn seed_workspace_agent(repo: &SqliteAgentRepository, workspace_id: &str, agent_id: &str) {
     repo.seed_defaults(vb_agent::GLOBAL_ROLE_WORKSPACE_ID)
         .expect("seed global roles");
-    repo.seed_defaults(workspace_id).expect("seed workspace roles");
+    repo.seed_defaults(workspace_id)
+        .expect("seed workspace roles");
     let role_id = repo
         .list_roles(workspace_id)
         .expect("list roles")

@@ -7,6 +7,8 @@ import {
   type AiConfigAgent,
   type AiConfigReadSnapshotResponse,
   type AiConfigSnapshot,
+  type GtoCliStatus,
+  type GtoSkillStatus,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 
@@ -56,8 +58,6 @@ function createPendingAgentCard(agent: AiConfigAgent): AiAgentSnapshotCard {
     title: titleByAgent[agent],
     subtitle: subtitleByAgent[agent],
     installStatus: createPendingInstallStatus(),
-    mcpInstalled: false,
-    mcpStatus: 'not_installed',
     configStatus: 'guidance_only',
     activeSummary: null,
   }
@@ -74,25 +74,22 @@ function toLoadingMap(snapshot: AiConfigReadSnapshotResponse | null): AgentLoadi
 
 export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionProps) {
   const [snapshot, setSnapshot] = useState<AiConfigReadSnapshotResponse | null>(null)
-  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [agentLoading, setAgentLoading] = useState<AgentLoadingMap>(() => toLoadingMap(null))
   const [installingAgent, setInstallingAgent] = useState<AiConfigAgent | null>(null)
   const [uninstallingAgent, setUninstallingAgent] = useState<AiConfigAgent | null>(null)
-  const [installingMcpAgent, setInstallingMcpAgent] = useState<AiConfigAgent | null>(null)
-  const [uninstallingMcpAgent, setUninstallingMcpAgent] = useState<AiConfigAgent | null>(null)
-  const [migratingMcpAgent, setMigratingMcpAgent] = useState<AiConfigAgent | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<AiConfigAgent | null>(null)
   const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
   const [serviceAgentId, setServiceAgentId] = useState<AiConfigAgent | null>(null)
+  const [gtoCliStatus, setGtoCliStatus] = useState<GtoCliStatus | null>(null)
+  const [gtoSkillStatus, setGtoSkillStatus] = useState<GtoSkillStatus | null>(null)
+  const [installingGto, setInstallingGto] = useState(false)
+  const [uninstallingGto, setUninstallingGto] = useState(false)
+  const [installingSkill, setInstallingSkill] = useState(false)
+  const [uninstallingSkill, setUninstallingSkill] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const reloadTokenRef = useRef(0)
-
-  const withWorkspaceTarget = (detail: string) =>
-    workspaceRoot
-      ? `${detail} (${t(locale, 'aiConfig.services.targetWorkspace')}: ${workspaceRoot})`
-      : detail
 
   const handleReload = async (options?: { background?: boolean }) => {
     const token = ++reloadTokenRef.current
@@ -103,20 +100,17 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     }
 
     try {
-      if (workspaceId) {
-        const context = await desktopApi.workspaceGetContext(workspaceId)
-        if (reloadTokenRef.current !== token) {
-          return
-        }
-        setWorkspaceRoot(context.root)
-      } else {
-        setWorkspaceRoot(null)
-      }
       const data = await desktopApi.aiConfigReadSnapshot(workspaceId)
+      const cliStatus = await desktopApi.systemGtoCliStatus().catch(() => null)
+      const skillStatus = serviceAgentId
+        ? await desktopApi.systemGtoSkillStatus(serviceAgentId).catch(() => null)
+        : null
       if (reloadTokenRef.current !== token) {
         return
       }
       setSnapshot(data)
+      setGtoCliStatus(cliStatus)
+      setGtoSkillStatus(skillStatus)
       setAgentLoading(toLoadingMap(data))
       setActionError(null)
     } catch (err) {
@@ -157,8 +151,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     setIsInitialLoad(true)
     setIsRefreshing(false)
     setAgentLoading(toLoadingMap(null))
-    setWorkspaceRoot(null)
-
     let cancelled = false
     const frameId = window.requestAnimationFrame(() => {
       window.setTimeout(() => {
@@ -182,6 +174,35 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
       setSelectedAgentId(snapshot.snapshot.agents[0].agent)
     }
   }, [snapshot, selectedAgentId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!serviceAgentId) {
+      setGtoSkillStatus(null)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void desktopApi
+      .systemGtoSkillStatus(serviceAgentId)
+      .then((status) => {
+        if (!cancelled) {
+          setGtoSkillStatus(status)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error('Failed to load gto skill status', err)
+          setGtoSkillStatus(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [serviceAgentId])
 
   const handleInstall = async (agent: AiConfigAgent) => {
     setInstallingAgent(agent)
@@ -211,65 +232,44 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     }
   }
 
-  const handleInstallMcp = async (agent: AiConfigAgent) => {
-    if (!workspaceId) {
-      setActionError(t(locale, '请先打开一个工作区以配置增强服务。', 'Open a workspace before configuring enhancements.'))
+  const handleInstallGto = async () => {
+    if (!serviceAgentId) {
       return
     }
-    setInstallingMcpAgent(agent)
+    setInstallingGto(true)
+    setInstallingSkill(true)
     setActionError(null)
     try {
-      await desktopApi.installAgentMcp(
-        agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini',
-        workspaceId,
-      )
-      await handleReload({ background: true })
+      const cliStatus = await desktopApi.systemGtoCliInstall()
+      const skillStatus = await desktopApi.systemGtoSkillInstall(serviceAgentId)
+      setGtoCliStatus(cliStatus)
+      setGtoSkillStatus(skillStatus)
     } catch (err) {
-      console.error('Failed to install MCP bridge', err)
-      setActionError(withWorkspaceTarget(err instanceof Error ? err.message : String(err)))
+      console.error('Failed to install gto CLI', err)
+      setActionError(err instanceof Error ? err.message : String(err))
     } finally {
-      setInstallingMcpAgent(null)
+      setInstallingGto(false)
+      setInstallingSkill(false)
     }
   }
 
-  const handleUninstallMcp = async (agent: AiConfigAgent) => {
-    if (!workspaceId) {
-      setActionError(t(locale, '请先打开一个工作区以配置增强服务。', 'Open a workspace before configuring enhancements.'))
-      return
-    }
-    setUninstallingMcpAgent(agent)
+  const handleUninstallGto = async () => {
+    setUninstallingGto(true)
+    setUninstallingSkill(true)
     setActionError(null)
     try {
-      await desktopApi.uninstallAgentMcp(
-        agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini',
-        workspaceId,
-      )
-      await handleReload({ background: true })
+      if (serviceAgentId) {
+        const skillStatus = await desktopApi.systemGtoSkillUninstall(serviceAgentId)
+        setGtoSkillStatus(skillStatus)
+      }
+      const cliStatus = await desktopApi.systemGtoCliUninstall()
+      setGtoCliStatus(cliStatus)
     } catch (err) {
-      console.error('Failed to uninstall MCP bridge', err)
-      setActionError(withWorkspaceTarget(err instanceof Error ? err.message : String(err)))
+      console.error('Failed to uninstall gto CLI', err)
+      setActionError(err instanceof Error ? err.message : String(err))
     } finally {
-      setUninstallingMcpAgent(null)
-    }
-  }
-
-  const handleMigrateMcp = async (agent: AiConfigAgent) => {
-    if (!workspaceId) {
-      setActionError(t(locale, '请先打开一个工作区以配置增强服务。', 'Open a workspace before configuring enhancements.'))
-      return
-    }
-    setMigratingMcpAgent(agent)
-    setActionError(null)
-    try {
-      const mappedAgent = agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini'
-      await desktopApi.uninstallAgentMcp(mappedAgent, workspaceId)
-      await desktopApi.installAgentMcp(mappedAgent, workspaceId)
-      await handleReload({ background: true })
-    } catch (err) {
-      console.error('Failed to migrate MCP bridge', err)
-      setActionError(withWorkspaceTarget(err instanceof Error ? err.message : String(err)))
-    } finally {
-      setMigratingMcpAgent(null)
+      setUninstallingGto(false)
+      setUninstallingSkill(false)
     }
   }
 
@@ -369,13 +369,14 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
         <AgentEnhancementsModal
           locale={locale}
           agent={snapshot.snapshot.agents.find((item) => item.agent === serviceAgentId) ?? null}
-          workspaceRoot={workspaceRoot}
-          installingMcp={installingMcpAgent === serviceAgentId}
-          uninstallingMcp={uninstallingMcpAgent === serviceAgentId}
-          migratingMcp={migratingMcpAgent === serviceAgentId}
-          onInstallMcp={() => void handleInstallMcp(serviceAgentId)}
-          onUninstallMcp={() => void handleUninstallMcp(serviceAgentId)}
-          onMigrateMcp={() => void handleMigrateMcp(serviceAgentId)}
+          gtoCliStatus={gtoCliStatus}
+          gtoSkillStatus={gtoSkillStatus}
+          installingGto={installingGto}
+          uninstallingGto={uninstallingGto}
+          installingSkill={installingSkill}
+          uninstallingSkill={uninstallingSkill}
+          onInstallGto={() => void handleInstallGto()}
+          onUninstallSkill={() => void handleUninstallGto()}
           onClose={() => setServiceAgentId(null)}
         />
       )}
