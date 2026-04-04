@@ -445,6 +445,73 @@ pub fn terminal_describe_processes(
     })
 }
 
+#[tauri::command]
+pub fn terminal_activate(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    // Check session exists
+    if !state.terminal_provider.has_session(&session_id) {
+        return Err(format!(
+            "TERMINAL_NOT_FOUND: session '{}' does not exist",
+            session_id
+        ));
+    }
+
+    // For Phase 1, return a placeholder response
+    // Full implementation requires OutputRouter integration
+    Ok(json!({
+        "sessionId": session_id,
+        "revision": 0,
+        "content": "",
+        "cols": 80,
+        "rows": 24,
+        "cursorRow": 0,
+        "cursorCol": 0,
+        "scrollbackLines": 0,
+        "title": null
+    }))
+}
+
+#[tauri::command]
+pub fn terminal_get_rendered_screen(
+    session_id: String,
+    _state: State<'_, AppState>,
+) -> Result<Value, String> {
+    // Placeholder for Phase 1
+    Ok(json!({
+        "sessionId": session_id,
+        "revision": 0,
+        "content": "",
+        "cols": 80,
+        "rows": 24,
+        "cursorRow": 0,
+        "cursorCol": 0,
+        "scrollbackLines": 0,
+        "title": null
+    }))
+}
+
+#[tauri::command]
+pub fn terminal_open_output_channel(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    // Check session exists
+    if !state.terminal_provider.has_session(&session_id) {
+        return Err(format!(
+            "TERMINAL_NOT_FOUND: session '{}' does not exist",
+            session_id
+        ));
+    }
+
+    // Placeholder for Phase 1 - Binary Channel setup
+    Ok(json!({
+        "sessionId": session_id,
+        "channelBound": true
+    }))
+}
+
 #[cfg(test)]
 #[path = "../tests/terminal_tests.rs"]
 mod tests;
