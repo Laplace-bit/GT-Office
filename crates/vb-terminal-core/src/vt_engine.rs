@@ -1,15 +1,87 @@
-//! VT100 state engine
-//!
-//! TODO: Implement in Task 3
+//! VT100 terminal emulator engine
 
-/// VT100 terminal state engine
+use crate::scrollback::ScrollbackStore;
+use crate::snapshot::RenderedScreen;
+use vt100::Parser;
+
+/// VT100 terminal emulator engine
 pub struct VtEngine {
-    // TODO: Implement
+    parser: Parser,
+    cols: u16,
+    rows: u16,
+    scrollback: ScrollbackStore,
 }
 
 impl VtEngine {
-    pub fn new(cols: u16, rows: u16) -> Self {
-        let _ = (cols, rows);
-        todo!("Implement in Task 3")
+    /// Create a new VT engine with specified dimensions
+    pub fn new(rows: u16, cols: u16) -> Self {
+        let scrollback_lines = 4000; // Default scrollback
+        Self {
+            parser: Parser::new(rows, cols, scrollback_lines),
+            cols,
+            rows,
+            scrollback: ScrollbackStore::new(4 * 1024 * 1024), // 4MB
+        }
+    }
+
+    /// Create with custom scrollback size
+    pub fn with_scrollback(rows: u16, cols: u16, scrollback_max_bytes: usize) -> Self {
+        let scrollback_lines = 4000;
+        Self {
+            parser: Parser::new(rows, cols, scrollback_lines),
+            cols,
+            rows,
+            scrollback: ScrollbackStore::new(scrollback_max_bytes),
+        }
+    }
+
+    /// Process incoming bytes
+    pub fn process(&mut self, bytes: &[u8]) {
+        self.parser.process(bytes);
+        self.scrollback.push(bytes);
+    }
+
+    /// Resize terminal
+    pub fn resize(&mut self, rows: u16, cols: u16) {
+        self.parser.set_size(rows, cols);
+        self.rows = rows;
+        self.cols = cols;
+    }
+
+    /// Generate rendered screen snapshot
+    pub fn rendered_screen(&self, session_id: String) -> RenderedScreen {
+        let screen = self.parser.screen();
+
+        // Build content - contents_formatted already returns Vec<u8>
+        let content = screen.contents_formatted();
+
+        let title = screen.title();
+        let title = if title.is_empty() {
+            None
+        } else {
+            Some(title.to_string())
+        };
+
+        RenderedScreen {
+            session_id,
+            revision: 0, // Will be set by caller
+            content,
+            cols: self.cols,
+            rows: self.rows,
+            cursor_row: screen.cursor_position().0 as u32,
+            cursor_col: screen.cursor_position().1 as u32,
+            scrollback_lines: self.scrollback.total_lines() as u32,
+            title,
+        }
+    }
+
+    /// Get scrollback content for session switch
+    pub fn scrollback_content(&self) -> Vec<u8> {
+        self.scrollback.extract_all()
+    }
+
+    /// Get current terminal size
+    pub fn size(&self) -> (u16, u16) {
+        (self.rows, self.cols)
     }
 }
