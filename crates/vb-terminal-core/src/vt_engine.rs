@@ -4,6 +4,12 @@ use crate::scrollback::ScrollbackStore;
 use crate::snapshot::RenderedScreen;
 use vt100::Parser;
 
+/// Default scrollback buffer size in lines
+const DEFAULT_SCROLLBACK_LINES: usize = 4000;
+
+/// Default scrollback storage size in bytes (4MB)
+const DEFAULT_SCROLLBACK_BYTES: usize = 4 * 1024 * 1024;
+
 /// VT100 terminal emulator engine
 pub struct VtEngine {
     parser: Parser,
@@ -15,20 +21,18 @@ pub struct VtEngine {
 impl VtEngine {
     /// Create a new VT engine with specified dimensions
     pub fn new(rows: u16, cols: u16) -> Self {
-        let scrollback_lines = 4000; // Default scrollback
         Self {
-            parser: Parser::new(rows, cols, scrollback_lines),
+            parser: Parser::new(rows, cols, DEFAULT_SCROLLBACK_LINES),
             cols,
             rows,
-            scrollback: ScrollbackStore::new(4 * 1024 * 1024), // 4MB
+            scrollback: ScrollbackStore::new(DEFAULT_SCROLLBACK_BYTES),
         }
     }
 
     /// Create with custom scrollback size
     pub fn with_scrollback(rows: u16, cols: u16, scrollback_max_bytes: usize) -> Self {
-        let scrollback_lines = 4000;
         Self {
-            parser: Parser::new(rows, cols, scrollback_lines),
+            parser: Parser::new(rows, cols, DEFAULT_SCROLLBACK_LINES),
             cols,
             rows,
             scrollback: ScrollbackStore::new(scrollback_max_bytes),
