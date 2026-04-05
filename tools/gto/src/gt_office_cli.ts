@@ -681,10 +681,27 @@ async function waitForReply(
       }
     }
     const messages = thread.thread?.messages ?? []
+    const rootSenderAgentId = messages.find((message) => {
+      const type = typeof message.type === 'string' ? message.type : ''
+      return type === 'task_instruction'
+    })
+    const normalizedRootSenderAgentId =
+      typeof rootSenderAgentId?.senderAgentId === 'string' && rootSenderAgentId.senderAgentId
+        ? rootSenderAgentId.senderAgentId
+        : typeof rootSenderAgentId?.payload === 'object' && rootSenderAgentId?.payload !== null
+          ? (() => {
+              const payload = rootSenderAgentId.payload as Record<string, unknown>
+              const sender = typeof payload.sender === 'object' && payload.sender !== null
+                ? payload.sender as Record<string, unknown>
+                : null
+              return typeof sender?.agentId === 'string' ? sender.agentId : ''
+            })()
+          : ''
+    const expectedRequesterAgentId = normalizedRootSenderAgentId || senderAgentId
     const reply = [...messages].reverse().find((message) => {
       const sender = typeof message.senderAgentId === 'string' ? message.senderAgentId : ''
       const type = typeof message.type === 'string' ? message.type : ''
-      return sender !== senderAgentId && (type === 'status' || type === 'handover')
+      return sender !== expectedRequesterAgentId && (type === 'status' || type === 'handover')
     })
     if (reply) {
       return {
@@ -707,15 +724,51 @@ async function loadTaskThread(
   workspaceId: string,
   taskId: string,
 ) {
+  const normalize = (raw: Record<string, unknown>) => {
+    const nestedThread =
+      typeof raw.thread === 'object' && raw.thread !== null
+        ? raw.thread as Record<string, unknown>
+        : null
+    const summary =
+      nestedThread && typeof nestedThread.summary === 'object' && nestedThread.summary !== null
+        ? nestedThread.summary as Record<string, unknown>
+        : typeof raw.summary === 'object' && raw.summary !== null
+          ? raw.summary as Record<string, unknown>
+          : null
+    const messages =
+      nestedThread && Array.isArray(nestedThread.messages)
+        ? nestedThread.messages as Array<Record<string, unknown>>
+        : Array.isArray(raw.messages)
+          ? raw.messages as Array<Record<string, unknown>>
+          : []
+    const waitState =
+      typeof raw.waitState === 'object' && raw.waitState !== null
+        ? raw.waitState as Record<string, unknown>
+        : null
+    return {
+      workspaceId: typeof raw.workspaceId === 'string' ? raw.workspaceId : workspaceId,
+      thread: summary || messages.length > 0
+        ? {
+            summary: summary ?? { taskId, state: 'open' },
+            messages,
+          }
+        : null,
+      waitState,
+    }
+  }
+
   try {
-    return await taskCommands.taskThread<{
+    const result = await taskCommands.taskThread<{
       workspaceId?: string
       thread?: {
         summary?: Record<string, unknown>
         messages?: Array<Record<string, unknown>>
       } | null
+      summary?: Record<string, unknown>
+      messages?: Array<Record<string, unknown>>
       waitState?: Record<string, unknown> | null
     }>({ workspaceId, taskId })
+    return normalize(result as Record<string, unknown>)
   } catch (error) {
     if (!(error instanceof CliError) && !(error instanceof Error && 'code' in error)) {
       throw error

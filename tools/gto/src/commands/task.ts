@@ -8,6 +8,14 @@ interface TaskDispatchResponseShape {
   }>
 }
 
+interface ChannelPublishResponseShape {
+  acceptedTargets?: string[]
+  failedTargets?: Array<{
+    agentId?: string
+    reason?: string | null
+  }>
+}
+
 export interface TaskBackend {
   dispatchBatch<T>(params: {
     workspaceId: string
@@ -59,6 +67,20 @@ function readPrimaryTaskId(response: TaskDispatchResponseShape) {
   return response.results?.[0]?.taskId ?? null
 }
 
+function ensurePublishAccepted(response: ChannelPublishResponseShape) {
+  const failed = response.failedTargets?.find((item) => typeof item?.reason === 'string' && item.reason.trim())
+  if (failed?.reason) {
+    const error = new Error(failed.reason.trim()) as Error & { code: string }
+    error.code = 'CHANNEL_DELIVERY_FAILED'
+    throw error
+  }
+  if ((response.acceptedTargets?.length ?? 0) < 1) {
+    const error = new Error('No target accepted the message') as Error & { code: string }
+    error.code = 'CHANNEL_DELIVERY_FAILED'
+    throw error
+  }
+}
+
 export function createTaskCommands(backend: TaskBackend) {
   return {
     async sendTask<T>(params: {
@@ -93,7 +115,7 @@ export function createTaskCommands(backend: TaskBackend) {
       taskId: string
       detail: string
     }) {
-      const response = await backend.publish<T>({
+      const response = await backend.publish<T & ChannelPublishResponseShape>({
         workspaceId: params.workspaceId,
         channel: {
           kind: 'direct',
@@ -108,6 +130,7 @@ export function createTaskCommands(backend: TaskBackend) {
         },
         idempotencyKey: null,
       })
+      ensurePublishAccepted(response)
 
       return {
         ...(response as Record<string, unknown>),
@@ -125,7 +148,7 @@ export function createTaskCommands(backend: TaskBackend) {
       blockers: string[]
       nextSteps: string[]
     }) {
-      const response = await backend.publish<T>({
+      const response = await backend.publish<T & ChannelPublishResponseShape>({
         workspaceId: params.workspaceId,
         channel: {
           kind: 'direct',
@@ -142,6 +165,7 @@ export function createTaskCommands(backend: TaskBackend) {
         },
         idempotencyKey: null,
       })
+      ensurePublishAccepted(response)
 
       return {
         ...(response as Record<string, unknown>),

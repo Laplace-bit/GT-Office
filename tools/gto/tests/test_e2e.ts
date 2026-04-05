@@ -908,6 +908,70 @@ test('runCli requires task id for agent reply-status', async () => {
   })
 })
 
+test('runCli fails agent reply-status when the target did not accept delivery', async () => {
+  const writes: string[] = []
+  const exitCode = await runCli(
+    ['agent', 'reply-status', '--workspace-id', 'ws-1', '--target-agent-id', 'manager', '--task-id', 'task-1', '--detail', 'done', '--json'],
+    {
+      stdout: {
+        write(chunk: string) {
+          writes.push(chunk)
+        },
+      },
+      createTaskBackend() {
+        return {
+          dispatchBatch: async () => ({ batchId: 'batch-1', results: [] }),
+          publish: async () => ({
+            messageId: 'msg-1',
+            acceptedTargets: [],
+            failedTargets: [{ agentId: 'manager', reason: 'AGENT_OFFLINE' }],
+          }),
+          listThreads: async () => ({ threads: [] }),
+          getThread: async () => ({ thread: null }),
+        }
+      },
+    },
+  )
+
+  assert.equal(exitCode, 1)
+  assertErrorEnvelope(writes, {
+    code: 'CHANNEL_DELIVERY_FAILED',
+    message: 'AGENT_OFFLINE',
+  })
+})
+
+test('runCli fails agent handover when the target did not accept delivery', async () => {
+  const writes: string[] = []
+  const exitCode = await runCli(
+    ['agent', 'handover', '--workspace-id', 'ws-1', '--target-agent-id', 'manager', '--task-id', 'task-1', '--summary', 'done', '--json'],
+    {
+      stdout: {
+        write(chunk: string) {
+          writes.push(chunk)
+        },
+      },
+      createTaskBackend() {
+        return {
+          dispatchBatch: async () => ({ batchId: 'batch-1', results: [] }),
+          publish: async () => ({
+            messageId: 'msg-1',
+            acceptedTargets: [],
+            failedTargets: [{ agentId: 'manager', reason: 'AGENT_OFFLINE' }],
+          }),
+          listThreads: async () => ({ threads: [] }),
+          getThread: async () => ({ thread: null }),
+        }
+      },
+    },
+  )
+
+  assert.equal(exitCode, 1)
+  assertErrorEnvelope(writes, {
+    code: 'CHANNEL_DELIVERY_FAILED',
+    message: 'AGENT_OFFLINE',
+  })
+})
+
 test('runCli handles agent inbox in json mode', async () => {
   const writes: string[] = []
   const exitCode = await runCli(['agent', 'inbox', '--workspace-id', 'ws-1', '--agent-id', 'agent-1', '--json'], {
@@ -1161,6 +1225,115 @@ test('runCli supports top-level send with wait for reply', async () => {
   assert.equal(parsed.data.wait.reply.messageId, 'm2')
 })
 
+test('runCli supports top-level wait when task-thread uses the legacy flat response shape', async () => {
+  const writes: string[] = []
+  let taskThreadCalls = 0
+  const exitCode = await runCli(['wait', 'task-legacy', '--from', 'Alpha', '--workspace-id', 'ws-1', '--timeout-sec', '1', '--json'], {
+    stdout: {
+      write(chunk: string) {
+        writes.push(chunk)
+      },
+    },
+    createDirectoryCommands() {
+      return {
+        snapshot: async () => ({
+          workspaceId: 'ws-1',
+          agents: [
+            { agentId: 'agent-a', name: 'Alpha' },
+            { agentId: 'agent-b', name: 'Beta' },
+          ],
+        }),
+      }
+    },
+    createTaskCommands() {
+      return {
+        sendTask: async () => ({ taskId: 'task-legacy' }),
+        replyStatus: async () => ({ ok: true }),
+        handover: async () => ({ ok: true }),
+        inbox: async () => ({ threads: [] }),
+        taskThread: async () => {
+          taskThreadCalls += 1
+          if (taskThreadCalls === 1) {
+            return {
+              summary: { taskId: 'task-legacy', state: 'open' },
+              messages: [{ messageId: 'm1', senderAgentId: 'agent-a', type: 'task_instruction' }],
+            }
+          }
+          return {
+            summary: { taskId: 'task-legacy', state: 'replied' },
+            messages: [
+              { messageId: 'm1', senderAgentId: 'agent-a', type: 'task_instruction' },
+              { messageId: 'm2', senderAgentId: 'agent-b', type: 'status', payload: { taskId: 'task-legacy', detail: 'ok' } },
+            ],
+          }
+        },
+      }
+    },
+  })
+
+  assert.equal(exitCode, 0)
+  const parsed = parseJsonEnvelope(writes)
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.data.reply.messageId, 'm2')
+})
+
+test('runCli wait prefers the thread root sender over a mismatched --from value', async () => {
+  const writes: string[] = []
+  const exitCode = await runCli(['wait', 'task-root-sender', '--from', 'Beta', '--workspace-id', 'ws-1', '--timeout-sec', '1', '--json'], {
+    stdout: {
+      write(chunk: string) {
+        writes.push(chunk)
+      },
+    },
+    createDirectoryCommands() {
+      return {
+        snapshot: async () => ({
+          workspaceId: 'ws-1',
+          agents: [
+            { agentId: 'agent-a', name: 'Alpha' },
+            { agentId: 'agent-b', name: 'Beta' },
+          ],
+        }),
+      }
+    },
+    createTaskCommands() {
+      return {
+        sendTask: async () => ({ taskId: 'task-root-sender' }),
+        replyStatus: async () => ({ ok: true }),
+        handover: async () => ({ ok: true }),
+        inbox: async () => ({ threads: [] }),
+        taskThread: async () => ({
+          thread: {
+            summary: { taskId: 'task-root-sender', state: 'replied' },
+            messages: [
+              {
+                messageId: 'm1',
+                senderAgentId: 'agent-a',
+                type: 'task_instruction',
+                payload: {
+                  taskId: 'task-root-sender',
+                  sender: { agentId: 'agent-a', type: 'agent' },
+                },
+              },
+              {
+                messageId: 'm2',
+                senderAgentId: 'agent-b',
+                type: 'status',
+                payload: { taskId: 'task-root-sender', detail: 'ok' },
+              },
+            ],
+          },
+        }),
+      }
+    },
+  })
+
+  assert.equal(exitCode, 0)
+  const parsed = parseJsonEnvelope(writes)
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.data.reply.messageId, 'm2')
+})
+
 test('runCli returns interaction_required when waiting task exposes an interaction prompt', async () => {
   const writes: string[] = []
   const exitCode = await runCli(['send', 'Alpha', 'Beta', '你好', '--workspace-id', 'ws-1', '--wait', '--timeout-sec', '1', '--json'], {
@@ -1282,6 +1455,7 @@ test('runCli handles top-level thread command', async () => {
   assertOkEnvelope(writes, {
     workspaceId: 'ws-1',
     thread: { summary: { taskId: 'task-1' }, messages: [] },
+    waitState: null,
   })
 })
 
