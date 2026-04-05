@@ -1,9 +1,9 @@
 @use '../../styles/tokens/responsive' as *;
 
 .shell-rail-slot {
-  width: #{rem(64)};
-  min-width: #{rem(64)};
-  max-width: #{rem(64)};
+  width: #{rem(50)};
+  min-width: #{rem(50)};
+  max-width: #{rem(50)};
   display: flex;
   flex-direction: column;
   gap: var(--vb-space-md);
@@ -27,14 +27,18 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
-  &::-webkit-scrollbar { display: none; }
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
   transition: background-color 0.3s ease;
 }
 
 .activity-rail-icon-btn {
   position: relative;
-  width: #{rem(40)};
-  height: #{rem(40)};
+  width: #{rem(30)};
+  height: #{rem(30)};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -57,7 +61,7 @@
     color: var(--vb-accent);
     background: var(--vb-accent-light);
     border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-accent) 20%, transparent);
-    
+
     /* Apple style indicator - sophisticated glow */
     &::after {
       content: '';
@@ -65,7 +69,8 @@
       left: calc(var(--vb-space-sm) * -1);
       top: #{rem(10)};
       bottom: #{rem(10)};
-      width: #{rem(3.5)};
+      width: #{rem(2)};
+      height: #{rem(10)};
       background: var(--vb-accent);
       border-radius: 0 var(--vb-radius-xs) var(--vb-radius-xs) 0;
       box-shadow: #{rem(2)} 0 #{rem(10)} color-mix(in srgb, var(--vb-accent) 50%, transparent);
@@ -78,7 +83,7 @@
     justify-content: center;
     width: #{rem(22)};
     height: #{rem(22)};
-    
+
     .vb-icon {
       width: 100%;
       height: 100%;
@@ -121,8 +126,7 @@
     background: var(--vb-surface-elevated);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow:
-      0 0 0 var(--vb-border-width) var(--vb-border-subtle),
-      0 #{rem(10)} #{rem(22)} rgba(15, 23, 42, 0.08);
+    box-shadow: 0 0 0 var(--vb-border-width) var(--vb-border-subtle),
+    0 #{rem(10)} #{rem(22)} rgba(15, 23, 42, 0.08);
   }
 }

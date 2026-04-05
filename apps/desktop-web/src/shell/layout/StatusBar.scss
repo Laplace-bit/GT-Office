@@ -4,7 +4,7 @@
   display: flex;
   align-items: center;
   gap: var(--vb-space-md);
-  padding: var(--vb-space-xs) var(--vb-space-lg);
+  padding: var(--vb-space-2xs) var(--vb-space-lg);
   border-radius: #{rem(14)};
   background: var(--vb-glass-light);
   backdrop-filter: blur(#{rem(20)}) saturate(180%);
@@ -84,6 +84,7 @@
 }
 
 @media (max-width: $breakpoint-compact) {
+
   .status-bar__item--agents,
   .status-bar__item--changes {
     display: none;
@@ -95,8 +96,7 @@
     background: var(--vb-surface-elevated);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow:
-      0 0 0 var(--vb-border-width) var(--vb-border-subtle),
-      0 #{rem(8)} #{rem(18)} rgba(15, 23, 42, 0.08);
+    box-shadow: 0 0 0 var(--vb-border-width) var(--vb-border-subtle),
+    0 #{rem(8)} #{rem(18)} rgba(15, 23, 42, 0.08);
   }
 }
