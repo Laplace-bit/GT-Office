@@ -104,15 +104,6 @@
   color: var(--vb-text-subtle);
 }
 
-.shell-rail-slot {
-  width: #{rem(64)};
-  min-width: #{rem(64)};
-  max-width: #{rem(64)};
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  z-index: 10;
-}
 
 .shell-left-pane {
   width: var(--shell-left-pane-width, #{rem(270)});
@@ -140,7 +131,7 @@
   display: flex;
   flex-direction: column;
 
-  > * {
+  >* {
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
@@ -194,7 +185,7 @@
   transition: background-color 0.3s ease;
   contain: layout style;
 
-  > * {
+  >* {
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
@@ -206,7 +197,7 @@
   margin-right: #{rem(-6)};
 }
 
-.shell-main-content > .shell-right-pane-resizer {
+.shell-main-content>.shell-right-pane-resizer {
   flex: 0 0 #{rem(12)};
 }
 
@@ -232,7 +223,7 @@
   min-height: 0;
   overflow: hidden;
 
-  > * {
+  >* {
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
@@ -259,9 +250,8 @@
     background: var(--vb-surface-elevated);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow:
-      0 0 0 var(--vb-border-width) var(--vb-border-subtle),
-      0 #{rem(10)} #{rem(24)} rgba(15, 23, 42, 0.08);
+    box-shadow: 0 0 0 var(--vb-border-width) var(--vb-border-subtle),
+    0 #{rem(10)} #{rem(24)} rgba(15, 23, 42, 0.08);
   }
 
   .shell-main-pane::before,
@@ -280,7 +270,7 @@
   min-height: 0;
   overflow: hidden;
 
-  > * {
+  >* {
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
@@ -330,6 +320,7 @@
 // 4. Disable all transitions — eliminates interpolation lag
 // 5. Use contain: strict on panes — limits layout recalculation scope
 .shell-pane-resizing {
+
   // Kill all child pointer events to prevent cursor flicker from iframes/webviews.
   .shell-left-pane,
   .shell-main-pane,
@@ -367,6 +358,7 @@
 }
 
 :root[data-vb-platform='macos'] {
+
   button,
   [role='button'] {
     transition:
@@ -393,10 +385,10 @@
   }
 
   .shell-rail-slot {
-    width: #{rem(58)};
-    min-width: #{rem(58)};
+    width: #{rem(48)};
+    min-width: #{rem(48)};
   }
-  
+
   .shell-left-pane {
     width: clamp(#{rem(200)}, 25vw, #{rem(260)});
   }
