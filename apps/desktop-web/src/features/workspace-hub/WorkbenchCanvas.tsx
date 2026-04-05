@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import type { AgentStation } from './station-model'
+import type { AgentStation, StationRole } from './station-model'
 import { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
 import { WorkbenchUtilityActions } from './WorkbenchUtilityActions'
 import {
@@ -74,6 +74,7 @@ interface WorkbenchCanvasProps {
   showFloatingPortal?: boolean
   floatingVisibility?: 'all' | 'topmost' | 'non_topmost'
   stations: AgentStation[]
+  roleFilter?: StationRole | 'all'
   containers: WorkbenchContainerModel[]
   activeStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
@@ -261,6 +262,7 @@ function WorkbenchCanvasView({
   showFloatingPortal = true,
   floatingVisibility = 'all',
   stations,
+  roleFilter = 'all',
   containers,
   activeStationId,
   terminalByStation,
@@ -574,6 +576,7 @@ function WorkbenchCanvasView({
                     container={container}
                     containerIndex={index}
                     stations={containerStations}
+                    roleFilter={roleFilter}
                     activeGlobalStationId={activeStationId}
                     terminalByStation={terminalByStation}
                     agentRunningByStationId={agentRunningByStationId}
@@ -651,6 +654,7 @@ function WorkbenchCanvasView({
                     container={container}
                     containerIndex={dockedContainers.length + index}
                     stations={containerStations}
+                    roleFilter={roleFilter}
                     activeGlobalStationId={activeStationId}
                     terminalByStation={terminalByStation}
                     agentRunningByStationId={agentRunningByStationId}

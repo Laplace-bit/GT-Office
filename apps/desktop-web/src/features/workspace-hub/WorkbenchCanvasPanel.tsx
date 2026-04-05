@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { StationCard } from './StationCard'
 import { StationActivityComet } from './StationActivityComet'
-import type { AgentStation } from './station-model'
+import type { AgentStation, StationRole } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
   normalizeWorkbenchCustomLayout,
@@ -54,6 +54,7 @@ interface WorkbenchCanvasPanelProps {
   container: WorkbenchContainerModel
   containerIndex: number
   stations: AgentStation[]
+  roleFilter?: StationRole | 'all'
   activeGlobalStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
   agentRunningByStationId?: Record<string, boolean>
@@ -170,6 +171,7 @@ function WorkbenchCanvasPanelView({
   container,
   containerIndex,
   stations,
+  roleFilter = 'all',
   activeGlobalStationId,
   terminalByStation,
   agentRunningByStationId = {},
@@ -218,13 +220,39 @@ function WorkbenchCanvasPanelView({
     () => normalizeWorkbenchCustomLayout(container.customLayout),
     [container.customLayout],
   )
-  const selectedStationId = useMemo(
-    () => container.activeStationId ?? stations[0]?.id ?? null,
-    [container.activeStationId, stations],
+  const visibleStations = useMemo(
+    () => stations.filter((station) => roleFilter === 'all' || station.role === roleFilter),
+    [roleFilter, stations],
   )
+  const selectedStationId = useMemo(
+    () => {
+      if (
+        container.activeStationId &&
+        visibleStations.some((station) => station.id === container.activeStationId)
+      ) {
+        return container.activeStationId
+      }
+      return visibleStations[0]?.id ?? null
+    },
+    [container.activeStationId, visibleStations],
+  )
+  const effectiveActiveStationId = useMemo(() => {
+    if (roleFilter === 'all') {
+      return activeGlobalStationId
+    }
+    if (visibleStations.some((station) => station.id === activeGlobalStationId)) {
+      return activeGlobalStationId
+    }
+    return selectedStationId ?? activeGlobalStationId
+  }, [activeGlobalStationId, roleFilter, selectedStationId, visibleStations])
   const fullscreenStation = useMemo(
-    () => stations.find((station) => station.id === fullscreenStationIdRaw) ?? null,
-    [fullscreenStationIdRaw, stations],
+    () =>
+      stations.find(
+        (station) =>
+          station.id === fullscreenStationIdRaw &&
+          (roleFilter === 'all' || station.role === roleFilter),
+      ) ?? null,
+    [fullscreenStationIdRaw, roleFilter, stations],
   )
   const panelTitle = useMemo(
     () => buildPanelTitle(locale, container, stations, containerIndex),
@@ -455,7 +483,7 @@ function WorkbenchCanvasPanelView({
     return actions
   }, [canDeleteContainer, container.id, detachedReadonly, locale, onDeleteContainer, onReturnToWorkspace])
   const gridStyle = useMemo<WorkbenchGridStyle | undefined>(() => {
-    if (container.layoutMode === 'focus' || stations.length === 0) {
+    if (container.layoutMode === 'focus' || visibleStations.length === 0) {
       return undefined
     }
     if (container.layoutMode === 'custom') {
@@ -464,22 +492,27 @@ function WorkbenchCanvasPanelView({
         '--station-grid-rows': String(normalizedCustomLayout.rows),
       }
     }
-    const columns = Math.max(1, Math.ceil(Math.sqrt(stations.length)))
-    const rows = Math.max(1, Math.ceil(stations.length / columns))
+    const columns = Math.max(1, Math.ceil(Math.sqrt(visibleStations.length)))
+    const rows = Math.max(1, Math.ceil(visibleStations.length / columns))
     return {
       '--station-grid-columns': String(columns),
       '--station-grid-rows': String(rows),
     }
-  }, [container.layoutMode, normalizedCustomLayout.columns, normalizedCustomLayout.rows, stations.length])
+  }, [
+    container.layoutMode,
+    normalizedCustomLayout.columns,
+    normalizedCustomLayout.rows,
+    visibleStations.length,
+  ])
   const focusGridStyle = useMemo<CSSProperties | undefined>(() => {
-    if (container.layoutMode !== 'focus' || stations.length <= 1) {
+    if (container.layoutMode !== 'focus' || visibleStations.length <= 1) {
       return undefined
     }
     return {
       gridTemplateColumns: 'minmax(0, 1fr) minmax(11rem, clamp(11rem, 28%, 22rem))',
       gridTemplateRows: 'minmax(0, 1fr)',
     }
-  }, [container.layoutMode, stations.length])
+  }, [container.layoutMode, visibleStations.length])
 
   const updateCustomLayoutDimension = useCallback(
     (dimension: keyof WorkbenchCustomLayout, nextValue: number) => {
@@ -551,11 +584,11 @@ function WorkbenchCanvasPanelView({
     if (!fullscreenStationIdRaw) {
       return
     }
-    if (stations.some((station) => station.id === fullscreenStationIdRaw)) {
+    if (fullscreenStation) {
       return
     }
     setFullscreenStationIdRaw(null)
-  }, [fullscreenStationIdRaw, stations])
+  }, [fullscreenStation, fullscreenStationIdRaw])
 
   const renderStationCard = useCallback(
     (station: AgentStation, options?: { focusHidden?: boolean; fullscreen?: boolean; fullscreenMode?: boolean }) => (
@@ -565,7 +598,7 @@ function WorkbenchCanvasPanelView({
         appearanceVersion={appearanceVersion}
         performanceDebugEnabled={performanceDebugEnabled}
         station={station}
-        active={station.id === activeGlobalStationId}
+        active={station.id === effectiveActiveStationId}
         runtime={terminalByStation[station.id]}
         agentRunning={agentRunningByStationId[station.id] ?? false}
         taskSignal={taskSignalByStationId[station.id]}
@@ -573,6 +606,7 @@ function WorkbenchCanvasPanelView({
         isFullscreen={Boolean(options?.fullscreen)}
         isFullscreenMode={Boolean(options?.fullscreenMode)}
         isFocusHidden={Boolean(options?.focusHidden)}
+        isRoleFilteredOut={roleFilter !== 'all' && station.role !== roleFilter}
         draggable={!detachedReadonly}
         onStationDragStart={
           onStationDragStart
@@ -605,7 +639,7 @@ function WorkbenchCanvasPanelView({
       />
     ),
     [
-      activeGlobalStationId,
+      effectiveActiveStationId,
       agentRunningByStationId,
       appearanceVersion,
       performanceDebugEnabled,
@@ -616,6 +650,7 @@ function WorkbenchCanvasPanelView({
       handleExitFullscreen,
       handleSelectStation,
       locale,
+      roleFilter,
       onBindTerminalSink,
       onLaunchCliAgent,
       onLaunchStationTerminal,
@@ -639,7 +674,7 @@ function WorkbenchCanvasPanelView({
         'panel',
         'workbench-canvas',
         `mode-${container.mode}`,
-        stations.some((station) => station.id === activeGlobalStationId) ? 'is-active-container' : '',
+        stations.some((station) => station.id === effectiveActiveStationId) ? 'is-active-container' : '',
         dropActive ? 'is-drop-target' : '',
         detachedReadonly ? 'detached-readonly' : '',
       ]
@@ -782,7 +817,10 @@ function WorkbenchCanvasPanelView({
           </div>
         ) : container.layoutMode === 'focus' ? (
           <div className="station-grid focus-mode" ref={gridRef} style={focusGridStyle}>
-            <div className="focus-main" style={stations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}>
+            <div
+              className="focus-main"
+              style={visibleStations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}
+            >
               <div className="focus-main-stage">
                 {stations.map((station) =>
                   renderStationCard(station, {
@@ -791,9 +829,9 @@ function WorkbenchCanvasPanelView({
                 )}
               </div>
             </div>
-            {stations.length > 1 ? (
+            {visibleStations.length > 1 ? (
               <div className="focus-ring" style={{ gridColumn: '2 / 3', gridRow: '1 / 2' }}>
-                {stations
+                {visibleStations
                   .filter((station) => station.id !== selectedStationId)
                   .map((station) => (
                     <FocusRailItem

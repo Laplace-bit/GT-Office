@@ -5305,6 +5305,7 @@ export function ShellRoot() {
     performanceDebugEnabled: performanceDebugState.enabled,
     showFloatingPortal: true as const,
     stations,
+    roleFilter: stationOverviewState.roleFilter,
     activeStationId,
     terminalByStation: stationTerminals,
     agentRunningByStationId: stationAgentRunningById,

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo } from 'react'
 import type { AgentStation, StationRole } from '@features/workspace-hub'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -6,7 +6,6 @@ import { AppIcon } from '@shell/ui/icons'
 import './StationOverviewPane.scss'
 import {
   buildOrganizationSnapshot,
-  defaultStationOverviewState,
   filterStationsForOverview,
   type StationOverviewState,
 } from './station-overview-model'
@@ -96,7 +95,6 @@ export function StationOverviewPane({
   onSelectStation,
   onEditStation,
 }: StationOverviewPaneProps) {
-  const [filtersExpanded, setFiltersExpanded] = useState(false)
   const snapshot = useMemo(
     () => buildOrganizationSnapshot(stations, runtimeStateByStationId),
     [runtimeStateByStationId, stations],
@@ -147,26 +145,10 @@ export function StationOverviewPane({
       </section>
 
       <section className="station-overview-section">
-        <button
-          type="button"
-          className="station-overview-section-toggle"
-          onClick={() => setFiltersExpanded((prev) => !prev)}
-          aria-expanded={filtersExpanded}
-          aria-controls="station-overview-filters"
-        >
-          <span>{localeIsZh ? '角色筛选' : 'Role Filters'}</span>
-          <small>{localeIsZh ? '仅管理维度' : 'Management only'}</small>
-          <AppIcon
-            name="chevron-right"
-            className="vb-icon vb-icon-overview-toggle"
-            aria-hidden="true"
-          />
-        </button>
-
-        <div className={filtersExpanded ? 'station-overview-collapsible expanded' : 'station-overview-collapsible'}>
-          <section id="station-overview-filters" className="station-overview-filters">
-            <label>
-              {t(locale, 'station.filter.role')}
+        <section id="station-overview-filters" className="station-overview-filters station-overview-filters--inline">
+          <label className="station-overview-inline-filter">
+            <span>{localeIsZh ? '角色' : 'Role'}</span>
+            <div className="station-overview-inline-filter__select-wrap">
               <select
                 value={view.roleFilter}
                 onChange={(event) => onViewChange({ roleFilter: event.target.value as StationRole | 'all' })}
@@ -178,17 +160,21 @@ export function StationOverviewPane({
                   </option>
                 ))}
               </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                onViewChange(defaultStationOverviewState)
-              }}
-            >
-              {t(locale, 'station.filter.reset')}
-            </button>
-          </section>
-        </div>
+              <button
+                type="button"
+                className="station-overview-inline-filter__clear"
+                aria-label={localeIsZh ? '清除角色筛选' : 'Clear role filter'}
+                title={localeIsZh ? '清除角色筛选' : 'Clear role filter'}
+                disabled={view.roleFilter === 'all'}
+                onClick={() => {
+                  onViewChange({ roleFilter: 'all' })
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </label>
+        </section>
       </section>
 
       <ul className="station-overview-list">
