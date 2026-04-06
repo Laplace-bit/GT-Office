@@ -318,13 +318,28 @@ impl AgentInstaller {
                 .as_deref()
                 .and_then(Self::claude_uninstall_action_for_path)
                 .is_some(),
-            AgentType::Codex | AgentType::Gemini => detection.executable.is_some() && npm_ready,
+            AgentType::Codex | AgentType::Gemini => {
+                if detection.executable.is_none() {
+                    false
+                } else {
+                    let path_text = detection.executable.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+                    // Homebrew installation doesn't require npm (includes Linuxbrew on Linux)
+                    let is_homebrew = path_text.contains("/opt/homebrew/bin")
+                        || path_text.contains("/usr/local/bin")
+                        || path_text.contains("/.linuxbrew/bin");
+                    is_homebrew || npm_ready
+                }
+            }
         };
-        if matches!(agent, AgentType::ClaudeCode)
-            && detection.executable.is_some()
-            && !uninstall_available
-        {
-            issues.push("Claude CLI uninstall source could not be identified automatically; remove it with the original installer or package manager.".to_string());
+        if detection.executable.is_some() && !uninstall_available {
+            let agent_name = match agent {
+                AgentType::ClaudeCode => "Claude Code",
+                AgentType::Codex => "Codex CLI",
+                AgentType::Gemini => "Gemini CLI",
+            };
+            issues.push(format!(
+                "{agent_name} uninstall source could not be identified automatically; remove it with the original installer or package manager."
+            ));
         }
 
         let status = AgentInstallStatus {
@@ -407,10 +422,60 @@ impl AgentInstaller {
         let executable = Self::install_status(agent).executable.map(PathBuf::from)?;
 
         match agent {
-            AgentType::Codex => Some(Self::npm_uninstall_action("@openai/codex")),
-            AgentType::Gemini => Some(Self::npm_uninstall_action("@google/gemini-cli")),
+            AgentType::Codex => Self::codex_uninstall_action_for_path(&executable),
+            AgentType::Gemini => Self::gemini_uninstall_action_for_path(&executable),
             AgentType::ClaudeCode => Self::claude_uninstall_action_for_path(&executable),
         }
+    }
+
+    fn codex_uninstall_action_for_path(executable: &Path) -> Option<AgentUninstallAction> {
+        let path_text = executable.display().to_string();
+
+        // Check for Homebrew installation (macOS/Linux)
+        // Homebrew installs to /opt/homebrew/bin on Apple Silicon and /usr/local/bin on Intel Mac
+        // On Linux, it's typically /home/linuxbrew/.linuxbrew/bin
+        if !cfg!(target_os = "windows")
+            && (path_text.contains("/opt/homebrew/bin")
+                || path_text.contains("/usr/local/bin")
+                || path_text.contains("/.linuxbrew/bin"))
+        {
+            // Try homebrew cask uninstall first, fallback to npm
+            return Some(AgentUninstallAction::Command {
+                program: "bash".to_string(),
+                args: vec![
+                    "-lc".to_string(),
+                    "brew uninstall --cask codex 2>/dev/null || npm uninstall -g @openai/codex"
+                        .to_string(),
+                ],
+            });
+        }
+
+        // npm global installation (default for all platforms)
+        Some(Self::npm_uninstall_action("@openai/codex"))
+    }
+
+    fn gemini_uninstall_action_for_path(executable: &Path) -> Option<AgentUninstallAction> {
+        let path_text = executable.display().to_string();
+
+        // Check for Homebrew installation (macOS/Linux)
+        if !cfg!(target_os = "windows")
+            && (path_text.contains("/opt/homebrew/bin")
+                || path_text.contains("/usr/local/bin")
+                || path_text.contains("/.linuxbrew/bin"))
+        {
+            // Try homebrew uninstall first, fallback to npm
+            return Some(AgentUninstallAction::Command {
+                program: "bash".to_string(),
+                args: vec![
+                    "-lc".to_string(),
+                    "brew uninstall gemini-cli 2>/dev/null || npm uninstall -g @google/gemini-cli"
+                        .to_string(),
+                ],
+            });
+        }
+
+        // npm global installation (default for all platforms)
+        Some(Self::npm_uninstall_action("@google/gemini-cli"))
     }
 
     pub fn requires_node_env(agent: AgentType) -> bool {
@@ -888,9 +953,11 @@ impl AgentInstaller {
 
     fn claude_uninstall_action_for_path(executable: &Path) -> Option<AgentUninstallAction> {
         let path_text = executable.display().to_string();
+        // npm global installation
         if path_text.contains("node_modules") || path_text.contains("npm") {
             return Some(Self::npm_uninstall_action("@anthropic-ai/claude-code"));
         }
+        // Homebrew installation (macOS/Linux)
         if path_text.contains("/opt/homebrew/bin") || path_text.contains("/usr/local/bin") {
             return Some(AgentUninstallAction::Command {
                 program: "bash".to_string(),
@@ -900,15 +967,31 @@ impl AgentInstaller {
                 ],
             });
         }
-        if cfg!(target_os = "windows")
-            && (path_text.contains("Anthropic.ClaudeCode") || path_text.ends_with("claude.exe"))
+        // Windows installations
+        #[cfg(target_os = "windows")]
         {
-            let paths = Self::claude_native_remove_paths();
-            if !paths.is_empty() {
-                return Some(AgentUninstallAction::RemovePaths { paths });
+            // WinGet installation path pattern
+            if path_text.contains("WindowsApps")
+                || path_text.contains("Program Files\\WindowsApps")
+                || path_text.contains("Anthropic.ClaudeCode")
+            {
+                return Some(AgentUninstallAction::Command {
+                    program: "powershell".to_string(),
+                    args: vec![
+                        "-Command".to_string(),
+                        "winget uninstall Anthropic.ClaudeCode --silent 2>$null; if ($LASTEXITCODE -ne 0) { exit 0 }".to_string(),
+                    ],
+                });
             }
-            return None;
+            // Native installation (PowerShell script)
+            if path_text.ends_with("claude.exe") || path_text.contains(".local\\bin\\claude") {
+                let paths = Self::claude_native_remove_paths();
+                if !paths.is_empty() {
+                    return Some(AgentUninstallAction::RemovePaths { paths });
+                }
+            }
         }
+        // Native installation (Unix-like systems)
         if path_text.contains(".local/bin/claude") {
             let paths = Self::claude_native_remove_paths();
             if !paths.is_empty() {
