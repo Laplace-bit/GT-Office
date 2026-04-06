@@ -62,20 +62,6 @@
     }
   }
 
-  &.role-filter-hidden {
-    position: absolute !important;
-    inset: 0;
-    opacity: 0;
-    pointer-events: none;
-    visibility: hidden;
-    z-index: 0;
-    transform: none;
-    box-shadow: none;
-
-    &::after {
-      border-color: transparent;
-    }
-  }
 }
 
 .station-window-header {
