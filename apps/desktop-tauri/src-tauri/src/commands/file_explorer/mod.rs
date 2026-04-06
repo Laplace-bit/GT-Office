@@ -22,12 +22,6 @@ use vb_daemon::protocol::SearchStartRequest;
 
 use crate::app_state::AppState;
 
-// Re-export preview commands
-pub use preview::{
-    FileInfoResponse, PdfInfoResponse, PdfPageResponse, ThumbnailResponse, fs_get_file_info,
-    fs_image_thumbnail, fs_pdf_get_info, fs_pdf_render_page,
-};
-
 const MAX_LIST_ENTRIES: usize = 4000;
 const MAX_SEARCH_MATCHES: usize = 500;
 const MAX_FILE_SEARCH_MATCHES: usize = 120;
