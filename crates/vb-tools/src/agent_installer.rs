@@ -439,18 +439,18 @@ impl AgentInstaller {
                 || path_text.contains("/usr/local/bin")
                 || path_text.contains("/.linuxbrew/bin"))
         {
-            // Try homebrew cask uninstall first, fallback to npm
+            // Homebrew installation - use brew uninstall, no npm required
             return Some(AgentUninstallAction::Command {
                 program: "bash".to_string(),
                 args: vec![
                     "-lc".to_string(),
-                    "brew uninstall --cask codex 2>/dev/null || npm uninstall -g @openai/codex"
-                        .to_string(),
+                    "brew uninstall --cask codex 2>/dev/null || brew uninstall codex 2>/dev/null || echo 'Homebrew uninstall attempted'".to_string(),
                 ],
             });
         }
 
         // npm global installation (default for all platforms)
+        // This handles both fnm/nvm managed installations and our --prefix installations
         Some(Self::npm_uninstall_action("@openai/codex"))
     }
 
@@ -463,13 +463,12 @@ impl AgentInstaller {
                 || path_text.contains("/usr/local/bin")
                 || path_text.contains("/.linuxbrew/bin"))
         {
-            // Try homebrew uninstall first, fallback to npm
+            // Homebrew installation - use brew uninstall, no npm required
             return Some(AgentUninstallAction::Command {
                 program: "bash".to_string(),
                 args: vec![
                     "-lc".to_string(),
-                    "brew uninstall gemini-cli 2>/dev/null || npm uninstall -g @google/gemini-cli"
-                        .to_string(),
+                    "brew uninstall gemini-cli 2>/dev/null || echo 'Homebrew uninstall attempted'".to_string(),
                 ],
             });
         }
@@ -928,18 +927,30 @@ impl AgentInstaller {
     }
 
     fn npm_uninstall_action(package_name: &str) -> AgentUninstallAction {
-        // Use simple npm uninstall -g without --prefix
-        // Node version managers (fnm, nvm, volta, etc.) set npm global paths correctly,
-        // so we should use npm's default global path rather than forcing --prefix.
+        // Try to uninstall from both the default npm global location
+        // and the ~/.local prefix location.
+        // This handles cases where users have multiple installations:
+        // 1. fnm/nvm managed: npm root -g (e.g., ~/.local/share/fnm/...)
+        // 2. Our installation: ~/.local (via --prefix)
         if cfg!(target_os = "windows") {
             AgentUninstallAction::Command {
                 program: "cmd".to_string(),
-                args: vec!["/C".to_string(), format!("npm uninstall -g {package_name}")],
+                args: vec![
+                    "/C".to_string(),
+                    format!(
+                        "npm uninstall -g {package_name} 2>nul & npm uninstall -g --prefix \"%USERPROFILE%\\.local\" {package_name} 2>nul"
+                    ),
+                ],
             }
         } else {
             AgentUninstallAction::Command {
                 program: "bash".to_string(),
-                args: vec!["-lc".to_string(), format!("npm uninstall -g {package_name}")],
+                args: vec![
+                    "-lc".to_string(),
+                    format!(
+                        "npm uninstall -g {package_name} 2>/dev/null; npm uninstall -g --prefix \"$HOME/.local\" {package_name} 2>/dev/null; true"
+                    ),
+                ],
             }
         }
     }
