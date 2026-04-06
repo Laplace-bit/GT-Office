@@ -526,6 +526,8 @@ export function ShellRootView({
   workbenchCanvasProps,
   pinnedWorkbenchCanvasProps,
   fileEditorPaneProps,
+  filePreviewPaneProps,
+  isPreviewMode,
   gitHistoryPaneProps,
   topmostWorkbenchCanvasProps,
   statusBarProps,
@@ -583,6 +585,8 @@ export function ShellRootView({
           workbenchCanvasProps={workbenchCanvasProps}
           pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasProps}
           fileEditorPaneProps={fileEditorPaneProps}
+          filePreviewPaneProps={filePreviewPaneProps}
+          isPreviewMode={isPreviewMode}
           gitHistoryPaneProps={gitHistoryPaneProps}
         />
       </main>

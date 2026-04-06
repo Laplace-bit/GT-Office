@@ -489,7 +489,6 @@ export function ShellRoot() {
     activeFilePath,
     setActiveFilePath,
     activePreviewPath,
-    setActivePreviewPath,
     isPreviewMode,
     filePreviewNotice,
     fileCanRenderText,

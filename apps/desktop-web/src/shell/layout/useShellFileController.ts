@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from 'react'
 import type { OpenedFile } from '@features/file-explorer'
-import { categorizeFile, isMediaFile } from '@features/file-preview'
+import { isMediaFile } from '@features/file-preview'
 import { desktopApi, type FilesystemChangedPayload } from '../integration/desktop-api'
 import { t, type Locale } from '../i18n/ui-locale'
 import {
@@ -110,7 +110,6 @@ export function useShellFileController({
       }
 
       // Check if file is a media file that should open in preview
-      const fileCategory = categorizeFile(filePath)
       if (isMediaFile(filePath)) {
         // Media files go to preview mode
         setActivePreviewPath(filePath)
