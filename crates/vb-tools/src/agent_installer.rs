@@ -928,25 +928,18 @@ impl AgentInstaller {
     }
 
     fn npm_uninstall_action(package_name: &str) -> AgentUninstallAction {
+        // Use simple npm uninstall -g without --prefix
+        // Node version managers (fnm, nvm, volta, etc.) set npm global paths correctly,
+        // so we should use npm's default global path rather than forcing --prefix.
         if cfg!(target_os = "windows") {
             AgentUninstallAction::Command {
                 program: "cmd".to_string(),
-                args: vec![
-                    "/C".to_string(),
-                    format!(
-                        "npm uninstall -g --prefix \"%USERPROFILE%\\.local\" {package_name} || npm uninstall -g {package_name}"
-                    ),
-                ],
+                args: vec!["/C".to_string(), format!("npm uninstall -g {package_name}")],
             }
         } else {
             AgentUninstallAction::Command {
                 program: "bash".to_string(),
-                args: vec![
-                    "-lc".to_string(),
-                    format!(
-                        "npm uninstall -g --prefix \"$HOME/.local\" {package_name} || npm uninstall -g {package_name}"
-                    ),
-                ],
+                args: vec!["-lc".to_string(), format!("npm uninstall -g {package_name}")],
             }
         }
     }
