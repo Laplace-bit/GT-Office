@@ -260,6 +260,29 @@
   background: transparent;
 }
 
+/* === Markdown Toolbar === */
+.file-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: #{rem(8)};
+  background: color-mix(in srgb, var(--vb-surface-muted) 8%, transparent);
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 10%, transparent);
+}
+
+/* === Markdown Preview Pane === */
+.markdown-preview-pane {
+  padding: #{rem(16)};
+  overflow: auto;
+  height: 100%;
+  background: var(--vb-surface);
+}
+
+.markdown-preview-pane .markdown-preview-content {
+  max-width: #{rem(768)};
+  margin: 0 auto;
+}
+
 .file-editor-hint, .file-editor-loading {
   display: flex;
   align-items: center;
