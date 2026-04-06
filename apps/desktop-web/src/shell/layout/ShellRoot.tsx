@@ -152,7 +152,8 @@ import {
 } from '../state/ui-preferences'
 import {
   loadPerformanceDebugState,
-  savePerformanceDebugState,
+  // TODO: 性能调试按钮暂时隐藏
+  // savePerformanceDebugState,
 } from '../state/performance-debug'
 import { pickDirectory } from '../integration/directory-picker'
 import {
@@ -227,7 +228,7 @@ export function ShellRoot() {
   const stationCounterRef = useRef(nextStationNumber(initialStations))
   const workbenchContainerCounterRef = useRef(initialStations.length + 1)
   const tauriRuntime = desktopApi.isTauriRuntime()
-  const [performanceDebugState, setPerformanceDebugState] = useState(loadPerformanceDebugState)
+  const performanceDebugState = useMemo(loadPerformanceDebugState, [])
   const windowPerformancePolicy = useMemo(
     () =>
       resolveWindowPerformancePolicy({
@@ -273,15 +274,16 @@ export function ShellRoot() {
   const initialCanvasLayout = useMemo(loadCanvasLayoutPreference, [])
   const [canvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
 
-  const togglePerformanceDebug = useCallback(() => {
-    setPerformanceDebugState((prev) => {
-      const next = {
-        enabled: !prev.enabled,
-      }
-      savePerformanceDebugState(next)
-      return next
-    })
-  }, [])
+  // TODO: 性能调试按钮暂时隐藏
+  // const togglePerformanceDebug = useCallback(() => {
+  //   setPerformanceDebugState((prev) => {
+  //     const next = {
+  //       enabled: !prev.enabled,
+  //     }
+  //     savePerformanceDebugState(next)
+  //     return next
+  //   })
+  // }, [])
   const [canvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
   const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
@@ -486,6 +488,9 @@ export function ShellRoot() {
     setOpenedFiles,
     activeFilePath,
     setActiveFilePath,
+    activePreviewPath,
+    setActivePreviewPath,
+    isPreviewMode,
     filePreviewNotice,
     fileCanRenderText,
     fileReadLoading,
@@ -5407,7 +5412,7 @@ export function ShellRoot() {
         },
         batchLaunchDisabled: isBatchLaunchingAgents || batchLaunchableAgentCount === 0,
         onOpenSettings: handleOpenSettings,
-        onTogglePerformanceDebug: togglePerformanceDebug,
+        // onTogglePerformanceDebug: togglePerformanceDebug,
         onWindowMinimize: handleWindowMinimize,
         onWindowToggleMaximize: handleWindowToggleMaximize,
         onWindowClose: handleWindowClose,
@@ -5488,6 +5493,13 @@ export function ShellRoot() {
         onFileModified: handleFileModified,
         editorCommandRequest: fileEditorCommandRequest,
       }}
+      filePreviewPaneProps={{
+        locale,
+        workspaceId: activeWorkspaceId,
+        filePath: activePreviewPath,
+        fileSize: 0, // TODO: Get actual file size from backend
+      }}
+      isPreviewMode={isPreviewMode}
       gitHistoryPaneProps={{
         controller: gitController,
         onOpenInEditor: handleGitHistoryOpenInEditor,

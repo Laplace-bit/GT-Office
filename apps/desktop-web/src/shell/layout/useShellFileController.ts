@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from 'react'
 import type { OpenedFile } from '@features/file-explorer'
+import { categorizeFile, isMediaFile } from '@features/file-preview'
 import { desktopApi, type FilesystemChangedPayload } from '../integration/desktop-api'
 import { t, type Locale } from '../i18n/ui-locale'
 import {
@@ -30,6 +31,9 @@ export interface ShellFileController {
   setOpenedFiles: Dispatch<SetStateAction<OpenedFile[]>>
   activeFilePath: string | null
   setActiveFilePath: Dispatch<SetStateAction<string | null>>
+  activePreviewPath: string | null
+  setActivePreviewPath: Dispatch<SetStateAction<string | null>>
+  isPreviewMode: boolean
   filePreviewNotice: string | null
   fileCanRenderText: boolean
   fileReadLoading: boolean
@@ -63,6 +67,7 @@ export function useShellFileController({
 }: UseShellFileControllerInput): ShellFileController {
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
+  const [activePreviewPath, setActivePreviewPath] = useState<string | null>(null)
   const [filePreviewNotice, setFilePreviewNotice] = useState<string | null>(null)
   const [fileCanRenderText, setFileCanRenderText] = useState(false)
   const [fileReadMode, setFileReadMode] = useState<FileReadMode>('full')
@@ -77,6 +82,7 @@ export function useShellFileController({
   )
   const openedFilesRef = useRef<OpenedFile[]>([])
   const activeFilePathRef = useRef<string | null>(null)
+  const activePreviewPathRef = useRef<string | null>(null)
   const fileReadModeRef = useRef<FileReadMode>('full')
   const fileReadSeqRef = useRef(0)
 
@@ -89,6 +95,10 @@ export function useShellFileController({
   }, [activeFilePath])
 
   useEffect(() => {
+    activePreviewPathRef.current = activePreviewPath
+  }, [activePreviewPath])
+
+  useEffect(() => {
     fileReadModeRef.current = fileReadMode
   }, [fileReadMode])
 
@@ -99,9 +109,21 @@ export function useShellFileController({
         return
       }
 
+      // Check if file is a media file that should open in preview
+      const fileCategory = categorizeFile(filePath)
+      if (isMediaFile(filePath)) {
+        // Media files go to preview mode
+        setActivePreviewPath(filePath)
+        setActiveFilePath(null)
+        setFileReadLoading(false)
+        setFileReadError(null)
+        return
+      }
+
       const existingFile = openedFilesRef.current.find((file) => file.path === filePath)
       if (existingFile?.hydrated) {
         setActiveFilePath(filePath)
+        setActivePreviewPath(null)
         setFileCanRenderText(true)
         setFilePreviewNotice(null)
         setFileReadError(null)
@@ -109,6 +131,7 @@ export function useShellFileController({
       }
 
       setActiveFilePath(filePath)
+      setActivePreviewPath(null)
       setFileReadLoading(true)
       setFileReadError(null)
       setFilePreviewNotice(null)
@@ -439,9 +462,11 @@ export function useShellFileController({
     fileReadSeqRef.current += 1
     openedFilesRef.current = []
     activeFilePathRef.current = null
+    activePreviewPathRef.current = null
     fileReadModeRef.current = 'full'
     setOpenedFiles([])
     setActiveFilePath(null)
+    setActivePreviewPath(null)
     setFilePreviewNotice(null)
     setFileCanRenderText(false)
     setFileReadMode('full')
@@ -473,6 +498,9 @@ export function useShellFileController({
     setOpenedFiles,
     activeFilePath,
     setActiveFilePath,
+    activePreviewPath,
+    setActivePreviewPath,
+    isPreviewMode: activePreviewPath !== null,
     filePreviewNotice,
     fileCanRenderText,
     fileReadLoading,
