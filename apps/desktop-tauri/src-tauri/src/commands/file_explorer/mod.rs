@@ -1,3 +1,5 @@
+pub mod preview;
+
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{sinks::UTF8, BinaryDetection, SearcherBuilder};
 use ignore::{overrides::OverrideBuilder, WalkBuilder, WalkState};

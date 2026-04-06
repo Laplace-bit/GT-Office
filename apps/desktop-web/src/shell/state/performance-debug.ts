@@ -5,7 +5,7 @@ export interface PerformanceDebugState {
 const STORAGE_KEY = 'gtoffice.performance.debug.v1'
 
 export const defaultPerformanceDebugState: PerformanceDebugState = {
-  enabled: false,
+  enabled: true,
 }
 
 export function loadPerformanceDebugState(): PerformanceDebugState {

@@ -1,5 +1,6 @@
 import { DetachedWorkbenchWindow, type DetachedWorkbenchWindowPayload } from './features/workspace-hub'
 import { ShellRoot } from './shell/layout/ShellRoot'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function parseDetachedPayload(): DetachedWorkbenchWindowPayload | null {
   if (typeof window === 'undefined') {
@@ -27,9 +28,17 @@ function parseDetachedPayload(): DetachedWorkbenchWindowPayload | null {
 function App() {
   const detachedPayload = parseDetachedPayload()
   if (detachedPayload) {
-    return <DetachedWorkbenchWindow payload={detachedPayload} />
+    return (
+      <ErrorBoundary>
+        <DetachedWorkbenchWindow payload={detachedPayload} />
+      </ErrorBoundary>
+    )
   }
-  return <ShellRoot />
+  return (
+    <ErrorBoundary>
+      <ShellRoot />
+    </ErrorBoundary>
+  )
 }
 
 export default App

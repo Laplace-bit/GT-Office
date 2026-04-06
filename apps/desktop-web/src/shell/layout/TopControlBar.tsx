@@ -19,7 +19,8 @@ interface TopControlBarProps {
   onBatchLaunchAgents: () => void
   batchLaunchDisabled: boolean
   onOpenSettings: () => void
-  onTogglePerformanceDebug: () => void
+  // TODO: 性能调试按钮暂时隐藏
+  // onTogglePerformanceDebug: () => void
   onWindowMinimize: () => void
   onWindowToggleMaximize: () => void
   onWindowClose: () => void
@@ -91,7 +92,7 @@ export function TopControlBar({
   onBatchLaunchAgents,
   batchLaunchDisabled,
   onOpenSettings,
-  onTogglePerformanceDebug,
+  // onTogglePerformanceDebug,
   onWindowMinimize,
   onWindowToggleMaximize,
   onWindowClose,
@@ -120,14 +121,15 @@ export function TopControlBar({
       action: onOpenSettings,
       icon: 'settings' as AppIconName,
     },
-    {
-      key: 'toggle-performance-debug',
-      label: performanceDebugEnabled
-        ? t(locale, 'topControlBar.performanceDebug.disable')
-        : t(locale, 'topControlBar.performanceDebug.enable'),
-      action: onTogglePerformanceDebug,
-      icon: 'activity' as AppIconName,
-    },
+    // TODO: 性能调试按钮暂时隐藏，默认已开启
+    // {
+    //   key: 'toggle-performance-debug',
+    //   label: performanceDebugEnabled
+    //     ? t(locale, 'topControlBar.performanceDebug.disable')
+    //     : t(locale, 'topControlBar.performanceDebug.enable'),
+    //   action: onTogglePerformanceDebug,
+    //   icon: 'activity' as AppIconName,
+    // },
   ]
   const windowActionButtons: TopActionButton[] = [
     {

@@ -1,13 +1,22 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import {
   CodeMirrorEditor,
+  MarkdownSplitView,
   type CodeEditorCommandRequest,
+  type MarkdownViewMode,
 } from '@/components/editor'
 import { resolveFileVisual } from './file-visuals'
+import { MarkdownModeToggle } from './MarkdownModeToggle'
 import './FileEditorPane.scss'
+
+// Import code highlighting styles for markdown preview
+import 'highlight.js/styles/github-dark.css'
 
 const LARGE_FILE_THRESHOLD_BYTES = 1024 * 1024
 
@@ -147,11 +156,21 @@ export function FileEditorPane({
   const tabRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const onFileModifiedRef = useRef(onFileModified)
 
+  // Markdown view mode state
+  const [viewMode, setViewMode] = useState<MarkdownViewMode>('edit')
+
   useEffect(() => {
     onFileModifiedRef.current = onFileModified
   }, [onFileModified])
 
   const activeFile = openedFiles.find((f) => f.path === activeFilePath)
+
+  // Detect if the active file is markdown
+  const isMarkdown = useMemo(() => {
+    if (!activeFilePath) return false
+    const lowerPath = activeFilePath.toLowerCase()
+    return lowerPath.endsWith('.md') || lowerPath.endsWith('.mdx')
+  }, [activeFilePath])
   const isLargeFile = (activeFile?.size ?? 0) > LARGE_FILE_THRESHOLD_BYTES
   const isReadOnly = isLargeFile || !onSaveFile
   const visibleSaveState = saveFeedback.path === activeFilePath ? saveFeedback.state : 'idle'
@@ -420,6 +439,13 @@ export function FileEditorPane({
         </div>
       )}
 
+      {/* Markdown mode toggle */}
+      {isMarkdown && activeFile && (
+        <div className="file-editor-toolbar">
+          <MarkdownModeToggle locale={locale} mode={viewMode} onChange={setViewMode} />
+        </div>
+      )}
+
       {!workspaceId && <p className="file-editor-hint">{t(locale, 'fileContent.bindWorkspace')}</p>}
       {workspaceId && !hasOpenedFiles && <p className="file-editor-hint">{t(locale, 'fileContent.selectFileHint')}</p>}
       {loading && <p className="file-editor-loading">{t(locale, 'fileContent.loading')}</p>}
@@ -432,15 +458,37 @@ export function FileEditorPane({
 
       {activeFile && !loading && !errorMessage && canRenderContent && (
         <div className="file-editor-content">
-          <MemoizedEditor
-            locale={locale}
-            content={activeFile.content}
-            filePath={activeFile.path}
-            readOnly={isReadOnly}
-            onChange={handleContentChange}
-            onSave={handleSave}
-            commandRequest={editorCommandRequest}
-          />
+          {isMarkdown && viewMode === 'preview' ? (
+            // Pure preview mode
+            <div className="markdown-preview-pane">
+              <div className="markdown-preview-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                  {activeFile.content}
+                </ReactMarkdown>
+              </div>
+            </div>
+          ) : isMarkdown && viewMode === 'split' ? (
+            // Split mode
+            <MarkdownSplitView
+              locale={locale}
+              content={activeFile.content}
+              filePath={activeFile.path}
+              readOnly={isReadOnly}
+              onChange={handleContentChange}
+              onSave={handleSave}
+            />
+          ) : (
+            // Edit mode (including non-markdown files)
+            <MemoizedEditor
+              locale={locale}
+              content={activeFile.content}
+              filePath={activeFile.path}
+              readOnly={isReadOnly}
+              onChange={handleContentChange}
+              onSave={handleSave}
+              commandRequest={editorCommandRequest}
+            />
+          )}
         </div>
       )}
     </section>

@@ -1,0 +1,45 @@
+@use '../../styles/tokens/responsive' as *;
+
+.markdown-mode-toggle {
+  display: flex;
+  gap: #{rem(4)};
+  padding: #{rem(4)};
+  background: var(--vb-surface-muted);
+  border-radius: var(--vb-radius-sm);
+}
+
+.markdown-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: #{rem(6)};
+  padding: #{rem(6)} #{rem(12)};
+  font-size: #{rem(12)};
+  color: var(--vb-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--vb-radius-xs);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+
+  &:hover {
+    background: var(--vb-surface-hover);
+    color: var(--vb-text);
+  }
+
+  &.active {
+    background: var(--vb-surface);
+    color: var(--vb-text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+}
+
+.markdown-mode-icon {
+  width: #{rem(14)};
+  height: #{rem(14)};
+}
+
+.markdown-mode-label {
+  font-weight: 500;
+}

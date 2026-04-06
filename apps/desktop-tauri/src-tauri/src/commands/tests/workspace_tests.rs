@@ -1,8 +1,11 @@
 use super::{
-    build_window_active_response, build_workspace_close_response, build_workspace_open_response,
-    build_workspace_restore_response, build_workspace_switch_response,
+    allow_workspace_asset_scope, build_window_active_response, build_workspace_close_response,
+    build_workspace_open_response, build_workspace_restore_response, build_workspace_switch_response,
 };
 use serde_json::json;
+use std::fs;
+use tauri::{test::mock_app, Manager};
+use uuid::Uuid;
 use vb_abstractions::WorkspaceSessionSnapshot;
 
 #[test]
@@ -54,4 +57,24 @@ fn workspace_restore_response_keeps_contract_fields() {
 fn workspace_switch_response_keeps_contract_fields() {
     let payload = build_workspace_switch_response("ws-2");
     assert_eq!(payload["activeWorkspaceId"], "ws-2");
+}
+
+#[test]
+fn workspace_asset_scope_allows_files_outside_home_after_workspace_open() {
+    let app = mock_app();
+    let unique = Uuid::new_v4().to_string();
+    let workspace_root = std::env::temp_dir().join(format!("gtoffice-workspace-{unique}"));
+    let nested_dir = workspace_root.join("nested");
+    let nested_file = nested_dir.join("image.png");
+
+    fs::create_dir_all(&nested_dir).expect("create workspace dir");
+    fs::write(&nested_file, b"test").expect("create workspace file");
+
+    assert!(!app.asset_protocol_scope().is_allowed(&nested_file));
+
+    allow_workspace_asset_scope(app.handle(), workspace_root.as_path()).expect("allow asset scope");
+
+    assert!(app.asset_protocol_scope().is_allowed(&nested_file));
+
+    fs::remove_dir_all(&workspace_root).expect("remove workspace dir");
 }

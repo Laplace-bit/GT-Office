@@ -2,7 +2,7 @@ pub mod surface;
 
 use serde_json::{json, Value};
 use std::path::Path;
-use tauri::{AppHandle, Emitter, State, Window};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 use vb_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
 
 use crate::app_state::AppState;
@@ -47,6 +47,21 @@ fn build_workspace_restore_response(
 
 fn build_workspace_switch_response(active_workspace_id: &str) -> Value {
     json!({ "activeWorkspaceId": active_workspace_id })
+}
+
+fn allow_workspace_asset_scope<R: tauri::Runtime, M: Manager<R>>(
+    manager: &M,
+    root: &Path,
+) -> Result<(), String> {
+    manager
+        .asset_protocol_scope()
+        .allow_directory(root, true)
+        .map_err(|error| {
+            format!(
+                "WORKSPACE_ASSET_SCOPE_FAILED: unable to allow workspace asset access for '{}': {error}",
+                root.display()
+            )
+        })
 }
 
 fn active_workspace_id(state: &AppState) -> Result<Option<String>, String> {
@@ -105,6 +120,12 @@ pub fn workspace_open(
         .workspace_service
         .open(Path::new(&path))
         .map_err(to_command_error)?;
+
+    if let Err(error) = allow_workspace_asset_scope(&app, Path::new(&workspace.root)) {
+        let _ = state.workspace_service.close(&workspace.workspace_id);
+        return Err(error);
+    }
+
     let after_active = active_workspace_id(&state)?;
     state.bind_window_workspace(window.label(), workspace.workspace_id.as_str())?;
     let app_for_watcher = app.clone();
