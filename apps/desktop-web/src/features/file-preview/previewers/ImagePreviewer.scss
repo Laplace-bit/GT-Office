@@ -1,0 +1,58 @@
+.image-previewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-secondary);
+}
+
+.image-previewer-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.image-previewer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+}
+
+.image-previewer-btn-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.image-previewer-scale {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.image-previewer-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.image-previewer-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}

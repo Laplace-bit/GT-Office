@@ -1,0 +1,28 @@
+.preview-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 100%;
+  color: var(--text-secondary);
+}
+
+.preview-progress-icon {
+  width: 2rem;
+  height: 2rem;
+  animation: spin 1s linear infinite;
+}
+
+.preview-progress-text {
+  font-size: 0.875rem;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
