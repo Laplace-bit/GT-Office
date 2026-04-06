@@ -1,4 +1,17 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
+import { motion } from 'motion/react'
 import {
   BetweenHorizontalStart,
   BringToFront,
@@ -108,6 +121,59 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
   { id: 'custom', labelKey: 'workbench.layoutPreset.custom' },
 ]
 
+const ROLE_FILTER_EXIT_MS = 160
+const ROLE_FILTER_ENTER_MS = 180
+
+interface ExitingStationSnapshot {
+  stationId: string
+  top: number
+  left: number
+  width: number
+  height: number
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false
+    }
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return
+    }
+    const mediaQueryList = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const sync = () => setPrefersReducedMotion(mediaQueryList.matches)
+    sync()
+    if (typeof mediaQueryList.addEventListener === 'function') {
+      mediaQueryList.addEventListener('change', sync)
+      return () => {
+        mediaQueryList.removeEventListener('change', sync)
+      }
+    }
+    mediaQueryList.addListener(sync)
+    return () => {
+      mediaQueryList.removeListener(sync)
+    }
+  }, [])
+
+  return prefersReducedMotion
+}
+
+function isSameStringArray(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+  return true
+}
+
 function buildPanelTitle(
   locale: Locale,
   container: WorkbenchContainerModel,
@@ -164,6 +230,61 @@ function FocusRailItem({
   )
 }
 
+function StationCardSlot({
+  stationId,
+  mode,
+  snapshot,
+  children,
+}: {
+  stationId: string
+  mode: 'stable' | 'entering' | 'exiting' | 'parked'
+  snapshot?: ExitingStationSnapshot | null
+  children: ReactNode
+}) {
+  const reducedMotion = usePrefersReducedMotion()
+  const isParked = mode === 'parked'
+  const isExiting = mode === 'exiting'
+
+  return (
+    <motion.div
+      data-station-slot-id={stationId}
+      className={[
+        'station-card-slot',
+        isParked ? 'station-card-slot--parked' : '',
+        mode === 'entering' ? 'station-card-slot--entering' : '',
+        mode === 'exiting' ? 'station-card-slot--exiting' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      layout={!reducedMotion && !isParked && !isExiting}
+      initial={false}
+      animate={isParked || mode === 'exiting' ? { opacity: 0 } : { opacity: 1 }}
+      transition={{
+        opacity: {
+          duration: reducedMotion
+            ? 0
+            : (mode === 'entering' ? ROLE_FILTER_ENTER_MS : ROLE_FILTER_EXIT_MS) / 1000,
+          ease: [0.32, 0.72, 0, 1],
+          delay: 0,
+        },
+        layout: reducedMotion
+          ? { duration: 0 }
+          : { type: 'spring', stiffness: 320, damping: 30, mass: 0.88 },
+      }}
+      style={{
+        pointerEvents: isParked || mode === 'exiting' ? 'none' : undefined,
+        willChange: isParked ? undefined : 'transform, opacity',
+        top: isExiting ? snapshot?.top : undefined,
+        left: isExiting ? snapshot?.left : undefined,
+        width: isExiting ? snapshot?.width : undefined,
+        height: isExiting ? snapshot?.height : undefined,
+      }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
 function WorkbenchCanvasPanelView({
   locale,
   appearanceVersion,
@@ -215,48 +336,177 @@ function WorkbenchCanvasPanelView({
   onTogglePinnedWorkbenchContainer,
 }: WorkbenchCanvasPanelProps) {
   const gridRef = useRef<HTMLDivElement | null>(null)
+  const roleFilterExitTimerRef = useRef<number | null>(null)
+  const roleFilterEnterTimerRef = useRef<number | null>(null)
   const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
   const normalizedCustomLayout = useMemo(
     () => normalizeWorkbenchCustomLayout(container.customLayout),
     [container.customLayout],
   )
-  const visibleStations = useMemo(
+  const targetVisibleStations = useMemo(
     () => stations.filter((station) => roleFilter === 'all' || station.role === roleFilter),
     [roleFilter, stations],
   )
+  const targetVisibleStationIds = useMemo(
+    () => targetVisibleStations.map((station) => station.id),
+    [targetVisibleStations],
+  )
+  const [displayedStationIds, setDisplayedStationIds] = useState<string[]>(() =>
+    targetVisibleStationIds,
+  )
+  const displayedStationIdsRef = useRef(displayedStationIds)
+  const [exitingStationSnapshots, setExitingStationSnapshots] = useState<ExitingStationSnapshot[]>([])
+  const [enteringStationIds, setEnteringStationIds] = useState<string[]>([])
+  const stationById = useMemo(
+    () => new Map(stations.map((station) => [station.id, station])),
+    [stations],
+  )
+  const displayedStations = useMemo(
+    () =>
+      displayedStationIds
+        .map((stationId) => stationById.get(stationId))
+        .filter((station): station is AgentStation => Boolean(station)),
+    [displayedStationIds, stationById],
+  )
+  const displayedStationIdSet = useMemo(
+    () => new Set(displayedStationIds),
+    [displayedStationIds],
+  )
+  const exitingStationSnapshotById = useMemo(
+    () => new Map(exitingStationSnapshots.map((snapshot) => [snapshot.stationId, snapshot])),
+    [exitingStationSnapshots],
+  )
+  const enteringStationIdSet = useMemo(
+    () => new Set(enteringStationIds),
+    [enteringStationIds],
+  )
+  const captureExitingStationSnapshots = useCallback((stationIds: string[]): ExitingStationSnapshot[] => {
+    const gridElement = gridRef.current
+    if (!gridElement || stationIds.length === 0) {
+      return []
+    }
+    const gridRect = gridElement.getBoundingClientRect()
+    return stationIds
+      .map((stationId) => {
+        const slotElement = gridElement.querySelector<HTMLElement>(`[data-station-slot-id="${stationId}"]`)
+        if (!slotElement) {
+          return null
+        }
+        const slotRect = slotElement.getBoundingClientRect()
+        return {
+          stationId,
+          top: slotRect.top - gridRect.top,
+          left: slotRect.left - gridRect.left,
+          width: slotRect.width,
+          height: slotRect.height,
+        }
+      })
+      .filter((snapshot): snapshot is ExitingStationSnapshot => Boolean(snapshot))
+  }, [])
+  const clearRoleFilterTimers = useCallback(() => {
+    if (roleFilterEnterTimerRef.current !== null) {
+      window.clearTimeout(roleFilterEnterTimerRef.current)
+      roleFilterEnterTimerRef.current = null
+    }
+    if (roleFilterExitTimerRef.current !== null) {
+      window.clearTimeout(roleFilterExitTimerRef.current)
+      roleFilterExitTimerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    displayedStationIdsRef.current = displayedStationIds
+  }, [displayedStationIds])
+
+  useLayoutEffect(() => {
+    clearRoleFilterTimers()
+
+    const availableStationIds = new Set(stations.map((station) => station.id))
+    const currentDisplayedStationIds = displayedStationIdsRef.current.filter((stationId) =>
+      availableStationIds.has(stationId),
+    )
+    const nextDisplayedStationIds = targetVisibleStationIds.filter((stationId) =>
+      availableStationIds.has(stationId),
+    )
+
+    if (!isSameStringArray(currentDisplayedStationIds, displayedStationIdsRef.current)) {
+      displayedStationIdsRef.current = currentDisplayedStationIds
+      setDisplayedStationIds(currentDisplayedStationIds)
+    }
+
+    if (isSameStringArray(currentDisplayedStationIds, nextDisplayedStationIds)) {
+      setExitingStationSnapshots([])
+      setEnteringStationIds([])
+      return
+    }
+
+    const exitingIds = currentDisplayedStationIds.filter(
+      (stationId) => !nextDisplayedStationIds.includes(stationId),
+    )
+    const enteringIds = nextDisplayedStationIds.filter(
+      (stationId) => !currentDisplayedStationIds.includes(stationId),
+    )
+
+    displayedStationIdsRef.current = nextDisplayedStationIds
+    setDisplayedStationIds(nextDisplayedStationIds)
+    setExitingStationSnapshots(captureExitingStationSnapshots(exitingIds))
+    if (enteringIds.length > 0) {
+      setEnteringStationIds(enteringIds)
+      roleFilterEnterTimerRef.current = window.setTimeout(() => {
+        setEnteringStationIds([])
+        roleFilterEnterTimerRef.current = null
+      }, ROLE_FILTER_ENTER_MS)
+    }
+    if (enteringIds.length === 0) {
+      setEnteringStationIds([])
+    }
+    if (exitingIds.length > 0) {
+      roleFilterExitTimerRef.current = window.setTimeout(() => {
+        setExitingStationSnapshots([])
+        roleFilterExitTimerRef.current = null
+      }, ROLE_FILTER_EXIT_MS)
+    } else {
+      setExitingStationSnapshots([])
+    }
+  }, [captureExitingStationSnapshots, clearRoleFilterTimers, stations, targetVisibleStationIds])
+
+  useEffect(() => {
+    return () => {
+      clearRoleFilterTimers()
+    }
+  }, [clearRoleFilterTimers])
+
   const selectedStationId = useMemo(
     () => {
       if (
         container.activeStationId &&
-        visibleStations.some((station) => station.id === container.activeStationId)
+        displayedStations.some((station) => station.id === container.activeStationId)
       ) {
         return container.activeStationId
       }
-      return visibleStations[0]?.id ?? null
+      return displayedStations[0]?.id ?? null
     },
-    [container.activeStationId, visibleStations],
+    [container.activeStationId, displayedStations],
   )
   const effectiveActiveStationId = useMemo(() => {
-    if (roleFilter === 'all') {
-      return activeGlobalStationId
-    }
-    if (visibleStations.some((station) => station.id === activeGlobalStationId)) {
+    if (displayedStations.some((station) => station.id === activeGlobalStationId)) {
       return activeGlobalStationId
     }
     return selectedStationId ?? activeGlobalStationId
-  }, [activeGlobalStationId, roleFilter, selectedStationId, visibleStations])
+  }, [activeGlobalStationId, displayedStations, selectedStationId])
   const fullscreenStation = useMemo(
-    () =>
-      stations.find(
-        (station) =>
-          station.id === fullscreenStationIdRaw &&
-          (roleFilter === 'all' || station.role === roleFilter),
-      ) ?? null,
-    [fullscreenStationIdRaw, roleFilter, stations],
+    () => displayedStations.find((station) => station.id === fullscreenStationIdRaw) ?? null,
+    [displayedStations, fullscreenStationIdRaw],
   )
   const panelTitle = useMemo(
-    () => buildPanelTitle(locale, container, stations, containerIndex),
-    [container, containerIndex, locale, stations],
+    () =>
+      buildPanelTitle(
+        locale,
+        container,
+        displayedStations.length > 0 ? displayedStations : stations,
+        containerIndex,
+      ),
+    [container, containerIndex, displayedStations, locale, stations],
   )
   const modeLabel = useMemo(() => {
     if (container.mode === 'floating') {
@@ -483,7 +733,7 @@ function WorkbenchCanvasPanelView({
     return actions
   }, [canDeleteContainer, container.id, detachedReadonly, locale, onDeleteContainer, onReturnToWorkspace])
   const gridStyle = useMemo<WorkbenchGridStyle | undefined>(() => {
-    if (container.layoutMode === 'focus' || visibleStations.length === 0) {
+    if (container.layoutMode === 'focus' || displayedStations.length === 0) {
       return undefined
     }
     if (container.layoutMode === 'custom') {
@@ -492,27 +742,27 @@ function WorkbenchCanvasPanelView({
         '--station-grid-rows': String(normalizedCustomLayout.rows),
       }
     }
-    const columns = Math.max(1, Math.ceil(Math.sqrt(visibleStations.length)))
-    const rows = Math.max(1, Math.ceil(visibleStations.length / columns))
+    const columns = Math.max(1, Math.ceil(Math.sqrt(displayedStations.length)))
+    const rows = Math.max(1, Math.ceil(displayedStations.length / columns))
     return {
       '--station-grid-columns': String(columns),
       '--station-grid-rows': String(rows),
     }
   }, [
     container.layoutMode,
+    displayedStations.length,
     normalizedCustomLayout.columns,
     normalizedCustomLayout.rows,
-    visibleStations.length,
   ])
   const focusGridStyle = useMemo<CSSProperties | undefined>(() => {
-    if (container.layoutMode !== 'focus' || visibleStations.length <= 1) {
+    if (container.layoutMode !== 'focus' || displayedStations.length <= 1) {
       return undefined
     }
     return {
       gridTemplateColumns: 'minmax(0, 1fr) minmax(11rem, clamp(11rem, 28%, 22rem))',
       gridTemplateRows: 'minmax(0, 1fr)',
     }
-  }, [container.layoutMode, visibleStations.length])
+  }, [container.layoutMode, displayedStations.length])
 
   const updateCustomLayoutDimension = useCallback(
     (dimension: keyof WorkbenchCustomLayout, nextValue: number) => {
@@ -590,54 +840,82 @@ function WorkbenchCanvasPanelView({
     setFullscreenStationIdRaw(null)
   }, [fullscreenStation, fullscreenStationIdRaw])
 
+  const resolveStationSlotMode = useCallback(
+    (stationId: string): 'stable' | 'entering' | 'exiting' | 'parked' => {
+      if (!displayedStationIdSet.has(stationId)) {
+        return exitingStationSnapshotById.has(stationId) ? 'exiting' : 'parked'
+      }
+      if (enteringStationIdSet.has(stationId)) {
+        return 'entering'
+      }
+      return 'stable'
+    },
+    [displayedStationIdSet, enteringStationIdSet, exitingStationSnapshotById],
+  )
+
   const renderStationCard = useCallback(
-    (station: AgentStation, options?: { focusHidden?: boolean; fullscreen?: boolean; fullscreenMode?: boolean }) => (
-      <StationCard
-        key={station.id}
-        locale={locale}
-        appearanceVersion={appearanceVersion}
-        performanceDebugEnabled={performanceDebugEnabled}
-        station={station}
-        active={station.id === effectiveActiveStationId}
-        runtime={terminalByStation[station.id]}
-        agentRunning={agentRunningByStationId[station.id] ?? false}
-        taskSignal={taskSignalByStationId[station.id]}
-        channelBotBindings={channelBotBindingsByStationId[station.id]}
-        isFullscreen={Boolean(options?.fullscreen)}
-        isFullscreenMode={Boolean(options?.fullscreenMode)}
-        isFocusHidden={Boolean(options?.focusHidden)}
-        isRoleFilteredOut={roleFilter !== 'all' && station.role !== roleFilter}
-        draggable={!detachedReadonly}
-        onStationDragStart={
-          onStationDragStart
-            ? (event) => {
-                onStationDragStart(event, station.id, container.id)
-              }
-            : undefined
-        }
-        onStationDragPointerStart={
-          onStationDragPointerStart
-            ? (event) => {
-                onStationDragPointerStart(station.id, container.id, event)
-              }
-            : undefined
-        }
-        onStationDragEnd={onStationDragEnd}
-        onSelectStation={handleSelectStation}
-        onLaunchStationTerminal={onLaunchStationTerminal}
-        onLaunchCliAgent={onLaunchCliAgent}
-        onSendInputData={onSendInputData}
-        onResizeTerminal={onResizeTerminal}
-        onBindTerminalSink={onBindTerminalSink}
-        onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-        onRunAction={onRunStationAction}
-        commands={toolCommandsByStationId[station.id]}
-        onRestoreStateCaptured={onRestoreStateCaptured}
-        onRemoveStation={onRemoveStation}
-        onEnterFullscreen={handleEnterFullscreen}
-        onExitFullscreen={handleExitFullscreen}
-      />
-    ),
+    (
+      station: AgentStation,
+      options?: {
+        focusHidden?: boolean
+        fullscreen?: boolean
+        fullscreenMode?: boolean
+        slotMode?: 'stable' | 'entering' | 'exiting' | 'parked'
+      },
+    ) => {
+      return (
+        <StationCardSlot
+          key={station.id}
+          stationId={station.id}
+          mode={options?.slotMode ?? 'stable'}
+          snapshot={exitingStationSnapshotById.get(station.id) ?? null}
+        >
+          <StationCard
+            locale={locale}
+            appearanceVersion={appearanceVersion}
+            performanceDebugEnabled={performanceDebugEnabled}
+            station={station}
+            active={station.id === effectiveActiveStationId}
+            runtime={terminalByStation[station.id]}
+            agentRunning={agentRunningByStationId[station.id] ?? false}
+            taskSignal={taskSignalByStationId[station.id]}
+            channelBotBindings={channelBotBindingsByStationId[station.id]}
+            isFullscreen={Boolean(options?.fullscreen)}
+            isFullscreenMode={Boolean(options?.fullscreenMode)}
+            isFocusHidden={Boolean(options?.focusHidden)}
+            draggable={!detachedReadonly}
+            onStationDragStart={
+              onStationDragStart
+                ? (event) => {
+                    onStationDragStart(event, station.id, container.id)
+                  }
+                : undefined
+            }
+            onStationDragPointerStart={
+              onStationDragPointerStart
+                ? (event) => {
+                    onStationDragPointerStart(station.id, container.id, event)
+                  }
+                : undefined
+            }
+            onStationDragEnd={onStationDragEnd}
+            onSelectStation={handleSelectStation}
+            onLaunchStationTerminal={onLaunchStationTerminal}
+            onLaunchCliAgent={onLaunchCliAgent}
+            onSendInputData={onSendInputData}
+            onResizeTerminal={onResizeTerminal}
+            onBindTerminalSink={onBindTerminalSink}
+            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+            onRunAction={onRunStationAction}
+            commands={toolCommandsByStationId[station.id]}
+            onRestoreStateCaptured={onRestoreStateCaptured}
+            onRemoveStation={onRemoveStation}
+            onEnterFullscreen={handleEnterFullscreen}
+            onExitFullscreen={handleExitFullscreen}
+          />
+        </StationCardSlot>
+      )
+    },
     [
       effectiveActiveStationId,
       agentRunningByStationId,
@@ -646,11 +924,11 @@ function WorkbenchCanvasPanelView({
       channelBotBindingsByStationId,
       container.id,
       detachedReadonly,
+      exitingStationSnapshotById,
       handleEnterFullscreen,
       handleExitFullscreen,
       handleSelectStation,
       locale,
-      roleFilter,
       onBindTerminalSink,
       onLaunchCliAgent,
       onLaunchStationTerminal,
@@ -674,7 +952,7 @@ function WorkbenchCanvasPanelView({
         'panel',
         'workbench-canvas',
         `mode-${container.mode}`,
-        stations.some((station) => station.id === effectiveActiveStationId) ? 'is-active-container' : '',
+        displayedStations.some((station) => station.id === effectiveActiveStationId) ? 'is-active-container' : '',
         dropActive ? 'is-drop-target' : '',
         detachedReadonly ? 'detached-readonly' : '',
       ]
@@ -737,10 +1015,10 @@ function WorkbenchCanvasPanelView({
               {modeLabel ? <span className={['canvas-mode-badge', container.mode].join(' ')}>{modeLabel}</span> : null}
               <h3>{panelTitle}</h3>
               <div className="canvas-header-meta" role="list" aria-label={t(locale, 'workbench.activeWindow')}>
-                <span className="canvas-header-pill" role="listitem" title={t(locale, 'workbench.stationCount', { count: stations.length })}>
+                <span className="canvas-header-pill" role="listitem" title={t(locale, 'workbench.stationCount', { count: displayedStations.length })}>
                   <AppIcon name="stations" className="canvas-header-pill-icon" aria-hidden="true" />
-                  <strong className="canvas-header-pill-value">{stations.length}</strong>
-                  <span className="vb-sr-only">{t(locale, 'workbench.stationCount', { count: stations.length })}</span>
+                  <strong className="canvas-header-pill-value">{displayedStations.length}</strong>
+                  <span className="vb-sr-only">{t(locale, 'workbench.stationCount', { count: displayedStations.length })}</span>
                 </span>
               </div>
             </div>
@@ -813,25 +1091,40 @@ function WorkbenchCanvasPanelView({
             {renderStationCard(fullscreenStation, {
               fullscreen: true,
               fullscreenMode: true,
+              slotMode: resolveStationSlotMode(fullscreenStation.id),
             })}
+          </div>
+        ) : displayedStations.length === 0 ? (
+          <div className="station-grid-empty">
+            <div className="station-grid-empty-copy">
+              <strong>{locale === 'zh-CN' ? '没有匹配角色' : 'No Matching Roles'}</strong>
+              <p>{locale === 'zh-CN' ? '当前筛选条件下没有匹配的角色。' : 'No roles match the current filter.'}</p>
+            </div>
+            {stations.map((station) =>
+              renderStationCard(station, {
+                slotMode: resolveStationSlotMode(station.id),
+              }),
+            )}
           </div>
         ) : container.layoutMode === 'focus' ? (
           <div className="station-grid focus-mode" ref={gridRef} style={focusGridStyle}>
             <div
               className="focus-main"
-              style={visibleStations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}
+              style={displayedStations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}
             >
               <div className="focus-main-stage">
                 {stations.map((station) =>
                   renderStationCard(station, {
-                    focusHidden: station.id !== selectedStationId,
+                    focusHidden:
+                      resolveStationSlotMode(station.id) !== 'parked' && station.id !== selectedStationId,
+                    slotMode: resolveStationSlotMode(station.id),
                   }),
                 )}
               </div>
             </div>
-            {visibleStations.length > 1 ? (
+            {displayedStations.length > 1 ? (
               <div className="focus-ring" style={{ gridColumn: '2 / 3', gridRow: '1 / 2' }}>
-                {visibleStations
+                {displayedStations
                   .filter((station) => station.id !== selectedStationId)
                   .map((station) => (
                     <FocusRailItem
@@ -853,7 +1146,11 @@ function WorkbenchCanvasPanelView({
             data-layout-mode={container.layoutMode === 'custom' ? 'fixed' : 'auto'}
             data-layout-preset={container.layoutMode}
           >
-            {stations.map((station) => renderStationCard(station))}
+            {stations.map((station) =>
+              renderStationCard(station, {
+                slotMode: resolveStationSlotMode(station.id),
+              }),
+            )}
           </div>
         )
       ) : (

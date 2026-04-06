@@ -120,7 +120,6 @@ interface StationCardProps {
   isFullscreenMode?: boolean
   isMiniature?: boolean
   isFocusHidden?: boolean
-  isRoleFilteredOut?: boolean
   onSelectStation: (stationId: string) => void
 
   onLaunchStationTerminal: (stationId: string) => void
@@ -158,7 +157,6 @@ function StationCardView({
   isFullscreenMode,
   isMiniature,
   isFocusHidden,
-  isRoleFilteredOut,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -405,7 +403,6 @@ function StationCardView({
         active ? 'active' : '',
         isMiniature ? 'is-miniature' : '',
         isFocusHidden ? 'focus-hidden' : '',
-        isRoleFilteredOut ? 'role-filter-hidden' : '',
         compactLayout ? 'station-window-compact' : '',
         isFullscreen ? 'fullscreen' : '',
         isFullscreenMode && !isFullscreen ? 'background-hidden' : '',
@@ -635,7 +632,6 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&
     prev.isFocusHidden === next.isFocusHidden &&
-    prev.isRoleFilteredOut === next.isRoleFilteredOut &&
     prev.draggable === next.draggable &&
     prev.onSelectStation === next.onSelectStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&
