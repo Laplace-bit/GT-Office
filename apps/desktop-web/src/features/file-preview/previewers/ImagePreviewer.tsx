@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { TransformWrapper, TransformComponent, useControls } from 'react-zoom-pan-pinch'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
@@ -7,10 +7,20 @@ import { t } from '@shell/i18n/ui-locale'
 import { PreviewProgress } from '../components/PreviewProgress'
 import { PreviewError } from '../components/PreviewError'
 import { PREVIEW_LIMITS } from '../utils/file-type-utils'
+import { resolveMediaPreviewPath } from './media-preview-path'
 import './ImagePreviewer.scss'
+
+function safeConvertFileSrc(filePath: string): string | null {
+  try {
+    return convertFileSrc(filePath)
+  } catch {
+    return null
+  }
+}
 
 interface ImagePreviewerProps {
   locale: Locale
+  workspaceRoot: string | null
   filePath: string
   fileSize: number
   onOpenExternal?: () => void
@@ -58,6 +68,7 @@ function Controls({ locale }: ControlsProps) {
 
 export function ImagePreviewer({
   locale,
+  workspaceRoot,
   filePath,
   fileSize,
   onOpenExternal,
@@ -66,7 +77,28 @@ export function ImagePreviewer({
   const [error, setError] = useState<string | null>(null)
 
   const isTooLarge = fileSize > PREVIEW_LIMITS.image.maxInlineSize
-  const src = convertFileSrc(filePath)
+  const resolvedPath = resolveMediaPreviewPath(workspaceRoot, filePath)
+  const src = resolvedPath ? safeConvertFileSrc(resolvedPath) : null
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+  }, [src])
+
+  if (!resolvedPath) {
+    return <PreviewProgress locale={locale} />
+  }
+
+  if (!src) {
+    return (
+      <PreviewError
+        locale={locale}
+        type="load-failed"
+        message={t(locale, 'preview.error.invalidPath')}
+        onOpenExternal={onOpenExternal}
+      />
+    )
+  }
 
   const handleLoad = useCallback(() => {
     setLoading(false)
@@ -120,6 +152,7 @@ export function ImagePreviewer({
             }}
           >
             <img
+              key={src}
               src={src}
               alt=""
               className="image-previewer-img"

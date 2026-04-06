@@ -18,6 +18,9 @@ export interface FileTypeResult {
   mimeType: string
 }
 
+const INLINE_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'm4v'])
+const INLINE_AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a'])
+
 // 扩展名到类别的映射
 const EXTENSION_CATEGORY: Record<string, FileCategory> = {
   // 代码文件
@@ -188,7 +191,24 @@ export function isMediaFile(filePath: string | null): boolean {
  */
 export function isPreviewable(filePath: string | null): boolean {
   const { category } = categorizeFile(filePath)
-  return ['image', 'video', 'audio', 'pdf', 'markdown'].includes(category)
+  return ['image', 'video', 'audio'].includes(category)
+}
+
+/**
+ * 判断当前媒体文件是否适合直接在 WebView 中内联预览
+ */
+export function supportsInlineMediaPreview(filePath: string | null): boolean {
+  const { category, extension } = categorizeFile(filePath)
+  if (category === 'image') {
+    return true
+  }
+  if (category === 'video') {
+    return INLINE_VIDEO_EXTENSIONS.has(extension)
+  }
+  if (category === 'audio') {
+    return INLINE_AUDIO_EXTENSIONS.has(extension)
+  }
+  return false
 }
 
 /**

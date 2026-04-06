@@ -68,8 +68,11 @@ export function shouldBypassXtermTextKeyEvent(
   if (isControlKey) {
     return false
   }
-  
-  return event.keyCode === 229 || event.key === 'Process' || Boolean(event.isComposing)
+
+  // Keep regular IME composition under xterm's own composition helper so
+  // visual updates like Backspace continue to repaint in sync. The fallback is
+  // only for WKWebView's broken "text key as 229/Process" signatures.
+  return event.keyCode === 229 || event.key === 'Process'
 }
 
 export function shouldKeepDeferredMacOsTextInputPending(

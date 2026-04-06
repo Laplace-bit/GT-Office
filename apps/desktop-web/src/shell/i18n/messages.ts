@@ -2354,7 +2354,16 @@ export const messages = {
   // File preview
   'preview.loading': { 'zh-CN': '加载中...', 'en-US': 'Loading...' },
   'preview.error.loadFailed': { 'zh-CN': '无法加载文件', 'en-US': 'Failed to load file' },
+  'preview.error.invalidPath': { 'zh-CN': '无效的文件路径', 'en-US': 'Invalid file path' },
   'preview.error.unsupported': { 'zh-CN': '不支持预览此文件类型', 'en-US': 'This file type is not supported for preview' },
+  'preview.error.inlineUnsupported': {
+    'zh-CN': '当前文件格式不支持内联预览，请在外部打开',
+    'en-US': 'This file format is not supported for inline preview. Open it externally.',
+  },
+  'preview.error.workspaceContext': {
+    'zh-CN': '工作区上下文不可用，无法解析预览文件路径',
+    'en-US': 'Workspace context is unavailable, so the preview path cannot be resolved.',
+  },
   'preview.error.tooLarge': { 'zh-CN': '文件过大，无法内联预览', 'en-US': 'File is too large for inline preview' },
   'preview.openExternal': { 'zh-CN': '在外部打开', 'en-US': 'Open externally' },
   'preview.selectFile': { 'zh-CN': '选择文件以预览', 'en-US': 'Select a file to preview' },

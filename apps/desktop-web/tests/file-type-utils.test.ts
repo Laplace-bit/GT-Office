@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { categorizeFile, isMediaFile, isPreviewable } from '../src/features/file-preview/utils/file-type-utils.js'
+import {
+  categorizeFile,
+  isMediaFile,
+  isPreviewable,
+  supportsInlineMediaPreview,
+} from '../src/features/file-preview/utils/file-type-utils.js'
 
 describe('file-type-utils', () => {
   describe('categorizeFile', () => {
@@ -239,12 +244,12 @@ describe('file-type-utils', () => {
       assert.strictEqual(isPreviewable('/path/to/song.mp3'), true)
     })
 
-    it('returns true for PDF files', () => {
-      assert.strictEqual(isPreviewable('/path/to/document.pdf'), true)
+    it('returns false for PDF files because the current preview pane does not implement them', () => {
+      assert.strictEqual(isPreviewable('/path/to/document.pdf'), false)
     })
 
-    it('returns true for Markdown files', () => {
-      assert.strictEqual(isPreviewable('/path/to/README.md'), true)
+    it('returns false for Markdown files because the current preview pane does not implement them', () => {
+      assert.strictEqual(isPreviewable('/path/to/README.md'), false)
     })
 
     it('returns false for code files', () => {
@@ -258,6 +263,32 @@ describe('file-type-utils', () => {
 
     it('returns false for null path', () => {
       assert.strictEqual(isPreviewable(null), false)
+    })
+  })
+
+  describe('supportsInlineMediaPreview', () => {
+    it('returns true for stable inline image formats', () => {
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/image.png'), true)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/photo.jpg'), true)
+    })
+
+    it('returns true for stable inline video and audio formats', () => {
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/video.mp4'), true)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/song.mp3'), true)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/sound.m4a'), true)
+    })
+
+    it('returns false for media formats we do not inline in the webview player', () => {
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/movie.mkv'), false)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/movie.avi'), false)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/lossless.flac'), false)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/audio.aac'), false)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/audio.ogg'), false)
+    })
+
+    it('returns false for non-media files', () => {
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/readme.md'), false)
+      assert.strictEqual(supportsInlineMediaPreview(null), false)
     })
   })
 })

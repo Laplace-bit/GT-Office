@@ -180,7 +180,7 @@ test('keeps xterm key handling for control shortcuts and navigation keys even if
   )
 })
 
-test('treats IME composition key events as candidates for deferred input forwarding', () => {
+test('only defers broken WKWebView composition key signatures and keeps normal composing keys on xterm path', () => {
   assert.equal(
     shouldBypassXtermTextKeyEvent(
       {
@@ -212,7 +212,7 @@ test('treats IME composition key events as candidates for deferred input forward
       },
       true,
     ),
-    true,
+    false,
   )
 })
 

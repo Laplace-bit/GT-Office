@@ -5495,6 +5495,7 @@ export function ShellRoot() {
       filePreviewPaneProps={{
         locale,
         workspaceId: activeWorkspaceId,
+        workspaceRoot: activeWorkspaceRoot,
         filePath: activePreviewPath,
         fileSize: 0, // TODO: Get actual file size from backend
       }}

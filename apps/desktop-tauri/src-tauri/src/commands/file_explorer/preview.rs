@@ -13,6 +13,7 @@ use std::path::Path;
 
 /// 文件元信息响应
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileInfoResponse {
     /// 文件路径
     pub path: String,
@@ -33,6 +34,7 @@ pub struct FileInfoResponse {
 
 /// 缩略图响应
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThumbnailResponse {
     /// Base64 编码的图片数据
     pub data: String,
@@ -48,6 +50,7 @@ pub struct ThumbnailResponse {
 
 /// PDF 信息响应
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfInfoResponse {
     /// 页数
     pub page_count: u32,
@@ -63,6 +66,7 @@ pub struct PdfInfoResponse {
 
 /// PDF 页面渲染响应
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfPageResponse {
     /// Base64 编码的 PNG 图片数据
     pub image_data: String,

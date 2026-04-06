@@ -32,7 +32,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 open = "5.3"
 strip-ansi-escapes = "0.2"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tokio = { workspace = true, features = ["fs", "io-util", "process"] }
 vt100 = "0.15"
 tokio-util = { version = "0.7", features = ["codec"] }
@@ -58,3 +58,6 @@ vb-storage = { path = "../../../crates/vb-storage" }
 vb-security = { path = "../../../crates/vb-security" }
 vb-telemetry = { path = "../../../crates/vb-telemetry" }
 vb-daemon = { path = "../../../crates/vb-daemon" }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["protocol-asset", "test"] }

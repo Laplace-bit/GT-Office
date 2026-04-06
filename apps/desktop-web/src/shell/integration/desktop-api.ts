@@ -623,6 +623,15 @@ export interface FsReadFileResponse {
   truncated: boolean
 }
 
+export interface FsFileInfoResponse {
+  path: string
+  size: number
+  mimeType: string
+  isBinary: boolean
+  isLarge: boolean
+  category: string
+}
+
 export interface FsWriteFileResponse {
   workspaceId: string
   path: string
@@ -2104,6 +2113,9 @@ export const desktopApi = {
       path,
       limitBytes: limitBytes ?? null,
     })
+  },
+  fsGetFileInfo(path: string) {
+    return invokeCommand<FsFileInfoResponse>('fs_get_file_info', { path })
   },
   fsWriteFile(workspaceId: string, path: string, content: string) {
     return invokeCommand<FsWriteFileResponse>('fs_write_file', { workspaceId, path, content })

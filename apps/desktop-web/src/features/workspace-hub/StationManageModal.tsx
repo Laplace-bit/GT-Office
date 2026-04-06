@@ -396,7 +396,7 @@ export function StationManageModal({
       ? availableProviders
       : providersLoaded
         ? []
-      : [{ key: provider, label: resolveProviderLabel(provider), promptFileName }]
+        : [{ key: provider, label: resolveProviderLabel(provider), promptFileName }]
 
   const submitDisabled =
     saving ||
@@ -548,8 +548,8 @@ export function StationManageModal({
                 rows={8}
                 placeholder={
                   locale === 'zh-CN'
-                    ? '留空即可，系统会自动写入说明文本。'
-                    : 'Leave blank to let the app write the default note.'
+                    ? '系统提示词文件是 markdown 文件，为项目、你的个人工作流或整个组织为 Agents 提供持久指令。你用纯文本编写这些文件；Agent 在每个会话开始时读取它们。'
+                    : 'System prompt files are markdown files that give Agent persistent instructions for a project, your personal workflow, or your entire organization. You write these files in plain text; Agent reads them at the start of every session.'
                 }
                 onChange={(event) => setPromptContent(event.target.value)}
               />
