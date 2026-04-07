@@ -937,45 +937,18 @@ impl AgentInstaller {
     }
 
     fn npm_uninstall_action(package_name: &str) -> AgentUninstallAction {
-<<<<<<< HEAD
-        // Use simple npm uninstall -g without --prefix
-        // Node version managers (fnm, nvm, volta, etc.) set npm global paths correctly,
-        // so we should use npm's default global path rather than forcing --prefix.
-        // The fallback with || handles cases where npm might be in a different context.
-        if cfg!(target_os = "windows") {
-            AgentUninstallAction::Command {
-                program: "cmd".to_string(),
-                args: vec!["/C".to_string(), format!("npm uninstall -g {package_name}")],
-            }
-        } else {
-            AgentUninstallAction::Command {
-                program: "bash".to_string(),
-                args: vec!["-lc".to_string(), format!("npm uninstall -g {package_name}")],
-            }
-        }
-    }
-
-    /// Uninstall action for packages installed with `npm install -g --prefix "$HOME/.local"`.
-    /// Must mirror the install path to find the correct node_modules directory.
-    fn npm_prefix_local_uninstall_action(package_name: &str) -> AgentUninstallAction {
-=======
         // Try to uninstall from both the default npm global location
         // and the ~/.local prefix location.
         // This handles cases where users have multiple installations:
         // 1. fnm/nvm managed: npm root -g (e.g., ~/.local/share/fnm/...)
         // 2. Our installation: ~/.local (via --prefix)
->>>>>>> origin/main
         if cfg!(target_os = "windows") {
             AgentUninstallAction::Command {
                 program: "cmd".to_string(),
                 args: vec![
                     "/C".to_string(),
                     format!(
-<<<<<<< HEAD
-                        "npm uninstall -g --prefix \"%USERPROFILE%\\.local\" {package_name}"
-=======
                         "npm uninstall -g {package_name} 2>nul & npm uninstall -g --prefix \"%USERPROFILE%\\.local\" {package_name} 2>nul"
->>>>>>> origin/main
                     ),
                 ],
             }
@@ -985,11 +958,7 @@ impl AgentInstaller {
                 args: vec![
                     "-lc".to_string(),
                     format!(
-<<<<<<< HEAD
-                        "npm uninstall -g --prefix \"$HOME/.local\" {package_name}"
-=======
                         "npm uninstall -g {package_name} 2>/dev/null; npm uninstall -g --prefix \"$HOME/.local\" {package_name} 2>/dev/null; true"
->>>>>>> origin/main
                     ),
                 ],
             }
