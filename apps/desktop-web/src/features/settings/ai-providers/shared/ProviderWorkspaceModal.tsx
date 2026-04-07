@@ -6,9 +6,11 @@ import {
   type AiConfigApplyResponse,
   type AiConfigDraftInput,
   type AiConfigSnapshot,
+  type ClaudeApiFormat,
   type ClaudeAuthScheme,
   type ClaudeConfigSnapshot,
   type ClaudeDraftInput,
+  type ClaudeModelOverrides,
   type ClaudeSavedProviderSnapshot,
   type ClaudeSnapshot,
   type CodexConfigSnapshot,
@@ -132,6 +134,10 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   const [deletingSavedProviderId, setDeletingSavedProviderId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  // Advanced Claude options
+  const [apiFormat, setApiFormat] = useState<ClaudeApiFormat>('anthropic')
+  const [modelOverrides, setModelOverrides] = useState<ClaudeModelOverrides>({})
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const presets = guide.presets
   const officialProviderId =
@@ -228,6 +234,8 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
         ?? (nextPreset as ClaudeSnapshot['presets'][number] | undefined)?.authScheme
         ?? 'anthropic_api_key',
     )
+    setApiFormat(claudeGuide.config.apiFormat ?? 'anthropic')
+    setModelOverrides(claudeGuide.config.modelOverrides ?? {})
   }
 
   function seedCodexFromCurrent() {
@@ -348,6 +356,8 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
         setModel(nextSavedProvider.model ?? nextPreset?.recommendedModel ?? '')
         setAuthScheme(nextSavedProvider.authScheme ?? (nextPreset as ClaudeSnapshot['presets'][number] | undefined)?.authScheme ?? 'anthropic_api_key')
       }
+      setApiFormat(nextSavedProvider.apiFormat ?? 'anthropic')
+      setModelOverrides(nextSavedProvider.modelOverrides ?? {})
       return
     }
 
@@ -547,6 +557,12 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
         model: mode === 'official' ? undefined : model.trim() || undefined,
         authScheme: mode === 'official' ? undefined : authScheme,
         apiKey: apiKey.trim() || undefined,
+        apiFormat: mode === 'official' ? undefined : apiFormat,
+        modelOverrides: mode === 'official' ? undefined : (
+          (modelOverrides.haikuModel || modelOverrides.sonnetModel || modelOverrides.opusModel)
+            ? modelOverrides
+            : undefined
+        ),
       } satisfies ClaudeDraftInput
     }
 
@@ -613,6 +629,27 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   }
 
   async function handleSwitchSavedProvider(savedProviderId: string) {
+    // Proxy-aware switching protection: warn if the target provider uses a format requiring middleware
+    if (agentId === 'claude') {
+      const target = savedProviders.find(
+        (p): p is ClaudeSavedProviderSnapshot =>
+          (p as ClaudeSavedProviderSnapshot).savedProviderId === savedProviderId,
+      ) as ClaudeSavedProviderSnapshot | undefined
+      const targetFormat = target?.apiFormat
+      if (targetFormat === 'openai_chat' || targetFormat === 'openai_responses') {
+        const confirmed = window.confirm(
+          t(
+            locale,
+            `此供应商使用的 API 格式 (${targetFormat}) 需要代理中间件才能正常工作。\n直接切换可能导致 Claude Code 无法连接。\n确认继续？`,
+            `This provider uses API format '${targetFormat}' which requires a proxy middleware.\nSwitching directly may cause Claude Code connection issues.\nContinue anyway?`,
+          ),
+        )
+        if (!confirmed) {
+          return
+        }
+      }
+    }
+
     setSwitchingSavedProviderId(savedProviderId)
     setError(null)
     setSuccess(null)
@@ -1029,6 +1066,85 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                     placeholder={(currentPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''}
                   />
                 </label>
+              )}
+
+              {/* Advanced Claude options — collapsible */}
+              {agentId === 'claude' && mode !== 'official' && (
+                <div className="provider-workspace__advanced">
+                  <button
+                    type="button"
+                    className="provider-workspace__advanced-toggle"
+                    onClick={() => setShowAdvanced((v) => !v)}
+                  >
+                    <AppIcon name={showAdvanced ? 'chevron-up' : 'chevron-down'} width={13} height={13} />
+                    {showAdvanced
+                      ? t(locale, '收起高级选项', 'Hide advanced options')
+                      : t(locale, '展开高级选项', 'Advanced options')}
+                  </button>
+
+                  {showAdvanced && (
+                    <div className="provider-workspace__advanced-fields">
+                      <label className="provider-workspace__field">
+                        <span>{t(locale, 'API 格式', 'API format')}</span>
+                        <select
+                          value={apiFormat}
+                          onChange={(event) => {
+                            resetPreview()
+                            setApiFormat(event.target.value as ClaudeApiFormat)
+                          }}
+                        >
+                          <option value="anthropic">{t(locale, 'Anthropic（原生）', 'Anthropic (native)')}</option>
+                          <option value="openai_chat">{t(locale, 'OpenAI Chat（需代理）', 'OpenAI Chat (proxy required)')}</option>
+                          <option value="openai_responses">{t(locale, 'OpenAI Responses（需代理）', 'OpenAI Responses (proxy required)')}</option>
+                        </select>
+                        {(apiFormat === 'openai_chat' || apiFormat === 'openai_responses') && (
+                          <small className="is-warning">
+                            {t(locale, '⚠️ 此格式需要代理中间件才能正常工作', '⚠️ This format requires a proxy middleware to function')}
+                          </small>
+                        )}
+                      </label>
+
+                      <label className="provider-workspace__field">
+                        <span>{t(locale, 'Haiku 模型覆盖', 'Haiku model override')}</span>
+                        <input
+                          type="text"
+                          value={modelOverrides.haikuModel ?? ''}
+                          placeholder={model || t(locale, '与主模型相同', 'Same as main model')}
+                          onChange={(event) => {
+                            resetPreview()
+                            setModelOverrides((prev) => ({ ...prev, haikuModel: event.target.value || undefined }))
+                          }}
+                        />
+                      </label>
+
+                      <label className="provider-workspace__field">
+                        <span>{t(locale, 'Sonnet 模型覆盖', 'Sonnet model override')}</span>
+                        <input
+                          type="text"
+                          value={modelOverrides.sonnetModel ?? ''}
+                          placeholder={model || t(locale, '与主模型相同', 'Same as main model')}
+                          onChange={(event) => {
+                            resetPreview()
+                            setModelOverrides((prev) => ({ ...prev, sonnetModel: event.target.value || undefined }))
+                          }}
+                        />
+                      </label>
+
+                      <label className="provider-workspace__field">
+                        <span>{t(locale, 'Opus 模型覆盖', 'Opus model override')}</span>
+                        <input
+                          type="text"
+                          value={modelOverrides.opusModel ?? ''}
+                          placeholder={model || t(locale, '与主模型相同', 'Same as main model')}
+                          onChange={(event) => {
+                            resetPreview()
+                            setModelOverrides((prev) => ({ ...prev, opusModel: event.target.value || undefined }))
+                          }}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

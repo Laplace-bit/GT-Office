@@ -1,6 +1,7 @@
 use rfd::FileDialog;
 use serde_json::{json, Value};
 use tauri::State;
+use tracing::warn;
 
 use crate::app_state::AppState;
 
@@ -91,4 +92,17 @@ pub fn system_gto_doctor(state: State<'_, AppState>) -> Result<Value, String> {
         ],
         "suggestions": suggestions,
     }))
+}
+
+#[tauri::command]
+pub fn system_open_url(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("url is empty".to_string());
+    }
+    if let Err(error) = open::that(trimmed) {
+        warn!(url = %trimmed, error = %error, "system_open_url failed");
+        return Err(format!("failed to open url: {error}"));
+    }
+    Ok(())
 }

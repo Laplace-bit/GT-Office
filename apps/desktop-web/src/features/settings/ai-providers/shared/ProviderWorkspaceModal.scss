@@ -557,6 +557,45 @@
   gap: rem(10);
 }
 
+// Advanced options collapsible block
+.provider-workspace__advanced {
+  grid-column: 1 / -1;
+  border-top: rem(1) solid color-mix(in srgb, var(--vb-border) 58%, transparent);
+  padding-top: rem(12);
+  margin-top: rem(2);
+}
+
+.provider-workspace__advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(6);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--vb-text-muted);
+  font-size: rem(13);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 150ms ease;
+
+  &:hover {
+    color: var(--vb-text);
+  }
+}
+
+.provider-workspace__advanced-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: rem(14);
+  margin-top: rem(14);
+
+  .provider-workspace__field {
+    small.is-warning {
+      color: #92400e;
+    }
+  }
+}
+
 @container (max-width: #{rem(64)}) {
   .provider-workspace__selection,
   .provider-workspace__item-facts,

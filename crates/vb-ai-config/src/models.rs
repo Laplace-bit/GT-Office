@@ -69,6 +69,60 @@ impl ClaudeAuthScheme {
     }
 }
 
+/// API format for Claude provider — determines how requests are sent.
+/// `Anthropic` uses the native Anthropic Messages API (default).
+/// `OpenAiChat` / `OpenAiResponses` use OpenAI-compatible endpoints and require a proxy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeApiFormat {
+    #[default]
+    Anthropic,
+    OpenAiChat,
+    OpenAiResponses,
+}
+
+impl ClaudeApiFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::OpenAiChat => "openai_chat",
+            Self::OpenAiResponses => "openai_responses",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "anthropic" => Some(Self::Anthropic),
+            "openai_chat" => Some(Self::OpenAiChat),
+            "openai_responses" => Some(Self::OpenAiResponses),
+            _ => None,
+        }
+    }
+
+    /// Returns true if this API format requires a proxy/middleware to function.
+    pub fn requires_proxy(&self) -> bool {
+        matches!(self, Self::OpenAiChat | Self::OpenAiResponses)
+    }
+}
+
+/// Per-model overrides for Claude — allows setting different models for haiku/sonnet/opus roles.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeModelOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub haiku_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sonnet_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opus_model: Option<String>,
+}
+
+impl ClaudeModelOverrides {
+    pub fn is_empty(&self) -> bool {
+        self.haiku_model.is_none() && self.sonnet_model.is_none() && self.opus_model.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GeminiAuthMode {
@@ -199,6 +253,10 @@ pub struct ClaudeConfigSnapshot {
     pub secret_ref: Option<String>,
     pub has_secret: bool,
     pub updated_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_format: Option<ClaudeApiFormat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_overrides: Option<ClaudeModelOverrides>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -247,6 +305,10 @@ pub struct ClaudeSavedProviderSnapshot {
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub last_applied_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_format: Option<ClaudeApiFormat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_overrides: Option<ClaudeModelOverrides>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -357,6 +419,12 @@ pub struct ClaudeDraftInput {
     pub auth_scheme: Option<ClaudeAuthScheme>,
     #[serde(default)]
     pub api_key: Option<String>,
+    /// API format — determines how requests are sent to this provider.
+    #[serde(default)]
+    pub api_format: Option<ClaudeApiFormat>,
+    /// Per-role model overrides (haiku/sonnet/opus). When set, overrides the main model for each role.
+    #[serde(default)]
+    pub model_overrides: Option<ClaudeModelOverrides>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -420,6 +488,10 @@ pub struct ClaudeNormalizedDraft {
     pub auth_scheme: Option<ClaudeAuthScheme>,
     pub secret_ref: Option<String>,
     pub has_secret: bool,
+    #[serde(default)]
+    pub api_format: Option<ClaudeApiFormat>,
+    #[serde(default)]
+    pub model_overrides: Option<ClaudeModelOverrides>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,9 +12,9 @@ import {
 import { FeishuAccountForm } from './FeishuAccountForm'
 import { FeishuHealthCard } from './FeishuHealthCard'
 import { FeishuPlatformGuide } from './FeishuPlatformGuide'
+import { WizardStepBar } from '../WizardStepBar'
 import {
   buildFeishuDefaultForm,
-  copyTextToClipboard,
   describeError,
   normalizeAgentTarget,
   normalizeRoleTarget,
@@ -33,9 +33,10 @@ interface FeishuConnectorWizardProps {
   roles: AgentRole[]
   agents: AgentProfile[]
   connectorAccounts: ChannelConnectorAccount[]
+  onBack?: () => void
 }
 
-const FEISHU_STEP_COUNT = 4
+const FEISHU_STEP_COUNT = 2
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -49,11 +50,11 @@ function buildGuideState(locale: Locale, form: FeishuWizardForm, step: number): 
     case 0:
       return {
         eyebrow: t(locale, 'Step 1', 'Step 1'),
-        title: t(locale, '先创建应用并拿到凭据', 'Create the app and collect credentials'),
+        title: t(locale, '创建应用并启动连接', 'Create app & Start connection'),
         summary: t(
           locale,
-          '先在开放平台创建企业自建应用、开启 Bot，并把 App ID / App Secret 复制出来。这一步先不要保存“长连接接收事件”，因为飞书要求 GT Office 里的长连接已经在线。',
-          'First create an enterprise self-built app in Open Platform, enable Bot, and copy the App ID / App Secret. Do not save long connection yet, because Feishu requires the GT Office WebSocket client to already be online.',
+          '在开放平台创建企业自建应用，开启 Bot，填写 App ID 和 Secret 到 GT Office，然后在这里启动长连接。切记：必须等长连接启动成功后，再去开放平台保存事件订阅！',
+          'Create an enterprise self-built app, enable Bot, fill the credentials here and start the long connection. Do not save long connection event subscription in platform until the connection starts successfully here!',
         ),
         platformLabel: platform,
         platformUrl,
@@ -63,79 +64,32 @@ function buildGuideState(locale: Locale, form: FeishuWizardForm, step: number): 
           'This environment cannot open the browser directly. Copy this URL into your system browser manually.',
         ),
         checklist: [
-          t(locale, '创建企业自建应用。', 'Create an enterprise self-built app.'),
-          t(locale, '开启 Bot 能力。', 'Enable the Bot capability.'),
-          t(locale, '添加消息接收、消息发送和用户基础信息相关权限。', 'Grant message receive, message send, and basic user profile permissions.'),
-          'App ID',
-          'App Secret',
-        ],
-      }
-    case 1:
-      return {
-        eyebrow: t(locale, 'Step 2', 'Step 2'),
-        title: t(locale, '填写凭据并启动长连接', 'Fill credentials and start the long connection'),
-        summary: t(
-          locale,
-          '把 App ID / App Secret 填进 GT Office，然后点击“保存并启动长连接”。只有当 runtime 显示已连接时，飞书开放平台才能成功保存“使用长连接接收事件”。',
-          'Fill App ID / App Secret in GT Office, then click “Save and start long connection”. Feishu Open Platform can save long connection only after the runtime shows connected.',
-        ),
-        platformLabel: platform,
-        platformUrl,
-        note: t(
-          locale,
-          '如果这里长连接还没建立成功，不要回开放平台点保存；先在当前弹窗重试连接测试。',
-          'If the long connection is not established here yet, do not go back to Open Platform to save it. Retry the connection test in this modal first.',
-        ),
-        checklist: [
-          'Account ID',
-          'App ID',
-          'App Secret',
-          t(locale, '等待 GT Office 显示 runtime 已连接。', 'Wait until GT Office shows the runtime as connected.'),
-        ],
-      }
-    case 2:
-      return {
-        eyebrow: t(locale, 'Step 3', 'Step 3'),
-        title: t(locale, '回到开放平台保存长连接订阅', 'Return to Open Platform and save long connection'),
-        summary: t(
-          locale,
-          '现在 GT Office 已经带着你的 App ID / App Secret 建立长连接，可以回飞书开放平台配置“使用长连接接收事件”，并订阅 `im.message.receive_v1`。',
-          'GT Office has now established the WebSocket client using your App ID / App Secret. Return to Open Platform, choose long connection, and subscribe to `im.message.receive_v1`.',
-        ),
-        platformLabel: platform,
-        platformUrl,
-        note: t(
-          locale,
-          '这一步是飞书长连接模式的必需顺序，不是 UI 绕。保存前请先确认上一步里的 runtime 状态已经是“已启动”。',
-          'This order is required by Feishu long connection mode, not just a UI choice. Confirm the runtime status is already “Running” before saving.',
-        ),
-        checklist: [
-          t(locale, '进入“事件与回调 > 事件配置”。', 'Open “Events & Callbacks > Event Configuration”.'),
-          t(locale, '选择“使用长连接接收事件”。', 'Choose “Use long connection to receive events”.'),
-          'im.message.receive_v1',
-          t(locale, '保存成功后，再回 GT Office 完成 route 和策略。', 'After saving successfully, return to GT Office to finish the route and policy.'),
+          t(locale, '创建应用与开启 Bot', 'Create app & enable Bot'),
+          t(locale, '添加收发消息权限', 'Add message permissions'),
+          'App ID & App Secret',
+          t(locale, '等待 GT Office 侧显示“已连接”', 'Wait for GT Office to connect'),
         ],
       }
     default:
       return {
-        eyebrow: t(locale, 'Step 4', 'Step 4'),
-        title: t(locale, '绑定路由并完成配置', 'Bind the route and finish setup'),
+        eyebrow: t(locale, 'Step 2', 'Step 2'),
+        title: t(locale, '保存订阅与配置路由', 'Save subscription & Bind route'),
         summary: t(
           locale,
-          '最后一步统一保存 connector、route 和 access policy。这里尽量只填必要项，先让主链路跑通。',
-          'The final step saves the connector, route, and access policy together. Fill only the necessary items and get the main path working first.',
+          'GT Office 侧的长连接建立后，回到开放平台真正保存你的“使用长连接接收事件”。最后在这里选择消息要投递给哪个 Agent。',
+          'Once GT Office is connected, return to Open Platform and save the "use long connection" setting. Finally, configure which Agent will receive the messages.',
         ),
         platformLabel: platform,
         platformUrl,
         note: t(
           locale,
-          '如果后续需要更复杂的策略，可以在通道管理里继续调整，不必在首次接入时一次配满。',
-          'If you need more complex policy later, refine it from channel management after the initial setup instead of over-configuring the first pass.',
+          '如果需要针对不同群组做路由分发，后续可在“通道管理”里维护更复杂的规则，不用一次配满。',
+          'Complex rules for different groups can be managed later in "Channel Management". Do not over-configure for now.',
         ),
         checklist: [
-          t(locale, '选择消息投递目标。', 'Choose the message delivery target.'),
-          t(locale, '检查 direct / group 匹配。', 'Review the direct / group match.'),
-          t(locale, '应用 access policy。', 'Apply the access policy.'),
+          t(locale, '开放平台：事件配置中保存长连接', 'Open Platform: save long connection'),
+          t(locale, '开放平台：添加 im.message.receive_v1', 'Open Platform: add im.message.receive_v1'),
+          t(locale, 'GT Office：选择投递目标与其他策略', 'GT Office: choose delivery target & policy'),
         ],
       }
   }
@@ -144,12 +98,12 @@ function buildGuideState(locale: Locale, form: FeishuWizardForm, step: number): 
 export function FeishuConnectorWizard({
   locale,
   workspaceId,
-  onClose,
   onSuccess,
   editingBinding,
   roles,
   agents,
   connectorAccounts,
+  onBack,
 }: FeishuConnectorWizardProps) {
   const activeRoles = useMemo(() => roles.filter((role) => role.status !== 'disabled'), [roles])
   const activeAgents = useMemo(() => agents.filter((agent) => agent.state !== 'terminated'), [agents])
@@ -341,12 +295,10 @@ export function FeishuConnectorWizard({
 
   const canGoNext = useMemo(() => {
     switch (wizardStep) {
-      case 1:
+      case 0:
         return connectionTestPassed
-      case 2:
-        return platformSubscriptionConfirmed
       default:
-        return true
+        return platformSubscriptionConfirmed
     }
   }, [connectionTestPassed, platformSubscriptionConfirmed, wizardStep])
 
@@ -354,83 +306,39 @@ export function FeishuConnectorWizard({
     <div className="feishu-onboarding-shell">
       <div className="channel-wizard-container feishu-onboarding-modal">
         <header className="channel-wizard-header feishu-modal-header">
-          <div className="channel-wizard-title">
-            <h4>
-              {editingBinding
-                ? t(locale, '编辑 Feishu Channel', 'Edit Feishu Channel')
-                : t(locale, '新增 Feishu Channel', 'Add Feishu Channel')}
-            </h4>
-            <p>{t(locale, 'Step {step}/{total}', 'Step {step}/{total}', { step: wizardStep + 1, total: FEISHU_STEP_COUNT })}</p>
+          <div className="channel-wizard-title" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {onBack && (
+              <button type="button" className="settings-btn settings-btn-icon" onClick={onBack} title={t(locale, '返回', 'Back')} disabled={saving} style={{ padding: '0.25rem 0.35rem', border: 'none', background: 'transparent' }}>
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+                  <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                </svg>
+              </button>
+            )}
+            <div>
+              <h4>
+                {editingBinding
+                  ? t(locale, '编辑 Feishu Channel', 'Edit Feishu Channel')
+                  : t(locale, '新增 Feishu Channel', 'Add Feishu Channel')}
+              </h4>
+            </div>
           </div>
-          <button type="button" className="settings-content-close" onClick={onClose} disabled={saving}>
-            ×
-          </button>
         </header>
 
-        <div className="channel-wizard-steps-indicator">
-          {Array.from({ length: FEISHU_STEP_COUNT }).map((_, index) => (
-            <div
-              key={index}
-              className={`channel-wizard-step-dot ${index === wizardStep ? 'active' : ''} ${index < wizardStep ? 'completed' : ''}`}
-            />
-          ))}
-        </div>
+        <WizardStepBar total={FEISHU_STEP_COUNT} current={wizardStep} />
 
         <div className="channel-wizard-body feishu-wizard-layout">
           <section className="feishu-wizard-main">
-            <div className="feishu-hero-card">
-              <span className="feishu-guide-eyebrow">{t(locale, 'Simple but Correct', 'Simple but Correct')}</span>
-              <h5>{t(locale, '按飞书长连接的真实顺序接入', 'Follow the real Feishu long-connection order')}</h5>
-              <p>
-                {t(
-                  locale,
-                  '飞书要求先有在线长连接，开放平台才能保存“使用长连接接收事件”。所以流程会先创建应用、再回 GT Office 启动长连接、再回开放平台保存事件订阅，最后回到 GT Office 绑定路由。',
-                  'Feishu requires an online WebSocket client before Open Platform can save “use long connection to receive events”. The flow therefore creates the app first, starts the long connection in GT Office, returns to Open Platform to save the subscription, and finally comes back to GT Office to bind the route.',
-                )}
-              </p>
-            </div>
+
 
             {statusMessage && <div className="settings-channel-message">{statusMessage}</div>}
             {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
 
+            <div className="channel-wizard-step-animate" key={wizardStep}>
             {wizardStep === 0 && (
               <div className="settings-pane-section feishu-step-section">
-                <h4>{t(locale, 'Step 1 在开放平台创建应用', 'Step 1 Create the app in Open Platform')}</h4>
-                <div className="settings-form-group">
-                  <label>{t(locale, '飞书区域', 'Platform Domain')}</label>
-                  <div className="segmented-control">
-                    <button
-                      type="button"
-                      className={form.domain === 'feishu' ? 'active' : ''}
-                      disabled={saving}
-                      onClick={() => updateField('domain', 'feishu')}
-                    >
-                      Feishu
-                    </button>
-                    <button
-                      type="button"
-                      className={form.domain === 'lark' ? 'active' : ''}
-                      disabled={saving}
-                      onClick={() => updateField('domain', 'lark')}
-                    >
-                      Lark
-                    </button>
-                  </div>
-                </div>
-                <div className="feishu-inline-panel">
-                  <ul className="feishu-inline-list">
-                    <li>{t(locale, '应用类型：企业自建应用。', 'App type: enterprise self-built app.')}</li>
-                    <li>{t(locale, '先完成 Bot 与权限配置。', 'Finish Bot and permission setup first.')}</li>
-                    <li>{t(locale, '先复制 App ID / App Secret。', 'Copy App ID / App Secret first.')}</li>
-                    <li>{t(locale, '长连接事件订阅留到下一步启动成功后再保存。', 'Save long connection subscription only after the next step starts successfully.')}</li>
-                  </ul>
-                </div>
-              </div>
-            )}
+                <p className="channel-wizard-step-label">{t(locale, 'Step 1 — 创建应用与启动连接', 'Step 1 — Create app & Start connection')}</p>
+                
 
-            {wizardStep === 1 && (
-              <div className="settings-pane-section feishu-step-section">
-                <h4>{t(locale, 'Step 2 填写凭据并启动长连接', 'Step 2 Fill credentials and start long connection')}</h4>
                 <FeishuAccountForm
                   locale={locale}
                   saving={saving}
@@ -450,39 +358,28 @@ export function FeishuConnectorWizard({
               </div>
             )}
 
-            {wizardStep === 2 && (
+            {wizardStep === 1 && (
               <div className="settings-pane-section feishu-step-section">
-                <h4>{t(locale, 'Step 3 回开放平台保存长连接', 'Step 3 Return to Open Platform and save long connection')}</h4>
-                <FeishuHealthCard locale={locale} health={healthSnapshot} />
-                <div className="feishu-inline-panel">
-                  <ul className="feishu-inline-list">
-                    <li>{t(locale, '进入“事件与回调 > 事件配置”。', 'Open “Events & Callbacks > Event Configuration”.')}</li>
-                    <li>{t(locale, '选择“使用长连接接收事件”。', 'Choose “Use long connection to receive events”.')}</li>
-                    <li>{t(locale, '添加事件 `im.message.receive_v1`。', 'Add the `im.message.receive_v1` event.')}</li>
-                    <li>{t(locale, '保存成功后，再回来做 route 与策略配置。', 'After saving successfully, come back to configure the route and policy.')}</li>
-                  </ul>
-                </div>
-                <label className="feishu-confirm-check">
-                  <input
-                    type="checkbox"
-                    checked={platformSubscriptionConfirmed}
-                    disabled={saving || !connectionTestPassed}
-                    onChange={(event) => setPlatformSubscriptionConfirmed(event.target.checked)}
-                  />
-                  <span>
-                    {t(
-                      locale,
-                      '我已在开放平台成功保存“使用长连接接收事件”，并订阅了 `im.message.receive_v1`。',
-                      'I have successfully saved “use long connection to receive events” in Open Platform and subscribed to `im.message.receive_v1`.',
-                    )}
-                  </span>
-                </label>
-              </div>
-            )}
+                <p className="channel-wizard-step-label">{t(locale, 'Step 2 — 确认订阅并配置路由', 'Step 2 — Confirm subscription & Configure route')}</p>
 
-            {wizardStep === 3 && (
-              <div className="settings-pane-section feishu-step-section">
-                <h4>{t(locale, 'Step 4 绑定 route 并应用策略', 'Step 4 Bind the route and apply policy')}</h4>
+                <div className="feishu-confirm-box" style={{ background: 'var(--vb-surface-muted)', padding: '1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
+                  <label className="feishu-confirm-check" style={{ margin: 0, display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={platformSubscriptionConfirmed}
+                      disabled={saving}
+                      onChange={(event) => setPlatformSubscriptionConfirmed(event.target.checked)}
+                      style={{ marginTop: '2px' }}
+                    />
+                    <span style={{ fontSize: '0.875rem' }}>
+                      {t(
+                        locale,
+                        '我已在平台成功保存“使用长连接接收事件”，并订阅了 `im.message.receive_v1`。',
+                        'I have successfully saved long connection settings in the Platform and subscribed to `im.message.receive_v1`.',
+                      )}
+                    </span>
+                  </label>
+                </div>
 
                 <div className="segmented-control">
                   <button
@@ -623,20 +520,13 @@ export function FeishuConnectorWizard({
                 </div>
               </div>
             )}
+            </div>
           </section>
 
           <FeishuPlatformGuide
             locale={locale}
             state={guideState}
-            onCopyPlatformUrl={async () => {
-              const ok = await copyTextToClipboard(guideState.platformUrl)
-              if (ok) {
-                setStatusMessage(t(locale, '开放平台地址已复制。', 'Open Platform URL copied.'))
-              } else {
-                setErrorMessage(t(locale, '复制失败，请手动复制平台地址。', 'Copy failed. Please copy the platform URL manually.'))
-              }
-            }}
-            copyingDisabled={saving}
+            disabled={saving}
           />
         </div>
 
@@ -663,7 +553,7 @@ export function FeishuConnectorWizard({
               type="button"
               className="settings-btn settings-btn-primary"
               onClick={applyWizard}
-              disabled={saving || !connectionTestPassed}
+              disabled={saving || !connectionTestPassed || !platformSubscriptionConfirmed}
             >
               {saving ? t(locale, '应用中...', 'Applying...') : t(locale, '应用配置', 'Apply Configuration')}
             </button>

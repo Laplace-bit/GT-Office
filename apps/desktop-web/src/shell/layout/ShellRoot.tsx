@@ -436,7 +436,6 @@ export function ShellRoot() {
 
   useEffect(() => {
     window.__GTO_OPEN_CHANNEL_STUDIO__ = () => {
-      setIsSettingsOpen(false)
       setIsChannelStudioOpen(true)
     }
     return () => {

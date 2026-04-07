@@ -254,6 +254,7 @@ pub fn run() {
             security::security_health,
             system::system_gto_doctor,
             system::system_pick_directory,
+            system::system_open_url,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

@@ -1,4 +1,5 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import {
   desktopApi,
@@ -8,11 +9,13 @@ import {
   type AiConfigReadSnapshotResponse,
   type AiConfigSnapshot,
 } from '@shell/integration/desktop-api'
-import { t, type Locale } from '@shell/i18n/ui-locale'
+import { t, translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
+import { AppIcon } from '@shell/ui/icons'
 
 import { ProviderAgentCard } from './shared/ProviderAgentCard'
 import { AgentEnhancementsModal } from './shared/AgentEnhancementsModal'
 import { ProviderWorkspaceModal } from './shared/ProviderWorkspaceModal'
+import { AgentInstallProgressModal } from './shared/AgentInstallProgressModal'
 
 import './AiProvidersSection.scss'
 
@@ -24,6 +27,27 @@ interface AiProvidersSectionProps {
 type AgentLoadingMap = Record<AiConfigAgent, boolean>
 
 const AGENT_ORDER: AiConfigAgent[] = ['claude', 'codex', 'gemini']
+
+const AGENT_DISPLAY_NAMES: Record<AiConfigAgent, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex CLI',
+  gemini: 'Gemini CLI',
+}
+
+function mapAgentType(agent: AiConfigAgent): 'ClaudeCode' | 'Codex' | 'Gemini' {
+  return agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini'
+}
+
+interface ProgressModalState {
+  agentId: AiConfigAgent
+  operation: 'install' | 'uninstall'
+  promise: Promise<void>
+}
+
+interface ConfirmDialogState {
+  agentId: AiConfigAgent
+  agentName: string
+}
 
 function createPendingInstallStatus(): AiAgentInstallStatus {
   return {
@@ -87,6 +111,8 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
   const [configAgentId, setConfigAgentId] = useState<AiConfigAgent | null>(null)
   const [serviceAgentId, setServiceAgentId] = useState<AiConfigAgent | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [progressModal, setProgressModal] = useState<ProgressModalState | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null)
   const reloadTokenRef = useRef(0)
 
   const withWorkspaceTarget = (detail: string) =>
@@ -183,33 +209,49 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     }
   }, [snapshot, selectedAgentId])
 
-  const handleInstall = async (agent: AiConfigAgent) => {
+  const handleInstall = useCallback((agent: AiConfigAgent) => {
     setInstallingAgent(agent)
     setActionError(null)
-    try {
-      await desktopApi.installAgent(agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini')
-      await handleReload({ background: true })
-    } catch (err) {
-      console.error('Failed to install agent', err)
-      setActionError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setInstallingAgent(null)
-    }
-  }
+    const promise = desktopApi.installAgent(mapAgentType(agent))
+    setProgressModal({ agentId: agent, operation: 'install', promise })
+  }, [])
 
-  const handleUninstall = async (agent: AiConfigAgent) => {
+  const handleInstallCompleted = useCallback((success: boolean) => {
+    setInstallingAgent(null)
+    if (success) {
+      void handleReload({ background: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const requestUninstall = useCallback((agent: AiConfigAgent) => {
+    const card = snapshot?.snapshot.agents.find((a) => a.agent === agent)
+    const displayName = card
+      ? translateMaybeKey(locale, card.title)
+      : AGENT_DISPLAY_NAMES[agent]
+    setConfirmDialog({ agentId: agent, agentName: displayName })
+  }, [locale, snapshot])
+
+  const handleUninstallConfirmed = useCallback((agent: AiConfigAgent) => {
+    setConfirmDialog(null)
     setUninstallingAgent(agent)
     setActionError(null)
-    try {
-      await desktopApi.uninstallAgent(agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini')
-      await handleReload({ background: true })
-    } catch (err) {
-      console.error('Failed to uninstall agent', err)
-      setActionError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setUninstallingAgent(null)
+    const promise = desktopApi.uninstallAgent(mapAgentType(agent))
+    setProgressModal({ agentId: agent, operation: 'uninstall', promise })
+  }, [])
+
+  const handleUninstallCompleted = useCallback((success: boolean) => {
+    setUninstallingAgent(null)
+    if (success) {
+      void handleReload({ background: true })
     }
-  }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleProgressClose = useCallback(() => {
+    setProgressModal(null)
+    setInstallingAgent(null)
+    setUninstallingAgent(null)
+    void handleReload({ background: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleInstallMcp = async (agent: AiConfigAgent) => {
     if (!workspaceId) {
@@ -220,7 +262,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     setActionError(null)
     try {
       await desktopApi.installAgentMcp(
-        agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini',
+        mapAgentType(agent),
         workspaceId,
       )
       await handleReload({ background: true })
@@ -241,7 +283,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     setActionError(null)
     try {
       await desktopApi.uninstallAgentMcp(
-        agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini',
+        mapAgentType(agent),
         workspaceId,
       )
       await handleReload({ background: true })
@@ -261,7 +303,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     setMigratingMcpAgent(agent)
     setActionError(null)
     try {
-      const mappedAgent = agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini'
+      const mappedAgent = mapAgentType(agent)
       await desktopApi.uninstallAgentMcp(mappedAgent, workspaceId)
       await desktopApi.installAgentMcp(mappedAgent, workspaceId)
       await handleReload({ background: true })
@@ -309,7 +351,7 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
             installingCli={installingAgent === agent.agent}
             uninstallingCli={uninstallingAgent === agent.agent}
             onInstall={() => void handleInstall(agent.agent)}
-            onUninstall={() => void handleUninstall(agent.agent)}
+            onUninstall={() => requestUninstall(agent.agent)}
             onOpenEnhancements={() => {
               if (!workspaceId) {
                 setActionError(
@@ -378,6 +420,62 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
           onMigrateMcp={() => void handleMigrateMcp(serviceAgentId)}
           onClose={() => setServiceAgentId(null)}
         />
+      )}
+
+      {progressModal && createPortal(
+        <AgentInstallProgressModal
+          locale={locale}
+          agentId={progressModal.agentId}
+          agentName={AGENT_DISPLAY_NAMES[progressModal.agentId]}
+          operation={progressModal.operation}
+          operationPromise={progressModal.promise}
+          onClose={handleProgressClose}
+          onCompleted={progressModal.operation === 'install' ? handleInstallCompleted : handleUninstallCompleted}
+          onRetry={
+            progressModal.operation === 'install'
+              ? () => {
+                setProgressModal(null)
+                handleInstall(progressModal.agentId)
+              }
+              : undefined
+          }
+        />,
+        document.body,
+      )}
+
+      {confirmDialog && createPortal(
+        <div className="ai-providers-confirm-overlay" onClick={() => setConfirmDialog(null)}>
+          <div
+            className="ai-providers-confirm-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={t(locale, 'aiConfig.confirm.uninstallTitle')}
+          >
+            <div className="ai-providers-confirm-dialog__icon">
+              <AppIcon name="info" width={24} height={24} />
+            </div>
+            <h4>{t(locale, 'aiConfig.confirm.uninstallTitle')}</h4>
+            <p>{t(locale, 'aiConfig.confirm.uninstallMessage', { name: confirmDialog.agentName })}</p>
+            <div className="ai-providers-confirm-dialog__actions">
+              <button
+                type="button"
+                className="ai-providers-confirm-dialog__btn is-cancel"
+                onClick={() => setConfirmDialog(null)}
+              >
+                {t(locale, 'aiConfig.confirm.cancel')}
+              </button>
+              <button
+                type="button"
+                className="ai-providers-confirm-dialog__btn is-danger"
+                onClick={() => handleUninstallConfirmed(confirmDialog.agentId)}
+              >
+                {t(locale, 'aiConfig.confirm.proceed')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </section>
   )

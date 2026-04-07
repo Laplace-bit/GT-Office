@@ -54,9 +54,9 @@ export function ChannelBotCard({
     group.channel === 'telegram'
       ? 'Telegram'
       : group.channel === 'feishu'
-      ? 'Feishu'
+      ? t(locale, '飞书', 'Feishu')
       : group.channel === 'wechat'
-      ? 'WeChat'
+      ? t(locale, '微信', 'WeChat')
       : group.channel
 
   const getTargetLabel = (target: { type: string; value: string }) => {
@@ -75,11 +75,11 @@ export function ChannelBotCard({
         <div className="channel-bot-identity">
           <div className={`channel-bot-icon ${group.channel}`}>
             {group.channel === 'telegram' ? (
-              <AppIcon name="telegram" className="vb-icon" />
+              <img src="/assets/logos/telegram.png" alt="Telegram" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '4px' }} />
             ) : group.channel === 'wechat' ? (
-              <AppIcon name="wechat" className="vb-icon" />
+              <img src="/assets/logos/wechat.png" alt="WeChat" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '4px' }} />
             ) : group.channel === 'feishu' ? (
-              <AppIcon name="feishu" className="vb-icon" />
+              <img src="/assets/logos/feishu.png" alt="Feishu" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '4px' }} />
             ) : (
               <AppIcon name="channels" className="vb-icon" />
             )}

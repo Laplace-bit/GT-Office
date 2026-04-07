@@ -37,13 +37,13 @@ function normalizeCompareKey(value: string): string {
 
 function compareChannelOrder(channel: string): number {
   const normalized = normalizeCompareKey(channel)
-  if (normalized === 'telegram') {
+  if (normalized === 'wechat') {
     return 0
   }
-  if (normalized === 'wechat') {
+  if (normalized === 'feishu') {
     return 1
   }
-  if (normalized === 'feishu') {
+  if (normalized === 'telegram') {
     return 2
   }
   return 3

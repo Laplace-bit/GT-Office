@@ -1024,6 +1024,11 @@ impl AgentInstaller {
             });
         }
 
+        // .local/bin installation via npm --prefix (matches our install command)
+        if path_text.contains(".local/bin/codex") || path_text.contains(".local\\bin\\codex") {
+            return Some(Self::npm_prefix_local_uninstall_action("@openai/codex"));
+        }
+
         // npm global installation (default for all platforms)
         Some(Self::npm_uninstall_action("@openai/codex"))
     }
@@ -1046,6 +1051,11 @@ impl AgentInstaller {
                         .to_string(),
                 ],
             });
+        }
+
+        // .local/bin installation via npm --prefix (matches our install command)
+        if path_text.contains(".local/bin/gemini") || path_text.contains(".local\\bin\\gemini") {
+            return Some(Self::npm_prefix_local_uninstall_action("@google/gemini-cli"));
         }
 
         // npm global installation (default for all platforms)
@@ -1502,13 +1512,33 @@ impl AgentInstaller {
     }
 
     fn npm_uninstall_action(package_name: &str) -> AgentUninstallAction {
+        // Use simple npm uninstall -g without --prefix
+        // Node version managers (fnm, nvm, volta, etc.) set npm global paths correctly,
+        // so we should use npm's default global path rather than forcing --prefix.
+        // The fallback with || handles cases where npm might be in a different context.
+        if cfg!(target_os = "windows") {
+            AgentUninstallAction::Command {
+                program: "cmd".to_string(),
+                args: vec!["/C".to_string(), format!("npm uninstall -g {package_name}")],
+            }
+        } else {
+            AgentUninstallAction::Command {
+                program: "bash".to_string(),
+                args: vec!["-lc".to_string(), format!("npm uninstall -g {package_name}")],
+            }
+        }
+    }
+
+    /// Uninstall action for packages installed with `npm install -g --prefix "$HOME/.local"`.
+    /// Must mirror the install path to find the correct node_modules directory.
+    fn npm_prefix_local_uninstall_action(package_name: &str) -> AgentUninstallAction {
         if cfg!(target_os = "windows") {
             AgentUninstallAction::Command {
                 program: "cmd".to_string(),
                 args: vec![
                     "/C".to_string(),
                     format!(
-                        "npm uninstall -g --prefix \"%USERPROFILE%\\.local\" {package_name} || npm uninstall -g {package_name}"
+                        "npm uninstall -g --prefix \"%USERPROFILE%\\.local\" {package_name}"
                     ),
                 ],
             }
@@ -1518,7 +1548,7 @@ impl AgentInstaller {
                 args: vec![
                     "-lc".to_string(),
                     format!(
-                        "npm uninstall -g --prefix \"$HOME/.local\" {package_name} || npm uninstall -g {package_name}"
+                        "npm uninstall -g --prefix \"$HOME/.local\" {package_name}"
                     ),
                 ],
             }

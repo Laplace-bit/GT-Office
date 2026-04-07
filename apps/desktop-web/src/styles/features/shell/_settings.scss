@@ -574,53 +574,112 @@
   overflow: hidden;
 }
 .channel-wizard-header {
-  padding: rem(20);
+  padding: rem(18) rem(20);
   border-bottom: rem(1) solid var(--vb-border-light);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .channel-wizard-title h4 {
-  margin: 0 0 rem(4);
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
 }
 .channel-wizard-title p {
-  margin: 0;
+  margin: rem(2) 0 0;
   font-size: 0.75rem;
   color: var(--vb-text-muted);
 }
-.channel-wizard-steps-indicator {
+
+/* New unified step progress bar */
+.channel-wizard-step-bar {
   display: flex;
-  gap: rem(6);
-  padding: rem(16) rem(20);
+  gap: rem(5);
+  padding: rem(10) rem(20);
   background: color-mix(in srgb, var(--vb-surface-muted) 30%, transparent);
 }
-.channel-wizard-step-dot {
+
+.channel-wizard-step-segment {
   flex: 1;
-  height: rem(4);
+  height: rem(3);
   border-radius: rem(2);
-  background: var(--vb-border);
-  transition: all 0.3s;
+  background: color-mix(in srgb, var(--vb-border) 80%, transparent);
+  transition: background 0.35s ease, transform 0.2s ease;
 }
-.channel-wizard-step-dot.active {
+
+.channel-wizard-step-segment.active {
   background: var(--vb-accent);
+  transform: scaleY(1.35);
+  transform-origin: center;
 }
-.channel-wizard-step-dot.completed {
-  background: color-mix(in srgb, var(--vb-accent) 50%, var(--vb-border));
+
+.channel-wizard-step-segment.completed {
+  background: color-mix(in srgb, var(--vb-accent) 55%, var(--vb-border));
+}
+
+/* Step content animation on step change */
+@keyframes channel-wizard-step-in {
+  from {
+    opacity: 0;
+    transform: translateX(rem(14));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.channel-wizard-step-animate {
+  animation: channel-wizard-step-in 240ms cubic-bezier(0.22, 0.88, 0.38, 1) both;
+}
+
+/* Step label — replaces h4 inside step sections */
+.channel-wizard-step-label {
+  margin: 0 0 rem(16);
+  font-size: rem(11);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--vb-accent);
+  opacity: 0.9;
 }
 
 .channel-wizard-body {
-  padding: rem(24) rem(20);
+  padding: rem(20) rem(20);
 }
 
 .channel-wizard-footer {
-  padding: rem(16) rem(20);
+  padding: rem(14) rem(20);
   border-top: rem(1) solid var(--vb-border-light);
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: color-mix(in srgb, var(--vb-surface-muted) 30%, transparent);
+}
+
+/* Review panel subtle style */
+.channel-wizard-review-panel {
+  margin-top: rem(8);
+}
+
+/* URL row for webhook/open external URL */
+.channel-wizard-url-row {
+  display: flex;
+  gap: rem(8);
+  align-items: center;
+}
+
+/* Small icon-ish "open external" button */
+.channel-wizard-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(5);
+  padding: rem(7) rem(12);
+  flex-shrink: 0;
+
+  svg {
+    flex-shrink: 0;
+  }
 }
 
 .segmented-control {

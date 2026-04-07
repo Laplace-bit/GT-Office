@@ -779,6 +779,17 @@ export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
 
 export type ClaudeAuthScheme = 'anthropic_api_key' | 'anthropic_auth_token'
 
+/** API format for Claude provider requests. `anthropic` is the default native API.
+ *  `openai_chat` / `openai_responses` are OpenAI-compatible formats and typically require a proxy. */
+export type ClaudeApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses'
+
+/** Per-role model overrides for Claude. When specified, each role uses a different model. */
+export interface ClaudeModelOverrides {
+  haikuModel?: string | null
+  sonnetModel?: string | null
+  opusModel?: string | null
+}
+
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
 export type AiAgentMcpStatus = 'not_installed' | 'installed_sidecar' | 'installed_legacy_node'
 
@@ -833,6 +844,8 @@ export interface ClaudeConfigSnapshot {
   secretRef?: string | null
   hasSecret: boolean
   updatedAtMs?: number | null
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface ClaudeSavedProviderSnapshot {
@@ -848,6 +861,8 @@ export interface ClaudeSavedProviderSnapshot {
   createdAtMs: number
   updatedAtMs: number
   lastAppliedAtMs: number
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface ClaudeSnapshot {
@@ -1000,6 +1015,10 @@ export interface ClaudeDraftInput {
   model?: string | null
   authScheme?: ClaudeAuthScheme | null
   apiKey?: string | null
+  /** API format for this provider */
+  apiFormat?: ClaudeApiFormat | null
+  /** Per-role model overrides (haiku/sonnet/opus) */
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface CodexDraftInput {
@@ -1034,6 +1053,8 @@ export interface ClaudeNormalizedDraft {
   authScheme?: ClaudeAuthScheme | null
   secretRef?: string | null
   hasSecret: boolean
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface CodexNormalizedDraft {
@@ -1935,6 +1956,14 @@ export const desktopApi = {
   },
   systemGtoDoctor() {
     return invokeCommand<Record<string, unknown>>('system_gto_doctor')
+  },
+  systemOpenUrl(url: string): Promise<void> {
+    if (!url.trim()) return Promise.resolve()
+    if (isTauriRuntime()) {
+      return invokeCommand<void>('system_open_url', { url })
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+    return Promise.resolve()
   },
   workspaceGetWindowActive() {
     return invokeCommand<WorkspaceWindowActiveResponse>('workspace_get_window_active')

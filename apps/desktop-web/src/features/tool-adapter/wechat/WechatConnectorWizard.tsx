@@ -11,6 +11,7 @@ import {
   type WechatAuthSession,
 } from '@shell/integration/desktop-api'
 import { normalizeChannelAccountId, parseChannelBindingTarget } from '../channel-bot-binding-model'
+import { WizardStepBar } from '../WizardStepBar'
 
 interface WechatConnectorWizardProps {
   locale: Locale
@@ -21,6 +22,7 @@ interface WechatConnectorWizardProps {
   roles: AgentRole[]
   agents: AgentProfile[]
   connectorAccounts: ChannelConnectorAccount[]
+  onBack?: () => void
 }
 
 type TargetBindingType = 'role' | 'agent'
@@ -72,12 +74,12 @@ function statusPillClass(status: string | null, ok: boolean): string {
 export function WechatConnectorWizard({
   locale,
   workspaceId,
-  onClose,
   onSuccess,
   editingBinding,
   roles,
   agents,
   connectorAccounts,
+  onBack,
 }: WechatConnectorWizardProps) {
   const activeRoles = useMemo(() => roles.filter((role) => role.status !== 'disabled'), [roles])
   const activeAgents = useMemo(() => agents.filter((agent) => agent.state !== 'terminated'), [agents])
@@ -285,25 +287,23 @@ export function WechatConnectorWizard({
   return (
     <div className="channel-wizard-container wechat-onboarding-modal">
       <header className="channel-wizard-header wechat-modal-header">
-        <div className="channel-wizard-title">
-          <h4>
-            {editingBinding ? t(locale, '编辑 WeChat Channel', 'Edit WeChat Channel') : t(locale, '新增 WeChat Channel', 'Add WeChat Channel')}
-          </h4>
-          <p>{t(locale, 'Step {step}/{total}', 'Step {step}/{total}', { step: wizardStep + 1, total: STEP_COUNT })}</p>
+        <div className="channel-wizard-title" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {onBack && (
+            <button type="button" className="settings-btn settings-btn-icon" onClick={onBack} title={t(locale, '返回', 'Back')} disabled={saving} style={{ padding: '0.25rem 0.35rem', border: 'none', background: 'transparent' }}>
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+                <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+              </svg>
+            </button>
+          )}
+          <div>
+            <h4>
+              {editingBinding ? t(locale, '编辑 WeChat Channel', 'Edit WeChat Channel') : t(locale, '新增 WeChat Channel', 'Add WeChat Channel')}
+            </h4>
+          </div>
         </div>
-        <button type="button" className="settings-content-close" onClick={onClose} disabled={saving}>
-          ×
-        </button>
       </header>
 
-      <div className="channel-wizard-steps-indicator">
-        {Array.from({ length: STEP_COUNT }).map((_, index) => (
-          <div
-            key={index}
-            className={`channel-wizard-step-dot ${index === wizardStep ? 'active' : ''} ${index < wizardStep ? 'completed' : ''}`}
-          />
-        ))}
-      </div>
+      <WizardStepBar total={STEP_COUNT} current={wizardStep} />
 
       <div className="channel-wizard-body wechat-wizard-layout">
         <aside className="wechat-wizard-sidebar">
@@ -347,6 +347,7 @@ export function WechatConnectorWizard({
           {statusMessage && !isScanStep && <div className="settings-channel-message">{statusMessage}</div>}
           {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
 
+          <div className="channel-wizard-step-animate" key={wizardStep}>
           {wizardStep === 0 && (
             <div className="settings-pane-section wechat-step-section">
               <div className="wechat-qr-stage">
@@ -402,7 +403,7 @@ export function WechatConnectorWizard({
 
           {wizardStep === 1 && (
             <div className="settings-pane-section wechat-step-section">
-              <h4>{t(locale, '验证连接', 'Verify the connection')}</h4>
+              <p className="channel-wizard-step-label">{t(locale, 'Step 2 — 验证连接', 'Step 2 — Verify connection')}</p>
               <p className="wechat-side-note">
                 {t(locale, '绑定成功后做一次 token 探活；如果失效，这里直接给出“重新绑定”恢复动作。', 'Run one token probe after binding; if it has expired, recover here with a direct rebind action.')}
               </p>
@@ -419,7 +420,7 @@ export function WechatConnectorWizard({
 
           {wizardStep === 2 && (
             <div className="settings-pane-section wechat-step-section">
-              <h4>{t(locale, '选择消息投递目标', 'Choose the delivery target')}</h4>
+              <p className="channel-wizard-step-label">{t(locale, 'Step 3 — 选择消息投递目标', 'Step 3 — Choose delivery target')}</p>
               <div className="segmented-control">
                 <button
                   type="button"
@@ -529,7 +530,7 @@ export function WechatConnectorWizard({
 
           {wizardStep === 3 && (
             <div className="settings-pane-section wechat-step-section">
-              <h4>{t(locale, '确认并应用', 'Review and apply')}</h4>
+              <p className="channel-wizard-step-label">{t(locale, 'Step 4 — 确认并应用', 'Step 4 — Review & apply')}</p>
               <div className="feishu-inline-panel">
                 <ul className="feishu-review-list">
                   <li>
@@ -552,6 +553,7 @@ export function WechatConnectorWizard({
               </div>
             </div>
           )}
+          </div>
         </section>
       </div>
 

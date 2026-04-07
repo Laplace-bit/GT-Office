@@ -25,12 +25,13 @@ use crate::{
     },
     models::{
         AiConfigAgent, AiConfigApplyResponse, AiConfigMaskedChange, AiConfigNormalizedDraft,
-        AiConfigPreviewResponse, AiConfigSnapshot, ClaudeAuthScheme, ClaudeConfigSnapshot,
-        ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode, ClaudeSavedProviderSnapshot,
-        ClaudeSnapshot, CodexConfigSnapshot, CodexDraftInput, CodexNormalizedDraft,
-        CodexProviderMode, CodexSavedProviderSnapshot, GeminiAuthMode, GeminiConfigSnapshot,
-        GeminiDraftInput, GeminiNormalizedDraft, GeminiProviderMode, GeminiSavedProviderSnapshot,
-        StoredAiConfigPreview, StoredClaudePreview, StoredCodexPreview, StoredGeminiPreview,
+        AiConfigPreviewResponse, AiConfigSnapshot, ClaudeApiFormat, ClaudeAuthScheme,
+        ClaudeConfigSnapshot, ClaudeDraftInput, ClaudeModelOverrides, ClaudeNormalizedDraft,
+        ClaudeProviderMode, ClaudeSavedProviderSnapshot, ClaudeSnapshot, CodexConfigSnapshot,
+        CodexDraftInput, CodexNormalizedDraft, CodexProviderMode, CodexSavedProviderSnapshot,
+        GeminiAuthMode, GeminiConfigSnapshot, GeminiDraftInput, GeminiNormalizedDraft,
+        GeminiProviderMode, GeminiSavedProviderSnapshot, StoredAiConfigPreview,
+        StoredClaudePreview, StoredCodexPreview, StoredGeminiPreview,
     },
 };
 
@@ -157,6 +158,7 @@ impl AiConfigService {
                 normalized.model.as_deref(),
                 normalized.auth_scheme.as_ref(),
                 Some(secret.as_str()),
+                normalized.model_overrides.as_ref(),
             )?
         };
 
@@ -198,6 +200,7 @@ impl AiConfigService {
                 normalized.model.as_deref(),
                 normalized.auth_scheme.as_ref(),
                 Some(secret.as_str()),
+                normalized.model_overrides.as_ref(),
             )?
         };
         apply_claude_env_overrides_to_value(
@@ -207,6 +210,17 @@ impl AiConfigService {
             path,
         )?;
         strip_managed_claude_secret_values(&mut root)?;
+        // Persist GT-Office metadata (api_format, model_overrides) in a dedicated namespace
+        // so it can be restored when the saved provider is loaded. Claude ignores unknown keys.
+        if normalized.mode != ClaudeProviderMode::Official {
+            let meta = json!({
+                "apiFormat": normalized.api_format.as_ref().map(|f| f.as_str()),
+                "modelOverrides": normalized.model_overrides,
+            });
+            if let Some(obj) = root.as_object_mut() {
+                obj.insert("__gto_meta__".to_string(), meta);
+            }
+        }
         serde_json::to_string(&root)
             .map(Some)
             .map_err(|error| AiConfigError::Storage(error.to_string()))
@@ -2402,53 +2416,7 @@ impl AiConfigService {
         auth_scheme: Option<&crate::models::ClaudeAuthScheme>,
         secret: Option<&str>,
     ) -> AiConfigResult<BTreeMap<String, String>> {
-        if mode == ClaudeProviderMode::Official {
-            return Ok(BTreeMap::new());
-        }
-
-        let base_url = base_url
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| {
-                AiConfigError::Invalid("configured Claude endpoint is missing".to_string())
-            })?;
-        let model = model
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| {
-                AiConfigError::Invalid("configured Claude model is missing".to_string())
-            })?;
-        let auth_scheme = auth_scheme.ok_or_else(|| {
-            AiConfigError::Invalid("configured Claude auth scheme is missing".to_string())
-        })?;
-        let secret = secret
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| {
-                AiConfigError::Invalid("configured Claude secret is missing".to_string())
-            })?;
-
-        let mut env = provider_id
-            .and_then(|value| {
-                claude_provider_presets()
-                    .into_iter()
-                    .find(|preset| preset.provider_id == value)
-                    .map(|preset| preset.extra_env)
-            })
-            .unwrap_or_default();
-        env.insert("ANTHROPIC_BASE_URL".to_string(), base_url.to_string());
-        env.insert("ANTHROPIC_MODEL".to_string(), model.to_string());
-        env.insert(
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
-            model.to_string(),
-        );
-        env.insert(
-            "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
-            model.to_string(),
-        );
-        env.insert(
-            "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
-            model.to_string(),
-        );
-        env.insert(auth_scheme.env_var_name().to_string(), secret.to_string());
-        Ok(env)
+        build_claude_managed_env(mode, provider_id, base_url, model, auth_scheme, secret, None)
     }
 
     fn read_claude_config_from_value(value: &Value) -> AiConfigResult<ClaudeConfigSnapshot> {
@@ -2507,6 +2475,8 @@ impl AiConfigService {
             secret_ref,
             has_secret,
             updated_at_ms,
+            api_format: None,
+            model_overrides: None,
         }))
     }
 
@@ -2545,6 +2515,8 @@ impl AiConfigService {
             auth_scheme: Some(preset.auth_scheme),
             secret_ref: None,
             has_secret: false,
+            api_format: None,
+            model_overrides: None,
         }
     }
 
@@ -2628,6 +2600,8 @@ impl AiConfigService {
             created_at_ms: record.created_at_ms.max(0) as u64,
             updated_at_ms: record.updated_at_ms.max(0) as u64,
             last_applied_at_ms: record.last_applied_at_ms.max(0) as u64,
+            api_format: None,
+            model_overrides: None,
         })
     }
 
@@ -2665,6 +2639,23 @@ impl AiConfigService {
             auth_scheme,
             secret_ref: record.secret_ref.clone(),
             has_secret: record.has_secret,
+            api_format: record
+                .settings_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .as_ref()
+                .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+                .and_then(|v| v.get("apiFormat"))
+                .and_then(Value::as_str)
+                .and_then(ClaudeApiFormat::parse),
+            model_overrides: record
+                .settings_json
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .as_ref()
+                .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+                .and_then(|v| v.get("modelOverrides"))
+                .and_then(|v| serde_json::from_value::<ClaudeModelOverrides>(v.clone()).ok()),
         })
     }
 
@@ -3199,6 +3190,7 @@ impl AiConfigService {
             Some(model.as_str()),
             Some(&auth_scheme),
             Some(secret.as_str()),
+            None,
         )
     }
 }
@@ -3267,6 +3259,8 @@ fn normalize_claude_draft(
                     auth_scheme,
                     has_secret: true,
                     secret_ref,
+                    api_format: draft.api_format,
+                    model_overrides: draft.model_overrides,
                 },
                 secret_input,
             ))
@@ -3321,6 +3315,8 @@ fn normalize_claude_draft(
                     auth_scheme,
                     has_secret: true,
                     secret_ref,
+                    api_format: draft.api_format,
+                    model_overrides: draft.model_overrides,
                 },
                 secret_input,
             ))
@@ -3495,6 +3491,8 @@ fn read_claude_config_from_value(value: &Value) -> AiConfigResult<ClaudeConfigSn
         secret_ref,
         has_secret,
         updated_at_ms,
+        api_format: None,
+        model_overrides: None,
     }))
 }
 
@@ -3533,6 +3531,8 @@ fn official_claude_normalized_draft() -> ClaudeNormalizedDraft {
         auth_scheme: Some(preset.auth_scheme),
         secret_ref: None,
         has_secret: false,
+        api_format: None,
+        model_overrides: None,
     }
 }
 
@@ -3560,6 +3560,8 @@ fn fingerprint_claude_config(normalized: &ClaudeNormalizedDraft) -> String {
         "model": normalized.model,
         "authScheme": normalized.auth_scheme.as_ref().map(auth_to_string),
         "hasSecret": normalized.has_secret,
+        "apiFormat": normalized.api_format.as_ref().map(|f| f.as_str()),
+        "modelOverrides": normalized.model_overrides,
     });
     payload.to_string()
 }
@@ -3614,6 +3616,23 @@ fn saved_claude_provider_snapshot_from_record(
         created_at_ms: record.created_at_ms.max(0) as u64,
         updated_at_ms: record.updated_at_ms.max(0) as u64,
         last_applied_at_ms: record.last_applied_at_ms.max(0) as u64,
+        api_format: record
+            .settings_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .as_ref()
+            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("apiFormat"))
+            .and_then(Value::as_str)
+            .and_then(ClaudeApiFormat::parse),
+        model_overrides: record
+            .settings_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .as_ref()
+            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("modelOverrides"))
+            .and_then(|v| serde_json::from_value::<ClaudeModelOverrides>(v.clone()).ok()),
     })
 }
 
@@ -3651,6 +3670,23 @@ fn normalized_from_saved_claude_provider(
         auth_scheme,
         secret_ref: record.secret_ref.clone(),
         has_secret: record.has_secret,
+        api_format: record
+            .settings_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .as_ref()
+            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("apiFormat"))
+            .and_then(Value::as_str)
+            .and_then(ClaudeApiFormat::parse),
+        model_overrides: record
+            .settings_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .as_ref()
+            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("modelOverrides"))
+            .and_then(|v| serde_json::from_value::<ClaudeModelOverrides>(v.clone()).ok()),
     })
 }
 
@@ -3995,6 +4031,7 @@ fn build_claude_managed_env(
     model: Option<&str>,
     auth_scheme: Option<&crate::models::ClaudeAuthScheme>,
     secret: Option<&str>,
+    model_overrides: Option<&crate::models::ClaudeModelOverrides>,
 ) -> AiConfigResult<BTreeMap<String, String>> {
     if mode == ClaudeProviderMode::Official {
         return Ok(BTreeMap::new());
@@ -4025,18 +4062,22 @@ fn build_claude_managed_env(
         .unwrap_or_default();
     env.insert("ANTHROPIC_BASE_URL".to_string(), base_url.to_string());
     env.insert("ANTHROPIC_MODEL".to_string(), model.to_string());
-    env.insert(
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
-        model.to_string(),
-    );
-    env.insert(
-        "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
-        model.to_string(),
-    );
-    env.insert(
-        "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
-        model.to_string(),
-    );
+    // Apply per-role model overrides; fall back to main model when not specified.
+    let haiku = model_overrides
+        .and_then(|o| o.haiku_model.as_deref())
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or(model);
+    let sonnet = model_overrides
+        .and_then(|o| o.sonnet_model.as_deref())
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or(model);
+    let opus = model_overrides
+        .and_then(|o| o.opus_model.as_deref())
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or(model);
+    env.insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(), haiku.to_string());
+    env.insert("ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(), sonnet.to_string());
+    env.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(), opus.to_string());
     env.insert(auth_scheme.env_var_name().to_string(), secret.to_string());
     Ok(env)
 }
@@ -4521,6 +4562,8 @@ fn discover_live_claude_config_from_home(home: &Path) -> Option<ClaudeConfigSnap
                 secret_ref: None,
                 has_secret,
                 updated_at_ms,
+                api_format: None,
+                model_overrides: None,
             }));
         }
 
@@ -4535,6 +4578,8 @@ fn discover_live_claude_config_from_home(home: &Path) -> Option<ClaudeConfigSnap
             secret_ref: None,
             has_secret,
             updated_at_ms,
+            api_format: None,
+            model_overrides: None,
         });
     }
 
@@ -4551,6 +4596,8 @@ fn discover_live_claude_config_from_home(home: &Path) -> Option<ClaudeConfigSnap
             secret_ref: None,
             has_secret,
             updated_at_ms,
+            api_format: None,
+            model_overrides: None,
         }));
     }
 
@@ -6448,6 +6495,7 @@ command = "npx"
             Some("MiniMax-M2.5"),
             Some(&crate::models::ClaudeAuthScheme::AnthropicAuthToken),
             Some("secret"),
+            None,
         )
         .unwrap();
 

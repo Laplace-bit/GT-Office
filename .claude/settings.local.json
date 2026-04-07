@@ -79,7 +79,10 @@
       "Bash(cargo clippy:*)",
       "Bash(cargo fmt:*)",
       "Bash(cargo doc:*)",
-      "WebFetch(domain:tauri.app)"
+      "WebFetch(domain:tauri.app)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:claude.ai)"
     ]
   }
 }

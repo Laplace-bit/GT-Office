@@ -99,9 +99,9 @@ export function buildFeishuDefaultForm(args: {
   }
 
   return {
-    accountId,
-    domain: (account?.domain as FeishuDomain | undefined) ?? 'feishu',
-    appId: account?.appId ?? '',
+    accountId: '',
+    domain: 'feishu',
+    appId: '',
     appSecret: '',
     peerKind: 'direct',
     peerPattern: '',
