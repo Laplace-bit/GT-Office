@@ -83,6 +83,52 @@ mod tests {
     }
 
     #[test]
+    fn codex_local_bin_uninstall_uses_combined_npm_command() {
+        let executable = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester\.local\bin\codex.cmd")
+        } else {
+            PathBuf::from("/Users/tester/.local/bin/codex")
+        };
+
+        let action = AgentInstaller::codex_uninstall_action_for_path(&executable)
+            .expect("codex uninstall action");
+
+        match action {
+            AgentUninstallAction::Command { args, .. } => {
+                let script = args.last().expect("script arg");
+                assert!(script.contains("npm uninstall -g @openai/codex"));
+                assert!(script.contains(".local"));
+            }
+            AgentUninstallAction::RemovePaths { .. } => {
+                panic!("expected npm uninstall command for codex");
+            }
+        }
+    }
+
+    #[test]
+    fn gemini_local_bin_uninstall_uses_combined_npm_command() {
+        let executable = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester\.local\bin\gemini.cmd")
+        } else {
+            PathBuf::from("/Users/tester/.local/bin/gemini")
+        };
+
+        let action = AgentInstaller::gemini_uninstall_action_for_path(&executable)
+            .expect("gemini uninstall action");
+
+        match action {
+            AgentUninstallAction::Command { args, .. } => {
+                let script = args.last().expect("script arg");
+                assert!(script.contains("npm uninstall -g @google/gemini-cli"));
+                assert!(script.contains(".local"));
+            }
+            AgentUninstallAction::RemovePaths { .. } => {
+                panic!("expected npm uninstall command for gemini");
+            }
+        }
+    }
+
+    #[test]
     fn install_status_uses_persisted_cache_before_rescanning() {
         let dir = temp_dir("cache-hit");
         with_test_home(&dir, |home| {
@@ -449,9 +495,10 @@ impl AgentInstaller {
             });
         }
 
-        // .local/bin installation via npm --prefix (matches our install command)
+        // .local/bin installation via npm --prefix. The shared uninstall helper now
+        // removes both the default global install and the local-prefix install.
         if path_text.contains(".local/bin/codex") || path_text.contains(".local\\bin\\codex") {
-            return Some(Self::npm_prefix_local_uninstall_action("@openai/codex"));
+            return Some(Self::npm_uninstall_action("@openai/codex"));
         }
 
         // npm global installation (default for all platforms)
@@ -478,9 +525,10 @@ impl AgentInstaller {
             });
         }
 
-        // .local/bin installation via npm --prefix (matches our install command)
+        // .local/bin installation via npm --prefix. The shared uninstall helper now
+        // removes both the default global install and the local-prefix install.
         if path_text.contains(".local/bin/gemini") || path_text.contains(".local\\bin\\gemini") {
-            return Some(Self::npm_prefix_local_uninstall_action("@google/gemini-cli"));
+            return Some(Self::npm_uninstall_action("@google/gemini-cli"));
         }
 
         // npm global installation (default for all platforms)

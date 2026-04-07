@@ -631,6 +631,15 @@ export interface FsShowInFolderResponse {
   revealed: boolean
 }
 
+export interface FileInfoResponse {
+  path: string
+  size: number
+  mimeType: string
+  isBinary: boolean
+  isLarge: boolean
+  category: string
+}
+
 export interface FsSearchMatch {
   path: string
   line: number
@@ -738,7 +747,15 @@ export type AiConfigAgent = 'claude' | 'codex' | 'gemini'
 
 export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
 
+export type ClaudeApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses'
+
 export type ClaudeAuthScheme = 'anthropic_api_key' | 'anthropic_auth_token'
+
+export interface ClaudeModelOverrides {
+  haikuModel?: string | null
+  sonnetModel?: string | null
+  opusModel?: string | null
+}
 
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
 export interface AiAgentInstallStatus {
@@ -790,6 +807,8 @@ export interface ClaudeConfigSnapshot {
   secretRef?: string | null
   hasSecret: boolean
   updatedAtMs?: number | null
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface ClaudeSavedProviderSnapshot {
@@ -805,6 +824,8 @@ export interface ClaudeSavedProviderSnapshot {
   createdAtMs: number
   updatedAtMs: number
   lastAppliedAtMs: number
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface ClaudeSnapshot {
@@ -955,6 +976,8 @@ export interface ClaudeDraftInput {
   model?: string | null
   authScheme?: ClaudeAuthScheme | null
   apiKey?: string | null
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface CodexDraftInput {
@@ -989,6 +1012,8 @@ export interface ClaudeNormalizedDraft {
   authScheme?: ClaudeAuthScheme | null
   secretRef?: string | null
   hasSecret: boolean
+  apiFormat?: ClaudeApiFormat | null
+  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface CodexNormalizedDraft {
@@ -1909,6 +1934,9 @@ export const desktopApi = {
       defaultPath: defaultPath ?? null,
     })
   },
+  systemOpenUrl(url: string) {
+    return invokeCommand<void>('system_open_url', { url })
+  },
   systemGtoDoctor() {
     return invokeCommand<Record<string, unknown>>('system_gto_doctor')
   },
@@ -2100,6 +2128,9 @@ export const desktopApi = {
   },
   fsReadFile(workspaceId: string, path: string) {
     return invokeCommand<FsReadFileResponse>('fs_read_file', { workspaceId, path })
+  },
+  fsGetFileInfo(path: string) {
+    return invokeCommand<FileInfoResponse>('fs_get_file_info', { path })
   },
   fsReadFileFull(workspaceId: string, path: string, limitBytes?: number) {
     return invokeCommand<FsReadFileResponse>('fs_read_file_full', {
@@ -3002,6 +3033,22 @@ export const desktopApi = {
     const eventApi = await import('@tauri-apps/api/event')
     const unlisten = await eventApi.listen<GitUpdatedPayload>('git/updated', (event) =>
       onUpdated(event.payload),
+    )
+    return () => {
+      unlisten()
+    }
+  },
+  async listenInstallProgress(
+    agent: AiConfigAgent,
+    onMessage: (message: string) => void,
+  ): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlisten = await eventApi.listen<string>(`install-progress:${agent}`, (event) =>
+      onMessage(event.payload),
     )
     return () => {
       unlisten()

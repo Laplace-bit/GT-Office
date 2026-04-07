@@ -1,6 +1,6 @@
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import type { ChannelConnectorAccount } from '@shell/integration/desktop-api'
-import type { FeishuDomain, FeishuWizardForm } from './model'
+import type { FeishuWizardForm } from './model'
 
 interface FeishuAccountFormProps {
   locale: Locale
