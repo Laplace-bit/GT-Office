@@ -922,7 +922,7 @@ pub fn agent_create(
     )?;
     let refreshed = find_agent(&repo, &request.workspace_id, &agent.id)?;
     let _ =
-        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+        crate::local_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "agent": refreshed }))
 }
 
@@ -1000,7 +1000,7 @@ pub fn agent_update(
     }
     let refreshed = find_agent(&repo, &request.workspace_id, &agent.id)?;
     let _ =
-        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+        crate::local_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({ "agent": refreshed }))
 }
 
@@ -1073,7 +1073,7 @@ pub fn agent_delete(
         .delete_agent(&request.workspace_id, &request.agent_id)
         .map_err(to_command_error)?;
     let _ =
-        crate::mcp_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+        crate::local_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({
         "deleted": deleted,
         "bindingCleanup": binding_cleanup.as_ref().map(|cleanup| json!({

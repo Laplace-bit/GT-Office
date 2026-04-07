@@ -37,7 +37,7 @@
   - Extend `AgentDeleteRequest`/response, delegate cleanup work to `binding_cleanup`, and keep entry-layer logic thin.
 - `apps/desktop-tauri/src-tauri/src/commands/tool_adapter/mod.rs`
   - Delegate channel binding persistence/restore/write validation to the new helper modules and add dispatch-time target validation.
-- `apps/desktop-tauri/src-tauri/src/mcp_bridge.rs`
+- `apps/desktop-tauri/src-tauri/src/local_bridge.rs`
   - Accept the expanded `AgentDeleteRequest` payload for MCP bridge deletes.
 - `apps/desktop-tauri/src-tauri/src/tests/channel_adapter_tests.rs`
   - Add focused tests for stale direct-target validation and persisted-binding compatibility.
@@ -200,7 +200,7 @@ git commit -m "feat: add channel binding enabled state"
 - Modify: `apps/desktop-tauri/src-tauri/src/tests/channel_adapter_tests.rs`
 - Modify: `apps/desktop-tauri/src-tauri/src/commands/agent.rs`
 - Modify: `apps/desktop-tauri/src-tauri/src/commands/tool_adapter/mod.rs`
-- Modify: `apps/desktop-tauri/src-tauri/src/mcp_bridge.rs`
+- Modify: `apps/desktop-tauri/src-tauri/src/local_bridge.rs`
 - Create: `apps/desktop-tauri/src-tauri/src/commands/agent/binding_cleanup.rs`
 - Create: `apps/desktop-tauri/src-tauri/src/commands/tool_adapter/binding_store.rs`
 - Create: `apps/desktop-tauri/src-tauri/src/commands/tool_adapter/binding_target_validation.rs`
@@ -274,7 +274,7 @@ In `binding_cleanup.rs` add:
 - dependency discovery for direct-agent targets in one workspace
 - cleanup execution that mutates bindings before agent deletion
 
-Then update `agent.rs` and `mcp_bridge.rs`:
+Then update `agent.rs` and `local_bridge.rs`:
 
 - extend `AgentDeleteRequest`
 - return structured JSON with `deleted`, `blockingBindings`, and `bindingCleanup`
@@ -315,7 +315,7 @@ Expected: PASS
 Run:
 
 ```bash
-git add crates/vb-task/src/lib.rs crates/vb-task/tests/lib_tests.rs apps/desktop-tauri/src-tauri/src/commands/agent.rs apps/desktop-tauri/src-tauri/src/commands/agent/binding_cleanup.rs apps/desktop-tauri/src-tauri/src/commands/tool_adapter/mod.rs apps/desktop-tauri/src-tauri/src/commands/tool_adapter/binding_store.rs apps/desktop-tauri/src-tauri/src/commands/tool_adapter/binding_target_validation.rs apps/desktop-tauri/src-tauri/src/mcp_bridge.rs apps/desktop-tauri/src-tauri/src/tests/channel_adapter_tests.rs
+git add crates/vb-task/src/lib.rs crates/vb-task/tests/lib_tests.rs apps/desktop-tauri/src-tauri/src/commands/agent.rs apps/desktop-tauri/src-tauri/src/commands/agent/binding_cleanup.rs apps/desktop-tauri/src-tauri/src/commands/tool_adapter/mod.rs apps/desktop-tauri/src-tauri/src/commands/tool_adapter/binding_store.rs apps/desktop-tauri/src-tauri/src/commands/tool_adapter/binding_target_validation.rs apps/desktop-tauri/src-tauri/src/local_bridge.rs apps/desktop-tauri/src-tauri/src/tests/channel_adapter_tests.rs
 git commit -m "feat: protect channel bindings during agent deletion"
 ```
 

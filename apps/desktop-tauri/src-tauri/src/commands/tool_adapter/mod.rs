@@ -24,7 +24,7 @@ use vb_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelRouteBinding,
     ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
     ExternalInboundStatus, ExternalRouteResolution, TaskDispatchBatchRequest,
-    TaskDispatchProgressEvent, TaskDispatchStatus,
+    TaskDispatchProgressEvent, TaskDispatchStatus, TaskDispatchTargetResult,
 };
 
 use crate::{
@@ -1083,6 +1083,8 @@ fn spawn_structured_reply_jobs(
             workspace_id: workspace_id.to_string(),
             target_agent_id: result.target_agent_id.clone(),
             injected_input: Some(message.text.trim().to_string()).filter(|text| !text.is_empty()),
+            task_id: None,
+            reply_to_agent_id: None,
         };
 
         let Some(runtime) = runtimes_by_agent.get(&result.target_agent_id).cloned() else {
@@ -1771,6 +1773,8 @@ fn bind_external_reply_sessions(
             workspace_id: workspace_id.to_string(),
             target_agent_id: result.target_agent_id.clone(),
             injected_input: Some(message.text.trim().to_string()).filter(|text| !text.is_empty()),
+            task_id: None,
+            reply_to_agent_id: None,
         };
         if let Err(error) = state.bind_external_reply_session(session_id, target, now_ms()) {
             emit_external_error(app, trace_id, "CHANNEL_REPLY_BIND_FAILED", &error);
@@ -1999,6 +2003,75 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
             }
         }
     }
+
+    let task_candidates = state.take_task_reply_dispatch_candidates(
+        now_ms(),
+        EXTERNAL_REPLY_IDLE_FLUSH_MS,
+        EXTERNAL_REPLY_MAX_WAIT_MS,
+        EXTERNAL_REPLY_STREAM_THROTTLE_MS,
+    )?;
+    for candidate in task_candidates {
+        let Some(task_id) = candidate.target.task_id.as_deref() else {
+            continue;
+        };
+        let Some(reply_to_agent_id) = candidate
+            .target
+            .reply_to_agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let outcome = state.task_service.publish(&vb_task::ChannelPublishRequest {
+            workspace_id: candidate.target.workspace_id.clone(),
+            channel: vb_task::ChannelDescriptor {
+                kind: vb_task::ChannelKind::Direct,
+                id: reply_to_agent_id.to_string(),
+            },
+            sender_agent_id: Some(candidate.target.target_agent_id.clone()),
+            target_agent_ids: vec![reply_to_agent_id.to_string()],
+            message_type: vb_task::ChannelMessageType::Status,
+            payload: json!({
+                "taskId": task_id,
+                "detail": candidate.text,
+                "replySource": if candidate.body_source == crate::app_state::ExternalReplyBodySource::SessionLog {
+                    "auto_extracted_session_log"
+                } else if candidate.body_source == crate::app_state::ExternalReplyBodySource::RenderedScreen {
+                    "auto_extracted_rendered_screen"
+                } else {
+                    "auto_extracted_vt_fallback"
+                },
+            }),
+            idempotency_key: Some(format!("task-wait-auto-reply:{task_id}:{}", candidate.session_id)),
+        });
+        for event in &outcome.message_events {
+            let _ = app.emit("channel/message", event);
+        }
+        emit_channel_events(app, &outcome.ack_events, None);
+        if outcome.response.accepted_targets.is_empty()
+            || !outcome.response.failed_targets.is_empty()
+        {
+            warn!(
+                workspace_id = %candidate.target.workspace_id,
+                task_id = %task_id,
+                target_agent_id = %candidate.target.target_agent_id,
+                "task wait auto reply publish failed"
+            );
+            continue;
+        }
+        state.mark_external_reply_finalize_delivered(&candidate.session_id)?;
+        let _ = app.emit(
+            "task/wait_auto_reply",
+            json!({
+                "workspaceId": candidate.target.workspace_id,
+                "taskId": task_id,
+                "targetAgentId": candidate.target.target_agent_id,
+                "replySource": candidate.body_source.relay_mode(),
+                "confidence": candidate.body_source.confidence(),
+            }),
+        );
+    }
     Ok(())
 }
 
@@ -2021,6 +2094,76 @@ fn normalized_idempotency_key(message: &ExternalInboundMessage) -> String {
         message.peer_id.trim().to_lowercase(),
         message.message_id.trim().to_lowercase()
     )
+}
+
+pub(crate) fn bind_task_wait_reply_sessions(
+    state: &AppState,
+    request: &TaskDispatchBatchRequest,
+    results: &[TaskDispatchTargetResult],
+) {
+    let Some(sender_agent_id) = request
+        .sender
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+
+    let runtime_by_agent: HashMap<String, AgentRuntimeRegistration> = state
+        .task_service
+        .list_runtimes(Some(&request.workspace_id))
+        .into_iter()
+        .map(|runtime| (runtime.agent_id.clone(), runtime))
+        .collect();
+
+    for result in results {
+        if result.status != TaskDispatchStatus::Sent {
+            continue;
+        }
+        let Some(runtime) = runtime_by_agent.get(&result.target_agent_id) else {
+            continue;
+        };
+        let target = ExternalReplyRelayTarget {
+            trace_id: format!("task_wait:{}", result.task_id),
+            channel: "__task_wait__".to_string(),
+            account_id: String::new(),
+            peer_id: String::new(),
+            inbound_message_id: result.task_id.clone(),
+            workspace_id: request.workspace_id.clone(),
+            target_agent_id: result.target_agent_id.clone(),
+            injected_input: Some(request.markdown.trim().to_string())
+                .filter(|text| !text.is_empty()),
+            task_id: Some(result.task_id.clone()),
+            reply_to_agent_id: Some(sender_agent_id.to_string()),
+        };
+        if let Err(error) = state.bind_external_reply_session(&runtime.session_id, target, now_ms())
+        {
+            warn!(
+                workspace_id = %request.workspace_id,
+                target_agent_id = %result.target_agent_id,
+                session_id = %runtime.session_id,
+                error = %error,
+                "bind task wait reply session failed"
+            );
+            continue;
+        }
+        if let Err(error) = state.set_external_reply_session_runtime_metadata(
+            &runtime.session_id,
+            runtime.tool_kind,
+            runtime.resolved_cwd.as_deref(),
+            runtime.provider_session.as_ref(),
+        ) {
+            warn!(
+                workspace_id = %request.workspace_id,
+                target_agent_id = %result.target_agent_id,
+                session_id = %runtime.session_id,
+                error = %error,
+                "set task wait reply runtime metadata failed"
+            );
+        }
+    }
 }
 
 fn build_external_title(text: &str) -> String {
@@ -2751,7 +2894,9 @@ Approve this identity in Channel settings or switch policy to open."
             return Ok(response);
         }
     };
-    if let Err(error) = validate_binding_target_selector(&repo, &resolved_workspace_id, &route.target_agent_id) {
+    if let Err(error) =
+        validate_binding_target_selector(&repo, &resolved_workspace_id, &route.target_agent_id)
+    {
         let response = ExternalInboundResponse {
             trace_id: trace_id.clone(),
             status: ExternalInboundStatus::Failed,

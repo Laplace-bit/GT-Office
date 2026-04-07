@@ -8,7 +8,9 @@ use super::{
     ExternalReplyDispatchPhase, ExternalReplyRelaySession, ExternalReplyRelayTarget,
     ExternalTerminalKey, RenderedScreenSnapshot, RenderedScreenSnapshotRow,
 };
-use vb_task::AgentToolKind;
+use vb_task::{
+    AgentToolKind, ChannelDescriptor, ChannelKind, ChannelMessageType, ChannelPublishRequest,
+};
 
 fn now_ms_for_test(value: u64) -> u64 {
     value
@@ -329,6 +331,8 @@ fn external_reply_flush_is_single_shot_after_idle() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-1".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s1", target, now_ms_for_test(1_000))
@@ -377,6 +381,166 @@ fn external_reply_flush_is_single_shot_after_idle() {
 }
 
 #[test]
+fn task_wait_reply_finalize_candidate_is_generated_from_terminal_output() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_task_wait_1".to_string(),
+        channel: "__task_wait__".to_string(),
+        account_id: String::new(),
+        peer_id: String::new(),
+        inbound_message_id: "task-1".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-2".to_string(),
+        injected_input: Some("你好".to_string()),
+        task_id: Some("task-1".to_string()),
+        reply_to_agent_id: Some("agent-1".to_string()),
+    };
+    state
+        .bind_external_reply_session("s_task_wait_1", target, now_ms_for_test(1_000))
+        .expect("bind task session");
+    state
+        .append_external_reply_chunk("s_task_wait_1", b"terminal reply", now_ms_for_test(1_100))
+        .expect("append chunk");
+    state
+        .mark_external_reply_session_ended("s_task_wait_1", now_ms_for_test(1_200))
+        .expect("mark ended");
+
+    let candidates = state
+        .take_task_reply_dispatch_candidates(now_ms_for_test(2_500), 500, 10_000, 200)
+        .expect("take task reply candidates");
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].phase, ExternalReplyDispatchPhase::Finalize);
+    assert_eq!(candidates[0].text, "terminal reply");
+    assert_eq!(candidates[0].target.task_id.as_deref(), Some("task-1"));
+}
+
+#[test]
+fn task_wait_reply_candidate_is_suppressed_after_explicit_reply() {
+    let state = AppState::default();
+    state
+        .task_service
+        .register_runtime(vb_task::AgentRuntimeRegistration {
+            workspace_id: "ws".to_string(),
+            agent_id: "agent-1".to_string(),
+            station_id: "agent-1".to_string(),
+            role_key: None,
+            session_id: "session-agent-1".to_string(),
+            tool_kind: AgentToolKind::default(),
+            resolved_cwd: None,
+            submit_sequence: None,
+            provider_session: None,
+            online: true,
+        });
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_task_wait_2".to_string(),
+        channel: "__task_wait__".to_string(),
+        account_id: String::new(),
+        peer_id: String::new(),
+        inbound_message_id: "task-2".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-2".to_string(),
+        injected_input: Some("你好".to_string()),
+        task_id: Some("task-2".to_string()),
+        reply_to_agent_id: Some("agent-1".to_string()),
+    };
+    state
+        .bind_external_reply_session("s_task_wait_2", target, now_ms_for_test(1_000))
+        .expect("bind task session");
+    state
+        .append_external_reply_chunk("s_task_wait_2", b"terminal reply", now_ms_for_test(1_100))
+        .expect("append chunk");
+    let _ = state.task_service.publish(&ChannelPublishRequest {
+        workspace_id: "ws".to_string(),
+        channel: ChannelDescriptor {
+            kind: ChannelKind::Direct,
+            id: "agent-1".to_string(),
+        },
+        sender_agent_id: Some("agent-2".to_string()),
+        target_agent_ids: vec!["agent-1".to_string()],
+        message_type: ChannelMessageType::Status,
+        payload: serde_json::json!({
+            "taskId": "task-2",
+            "detail": "explicit reply",
+        }),
+        idempotency_key: None,
+    });
+
+    let candidates = state
+        .take_task_reply_dispatch_candidates(now_ms_for_test(2_500), 500, 10_000, 200)
+        .expect("take task reply candidates");
+    assert!(candidates.is_empty());
+}
+
+#[test]
+fn task_wait_state_exposes_interaction_required_prompt() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_task_wait_interaction".to_string(),
+        channel: "__task_wait__".to_string(),
+        account_id: String::new(),
+        peer_id: String::new(),
+        inbound_message_id: "task-3".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-2".to_string(),
+        injected_input: Some("你好".to_string()),
+        task_id: Some("task-3".to_string()),
+        reply_to_agent_id: Some("agent-1".to_string()),
+    };
+    state
+        .bind_external_reply_session("s_task_wait_3", target, now_ms_for_test(1_000))
+        .expect("bind task session");
+    state
+        .report_external_reply_rendered_screen(
+            "s_task_wait_3",
+            RenderedScreenSnapshot {
+                session_id: "s_task_wait_3".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 10,
+                base_y: 0,
+                cursor_row: Some(5),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› 你好".to_string(),
+                        trimmed_text: "› 你好".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "Allow this action?".to_string(),
+                        trimmed_text: "Allow this action?".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "1. Yes".to_string(),
+                        trimmed_text: "1. Yes".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "2. No".to_string(),
+                        trimmed_text: "2. No".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report rendered interaction");
+
+    let wait_state = state
+        .task_wait_state("ws", "task-3")
+        .expect("task wait state")
+        .expect("interaction state");
+    assert_eq!(wait_state.kind, "interaction_required");
+    assert_eq!(wait_state.task_id, "task-3");
+    assert_eq!(wait_state.target_agent_id, "agent-2");
+}
+
+#[test]
 fn external_reply_binding_kept_when_no_output_yet() {
     let state = AppState::default();
     let target = ExternalReplyRelayTarget {
@@ -388,6 +552,8 @@ fn external_reply_binding_kept_when_no_output_yet() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-2".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s2", target, now_ms_for_test(1_000))
@@ -433,6 +599,8 @@ fn external_reply_finalize_candidate_retries_until_marked_delivered() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-finalize-retry".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_finalize_retry", target, now_ms_for_test(1_000))
@@ -488,6 +656,8 @@ fn external_reply_preview_failure_resets_throttle_for_retry() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-preview-retry".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_preview_retry", target, now_ms_for_test(1_000))
@@ -533,6 +703,8 @@ fn external_reply_dispatch_emits_preview_then_finalize() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-3".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s3", target, now_ms_for_test(1_000))
@@ -585,6 +757,8 @@ fn session_log_finalize_keeps_full_text_when_preview_message_will_be_edited() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-telegram-session-log-full".to_string(),
         injected_input: Some("纽约天气如何".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session(
@@ -672,6 +846,8 @@ fn external_reply_dispatch_skips_preview_for_feishu_until_finalize() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-feishu".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_feishu_finalize", target, now_ms_for_test(1_000))
@@ -870,6 +1046,8 @@ fn vt100_parser_handles_cross_chunk_cr_overwrite() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-vt100".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_vt100_1", target, now_ms_for_test(1_000))
@@ -916,6 +1094,8 @@ fn vt100_parser_handles_tui_status_bar_redraw() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-vt100".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_vt100_2", target, now_ms_for_test(1_000))
@@ -976,6 +1156,8 @@ fn vt100_parser_handles_progress_spinner_across_chunks() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-vt100".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_vt100_3", target, now_ms_for_test(1_000))
@@ -1031,6 +1213,8 @@ fn vt100_parser_preserves_scrollback_content() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-vt100".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_vt100_4", target, now_ms_for_test(1_000))
@@ -1080,6 +1264,8 @@ fn vt100_parser_handles_cjk_content() {
         workspace_id: "ws".to_string(),
         target_agent_id: "agent-vt100".to_string(),
         injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_vt100_5", target, now_ms_for_test(1_000))
@@ -1377,6 +1563,8 @@ fn rendered_screen_reply_snapshot_is_used_for_preview() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-1".to_string(),
         injected_input: Some("please fix this".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -1462,6 +1650,8 @@ fn rendered_screen_reply_snapshot_drops_spinner_and_progress_noise() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-2".to_string(),
         injected_input: Some("status?".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -1536,6 +1726,8 @@ fn rendered_screen_empty_reply_falls_back_to_vt_text() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-vt".to_string(),
         injected_input: Some("现在几点".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -2039,6 +2231,8 @@ fn rendered_screen_reply_session_merges_scrolled_reply_fragments() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-5".to_string(),
         injected_input: Some("这个项目干啥的".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -2201,6 +2395,8 @@ fn permission_response_input_does_not_replace_active_reply_session() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-6".to_string(),
         injected_input: Some("这个项目干啥的".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -2259,6 +2455,8 @@ fn permission_response_input_does_not_replace_active_reply_session() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-6".to_string(),
         injected_input: Some("2".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_rendered_7", control_target, now_ms_for_test(1_200))
@@ -3101,6 +3299,8 @@ fn menu_response_input_does_not_replace_active_reply_session() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-menu-1".to_string(),
         injected_input: Some("/skill".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -3175,6 +3375,8 @@ fn menu_response_input_does_not_replace_active_reply_session() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-menu-1".to_string(),
         injected_input: Some("2".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
     state
         .bind_external_reply_session("s_rendered_menu_2", control_target, now_ms_for_test(1_150))
@@ -3244,6 +3446,8 @@ fn rendered_screen_reply_does_not_finalize_mid_response_without_ready_prompt() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-8".to_string(),
         injected_input: Some("写一段长文".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -3405,6 +3609,8 @@ fn codex_bound_reply_session_emits_candidate_after_rendered_snapshot() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-codex-1".to_string(),
         injected_input: Some("你好".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -3509,6 +3715,8 @@ fn rendered_reply_finalizes_after_promptless_idle_fallback() {
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-codex-idle-1".to_string(),
         injected_input: Some("帮我总结一下".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state
@@ -3586,6 +3794,8 @@ fn external_reply_finalize_prefers_structured_session_log_over_rendered_text() {
             workspace_id: "ws-1".to_string(),
             target_agent_id: "agent-01".to_string(),
             injected_input: Some("hi".to_string()),
+            task_id: None,
+            reply_to_agent_id: None,
         },
         tool_kind: AgentToolKind::Codex,
         resolved_cwd: None,
@@ -3632,6 +3842,8 @@ fn bound_reply_session_finalizes_with_pty_fallback_when_rendered_extract_is_empt
         workspace_id: "ws-1".to_string(),
         target_agent_id: "agent-fallback-1".to_string(),
         injected_input: Some("帮我总结一下".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
     };
 
     state

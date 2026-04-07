@@ -90,6 +90,15 @@ pub struct TaskDispatchBatchResponse {
     pub results: Vec<TaskDispatchTargetResult>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskThreadState {
+    Open,
+    Replied,
+    HandedOver,
+    Closed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChannelKind {
@@ -98,7 +107,7 @@ pub enum ChannelKind {
     Broadcast,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelMessageType {
     TaskInstruction,
@@ -365,6 +374,59 @@ pub struct ChannelListMessagesResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TaskListThreadsRequest {
+    pub workspace_id: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskThreadSummary {
+    pub task_id: String,
+    pub title: String,
+    pub state: TaskThreadState,
+    pub root_message_id: String,
+    pub latest_message_id: String,
+    #[serde(rename = "latestMessageType")]
+    pub latest_message_type: ChannelMessageType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_sender_agent_id: Option<String>,
+    pub latest_target_agent_id: String,
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskThreadDetail {
+    pub summary: TaskThreadSummary,
+    pub messages: Vec<ChannelMessageEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskListThreadsResponse {
+    pub threads: Vec<TaskThreadSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskGetThreadRequest {
+    pub workspace_id: String,
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskGetThreadResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<TaskThreadDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskDispatchBatchOutcome {
     pub response: TaskDispatchBatchResponse,
     pub progress_events: Vec<TaskDispatchProgressEvent>,
@@ -450,6 +512,71 @@ impl TaskService {
         messages
     }
 
+    pub fn list_task_threads(
+        &self,
+        workspace_id: &str,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Vec<TaskThreadSummary> {
+        let guard = match self.state.read() {
+            Ok(guard) => guard,
+            Err(_) => return Vec::new(),
+        };
+        let limit = limit.max(1);
+        let agent_id = agent_id.map(str::trim).filter(|value| !value.is_empty());
+
+        let mut grouped: HashMap<String, Vec<ChannelMessageEvent>> = HashMap::new();
+        for message in guard
+            .channel_messages
+            .iter()
+            .filter(|message| message.workspace_id == workspace_id)
+        {
+            let Some(task_id) = message_task_id(message) else {
+                continue;
+            };
+            grouped
+                .entry(task_id.to_string())
+                .or_default()
+                .push(message.clone());
+        }
+
+        let mut threads = grouped
+            .into_iter()
+            .filter_map(|(task_id, messages)| {
+                if agent_id
+                    .map(|agent_id| messages.iter().any(|message| message_involves_agent(message, agent_id)))
+                    .unwrap_or(true)
+                {
+                    build_task_thread_summary(&task_id, &messages)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        threads.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+        threads.truncate(limit);
+        threads
+    }
+
+    pub fn get_task_thread(&self, workspace_id: &str, task_id: &str) -> Option<TaskThreadDetail> {
+        let guard = self.state.read().ok()?;
+        let normalized_task_id = task_id.trim();
+        if normalized_task_id.is_empty() {
+            return None;
+        }
+
+        let messages = guard
+            .channel_messages
+            .iter()
+            .filter(|message| message.workspace_id == workspace_id)
+            .filter(|message| message_task_id(message) == Some(normalized_task_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let summary = build_task_thread_summary(normalized_task_id, &messages)?;
+        Some(TaskThreadDetail { summary, messages })
+    }
+
     pub fn register_runtime(&self, registration: AgentRuntimeRegistration) -> bool {
         let key = runtime_key(&registration.workspace_id, &registration.agent_id);
         let mut guard = match self.state.write() {
@@ -458,6 +585,11 @@ impl TaskService {
         };
         if !registration.online {
             guard.runtimes.remove(&key);
+            purge_agent_messages_locked(
+                &mut guard,
+                registration.workspace_id.as_str(),
+                registration.agent_id.as_str(),
+            );
             return false;
         }
         debug!(
@@ -498,7 +630,11 @@ impl TaskService {
             Ok(guard) => guard,
             Err(_) => return false,
         };
-        guard.runtimes.remove(&key).is_some()
+        let removed = guard.runtimes.remove(&key).is_some();
+        if removed {
+            purge_agent_messages_locked(&mut guard, workspace_id, agent_id);
+        }
+        removed
     }
 
     pub fn list_runtimes(&self, workspace_id: Option<&str>) -> Vec<AgentRuntimeRegistration> {
@@ -1107,6 +1243,61 @@ fn runtime_key(workspace_id: &str, agent_id: &str) -> String {
     format!("{workspace_id}:{agent_id}")
 }
 
+fn purge_agent_messages_locked(guard: &mut TaskServiceState, workspace_id: &str, agent_id: &str) {
+    guard.channel_messages.retain(|message| {
+        if message.workspace_id != workspace_id {
+            return true;
+        }
+        message.target_agent_id != agent_id
+            && message.sender_agent_id.as_deref() != Some(agent_id)
+    });
+}
+
+fn message_task_id(message: &ChannelMessageEvent) -> Option<&str> {
+    message
+        .payload
+        .get("taskId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn message_involves_agent(message: &ChannelMessageEvent, agent_id: &str) -> bool {
+    message.target_agent_id == agent_id || message.sender_agent_id.as_deref() == Some(agent_id)
+}
+
+fn build_task_thread_summary(task_id: &str, messages: &[ChannelMessageEvent]) -> Option<TaskThreadSummary> {
+    let first = messages.first()?;
+    let latest = messages.last()?;
+    Some(TaskThreadSummary {
+        task_id: task_id.to_string(),
+        title: task_thread_title(messages).unwrap_or_else(|| sanitize_title(task_id)),
+        state: task_thread_state(latest.message_type.clone()),
+        root_message_id: first.message_id.clone(),
+        latest_message_id: latest.message_id.clone(),
+        latest_message_type: latest.message_type.clone(),
+        latest_sender_agent_id: latest.sender_agent_id.clone(),
+        latest_target_agent_id: latest.target_agent_id.clone(),
+        updated_at_ms: latest.ts_ms,
+    })
+}
+
+fn task_thread_title(messages: &[ChannelMessageEvent]) -> Option<String> {
+    messages
+        .iter()
+        .filter_map(|message| message.payload.get("title").and_then(Value::as_str))
+        .map(sanitize_title)
+        .find(|title| !title.trim().is_empty())
+}
+
+fn task_thread_state(message_type: ChannelMessageType) -> TaskThreadState {
+    match message_type {
+        ChannelMessageType::TaskInstruction => TaskThreadState::Open,
+        ChannelMessageType::Status => TaskThreadState::Replied,
+        ChannelMessageType::Handover => TaskThreadState::HandedOver,
+    }
+}
+
 fn normalize_token(value: &str) -> String {
     value.trim().to_lowercase()
 }
@@ -1379,7 +1570,7 @@ fn build_managed_agent_reply_instruction(
         .filter(|value| !value.is_empty())?;
 
     Some(format!(
-        "## GT Office MCP Reply\n\n收到后不要只在你自己的终端里打印回复。\n\n如果你要回复当前发送方，请直接使用 GT Office MCP：\n- tool: `gto_report_status`\n- workspace_id: `{workspace_id}`\n- target_agent_ids: `[\"{sender_agent_id}\"]`\n- task_id: `{task_id}`\n- status: `reply`\n- detail: 写入你真正想回复给发送方的正文\n\n如果你是在汇总完成情况、阻塞和下一步，请改用 `gto_handover`，并把同一个 `task_id` 带回去。\n",
+        "## GT Office Reply\n\nDo not reply only inside your own terminal.\n\nIf you need to reply to the original sender, use `gto` directly:\n- `gto agent reply-status --task-id {task_id} --target-agent-id {sender_agent_id} --detail \\\"<your reply text>\\\" --workspace-id {workspace_id} --json`\n\nIf you need to return a completion summary, blockers, or next steps, use:\n- `gto agent handover --task-id {task_id} --target-agent-id {sender_agent_id} --summary \\\"<summary>\\\" --workspace-id {workspace_id} --json`\n",
         workspace_id = request.workspace_id,
         sender_agent_id = sender_agent_id,
         task_id = task_id,

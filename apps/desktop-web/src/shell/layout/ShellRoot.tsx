@@ -51,6 +51,7 @@ import {
   resolveStationSessionRebindCleanup,
   retainSessionOwnedRestoreState,
   resolveClosedStationSessionCleanup,
+  resolveClosedStationRuntimeRegistrationCleanup,
   resolveDroppedStationRuntimeCleanup,
   resolveDroppedStationSessionCleanup,
   resolveStationRuntimeRegistrationCleanup,
@@ -1901,6 +1902,18 @@ export function ShellRoot() {
                   payload.sessionId,
                 )
               : null
+          const closedRuntimeRegistrationCleanup =
+            payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed'
+              ? resolveClosedStationRuntimeRegistrationCleanup(
+                  registeredAgentRuntimeRef.current[stationId]
+                    ? {
+                        workspaceId: registeredAgentRuntimeRef.current[stationId].workspaceId,
+                        sessionId: registeredAgentRuntimeRef.current[stationId].sessionId,
+                      }
+                    : null,
+                  payload.sessionId,
+                )
+              : null
           if (nextClosedRuntime) {
             setStationTerminalState(stationId, nextClosedRuntime)
           } else if (payload.to !== 'exited' && payload.to !== 'killed' && payload.to !== 'failed') {
@@ -1918,6 +1931,13 @@ export function ShellRoot() {
             if (closedSessionCleanup) {
               stationTerminalInputControllerRef.current?.clear(stationId)
               delete stationSubmitSequenceRef.current[stationId]
+            }
+            if (closedRuntimeRegistrationCleanup) {
+              void desktopApi
+                .agentRuntimeUnregister(closedRuntimeRegistrationCleanup.workspaceId, stationId)
+                .catch(() => {
+                  // Runtime sync effect will retry from the current station ownership.
+                })
             }
           }
         },

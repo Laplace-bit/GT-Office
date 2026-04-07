@@ -6,7 +6,7 @@ mod connectors;
 mod daemon_bridge;
 mod external_tool_profiles;
 mod filesystem_watcher;
-mod mcp_bridge;
+mod local_bridge;
 mod process_utils;
 mod terminal_debug;
 
@@ -60,7 +60,7 @@ pub fn run() {
             {
                 warn!(error = %error, "restore persisted channel state failed");
             }
-            mcp_bridge::spawn(app_handle.clone(), state.inner().clone());
+            local_bridge::spawn(app_handle.clone(), state.inner().clone());
             channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
             connectors::feishu::websocket::spawn_supervisor(app_handle.clone(), state.inner().clone());
             connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
@@ -155,11 +155,8 @@ pub fn run() {
             agent::agent_delete,
             agent::agent_prompt_read,
             agentic_one::agent_install_status,
-            agentic_one::agent_mcp_install_status,
             agentic_one::install_agent,
             agentic_one::uninstall_agent,
-            agentic_one::install_agent_mcp,
-            agentic_one::uninstall_agent_mcp,
             file_explorer::fs_list_dir,
             file_explorer::fs_read_file,
             file_explorer::fs_read_file_full,
@@ -219,6 +216,8 @@ pub fn run() {
             tool_adapter::tool_profiles::tool_validate_profile,
             task_center::task_list,
             task_center::task_dispatch_batch,
+            task_center::task_list_threads,
+            task_center::task_get_thread,
             task_center::channel_publish,
             task_center::channel_list_messages,
             tool_adapter::channel_adapter_status,
@@ -245,6 +244,12 @@ pub fn run() {
             keybindings::keymap_list,
             keybindings::keymap_update_binding,
             keybindings::keymap_reset,
+            system::system_gto_cli_status,
+            system::system_gto_cli_install,
+            system::system_gto_cli_uninstall,
+            system::system_gto_skill_status,
+            system::system_gto_skill_install,
+            system::system_gto_skill_uninstall,
             settings::ai_config::ai_config_read_snapshot,
             settings::ai_config::ai_config_preview_patch,
             settings::ai_config::ai_config_apply_patch,

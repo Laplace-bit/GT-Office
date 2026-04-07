@@ -4,11 +4,10 @@ use super::{
     build_terminal_snapshot_response, build_terminal_visibility_response,
     build_terminal_write_response, parse_cwd_mode, resolve_terminal_submit_sequence,
 };
-use crate::terminal_debug::dev_log::{
-    build_frontend_focus_log_entry, should_write_terminal_debug_log_for_build,
-    TerminalDebugLogKind,
-};
 use crate::commands::task_center::build_terminal_submit_chunks;
+use crate::terminal_debug::dev_log::{
+    build_frontend_focus_log_entry, should_write_terminal_debug_log_for_build, TerminalDebugLogKind,
+};
 use vb_abstractions::TerminalCwdMode;
 
 #[test]

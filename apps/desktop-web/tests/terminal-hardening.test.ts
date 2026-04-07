@@ -11,6 +11,7 @@ import {
   hydrateSettlesSessionBinding,
   patchTouchesSessionBinding,
   resolveClosedStationSessionCleanup,
+  resolveClosedStationRuntimeRegistrationCleanup,
   resolveDroppedStationSessionCleanup,
   resolveDroppedStationRuntimeCleanup,
   resolveStationRuntimeRegistrationCleanup,
@@ -93,6 +94,35 @@ test('activity signal maps unread deltas into stable speed levels', () => {
   assert.equal(resolveStationActivitySignalLevelFromDelta(5), 'medium')
   assert.equal(resolveStationActivitySignalLevelFromDelta(6), 'high')
   assert.equal(resolveStationActivitySignalLevelFromDelta(14), 'high')
+})
+
+test('closed session cleanup unregisters runtime only when the closed session still owns the registration', () => {
+  assert.deepEqual(
+    resolveClosedStationRuntimeRegistrationCleanup(
+      {
+        workspaceId: 'ws-1',
+        sessionId: 'session-1',
+      },
+      'session-1',
+    ),
+    {
+      workspaceId: 'ws-1',
+      sessionId: 'session-1',
+    },
+  )
+
+  assert.equal(
+    resolveClosedStationRuntimeRegistrationCleanup(
+      {
+        workspaceId: 'ws-1',
+        sessionId: 'session-2',
+      },
+      'session-1',
+    ),
+    null,
+  )
+
+  assert.equal(resolveClosedStationRuntimeRegistrationCleanup(null, 'session-1'), null)
 })
 
 test('activity signal exposes consistent decay timeouts by speed level', () => {

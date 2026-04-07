@@ -40,7 +40,7 @@ test('normalizes about app info with safe defaults', () => {
 test('builds localized about sections from runtime metadata', () => {
   const sections = buildSettingsAboutSections('en-US', {
     name: 'GT Office',
-    version: '0.1.3',
+    version: '0.1.4',
     identifier: 'dev.gtoffice.app',
     tauriVersion: '2.10.1',
     runtime: 'tauri',
@@ -51,7 +51,7 @@ test('builds localized about sections from runtime metadata', () => {
     ['identity', 'footprint', 'runtime'],
   )
   assert.equal(sections[0]?.items[0]?.value, 'GT Office')
-  assert.equal(sections[0]?.items[1]?.value, '0.1.3')
+  assert.equal(sections[0]?.items[1]?.value, '0.1.4')
   assert.equal(sections[1]?.items[0]?.value, '.gtoffice/config.json')
   assert.equal(sections[2]?.items[0]?.value, 'Desktop (Tauri)')
   assert.equal(sections[2]?.items[1]?.value, '2.10.1')

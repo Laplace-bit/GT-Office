@@ -5,6 +5,7 @@ use std::{
     env, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
@@ -21,6 +22,7 @@ use vb_storage::{SqliteAgentRepository, SqliteStorage};
 use vb_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
     ChannelPublishRequest, TaskDispatchBatchRequest, TaskDispatchProgressEvent,
+    TaskGetThreadRequest, TaskListThreadsRequest,
 };
 
 use crate::app_state::AppState;
@@ -42,6 +44,18 @@ const MCP_SIDECAR_NAME: &str = "gto-agent-mcp-sidecar";
 struct McpCommandSpec {
     command: String,
     args: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LocalBridgeRuntimeState {
+    addr: SocketAddr,
+    token: String,
+    mcp_command: Option<McpCommandSpec>,
+}
+
+fn bridge_runtime_state() -> &'static Mutex<Option<LocalBridgeRuntimeState>> {
+    static STATE: OnceLock<Mutex<Option<LocalBridgeRuntimeState>>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(None))
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,7 +103,10 @@ impl BridgeResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{env, fs};
+    use uuid::Uuid;
     use vb_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentState, RoleStatus};
+    use vb_task::{DispatchSender, DispatchSenderType};
 
     #[test]
     fn bridge_response_serializes_stable_success_envelope() {
@@ -108,13 +125,13 @@ mod tests {
     fn bridge_response_serializes_stable_failure_envelope() {
         let response = BridgeResponse::failure(
             "req-1".to_string(),
-            BridgeError::new("MCP_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
+            BridgeError::new("LOCAL_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
         );
         let value = serde_json::to_value(response).expect("bridge response should serialize");
 
         assert_eq!(value["ok"], json!(false));
         assert_eq!(value["data"], Value::Null);
-        assert_eq!(value["error"]["code"], json!("MCP_BRIDGE_AUTH_FAILED"));
+        assert_eq!(value["error"]["code"], json!("LOCAL_BRIDGE_AUTH_FAILED"));
         assert_eq!(value["error"]["message"], json!("invalid bridge token"));
         assert!(value["traceId"]
             .as_str()
@@ -209,7 +226,7 @@ mod tests {
         let error = require_bootstrap_role_key("agent_unknown", None)
             .expect_err("missing role key should fail");
 
-        assert_eq!(error.code, "MCP_BRIDGE_INVALID_PARAMS");
+        assert_eq!(error.code, "LOCAL_BRIDGE_INVALID_PARAMS");
         assert_eq!(
             error.message,
             "bootstrap roleKey is required for target: agent_unknown"
@@ -226,12 +243,174 @@ mod tests {
         assert_eq!(payload.details, None);
     }
 
+    fn temp_workspace_root(label: &str) -> std::path::PathBuf {
+        let root = env::temp_dir().join(format!("gto-mcp-bridge-{label}-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create temp workspace");
+        root
+    }
+
+    #[test]
+    fn list_task_threads_returns_task_summaries_from_task_service() {
+        let state = AppState::default();
+        state
+            .task_service
+            .register_runtime(AgentRuntimeRegistration {
+                workspace_id: "ws-1".to_string(),
+                agent_id: "manager".to_string(),
+                station_id: "manager".to_string(),
+                role_key: None,
+                session_id: "ts-manager".to_string(),
+                tool_kind: AgentToolKind::default(),
+                resolved_cwd: None,
+                submit_sequence: None,
+                provider_session: None,
+                online: true,
+            });
+        state
+            .task_service
+            .register_runtime(AgentRuntimeRegistration {
+                workspace_id: "ws-1".to_string(),
+                agent_id: "worker".to_string(),
+                station_id: "worker".to_string(),
+                role_key: None,
+                session_id: "ts-worker".to_string(),
+                tool_kind: AgentToolKind::default(),
+                resolved_cwd: None,
+                submit_sequence: None,
+                provider_session: None,
+                online: true,
+            });
+
+        let workspace_root = temp_workspace_root("threads");
+        let outcome = state.task_service.dispatch_batch(
+            &TaskDispatchBatchRequest {
+                workspace_id: "ws-1".to_string(),
+                sender: DispatchSender {
+                    sender_type: DispatchSenderType::Agent,
+                    agent_id: Some("manager".to_string()),
+                },
+                targets: vec!["worker".to_string()],
+                title: "Review migration".to_string(),
+                markdown: "Please review the migration.".to_string(),
+                attachments: vec![],
+                submit_sequences: BTreeMap::new().into_iter().collect(),
+            },
+            &workspace_root,
+            |_, _, _| Ok(()),
+        );
+
+        let value = list_task_threads(
+            &state,
+            json!({
+                "workspaceId": "ws-1",
+                "agentId": "worker",
+                "limit": 20
+            }),
+        )
+        .expect("task threads should serialize");
+
+        assert_eq!(
+            value["threads"][0]["taskId"],
+            json!(outcome.response.results[0].task_id)
+        );
+        assert_eq!(value["threads"][0]["title"], json!("Review migration"));
+        assert_eq!(value["threads"][0]["state"], json!("open"));
+
+        let _ = fs::remove_dir_all(workspace_root);
+    }
+
+    #[test]
+    fn get_task_thread_returns_full_thread_payload() {
+        let state = AppState::default();
+        state
+            .task_service
+            .register_runtime(AgentRuntimeRegistration {
+                workspace_id: "ws-1".to_string(),
+                agent_id: "manager".to_string(),
+                station_id: "manager".to_string(),
+                role_key: None,
+                session_id: "ts-manager".to_string(),
+                tool_kind: AgentToolKind::default(),
+                resolved_cwd: None,
+                submit_sequence: None,
+                provider_session: None,
+                online: true,
+            });
+        state
+            .task_service
+            .register_runtime(AgentRuntimeRegistration {
+                workspace_id: "ws-1".to_string(),
+                agent_id: "worker".to_string(),
+                station_id: "worker".to_string(),
+                role_key: None,
+                session_id: "ts-worker".to_string(),
+                tool_kind: AgentToolKind::default(),
+                resolved_cwd: None,
+                submit_sequence: None,
+                provider_session: None,
+                online: true,
+            });
+
+        let workspace_root = temp_workspace_root("thread-detail");
+        let outcome = state.task_service.dispatch_batch(
+            &TaskDispatchBatchRequest {
+                workspace_id: "ws-1".to_string(),
+                sender: DispatchSender {
+                    sender_type: DispatchSenderType::Agent,
+                    agent_id: Some("manager".to_string()),
+                },
+                targets: vec!["worker".to_string()],
+                title: "Need handover".to_string(),
+                markdown: "Prepare a handover.".to_string(),
+                attachments: vec![],
+                submit_sequences: BTreeMap::new().into_iter().collect(),
+            },
+            &workspace_root,
+            |_, _, _| Ok(()),
+        );
+        let task_id = outcome.response.results[0].task_id.clone();
+        let _ = state.task_service.publish(&ChannelPublishRequest {
+            workspace_id: "ws-1".to_string(),
+            channel: vb_task::ChannelDescriptor {
+                kind: vb_task::ChannelKind::Direct,
+                id: "manager".to_string(),
+            },
+            sender_agent_id: Some("worker".to_string()),
+            target_agent_ids: vec!["manager".to_string()],
+            message_type: vb_task::ChannelMessageType::Status,
+            payload: json!({
+                "taskId": task_id,
+                "detail": "handover in progress"
+            }),
+            idempotency_key: None,
+        });
+
+        let value = get_task_thread(
+            &state,
+            json!({
+                "workspaceId": "ws-1",
+                "taskId": task_id
+            }),
+        )
+        .expect("thread should serialize");
+
+        assert_eq!(value["thread"]["summary"]["state"], json!("replied"));
+        assert_eq!(
+            value["thread"]["messages"]
+                .as_array()
+                .map(|items| items.len()),
+            Some(2)
+        );
+
+        let _ = fs::remove_dir_all(workspace_root);
+    }
+
     #[test]
     fn map_command_error_falls_back_to_bridge_internal_for_unstructured_errors() {
         let error = map_command_error("database unavailable".to_string());
         let payload = error.payload();
 
-        assert_eq!(payload.code, "MCP_BRIDGE_INTERNAL");
+        assert_eq!(payload.code, "LOCAL_BRIDGE_INTERNAL");
         assert_eq!(payload.message, "database unavailable");
         assert_eq!(payload.details, None);
     }
@@ -328,7 +507,7 @@ impl BridgeError {
 
     fn with_code(code: String, message: impl Into<String>) -> Self {
         Self {
-            code: "MCP_BRIDGE_INTERNAL",
+            code: "LOCAL_BRIDGE_INTERNAL",
             message: message.into(),
             details: Some(json!({ "bridgeErrorCode": code })),
         }
@@ -375,7 +554,7 @@ fn parse_command_error(error: &str) -> Option<(String, String)> {
 fn map_command_error(error: String) -> BridgeError {
     match parse_command_error(&error) {
         Some((code, message)) => BridgeError::with_code(code, message),
-        None => BridgeError::new("MCP_BRIDGE_INTERNAL", error),
+        None => BridgeError::new("LOCAL_BRIDGE_INTERNAL", error),
     }
 }
 
@@ -384,9 +563,9 @@ fn seed_agent_defaults(
     workspace_id: &str,
 ) -> Result<(), BridgeError> {
     repo.seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
     repo.seed_defaults(workspace_id)
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))
 }
 
 pub fn spawn(app: AppHandle, state: AppState) {
@@ -400,22 +579,29 @@ pub fn spawn(app: AppHandle, state: AppState) {
 async fn run_bridge(app: AppHandle, state: AppState) -> Result<(), String> {
     let listener = TcpListener::bind((BRIDGE_HOST, 0))
         .await
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: bind failed: {error}"))?;
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: bind failed: {error}"))?;
     let addr = listener
         .local_addr()
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: local_addr failed: {error}"))?;
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: local_addr failed: {error}"))?;
     let token = uuid::Uuid::new_v4().to_string();
     let mcp_command = resolve_mcp_command(&app);
+    if let Ok(mut runtime_state) = bridge_runtime_state().lock() {
+        *runtime_state = Some(LocalBridgeRuntimeState {
+            addr,
+            token: token.clone(),
+            mcp_command: mcp_command.clone(),
+        });
+    }
 
     write_runtime_file(&addr, &token, mcp_command.as_ref())
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: write runtime failed: {error}"))?;
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: write runtime failed: {error}"))?;
     info!(addr = %addr, "mcp bridge listening");
 
     loop {
         let (stream, remote) = listener
             .accept()
             .await
-            .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: accept failed: {error}"))?;
+            .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: accept failed: {error}"))?;
 
         if !remote.ip().is_loopback() {
             warn!(remote = %remote, "rejected non-loopback mcp bridge client");
@@ -445,7 +631,7 @@ async fn handle_client(
     while let Some(line) = lines
         .next_line()
         .await
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: read failed: {error}"))?
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: read failed: {error}"))?
     {
         if line.trim().is_empty() {
             continue;
@@ -457,7 +643,7 @@ async fn handle_client(
                 let response = BridgeResponse::failure(
                     "unknown".to_string(),
                     BridgeError::new(
-                        "MCP_BRIDGE_INVALID_REQUEST",
+                        "LOCAL_BRIDGE_INVALID_REQUEST",
                         format!("invalid request json: {error}"),
                     )
                     .payload(),
@@ -470,7 +656,7 @@ async fn handle_client(
         let response = if request.token != expected_token {
             BridgeResponse::failure(
                 request.id,
-                BridgeError::new("MCP_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
+                BridgeError::new("LOCAL_BRIDGE_AUTH_FAILED", "invalid bridge token").payload(),
             )
         } else {
             match handle_request(app, state, &request).await {
@@ -490,12 +676,12 @@ async fn write_response(
     response: &BridgeResponse,
 ) -> Result<(), String> {
     let mut payload = serde_json::to_vec(response)
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: encode failed: {error}"))?;
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: encode failed: {error}"))?;
     payload.push(b'\n');
     writer
         .write_all(&payload)
         .await
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: write failed: {error}"))
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: write failed: {error}"))
 }
 
 async fn handle_request(
@@ -521,10 +707,12 @@ async fn handle_request(
         "agent.prompt_read" => bridge_agent_prompt_read(app, state, request.params.clone()),
         "dev.bootstrap_agents" => dev_bootstrap_agents(app, state, request.params.clone()),
         "task.dispatch_batch" => dispatch_batch(app, state, request.params.clone()),
+        "task.list_threads" => list_task_threads(state, request.params.clone()),
+        "task.get_thread" => get_task_thread(state, request.params.clone()),
         "channel.publish" => publish_channel(app, state, request.params.clone()),
         "channel.list_messages" => list_channel_messages(state, request.params.clone()),
         method => Err(BridgeError::new(
-            "MCP_BRIDGE_METHOD_UNSUPPORTED",
+            "LOCAL_BRIDGE_METHOD_UNSUPPORTED",
             format!("unsupported method: {method}"),
         )),
     }
@@ -543,7 +731,7 @@ fn bridge_agent_role_list(
 
     let request: WorkspaceRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.role_list params invalid: {error}"),
         )
     })?;
@@ -559,7 +747,7 @@ fn bridge_agent_role_save(
 ) -> Result<Value, BridgeError> {
     let request: AgentRoleSaveRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.role_save params invalid: {error}"),
         )
     })?;
@@ -575,7 +763,7 @@ fn bridge_agent_role_delete(
 ) -> Result<Value, BridgeError> {
     let request: AgentRoleDeleteRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.role_delete params invalid: {error}"),
         )
     })?;
@@ -597,7 +785,7 @@ fn bridge_agent_list(
 
     let request: WorkspaceRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.list params invalid: {error}"),
         )
     })?;
@@ -613,7 +801,7 @@ fn bridge_agent_create(
 ) -> Result<Value, BridgeError> {
     let request: AgentCreateRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.create params invalid: {error}"),
         )
     })?;
@@ -629,7 +817,7 @@ fn bridge_agent_update(
 ) -> Result<Value, BridgeError> {
     let request: AgentUpdateRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.update params invalid: {error}"),
         )
     })?;
@@ -645,7 +833,7 @@ fn bridge_agent_delete(
 ) -> Result<Value, BridgeError> {
     let request: AgentDeleteRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.delete params invalid: {error}"),
         )
     })?;
@@ -661,7 +849,7 @@ fn bridge_agent_prompt_read(
 ) -> Result<Value, BridgeError> {
     let request: AgentPromptReadRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("agent.prompt_read params invalid: {error}"),
         )
     })?;
@@ -687,7 +875,7 @@ fn count_directory_snapshots(state: &AppState) -> usize {
 fn directory_get(app: &AppHandle, state: &AppState, params: Value) -> Result<Value, BridgeError> {
     let request: DirectoryGetRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("directory.get params invalid: {error}"),
         )
     })?;
@@ -695,7 +883,7 @@ fn directory_get(app: &AppHandle, state: &AppState, params: Value) -> Result<Val
     let workspace_id = request.workspace_id.trim();
     if workspace_id.is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "workspaceId is required",
         ));
     }
@@ -826,33 +1014,33 @@ fn build_directory_snapshot(
 fn dispatch_batch(app: &AppHandle, state: &AppState, params: Value) -> Result<Value, BridgeError> {
     let request: TaskDispatchBatchRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("task.dispatch_batch params invalid: {error}"),
         )
     })?;
 
     if request.workspace_id.trim().is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "workspaceId is required",
         ));
     }
     if request.targets.is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "targets must not be empty",
         ));
     }
     if request.markdown.trim().is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "markdown must not be empty",
         ));
     }
 
     let workspace_root = state
         .workspace_root_path(&request.workspace_id)
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_WORKSPACE_INVALID", error))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_WORKSPACE_INVALID", error))?;
 
     let outcome = state.task_service.dispatch_batch(
         &request,
@@ -866,20 +1054,20 @@ fn dispatch_batch(app: &AppHandle, state: &AppState, params: Value) -> Result<Va
     emit_channel_events(app, &outcome.message_events, &outcome.ack_events);
 
     serde_json::to_value(outcome.response)
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))
 }
 
 fn publish_channel(app: &AppHandle, state: &AppState, params: Value) -> Result<Value, BridgeError> {
     let request: ChannelPublishRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("channel.publish params invalid: {error}"),
         )
     })?;
 
     if request.workspace_id.trim().is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "workspaceId is required",
         ));
     }
@@ -887,20 +1075,70 @@ fn publish_channel(app: &AppHandle, state: &AppState, params: Value) -> Result<V
     let outcome = state.task_service.publish(&request);
     emit_channel_events(app, &outcome.message_events, &outcome.ack_events);
     serde_json::to_value(outcome.response)
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))
+}
+
+fn list_task_threads(state: &AppState, params: Value) -> Result<Value, BridgeError> {
+    let request: TaskListThreadsRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "LOCAL_BRIDGE_INVALID_PARAMS",
+            format!("task.list_threads params invalid: {error}"),
+        )
+    })?;
+
+    if request.workspace_id.trim().is_empty() {
+        return Err(BridgeError::new(
+            "LOCAL_BRIDGE_INVALID_PARAMS",
+            "workspaceId is required",
+        ));
+    }
+
+    let threads = state.task_service.list_task_threads(
+        &request.workspace_id,
+        request.agent_id.as_deref(),
+        request.limit.unwrap_or(20) as usize,
+    );
+    Ok(json!({ "threads": threads }))
+}
+
+fn get_task_thread(state: &AppState, params: Value) -> Result<Value, BridgeError> {
+    let request: TaskGetThreadRequest = serde_json::from_value(params).map_err(|error| {
+        BridgeError::new(
+            "LOCAL_BRIDGE_INVALID_PARAMS",
+            format!("task.get_thread params invalid: {error}"),
+        )
+    })?;
+
+    if request.workspace_id.trim().is_empty() {
+        return Err(BridgeError::new(
+            "LOCAL_BRIDGE_INVALID_PARAMS",
+            "workspaceId is required",
+        ));
+    }
+    if request.task_id.trim().is_empty() {
+        return Err(BridgeError::new(
+            "LOCAL_BRIDGE_INVALID_PARAMS",
+            "taskId is required",
+        ));
+    }
+
+    let thread = state
+        .task_service
+        .get_task_thread(&request.workspace_id, &request.task_id);
+    Ok(json!({ "thread": thread }))
 }
 
 fn list_channel_messages(state: &AppState, params: Value) -> Result<Value, BridgeError> {
     let request: ChannelListMessagesRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("channel.list_messages params invalid: {error}"),
         )
     })?;
 
     if request.workspace_id.trim().is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "workspaceId is required",
         ));
     }
@@ -922,7 +1160,7 @@ fn dev_bootstrap_agents(
 ) -> Result<Value, BridgeError> {
     let request: DevBootstrapAgentsRequest = serde_json::from_value(params).map_err(|error| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("dev.bootstrap_agents params invalid: {error}"),
         )
     })?;
@@ -930,7 +1168,7 @@ fn dev_bootstrap_agents(
     let workspace_path = request.workspace_path.trim();
     if workspace_path.is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "workspacePath is required",
         ));
     }
@@ -938,7 +1176,7 @@ fn dev_bootstrap_agents(
     let targets = normalize_target_ids(&request.targets);
     if targets.is_empty() {
         return Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             "targets must contain at least one agent id",
         ));
     }
@@ -946,18 +1184,18 @@ fn dev_bootstrap_agents(
     let workspace = state
         .workspace_service
         .open(Path::new(workspace_path))
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_WORKSPACE_INVALID", error.to_string()))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_WORKSPACE_INVALID", error.to_string()))?;
 
     let repo = resolve_agent_repository(app).map_err(map_command_error)?;
     repo.ensure_schema()
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
     seed_agent_defaults(&repo, workspace.workspace_id.as_str())?;
     let roles = repo
         .list_roles(workspace.workspace_id.as_str())
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
     let agents = repo
         .list_agents(workspace.workspace_id.as_str())
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_INTERNAL", error.to_string()))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
 
     let cwd_mode = parse_bootstrap_cwd_mode(request.cwd_mode.as_deref())?;
     let shell_name = request
@@ -991,7 +1229,7 @@ fn dev_bootstrap_agents(
             true,
             terminal_env,
         )
-        .map_err(|error| BridgeError::new("MCP_BRIDGE_TERMINAL_INVALID", error))?;
+        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_TERMINAL_INVALID", error))?;
         let session = state
             .terminal_provider
             .create_session(TerminalCreateRequest {
@@ -1004,7 +1242,7 @@ fn dev_bootstrap_agents(
             })
             .map_err(|error| {
                 BridgeError::new(
-                    "MCP_BRIDGE_TERMINAL_INVALID",
+                    "LOCAL_BRIDGE_TERMINAL_INVALID",
                     format!(
                         "bootstrap terminal create failed for '{agent_id}': {}",
                         to_terminal_error(error)
@@ -1073,7 +1311,7 @@ fn require_bootstrap_role_key(
 ) -> Result<String, BridgeError> {
     role_key.ok_or_else(|| {
         BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("bootstrap roleKey is required for target: {agent_id}"),
         )
     })
@@ -1127,7 +1365,7 @@ fn parse_bootstrap_cwd_mode(raw: Option<&str>) -> Result<TerminalCwdMode, Bridge
         "workspace_root" => Ok(TerminalCwdMode::WorkspaceRoot),
         "custom" => Ok(TerminalCwdMode::Custom),
         invalid => Err(BridgeError::new(
-            "MCP_BRIDGE_INVALID_PARAMS",
+            "LOCAL_BRIDGE_INVALID_PARAMS",
             format!("unsupported cwdMode: {invalid}"),
         )),
     }
@@ -1194,10 +1432,10 @@ fn user_home_dir() -> Option<PathBuf> {
 fn write_directory_snapshot_file(workspace_id: &str, snapshot: &Value) -> Result<(), String> {
     let directory_path = directory_snapshot_file_path();
     let parent = directory_path.parent().ok_or_else(|| {
-        "MCP_BRIDGE_UNAVAILABLE: directory path does not have parent directory".to_string()
+        "LOCAL_BRIDGE_UNAVAILABLE: directory path does not have parent directory".to_string()
     })?;
     fs::create_dir_all(parent)
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: create dir failed: {error}"))?;
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: create dir failed: {error}"))?;
 
     let mut workspaces = fs::read_to_string(&directory_path)
         .ok()
@@ -1207,19 +1445,49 @@ fn write_directory_snapshot_file(workspace_id: &str, snapshot: &Value) -> Result
         .unwrap_or_default();
     workspaces.insert(workspace_id.to_string(), snapshot.clone());
 
+    let bridge = bridge_runtime_state()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .map(|runtime| {
+            json!({
+                "version": BRIDGE_VERSION,
+                "transport": "tcp-ndjson",
+                "host": runtime.addr.ip().to_string(),
+                "port": runtime.addr.port(),
+                "token": runtime.token,
+                "mcpCommand": runtime.mcp_command.as_ref().map(|command| {
+                    json!({
+                        "command": command.command,
+                        "args": command.args,
+                    })
+                }),
+                "updatedAtMs": chrono_like_now_ms(),
+            })
+        })
+        .unwrap_or(Value::Null);
+
     let payload = json!({
         "version": BRIDGE_VERSION,
         "updatedAtMs": chrono_like_now_ms(),
+        "bridge": bridge,
         "workspaces": workspaces,
     });
 
     fs::write(
         &directory_path,
         serde_json::to_vec_pretty(&payload).map_err(|error| {
-            format!("MCP_BRIDGE_UNAVAILABLE: serialize directory failed: {error}")
+            format!("LOCAL_BRIDGE_UNAVAILABLE: serialize directory failed: {error}")
         })?,
     )
-    .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: write directory failed: {error}"))?;
+    .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: write directory failed: {error}"))?;
+    if let Some(runtime) = bridge_runtime_state()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+    {
+        write_runtime_file(&runtime.addr, &runtime.token, runtime.mcp_command.as_ref())?;
+    }
     Ok(())
 }
 
@@ -1230,11 +1498,11 @@ fn write_runtime_file(
 ) -> Result<(), String> {
     let runtime_path = runtime_file_path();
     let parent = runtime_path.parent().ok_or_else(|| {
-        "MCP_BRIDGE_UNAVAILABLE: runtime path does not have parent directory".to_string()
+        "LOCAL_BRIDGE_UNAVAILABLE: runtime path does not have parent directory".to_string()
     })?;
 
     fs::create_dir_all(parent)
-        .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: create dir failed: {error}"))?;
+        .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: create dir failed: {error}"))?;
     let payload = json!({
         "version": BRIDGE_VERSION,
         "transport": "tcp-ndjson",
@@ -1253,10 +1521,10 @@ fn write_runtime_file(
     fs::write(
         &runtime_path,
         serde_json::to_vec_pretty(&payload).map_err(|error| {
-            format!("MCP_BRIDGE_UNAVAILABLE: serialize runtime failed: {error}")
+            format!("LOCAL_BRIDGE_UNAVAILABLE: serialize runtime failed: {error}")
         })?,
     )
-    .map_err(|error| format!("MCP_BRIDGE_UNAVAILABLE: write runtime failed: {error}"))?;
+    .map_err(|error| format!("LOCAL_BRIDGE_UNAVAILABLE: write runtime failed: {error}"))?;
     Ok(())
 }
 

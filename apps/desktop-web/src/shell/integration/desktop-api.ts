@@ -389,36 +389,6 @@ export interface TerminalDebugAppendFrontendFocusLogResponse {
   logPath: string
 }
 
-// New terminal API types for rendered screen and snapshot
-export interface RenderedScreen {
-  sessionId: string
-  revision: number
-  content: number[] // Vec<u8> serialized as array
-  cols: number
-  rows: number
-  cursorRow: number
-  cursorCol: number
-  scrollbackLines: number
-  title: string | null
-}
-
-export interface TerminalSnapshot {
-  sessionId: string
-  revision: number
-  lastLines: string
-  cursorRow: number
-  totalLines: number
-  unreadBytes: number
-  timestamp: number
-}
-
-export interface OutputChunk {
-  sessionId: string
-  seq: number
-  data: number[]
-  tsMs: number
-}
-
 export interface SurfaceDetachedStationPayload {
   stationId: string
   name: string
@@ -623,15 +593,6 @@ export interface FsReadFileResponse {
   truncated: boolean
 }
 
-export interface FsFileInfoResponse {
-  path: string
-  size: number
-  mimeType: string
-  isBinary: boolean
-  isLarge: boolean
-  category: string
-}
-
 export interface FsWriteFileResponse {
   workspaceId: string
   path: string
@@ -779,20 +740,7 @@ export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
 
 export type ClaudeAuthScheme = 'anthropic_api_key' | 'anthropic_auth_token'
 
-/** API format for Claude provider requests. `anthropic` is the default native API.
- *  `openai_chat` / `openai_responses` are OpenAI-compatible formats and typically require a proxy. */
-export type ClaudeApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses'
-
-/** Per-role model overrides for Claude. When specified, each role uses a different model. */
-export interface ClaudeModelOverrides {
-  haikuModel?: string | null
-  sonnetModel?: string | null
-  opusModel?: string | null
-}
-
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
-export type AiAgentMcpStatus = 'not_installed' | 'installed_sidecar' | 'installed_legacy_node'
-
 export interface AiAgentInstallStatus {
   installed: boolean
   executable?: string | null
@@ -810,8 +758,6 @@ export interface AiAgentSnapshotCard {
   title: string
   subtitle: string
   installStatus: AiAgentInstallStatus
-  mcpInstalled: boolean
-  mcpStatus: AiAgentMcpStatus
   configStatus: AiAgentConfigStatus
   activeSummary?: string | null
 }
@@ -844,8 +790,6 @@ export interface ClaudeConfigSnapshot {
   secretRef?: string | null
   hasSecret: boolean
   updatedAtMs?: number | null
-  apiFormat?: ClaudeApiFormat | null
-  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface ClaudeSavedProviderSnapshot {
@@ -861,8 +805,6 @@ export interface ClaudeSavedProviderSnapshot {
   createdAtMs: number
   updatedAtMs: number
   lastAppliedAtMs: number
-  apiFormat?: ClaudeApiFormat | null
-  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface ClaudeSnapshot {
@@ -977,7 +919,6 @@ export interface CodexSnapshot {
   presets: CodexProviderPreset[]
   config: CodexConfigSnapshot
   savedProviders: CodexSavedProviderSnapshot[]
-  mcpInstalled: boolean
 }
 
 export interface GeminiSnapshot {
@@ -989,7 +930,6 @@ export interface GeminiSnapshot {
   presets: GeminiProviderPreset[]
   config: GeminiConfigSnapshot
   savedProviders: GeminiSavedProviderSnapshot[]
-  mcpInstalled: boolean
 }
 
 export interface AiConfigSnapshot {
@@ -1015,10 +955,6 @@ export interface ClaudeDraftInput {
   model?: string | null
   authScheme?: ClaudeAuthScheme | null
   apiKey?: string | null
-  /** API format for this provider */
-  apiFormat?: ClaudeApiFormat | null
-  /** Per-role model overrides (haiku/sonnet/opus) */
-  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface CodexDraftInput {
@@ -1053,8 +989,6 @@ export interface ClaudeNormalizedDraft {
   authScheme?: ClaudeAuthScheme | null
   secretRef?: string | null
   hasSecret: boolean
-  apiFormat?: ClaudeApiFormat | null
-  modelOverrides?: ClaudeModelOverrides | null
 }
 
 export interface CodexNormalizedDraft {
@@ -1143,6 +1077,27 @@ export interface AgentInstallStatus {
   executable?: string | null
   requiresNode: boolean
   nodeReady: boolean
+}
+
+export interface GtoCliStatus {
+  installed: boolean
+  managed: boolean
+  commandPath?: string | null
+  targetScriptPath?: string | null
+  nodeReady: boolean
+  installAvailable: boolean
+  uninstallAvailable: boolean
+  issue?: string | null
+}
+
+export interface GtoSkillStatus {
+  installed: boolean
+  managed: boolean
+  targetDir?: string | null
+  sourceDir?: string | null
+  installAvailable: boolean
+  uninstallAvailable: boolean
+  issue?: string | null
 }
 
 export interface GitUpdatedPayload {
@@ -1957,13 +1912,23 @@ export const desktopApi = {
   systemGtoDoctor() {
     return invokeCommand<Record<string, unknown>>('system_gto_doctor')
   },
-  systemOpenUrl(url: string): Promise<void> {
-    if (!url.trim()) return Promise.resolve()
-    if (isTauriRuntime()) {
-      return invokeCommand<void>('system_open_url', { url })
-    }
-    window.open(url, '_blank', 'noopener,noreferrer')
-    return Promise.resolve()
+  systemGtoCliStatus() {
+    return invokeCommand<GtoCliStatus>('system_gto_cli_status', {})
+  },
+  systemGtoCliInstall() {
+    return invokeCommand<GtoCliStatus>('system_gto_cli_install', {})
+  },
+  systemGtoCliUninstall() {
+    return invokeCommand<GtoCliStatus>('system_gto_cli_uninstall', {})
+  },
+  systemGtoSkillStatus(agent: 'claude' | 'codex' | 'gemini') {
+    return invokeCommand<GtoSkillStatus>('system_gto_skill_status', { agent })
+  },
+  systemGtoSkillInstall(agent: 'claude' | 'codex' | 'gemini') {
+    return invokeCommand<GtoSkillStatus>('system_gto_skill_install', { agent })
+  },
+  systemGtoSkillUninstall(agent: 'claude' | 'codex' | 'gemini') {
+    return invokeCommand<GtoSkillStatus>('system_gto_skill_uninstall', { agent })
   },
   workspaceGetWindowActive() {
     return invokeCommand<WorkspaceWindowActiveResponse>('workspace_get_window_active')
@@ -2142,9 +2107,6 @@ export const desktopApi = {
       path,
       limitBytes: limitBytes ?? null,
     })
-  },
-  fsGetFileInfo(path: string) {
-    return invokeCommand<FsFileInfoResponse>('fs_get_file_info', { path })
   },
   fsWriteFile(workspaceId: string, path: string, content: string) {
     return invokeCommand<FsWriteFileResponse>('fs_write_file', { workspaceId, path, content })
@@ -2332,20 +2294,11 @@ export const desktopApi = {
   agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
-  agentMcpInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId?: string) {
-    return invokeCommand<AiAgentMcpStatus>('agent_mcp_install_status', { agent, workspaceId })
-  },
   installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('install_agent', { agent })
   },
   uninstallAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
     return invokeCommand<void>('uninstall_agent', { agent })
-  },
-  installAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
-    return invokeCommand<void>('install_agent_mcp', { agent, workspaceId })
-  },
-  uninstallAgentMcp(agent: 'ClaudeCode' | 'Codex' | 'Gemini', workspaceId: string) {
-    return invokeCommand<void>('uninstall_agent_mcp', { agent, workspaceId })
   },
   surfaceOpenDetachedWindow(payload: SurfaceOpenDetachedWindowRequest) {
     return invokeCommand<SurfaceOpenDetachedWindowResponse>('surface_open_detached_window', {
@@ -2424,21 +2377,6 @@ export const desktopApi = {
   },
   terminalDescribeProcesses(sessionId: string) {
     return invokeCommand<TerminalDescribeProcessesResponse>('terminal_describe_processes', {
-      sessionId,
-    })
-  },
-  terminalActivate(sessionId: string) {
-    return invokeCommand<RenderedScreen>('terminal_activate', {
-      sessionId,
-    })
-  },
-  terminalGetRenderedScreen(sessionId: string) {
-    return invokeCommand<RenderedScreen>('terminal_get_rendered_screen', {
-      sessionId,
-    })
-  },
-  terminalOpenOutputChannel(sessionId: string) {
-    return invokeCommand<{ sessionId: string; channelBound: boolean }>('terminal_open_output_channel', {
       sessionId,
     })
   },

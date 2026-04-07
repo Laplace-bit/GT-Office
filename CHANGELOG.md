@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.4 - 2026-04-05
+
+### Highlights
+
+- Replaced the old MCP-oriented agent collaboration flow with the `gto` local CLI as the primary communication surface.
+- Added stronger `gto wait` handling for explicit replies, observed fallbacks, and interaction-required states.
+- Simplified enhancement UX around `GTO Plugin`, refreshed README structure for open-source maintenance, and cleaned up lingering MCP-oriented guidance.
+
 ## v0.1.3 - 2026-03-30
 
 ### Highlights
