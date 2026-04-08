@@ -1,0 +1,153 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            build_args: ''
+          - os: windows-latest
+            platform: windows
+            build_args: '--bundles nsis'
+          - os: ubuntu-latest
+            platform: linux
+            build_args: '--bundles appimage,deb'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux desktop build dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Rust check
+        run: cargo check --workspace
+
+      - name: Build desktop bundle
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: always
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.build_args }}" ]; then
+            npm run build:tauri -- ${{ matrix.build_args }}
+          else
+            npm run build:tauri
+          fi
+
+      - name: Prepare release assets
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          assets_dir="release-assets"
+          rm -rf "$assets_dir"
+          mkdir -p "$assets_dir"
+
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            app_bundle=$(find target/macos/release/bundle/macos -maxdepth 1 -name '*.app' -type d | head -n 1)
+            if [ -z "$app_bundle" ]; then
+              echo "Expected macOS app bundle was not produced."
+              exit 1
+            fi
+            zip_name="GT-Office-${version}-macos.zip"
+            /usr/bin/ditto -c -k --keepParent "$app_bundle" "$assets_dir/$zip_name"
+
+            dmg_file=$(find target/macos/release/bundle/dmg -maxdepth 1 -name '*.dmg' -type f | head -n 1 || true)
+            if [ -n "$dmg_file" ]; then
+              cp "$dmg_file" "$assets_dir/$(basename "$dmg_file")"
+            else
+              echo "macOS DMG was not produced. The zip archive remains available as the fallback asset."
+            fi
+          elif [ "${{ matrix.platform }}" = "windows" ]; then
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              cp "$file" "$assets_dir/$(basename "$file")"
+            done < <(find target/windows/release/bundle -type f \( -name '*.exe' -o -name '*.msi' \))
+          else
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              cp "$file" "$assets_dir/$(basename "$file")"
+            done < <(find target/linux/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \))
+          fi
+
+          ls -la "$assets_dir"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish-release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+
+      - name: Download all release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Summarize release assets
+        run: find release-assets -maxdepth 2 -type f | sort
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: docs/releases/${{ github.ref_name }}.md
+          files: release-assets/**/*

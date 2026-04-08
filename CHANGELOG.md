@@ -1,5 +1,16 @@
 # Changelog
 
+All notable changes to this project are documented in this file.
+
+## v0.1.5 - 2026-04-08
+
+### Highlights
+
+- Unified the file preview flow with shared preview tabs and added PDF preview support.
+- Refactored the channel management UI and expanded multi-language support for channel surfaces.
+- Continued terminal subsystem refactoring work and restored preview-related unit coverage.
+- Improved agent installer and uninstaller compatibility across multiple local npm installation layouts.
+
 ## v0.1.4 - 2026-04-05
 
 ### Highlights

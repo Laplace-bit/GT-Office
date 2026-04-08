@@ -4,7 +4,7 @@
 
 GT Office is a cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support in the codebase. It combines workspace-aware files, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
 
-Current release target: `v0.1.4`
+Current release target: `v0.1.5`
 
 ## What It Includes
 
@@ -76,19 +76,18 @@ npm run build:tauri
 
 ## Release
 
-Root package version: `0.1.4`
+Root package version: `0.1.5`
 
-Recommended release sequence:
+Recommended release flow:
 
-```bash
-npm run typecheck
-cargo check --workspace
-npm run build:tauri
-git tag -a v0.1.4 -m "GT Office v0.1.4"
-git push origin main --follow-tags
-```
+1. Update version numbers and `CHANGELOG.md`
+2. Commit the release changes on `main`
+3. Tag the commit as `v0.1.5`
+4. Push the tag and let GitHub Actions build and publish macOS, Windows, and Linux artifacts
 
-Public macOS distribution still requires `Developer ID` signing and notarization for `.app` / `.dmg`. Without signing configured, the default build avoids accidentally producing a DMG intended for public distribution.
+Detailed release operations, secrets, and retry guidance live in `docs/release-process.md`.
+
+Public macOS distribution still requires `Developer ID` signing and notarization in CI for `.app` / `.dmg`. If the signing secrets are not configured, the release workflow should not publish a distribution DMG.
 
 If you intentionally want an unsigned macOS package for manual local testing, build with:
 
@@ -122,3 +121,4 @@ xattr -dr com.apple.quarantine /Applications/GT\ Office.app
 - Core workflows: [docs/05_高质量功能设计_核心工作流.md](docs/05_高质量功能设计_核心工作流.md)
 - API and event contracts: [docs/06_API与事件契约草案.md](docs/06_API与事件契约草案.md)
 - Dependency policy: [docs/07_依赖选型与精简清单.md](docs/07_依赖选型与精简清单.md)
+- Release process: [docs/release-process.md](docs/release-process.md)
