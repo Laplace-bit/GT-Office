@@ -1,10 +1,26 @@
 # GT Office
 
-[简体中文 README](README_CN.md)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](CHANGELOG.md)
 
-GT Office is a cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support in the codebase. It combines workspace-aware files, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
+<!-- ![GT Office Screenshot](docs/assets/screenshot.png) -->
 
-Current release target: `v0.1.6`
+A cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support. GT Office combines workspace-aware file operations, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
+
+**[简体中文](README_CN.md)**
+
+## Table of Contents
+
+- [What It Includes](#what-it-includes)
+- [Monorepo Layout](#monorepo-layout)
+- [Requirements](#requirements)
+- [Development](#development)
+- [Verification](#verification)
+- [Release](#release)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ## What It Includes
 
@@ -18,21 +34,24 @@ Current release target: `v0.1.6`
 
 ## Monorepo Layout
 
-- `apps/desktop-web`: React + Vite desktop UI
-- `apps/desktop-tauri`: Tauri shell, native bridge, and packaging entry
-- `crates/`: Rust domain modules such as terminal, git, workspace, task, storage, and settings
-- `packages/shared-types`: shared contracts between frontend and backend
-- `tools/`: CLI and local-bridge utilities
-- `docs/`: product, architecture, workflow, contract, dependency, and handoff docs
+| Directory | Purpose |
+|-----------|---------|
+| `apps/desktop-web` | React + Vite desktop UI |
+| `apps/desktop-tauri` | Tauri shell, native bridge, and packaging entry |
+| `crates/` | Rust domain modules (terminal, git, workspace, task, storage, settings, etc.) |
+| `packages/shared-types` | Shared contracts between frontend and backend |
+| `tools/` | CLI and local-bridge utilities (`gto`) |
+| `docs/` | Technical documentation |
 
 ## Requirements
 
-- `Node.js 20+`
-- `npm 10+`
-- `Rust stable`
-- Platform-specific Tauri prerequisites
-  - macOS: `Xcode Command Line Tools`
-  - Windows: `Visual Studio Build Tools` + `WebView2 Runtime`
+- **Node.js** 20+
+- **npm** 10+
+- **Rust** stable
+- **Platform-specific Tauri prerequisites**
+  - macOS: Xcode Command Line Tools
+  - Windows: Visual Studio Build Tools + WebView2 Runtime
+  - Linux: `libwebkit2gtk-4.1-dev`, `build-essential`, `libssl-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`
 
 ## Development
 
@@ -76,20 +95,18 @@ npm run build:tauri
 
 ## Release
 
-Root package version: `0.1.6`
-
 Recommended release flow:
 
 1. Update version numbers and `CHANGELOG.md`
 2. Commit the release changes on `main`
-3. Tag the commit as `v0.1.6`
+3. Tag the commit (e.g., `v0.1.7`)
 4. Push the tag and let GitHub Actions build and publish macOS, Windows, and Linux artifacts
 
-Detailed release operations, secrets, and retry guidance live in `docs/release-process.md`.
+Detailed release operations, secrets, and retry guidance: [docs/release-process.md](docs/release-process.md)
 
-The release workflow uploads a macOS `.dmg` and `.app` archive. Without `Developer ID` signing and notarization, the DMG is only suitable for manual testing or internal distribution and may be blocked by Gatekeeper.
+The release workflow uploads a macOS `.dmg` and `.app` archive. Without Developer ID signing and notarization, the DMG is only suitable for manual testing or internal distribution and may be blocked by Gatekeeper.
 
-If you intentionally want an unsigned macOS package for manual local testing, build with:
+If you intentionally want an unsigned macOS package for manual local testing:
 
 ```bash
 GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1 npm run build:tauri
@@ -100,11 +117,7 @@ Manual installation steps:
 1. Open the DMG and drag `GT Office.app` into `/Applications`
 2. Try launching the app once
 3. If macOS blocks it, open `System Settings > Privacy & Security` and choose `Open Anyway`
-4. If needed, remove quarantine manually:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/GT\ Office.app
-```
+4. If needed, remove quarantine manually: `xattr -dr com.apple.quarantine /Applications/GT\ Office.app`
 
 ## Local CLI and Bridge
 
@@ -112,13 +125,25 @@ xattr -dr com.apple.quarantine /Applications/GT\ Office.app
 - `gto` is the recommended local entrypoint for agent collaboration, including directory lookup, task dispatch, waiting, status reporting, and thread inspection
 - The current surface is local-only and does not provide a remote service API
 
-## Documentation Map
+## Documentation
 
-- Requirements: [docs/01_需求与产品设计.md](docs/01_需求与产品设计.md)
-- Architecture: [docs/02_系统架构与模块目录设计.md](docs/02_系统架构与模块目录设计.md)
-- Progress: [docs/03_项目开发进度跟踪.md](docs/03_项目开发进度跟踪.md)
-- Handover: [docs/04_上下文交接文档.md](docs/04_上下文交接文档.md)
-- Core workflows: [docs/05_高质量功能设计_核心工作流.md](docs/05_高质量功能设计_核心工作流.md)
-- API and event contracts: [docs/06_API与事件契约草案.md](docs/06_API与事件契约草案.md)
-- Dependency policy: [docs/07_依赖选型与精简清单.md](docs/07_依赖选型与精简清单.md)
-- Release process: [docs/release-process.md](docs/release-process.md)
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture, monorepo layout, and data flow
+- [WORKFLOWS.md](docs/WORKFLOWS.md) — Core user workflows and multi-station collaboration
+- [API_CONTRACTS.md](docs/API_CONTRACTS.md) — Tauri command surface, events, and shared types
+- [DEPENDENCIES.md](docs/DEPENDENCIES.md) — Dependency policy and allowlist
+- [release-process.md](docs/release-process.md) — Release workflow, tagging, and artifact publishing
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR process.
+
+## Roadmap
+
+- **Code signing and notarization** — Signed macOS DMGs and Windows installers for production distribution
+- **Plugin system** — Extensible tool adapter and channel integration framework
+- **Remote workspace support** — Connect to remote workspaces over SSH
+- **Crate rename** — Rename `vb-*` crates to `gt-*` for brand consistency
+
+## License
+
+This project is licensed under [Apache License 2.0](LICENSE).
