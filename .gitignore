@@ -28,8 +28,15 @@ Thumbs.db
 .gtoffice/
 _backups/
 
-# Local agent runtime artifacts
-.claude/scheduled_tasks.lock
-.claude/worktrees/
-.worktrees/
+# AI agent local state
+.claude/
+.codex/
+.gemini/
 .superpowers/
+
+# Temp/build artifacts
+temp/
+*.lnk
+
+# Worktrees
+.worktrees/
