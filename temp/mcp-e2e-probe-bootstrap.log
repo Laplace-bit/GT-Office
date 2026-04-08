@@ -1,4 +1,0 @@
-[probe] server command: /mnt/c/personal/vbCode/target/linux/x86_64-unknown-linux-gnu/debug/gto-agent-mcp-sidecar serve
-[probe] tools/list ok: gto_get_agent_directory, gto_dispatch_task, gto_report_status, gto_handover, gto_health
-[probe] gto_health ok: {"bridge":{"bridgeVersion":"0.1.0","directorySnapshotCount":0,"pid":64300,"transport":"tcp-ndjson"},"directory":null,"runtime":{"host":"127.0.0.1","port":45423,"runtimePath":"/home/dzlin/.gtoffice/mcp/runtime.json","version":"0.1.0"},"self":null}
-[probe] done

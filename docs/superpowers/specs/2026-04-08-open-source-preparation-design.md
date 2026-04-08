@@ -11,7 +11,6 @@
 
 | File | Reason |
 |------|--------|
-| `openclaw - 快捷方式.lnk` | Windows shortcut, not a repo artifact |
 | `start.bat` | One-line batch file (`npm run dev:tauri`), redundant |
 | `split_all_tests.py` | One-time utility script, no longer needed |
 | `temp/` | Old build/MCP logs, temporary artifacts |

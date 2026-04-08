@@ -82,7 +82,8 @@
       "WebFetch(domain:tauri.app)",
       "WebFetch(domain:docs.anthropic.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:claude.ai)"
+      "WebFetch(domain:claude.ai)",
+      "Bash(git:*)"
     ]
   }
 }
