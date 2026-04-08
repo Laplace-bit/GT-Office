@@ -293,6 +293,14 @@ export function computeChannelMessageLayout(input: ChannelMessageLayoutInput): C
   const chromeWidth = toBubbleChromeWidth(input)
   const maxBubbleWidth = maxContentWidth + chromeWidth
 
+  if (input.uiFont === 'system-ui') {
+    const fallbackLayout = computeFallbackLayout(input)
+    return {
+      ...fallbackLayout,
+      bubbleWidth: fallbackLayout.maxBubbleWidth,
+    }
+  }
+
   const averageContentCharWidth = input.contentLineHeight * 0.55
   const contentCharsPerLine = Math.max(1, Math.floor(maxContentWidth / averageContentCharWidth))
   

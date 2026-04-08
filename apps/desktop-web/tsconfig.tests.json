@@ -20,6 +20,7 @@
   },
   "include": [
     "tests/**/*.ts",
+    "src/components/modal/standard-modal-close.ts",
     "src/features/file-preview/previewers/media-preview-path.ts",
     "src/features/file-preview/previewers/image-load-state.ts",
     "src/shell/layout/window-performance-policy.ts",
