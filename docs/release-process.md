@@ -24,7 +24,7 @@ The workflow reuses the existing entrypoint scripts:
 
 Platform-specific bundle targets:
 
-- macOS: default build flow, which produces the `.app` bundle and creates a `.dmg` when signing and notarization are available
+- macOS: default build flow with `GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1`, which always publishes a `.dmg` plus a zipped `.app`; when signing and notarization are configured, the same flow can publish a proper distribution-ready DMG
 - Windows: `npm run build:tauri -- --bundles nsis`
 - Linux: `npm run build:tauri -- --bundles appimage,deb`
 
@@ -45,9 +45,9 @@ At minimum, the release runner needs whatever your signing flow requires for:
 - any certificate material consumed by your chosen codesign tooling, for example `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`
 - Apple account access for notarization, for example `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID`
 
-This repository's release workflow does not inject those secrets into a signing step by itself; it only documents the boundary and uploads whatever the runner produces.
+This repository's release workflow enables unsigned DMG generation on the macOS runner so the release always carries a `.dmg` asset. When signing secrets are configured, the same path can produce a proper distribution-ready DMG.
 
-Without those secrets, the workflow still publishes a macOS `.app` zip fallback, but the `.dmg` is only suitable for local testing or internal distribution.
+Without those secrets, the workflow still publishes both the macOS `.app` zip fallback and a DMG, but the DMG is only suitable for local testing or internal distribution.
 
 ### Windows
 
@@ -64,12 +64,12 @@ Linux packaging does not require special signing secrets for the base release fl
 ## Tagging a Release
 
 1. Update versioned files and the changelog.
-2. Create or update the release body file, for example `docs/releases/v0.1.5.md`.
+2. Create or update the release body file, for example `docs/releases/v0.1.6.md`.
 3. Commit the release changes.
 4. Create the tag:
 
 ```bash
-git tag -a v0.1.5 -m "GT Office v0.1.5"
+git tag -a v0.1.6 -m "GT Office v0.1.6"
 ```
 
 5. Push the branch and tag:
@@ -102,7 +102,7 @@ If the tag itself is wrong, delete the tag, correct the commit, and create a new
 
 ## Known Limitations
 
-- macOS unsigned builds can still produce a `.app` zip, but that is not the same as a notarized public release
+- macOS unsigned builds now still publish a `.dmg`, but that is not the same as a notarized public release
 - Windows release signing is not enforced by this workflow
 - Linux package coverage depends on the bundle types emitted by Tauri on the runner
 - The workflow assumes a single release tag per version and does not try to synthesize notes from commits automatically

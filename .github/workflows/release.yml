@@ -23,12 +23,15 @@ jobs:
           - os: macos-latest
             platform: macos
             build_args: ''
+            allow_unsigned_macos_bundle: '1'
           - os: windows-latest
             platform: windows
             build_args: '--bundles nsis'
+            allow_unsigned_macos_bundle: '0'
           - os: ubuntu-latest
             platform: linux
             build_args: '--bundles appimage,deb'
+            allow_unsigned_macos_bundle: '0'
 
     steps:
       - name: Checkout
@@ -72,6 +75,7 @@ jobs:
         shell: bash
         env:
           CARGO_TERM_COLOR: always
+          GTO_ALLOW_UNSIGNED_MACOS_BUNDLE: ${{ matrix.allow_unsigned_macos_bundle }}
         run: |
           set -euo pipefail
           if [ -n "${{ matrix.build_args }}" ]; then
@@ -104,7 +108,8 @@ jobs:
             if [ -n "$dmg_file" ]; then
               cp "$dmg_file" "$assets_dir/$(basename "$dmg_file")"
             else
-              echo "macOS DMG was not produced. The zip archive remains available as the fallback asset."
+              echo "Expected macOS DMG was not produced."
+              exit 1
             fi
           elif [ "${{ matrix.platform }}" = "windows" ]; then
             while IFS= read -r file; do

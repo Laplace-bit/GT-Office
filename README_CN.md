@@ -4,7 +4,7 @@
 
 GT Office 是一个面向 macOS 和 Windows 的跨平台 AI Agent 桌面工作台，代码库同时支持 Linux 开发调试。它把 workspace 感知的文件操作、真实 PTY 终端、Git 工作流、多 Agent 协作、tool adapters 和外部通道路由整合到同一个桌面壳层中。
 
-当前发布目标版本：`v0.1.5`
+当前发布目标版本：`v0.1.6`
 
 ## 功能概览
 
@@ -76,18 +76,18 @@ npm run build:tauri
 
 ## 发布说明
 
-根 package 版本：`0.1.5`
+根 package 版本：`0.1.6`
 
 推荐发布流程：
 
 1. 更新版本号和 `CHANGELOG.md`
 2. 将发布变更提交到 `main`
-3. 给提交打上 `v0.1.5` tag
+3. 给提交打上 `v0.1.6` tag
 4. 推送 tag，由 GitHub Actions 自动构建并发布 macOS、Windows、Linux 产物
 
 更详细的发布操作、secrets 与失败重试说明见 `docs/release-process.md`。
 
-面向公众正常分发的 macOS `.app` / `.dmg` 仍然需要在 CI 中配置 `Developer ID` 签名和 notarization。若未配置签名密钥，发布工作流不应产出可分发的 DMG。
+发布工作流会上传 macOS `.dmg` 和 `.app` 压缩包。若未在 CI 中配置 `Developer ID` 签名与 notarization，这个 DMG 只适合手动测试或内部分发，可能会被 Gatekeeper 拦截。
 
 如果你要发布一个仅供手动本地测试的 unsigned macOS 安装包，可以显式开启：
 

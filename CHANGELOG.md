@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.1.6 - 2026-04-08
+
+### Highlights
+
+- Tightened the release workflow so GitHub Releases must carry a macOS `.dmg`, Windows NSIS installer, and Linux `.deb` package.
+- Updated release documentation to reflect unsigned macOS DMG behavior and the new `v0.1.6` tag target.
+
 ## v0.1.5 - 2026-04-08
 
 ### Highlights

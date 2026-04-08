@@ -4,7 +4,7 @@
 
 GT Office is a cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support in the codebase. It combines workspace-aware files, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
 
-Current release target: `v0.1.5`
+Current release target: `v0.1.6`
 
 ## What It Includes
 
@@ -76,18 +76,18 @@ npm run build:tauri
 
 ## Release
 
-Root package version: `0.1.5`
+Root package version: `0.1.6`
 
 Recommended release flow:
 
 1. Update version numbers and `CHANGELOG.md`
 2. Commit the release changes on `main`
-3. Tag the commit as `v0.1.5`
+3. Tag the commit as `v0.1.6`
 4. Push the tag and let GitHub Actions build and publish macOS, Windows, and Linux artifacts
 
 Detailed release operations, secrets, and retry guidance live in `docs/release-process.md`.
 
-Public macOS distribution still requires `Developer ID` signing and notarization in CI for `.app` / `.dmg`. If the signing secrets are not configured, the release workflow should not publish a distribution DMG.
+The release workflow uploads a macOS `.dmg` and `.app` archive. Without `Developer ID` signing and notarization, the DMG is only suitable for manual testing or internal distribution and may be blocked by Gatekeeper.
 
 If you intentionally want an unsigned macOS package for manual local testing, build with:
 

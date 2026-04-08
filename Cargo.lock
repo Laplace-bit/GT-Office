@@ -1944,7 +1944,7 @@ dependencies = [
 
 [[package]]
 name = "gtoffice-desktop-tauri"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64 0.22.1",
  "bincode",
