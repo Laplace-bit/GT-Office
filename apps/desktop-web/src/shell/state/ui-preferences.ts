@@ -45,8 +45,6 @@ export interface UiPreferences {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
-  /** @deprecated Prefer `quickCommandVisibilityByProvider`. */
-  showCommandRail: boolean
   showWorkspaceActionsInRail: boolean
   quickCommandVisibilityByProvider: Record<CommandRailProviderId, boolean>
   pinnedCommandIdsByProvider: Record<string, string[]>
@@ -261,7 +259,6 @@ export const defaultUiPreferences: UiPreferences = {
   uiFont: 'sf-pro',
   monoFont: 'jetbrains-mono',
   uiFontSize: 'medium',
-  showCommandRail: true,
   showWorkspaceActionsInRail: true,
   quickCommandVisibilityByProvider: quickCommandDefaultVisibilityByProvider,
   pinnedCommandIdsByProvider: commandRailDefaultPinnedCommandIdsByProvider,
@@ -539,7 +536,6 @@ export function setQuickCommandRailVisibility(
   return {
     ...preferences,
     quickCommandVisibilityByProvider,
-    showCommandRail: Object.values(quickCommandVisibilityByProvider).some(Boolean),
   }
 }
 
@@ -564,10 +560,10 @@ export function loadUiPreferences(): UiPreferences {
     if (!raw) {
       return defaultUiPreferences
     }
-    const parsed = JSON.parse(raw) as Partial<UiPreferences>
+    const parsed = JSON.parse(raw) as Partial<UiPreferences> & { showCommandRail?: unknown }
     const normalizedQuickCommandVisibilityByProvider = normalizeQuickCommandVisibilityByProvider(
       parsed.quickCommandVisibilityByProvider,
-      parsed.showCommandRail,
+      parsed.showCommandRail as boolean | undefined,
     )
     const normalizedPinnedCommandIdsByProvider = normalizePinnedCommandIdsByProvider(
       parsed.pinnedCommandIdsByProvider,
@@ -580,10 +576,6 @@ export function loadUiPreferences(): UiPreferences {
       normalizedPinnedCommandIdsByProvider,
       normalizedCustomCommandCapsulesByProvider,
     )
-    const hasQuickCommandVisibilityByProvider =
-      parsed.quickCommandVisibilityByProvider != null &&
-      typeof parsed.quickCommandVisibilityByProvider === 'object' &&
-      Object.keys(parsed.quickCommandVisibilityByProvider).length > 0
     return {
       locale: parsed.locale ?? defaultUiPreferences.locale,
       themeMode: parsed.themeMode ?? defaultUiPreferences.themeMode,
@@ -594,11 +586,6 @@ export function loadUiPreferences(): UiPreferences {
         parsed.uiFontSize === 'large' || parsed.uiFontSize === 'xlarge'
           ? parsed.uiFontSize
           : defaultUiPreferences.uiFontSize,
-      showCommandRail: hasQuickCommandVisibilityByProvider
-        ? Object.values(normalizedQuickCommandVisibilityByProvider).some(Boolean)
-        : typeof parsed.showCommandRail === 'boolean'
-          ? parsed.showCommandRail
-          : defaultUiPreferences.showCommandRail,
       showWorkspaceActionsInRail:
         typeof parsed.showWorkspaceActionsInRail === 'boolean'
           ? parsed.showWorkspaceActionsInRail
