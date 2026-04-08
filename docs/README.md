@@ -1,29 +1,18 @@
-# GT Office 文档索引（Token 优化版）
+# GT Office Documentation
 
-本目录用于沉淀需求、架构、契约、进度与交接信息。
+Technical documentation for the GT Office project.
 
-## 1. 阅读路径（默认）
+## Architecture
 
-1. `docs/README.md`
-2. `docs/03_项目开发进度跟踪.md`
-3. `docs/04_上下文交接文档.md`
-4. `docs/05_高质量功能设计_核心工作流.md`
-5. `docs/06_API与事件契约草案.md`
-6. `AGENTS.md`
+- [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture, monorepo layout, and data flow
 
-## 2. 文档职责
+## Development
 
-1. `01_需求与产品设计.md`：产品目标、范围、FR/NFR。
-2. `02_系统架构与模块目录设计.md`：架构边界、模块职责、数据流。
-3. `03_项目开发进度跟踪.md`：里程碑、任务状态、风险、变更记录。
-4. `04_上下文交接文档.md`：上一任 -> 下一任交接快照（仅保留最新一条）。
-5. `05_高质量功能设计_核心工作流.md`：User Story、主/异常流程、验收用例。
-6. `06_API与事件契约草案.md`：命令/事件/错误码/最小数据模型契约。
-7. `07_依赖选型与精简清单.md`：依赖白名单与治理策略。
-8. `feishu.md`：T-172 飞书连接配置与模块化实现方案专题稿。
+- [WORKFLOWS.md](WORKFLOWS.md) — Core user workflows and multi-station collaboration
+- [API_CONTRACTS.md](API_CONTRACTS.md) — Tauri command surface, events, and shared types
+- [DEPENDENCIES.md](DEPENDENCIES.md) — Dependency policy and allowlist
 
-## 3. 维护规则
+## Release
 
-1. 需求变更先更新 `01/05`，再同步 `02/06`。
-2. 每轮实现完成后必须更新 `03/04`。
-3. 所有改动必须可追溯到任务 ID（`T-xxx`）。
+- [release-process.md](release-process.md) — Release workflow, tagging, and artifact publishing
+- [releases/](releases/) — Per-version release notes
