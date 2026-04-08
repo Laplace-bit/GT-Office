@@ -90,6 +90,51 @@ If the workflow succeeds but a release asset is missing or needs replacement:
 
 Use manual re-upload only when the tag and release notes are still correct.
 
+## Local Fallback Scripts
+
+If GitHub-hosted Actions cannot be used, build and upload platform assets on matching hosts:
+
+- Windows NSIS:
+  - `pwsh -File scripts/release/build-and-upload-windows.ps1 -Tag v0.1.6 -Repo Laplace-bit/GT-Office`
+- Linux `.deb`:
+  - `scripts/release/build-and-upload-linux.sh v0.1.6 Laplace-bit/GT-Office`
+
+Parameter passing:
+
+- Windows PowerShell script:
+  - `-Tag` is required
+  - `-Repo` is optional; omitted means derive from `origin`
+  - `-ReleaseNotesPath` is optional; default is `docs/releases/<tag>.md`
+  - `-SkipInstall` and `-SkipChecks` are optional switches
+- Linux shell script:
+  - `$1` = `tag` required
+  - `$2` = `repo` optional; omitted means derive from `origin`
+  - `$3` = `release notes path` optional; default is `docs/releases/<tag>.md`
+  - `SKIP_INSTALL=1` and `SKIP_CHECKS=1` are optional environment variables
+
+Examples:
+
+- Windows with defaults:
+  - `pwsh -File scripts/release/build-and-upload-windows.ps1 -Tag v0.1.6 -Repo Laplace-bit/GT-Office`
+- Windows skipping install and checks:
+  - `pwsh -File scripts/release/build-and-upload-windows.ps1 -Tag v0.1.6 -Repo Laplace-bit/GT-Office -SkipInstall -SkipChecks`
+- Linux with defaults:
+  - `scripts/release/build-and-upload-linux.sh v0.1.6 Laplace-bit/GT-Office`
+- Linux skipping install and checks:
+  - `SKIP_INSTALL=1 SKIP_CHECKS=1 scripts/release/build-and-upload-linux.sh v0.1.6 Laplace-bit/GT-Office`
+
+Both scripts:
+
+- expect `gh` to be authenticated for the target repository
+- create the GitHub Release if it does not exist yet
+- upload assets with `--clobber`
+- read release notes from `docs/releases/<tag>.md` by default
+
+Optional behavior:
+
+- Windows: pass `-SkipInstall` or `-SkipChecks`
+- Linux: set `SKIP_INSTALL=1` or `SKIP_CHECKS=1`
+
 ## Retry Flow
 
 If the workflow fails before release publication:
