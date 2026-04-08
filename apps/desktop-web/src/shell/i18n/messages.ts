@@ -2419,6 +2419,11 @@ export const messages = {
 
   // Image preview
   'image.zoomIn': { 'zh-CN': '放大', 'en-US': 'Zoom in' },
+  'pdf.prevPage': { 'zh-CN': '上一页', 'en-US': 'Previous page' },
+  'pdf.nextPage': { 'zh-CN': '下一页', 'en-US': 'Next page' },
+  'pdf.zoomIn': { 'zh-CN': '放大 PDF', 'en-US': 'Zoom in PDF' },
+  'pdf.zoomOut': { 'zh-CN': '缩小 PDF', 'en-US': 'Zoom out PDF' },
+  'pdf.pageStatus': { 'zh-CN': '页码 {detail}', 'en-US': 'Page {detail}' },
   'image.zoomOut': { 'zh-CN': '缩小', 'en-US': 'Zoom out' },
   'image.fitWindow': { 'zh-CN': '适应窗口', 'en-US': 'Fit to window' },
 }

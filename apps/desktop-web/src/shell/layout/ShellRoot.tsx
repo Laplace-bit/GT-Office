@@ -9,6 +9,7 @@ import {
 import {
   useGitWorkspaceController,
 } from '@features/git'
+import { isPreviewable } from '@features/file-preview'
 import {
   formatShortcutBinding,
   areShortcutBindingsEqual,
@@ -488,8 +489,6 @@ export function ShellRoot() {
     setOpenedFiles,
     activeFilePath,
     setActiveFilePath,
-    activePreviewPath,
-    isPreviewMode,
     filePreviewNotice,
     fileCanRenderText,
     fileReadLoading,
@@ -4362,6 +4361,7 @@ export function ShellRoot() {
             size: 0,
             isModified: false,
             hydrated: false,
+            viewType: isPreviewable(tab.path) ? 'preview' : 'editor',
           })),
         )
         setActiveFilePath(activeTabPath)
@@ -5499,6 +5499,7 @@ export function ShellRoot() {
       fileEditorPaneProps={{
         locale,
         workspaceId: activeWorkspaceId,
+        workspaceRoot: activeWorkspaceRoot,
         openedFiles,
         activeFilePath,
         loading: fileReadLoading,
@@ -5511,14 +5512,6 @@ export function ShellRoot() {
         onFileModified: handleFileModified,
         editorCommandRequest: fileEditorCommandRequest,
       }}
-      filePreviewPaneProps={{
-        locale,
-        workspaceId: activeWorkspaceId,
-        workspaceRoot: activeWorkspaceRoot,
-        filePath: activePreviewPath,
-        fileSize: 0, // TODO: Get actual file size from backend
-      }}
-      isPreviewMode={isPreviewMode}
       gitHistoryPaneProps={{
         controller: gitController,
         onOpenInEditor: handleGitHistoryOpenInEditor,

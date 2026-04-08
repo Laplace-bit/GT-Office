@@ -244,8 +244,8 @@ describe('file-type-utils', () => {
       assert.strictEqual(isPreviewable('/path/to/song.mp3'), true)
     })
 
-    it('returns false for PDF files because the current preview pane does not implement them', () => {
-      assert.strictEqual(isPreviewable('/path/to/document.pdf'), false)
+    it('returns true for PDF files', () => {
+      assert.strictEqual(isPreviewable('/path/to/document.pdf'), true)
     })
 
     it('returns false for Markdown files because the current preview pane does not implement them', () => {
@@ -270,6 +270,7 @@ describe('file-type-utils', () => {
     it('returns true for stable inline image formats', () => {
       assert.strictEqual(supportsInlineMediaPreview('/path/to/image.png'), true)
       assert.strictEqual(supportsInlineMediaPreview('/path/to/photo.jpg'), true)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/diagram.svg'), true)
     })
 
     it('returns true for stable inline video and audio formats', () => {
@@ -278,7 +279,9 @@ describe('file-type-utils', () => {
       assert.strictEqual(supportsInlineMediaPreview('/path/to/sound.m4a'), true)
     })
 
-    it('returns false for media formats we do not inline in the webview player', () => {
+    it('returns false for formats we do not inline reliably in the webview player', () => {
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/live.heic'), false)
+      assert.strictEqual(supportsInlineMediaPreview('/path/to/photo.avif'), false)
       assert.strictEqual(supportsInlineMediaPreview('/path/to/movie.mkv'), false)
       assert.strictEqual(supportsInlineMediaPreview('/path/to/movie.avi'), false)
       assert.strictEqual(supportsInlineMediaPreview('/path/to/lossless.flac'), false)

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useLayoutEffect, useRef } from 'react'
 import { TransformWrapper, TransformComponent, useControls } from 'react-zoom-pan-pinch'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { convertFileSrc } from '@tauri-apps/api/core'
@@ -7,6 +7,7 @@ import { t } from '@shell/i18n/ui-locale'
 import { PreviewProgress } from '../components/PreviewProgress'
 import { PreviewError } from '../components/PreviewError'
 import { PREVIEW_LIMITS } from '../utils/file-type-utils'
+import { isImageLoaded } from './image-load-state'
 import { resolveMediaPreviewPath } from './media-preview-path'
 import './ImagePreviewer.scss'
 
@@ -73,6 +74,7 @@ export function ImagePreviewer({
   fileSize,
   onOpenExternal,
 }: ImagePreviewerProps) {
+  const imageRef = useRef<HTMLImageElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,9 +82,13 @@ export function ImagePreviewer({
   const resolvedPath = resolveMediaPreviewPath(workspaceRoot, filePath)
   const src = resolvedPath ? safeConvertFileSrc(resolvedPath) : null
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setLoading(true)
     setError(null)
+
+    if (isImageLoaded(imageRef.current)) {
+      setLoading(false)
+    }
   }, [src])
 
   if (!resolvedPath) {
@@ -133,6 +139,7 @@ export function ImagePreviewer({
           />
         )}
         <TransformWrapper
+          key={src}
           initialScale={1}
           minScale={0.1}
           maxScale={5}
@@ -152,13 +159,13 @@ export function ImagePreviewer({
             }}
           >
             <img
+              ref={imageRef}
               key={src}
               src={src}
               alt=""
-              className="image-previewer-img"
+              className={`image-previewer-img ${loading || error ? 'is-hidden' : ''}`}
               onLoad={handleLoad}
               onError={handleError}
-              style={{ display: loading || error ? 'none' : 'block' }}
             />
           </TransformComponent>
         </TransformWrapper>

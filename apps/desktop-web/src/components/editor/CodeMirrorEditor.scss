@@ -18,10 +18,15 @@
 
   .cm-scroller {
     font-family: inherit;
-    &::-webkit-scrollbar { width: #{rem(4)}; height: #{rem(4)}; }
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--vb-border) 40%, transparent) transparent;
+    &::-webkit-scrollbar { width: #{rem(5)}; height: #{rem(5)}; }
     &::-webkit-scrollbar-thumb {
-      background: color-mix(in srgb, var(--vb-border) 30%, transparent);
-      border-radius: var(--vb-radius-sm);
+      background: color-mix(in srgb, var(--vb-border) 40%, transparent);
+      border-radius: #{rem(999)};
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
     }
   }
 

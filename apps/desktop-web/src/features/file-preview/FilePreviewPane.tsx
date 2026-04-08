@@ -7,7 +7,7 @@ import {
   isPreviewable,
   supportsInlineMediaPreview,
 } from './utils/file-type-utils'
-import { ImagePreviewer, VideoPreviewer, AudioPreviewer } from './previewers'
+import { ImagePreviewer, VideoPreviewer, AudioPreviewer, PdfPreviewer } from './previewers'
 import { PreviewProgress } from './components/PreviewProgress'
 import { PreviewError } from './components/PreviewError'
 import { resolveMediaPreviewPath } from './previewers/media-preview-path'
@@ -162,7 +162,7 @@ export function FilePreviewPane({
     )
   }
 
-  if (!supportsInlineMediaPreview(filePath)) {
+  if (fileType.category !== 'pdf' && !supportsInlineMediaPreview(filePath)) {
     return (
       <section className="file-preview-pane panel">
         <PreviewError
@@ -204,6 +204,15 @@ export function FilePreviewPane({
           <AudioPreviewer
             locale={locale}
             workspaceRoot={workspaceRoot}
+            filePath={resolvedPath}
+            fileSize={effectiveFileSize}
+            onOpenExternal={onOpenExternal}
+          />
+        )
+      case 'pdf':
+        return (
+          <PdfPreviewer
+            locale={locale}
             filePath={resolvedPath}
             fileSize={effectiveFileSize}
             onOpenExternal={onOpenExternal}

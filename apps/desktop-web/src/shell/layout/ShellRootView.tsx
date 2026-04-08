@@ -6,7 +6,6 @@ import type {
   RefObject,
 } from 'react'
 import { FileEditorPane, FileTreePane, GlobalFileSearchModal } from '@features/file-explorer'
-import { FilePreviewPane } from '@features/file-preview'
 import { GitHistoryPane, GitOperationsPane } from '@features/git'
 import { GlobalTaskDispatchOverlay, TaskCenterPane } from '@features/task-center'
 import { SettingsModal } from '@features/settings'
@@ -65,8 +64,6 @@ interface ShellRootViewProps {
   workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
   pinnedWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
   fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
-  filePreviewPaneProps: ComponentProps<typeof FilePreviewPane>
-  isPreviewMode: boolean
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
   topmostWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
   statusBarProps: ComponentProps<typeof StatusBar>
@@ -188,8 +185,6 @@ interface ShellMainPaneContentProps {
   showWorkbenchCanvas: boolean
   workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
   fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
-  filePreviewPaneProps: ComponentProps<typeof FilePreviewPane>
-  isPreviewMode: boolean
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
 }
 
@@ -198,8 +193,6 @@ function ShellMainPaneContent({
   showWorkbenchCanvas,
   workbenchCanvasProps,
   fileEditorPaneProps,
-  filePreviewPaneProps,
-  isPreviewMode,
   gitHistoryPaneProps,
 }: ShellMainPaneContentProps) {
   if (showWorkbenchCanvas) {
@@ -213,11 +206,7 @@ function ShellMainPaneContent({
   if (activeNavId === 'files') {
     return (
       <div className="shell-feature-view">
-        {isPreviewMode ? (
-          <FilePreviewPane {...filePreviewPaneProps} />
-        ) : (
-          <FileEditorPane {...fileEditorPaneProps} />
-        )}
+        <FileEditorPane {...fileEditorPaneProps} />
       </div>
     )
   }
@@ -238,8 +227,6 @@ interface ShellWorkspaceContentProps {
   showWorkbenchCanvas: boolean
   workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
   fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
-  filePreviewPaneProps: ComponentProps<typeof FilePreviewPane>
-  isPreviewMode: boolean
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
 }
 
@@ -248,8 +235,6 @@ function ShellWorkspaceContent({
   showWorkbenchCanvas,
   workbenchCanvasProps,
   fileEditorPaneProps,
-  filePreviewPaneProps,
-  isPreviewMode,
   gitHistoryPaneProps,
 }: ShellWorkspaceContentProps) {
   return (
@@ -259,8 +244,6 @@ function ShellWorkspaceContent({
         showWorkbenchCanvas={showWorkbenchCanvas}
         workbenchCanvasProps={workbenchCanvasProps}
         fileEditorPaneProps={fileEditorPaneProps}
-        filePreviewPaneProps={filePreviewPaneProps}
-        isPreviewMode={isPreviewMode}
         gitHistoryPaneProps={gitHistoryPaneProps}
       />
     </div>
@@ -279,8 +262,6 @@ interface ShellMainAreaProps {
   onRightPaneResizePointerDown: PointerEventHandler<HTMLDivElement>
   onRightPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
   fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
-  filePreviewPaneProps: ComponentProps<typeof FilePreviewPane>
-  isPreviewMode: boolean
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
 }
 
@@ -296,8 +277,6 @@ function ShellMainArea({
   onRightPaneResizePointerDown,
   onRightPaneResizeKeyDown,
   fileEditorPaneProps,
-  filePreviewPaneProps,
-  isPreviewMode,
   gitHistoryPaneProps,
 }: ShellMainAreaProps) {
   return (
@@ -307,8 +286,6 @@ function ShellMainArea({
         showWorkbenchCanvas={showWorkbenchCanvas}
         workbenchCanvasProps={workbenchCanvasProps}
         fileEditorPaneProps={fileEditorPaneProps}
-        filePreviewPaneProps={filePreviewPaneProps}
-        isPreviewMode={isPreviewMode}
         gitHistoryPaneProps={gitHistoryPaneProps}
       />
       {pinnedWorkbenchCanvasProps ? (
@@ -357,8 +334,6 @@ interface ShellMainLayoutProps {
   workbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas>
   pinnedWorkbenchCanvasProps: ComponentProps<typeof WorkbenchCanvas> | null
   fileEditorPaneProps: ComponentProps<typeof FileEditorPane>
-  filePreviewPaneProps: ComponentProps<typeof FilePreviewPane>
-  isPreviewMode: boolean
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
 }
 
@@ -390,8 +365,6 @@ function ShellMainLayout({
   workbenchCanvasProps,
   pinnedWorkbenchCanvasProps,
   fileEditorPaneProps,
-  filePreviewPaneProps,
-  isPreviewMode,
   gitHistoryPaneProps,
 }: ShellMainLayoutProps) {
   return (
@@ -445,8 +418,6 @@ function ShellMainLayout({
         onRightPaneResizePointerDown={onRightPaneResizePointerDown}
         onRightPaneResizeKeyDown={onRightPaneResizeKeyDown}
         fileEditorPaneProps={fileEditorPaneProps}
-        filePreviewPaneProps={filePreviewPaneProps}
-        isPreviewMode={isPreviewMode}
         gitHistoryPaneProps={gitHistoryPaneProps}
       />
       {pinnedWorkbenchCanvasProps ? (
@@ -526,8 +497,6 @@ export function ShellRootView({
   workbenchCanvasProps,
   pinnedWorkbenchCanvasProps,
   fileEditorPaneProps,
-  filePreviewPaneProps,
-  isPreviewMode,
   gitHistoryPaneProps,
   topmostWorkbenchCanvasProps,
   statusBarProps,
@@ -585,8 +554,6 @@ export function ShellRootView({
           workbenchCanvasProps={workbenchCanvasProps}
           pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasProps}
           fileEditorPaneProps={fileEditorPaneProps}
-          filePreviewPaneProps={filePreviewPaneProps}
-          isPreviewMode={isPreviewMode}
           gitHistoryPaneProps={gitHistoryPaneProps}
         />
       </main>

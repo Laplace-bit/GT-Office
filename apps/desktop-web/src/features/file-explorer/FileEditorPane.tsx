@@ -11,6 +11,7 @@ import {
   type CodeEditorCommandRequest,
   type MarkdownViewMode,
 } from '@/components/editor'
+import { FilePreviewPane } from '@features/file-preview'
 import { resolveFileVisual } from './file-visuals'
 import { MarkdownModeToggle } from './MarkdownModeToggle'
 import './FileEditorPane.scss'
@@ -26,11 +27,13 @@ export interface OpenedFile {
   size: number
   isModified: boolean
   hydrated: boolean
+  viewType: 'editor' | 'preview'
 }
 
 interface FileEditorPaneProps {
   locale: Locale
   workspaceId: string | null
+  workspaceRoot: string | null
   openedFiles: OpenedFile[]
   activeFilePath: string | null
   loading: boolean
@@ -126,6 +129,7 @@ const FileTab = memo(function FileTab({
 export function FileEditorPane({
   locale,
   workspaceId,
+  workspaceRoot,
   openedFiles,
   activeFilePath,
   loading,
@@ -152,6 +156,7 @@ export function FileEditorPane({
     state: 'idle',
     error: null,
   })
+  const [draftContentByPath, setDraftContentByPath] = useState<Record<string, string>>({})
   const tabsContainerRef = useRef<HTMLDivElement | null>(null)
   const tabRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const onFileModifiedRef = useRef(onFileModified)
@@ -164,13 +169,14 @@ export function FileEditorPane({
   }, [onFileModified])
 
   const activeFile = openedFiles.find((f) => f.path === activeFilePath)
+  const isPreviewFile = activeFile?.viewType === 'preview'
 
   // Detect if the active file is markdown
   const isMarkdown = useMemo(() => {
     if (!activeFilePath) return false
     const lowerPath = activeFilePath.toLowerCase()
-    return lowerPath.endsWith('.md') || lowerPath.endsWith('.mdx')
-  }, [activeFilePath])
+    return !isPreviewFile && (lowerPath.endsWith('.md') || lowerPath.endsWith('.mdx'))
+  }, [activeFilePath, isPreviewFile])
   const isLargeFile = (activeFile?.size ?? 0) > LARGE_FILE_THRESHOLD_BYTES
   const isReadOnly = isLargeFile || !onSaveFile
   const visibleSaveState = saveFeedback.path === activeFilePath ? saveFeedback.state : 'idle'
@@ -186,6 +192,13 @@ export function FileEditorPane({
         modifiedStateRef.current[file.path] = file.isModified
       }
     }
+    setDraftContentByPath((prev) => {
+      const next: Record<string, string> = {}
+      for (const file of openedFiles) {
+        next[file.path] = prev[file.path] ?? file.content
+      }
+      return next
+    })
     // 清理已关闭文件的缓存
     const openPaths = new Set(openedFiles.map((f) => f.path))
     for (const path of Object.keys(editedContentRef.current)) {
@@ -203,6 +216,10 @@ export function FileEditorPane({
       editedContentRef.current[activeFile.path] = activeFile.content
       lastSavedContentRef.current[activeFile.path] = activeFile.content
       modifiedStateRef.current[activeFile.path] = false
+      setDraftContentByPath((prev) => ({
+        ...prev,
+        [activeFile.path]: activeFile.content,
+      }))
     }
   }, [activeFile])
 
@@ -218,6 +235,14 @@ export function FileEditorPane({
     (newContent: string) => {
       if (!activeFilePath) return
       editedContentRef.current[activeFilePath] = newContent
+      setDraftContentByPath((prev) =>
+        prev[activeFilePath] === newContent
+          ? prev
+          : {
+              ...prev,
+              [activeFilePath]: newContent,
+            },
+      )
       const isModified = newContent !== lastSavedContentRef.current[activeFilePath]
 
       // 只在状态变化时通知父组件，使用防抖
@@ -392,6 +417,10 @@ export function FileEditorPane({
   }, [activeFilePath, openFilePathsKey, scrollActiveTabIntoView])
 
   const hasOpenedFiles = openedFiles.length > 0
+  const activeContent =
+    activeFilePath && activeFile
+      ? (draftContentByPath[activeFilePath] ?? activeFile.content)
+      : ''
   return (
     <section className="panel file-editor-pane">
       {hasOpenedFiles && (
@@ -439,13 +468,6 @@ export function FileEditorPane({
         </div>
       )}
 
-      {/* Markdown mode toggle */}
-      {isMarkdown && activeFile && (
-        <div className="file-editor-toolbar">
-          <MarkdownModeToggle locale={locale} mode={viewMode} onChange={setViewMode} />
-        </div>
-      )}
-
       {!workspaceId && <p className="file-editor-hint">{t(locale, 'fileContent.bindWorkspace')}</p>}
       {workspaceId && !hasOpenedFiles && <p className="file-editor-hint">{t(locale, 'fileContent.selectFileHint')}</p>}
       {loading && <p className="file-editor-loading">{t(locale, 'fileContent.loading')}</p>}
@@ -456,22 +478,35 @@ export function FileEditorPane({
 
       {errorMessage && <p className="file-content-error">{errorMessage}</p>}
 
-      {activeFile && !loading && !errorMessage && canRenderContent && (
-        <div className="file-editor-content">
-          {isMarkdown && viewMode === 'preview' ? (
+      {activeFile && !loading && !errorMessage && (isPreviewFile || canRenderContent) && (
+        <div className={`file-editor-content ${isMarkdown ? 'file-editor-content--markdown' : ''}`}>
+          {isMarkdown ? (
+            <div className="file-editor-toolbar">
+              <MarkdownModeToggle locale={locale} mode={viewMode} onChange={setViewMode} />
+            </div>
+          ) : null}
+          {isPreviewFile ? (
+            <FilePreviewPane
+              locale={locale}
+              workspaceId={workspaceId}
+              workspaceRoot={workspaceRoot}
+              filePath={activeFile.path}
+              fileSize={activeFile.size}
+            />
+          ) : isMarkdown && viewMode === 'preview' ? (
             // Pure preview mode
             <div className="markdown-preview-pane">
               <div className="markdown-preview-content">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {activeFile.content}
+                  {activeContent}
                 </ReactMarkdown>
               </div>
             </div>
           ) : isMarkdown && viewMode === 'split' ? (
             // Split mode
-            <MarkdownSplitView
+              <MarkdownSplitView
               locale={locale}
-              content={activeFile.content}
+              content={activeContent}
               filePath={activeFile.path}
               readOnly={isReadOnly}
               onChange={handleContentChange}
@@ -479,9 +514,9 @@ export function FileEditorPane({
             />
           ) : (
             // Edit mode (including non-markdown files)
-            <MemoizedEditor
+              <MemoizedEditor
               locale={locale}
-              content={activeFile.content}
+              content={activeContent}
               filePath={activeFile.path}
               readOnly={isReadOnly}
               onChange={handleContentChange}

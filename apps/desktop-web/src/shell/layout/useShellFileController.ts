@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from 'react'
 import type { OpenedFile } from '@features/file-explorer'
-import { isMediaFile } from '@features/file-preview'
+import { isPreviewable } from '@features/file-preview'
 import { desktopApi, type FilesystemChangedPayload } from '../integration/desktop-api'
 import { t, type Locale } from '../i18n/ui-locale'
 import {
@@ -31,9 +31,6 @@ export interface ShellFileController {
   setOpenedFiles: Dispatch<SetStateAction<OpenedFile[]>>
   activeFilePath: string | null
   setActiveFilePath: Dispatch<SetStateAction<string | null>>
-  activePreviewPath: string | null
-  setActivePreviewPath: Dispatch<SetStateAction<string | null>>
-  isPreviewMode: boolean
   filePreviewNotice: string | null
   fileCanRenderText: boolean
   fileReadLoading: boolean
@@ -67,7 +64,6 @@ export function useShellFileController({
 }: UseShellFileControllerInput): ShellFileController {
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
-  const [activePreviewPath, setActivePreviewPath] = useState<string | null>(null)
   const [filePreviewNotice, setFilePreviewNotice] = useState<string | null>(null)
   const [fileCanRenderText, setFileCanRenderText] = useState(false)
   const [fileReadMode, setFileReadMode] = useState<FileReadMode>('full')
@@ -82,7 +78,6 @@ export function useShellFileController({
   )
   const openedFilesRef = useRef<OpenedFile[]>([])
   const activeFilePathRef = useRef<string | null>(null)
-  const activePreviewPathRef = useRef<string | null>(null)
   const fileReadModeRef = useRef<FileReadMode>('full')
   const fileReadSeqRef = useRef(0)
 
@@ -95,10 +90,6 @@ export function useShellFileController({
   }, [activeFilePath])
 
   useEffect(() => {
-    activePreviewPathRef.current = activePreviewPath
-  }, [activePreviewPath])
-
-  useEffect(() => {
     fileReadModeRef.current = fileReadMode
   }, [fileReadMode])
 
@@ -109,20 +100,34 @@ export function useShellFileController({
         return
       }
 
-      // Check if file is a media file that should open in preview
-      if (isMediaFile(filePath)) {
-        // Media files go to preview mode
-        setActivePreviewPath(filePath)
-        setActiveFilePath(null)
+      // Preview-capable files open as lightweight tabs and mount their heavy content on activation.
+      if (isPreviewable(filePath)) {
+        setOpenedFiles((prev) => {
+          if (prev.some((file) => file.path === filePath)) {
+            return prev
+          }
+          return [
+            ...prev,
+            {
+              path: filePath,
+              content: '',
+              size: 0,
+              isModified: false,
+              hydrated: true,
+              viewType: 'preview',
+            },
+          ]
+        })
+        setActiveFilePath(filePath)
         setFileReadLoading(false)
         setFileReadError(null)
+        setFilePreviewNotice(null)
         return
       }
 
       const existingFile = openedFilesRef.current.find((file) => file.path === filePath)
       if (existingFile?.hydrated) {
         setActiveFilePath(filePath)
-        setActivePreviewPath(null)
         setFileCanRenderText(true)
         setFilePreviewNotice(null)
         setFileReadError(null)
@@ -130,7 +135,6 @@ export function useShellFileController({
       }
 
       setActiveFilePath(filePath)
-      setActivePreviewPath(null)
       setFileReadLoading(true)
       setFileReadError(null)
       setFilePreviewNotice(null)
@@ -168,6 +172,7 @@ export function useShellFileController({
                     content: response.content,
                     size: response.sizeBytes,
                     hydrated: true,
+                    viewType: 'editor',
                   }
                 : file,
             )
@@ -180,6 +185,7 @@ export function useShellFileController({
               size: response.sizeBytes,
               isModified: false,
               hydrated: true,
+              viewType: 'editor',
             },
           ]
         })
@@ -228,7 +234,7 @@ export function useShellFileController({
         setOpenedFiles((prev) =>
           prev.map((file) =>
             file.path === filePath
-              ? { ...file, content, isModified: false, hydrated: true }
+              ? { ...file, content, isModified: false, hydrated: true, viewType: 'editor' }
               : file,
           ),
         )
@@ -415,7 +421,12 @@ export function useShellFileController({
         payload.kind === 'other'
       ) {
         for (const file of currentOpenedFiles) {
-          if (changedPaths.includes(file.path) && file.hydrated && !file.isModified) {
+          if (
+            changedPaths.includes(file.path) &&
+            file.viewType === 'editor' &&
+            file.hydrated &&
+            !file.isModified
+          ) {
             void loadFileContent(file.path, fileReadModeRef.current)
           }
         }
@@ -461,11 +472,9 @@ export function useShellFileController({
     fileReadSeqRef.current += 1
     openedFilesRef.current = []
     activeFilePathRef.current = null
-    activePreviewPathRef.current = null
     fileReadModeRef.current = 'full'
     setOpenedFiles([])
     setActiveFilePath(null)
-    setActivePreviewPath(null)
     setFilePreviewNotice(null)
     setFileCanRenderText(false)
     setFileReadMode('full')
@@ -497,9 +506,6 @@ export function useShellFileController({
     setOpenedFiles,
     activeFilePath,
     setActiveFilePath,
-    activePreviewPath,
-    setActivePreviewPath,
-    isPreviewMode: activePreviewPath !== null,
     filePreviewNotice,
     fileCanRenderText,
     fileReadLoading,

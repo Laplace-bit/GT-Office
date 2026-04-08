@@ -32,6 +32,7 @@ export const MarkdownModeToggle = memo(function MarkdownModeToggle({
           onClick={() => onChange(m)}
           role="tab"
           aria-selected={mode === m}
+          aria-label={t(locale, labelKey)}
           title={t(locale, labelKey)}
         >
           <Icon className="markdown-mode-icon" aria-hidden="true" />

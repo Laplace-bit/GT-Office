@@ -21,6 +21,7 @@
   "include": [
     "tests/**/*.ts",
     "src/features/file-preview/previewers/media-preview-path.ts",
+    "src/features/file-preview/previewers/image-load-state.ts",
     "src/shell/layout/window-performance-policy.ts",
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
     "src/features/terminal/station-terminal-input-buffer.ts",

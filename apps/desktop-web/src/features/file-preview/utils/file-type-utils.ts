@@ -18,6 +18,7 @@ export interface FileTypeResult {
   mimeType: string
 }
 
+const INLINE_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico'])
 const INLINE_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'm4v'])
 const INLINE_AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a'])
 
@@ -191,7 +192,7 @@ export function isMediaFile(filePath: string | null): boolean {
  */
 export function isPreviewable(filePath: string | null): boolean {
   const { category } = categorizeFile(filePath)
-  return ['image', 'video', 'audio'].includes(category)
+  return ['image', 'video', 'audio', 'pdf'].includes(category)
 }
 
 /**
@@ -200,7 +201,7 @@ export function isPreviewable(filePath: string | null): boolean {
 export function supportsInlineMediaPreview(filePath: string | null): boolean {
   const { category, extension } = categorizeFile(filePath)
   if (category === 'image') {
-    return true
+    return INLINE_IMAGE_EXTENSIONS.has(extension)
   }
   if (category === 'video') {
     return INLINE_VIDEO_EXTENSIONS.has(extension)

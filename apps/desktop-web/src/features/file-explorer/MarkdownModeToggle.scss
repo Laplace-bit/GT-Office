@@ -1,45 +1,83 @@
 @use '../../styles/tokens/responsive' as *;
 
 .markdown-mode-toggle {
-  display: flex;
-  gap: #{rem(4)};
-  padding: #{rem(4)};
-  background: var(--vb-surface-muted);
-  border-radius: var(--vb-radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: #{rem(2)};
+  padding: #{rem(3)};
+  border-radius: #{rem(999)};
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 18%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 56%, transparent);
+  box-shadow:
+    0 #{rem(10)} #{rem(24)} color-mix(in srgb, var(--vb-shadow) 14%, transparent),
+    inset 0 #{rem(1)} 0 color-mix(in srgb, #ffffff 22%, transparent);
+  backdrop-filter: blur(#{rem(16)}) saturate(1.2);
 }
 
 .markdown-mode-btn {
   display: flex;
   align-items: center;
-  gap: #{rem(6)};
-  padding: #{rem(6)} #{rem(12)};
-  font-size: #{rem(12)};
+  justify-content: center;
+  gap: #{rem(5)};
+  min-height: #{rem(28)};
+  padding: #{rem(5)} #{rem(10)};
+  font-size: #{rem(11)};
+  line-height: 1;
   color: var(--vb-text-muted);
   background: transparent;
-  border: none;
-  border-radius: var(--vb-radius-xs);
+  border: var(--vb-border-width) solid transparent;
+  border-radius: #{rem(999)};
   cursor: pointer;
   transition:
+    border-color 0.15s ease,
     background-color 0.15s ease,
-    color 0.15s ease;
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 
   &:hover {
-    background: var(--vb-surface-hover);
+    background: color-mix(in srgb, var(--vb-surface-hover) 72%, transparent);
     color: var(--vb-text);
   }
 
   &.active {
-    background: var(--vb-surface);
+    background: color-mix(in srgb, var(--vb-surface) 92%, transparent);
     color: var(--vb-text);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    border-color: color-mix(in srgb, var(--vb-accent) 22%, transparent);
+    box-shadow:
+      0 #{rem(6)} #{rem(18)} color-mix(in srgb, var(--vb-shadow) 16%, transparent),
+      inset 0 #{rem(1)} 0 color-mix(in srgb, #ffffff 18%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    color: var(--vb-text);
+    border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
+    box-shadow: 0 0 0 #{rem(3)} color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
+
+  &:active {
+    transform: translateY(#{rem(1)});
   }
 }
 
 .markdown-mode-icon {
-  width: #{rem(14)};
-  height: #{rem(14)};
+  width: #{rem(12)};
+  height: #{rem(12)};
 }
 
 .markdown-mode-label {
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+@container (max-width: 34rem) {
+  .markdown-mode-btn {
+    min-width: #{rem(28)};
+    padding-inline: #{rem(8)};
+  }
+
+  .markdown-mode-label {
+    display: none;
+  }
 }

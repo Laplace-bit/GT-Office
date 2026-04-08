@@ -9,7 +9,7 @@
 .markdown-split-editor {
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  min-height: 0;
 }
 
 .markdown-split-divider {
@@ -21,8 +21,18 @@
 .markdown-split-preview {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
   background: var(--vb-surface);
+
+  &::-webkit-scrollbar {
+    width: #{rem(5)};
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--vb-border) 44%, transparent);
+    border-radius: #{rem(999)};
+  }
 }
 
 .markdown-preview-content {

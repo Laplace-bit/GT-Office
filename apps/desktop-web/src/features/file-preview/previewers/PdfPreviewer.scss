@@ -1,0 +1,86 @@
+@use '../../../styles/tokens/responsive' as *;
+
+.pdf-previewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.pdf-previewer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vb-space-sm);
+  padding: var(--vb-space-sm) var(--vb-space-md);
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 16%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 82%, transparent);
+  backdrop-filter: blur(#{rem(18)});
+}
+
+.pdf-previewer-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vb-space-2xs);
+}
+
+.pdf-previewer-btn {
+  width: #{rem(28)};
+  height: #{rem(28)};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 18%, transparent);
+  border-radius: #{rem(999)};
+  background: color-mix(in srgb, var(--vb-surface) 68%, transparent);
+  color: var(--vb-text);
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.42;
+    cursor: default;
+  }
+
+  svg {
+    width: #{rem(14)};
+    height: #{rem(14)};
+  }
+}
+
+.pdf-previewer-page,
+.pdf-previewer-zoom {
+  font-size: #{rem(11)};
+  font-weight: 600;
+  color: var(--vb-text-muted);
+}
+
+.pdf-previewer-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--vb-space-lg);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--vb-accent) 5%, transparent), transparent 42%),
+    color-mix(in srgb, var(--vb-surface-muted) 40%, var(--vb-surface));
+
+  &::-webkit-scrollbar {
+    width: #{rem(5)};
+    height: #{rem(5)};
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--vb-border) 42%, transparent);
+    border-radius: #{rem(999)};
+  }
+}
+
+.pdf-previewer-image {
+  width: min(100%, #{rem(980)});
+  height: auto;
+  border-radius: var(--vb-radius-md);
+  box-shadow: 0 #{rem(20)} #{rem(40)} color-mix(in srgb, var(--vb-shadow) 16%, transparent);
+  background: white;
+}

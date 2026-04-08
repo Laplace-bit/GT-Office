@@ -640,6 +640,20 @@ export interface FileInfoResponse {
   category: string
 }
 
+export interface PdfInfoResponse {
+  pageCount: number
+  pageWidth: number
+  pageHeight: number
+  title?: string | null
+  author?: string | null
+}
+
+export interface PdfPageResponse {
+  imageData: string
+  width: number
+  height: number
+}
+
 export interface FsSearchMatch {
   path: string
   line: number
@@ -2131,6 +2145,12 @@ export const desktopApi = {
   },
   fsGetFileInfo(path: string) {
     return invokeCommand<FileInfoResponse>('fs_get_file_info', { path })
+  },
+  fsPdfGetInfo(path: string) {
+    return invokeCommand<PdfInfoResponse>('fs_pdf_get_info', { path })
+  },
+  fsPdfRenderPage(path: string, page: number, scale: number) {
+    return invokeCommand<PdfPageResponse>('fs_pdf_render_page', { path, page, scale })
   },
   fsReadFileFull(workspaceId: string, path: string, limitBytes?: number) {
     return invokeCommand<FsReadFileResponse>('fs_read_file_full', {

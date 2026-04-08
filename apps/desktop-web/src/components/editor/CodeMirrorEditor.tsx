@@ -30,13 +30,6 @@ import {
   search,
   searchKeymap,
 } from '@codemirror/search'
-import { javascript } from '@codemirror/lang-javascript'
-import { python } from '@codemirror/lang-python'
-import { rust } from '@codemirror/lang-rust'
-import { json } from '@codemirror/lang-json'
-import { markdown } from '@codemirror/lang-markdown'
-import { css } from '@codemirror/lang-css'
-import { html } from '@codemirror/lang-html'
 import {
   caseSensitiveIconNode,
   chevronDownIconNode,
@@ -49,6 +42,7 @@ import {
   xIconNode,
   type EditorLucideIconNode,
 } from './lucide-icon-nodes'
+import { detectLanguageFromPath, getLanguageExtension } from './languages/language-extensions'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import './CodeMirrorEditor.scss'
 
@@ -62,43 +56,12 @@ export interface CodeMirrorEditorProps {
   commandRequest?: CodeEditorCommandRequest | null
 }
 
-type LanguageId = 'javascript' | 'typescript' | 'python' | 'rust' | 'json' | 'markdown' | 'css' | 'html' | 'plain'
 export type CodeEditorCommandType = 'find' | 'replace' | 'findNext' | 'findPrevious' | 'gotoLine'
 export interface CodeEditorCommandRequest {
   type: CodeEditorCommandType
   nonce: number
   line?: number
   targetPath?: string | null
-}
-
-function detectLanguage(filePath: string | null): LanguageId {
-  if (!filePath) return 'plain'
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
-  switch (ext) {
-    case 'js': case 'mjs': case 'cjs': case 'jsx': return 'javascript'
-    case 'ts': case 'mts': case 'cts': case 'tsx': return 'typescript'
-    case 'py': case 'pyw': case 'pyi': return 'python'
-    case 'rs': return 'rust'
-    case 'json': case 'jsonc': case 'json5': return 'json'
-    case 'md': case 'mdx': case 'markdown': return 'markdown'
-    case 'css': case 'scss': case 'sass': case 'less': return 'css'
-    case 'html': case 'htm': case 'vue': case 'svelte': return 'html'
-    default: return 'plain'
-  }
-}
-
-function getLanguageExtension(languageId: LanguageId): Extension | null {
-  switch (languageId) {
-    case 'javascript': return javascript({ jsx: true })
-    case 'typescript': return javascript({ jsx: true, typescript: true })
-    case 'python': return python()
-    case 'rust': return rust()
-    case 'json': return json()
-    case 'markdown': return markdown()
-    case 'css': return css()
-    case 'html': return html()
-    default: return null
-  }
 }
 
 function focusSearchField(view: EditorView, fieldName: 'search' | 'replace') {
@@ -262,13 +225,13 @@ export function CodeMirrorEditor({
     const container = containerRef.current
     if (!container || viewRef.current) return
 
-    const langId = detectLanguage(filePathRef.current)
+    const langId = detectLanguageFromPath(filePathRef.current)
     const langExt = getLanguageExtension(langId)
 
     const extensions: Extension[] = [
       minimalSetup,
       themeExtension,
-      languageCompartment.current.of(langExt ?? []),
+      languageCompartment.current.of(langExt),
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
       phrasesCompartment.current.of(EditorState.phrases.of(buildSearchPhrases(locale))),
       keymap.of([{
@@ -311,11 +274,11 @@ export function CodeMirrorEditor({
     if (!view || filePath === filePathRef.current) return
 
     filePathRef.current = filePath
-    const langId = detectLanguage(filePath)
+    const langId = detectLanguageFromPath(filePath)
     const langExt = getLanguageExtension(langId)
 
     view.dispatch({
-      effects: languageCompartment.current.reconfigure(langExt ?? []),
+      effects: languageCompartment.current.reconfigure(langExt),
     })
   }, [filePath])
 

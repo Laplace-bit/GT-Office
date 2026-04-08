@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from 'react'
+import { useMemo, useRef, useCallback, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -28,18 +28,49 @@ export function MarkdownSplitView({
   onChange,
   onSave,
 }: MarkdownSplitViewProps) {
+  const editorRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
+  const syncingPaneRef = useRef<'editor' | 'preview' | null>(null)
 
-  // Sync scroll from editor to preview
-  const handleEditorScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!previewRef.current) return
+  const syncScrollPosition = useCallback(
+    (source: HTMLElement, target: HTMLElement, sourcePane: 'editor' | 'preview') => {
+      if (syncingPaneRef.current && syncingPaneRef.current !== sourcePane) {
+        return
+      }
+      const sourceScrollable = source.scrollHeight - source.clientHeight
+      const targetScrollable = target.scrollHeight - target.clientHeight
+      if (sourceScrollable <= 0 || targetScrollable <= 0) {
+        return
+      }
+      syncingPaneRef.current = sourcePane
+      const ratio = source.scrollTop / sourceScrollable
+      target.scrollTop = ratio * targetScrollable
+      window.requestAnimationFrame(() => {
+        if (syncingPaneRef.current === sourcePane) {
+          syncingPaneRef.current = null
+        }
+      })
+    },
+    [],
+  )
 
-    const target = e.target as HTMLDivElement
-    const scrollRatio = target.scrollTop / (target.scrollHeight - target.clientHeight)
-    const previewScrollHeight = previewRef.current.scrollHeight - previewRef.current.clientHeight
+  useEffect(() => {
+    const editorScroller = editorRef.current?.querySelector<HTMLElement>('.cm-scroller')
+    const previewScroller = previewRef.current
+    if (!editorScroller || !previewScroller) {
+      return
+    }
 
-    previewRef.current.scrollTop = scrollRatio * previewScrollHeight
-  }, [])
+    const handleEditorScroll = () => syncScrollPosition(editorScroller, previewScroller, 'editor')
+    const handlePreviewScroll = () => syncScrollPosition(previewScroller, editorScroller, 'preview')
+
+    editorScroller.addEventListener('scroll', handleEditorScroll)
+    previewScroller.addEventListener('scroll', handlePreviewScroll)
+    return () => {
+      editorScroller.removeEventListener('scroll', handleEditorScroll)
+      previewScroller.removeEventListener('scroll', handlePreviewScroll)
+    }
+  }, [syncScrollPosition, content, filePath])
 
   // Markdown rendering configuration
   const markdownComponents = useMemo(
@@ -68,7 +99,7 @@ export function MarkdownSplitView({
   return (
     <div className="markdown-split-view">
       {/* Editor panel */}
-      <div className="markdown-split-editor" onScroll={handleEditorScroll}>
+      <div ref={editorRef} className="markdown-split-editor">
         <CodeMirrorEditor
           locale={locale}
           content={content}
