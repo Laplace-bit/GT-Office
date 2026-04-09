@@ -20,6 +20,16 @@
   height: 100%;
   min-height: 0;
 
+  /* The global * transition includes color/fill/stroke which causes color-mix()
+     values to render incorrectly in WKWebView during initial paint and state
+     transitions.  Override descendants to exclude color/fill/stroke from the
+     transition, mirroring the .xterm * fix in _legacy-foundations.scss. */
+  & *,
+  & *::before,
+  & *::after {
+    transition-property: background-color, border-color, opacity;
+  }
+
   &::after {
     content: '';
     position: absolute;
@@ -223,7 +233,7 @@
   background: transparent;
   color: var(--vb-text-muted);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
   position: relative;
   overflow: hidden;
 
@@ -369,7 +379,7 @@
   font-size: rem(12);
   font-weight: 650;
   cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 
   &:hover {
     transform: translateY(-rem(1));
