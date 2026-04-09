@@ -483,25 +483,25 @@ export const messages = {
   'station.filter.allStates': { 'zh-CN': '全部状态', 'en-US': 'All States' },
   'station.filter.allDepartments': { 'zh-CN': '全部部门', 'en-US': 'All Departments' },
   'station.filter.reset': { 'zh-CN': '重置筛选', 'en-US': 'Reset Filters' },
-  'station.role.manager': { 'zh-CN': '管理者', 'en-US': 'Manager' },
-  'station.role.product': { 'zh-CN': '产品角色', 'en-US': 'Product' },
-  'station.role.build': { 'zh-CN': '交付角色', 'en-US': 'Build' },
-  'station.role.quality_release': { 'zh-CN': '质量与发布', 'en-US': 'Quality & Release' },
-  'station.department.leadership': {
-    'zh-CN': '管理统筹部',
-    'en-US': 'Leadership',
+  'station.role.orchestrator': { 'zh-CN': '编排', 'en-US': 'Orchestrator' },
+  'station.role.analyst': { 'zh-CN': '分析', 'en-US': 'Analyst' },
+  'station.role.generator': { 'zh-CN': '生成', 'en-US': 'Generator' },
+  'station.role.evaluator': { 'zh-CN': '评估', 'en-US': 'Evaluator' },
+  'station.department.orchestration': {
+    'zh-CN': '编排调度',
+    'en-US': 'Orchestration',
   },
-  'station.department.product_management': {
-    'zh-CN': '产品管理部',
-    'en-US': 'Product Management',
+  'station.department.analysis': {
+    'zh-CN': '分析理解',
+    'en-US': 'Analysis',
   },
-  'station.department.delivery_engineering': {
-    'zh-CN': '交付工程部',
-    'en-US': 'Delivery Engineering',
+  'station.department.generation': {
+    'zh-CN': '生成构建',
+    'en-US': 'Generation',
   },
-  'station.department.quality_release': {
-    'zh-CN': '质量发布部',
-    'en-US': 'Quality & Release',
+  'station.department.evaluation': {
+    'zh-CN': '评估验证',
+    'en-US': 'Evaluation',
   },
   'station.runtime.running': { 'zh-CN': '运行中', 'en-US': 'Running' },
   'station.runtime.starting': { 'zh-CN': '启动中', 'en-US': 'Starting' },

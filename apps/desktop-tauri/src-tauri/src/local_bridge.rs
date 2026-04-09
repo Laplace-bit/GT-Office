@@ -157,11 +157,11 @@ mod tests {
             updated_at_ms: 1,
         }];
         let roles = vec![AgentRole {
-            id: "role_product".to_string(),
+            id: "role_analyst".to_string(),
             workspace_id: "ws-1".to_string(),
-            role_key: "product".to_string(),
-            role_name: "Product".to_string(),
-            department_id: "dept_product_management".to_string(),
+            role_key: "analyst".to_string(),
+            role_name: "Analyst".to_string(),
+            department_id: "dept_analysis".to_string(),
             scope: AgentRoleScope::Workspace,
             charter_path: None,
             policy_json: Some("{}".to_string()),
@@ -181,11 +181,11 @@ mod tests {
     #[test]
     fn resolve_bootstrap_role_key_falls_back_to_matching_role_key() {
         let roles = vec![AgentRole {
-            id: "role_build".to_string(),
+            id: "role_generator".to_string(),
             workspace_id: "ws-1".to_string(),
-            role_key: "build".to_string(),
-            role_name: "Build".to_string(),
-            department_id: "dept_delivery_engineering".to_string(),
+            role_key: "generator".to_string(),
+            role_name: "Generator".to_string(),
+            department_id: "dept_generation".to_string(),
             scope: AgentRoleScope::Global,
             charter_path: None,
             policy_json: Some("{}".to_string()),

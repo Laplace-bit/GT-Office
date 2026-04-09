@@ -32,14 +32,14 @@ interface StationOverviewRowProps {
 
 function roleLabel(locale: Locale, station: AgentStation): string {
   switch (station.role) {
-    case 'manager':
-      return t(locale, 'station.role.manager')
-    case 'product':
-      return t(locale, 'station.role.product')
-    case 'build':
-      return t(locale, 'station.role.build')
-    case 'quality_release':
-      return t(locale, 'station.role.quality_release')
+    case 'orchestrator':
+      return t(locale, 'station.role.orchestrator')
+    case 'analyst':
+      return t(locale, 'station.role.analyst')
+    case 'generator':
+      return t(locale, 'station.role.generator')
+    case 'evaluator':
+      return t(locale, 'station.role.evaluator')
     default:
       return station.roleName || station.role
   }

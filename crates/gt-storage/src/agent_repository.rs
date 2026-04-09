@@ -387,7 +387,7 @@ impl AgentRepository for SqliteAgentRepository {
         }
 
         tx.execute(
-            "UPDATE agent_roles SET status = 'deprecated', updated_at_ms = ?1 WHERE workspace_id = ?2 AND is_system = 1 AND role_key IN ('implementation', 'review', 'test', 'release')",
+            "UPDATE agent_roles SET status = 'deprecated', updated_at_ms = ?1 WHERE workspace_id = ?2 AND is_system = 1 AND role_key IN ('implementation', 'review', 'test', 'release', 'manager', 'product', 'build', 'quality_release')",
             params![now_ms, workspace_id],
         )
         .map_err(|error| AgentError::Storage {

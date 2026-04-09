@@ -20,7 +20,7 @@ export interface UpdateStationInput extends CreateStationInput {
   id: string
 }
 
-export const stationRoleOrder: StationRole[] = ['manager', 'product', 'build', 'quality_release']
+export const stationRoleOrder: StationRole[] = ['orchestrator', 'analyst', 'generator', 'evaluator']
 
 export interface AgentStation {
   id: string
@@ -106,21 +106,21 @@ type DefaultStationSeed = Omit<AgentStation, 'roleWorkdirRel' | 'agentWorkdirRel
 const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKind }> = [
   createDefaultStationSeed({
     id: 'agent-01',
-    name: '管理角色-01',
-    roleId: 'global_role_manager',
-    role: 'manager',
-    roleName: 'Manager',
-    tool: 'codex cli',
+    name: 'Orchestrator-01',
+    roleId: 'global_role_orchestrator',
+    role: 'orchestrator',
+    roleName: 'Orchestrator',
+    tool: 'claude code',
     terminalSessionId: 'ts_101',
     state: 'running',
     workspaceId: 'ws_gtoffice',
   }),
   createDefaultStationSeed({
     id: 'agent-02',
-    name: '产品角色-01',
-    roleId: 'global_role_product',
-    role: 'product',
-    roleName: 'Product',
+    name: 'Analyst-01',
+    roleId: 'global_role_analyst',
+    role: 'analyst',
+    roleName: 'Analyst',
     tool: 'claude code',
     terminalSessionId: 'ts_102',
     state: 'running',
@@ -128,10 +128,10 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   }),
   createDefaultStationSeed({
     id: 'agent-03',
-    name: '交付角色-01',
-    roleId: 'global_role_build',
-    role: 'build',
-    roleName: 'Build',
+    name: 'Generator-01',
+    roleId: 'global_role_generator',
+    role: 'generator',
+    roleName: 'Generator',
     tool: 'codex cli',
     terminalSessionId: 'ts_103',
     state: 'running',
@@ -139,11 +139,11 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   }),
   createDefaultStationSeed({
     id: 'agent-04',
-    name: '质量发布-01',
-    roleId: 'global_role_quality_release',
-    role: 'quality_release',
-    roleName: 'Quality & Release',
-    tool: 'shell',
+    name: 'Evaluator-01',
+    roleId: 'global_role_evaluator',
+    role: 'evaluator',
+    roleName: 'Evaluator',
+    tool: 'codex cli',
     terminalSessionId: 'ts_104',
     state: 'idle',
     workspaceId: 'ws_gtoffice',
