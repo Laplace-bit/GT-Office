@@ -27,7 +27,7 @@ exclude = ["tools/gto-agent-mcp-sidecar"]
 [workspace.package]
 edition = "2021"
 authors = ["GT Office Team"]
-license = "MIT"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 anyhow = "1"

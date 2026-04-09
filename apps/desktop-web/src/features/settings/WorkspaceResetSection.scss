@@ -1,0 +1,192 @@
+@use '../../styles/tokens/responsive' as *;
+
+.settings-reset-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: #{rem(24)};
+  align-items: start;
+  padding: #{rem(24)};
+  border-radius: var(--vb-radius-lg);
+  border: var(--vb-border-width) solid color-mix(in srgb, #c75353 28%, var(--vb-border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #fff3f1 70%, transparent), transparent 55%),
+    color-mix(in srgb, var(--vb-surface) 74%, transparent);
+  box-shadow: 0 #{rem(10)} #{rem(28)} rgba(129, 36, 36, 0.08);
+}
+
+.settings-reset-card__copy {
+  display: grid;
+  gap: #{rem(10)};
+
+  h4 {
+    margin: 0;
+  }
+
+  p {
+    margin: 0;
+    color: var(--vb-text-muted);
+    line-height: 1.5;
+  }
+}
+
+.settings-reset-card__eyebrow {
+  font-size: #{rem(11)};
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b24747;
+}
+
+.settings-reset-card__warning {
+  color: #973737 !important;
+}
+
+.settings-reset-card__hint,
+.settings-reset-card__success {
+  font-size: #{rem(12)};
+}
+
+.settings-reset-card__success {
+  color: #216f4a !important;
+}
+
+.settings-reset-card__trigger,
+.settings-reset-confirm-dialog__button {
+  border: none;
+  border-radius: #{rem(12)};
+  padding: 0 #{rem(16)};
+  min-height: #{rem(40)};
+  font-size: #{rem(13)};
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+.settings-reset-card__trigger {
+  min-width: #{rem(164)};
+  background: linear-gradient(135deg, #b73d3d, #922f2f);
+  color: #fff;
+  box-shadow: 0 #{rem(10)} #{rem(20)} rgba(146, 47, 47, 0.18);
+
+  &:hover:not(:disabled) {
+    transform: translateY(-#{rem(1)});
+  }
+}
+
+.settings-reset-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: #{rem(24)} #{rem(24)} #{rem(72)};
+  background: rgba(22, 18, 18, 0.32);
+  backdrop-filter: blur(#{rem(18)});
+  -webkit-backdrop-filter: blur(#{rem(18)});
+}
+
+.settings-reset-confirm-dialog {
+  width: min(#{rem(420)}, calc(100vw - #{rem(32)}));
+  display: grid;
+  gap: #{rem(16)};
+  padding: #{rem(24)};
+  border-radius: #{rem(18)};
+  border: var(--vb-border-width) solid color-mix(in srgb, #c75353 30%, var(--vb-border));
+  background: color-mix(in srgb, var(--vb-surface) 88%, white 12%);
+  box-shadow: 0 #{rem(24)} #{rem(48)} rgba(0, 0, 0, 0.16);
+  animation: settings-reset-confirm-in 0.2s ease;
+
+  h4,
+  p {
+    margin: 0;
+  }
+
+  p {
+    color: var(--vb-text-muted);
+    line-height: 1.5;
+  }
+}
+
+@keyframes settings-reset-confirm-in {
+  from {
+    opacity: 0;
+    transform: translateY(#{rem(12)});
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settings-reset-confirm-dialog__eyebrow {
+  font-size: #{rem(11)};
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b24747;
+}
+
+.settings-reset-confirm-dialog__field {
+  display: grid;
+  gap: #{rem(8)};
+
+  span {
+    font-size: #{rem(12)};
+    font-weight: 600;
+    color: var(--vb-text);
+  }
+
+  input {
+    min-height: #{rem(40)};
+    border-radius: #{rem(12)};
+    border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 84%, transparent);
+    background: color-mix(in srgb, var(--vb-surface-muted) 55%, transparent);
+    padding: 0 #{rem(12)};
+    color: var(--vb-text);
+    font-size: #{rem(14)};
+  }
+}
+
+.settings-reset-confirm-dialog__error {
+  color: #af3838 !important;
+  font-size: #{rem(12)};
+}
+
+.settings-reset-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: #{rem(10)};
+}
+
+.settings-reset-confirm-dialog__button.is-secondary {
+  background: color-mix(in srgb, var(--vb-chip) 82%, transparent);
+  color: var(--vb-text);
+}
+
+.settings-reset-confirm-dialog__button.is-danger {
+  background: linear-gradient(135deg, #b73d3d, #922f2f);
+  color: #fff;
+}
+
+@media (max-width: #{rem(720)}) {
+  .settings-reset-card {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-reset-card__trigger {
+    width: 100%;
+  }
+
+  .settings-reset-confirm-overlay {
+    padding: #{rem(16)};
+    align-items: center;
+  }
+}

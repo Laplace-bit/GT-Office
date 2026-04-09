@@ -1,11 +1,11 @@
 use crate::sqlite::SqliteStorage;
-use rusqlite::{params, OptionalExtension};
 use gt_agent::{
-    prompt_file_name_for_tool, prompt_file_relative_path, AgentError, AgentProfile,
-    AgentRepository, AgentResult, AgentRole, AgentRoleScope, AgentState, CreateAgentInput,
-    OrganizationDepartment, RoleStatus, UpdateAgentInput, DEFAULT_DEPARTMENTS, DEFAULT_ROLES,
-    GLOBAL_ROLE_WORKSPACE_ID,
+    default_role_seed_by_id, prompt_file_name_for_tool, prompt_file_relative_path, AgentError,
+    AgentProfile, AgentRepository, AgentResult, AgentRole, AgentRoleScope, AgentState,
+    CreateAgentInput, OrganizationDepartment, RoleStatus, UpdateAgentInput, DEFAULT_DEPARTMENTS,
+    DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
 };
+use rusqlite::{params, OptionalExtension};
 
 #[derive(Debug, Clone)]
 pub struct SqliteAgentRepository {
@@ -33,16 +33,88 @@ impl SqliteAgentRepository {
             })
     }
 
+    pub fn reset_workspace_state_in_tx(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        workspace_id: &str,
+    ) -> AgentResult<()> {
+        if workspace_id == GLOBAL_ROLE_WORKSPACE_ID {
+            return Err(AgentError::InvalidArgument {
+                message: "workspace reset cannot target global rows".to_string(),
+            });
+        }
+
+        let now_ms = Self::now_ms();
+        tx.execute(
+            "DELETE FROM agents WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        tx.execute(
+            "DELETE FROM agent_roles WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        tx.execute(
+            "DELETE FROM deleted_system_role_seeds WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        tx.execute(
+            "DELETE FROM org_departments WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+
+        Self::seed_defaults_tx(tx, workspace_id, now_ms)
+    }
+
+    pub fn reassign_agents_role(
+        &self,
+        workspace_id: &str,
+        role_id: &str,
+        replacement_role_id: &str,
+        replacement_role_workspace_id: &str,
+    ) -> AgentResult<usize> {
+        let conn = self.connection()?;
+        conn.execute(
+            "UPDATE agents
+             SET role_id = ?1, role_workspace_id = ?2, updated_at_ms = ?3
+             WHERE workspace_id = ?4 AND role_id = ?5",
+            params![
+                replacement_role_id,
+                replacement_role_workspace_id,
+                Self::now_ms(),
+                workspace_id,
+                role_id,
+            ],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })
+    }
+
     fn default_department_id() -> &'static str {
-        "dept_delivery_engineering"
+        DEFAULT_DEPARTMENTS[0].id
     }
 
     fn normalize_department_id(input: &str) -> &'static str {
-        if input.trim().is_empty() {
-            Self::default_department_id()
-        } else {
-            Self::default_department_id()
+        let normalized = input.trim();
+        if normalized.is_empty() {
+            return Self::default_department_id();
         }
+        DEFAULT_DEPARTMENTS
+            .iter()
+            .find(|dept| dept.id == normalized)
+            .map_or(Self::default_department_id(), |dept| dept.id)
     }
 
     fn hydrate_agent_profile(mut agent: AgentProfile) -> AgentProfile {
@@ -55,9 +127,7 @@ impl SqliteAgentRepository {
         agent
     }
 
-    fn agents_table_uses_legacy_role_foreign_key(
-        conn: &rusqlite::Connection,
-    ) -> AgentResult<bool> {
+    fn agents_table_uses_legacy_role_foreign_key(conn: &rusqlite::Connection) -> AgentResult<bool> {
         let mut stmt = conn
             .prepare("PRAGMA foreign_key_list(agents)")
             .map_err(|error| AgentError::Storage {
@@ -108,9 +178,7 @@ impl SqliteAgentRepository {
         Ok(has_legacy_workspace_fk && !has_role_workspace_fk)
     }
 
-    fn migrate_agents_table_role_foreign_key(
-        conn: &rusqlite::Connection,
-    ) -> AgentResult<()> {
+    fn migrate_agents_table_role_foreign_key(conn: &rusqlite::Connection) -> AgentResult<()> {
         conn.execute_batch(
             r#"
             PRAGMA foreign_keys = OFF;
@@ -176,6 +244,71 @@ impl SqliteAgentRepository {
             message: error.to_string(),
         })
     }
+
+    fn seed_defaults_tx(
+        tx: &rusqlite::Transaction<'_>,
+        workspace_id: &str,
+        now_ms: i64,
+    ) -> AgentResult<()> {
+        for dept in DEFAULT_DEPARTMENTS.iter() {
+            tx.execute(
+                "INSERT OR IGNORE INTO org_departments (id, workspace_id, name, description, order_index, is_system, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
+                params![
+                    dept.id,
+                    workspace_id,
+                    dept.name,
+                    dept.description,
+                    dept.order_index,
+                    now_ms,
+                    now_ms,
+                ],
+            )
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        }
+
+        if workspace_id == GLOBAL_ROLE_WORKSPACE_ID {
+            let deleted_ids: Vec<String> = tx
+                .prepare("SELECT role_id FROM deleted_system_role_seeds WHERE workspace_id = ?1")
+                .and_then(|mut stmt| {
+                    stmt.query_map(params![GLOBAL_ROLE_WORKSPACE_ID], |row| row.get(0))
+                        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                })
+                .unwrap_or_default();
+            for role in DEFAULT_ROLES.iter() {
+                if deleted_ids.iter().any(|id| id == role.id) {
+                    continue;
+                }
+                tx.execute(
+                    "INSERT OR IGNORE INTO agent_roles (id, workspace_id, role_key, role_name, department_id, scope, charter_path, policy_json, version, status, is_system, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'global', ?6, '{}', 1, 'active', 1, ?7, ?8)",
+                    params![
+                        role.id,
+                        workspace_id,
+                        role.role_key,
+                        role.role_name,
+                        role.department_id,
+                        role.charter_path,
+                        now_ms,
+                        now_ms,
+                    ],
+                )
+                .map_err(|error| AgentError::Storage {
+                    message: error.to_string(),
+                })?;
+            }
+        }
+
+        tx.execute(
+            "UPDATE agent_roles SET status = 'deprecated', updated_at_ms = ?1 WHERE workspace_id = ?2 AND is_system = 1 AND role_key IN ('implementation', 'review', 'test', 'release', 'manager', 'product', 'build', 'quality_release')",
+            params![now_ms, workspace_id],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+
+        Ok(())
+    }
 }
 
 const AGENT_SCHEMA: &str = r#"
@@ -230,6 +363,12 @@ CREATE TABLE IF NOT EXISTS agents (
   FOREIGN KEY (role_id, role_workspace_id)
     REFERENCES agent_roles(id, workspace_id)
     ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS deleted_system_role_seeds (
+  role_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  PRIMARY KEY (role_id, workspace_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_roles_workspace_key
@@ -346,53 +485,21 @@ impl AgentRepository for SqliteAgentRepository {
         let tx = conn.transaction().map_err(|error| AgentError::Storage {
             message: error.to_string(),
         })?;
+        Self::seed_defaults_tx(&tx, workspace_id, now_ms)?;
 
-        for dept in DEFAULT_DEPARTMENTS.iter() {
-            tx.execute(
-                "INSERT OR IGNORE INTO org_departments (id, workspace_id, name, description, order_index, is_system, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
-                params![
-                    dept.id,
-                    workspace_id,
-                    dept.name,
-                    dept.description,
-                    dept.order_index,
-                    now_ms,
-                    now_ms,
-                ],
-            )
-            .map_err(|error| AgentError::Storage {
-                message: error.to_string(),
-            })?;
-        }
-
-        if workspace_id == GLOBAL_ROLE_WORKSPACE_ID {
-            for role in DEFAULT_ROLES.iter() {
-                tx.execute(
-                    "INSERT OR IGNORE INTO agent_roles (id, workspace_id, role_key, role_name, department_id, scope, charter_path, policy_json, version, status, is_system, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'global', ?6, '{}', 1, 'active', 1, ?7, ?8)",
-                    params![
-                        role.id,
-                        workspace_id,
-                        role.role_key,
-                        role.role_name,
-                        role.department_id,
-                        role.charter_path,
-                        now_ms,
-                        now_ms,
-                    ],
-                )
-                .map_err(|error| AgentError::Storage {
-                    message: error.to_string(),
-                })?;
-            }
-        }
-
-        tx.execute(
-            "UPDATE agent_roles SET status = 'deprecated', updated_at_ms = ?1 WHERE workspace_id = ?2 AND is_system = 1 AND role_key IN ('implementation', 'review', 'test', 'release', 'manager', 'product', 'build', 'quality_release')",
-            params![now_ms, workspace_id],
-        )
-        .map_err(|error| AgentError::Storage {
+        tx.commit().map_err(|error| AgentError::Storage {
             message: error.to_string(),
         })?;
+
+        Ok(())
+    }
+
+    fn reset_workspace_state(&self, workspace_id: &str) -> AgentResult<()> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction().map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        self.reset_workspace_state_in_tx(&tx, workspace_id)?;
 
         tx.commit().map_err(|error| AgentError::Storage {
             message: error.to_string(),
@@ -468,6 +575,30 @@ impl AgentRepository for SqliteAgentRepository {
                     updated_at_ms: row.get(12)?,
                 })
             })
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?);
+        }
+        Ok(result)
+    }
+
+    fn list_deleted_system_role_seed_ids(&self, workspace_id: &str) -> AgentResult<Vec<String>> {
+        let conn = self.connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT role_id FROM deleted_system_role_seeds WHERE workspace_id = ?1 ORDER BY role_id",
+            )
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        let rows = stmt
+            .query_map(params![workspace_id], |row| row.get::<_, String>(0))
             .map_err(|error| AgentError::Storage {
                 message: error.to_string(),
             })?;
@@ -770,20 +901,13 @@ impl AgentRepository for SqliteAgentRepository {
 
     fn delete_role(&self, workspace_id: &str, role_id: &str) -> AgentResult<bool> {
         let conn = self.connection()?;
-        let assigned_agents: i64 = conn
+        let is_system: bool = conn
             .query_row(
-                "SELECT COUNT(1) FROM agents WHERE role_id = ?1 AND role_workspace_id = ?2",
-                params![role_id, workspace_id],
-                |row| row.get(0),
+                "SELECT is_system FROM agent_roles WHERE workspace_id = ?1 AND id = ?2",
+                params![workspace_id, role_id],
+                |row| row.get::<_, i32>(0).map(|v| v != 0),
             )
-            .map_err(|error| AgentError::Storage {
-                message: error.to_string(),
-            })?;
-        if assigned_agents > 0 {
-            return Err(AgentError::InvalidArgument {
-                message: "role is still assigned to one or more agents".to_string(),
-            });
-        }
+            .unwrap_or(false);
         let deleted = conn
             .execute(
                 "DELETE FROM agent_roles WHERE workspace_id = ?1 AND id = ?2",
@@ -792,15 +916,80 @@ impl AgentRepository for SqliteAgentRepository {
             .map_err(|error| AgentError::Storage {
                 message: error.to_string(),
             })?;
+        if deleted > 0 && is_system {
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO deleted_system_role_seeds (role_id, workspace_id) VALUES (?1, ?2)",
+                params![role_id, workspace_id],
+            );
+        }
         Ok(deleted > 0)
+    }
+
+    fn restore_system_role(
+        &self,
+        workspace_id: &str,
+        role_id: &str,
+    ) -> AgentResult<Option<AgentRole>> {
+        let Some(seed) = default_role_seed_by_id(role_id) else {
+            return Ok(None);
+        };
+
+        let mut conn = self.connection()?;
+        let now_ms = Self::now_ms();
+        let tx = conn.transaction().map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+
+        tx.execute(
+            "DELETE FROM deleted_system_role_seeds WHERE workspace_id = ?1 AND role_id = ?2",
+            params![workspace_id, role_id],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        tx.execute(
+            "INSERT OR REPLACE INTO agent_roles (id, workspace_id, role_key, role_name, department_id, scope, charter_path, policy_json, version, status, is_system, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'global', ?6, '{}', 1, 'active', 1, ?7, ?8)",
+            params![
+                seed.id,
+                workspace_id,
+                seed.role_key,
+                seed.role_name,
+                seed.department_id,
+                seed.charter_path,
+                now_ms,
+                now_ms,
+            ],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        tx.commit().map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+
+        Ok(Some(AgentRole {
+            id: seed.id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            role_key: seed.role_key.to_string(),
+            role_name: seed.role_name.to_string(),
+            department_id: seed.department_id.to_string(),
+            scope: AgentRoleScope::Global,
+            charter_path: Some(seed.charter_path.to_string()),
+            policy_json: Some("{}".to_string()),
+            version: 1,
+            status: RoleStatus::Active,
+            is_system: true,
+            created_at_ms: now_ms,
+            updated_at_ms: now_ms,
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use gt_agent::{AgentRoleScope, AgentState, RoleStatus};
+    use std::path::Path;
 
     fn test_repo(label: &str) -> SqliteAgentRepository {
         let db_path = std::env::temp_dir().join(format!(
@@ -1012,5 +1201,131 @@ mod tests {
             created.is_ok(),
             "expected legacy schema migration to preserve global role assignment, got: {created:?}"
         );
+    }
+
+    #[test]
+    fn delete_system_role_marks_it_restorable_and_restore_reinserts_seed() {
+        let repo = test_repo("restore-system-role");
+        repo.seed_defaults(global_workspace_id())
+            .expect("seed global defaults");
+
+        let deleted = repo
+            .delete_role(global_workspace_id(), "global_role_orchestrator")
+            .expect("delete system role");
+        assert!(deleted);
+
+        let deleted_ids = repo
+            .list_deleted_system_role_seed_ids(global_workspace_id())
+            .expect("list deleted system role ids");
+        assert!(deleted_ids
+            .iter()
+            .any(|role_id| role_id == "global_role_orchestrator"));
+
+        let before_restore = repo
+            .list_roles("ws_alpha")
+            .expect("list roles before restore");
+        assert!(!before_restore
+            .iter()
+            .any(|role| role.id == "global_role_orchestrator"));
+
+        let restored = repo
+            .restore_system_role(global_workspace_id(), "global_role_orchestrator")
+            .expect("restore system role")
+            .expect("restored role should exist");
+
+        assert_eq!(restored.id, "global_role_orchestrator");
+        assert!(restored.is_system);
+
+        let after_restore = repo
+            .list_roles("ws_alpha")
+            .expect("list roles after restore");
+        assert!(after_restore
+            .iter()
+            .any(|role| role.id == "global_role_orchestrator"));
+
+        let deleted_ids_after_restore = repo
+            .list_deleted_system_role_seed_ids(global_workspace_id())
+            .expect("list deleted system role ids after restore");
+        assert!(!deleted_ids_after_restore
+            .iter()
+            .any(|role_id| role_id == "global_role_orchestrator"));
+    }
+
+    #[test]
+    fn reassign_agents_role_moves_assigned_agents_to_fallback_role() {
+        let repo = test_repo("reassign-role-fallback");
+        repo.seed_defaults(global_workspace_id())
+            .expect("seed global defaults");
+        repo.seed_defaults("ws_alpha")
+            .expect("seed workspace defaults");
+        repo.upsert_role(
+            global_workspace_id(),
+            AgentRole {
+                id: "global_role_manager".to_string(),
+                workspace_id: global_workspace_id().to_string(),
+                role_key: "manager".to_string(),
+                role_name: "Manager".to_string(),
+                department_id: "dept_orchestration".to_string(),
+                scope: AgentRoleScope::Global,
+                charter_path: None,
+                policy_json: Some("{}".to_string()),
+                version: 1,
+                status: RoleStatus::Active,
+                is_system: false,
+                created_at_ms: 1,
+                updated_at_ms: 1,
+            },
+        )
+        .expect("save global manager role");
+        repo.upsert_role(
+            "ws_alpha",
+            AgentRole {
+                id: "workspace_role_manager".to_string(),
+                workspace_id: "ws_alpha".to_string(),
+                role_key: "manager".to_string(),
+                role_name: "Manager".to_string(),
+                department_id: "dept_orchestration".to_string(),
+                scope: AgentRoleScope::Workspace,
+                charter_path: None,
+                policy_json: Some("{}".to_string()),
+                version: 1,
+                status: RoleStatus::Active,
+                is_system: false,
+                created_at_ms: 1,
+                updated_at_ms: 1,
+            },
+        )
+        .expect("save workspace manager role");
+        repo.create_agent(CreateAgentInput {
+            workspace_id: "ws_alpha".to_string(),
+            agent_id: Some("agent_alpha".to_string()),
+            name: "Alpha".to_string(),
+            role_id: "workspace_role_manager".to_string(),
+            tool: "codex".to_string(),
+            workdir: Some(".gtoffice/alpha".to_string()),
+            custom_workdir: false,
+            employee_no: None,
+            state: AgentState::Ready,
+        })
+        .expect("create agent");
+
+        let updated = repo
+            .reassign_agents_role(
+                "ws_alpha",
+                "workspace_role_manager",
+                "global_role_manager",
+                global_workspace_id(),
+            )
+            .expect("reassign agents role");
+        assert_eq!(updated, 1);
+
+        let agents = repo.list_agents("ws_alpha").expect("list agents");
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].role_id, "global_role_manager");
+
+        let deleted = repo
+            .delete_role("ws_alpha", "workspace_role_manager")
+            .expect("delete workspace role");
+        assert!(deleted);
     }
 }

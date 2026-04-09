@@ -775,6 +775,45 @@ export const messages = {
   'settingsModal.nav.aiProviders': { 'zh-CN': 'Agent 供应商', 'en-US': 'Agent Providers' },
   'settingsModal.nav.channels': { 'zh-CN': '外部通道', 'en-US': 'External Channels' },
   'settingsModal.nav.about': { 'zh-CN': '关于', 'en-US': 'About' },
+  'settingsModal.reset.eyebrow': { 'zh-CN': '危险操作', 'en-US': 'Danger Zone' },
+  'settingsModal.reset.title': { 'zh-CN': '重置当前工作区', 'en-US': 'Reset Current Workspace' },
+  'settingsModal.reset.description': {
+    'zh-CN': '这会清除当前工作区的 GT Office 本地状态与数据库数据，并重新初始化默认状态。',
+    'en-US': 'This clears GT Office local state and database data for the current workspace, then re-initializes default state.',
+  },
+  'settingsModal.reset.warning': {
+    'zh-CN': '不会修改你的源码文件，但此操作不可撤销。',
+    'en-US': 'Your source files will not be modified, but this action cannot be undone.',
+  },
+  'settingsModal.reset.noWorkspace': {
+    'zh-CN': '请先打开一个工作区，才能执行重置。',
+    'en-US': 'Open a workspace before using reset.',
+  },
+  'settingsModal.reset.trigger': { 'zh-CN': '重置工作区', 'en-US': 'Reset Workspace' },
+  'settingsModal.reset.confirmEyebrow': { 'zh-CN': '最终确认', 'en-US': 'Final Confirmation' },
+  'settingsModal.reset.confirmTitle': {
+    'zh-CN': '确认重置当前工作区？',
+    'en-US': 'Reset the current workspace?',
+  },
+  'settingsModal.reset.confirmBody': {
+    'zh-CN': 'GT Office 会删除当前工作区的设置、会话快照、Agent 数据和数据库记录，然后使用同一个 workspace_id 重新初始化默认状态。请输入 RESET 继续。',
+    'en-US': 'GT Office will delete workspace settings, session snapshots, agent data, and database records for this workspace, then re-initialize default state using the same workspace_id. Type RESET to continue.',
+  },
+  'settingsModal.reset.confirmInputLabel': {
+    'zh-CN': '输入 RESET 以确认',
+    'en-US': 'Type RESET to confirm',
+  },
+  'settingsModal.reset.cancel': { 'zh-CN': '取消', 'en-US': 'Cancel' },
+  'settingsModal.reset.confirmAction': { 'zh-CN': '确认重置', 'en-US': 'Confirm Reset' },
+  'settingsModal.reset.submitting': { 'zh-CN': '重置中…', 'en-US': 'Resetting…' },
+  'settingsModal.reset.success': {
+    'zh-CN': '当前工作区已重置并重新初始化默认状态。',
+    'en-US': 'The current workspace has been reset and default state was re-initialized.',
+  },
+  'settingsModal.reset.errorFallback': {
+    'zh-CN': '工作区重置失败，请稍后重试。',
+    'en-US': 'Workspace reset failed. Please try again.',
+  },
   'settingsModal.about.summary': {
     'zh-CN': '面向 AI Coding 的跨平台桌面工作台，用统一的工作区、文件、终端、Git、Agent 供应商与外部通道管理多 Agent 协作。',
     'en-US':

@@ -28,6 +28,14 @@ Thumbs.db
 .gtoffice/
 _backups/
 
+# Secrets & certificates
+*.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
 # AI agent local state
 .claude/
 .codex/

@@ -1,6 +1,7 @@
 import { startTransition, useEffect, useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
 import { TaskDispatchPreferences } from './TaskDispatchPreferences'
+import { WorkspaceResetSection } from './WorkspaceResetSection'
 import { AiProvidersSection } from './ai-providers'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
@@ -146,6 +147,7 @@ export function SettingsModal({
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
             />
+            <WorkspaceResetSection locale={locale} workspaceId={workspaceId} />
           </div>
         )
       case 'channels':

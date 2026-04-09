@@ -29,6 +29,11 @@ export interface WorkspaceRestoreSessionResponse {
   terminals: unknown[]
 }
 
+export interface WorkspaceResetResponse {
+  workspaceId: string
+  reset: boolean
+}
+
 export interface DesktopAppInfoResponse {
   name: string
   version: string
@@ -1238,6 +1243,7 @@ export interface AgentDepartmentListResponse {
 
 export interface AgentRoleListResponse {
   roles: AgentRole[]
+  restorableSystemRoles: RestorableSystemRole[]
 }
 
 export interface AgentListResponse {
@@ -1323,6 +1329,25 @@ export interface AgentRoleDeleteRequest {
 
 export interface AgentRoleDeleteResponse {
   deleted: boolean
+  errorCode?: string | null
+  blockingAgents?: AgentProfile[] | null
+  fallbackRoleId?: string | null
+  fallbackRoleName?: string | null
+}
+
+export interface RestorableSystemRole {
+  roleId: string
+  roleKey: string
+  roleName: string
+}
+
+export interface AgentRoleRestoreSystemRequest {
+  workspaceId: string
+  roleId: string
+}
+
+export interface AgentRoleRestoreSystemResponse {
+  role: AgentRole
 }
 
 export interface AgentPromptReadRequest {
@@ -1984,6 +2009,12 @@ export const desktopApi = {
   workspaceRestoreSession(workspaceId: string) {
     return invokeCommand<WorkspaceRestoreSessionResponse>('workspace_restore_session', {
       workspaceId,
+    })
+  },
+  workspaceResetState(workspaceId: string, confirmationText: string) {
+    return invokeCommand<WorkspaceResetResponse>('workspace_reset_state', {
+      workspaceId,
+      confirmationText,
     })
   },
   gitStatus(workspaceId: string) {
@@ -2717,6 +2748,14 @@ export const desktopApi = {
         workspaceId: request.workspaceId,
         roleId: request.roleId,
         scope: request.scope ?? null,
+      },
+    })
+  },
+  agentRoleRestoreSystem(request: AgentRoleRestoreSystemRequest) {
+    return invokeCommand<AgentRoleRestoreSystemResponse>('agent_role_restore_system', {
+      request: {
+        workspaceId: request.workspaceId,
+        roleId: request.roleId,
       },
     })
   },

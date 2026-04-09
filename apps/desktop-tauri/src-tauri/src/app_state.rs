@@ -668,6 +668,25 @@ impl AppState {
         Ok(())
     }
 
+    pub fn invalidate_workspace_reset_state(
+        &self,
+        app: &tauri::AppHandle,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        self.invalidate_ai_config_snapshot_cache(workspace_id)?;
+        self.clear_mcp_directory_snapshot(workspace_id)?;
+        self.reload_workspace_watcher(app, workspace_id)
+    }
+
+    #[cfg(test)]
+    pub fn invalidate_workspace_reset_state_for_test(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        self.invalidate_ai_config_snapshot_cache(workspace_id)?;
+        self.clear_mcp_directory_snapshot(workspace_id)
+    }
+
     pub fn invalidate_all_ai_config_snapshot_cache(&self) -> Result<(), String> {
         let mut caches = self.ai_config_snapshot_cache.lock().map_err(|_| {
             "AI_CONFIG_SNAPSHOT_CACHE_LOCK_POISONED: ai config snapshot cache lock poisoned"

@@ -7,7 +7,7 @@ import {
 } from '@features/workspace-hub'
 import { resolveStationMutationErrorMessage } from '@features/workspace-hub/station-mutation-error'
 import { buildRoleWorkdirRel } from '@features/workspace'
-import { desktopApi, type AgentRole } from '../integration/desktop-api'
+import { desktopApi, type AgentRole, type RestorableSystemRole } from '../integration/desktop-api'
 import type { Locale } from '../i18n/ui-locale'
 import {
   createInitialStationTerminals,
@@ -33,6 +33,7 @@ export interface ShellStationController {
   stations: AgentStation[]
   setStations: Dispatch<SetStateAction<AgentStation[]>>
   agentRoles: AgentRole[]
+  restorableSystemRoles: RestorableSystemRole[]
   stationSavePending: boolean
   loadStationsFromDatabase: (workspaceId: string) => Promise<void>
   addStation: (input: CreateStationInput) => Promise<void>
@@ -52,6 +53,7 @@ export function useShellStationController({
 }: UseShellStationControllerInput): ShellStationController {
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [agentRoles, setAgentRoles] = useState<AgentRole[]>([])
+  const [restorableSystemRoles, setRestorableSystemRoles] = useState<RestorableSystemRole[]>([])
   const [stationSavePending, setStationSavePending] = useState(false)
 
   const loadStationsFromDatabase = useCallback(async (workspaceId: string) => {
@@ -62,6 +64,7 @@ export function useShellStationController({
     const activeRoles = roleResponse.roles.filter((role) => role.status !== 'disabled')
     const roleMap = new Map(activeRoles.map((role) => [role.id, role]))
     setAgentRoles(activeRoles)
+    setRestorableSystemRoles(roleResponse.restorableSystemRoles ?? [])
     setStations(
       agentResponse.agents
         .map((agent) => mapAgentProfileToStation(agent, roleMap))
@@ -72,10 +75,12 @@ export function useShellStationController({
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
       setAgentRoles([])
+      setRestorableSystemRoles([])
       return
     }
     if (!activeWorkspaceId) {
       setAgentRoles([])
+      setRestorableSystemRoles([])
       setStations([])
       return
     }
@@ -210,6 +215,7 @@ export function useShellStationController({
     stations,
     setStations,
     agentRoles,
+    restorableSystemRoles,
     stationSavePending,
     loadStationsFromDatabase,
     addStation,

@@ -1,18 +1,28 @@
 use super::{
     allow_workspace_asset_scope, build_window_active_response, build_workspace_close_response,
     build_workspace_open_response, build_workspace_restore_response,
-    build_workspace_switch_response,
+    build_workspace_switch_response, workspace_reset_state_with_storage,
 };
-use gt_abstractions::WorkspaceSessionSnapshot;
+use crate::app_state::AppState;
+use gt_abstractions::{WorkspaceService, WorkspaceSessionSnapshot};
 use gt_agent::{AgentRepository, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_ai_config::{
+    AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
+    AiConfigSnapshot, ClaudeConfigSnapshot, ClaudeSnapshot, CodexConfigSnapshot, CodexSnapshot,
+    GeminiConfigSnapshot, GeminiSnapshot,
+};
 use gt_storage::{
     AiConfigAuditLogInput, SavedClaudeProviderInput, SqliteAgentRepository,
     SqliteAiConfigRepository, SqliteStorage,
 };
 use serde_json::json;
 use std::fs;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{test::mock_app, Manager};
+use tauri::{
+    test::{mock_app, MockRuntime},
+    Listener, Manager,
+};
 use uuid::Uuid;
 
 #[test]
@@ -87,6 +97,8 @@ fn workspace_asset_scope_allows_files_outside_home_after_workspace_open() {
 }
 
 struct WorkspaceResetFixture {
+    app: tauri::App<MockRuntime>,
+    state: AppState,
     storage: SqliteStorage,
     workspace_id: String,
     other_workspace_id: String,
@@ -98,9 +110,12 @@ struct WorkspaceResetFixture {
 
 impl WorkspaceResetFixture {
     fn create() -> Self {
-        let root = std::env::temp_dir().join(format!("gtoffice-workspace-reset-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("gtoffice-workspace-reset-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create fixture root");
 
+        let app = mock_app();
+        let state = AppState::default();
         let db_path = root.join("workspace-reset.db");
         let storage = SqliteStorage::new(&db_path).expect("create sqlite storage");
         let agent_repo = SqliteAgentRepository::new(storage.clone());
@@ -108,8 +123,6 @@ impl WorkspaceResetFixture {
         agent_repo.ensure_schema().expect("ensure agent schema");
         ai_repo.ensure_schema().expect("ensure ai schema");
 
-        let workspace_id = "ws_alpha".to_string();
-        let other_workspace_id = "ws_beta".to_string();
         let workspace_root = root.join("workspace-alpha");
         let other_workspace_root = root.join("workspace-beta");
         std::fs::create_dir_all(workspace_root.join(".gtoffice"))
@@ -126,6 +139,13 @@ impl WorkspaceResetFixture {
             "{\"workspace\":\"alpha\"}",
         )
         .expect("write target snapshot");
+        std::fs::create_dir_all(workspace_root.join(".gtoffice/tasks/task-alpha"))
+            .expect("create target task dir");
+        std::fs::write(
+            workspace_root.join(".gtoffice/tasks/task-alpha/task.md"),
+            "# target task",
+        )
+        .expect("write target task file");
         std::fs::write(
             other_workspace_root.join(".gtoffice/config.json"),
             "{\"workspace\":\"beta\"}",
@@ -136,6 +156,26 @@ impl WorkspaceResetFixture {
             "{\"workspace\":\"beta\"}",
         )
         .expect("write other snapshot");
+        std::fs::create_dir_all(other_workspace_root.join(".gtoffice/tasks/task-beta"))
+            .expect("create other task dir");
+        std::fs::write(
+            other_workspace_root.join(".gtoffice/tasks/task-beta/task.md"),
+            "# other task",
+        )
+        .expect("write other task file");
+
+        let workspace_id = state
+            .workspace_service
+            .open(&workspace_root)
+            .expect("open target workspace")
+            .workspace_id
+            .to_string();
+        let other_workspace_id = state
+            .workspace_service
+            .open(&other_workspace_root)
+            .expect("open other workspace")
+            .workspace_id
+            .to_string();
 
         agent_repo
             .seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
@@ -251,6 +291,8 @@ impl WorkspaceResetFixture {
             .expect("create other audit log");
 
         Self {
+            app,
+            state,
             storage,
             workspace_id,
             other_workspace_id,
@@ -270,11 +312,67 @@ impl Drop for WorkspaceResetFixture {
     }
 }
 
+fn empty_ai_config_snapshot() -> AiConfigSnapshot {
+    AiConfigSnapshot {
+        agents: vec![AiAgentSnapshotCard {
+            agent: AiConfigAgent::Claude,
+            title: "Claude".to_string(),
+            subtitle: "Configured".to_string(),
+            install_status: AiAgentInstallStatus {
+                installed: true,
+                executable: Some("/usr/bin/claude".to_string()),
+                requires_node: false,
+                node_ready: true,
+                npm_ready: true,
+                install_available: false,
+                uninstall_available: true,
+                detected_by: vec!["test".to_string()],
+                issues: Vec::new(),
+            },
+            config_status: AiAgentConfigStatus::Configured,
+            active_summary: Some("Configured".to_string()),
+        }],
+        claude: ClaudeSnapshot {
+            presets: Vec::new(),
+            config: ClaudeConfigSnapshot::default(),
+            saved_providers: Vec::new(),
+            can_apply_official_mode: true,
+        },
+        codex: CodexSnapshot {
+            title: "Codex".to_string(),
+            summary: String::new(),
+            config_path: None,
+            docs_url: "https://example.com/codex".to_string(),
+            tips: Vec::new(),
+            presets: Vec::new(),
+            config: CodexConfigSnapshot::default(),
+            saved_providers: Vec::new(),
+        },
+        gemini: GeminiSnapshot {
+            title: "Gemini".to_string(),
+            summary: String::new(),
+            config_path: None,
+            docs_url: "https://example.com/gemini".to_string(),
+            tips: Vec::new(),
+            presets: Vec::new(),
+            config: GeminiConfigSnapshot::default(),
+            saved_providers: Vec::new(),
+        },
+    }
+}
+
 fn workspace_reset_command(
-    _workspace_id: &str,
-    _confirmation_text: &str,
+    fixture: &WorkspaceResetFixture,
+    workspace_id: &str,
+    confirmation_text: &str,
 ) -> Result<serde_json::Value, String> {
-    todo!("workspace reset command is not implemented yet");
+    workspace_reset_state_with_storage(
+        workspace_id.to_string(),
+        confirmation_text.to_string(),
+        &fixture.state,
+        fixture.app.handle(),
+        fixture.storage.clone(),
+    )
 }
 
 fn now_ms() -> i64 {
@@ -286,15 +384,20 @@ fn now_ms() -> i64 {
 
 #[test]
 fn workspace_reset_rejects_invalid_confirmation() {
-    let err = workspace_reset_command("ws_alpha", "WRONG")
+    let fixture = WorkspaceResetFixture::create();
+
+    let err = workspace_reset_command(&fixture, &fixture.workspace_id, "WRONG")
         .expect_err("expected invalid confirmation to be rejected");
     assert!(err.contains("invalid confirmation"));
 }
 
 #[test]
 fn workspace_reset_preserves_workspace_id_in_response() {
-    let response = workspace_reset_command("ws_alpha", "RESET").expect("workspace reset command");
-    assert_eq!(response["workspaceId"], "ws_alpha");
+    let fixture = WorkspaceResetFixture::create();
+
+    let response = workspace_reset_command(&fixture, &fixture.workspace_id, "RESET")
+        .expect("workspace reset command");
+    assert_eq!(response["workspaceId"], fixture.workspace_id);
     assert_eq!(response["reset"], true);
 }
 
@@ -302,34 +405,26 @@ fn workspace_reset_preserves_workspace_id_in_response() {
 fn workspace_reset_command_cleans_workspace_files() {
     let fixture = WorkspaceResetFixture::create();
 
+    assert!(fixture.workspace_root.join(".gtoffice/config.json").exists());
+    assert!(fixture.workspace_root.join(".gtoffice/session.snapshot.json").exists());
     assert!(fixture
         .workspace_root
-        .join(".gtoffice/config.json")
-        .exists());
-    assert!(fixture
-        .workspace_root
-        .join(".gtoffice/session.snapshot.json")
+        .join(".gtoffice/tasks/task-alpha/task.md")
         .exists());
 
-    let response = workspace_reset_command(&fixture.workspace_id, "RESET")
+    let response = workspace_reset_command(&fixture, &fixture.workspace_id, "RESET")
         .expect("workspace reset command");
 
     assert_eq!(response["workspaceId"], fixture.workspace_id);
-    assert!(!fixture
-        .workspace_root
-        .join(".gtoffice/config.json")
-        .exists());
-    assert!(!fixture
-        .workspace_root
+    assert!(!fixture.workspace_root.join(".gtoffice").exists());
+    assert!(fixture.other_workspace_root.join(".gtoffice/config.json").exists());
+    assert!(fixture
+        .other_workspace_root
         .join(".gtoffice/session.snapshot.json")
         .exists());
     assert!(fixture
         .other_workspace_root
-        .join(".gtoffice/config.json")
-        .exists());
-    assert!(fixture
-        .other_workspace_root
-        .join(".gtoffice/session.snapshot.json")
+        .join(".gtoffice/tasks/task-beta/task.md")
         .exists());
 }
 
@@ -371,13 +466,70 @@ fn workspace_reset_removes_workspace_rows_and_reseeds_defaults() {
     );
 
     fixture
-        .agent_repo
-        .reset_workspace_state(&fixture.workspace_id)
-        .expect("reset workspace agents");
+        .state
+        .set_ai_config_snapshot_cache(
+            &fixture.workspace_id,
+            fixture.workspace_root.to_string_lossy().as_ref(),
+            empty_ai_config_snapshot(),
+        )
+        .expect("seed target ai config cache");
     fixture
-        .ai_repo
-        .reset_workspace_state(&fixture.workspace_id)
-        .expect("reset workspace ai config");
+        .state
+        .set_ai_config_snapshot_cache(
+            &fixture.other_workspace_id,
+            fixture.other_workspace_root.to_string_lossy().as_ref(),
+            empty_ai_config_snapshot(),
+        )
+        .expect("seed other ai config cache");
+    fixture
+        .state
+        .set_mcp_directory_snapshot(&fixture.workspace_id, json!({"agents":["agent-alpha"]}))
+        .expect("seed target directory snapshot");
+    fixture
+        .state
+        .set_mcp_directory_snapshot(
+            &fixture.other_workspace_id,
+            json!({"agents":["agent-beta"]}),
+        )
+        .expect("seed other directory snapshot");
+
+    let workspace_events = Arc::new(Mutex::new(Vec::new()));
+    let settings_events = Arc::new(Mutex::new(Vec::new()));
+    let ai_config_events = Arc::new(Mutex::new(Vec::new()));
+
+    let workspace_events_ref = workspace_events.clone();
+    fixture.app.listen("workspace/updated", move |event| {
+        workspace_events_ref
+            .lock()
+            .expect("lock workspace events")
+            .push(
+                serde_json::from_str::<serde_json::Value>(event.payload())
+                    .expect("parse workspace event payload"),
+            );
+    });
+    let settings_events_ref = settings_events.clone();
+    fixture.app.listen("settings/updated", move |event| {
+        settings_events_ref
+            .lock()
+            .expect("lock settings events")
+            .push(
+                serde_json::from_str::<serde_json::Value>(event.payload())
+                    .expect("parse settings event payload"),
+            );
+    });
+    let ai_config_events_ref = ai_config_events.clone();
+    fixture.app.listen("ai_config/changed", move |event| {
+        ai_config_events_ref
+            .lock()
+            .expect("lock ai config events")
+            .push(
+                serde_json::from_str::<serde_json::Value>(event.payload())
+                    .expect("parse ai config event payload"),
+            );
+    });
+
+    workspace_reset_command(&fixture, &fixture.workspace_id, "RESET")
+        .expect("workspace reset command");
 
     assert!(fixture
         .agent_repo
@@ -414,6 +566,39 @@ fn workspace_reset_removes_workspace_rows_and_reseeds_defaults() {
         .query_audit_logs(&fixture.workspace_id, "agent-alpha", 10)
         .expect("list target audit logs after reset")
         .is_empty());
+    assert!(fixture
+        .state
+        .get_ai_config_snapshot_cache(&fixture.workspace_id)
+        .expect("read target ai cache after reset")
+        .is_none());
+    assert!(fixture
+        .state
+        .mcp_directory_snapshot(&fixture.workspace_id)
+        .expect("read target directory snapshot after reset")
+        .is_none());
+    assert!(fixture
+        .state
+        .get_ai_config_snapshot_cache(&fixture.other_workspace_id)
+        .expect("read other ai cache after reset")
+        .is_some());
+    assert!(fixture
+        .state
+        .mcp_directory_snapshot(&fixture.other_workspace_id)
+        .expect("read other directory snapshot after reset")
+        .is_some());
+
+    let workspace_events = workspace_events.lock().expect("lock workspace events");
+    assert!(workspace_events.iter().any(|payload| {
+        payload["workspaceId"] == fixture.workspace_id && payload["kind"] == "reset"
+    }));
+    let settings_events = settings_events.lock().expect("lock settings events");
+    assert!(settings_events.iter().any(|payload| {
+        payload["workspaceId"] == fixture.workspace_id && payload["scope"] == "workspace"
+    }));
+    let ai_config_events = ai_config_events.lock().expect("lock ai config events");
+    assert!(ai_config_events.iter().any(|payload| {
+        payload["workspaceId"] == fixture.workspace_id && payload["reset"] == true
+    }));
 }
 
 #[test]
@@ -445,14 +630,8 @@ fn workspace_reset_does_not_touch_other_workspaces() {
         1
     );
 
-    fixture
-        .agent_repo
-        .reset_workspace_state(&fixture.workspace_id)
-        .expect("reset target workspace agents");
-    fixture
-        .ai_repo
-        .reset_workspace_state(&fixture.workspace_id)
-        .expect("reset target workspace ai config");
+    workspace_reset_command(&fixture, &fixture.workspace_id, "RESET")
+        .expect("reset target workspace");
 
     assert_eq!(
         fixture

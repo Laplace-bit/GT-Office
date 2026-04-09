@@ -140,6 +140,7 @@ pub fn run() {
             workspace::workspace_switch_active,
             workspace::workspace_get_context,
             workspace::workspace_get_window_active,
+            workspace::workspace_reset_state,
             workspace::surface::surface_open_detached_window,
             workspace::surface::surface_close_window,
             workspace::surface::surface_set_window_topmost,

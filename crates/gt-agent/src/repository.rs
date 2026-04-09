@@ -43,8 +43,10 @@ pub struct UpdateAgentInput {
 pub trait AgentRepository: Send + Sync {
     fn ensure_schema(&self) -> AgentResult<()>;
     fn seed_defaults(&self, workspace_id: &str) -> AgentResult<()>;
+    fn reset_workspace_state(&self, workspace_id: &str) -> AgentResult<()>;
     fn list_departments(&self, workspace_id: &str) -> AgentResult<Vec<OrganizationDepartment>>;
     fn list_roles(&self, workspace_id: &str) -> AgentResult<Vec<AgentRole>>;
+    fn list_deleted_system_role_seed_ids(&self, workspace_id: &str) -> AgentResult<Vec<String>>;
     fn list_agents(&self, workspace_id: &str) -> AgentResult<Vec<AgentProfile>>;
     fn create_agent(&self, input: CreateAgentInput) -> AgentResult<AgentProfile>;
     fn update_agent(&self, input: UpdateAgentInput) -> AgentResult<AgentProfile>;
@@ -57,4 +59,9 @@ pub trait AgentRepository: Send + Sync {
         status: RoleStatus,
     ) -> AgentResult<bool>;
     fn delete_role(&self, workspace_id: &str, role_id: &str) -> AgentResult<bool>;
+    fn restore_system_role(
+        &self,
+        workspace_id: &str,
+        role_id: &str,
+    ) -> AgentResult<Option<AgentRole>>;
 }

@@ -135,17 +135,11 @@ impl SqliteAiConfigRepository {
         Ok(())
     }
 
-    pub fn reset_workspace_state(
+    pub fn reset_workspace_state_in_tx(
         &self,
+        tx: &rusqlite::Transaction<'_>,
         workspace_id: &str,
     ) -> Result<(), AiConfigRepositoryError> {
-        let mut conn = self.connection()?;
-        let tx = conn
-            .transaction()
-            .map_err(|error| AiConfigRepositoryError::Storage {
-                message: error.to_string(),
-            })?;
-
         tx.execute(
             "DELETE FROM ai_config_audit_logs WHERE workspace_id = ?1",
             params![workspace_id],
@@ -160,6 +154,18 @@ impl SqliteAiConfigRepository {
         .map_err(|error| AiConfigRepositoryError::Storage {
             message: error.to_string(),
         })?;
+
+        Ok(())
+    }
+
+    pub fn reset_workspace_state(&self, workspace_id: &str) -> Result<(), AiConfigRepositoryError> {
+        let mut conn = self.connection()?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+        self.reset_workspace_state_in_tx(&tx, workspace_id)?;
 
         tx.commit()
             .map_err(|error| AiConfigRepositoryError::Storage {

@@ -1,6 +1,8 @@
 pub mod surface;
 
 use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
+use gt_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_storage::{SqliteAgentRepository, SqliteAiConfigRepository, SqliteStorage};
 use serde_json::{json, Value};
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
@@ -49,6 +51,13 @@ fn build_workspace_switch_response(active_workspace_id: &str) -> Value {
     json!({ "activeWorkspaceId": active_workspace_id })
 }
 
+fn build_workspace_reset_response(workspace_id: &str) -> Value {
+    json!({
+        "workspaceId": workspace_id,
+        "reset": true,
+    })
+}
+
 fn allow_workspace_asset_scope<R: tauri::Runtime, M: Manager<R>>(
     manager: &M,
     root: &Path,
@@ -72,7 +81,32 @@ fn active_workspace_id(state: &AppState) -> Result<Option<String>, String> {
         .map(|workspace| workspace.workspace_id.to_string()))
 }
 
-fn emit_workspace_updated(app: &AppHandle, workspace_id: &str, kind: &str) -> Result<(), String> {
+fn resolve_workspace_storage(app: &AppHandle) -> Result<SqliteStorage, String> {
+    let base_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("WORKSPACE_RESET_STORAGE_PATH_FAILED: {error}"))?;
+    std::fs::create_dir_all(&base_dir)
+        .map_err(|error| format!("WORKSPACE_RESET_STORAGE_PATH_FAILED: {error}"))?;
+    SqliteStorage::new(base_dir.join("gtoffice.db")).map_err(to_command_error)
+}
+
+fn remove_workspace_state_dir(path: &Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "WORKSPACE_RESET_FILE_CLEANUP_FAILED: unable to remove '{}': {error}",
+            path.display()
+        )),
+    }
+}
+
+fn emit_workspace_updated<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    workspace_id: &str,
+    kind: &str,
+) -> Result<(), String> {
     app.emit(
         "workspace/updated",
         json!({
@@ -83,8 +117,116 @@ fn emit_workspace_updated(app: &AppHandle, workspace_id: &str, kind: &str) -> Re
     .map_err(|err| format!("WORKSPACE_EVENT_EMIT_FAILED: {err}"))
 }
 
-fn emit_active_changed(
+fn emit_settings_updated<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    workspace_id: &str,
+) -> Result<(), String> {
+    app.emit(
+        "settings/updated",
+        json!({
+            "workspaceId": workspace_id,
+            "scope": "workspace",
+            "tsMs": now_ts_ms(),
+        }),
+    )
+    .map_err(|err| format!("WORKSPACE_EVENT_EMIT_FAILED: {err}"))
+}
+
+fn emit_ai_config_changed<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    workspace_id: &str,
+) -> Result<(), String> {
+    app.emit(
+        "ai_config/changed",
+        json!({
+            "auditId": Value::Null,
+            "workspaceId": workspace_id,
+            "scope": "workspace",
+            "changedKeys": [],
+            "reset": true,
+        }),
+    )
+    .map_err(|err| format!("WORKSPACE_EVENT_EMIT_FAILED: {err}"))
+}
+
+fn now_ts_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn reset_workspace_state_storage(
+    workspace_id: &str,
+    confirmation_text: &str,
+    state: &AppState,
+    storage: &SqliteStorage,
+) -> Result<(), String> {
+    if confirmation_text != "RESET" {
+        return Err("WORKSPACE_RESET_CONFIRMATION_INVALID: invalid confirmation text".to_string());
+    }
+
+    let workspace_root = state.workspace_root_path(workspace_id)?;
+    let workspace_state_dir = workspace_root.join(".gtoffice");
+    remove_workspace_state_dir(&workspace_state_dir)?;
+
+    let agent_repo = SqliteAgentRepository::new(storage.clone());
+    let ai_repo = SqliteAiConfigRepository::new(storage.clone());
+    agent_repo.ensure_schema().map_err(to_command_error)?;
+    agent_repo
+        .seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
+        .map_err(to_command_error)?;
+    ai_repo.ensure_schema().map_err(to_command_error)?;
+
+    let mut conn = storage.open_connection().map_err(to_command_error)?;
+    let tx = conn.transaction().map_err(to_command_error)?;
+    agent_repo
+        .reset_workspace_state_in_tx(&tx, workspace_id)
+        .map_err(to_command_error)?;
+    ai_repo
+        .reset_workspace_state_in_tx(&tx, workspace_id)
+        .map_err(to_command_error)?;
+    tx.commit().map_err(to_command_error)?;
+
+    Ok(())
+}
+
+#[cfg(not(test))]
+pub(crate) fn workspace_reset_state_with_storage(
+    workspace_id: String,
+    confirmation_text: String,
+    state: &AppState,
     app: &AppHandle,
+    storage: SqliteStorage,
+) -> Result<Value, String> {
+    reset_workspace_state_storage(&workspace_id, &confirmation_text, state, &storage)?;
+    state.invalidate_workspace_reset_state(app, &workspace_id)?;
+    emit_workspace_updated(app, &workspace_id, "reset")?;
+    emit_settings_updated(app, &workspace_id)?;
+    emit_ai_config_changed(app, &workspace_id)?;
+
+    Ok(build_workspace_reset_response(&workspace_id))
+}
+
+#[cfg(test)]
+pub(crate) fn workspace_reset_state_with_storage<R: tauri::Runtime>(
+    workspace_id: String,
+    confirmation_text: String,
+    state: &AppState,
+    app: &AppHandle<R>,
+    storage: SqliteStorage,
+) -> Result<Value, String> {
+    reset_workspace_state_storage(&workspace_id, &confirmation_text, state, &storage)?;
+    state.invalidate_workspace_reset_state_for_test(&workspace_id)?;
+    emit_workspace_updated(app, &workspace_id, "reset")?;
+    emit_settings_updated(app, &workspace_id)?;
+    emit_ai_config_changed(app, &workspace_id)?;
+
+    Ok(build_workspace_reset_response(&workspace_id))
+}
+
+fn emit_active_changed<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     current: Option<&str>,
     previous: Option<&str>,
 ) -> Result<(), String> {
@@ -244,6 +386,22 @@ pub fn workspace_get_window_active(
 ) -> Result<Value, String> {
     let workspace_id = state.window_workspace(window.label())?;
     Ok(build_window_active_response(window.label(), workspace_id))
+}
+
+#[tauri::command]
+pub fn workspace_reset_state(
+    workspace_id: String,
+    confirmation_text: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    workspace_reset_state_with_storage(
+        workspace_id,
+        confirmation_text,
+        state.inner(),
+        &app,
+        resolve_workspace_storage(&app)?,
+    )
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ name = "gtoffice-desktop-tauri"
 version = "0.1.6"
 edition = "2021"
 description = "GT Office desktop shell"
+license.workspace = true
 
 [lib]
 name = "gtoffice_desktop_tauri_lib"

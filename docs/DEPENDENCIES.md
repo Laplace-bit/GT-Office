@@ -101,7 +101,7 @@ Follow these steps in order. Do not skip any step.
 
 1. **Check existing dependencies.** Verify that no currently-allowed package already provides the capability. Document which packages you considered and why they are insufficient.
 2. **Assess size and maintenance.** Prefer small, well-maintained packages with minimal transitive dependencies. Check bundle size (JS) or compile time impact (Rust).
-3. **Assess license compatibility.** The project uses MIT. Ensure the dependency's license is compatible (MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, etc.).
+3. **Assess license compatibility.** The project uses Apache-2.0. Ensure the dependency's license is compatible (MIT, Apache-2.0, BSD-2/3, ISC, 0BSD, etc.).
 
 ### 4.2 Record
 
