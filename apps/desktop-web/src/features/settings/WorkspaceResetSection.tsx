@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { desktopApi } from '@shell/integration/desktop-api'
+import { clearLaunchCommandHistory } from '@features/workspace-hub/launch-command-model'
 import './WorkspaceResetSection.scss'
 
 interface WorkspaceResetSectionProps {
@@ -42,6 +43,7 @@ export function WorkspaceResetSection({ locale, workspaceId, onResetSuccess }: W
     setError(null)
     try {
       await desktopApi.workspaceResetState(workspaceId, confirmationText)
+      clearLaunchCommandHistory()
       setConfirmOpen(false)
       setConfirmationText('')
       setSuccess(t(locale, 'settingsModal.reset.success'))

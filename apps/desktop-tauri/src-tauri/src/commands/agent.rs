@@ -978,6 +978,7 @@ pub struct AgentCreateRequest {
     pub state: Option<String>,
     pub prompt_file_name: Option<String>,
     pub prompt_content: Option<String>,
+    pub launch_command: Option<String>,
 }
 
 #[tauri::command]
@@ -1011,6 +1012,7 @@ pub fn agent_create(
         custom_workdir,
         employee_no: request.employee_no,
         state: agent_state,
+        launch_command: request.launch_command,
     };
 
     let agent = repo.create_agent(input).map_err(to_command_error)?;
@@ -1048,6 +1050,7 @@ pub struct AgentUpdateRequest {
     pub state: Option<String>,
     pub prompt_file_name: Option<String>,
     pub prompt_content: Option<String>,
+    pub launch_command: Option<String>,
 }
 
 #[tauri::command]
@@ -1093,6 +1096,7 @@ pub fn agent_update(
         custom_workdir,
         employee_no: request.employee_no,
         state: agent_state,
+        launch_command: request.launch_command,
     };
 
     let agent = repo.update_agent(input).map_err(to_command_error)?;

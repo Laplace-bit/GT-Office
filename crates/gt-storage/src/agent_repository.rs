@@ -438,6 +438,10 @@ impl AgentRepository for SqliteAgentRepository {
                 "role_workspace_id",
                 "ALTER TABLE agents ADD COLUMN role_workspace_id TEXT NOT NULL DEFAULT ''",
             ),
+            (
+                "launch_command",
+                "ALTER TABLE agents ADD COLUMN launch_command TEXT",
+            ),
         ] {
             if existing_agent_columns
                 .iter()
@@ -616,7 +620,7 @@ impl AgentRepository for SqliteAgentRepository {
         let conn = self.connection()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms
+                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, created_at_ms, updated_at_ms
                  FROM agents WHERE workspace_id = ?1 ORDER BY created_at_ms",
             )
             .map_err(|error| AgentError::Storage {
@@ -636,10 +640,11 @@ impl AgentRepository for SqliteAgentRepository {
                     state: AgentState::from_str(state.as_str()),
                     employee_no: row.get(8)?,
                     policy_snapshot_id: row.get(9)?,
+                    launch_command: row.get(10)?,
                     prompt_file_name: None,
                     prompt_file_relative_path: None,
-                    created_at_ms: row.get(10)?,
-                    updated_at_ms: row.get(11)?,
+                    created_at_ms: row.get(11)?,
+                    updated_at_ms: row.get(12)?,
                 }))
             })
             .map_err(|error| AgentError::Storage {
@@ -696,7 +701,7 @@ impl AgentRepository for SqliteAgentRepository {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         conn.execute(
-            "INSERT INTO agents (id, workspace_id, name, role_id, role_workspace_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12)",
+            "INSERT INTO agents (id, workspace_id, name, role_id, role_workspace_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13)",
             params![
                 agent_id,
                 input.workspace_id,
@@ -708,6 +713,7 @@ impl AgentRepository for SqliteAgentRepository {
                 if input.custom_workdir { 1 } else { 0 },
                 input.state.as_str(),
                 input.employee_no,
+                input.launch_command,
                 now_ms,
                 now_ms,
             ],
@@ -727,6 +733,7 @@ impl AgentRepository for SqliteAgentRepository {
             state: input.state,
             employee_no: input.employee_no,
             policy_snapshot_id: None,
+            launch_command: input.launch_command,
             prompt_file_name: None,
             prompt_file_relative_path: None,
             created_at_ms: now_ms,
@@ -790,7 +797,7 @@ impl AgentRepository for SqliteAgentRepository {
 
         let now_ms = Self::now_ms();
         conn.execute(
-            "UPDATE agents SET name = ?1, role_id = ?2, role_workspace_id = ?3, tool = ?4, workdir = ?5, custom_workdir = ?6, state = ?7, employee_no = ?8, updated_at_ms = ?9 WHERE workspace_id = ?10 AND id = ?11",
+            "UPDATE agents SET name = ?1, role_id = ?2, role_workspace_id = ?3, tool = ?4, workdir = ?5, custom_workdir = ?6, state = ?7, employee_no = ?8, launch_command = ?9, updated_at_ms = ?10 WHERE workspace_id = ?11 AND id = ?12",
             params![
                 input.name,
                 input.role_id,
@@ -800,6 +807,7 @@ impl AgentRepository for SqliteAgentRepository {
                 if input.custom_workdir { 1 } else { 0 },
                 input.state.as_str(),
                 input.employee_no,
+                input.launch_command,
                 now_ms,
                 input.workspace_id,
                 input.agent_id,
@@ -819,6 +827,7 @@ impl AgentRepository for SqliteAgentRepository {
             state: input.state,
             employee_no: input.employee_no,
             policy_snapshot_id,
+            launch_command: input.launch_command,
             prompt_file_name: None,
             prompt_file_relative_path: None,
             created_at_ms,
@@ -1165,6 +1174,7 @@ mod tests {
             custom_workdir: false,
             employee_no: None,
             state: AgentState::Ready,
+            launch_command: None,
         });
 
         assert!(created.is_ok(), "expected global roles to be assignable");
@@ -1195,6 +1205,7 @@ mod tests {
             custom_workdir: false,
             employee_no: None,
             state: AgentState::Ready,
+            launch_command: None,
         });
 
         assert!(
@@ -1306,6 +1317,7 @@ mod tests {
             custom_workdir: false,
             employee_no: None,
             state: AgentState::Ready,
+            launch_command: None,
         })
         .expect("create agent");
 

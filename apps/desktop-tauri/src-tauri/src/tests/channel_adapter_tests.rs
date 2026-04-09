@@ -68,6 +68,7 @@ fn seed_workspace_agent(repo: &SqliteAgentRepository, workspace_id: &str, agent_
         custom_workdir: false,
         employee_no: None,
         state: AgentState::Ready,
+        launch_command: None,
     })
     .expect("create agent");
 }

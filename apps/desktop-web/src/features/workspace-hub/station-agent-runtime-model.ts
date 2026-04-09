@@ -27,7 +27,13 @@ function normalizeProcessHaystack(process: StationTerminalProcessInfo): string {
   return [process.executable, process.args].join(' ').toLowerCase()
 }
 
-export function resolveStationCliLaunchCommand(toolKind: StationToolKind): string | null {
+export function resolveStationCliLaunchCommand(
+  toolKind: StationToolKind,
+  launchCommand?: string | null,
+): string | null {
+  if (launchCommand?.trim()) {
+    return launchCommand.trim()
+  }
   if (toolKind === 'claude' || toolKind === 'codex' || toolKind === 'gemini') {
     return toolKind
   }

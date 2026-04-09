@@ -103,14 +103,6 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
 
     env_map.insert(override_var.to_string(), executable.clone());
 
-    let Some(parent) = Path::new(&executable).parent() else {
-        return;
-    };
-    let parent_str = parent.to_string_lossy().trim().to_string();
-    if parent_str.is_empty() {
-        return;
-    }
-
     let current_path = env_map
         .get("PATH")
         .cloned()
@@ -123,8 +115,23 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
         .map(|part| part.to_string())
         .collect::<Vec<_>>();
 
-    if !parts.iter().any(|part| part == &parent_str) {
-        parts.insert(0, parent_str);
+    // Prepend the executable's parent directory to PATH
+    if let Some(parent) = Path::new(&executable).parent() {
+        let parent_str = parent.to_string_lossy().trim().to_string();
+        if !parent_str.is_empty() && !parts.iter().any(|part| part == &parent_str) {
+            parts.insert(0, parent_str);
+        }
+    }
+
+    // For node-wrapped commands (codex, gemini), also prepend the node runtime
+    // directory to PATH so the shebang #!/usr/bin/env node can resolve node.
+    if AgentInstaller::requires_node_env(agent_type) {
+        if let Some(node_dir) = AgentInstaller::find_node_runtime_dir() {
+            let node_dir_str = node_dir.to_string_lossy().trim().to_string();
+            if !node_dir_str.is_empty() && !parts.iter().any(|part| part == &node_dir_str) {
+                parts.insert(0, node_dir_str);
+            }
+        }
     }
 
     env_map.insert("PATH".to_string(), parts.join(&separator.to_string()));

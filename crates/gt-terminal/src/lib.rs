@@ -1302,9 +1302,28 @@ where
         let shell_lower = shell_name.to_lowercase();
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
             command.arg("-NoLogo");
+        } else {
+            // Start as a login shell to ensure profile files are sourced
+            // (e.g. /etc/zprofile -> path_helper, ~/.zprofile -> homebrew).
+            // macOS GUI apps have a minimal PATH; login shells restore the
+            // full user PATH including Homebrew, fnm, nvm, etc.
+            command.arg("-l");
         }
 
         command.cwd(&resolved_cwd);
+
+        // Ensure TERM and COLORTERM are set for proper color rendering.
+        // When launched as a macOS .app bundle the parent process has no
+        // terminal environment, so these would be absent and CLI programs
+        // fall back to basic 16-color mode (e.g. Claude Code's orange icon
+        // renders as white). xterm.js fully supports 256-color and TrueColor.
+        if std::env::var("TERM").map_or(true, |v| v.is_empty()) {
+            command.env("TERM", "xterm-256color");
+        }
+        if std::env::var("COLORTERM").map_or(true, |v| v.is_empty()) {
+            command.env("COLORTERM", "truecolor");
+        }
+
         for (key, value) in &request.env {
             command.env(key, value);
         }

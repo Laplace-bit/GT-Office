@@ -1233,6 +1233,7 @@ export interface AgentProfile {
   policySnapshotId?: string | null
   promptFileName?: string | null
   promptFileRelativePath?: string | null
+  launchCommand?: string | null
   createdAtMs: number
   updatedAtMs: number
 }
@@ -1262,6 +1263,7 @@ export interface AgentCreateRequest {
   state?: AgentState
   promptFileName?: string | null
   promptContent?: string | null
+  launchCommand?: string | null
 }
 
 export interface AgentCreateResponse {
@@ -1280,6 +1282,7 @@ export interface AgentUpdateRequest {
   state?: AgentState
   promptFileName?: string | null
   promptContent?: string | null
+  launchCommand?: string | null
 }
 
 export interface AgentUpdateResponse {
@@ -2776,6 +2779,7 @@ export const desktopApi = {
         state: request.state ?? null,
         promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
+        launchCommand: request.launchCommand ?? null,
       },
     })
   },
@@ -2793,6 +2797,7 @@ export const desktopApi = {
         state: request.state ?? null,
         promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
+        launchCommand: request.launchCommand ?? null,
       },
     })
   },

@@ -127,6 +127,7 @@ pub struct AgentProfile {
     pub policy_snapshot_id: Option<String>,
     pub prompt_file_name: Option<String>,
     pub prompt_file_relative_path: Option<String>,
+    pub launch_command: Option<String>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }

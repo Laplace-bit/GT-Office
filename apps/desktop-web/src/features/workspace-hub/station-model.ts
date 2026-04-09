@@ -14,6 +14,7 @@ export interface CreateStationInput {
   workdir: string
   customWorkdir: boolean
   promptContent: string
+  launchCommand?: string | null
 }
 
 export interface UpdateStationInput extends CreateStationInput {
@@ -35,6 +36,7 @@ export interface AgentStation {
   toolKind: StationToolKind
   promptFileName?: string | null
   promptFileRelativePath?: string | null
+  launchCommand?: string | null
   terminalSessionId: string
   state: 'running' | 'idle' | 'blocked'
   workspaceId: string
@@ -95,6 +97,7 @@ export function mapAgentProfileToStation(
     tool: agent.tool?.trim() ? agent.tool.trim() : 'codex',
     promptFileName: agent.promptFileName,
     promptFileRelativePath: agent.promptFileRelativePath,
+    launchCommand: agent.launchCommand,
     terminalSessionId: '',
     state: agent.state === 'blocked' ? 'blocked' : 'idle',
     workspaceId: agent.workspaceId,

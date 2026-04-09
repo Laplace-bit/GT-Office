@@ -111,6 +111,7 @@ export function useShellStationController({
             customWorkdir: input.customWorkdir,
             state: 'ready',
             promptContent: input.promptContent,
+            launchCommand: input.launchCommand,
           })
           await loadStationsFromDatabase(activeWorkspaceId)
           setIsStationManageOpen(false)
@@ -169,6 +170,7 @@ export function useShellStationController({
             customWorkdir: input.customWorkdir,
             state: 'ready',
             promptContent: input.promptContent,
+            launchCommand: input.launchCommand,
           })
           await loadStationsFromDatabase(activeWorkspaceId)
           setIsStationManageOpen(false)

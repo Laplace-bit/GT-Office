@@ -3475,7 +3475,8 @@ export function ShellRoot() {
           return null
         }
         if (station.toolKind !== 'unknown' && station.toolKind !== 'shell') {
-          sendStationTerminalInput(station.id, `${station.toolKind}\n`)
+          const command = station.launchCommand?.trim() || station.toolKind
+          sendStationTerminalInput(station.id, `${command}\n`)
         }
         return sessionId
       }
@@ -3637,7 +3638,7 @@ export function ShellRoot() {
         return
       }
       const currentSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      const launchCommand = resolveStationCliLaunchCommand(station.toolKind)
+      const launchCommand = resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)
       if (!currentSessionId || !launchCommand) {
         const sessionId = await launchToolProfileForStation(station)
         if (!sessionId) {
@@ -4057,7 +4058,7 @@ export function ShellRoot() {
   const batchLaunchableAgentCount = useMemo(
     () =>
       stations.reduce((count, station) => {
-        if (!resolveStationCliLaunchCommand(station.toolKind)) {
+        if (!resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)) {
           return count
         }
         if (stationAgentRunningById[station.id]) {
@@ -4103,7 +4104,7 @@ export function ShellRoot() {
     setIsBatchLaunchingAgents(true)
     try {
       for (const station of stationsRef.current) {
-        const launchCommand = resolveStationCliLaunchCommand(station.toolKind)
+        const launchCommand = resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)
         if (!launchCommand) {
           continue
         }

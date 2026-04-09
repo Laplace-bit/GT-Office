@@ -153,6 +153,9 @@ export function normalizeStationToolKind(
 }
 
 export function buildStationLaunchCommand(station: AgentStation): string | null {
+  if (station.launchCommand?.trim()) {
+    return station.launchCommand.trim() + '\n'
+  }
   switch (normalizeStationToolKind(station.tool)) {
     case 'claude':
       return 'claude\n'
@@ -773,6 +776,7 @@ export function createStationFromNumber(
     toolKind: normalizeStationToolKind(tool),
     promptFileName: null,
     promptFileRelativePath: null,
+    launchCommand: input?.launchCommand ?? null,
     terminalSessionId: `ts_${String(number).padStart(3, '0')}`,
     state: 'idle',
     workspaceId: workspaceId ?? 'ws_gtoffice',
@@ -790,6 +794,7 @@ export function createStationEditInput(station: AgentStation): UpdateStationInpu
     workdir: station.agentWorkdirRel,
     customWorkdir: station.customWorkdir,
     promptContent: '',
+    launchCommand: station.launchCommand,
   }
 }
 

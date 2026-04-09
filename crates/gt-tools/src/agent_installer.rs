@@ -327,7 +327,8 @@ impl AgentInstaller {
             true
         };
         let npm_ready = if requires_node {
-            Self::find_executable("npm").executable.is_some()
+            let npm_detection = Self::find_executable_with_node_dir("npm", node_runtime_dir.as_deref());
+            npm_detection.executable.is_some()
                 || Self::command_succeeds("npm", &["-v"])
         } else {
             false
@@ -939,10 +940,10 @@ impl AgentInstaller {
     }
 
     fn node_wrapped_command(command_name: &str) -> bool {
-        matches!(command_name, "codex" | "gemini")
+        matches!(command_name, "codex" | "gemini" | "npm")
     }
 
-    fn find_node_runtime_dir() -> Option<PathBuf> {
+    pub fn find_node_runtime_dir() -> Option<PathBuf> {
         if let Some(path) = Self::resolve_command_in_path("node") {
             return path.parent().map(Path::to_path_buf);
         }

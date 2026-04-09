@@ -24,6 +24,7 @@ pub struct CreateAgentInput {
     pub custom_workdir: bool,
     pub employee_no: Option<String>,
     pub state: AgentState,
+    pub launch_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +39,7 @@ pub struct UpdateAgentInput {
     pub custom_workdir: bool,
     pub employee_no: Option<String>,
     pub state: AgentState,
+    pub launch_command: Option<String>,
 }
 
 pub trait AgentRepository: Send + Sync {

@@ -12,7 +12,8 @@ use gt_ai_config::{
     AiConfigService, AiConfigSnapshot, ClaudeConfigSnapshot, CodexConfigSnapshot,
     GeminiConfigSnapshot,
 };
-use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
+use gt_agent::AgentRepository;
+use gt_storage::{SqliteAiConfigRepository, SqliteAgentRepository, SqliteStorage};
 use gt_task::{AgentRuntimeRegistration, AgentToolKind};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
@@ -59,6 +60,32 @@ pub(crate) fn profile_title(tool_kind: AgentToolKind) -> &'static str {
 
 fn default_launch_command(tool_kind: AgentToolKind) -> &'static str {
     canonical_profile_id(tool_kind)
+}
+
+fn resolve_launch_command(
+    app: &AppHandle,
+    workspace_id: &str,
+    agent_id: &str,
+    tool_kind: AgentToolKind,
+) -> String {
+    let base_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(_) => return default_launch_command(tool_kind).to_string(),
+    };
+    let db_path = base_dir.join("gtoffice.db");
+    let storage = match SqliteStorage::new(db_path) {
+        Ok(s) => s,
+        Err(_) => return default_launch_command(tool_kind).to_string(),
+    };
+    let repo = SqliteAgentRepository::new(storage);
+    if let Ok(agents) = repo.list_agents(workspace_id) {
+        if let Some(agent) = agents.iter().find(|a: &&gt_agent::AgentProfile| a.id == agent_id) {
+            if let Some(cmd) = agent.launch_command.as_deref().filter(|c: &&str| !c.trim().is_empty()) {
+                return cmd.trim().to_string();
+            }
+        }
+    }
+    default_launch_command(tool_kind).to_string()
 }
 
 fn to_terminal_error(error: AbstractionError) -> String {
@@ -556,7 +583,7 @@ pub fn tool_launch(
         .create_session(request)
         .map_err(to_terminal_error)?;
 
-    let launch_command = default_launch_command(tool_kind).to_string();
+    let launch_command = resolve_launch_command(&app, &workspace_id, &agent_id, tool_kind);
     write_terminal_with_submit(
         state.inner(),
         &session.session_id,
