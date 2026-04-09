@@ -19,6 +19,12 @@ import {
   resolveProviderLabel,
   type ManagedAgentProvider,
 } from './agent-management-model'
+import {
+  loadLaunchCommandHistory,
+  recordLaunchCommand,
+  getLaunchCommandHistoryForProvider,
+  type LaunchCommandHistory,
+} from './launch-command-model'
 import { resolveRolePromptTemplate } from './role-prompt-templates'
 import {
   resolveEffectiveRoles,
@@ -67,7 +73,7 @@ interface RoleManageModalProps {
   onChanged?: () => Promise<void> | void
 }
 
-function agentRoleLabel(locale: Locale, role: AgentRole): string {
+function agentRoleLabel(locale: Locale, role: AgentRole | RestorableSystemRole): string {
   switch (role.roleKey) {
     case 'orchestrator':
       return t(locale, 'station.role.orchestrator')
@@ -483,6 +489,7 @@ export function StationManageModal({
   const [roleId, setRoleId] = useState('')
   const [provider, setProvider] = useState<ManagedAgentProvider>('codex')
   const [workdir, setWorkdir] = useState('')
+  const [launchCommand, setLaunchCommand] = useState('')
   const [promptContent, setPromptContent] = useState('')
   const [promptUserEdited, setPromptUserEdited] = useState(false)
   const [availableProviders, setAvailableProviders] = useState<
@@ -491,6 +498,7 @@ export function StationManageModal({
   const [providersLoading, setProvidersLoading] = useState(false)
   const [providersLoaded, setProvidersLoaded] = useState(false)
   const [roleManagerOpen, setRoleManagerOpen] = useState(false)
+  const [launchCommandHistory, setLaunchCommandHistory] = useState<LaunchCommandHistory>({})
 
   const isEdit = Boolean(editingStation)
   const copy = useMemo(() => resolveStationManageModalCopy(locale, isEdit), [isEdit, locale])
@@ -504,6 +512,10 @@ export function StationManageModal({
     [copy.defaultName, name],
   )
   const promptFileName = resolvePromptFileNameForProvider(provider)
+  const providerHistoryCommands = useMemo(
+    () => getLaunchCommandHistoryForProvider(launchCommandHistory, provider),
+    [launchCommandHistory, provider],
+  )
 
   useEffect(() => {
     if (!open) {
@@ -514,8 +526,10 @@ export function StationManageModal({
     setRoleId(nextRole)
     setProvider(resolveManagedProviderKey(editingStation?.tool))
     setWorkdir(editingStation?.workdir ?? buildDefaultAgentWorkdir(copy.defaultName))
+    setLaunchCommand(editingStation?.launchCommand ?? '')
     setPromptContent('')
     setPromptUserEdited(false)
+    setLaunchCommandHistory(loadLaunchCommandHistory())
   }, [copy.defaultName, editingStation, effectiveRoles, open])
 
   // Auto-populate prompt content from role template when creating a new agent
@@ -668,6 +682,33 @@ export function StationManageModal({
               )}
             </label>
 
+            <div className="station-form-field">
+              <span>{locale === 'zh-CN' ? '启动命令' : 'Launch Command'}</span>
+              <input
+                type="text"
+                value={launchCommand}
+                disabled={saving || deleting}
+                placeholder={provider}
+                onChange={(event) => setLaunchCommand(event.target.value)}
+              />
+              {providerHistoryCommands.length > 0 && (
+                <div className="station-form-tag-chips">
+                  {providerHistoryCommands.map((cmd) => (
+                    <button
+                      key={cmd}
+                      type="button"
+                      className="station-form-tag-chip"
+                      disabled={saving || deleting}
+                      title={cmd}
+                      onClick={() => setLaunchCommand(cmd)}
+                    >
+                      {cmd.length > 24 ? `${cmd.slice(0, 21)}...` : cmd}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <label className="station-form-field">
               <span>{locale === 'zh-CN' ? '角色' : 'Role'}</span>
               <div className="station-form-inline-row">
@@ -803,6 +844,11 @@ export function StationManageModal({
                   workdir: workdir.trim() || defaultWorkdir,
                   customWorkdir: (workdir.trim() || defaultWorkdir) !== defaultWorkdir,
                   promptContent,
+                  launchCommand: launchCommand.trim() || null,
+                }
+                if (launchCommand.trim() && launchCommand.trim() !== provider) {
+                  const updatedHistory = recordLaunchCommand(provider, launchCommand.trim())
+                  setLaunchCommandHistory(updatedHistory)
                 }
                 if (editingStation) {
                   void onSubmit({ id: editingStation.id, ...payload })
