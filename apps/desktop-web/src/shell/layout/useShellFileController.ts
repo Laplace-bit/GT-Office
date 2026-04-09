@@ -41,8 +41,8 @@ export interface ShellFileController {
   fileEditorCommandRequest: FileEditorCommandRequest | null
   tabSessionSnapshotEntries: Array<{ path: string; active: boolean }>
   tabSessionSnapshotSignature: string
-  loadFileContent: (filePath: string, mode?: FileReadMode) => Promise<void>
-  loadFileContentRef: MutableRefObject<(filePath: string, mode?: FileReadMode) => Promise<void>>
+  loadFileContent: (filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>
+  loadFileContentRef: MutableRefObject<(filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>>
   saveFileContent: (filePath: string, content: string) => Promise<boolean>
   createFileInWorkspace: (filePath: string) => Promise<boolean>
   closeFile: (filePath: string) => void
@@ -73,7 +73,7 @@ export function useShellFileController({
   const [fileSearchMode, setFileSearchMode] = useState<FileSearchMode>('file')
   const [fileEditorCommandRequest, setFileEditorCommandRequest] =
     useState<FileEditorCommandRequest | null>(null)
-  const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode) => Promise<void>>(
+  const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>>(
     async () => {},
   )
   const openedFilesRef = useRef<OpenedFile[]>([])
@@ -94,7 +94,8 @@ export function useShellFileController({
   }, [fileReadMode])
 
   const loadFileContent = useMemo(
-    () => async (filePath: string, mode: FileReadMode = 'full') => {
+    () => async (filePath: string, mode: FileReadMode = 'full', options?: { activate?: boolean }) => {
+      const activate = options?.activate !== false
       if (!activeWorkspaceId) {
         setFileReadError(t(locale, 'fileContent.bindWorkspace'))
         return
@@ -118,7 +119,7 @@ export function useShellFileController({
             },
           ]
         })
-        setActiveFilePath(filePath)
+        if (activate) setActiveFilePath(filePath)
         setFileReadLoading(false)
         setFileReadError(null)
         setFilePreviewNotice(null)
@@ -127,14 +128,14 @@ export function useShellFileController({
 
       const existingFile = openedFilesRef.current.find((file) => file.path === filePath)
       if (existingFile?.hydrated) {
-        setActiveFilePath(filePath)
+        if (activate) setActiveFilePath(filePath)
         setFileCanRenderText(true)
         setFilePreviewNotice(null)
         setFileReadError(null)
         return
       }
 
-      setActiveFilePath(filePath)
+      if (activate) setActiveFilePath(filePath)
       setFileReadLoading(true)
       setFileReadError(null)
       setFilePreviewNotice(null)
@@ -427,7 +428,7 @@ export function useShellFileController({
             file.hydrated &&
             !file.isModified
           ) {
-            void loadFileContent(file.path, fileReadModeRef.current)
+            void loadFileContent(file.path, fileReadModeRef.current, { activate: false })
           }
         }
       }

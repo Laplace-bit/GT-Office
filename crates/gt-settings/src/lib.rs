@@ -125,6 +125,7 @@ impl Default for FilesystemWatcherSettings {
             poll_interval_ms: DEFAULT_FS_WATCH_POLL_INTERVAL_MS,
             ignored_dirs: vec![
                 ".git".to_string(),
+                ".gtoffice".to_string(),
                 "node_modules".to_string(),
                 "target".to_string(),
                 "dist".to_string(),
