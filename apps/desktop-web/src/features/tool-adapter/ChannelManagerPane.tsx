@@ -315,7 +315,7 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
           <div className="channel-providers-list" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
             {SUPPORTED_CHANNELS.map((channel) => {
               const groupsForChannel = channelBotGroups.filter(g => g.channel === channel)
-              const botCount = groupsForChannel.length
+              const botCount = groupsForChannel.reduce((sum, g) => sum + g.routes.length, 0)
               
               return (
                 <ChannelProviderCard
