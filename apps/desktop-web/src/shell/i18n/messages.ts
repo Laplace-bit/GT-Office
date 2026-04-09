@@ -483,14 +483,14 @@ export const messages = {
   'station.filter.allStates': { 'zh-CN': '全部状态', 'en-US': 'All States' },
   'station.filter.allDepartments': { 'zh-CN': '全部部门', 'en-US': 'All Departments' },
   'station.filter.reset': { 'zh-CN': '重置筛选', 'en-US': 'Reset Filters' },
-  'station.role.orchestrator': { 'zh-CN': '编排', 'en-US': 'Orchestrator' },
+  'station.role.orchestrator': { 'zh-CN': '管理', 'en-US': 'Orchestrator' },
   'station.role.analyst': { 'zh-CN': '分析', 'en-US': 'Analyst' },
   'station.role.generator': { 'zh-CN': '生成', 'en-US': 'Generator' },
   'station.role.evaluator': { 'zh-CN': '评估', 'en-US': 'Evaluator' },
   'station.scope.global': { 'zh-CN': '全局', 'en-US': 'Global' },
   'station.scope.workspace': { 'zh-CN': '工作区', 'en-US': 'Workspace' },
   'station.department.orchestration': {
-    'zh-CN': '编排调度',
+    'zh-CN': '管理调度',
     'en-US': 'Orchestration',
   },
   'station.department.analysis': {
