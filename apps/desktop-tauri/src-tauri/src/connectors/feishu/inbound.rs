@@ -1,5 +1,5 @@
 use serde_json::Value;
-use vb_task::{ExternalInboundMessage, ExternalPeerKind};
+use gt_task::{ExternalInboundMessage, ExternalPeerKind};
 
 #[derive(Debug, Clone)]
 pub struct ParsedFeishuMessage {

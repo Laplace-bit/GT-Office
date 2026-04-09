@@ -10,8 +10,8 @@ The application is built on **Tauri v2**: a Rust backend handles all system-leve
 
 - **Workspace-scoped by default.** Every file, terminal, and Git operation is bound to an active workspace. Commands that operate within a workspace must carry a `workspace_id`.
 - **Layered separation.** The Rust backend is organized into domain crates with explicit dependency direction. The frontend is organized into feature modules under `features/`. Cross-boundary access is mediated through abstractions, not direct imports.
-- **Mock-first providers.** System capabilities (terminal, Git, settings) are defined as traits in `vb-abstractions` with both real and mock implementations, enabling testability without system dependencies.
-- **Sidecar for heavy operations.** Search, file indexing, and similar CPU-intensive work is offloaded to a daemon process (`vb-daemon`) that communicates over a length-delimited TCP protocol.
+- **Mock-first providers.** System capabilities (terminal, Git, settings) are defined as traits in `gt-abstractions` with both real and mock implementations, enabling testability without system dependencies.
+- **Sidecar for heavy operations.** Search, file indexing, and similar CPU-intensive work is offloaded to a daemon process (`gt-daemon`) that communicates over a length-delimited TCP protocol.
 
 ---
 
@@ -73,7 +73,7 @@ The Tauri shell that packages the web UI into a native desktop application. The 
 | `channel_adapter_runtime.rs` | External channel inbound webhook listener |
 | `channel_sinks.rs` | Outbound delivery to Telegram, Feishu, WeChat |
 | `connectors/` | Per-service connector implementations |
-| `daemon_bridge.rs` | Client connection to the vb-daemon sidecar |
+| `daemon_bridge.rs` | Client connection to the gt-daemon sidecar |
 | `filesystem_watcher.rs` | Workspace filesystem change notifications |
 | `terminal_debug/` | Terminal debug logging and diagnostics |
 
@@ -109,14 +109,14 @@ interface ResultEnvelope<T = unknown> {
                        │  crate APIs
 ┌──────────────────────▼───────────────────────────────────────┐
 │                    Domain Layer                               │
-│        Core service crates (crates/vb-*)                       │
+│        Core service crates (crates/gt-*)                       │
 │   Business logic · domain models · trait abstractions         │
 └──────────────────────┬───────────────────────────────────────┘
                        │  OS / external APIs
 ┌──────────────────────▼───────────────────────────────────────┐
 │                Infrastructure Layer                            │
 │   PTY · filesystem · SQLite · Git CLI · system credentials    │
-│   vb-daemon sidecar (search, indexing)                        │
+│   gt-daemon sidecar (search, indexing)                        │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -130,67 +130,67 @@ Tauri command handlers in `commands/` are the thin orchestration layer. Each fea
 
 ### Domain Layer
 
-Rust crates under `crates/vb-*` encapsulate business logic and domain models. Each crate exposes a focused API consumed by the application layer. Cross-crate dependencies flow downward through the layer stack.
+Rust crates under `crates/gt-*` encapsulate business logic and domain models. Each crate exposes a focused API consumed by the application layer. Cross-crate dependencies flow downward through the layer stack.
 
 ### Infrastructure Layer
 
-System-level capabilities: PTY sessions, filesystem access, SQLite storage, Git CLI invocation, and OS credential storage. The `vb-daemon` sidecar handles CPU-intensive operations like file search and indexing over a TCP protocol, keeping the main process responsive.
+System-level capabilities: PTY sessions, filesystem access, SQLite storage, Git CLI invocation, and OS credential storage. The `gt-daemon` sidecar handles CPU-intensive operations like file search and indexing over a TCP protocol, keeping the main process responsive.
 
 ---
 
 ## 4. Crate dependency graph
 
 ```
-                    vb-abstractions
+                    gt-abstractions
                    ╱     │      ╲
                   ╱      │       ╲
-           vb-core   vb-workspace  vb-security
+           gt-core   gt-workspace  gt-security
               │          │              │
      ┌────────┼──────────┼──────────────┤
      │        │          │              │
-  vb-ai-config  vb-filesystem    vb-terminal-core
+  gt-ai-config  gt-filesystem    gt-terminal-core
      │                         ╱           ╲
-  vb-settings          vb-terminal      vb-session-log
+  gt-settings          gt-terminal      gt-session-log
      │
-  vb-storage
+  gt-storage
      │
-  vb-agent
+  gt-agent
      │
-  vb-task
+  gt-task
      │
-  vb-git
+  gt-git
      │
-  vb-changefeed
+  gt-changefeed
      │
-  vb-tools
+  gt-tools
      │
-  vb-telemetry  vb-keymap
+  gt-telemetry  gt-keymap
 
-         vb-daemon (standalone sidecar process)
+         gt-daemon (standalone sidecar process)
 ```
 
 ### Crate descriptions
 
 | Crate | Role |
 |---|---|
-| `vb-abstractions` | Shared traits (`WorkspaceService`, `TerminalProvider`, `GitProvider`, `SettingsStore`, `CommandPolicyEvaluator`) and utility types (`WorkspaceId`, `WorkspaceContext`, error types). All domain crates depend on these trait definitions rather than concrete implementations. |
-| `vb-core` | Shared domain types and fundamental data structures used across multiple crates. |
-| `vb-workspace` | Workspace lifecycle management: open, close, switch active workspace, and resolve workspace context (root path, permissions, default terminal cwd). |
-| `vb-filesystem` | File and directory operations within workspace boundaries. Enforces that all paths remain inside the workspace root. |
-| `vb-terminal` / `vb-terminal-core` | PTY session creation and management. `vb-terminal-core` provides the terminal emulation engine (VT parsing, output routing, scrollback, snapshots); `vb-terminal` adds the PTY provider implementation that integrates with the OS. |
-| `vb-git` | Git operations: status, diff, history, branch listing. Invokes the `git` CLI and parses its output. |
-| `vb-task` | Task tracking and lifecycle. Defines task dispatch, batch dispatch, channel messaging, agent runtime registration, and progress events. The central model for multi-agent collaboration workflows. |
-| `vb-agent` | Agent roles, status, and installation. Defines the `AgentRepository` trait and its SQLite-backed implementation. Manages agent identity, roles, and role-scoped prompts. |
-| `vb-ai-config` | AI provider configuration and credential management. Stores provider settings (API keys, model selections) with a preview-validate-confirm-apply-audit lifecycle. Credentials use system keychain storage. |
-| `vb-settings` | User preferences and application settings. Layered resolution: user-level, workspace-level, and session-level scopes. |
-| `vb-storage` | SQLite persistence layer. Provides repository implementations for agents and AI config. Manages schema migration and connection pooling. |
-| `vb-security` | Path validation and workspace-bound access control. Ensures file and terminal operations cannot escape workspace boundaries. |
-| `vb-changefeed` | Real-time change notification system. Emits events when files, Git state, or workspace configuration changes, allowing the UI to stay in sync without polling. |
-| `vb-session-log` | Terminal session logging. Records PTY output for replay and debugging. Supports structured output parsing (e.g., Codex output format). |
-| `vb-telemetry` | Usage metrics and diagnostics. Collects anonymized operational data for debugging and performance monitoring. |
-| `vb-keymap` | Keyboard shortcut configuration. Maps key combinations to application actions. |
-| `vb-tools` | Tool adapter and external connector infrastructure. Defines agent tool kinds and the agent installer that bootstraps tool environments. |
-| `vb-daemon` | Standalone sidecar process for heavy operations. Runs as a separate binary communicating over TCP with length-delimited framing. Provides file search, file I/O proxying, and terminal services. |
+| `gt-abstractions` | Shared traits (`WorkspaceService`, `TerminalProvider`, `GitProvider`, `SettingsStore`, `CommandPolicyEvaluator`) and utility types (`WorkspaceId`, `WorkspaceContext`, error types). All domain crates depend on these trait definitions rather than concrete implementations. |
+| `gt-core` | Shared domain types and fundamental data structures used across multiple crates. |
+| `gt-workspace` | Workspace lifecycle management: open, close, switch active workspace, and resolve workspace context (root path, permissions, default terminal cwd). |
+| `gt-filesystem` | File and directory operations within workspace boundaries. Enforces that all paths remain inside the workspace root. |
+| `gt-terminal` / `gt-terminal-core` | PTY session creation and management. `gt-terminal-core` provides the terminal emulation engine (VT parsing, output routing, scrollback, snapshots); `gt-terminal` adds the PTY provider implementation that integrates with the OS. |
+| `gt-git` | Git operations: status, diff, history, branch listing. Invokes the `git` CLI and parses its output. |
+| `gt-task` | Task tracking and lifecycle. Defines task dispatch, batch dispatch, channel messaging, agent runtime registration, and progress events. The central model for multi-agent collaboration workflows. |
+| `gt-agent` | Agent roles, status, and installation. Defines the `AgentRepository` trait and its SQLite-backed implementation. Manages agent identity, roles, and role-scoped prompts. |
+| `gt-ai-config` | AI provider configuration and credential management. Stores provider settings (API keys, model selections) with a preview-validate-confirm-apply-audit lifecycle. Credentials use system keychain storage. |
+| `gt-settings` | User preferences and application settings. Layered resolution: user-level, workspace-level, and session-level scopes. |
+| `gt-storage` | SQLite persistence layer. Provides repository implementations for agents and AI config. Manages schema migration and connection pooling. |
+| `gt-security` | Path validation and workspace-bound access control. Ensures file and terminal operations cannot escape workspace boundaries. |
+| `gt-changefeed` | Real-time change notification system. Emits events when files, Git state, or workspace configuration changes, allowing the UI to stay in sync without polling. |
+| `gt-session-log` | Terminal session logging. Records PTY output for replay and debugging. Supports structured output parsing (e.g., Codex output format). |
+| `gt-telemetry` | Usage metrics and diagnostics. Collects anonymized operational data for debugging and performance monitoring. |
+| `gt-keymap` | Keyboard shortcut configuration. Maps key combinations to application actions. |
+| `gt-tools` | Tool adapter and external connector infrastructure. Defines agent tool kinds and the agent installer that bootstraps tool environments. |
+| `gt-daemon` | Standalone sidecar process for heavy operations. Runs as a separate binary communicating over TCP with length-delimited framing. Provides file search, file I/O proxying, and terminal services. |
 
 ---
 

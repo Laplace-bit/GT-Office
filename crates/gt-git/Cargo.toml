@@ -1,0 +1,18 @@
+[package]
+name = "gt-git"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+git2 = "0.20"
+similar = "2.6"
+gt-abstractions = { path = "../gt-abstractions" }
+
+[dev-dependencies]
+uuid = { workspace = true }
+gt-workspace = { path = "../gt-workspace" }

@@ -13,13 +13,13 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tracing::{debug, info, warn};
-use vb_abstractions::{
+use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
     WorkspaceService,
 };
-use vb_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
-use vb_storage::{SqliteAgentRepository, SqliteStorage};
-use vb_task::{
+use gt_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
+use gt_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
     ChannelPublishRequest, TaskDispatchBatchRequest, TaskDispatchProgressEvent,
     TaskGetThreadRequest, TaskListThreadsRequest,
@@ -105,8 +105,8 @@ mod tests {
     use super::*;
     use std::{env, fs};
     use uuid::Uuid;
-    use vb_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentState, RoleStatus};
-    use vb_task::{DispatchSender, DispatchSenderType};
+    use gt_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentState, RoleStatus};
+    use gt_task::{DispatchSender, DispatchSenderType};
 
     #[test]
     fn bridge_response_serializes_stable_success_envelope() {
@@ -371,13 +371,13 @@ mod tests {
         let task_id = outcome.response.results[0].task_id.clone();
         let _ = state.task_service.publish(&ChannelPublishRequest {
             workspace_id: "ws-1".to_string(),
-            channel: vb_task::ChannelDescriptor {
-                kind: vb_task::ChannelKind::Direct,
+            channel: gt_task::ChannelDescriptor {
+                kind: gt_task::ChannelKind::Direct,
                 id: "manager".to_string(),
             },
             sender_agent_id: Some("worker".to_string()),
             target_agent_ids: vec!["manager".to_string()],
-            message_type: vb_task::ChannelMessageType::Status,
+            message_type: gt_task::ChannelMessageType::Status,
             payload: json!({
                 "taskId": task_id,
                 "detail": "handover in progress"
@@ -1289,8 +1289,8 @@ fn dev_bootstrap_agents(
 
 fn resolve_bootstrap_role_key(
     agent_id: &str,
-    agents: &[vb_agent::AgentProfile],
-    roles: &[vb_agent::AgentRole],
+    agents: &[gt_agent::AgentProfile],
+    roles: &[gt_agent::AgentRole],
 ) -> Option<String> {
     agents
         .iter()

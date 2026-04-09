@@ -157,7 +157,7 @@ export function buildDispatchRecord(input: {
 
 export function buildTaskDispatchCommand(taskId: string, taskFilePath: string): string {
   const escaped = taskFilePath.replace(/'/g, `'\\''`)
-  return `echo '[vb-task] assigned ${taskId} from ${escaped}'`
+  return `echo '[gt-task] assigned ${taskId} from ${escaped}'`
 }
 
 export function pushTaskDispatchHistory(

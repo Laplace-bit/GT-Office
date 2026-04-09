@@ -142,7 +142,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR
 - **Code signing and notarization** — Signed macOS DMGs and Windows installers for production distribution
 - **Plugin system** — Extensible tool adapter and channel integration framework
 - **Remote workspace support** — Connect to remote workspaces over SSH
-- **Crate rename** — Rename `vb-*` crates to `gt-*` for brand consistency
+- ~~**Crate rename** — Rename `vb-*` crates to `gt-*` for brand consistency~~ (done)
 
 ## License
 

@@ -6,7 +6,7 @@ use serde_json::json;
 use std::fs;
 use tauri::{test::mock_app, Manager};
 use uuid::Uuid;
-use vb_abstractions::WorkspaceSessionSnapshot;
+use gt_abstractions::WorkspaceSessionSnapshot;
 
 #[test]
 fn window_active_response_contains_workspace_id() {

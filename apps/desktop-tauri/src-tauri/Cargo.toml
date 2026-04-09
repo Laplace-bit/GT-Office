@@ -40,24 +40,24 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 feishu-sdk = { version = "0.1.2", features = ["websocket"] }
 
-vb-abstractions = { path = "../../../crates/vb-abstractions" }
-vb-agent = { path = "../../../crates/vb-agent" }
-vb-core = { path = "../../../crates/vb-core" }
-vb-workspace = { path = "../../../crates/vb-workspace" }
-vb-filesystem = { path = "../../../crates/vb-filesystem" }
-vb-terminal = { path = "../../../crates/vb-terminal" }
-vb-git = { path = "../../../crates/vb-git" }
-vb-tools = { path = "../../../crates/vb-tools" }
-vb-changefeed = { path = "../../../crates/vb-changefeed" }
-vb-settings = { path = "../../../crates/vb-settings" }
-vb-session-log = { path = "../../../crates/vb-session-log" }
-vb-keymap = { path = "../../../crates/vb-keymap" }
-vb-ai-config = { path = "../../../crates/vb-ai-config" }
-vb-task = { path = "../../../crates/vb-task" }
-vb-storage = { path = "../../../crates/vb-storage" }
-vb-security = { path = "../../../crates/vb-security" }
-vb-telemetry = { path = "../../../crates/vb-telemetry" }
-vb-daemon = { path = "../../../crates/vb-daemon" }
+gt-abstractions = { path = "../../../crates/gt-abstractions" }
+gt-agent = { path = "../../../crates/gt-agent" }
+gt-core = { path = "../../../crates/gt-core" }
+gt-workspace = { path = "../../../crates/gt-workspace" }
+gt-filesystem = { path = "../../../crates/gt-filesystem" }
+gt-terminal = { path = "../../../crates/gt-terminal" }
+gt-git = { path = "../../../crates/gt-git" }
+gt-tools = { path = "../../../crates/gt-tools" }
+gt-changefeed = { path = "../../../crates/gt-changefeed" }
+gt-settings = { path = "../../../crates/gt-settings" }
+gt-session-log = { path = "../../../crates/gt-session-log" }
+gt-keymap = { path = "../../../crates/gt-keymap" }
+gt-ai-config = { path = "../../../crates/gt-ai-config" }
+gt-task = { path = "../../../crates/gt-task" }
+gt-storage = { path = "../../../crates/gt-storage" }
+gt-security = { path = "../../../crates/gt-security" }
+gt-telemetry = { path = "../../../crates/gt-telemetry" }
+gt-daemon = { path = "../../../crates/gt-daemon" }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["protocol-asset", "test"] }

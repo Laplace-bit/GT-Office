@@ -1,4 +1,4 @@
-use vb_task::AgentToolKind;
+use gt_task::AgentToolKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolScreenProfile {

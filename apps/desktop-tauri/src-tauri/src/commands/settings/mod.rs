@@ -2,8 +2,8 @@ pub mod ai_config;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
-use vb_abstractions::SettingsScope;
-use vb_settings::JsonSettingsService;
+use gt_abstractions::SettingsScope;
+use gt_settings::JsonSettingsService;
 
 use crate::app_state::AppState;
 

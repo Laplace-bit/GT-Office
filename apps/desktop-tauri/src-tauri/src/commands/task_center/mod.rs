@@ -2,8 +2,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{thread, time::Duration};
 use tauri::{AppHandle, Emitter, State};
-use vb_abstractions::AbstractionError;
-use vb_task::{
+use gt_abstractions::AbstractionError;
+use gt_task::{
     AgentRuntimeRegistration, ChannelAckEvent, ChannelMessageEvent, ChannelPublishRequest,
     TaskDispatchBatchRequest, TaskDispatchProgressEvent, TaskGetThreadRequest,
     TaskListThreadsRequest,

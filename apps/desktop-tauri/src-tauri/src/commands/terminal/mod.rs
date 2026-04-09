@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tauri::{AppHandle, State};
 use tracing::warn;
-use vb_abstractions::{
+use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
 

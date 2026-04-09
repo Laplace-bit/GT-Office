@@ -1,5 +1,5 @@
 use super::parse_telegram_payload;
-use vb_task::ExternalPeerKind;
+use gt_task::ExternalPeerKind;
 
 #[test]
 fn parse_telegram_text_message() {

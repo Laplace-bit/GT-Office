@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use vb_task::AgentToolKind;
+use gt_task::AgentToolKind;
 
 use crate::app_state::AppState;
 

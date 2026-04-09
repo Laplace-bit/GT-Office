@@ -4,7 +4,7 @@ use super::{
 };
 use notify::EventKind;
 use std::path::Path;
-use vb_settings::FilesystemWatcherSettings;
+use gt_settings::FilesystemWatcherSettings;
 
 #[test]
 fn map_event_kind_maps_rename_to_renamed() {

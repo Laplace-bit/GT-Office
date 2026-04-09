@@ -17,7 +17,7 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing::{debug, warn};
-use vb_daemon::protocol::{
+use gt_daemon::protocol::{
     ClientFrame, Event, Request, Response, ResponseEnvelope, SearchCancelRequest,
     SearchStartRequest, ServerFrame, ServerPayload,
 };
@@ -231,7 +231,7 @@ impl DaemonBridge {
         };
 
         tokio::spawn(async move {
-            let daemon = vb_daemon::daemon::Daemon::new();
+            let daemon = gt_daemon::daemon::Daemon::new();
             if let Err(error) = daemon.serve(addr).await {
                 warn!(error = %error, "embedded daemon exited");
             }

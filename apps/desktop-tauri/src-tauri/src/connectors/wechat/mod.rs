@@ -15,7 +15,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
-use vb_task::{ExternalInboundMessage, ExternalPeerKind};
+use gt_task::{ExternalInboundMessage, ExternalPeerKind};
 
 use crate::{
     app_state::AppState,

@@ -4,7 +4,7 @@ use super::{
     types::{FeishuConnectionMode, FeishuConnectorAccountRecord, FeishuDomain},
     webhook::runtime_callback_url,
 };
-use vb_task::ExternalPeerKind;
+use gt_task::ExternalPeerKind;
 
 fn sample_record(account_id: &str) -> FeishuConnectorAccountRecord {
     FeishuConnectorAccountRecord {

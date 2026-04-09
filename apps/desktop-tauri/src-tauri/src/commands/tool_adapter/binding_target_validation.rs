@@ -1,5 +1,5 @@
-use vb_agent::AgentRepository;
-use vb_storage::SqliteAgentRepository;
+use gt_agent::AgentRepository;
+use gt_storage::SqliteAgentRepository;
 
 pub(crate) fn validate_binding_target_selector(
     repo: &SqliteAgentRepository,

@@ -1,0 +1,19 @@
+[package]
+name = "gt-terminal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+gt-abstractions = { path = "../gt-abstractions" }
+gt-terminal-core = { path = "../gt-terminal-core" }
+portable-pty = "0.8"
+vt100 = "0.15"
+
+[dev-dependencies]
+gt-workspace = { path = "../gt-workspace" }

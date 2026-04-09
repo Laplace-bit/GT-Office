@@ -17,10 +17,10 @@ use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 use uuid::Uuid;
-use vb_abstractions::WorkspaceService;
-use vb_agent::{AgentRepository, AgentState, RoleStatus};
-use vb_storage::{SqliteAgentRepository, SqliteStorage};
-use vb_task::{
+use gt_abstractions::WorkspaceService;
+use gt_agent::{AgentRepository, AgentState, RoleStatus};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
+use gt_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelRouteBinding,
     ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
     ExternalInboundStatus, ExternalRouteResolution, TaskDispatchBatchRequest,
@@ -1062,7 +1062,7 @@ fn spawn_structured_reply_jobs(
     message: &ExternalInboundMessage,
     trace_id: &str,
     workspace_id: &str,
-    results: &[vb_task::TaskDispatchTargetResult],
+    results: &[gt_task::TaskDispatchTargetResult],
     runtimes_by_agent: &HashMap<String, AgentRuntimeRegistration>,
 ) {
     if !message.channel.trim().eq_ignore_ascii_case("telegram") {
@@ -1733,7 +1733,7 @@ fn bind_external_reply_sessions(
     message: &ExternalInboundMessage,
     trace_id: &str,
     workspace_id: &str,
-    results: &[vb_task::TaskDispatchTargetResult],
+    results: &[gt_task::TaskDispatchTargetResult],
 ) {
     let channel = message.channel.trim().to_ascii_lowercase();
     if !channel_supports_external_reply(&channel) {
@@ -2023,15 +2023,15 @@ async fn flush_external_reply_candidates(state: &AppState, app: &AppHandle) -> R
         else {
             continue;
         };
-        let outcome = state.task_service.publish(&vb_task::ChannelPublishRequest {
+        let outcome = state.task_service.publish(&gt_task::ChannelPublishRequest {
             workspace_id: candidate.target.workspace_id.clone(),
-            channel: vb_task::ChannelDescriptor {
-                kind: vb_task::ChannelKind::Direct,
+            channel: gt_task::ChannelDescriptor {
+                kind: gt_task::ChannelKind::Direct,
                 id: reply_to_agent_id.to_string(),
             },
             sender_agent_id: Some(candidate.target.target_agent_id.clone()),
             target_agent_ids: vec![reply_to_agent_id.to_string()],
-            message_type: vb_task::ChannelMessageType::Status,
+            message_type: gt_task::ChannelMessageType::Status,
             payload: json!({
                 "taskId": task_id,
                 "detail": candidate.text,
@@ -2627,7 +2627,7 @@ pub(crate) fn process_external_inbound_message(
     let account_id = normalize_account_id(Some(&message.account_id));
     let identity = message.sender_id.trim().to_lowercase();
     let idempotency_key = normalized_idempotency_key(&message);
-    let trace_id = format!("trace_{}_{}", vb_task::module_name(), idempotency_key);
+    let trace_id = format!("trace_{}_{}", gt_task::module_name(), idempotency_key);
 
     let _ = app.emit(
         "external/channel_inbound",
@@ -2963,7 +2963,7 @@ Approve this identity in Channel settings or switch policy to open."
 
     let dispatch_request = TaskDispatchBatchRequest {
         workspace_id: resolved_workspace_id.clone(),
-        sender: vb_task::DispatchSender::default(),
+        sender: gt_task::DispatchSender::default(),
         targets: dispatch_targets,
         title: build_external_title(&message.text),
         markdown: message.text.clone(),
@@ -3024,7 +3024,7 @@ Approve this identity in Channel settings or switch policy to open."
         .response
         .results
         .iter()
-        .filter(|result| result.status == vb_task::TaskDispatchStatus::Sent)
+        .filter(|result| result.status == gt_task::TaskDispatchStatus::Sent)
         .collect();
     let response = if !sent_results.is_empty() {
         let detail = if sent_results.len() < outcome.response.results.len() {

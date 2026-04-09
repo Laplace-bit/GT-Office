@@ -1,4 +1,4 @@
-use vb_security::SecretStore;
+use gt_security::SecretStore;
 
 const CHANNEL_SECRET_SERVICE: &str = "gtoffice.channel";
 const CHANNEL_SECRET_NAMESPACE: &str = "CHANNEL_CREDENTIAL";

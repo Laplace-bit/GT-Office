@@ -7,7 +7,7 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use tokio::time::sleep;
 use tracing::warn;
-use vb_abstractions::{GitStatusSummary, WorkspaceId};
+use gt_abstractions::{GitStatusSummary, WorkspaceId};
 
 use crate::app_state::AppState;
 
@@ -22,7 +22,7 @@ pub struct GitUpdatedPayload {
     pub dirty: bool,
     pub ahead: u32,
     pub behind: u32,
-    pub files: Vec<vb_abstractions::GitStatusFile>,
+    pub files: Vec<gt_abstractions::GitStatusFile>,
     pub revision: u64,
 }
 

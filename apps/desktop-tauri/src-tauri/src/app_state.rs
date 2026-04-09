@@ -6,17 +6,17 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tracing::debug;
-use vb_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
-use vb_ai_config::StoredAiConfigPreview;
-use vb_git::GitService;
-use vb_session_log::{
+use gt_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
+use gt_ai_config::StoredAiConfigPreview;
+use gt_git::GitService;
+use gt_session_log::{
     bind_session_log, SessionLogBinding, SessionLogHealth, SessionLogProvider,
     SessionLogProviderSession, SessionLogRequest, SessionLogRuntime,
 };
-use vb_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
-use vb_task::{AgentProviderSessionMetadata, AgentToolKind, TaskService};
-use vb_terminal::PtyTerminalProvider;
-use vb_workspace::InMemoryWorkspaceService;
+use gt_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
+use gt_task::{AgentProviderSessionMetadata, AgentToolKind, TaskService};
+use gt_terminal::PtyTerminalProvider;
+use gt_workspace::InMemoryWorkspaceService;
 
 use crate::commands::git::status_coordinator::GitStatusCoordinator;
 use crate::daemon_bridge::DaemonBridge;
@@ -359,7 +359,7 @@ struct ExternalReplyRelaySession {
 
 #[derive(Debug, Clone)]
 pub struct AiConfigSnapshotCache {
-    pub snapshot: vb_ai_config::AiConfigSnapshot,
+    pub snapshot: gt_ai_config::AiConfigSnapshot,
     pub workspace_root: String,
     pub cached_at_ms: u64,
 }
@@ -638,7 +638,7 @@ impl AppState {
         &self,
         workspace_id: &str,
         workspace_root: &str,
-        snapshot: vb_ai_config::AiConfigSnapshot,
+        snapshot: gt_ai_config::AiConfigSnapshot,
     ) -> Result<(), String> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1331,8 +1331,8 @@ impl AppState {
                             == Some(session.target.target_agent_id.as_str())
                             && matches!(
                                 message.message_type,
-                                vb_task::ChannelMessageType::Status
-                                    | vb_task::ChannelMessageType::Handover
+                                gt_task::ChannelMessageType::Status
+                                    | gt_task::ChannelMessageType::Handover
                             )
                     })
                 });
@@ -3002,8 +3002,8 @@ fn should_skip_external_reply_line(line: &str) -> bool {
     if normalized.is_empty() {
         return false;
     }
-    normalized.contains("[vb-task] assigned task_")
-        || normalized.contains("echo '[vb-task] assigned task_")
+    normalized.contains("[gt-task] assigned task_")
+        || normalized.contains("echo '[gt-task] assigned task_")
 }
 
 /// Detect TUI status bar lines by structural pattern.

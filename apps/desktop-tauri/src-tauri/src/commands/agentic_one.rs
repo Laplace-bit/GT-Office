@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::Emitter;
 
-use vb_tools::agent_installer::{
+use gt_tools::agent_installer::{
     AgentInstallStatus, AgentInstaller, AgentType, AgentUninstallAction,
 };
 

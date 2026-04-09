@@ -4,13 +4,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
-use vb_abstractions::{WorkspaceId, WorkspaceService};
-use vb_agent::{
+use gt_abstractions::{WorkspaceId, WorkspaceService};
+use gt_agent::{
     default_agent_workdir, default_prompt_content, normalize_agent_slug, prompt_file_name_for_tool,
     AgentProfile, AgentRepository, AgentRole, AgentRoleScope, AgentState, CreateAgentInput,
     UpdateAgentInput, GLOBAL_ROLE_WORKSPACE_ID,
 };
-use vb_storage::{SqliteAgentRepository, SqliteStorage};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
 
 use crate::app_state::AppState;
 
@@ -79,12 +79,12 @@ fn parse_role_scope(value: Option<&str>) -> AgentRoleScope {
     }
 }
 
-fn parse_role_status(value: Option<String>) -> Result<vb_agent::RoleStatus, String> {
+fn parse_role_status(value: Option<String>) -> Result<gt_agent::RoleStatus, String> {
     match value.as_deref() {
-        None => Ok(vb_agent::RoleStatus::Active),
-        Some("active") => Ok(vb_agent::RoleStatus::Active),
-        Some("deprecated") => Ok(vb_agent::RoleStatus::Deprecated),
-        Some("disabled") => Ok(vb_agent::RoleStatus::Disabled),
+        None => Ok(gt_agent::RoleStatus::Active),
+        Some("active") => Ok(gt_agent::RoleStatus::Active),
+        Some("deprecated") => Ok(gt_agent::RoleStatus::Deprecated),
+        Some("disabled") => Ok(gt_agent::RoleStatus::Disabled),
         Some(other) => Err(format!("AGENT_ROLE_STATUS_INVALID: {other}")),
     }
 }
@@ -350,8 +350,8 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use uuid::Uuid;
-    use vb_agent::{AgentProfile, AgentState};
-    use vb_task::{ChannelRouteBinding, ExternalPeerKind, TaskService};
+    use gt_agent::{AgentProfile, AgentState};
+    use gt_task::{ChannelRouteBinding, ExternalPeerKind, TaskService};
 
     use super::{
         binding_cleanup::{

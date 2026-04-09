@@ -1,4 +1,4 @@
-use vb_task::{ChannelRouteBinding, TaskService};
+use gt_task::{ChannelRouteBinding, TaskService};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DirectBindingCleanupMode {

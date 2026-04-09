@@ -17,8 +17,8 @@ use std::{
 };
 use tauri::{AppHandle, State};
 use uuid::Uuid;
-use vb_abstractions::{WorkspaceId, WorkspaceService};
-use vb_daemon::protocol::SearchStartRequest;
+use gt_abstractions::{WorkspaceId, WorkspaceService};
+use gt_daemon::protocol::SearchStartRequest;
 
 use crate::app_state::AppState;
 

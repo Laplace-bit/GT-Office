@@ -9,9 +9,9 @@ use super::{
 use std::path::PathBuf;
 use std::{collections::HashSet, fs};
 use uuid::Uuid;
-use vb_agent::{AgentRepository, AgentState, CreateAgentInput};
-use vb_storage::{SqliteAgentRepository, SqliteStorage};
-use vb_task::{
+use gt_agent::{AgentRepository, AgentState, CreateAgentInput};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
+use gt_task::{
     ChannelRouteBinding, ExternalInboundMessage, ExternalPeerKind, ExternalRouteResolution,
 };
 
@@ -47,7 +47,7 @@ fn temp_agent_repo(label: &str) -> SqliteAgentRepository {
 }
 
 fn seed_workspace_agent(repo: &SqliteAgentRepository, workspace_id: &str, agent_id: &str) {
-    repo.seed_defaults(vb_agent::GLOBAL_ROLE_WORKSPACE_ID)
+    repo.seed_defaults(gt_agent::GLOBAL_ROLE_WORKSPACE_ID)
         .expect("seed global roles");
     repo.seed_defaults(workspace_id)
         .expect("seed workspace roles");
@@ -299,12 +299,12 @@ fn migrate_legacy_wechat_access_policies_promotes_pairing_to_open_once() {
             PersistedChannelAccessPolicy {
                 channel: "wechat".to_string(),
                 account_id: "default".to_string(),
-                mode: vb_task::ExternalAccessPolicyMode::Pairing,
+                mode: gt_task::ExternalAccessPolicyMode::Pairing,
             },
             PersistedChannelAccessPolicy {
                 channel: "telegram".to_string(),
                 account_id: "default".to_string(),
-                mode: vb_task::ExternalAccessPolicyMode::Pairing,
+                mode: gt_task::ExternalAccessPolicyMode::Pairing,
             },
         ],
         ..PersistedChannelStateFile::default()
@@ -319,11 +319,11 @@ fn migrate_legacy_wechat_access_policies_promotes_pairing_to_open_once() {
     assert_eq!(state_file.access_policies.len(), 2);
     assert_eq!(
         state_file.access_policies[0].mode,
-        vb_task::ExternalAccessPolicyMode::Open
+        gt_task::ExternalAccessPolicyMode::Open
     );
     assert_eq!(
         state_file.access_policies[1].mode,
-        vb_task::ExternalAccessPolicyMode::Pairing
+        gt_task::ExternalAccessPolicyMode::Pairing
     );
 }
 
@@ -448,7 +448,7 @@ fn validate_binding_target_selector_accepts_existing_agent_and_role_targets() {
 #[test]
 fn validate_binding_target_selector_rejects_missing_direct_agent() {
     let repo = temp_agent_repo("missing-agent");
-    repo.seed_defaults(vb_agent::GLOBAL_ROLE_WORKSPACE_ID)
+    repo.seed_defaults(gt_agent::GLOBAL_ROLE_WORKSPACE_ID)
         .expect("seed global roles");
     repo.seed_defaults("ws-1").expect("seed workspace roles");
 

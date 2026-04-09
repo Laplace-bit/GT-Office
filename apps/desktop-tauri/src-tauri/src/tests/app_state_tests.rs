@@ -8,7 +8,7 @@ use super::{
     ExternalReplyDispatchPhase, ExternalReplyRelaySession, ExternalReplyRelayTarget,
     ExternalTerminalKey, RenderedScreenSnapshot, RenderedScreenSnapshotRow,
 };
-use vb_task::{
+use gt_task::{
     AgentToolKind, ChannelDescriptor, ChannelKind, ChannelMessageType, ChannelPublishRequest,
 };
 
@@ -108,10 +108,10 @@ fn normalize_reply_text_collapses_blank_lines() {
 }
 
 #[test]
-fn normalize_reply_text_skips_vb_task_assignment_lines() {
+fn normalize_reply_text_skips_gt_task_assignment_lines() {
     let normalized = normalize_reply_text(
-        "echo '[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md'\n\
-[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md\n\
+        "echo '[gt-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md'\n\
+[gt-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md\n\
 agent output line",
         None,
     );
@@ -119,12 +119,12 @@ agent output line",
 }
 
 #[test]
-fn should_skip_external_reply_line_only_for_vb_task_markers() {
+fn should_skip_external_reply_line_only_for_gt_task_markers() {
     assert!(should_skip_external_reply_line(
-        "echo '[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md'"
+        "echo '[gt-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md'"
     ));
     assert!(should_skip_external_reply_line(
-        "[vb-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md"
+        "[gt-task] assigned task_abc from .gtoffice/tasks/task_abc/task.md"
     ));
     assert!(!should_skip_external_reply_line("plain agent response"));
 }
@@ -419,7 +419,7 @@ fn task_wait_reply_candidate_is_suppressed_after_explicit_reply() {
     let state = AppState::default();
     state
         .task_service
-        .register_runtime(vb_task::AgentRuntimeRegistration {
+        .register_runtime(gt_task::AgentRuntimeRegistration {
             workspace_id: "ws".to_string(),
             agent_id: "agent-1".to_string(),
             station_id: "agent-1".to_string(),

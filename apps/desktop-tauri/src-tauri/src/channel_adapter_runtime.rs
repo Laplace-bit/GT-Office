@@ -15,7 +15,7 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-use vb_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
+use gt_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
 
 use crate::{
     app_state::AppState,

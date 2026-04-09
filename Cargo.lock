@@ -1891,6 +1891,248 @@ dependencies = [
 ]
 
 [[package]]
+name = "gt-abstractions"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "gt-ai-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gt-abstractions",
+ "gt-security",
+ "gt-settings",
+ "gt-storage",
+ "gt-tools",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml 0.8.2",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "gt-changefeed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bytes",
+ "futures-util",
+ "grep-regex",
+ "grep-searcher",
+ "ignore",
+ "portable-pty",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "gt-filesystem"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-git"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git2",
+ "gt-abstractions",
+ "gt-workspace",
+ "serde",
+ "serde_json",
+ "similar",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "gt-keymap"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-security"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-session-log"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "gt-settings"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gt-abstractions",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-storage"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gt-agent",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "gt-task"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-telemetry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-terminal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gt-abstractions",
+ "gt-terminal-core",
+ "gt-workspace",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "vt100",
+]
+
+[[package]]
+name = "gt-terminal-core"
+version = "0.1.0"
+dependencies = [
+ "portable-pty",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "vt100",
+]
+
+[[package]]
+name = "gt-tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "gt-workspace"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gt-abstractions",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "gtk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1953,6 +2195,24 @@ dependencies = [
  "futures-util",
  "grep-regex",
  "grep-searcher",
+ "gt-abstractions",
+ "gt-agent",
+ "gt-ai-config",
+ "gt-changefeed",
+ "gt-core",
+ "gt-daemon",
+ "gt-filesystem",
+ "gt-git",
+ "gt-keymap",
+ "gt-security",
+ "gt-session-log",
+ "gt-settings",
+ "gt-storage",
+ "gt-task",
+ "gt-telemetry",
+ "gt-terminal",
+ "gt-tools",
+ "gt-workspace",
  "ignore",
  "image",
  "mime_guess",
@@ -1972,24 +2232,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
- "vb-abstractions",
- "vb-agent",
- "vb-ai-config",
- "vb-changefeed",
- "vb-core",
- "vb-daemon",
- "vb-filesystem",
- "vb-git",
- "vb-keymap",
- "vb-security",
- "vb-session-log",
- "vb-settings",
- "vb-storage",
- "vb-task",
- "vb-telemetry",
- "vb-terminal",
- "vb-tools",
- "vb-workspace",
  "vt100",
 ]
 
@@ -6152,248 +6394,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "vb-abstractions"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-agent"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "vb-ai-config"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "toml 0.8.2",
- "tracing",
- "uuid",
- "vb-abstractions",
- "vb-security",
- "vb-settings",
- "vb-storage",
- "vb-tools",
-]
-
-[[package]]
-name = "vb-changefeed"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "bytes",
- "futures-util",
- "grep-regex",
- "grep-searcher",
- "ignore",
- "portable-pty",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "vb-filesystem"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-git"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "git2",
- "serde",
- "serde_json",
- "similar",
- "thiserror 2.0.18",
- "tracing",
- "uuid",
- "vb-abstractions",
- "vb-workspace",
-]
-
-[[package]]
-name = "vb-keymap"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-security"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-session-log"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "vb-settings"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
- "vb-abstractions",
-]
-
-[[package]]
-name = "vb-storage"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "rusqlite",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
- "uuid",
- "vb-agent",
-]
-
-[[package]]
-name = "vb-task"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-telemetry"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-terminal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "portable-pty",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "vb-abstractions",
- "vb-terminal-core",
- "vb-workspace",
- "vt100",
-]
-
-[[package]]
-name = "vb-terminal-core"
-version = "0.1.0"
-dependencies = [
- "portable-pty",
- "pretty_assertions",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "vt100",
-]
-
-[[package]]
-name = "vb-tools"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "vb-workspace"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
- "uuid",
- "vb-abstractions",
-]
 
 [[package]]
 name = "vcpkg"

@@ -2,8 +2,8 @@ pub mod status_coordinator;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
-use vb_abstractions::{GitStatusSummary, WorkspaceId};
-use vb_git::{
+use gt_abstractions::{GitStatusSummary, WorkspaceId};
+use gt_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
     GitStashEntry,
 };

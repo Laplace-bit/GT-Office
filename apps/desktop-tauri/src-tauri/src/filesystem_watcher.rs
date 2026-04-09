@@ -10,7 +10,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
-use vb_settings::FilesystemWatcherSettings;
+use gt_settings::FilesystemWatcherSettings;
 
 const WATCH_EVENT_DEBOUNCE_MS: u64 = 64;
 const WATCH_EVENT_KIND_ORDER: [&str; 5] = ["removed", "renamed", "created", "modified", "other"];

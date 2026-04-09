@@ -136,7 +136,7 @@ GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1 npm run build:tauri
 - **代码签名与公证** — 签名的 macOS DMG 与 Windows 安装包，用于正式分发
 - **插件系统** — 可扩展的 tool adapter 与通道集成框架
 - **远程工作区** — 通过 SSH 连接远程工作区
-- **Crate 重命名** — 将 `vb-*` crate 重命名为 `gt-*`，统一品牌
+- ~~**Crate 重命名** — 将 `vb-*` crate 重命名为 `gt-*`，统一品牌~~ (done)
 
 ## 许可证
 

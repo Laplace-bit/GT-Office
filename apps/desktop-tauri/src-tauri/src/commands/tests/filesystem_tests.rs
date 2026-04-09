@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use vb_settings::{
+use gt_settings::{
     DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES, DEFAULT_FS_FULL_READ_HARD_MAX_BYTES,
     DEFAULT_FS_PREVIEW_MAX_BYTES,
 };

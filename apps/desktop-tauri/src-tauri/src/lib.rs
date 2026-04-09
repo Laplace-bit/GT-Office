@@ -17,7 +17,7 @@ use serde_json::json;
 use tauri::TitleBarStyle;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tracing::warn;
-use vb_terminal::TerminalRuntimeEvent;
+use gt_terminal::TerminalRuntimeEvent;
 
 use commands::{
     agent, agentic_one, file_explorer, git, keybindings, security, settings, system, task_center,

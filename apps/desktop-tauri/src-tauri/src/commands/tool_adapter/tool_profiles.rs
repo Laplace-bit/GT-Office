@@ -8,15 +8,15 @@ use std::{
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
-use vb_abstractions::{
+use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
-use vb_ai_config::{
+use gt_ai_config::{
     AiConfigService, AiConfigSnapshot, ClaudeConfigSnapshot, CodexConfigSnapshot,
     GeminiConfigSnapshot,
 };
-use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
-use vb_task::{AgentRuntimeRegistration, AgentToolKind};
+use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
+use gt_task::{AgentRuntimeRegistration, AgentToolKind};
 
 use crate::{
     app_state::AppState,

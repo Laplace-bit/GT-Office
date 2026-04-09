@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
-use vb_ai_config::{
+use gt_ai_config::{
     AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
     CodexDraftInput, GeminiDraftInput, StoredAiConfigPreview,
 };
-use vb_storage::{SqliteAiConfigRepository, SqliteStorage};
-use vb_task::AgentToolKind;
-use vb_tools::agent_installer::{AgentInstaller, AgentType};
+use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
+use gt_task::AgentToolKind;
+use gt_tools::agent_installer::{AgentInstaller, AgentType};
 
 use crate::app_state::AppState;
 const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
@@ -205,7 +205,7 @@ pub fn ai_config_preview_patch(
     draft: Value,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<vb_ai_config::AiConfigPreviewResponse, String> {
+) -> Result<gt_ai_config::AiConfigPreviewResponse, String> {
     let agent_type = AiConfigAgent::parse(&agent)
         .ok_or_else(|| "AI_CONFIG_AGENT_UNSUPPORTED: unsupported agent".to_string())?;
 
@@ -243,7 +243,7 @@ pub fn ai_config_apply_patch(
     confirmed_by: String,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
+) -> Result<gt_ai_config::AiConfigApplyResponse, String> {
     let preview = state
         .take_ai_config_preview(&preview_id)?
         .ok_or_else(|| "AI_CONFIG_PREVIEW_NOT_FOUND: preview has expired".to_string())?;
@@ -290,7 +290,7 @@ pub fn ai_config_list_audit_logs(
     limit: Option<usize>,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<Vec<vb_storage::AiConfigAuditLogInput>, String> {
+) -> Result<Vec<gt_storage::AiConfigAuditLogInput>, String> {
     let service = resolve_ai_config_service(&app, &state)?;
     service
         .list_audit_logs(
@@ -312,7 +312,7 @@ pub fn ai_config_switch_saved_provider(
     confirmed_by: String,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
+) -> Result<gt_ai_config::AiConfigApplyResponse, String> {
     let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
     let service = resolve_ai_config_service(&app, &state)?;
     let agent = AiConfigAgent::parse(&agent)
@@ -348,7 +348,7 @@ pub fn ai_config_delete_saved_provider(
     confirmed_by: String,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<vb_ai_config::AiConfigApplyResponse, String> {
+) -> Result<gt_ai_config::AiConfigApplyResponse, String> {
     let workspace_root = resolve_ai_workspace_root(&state, workspace_id.as_deref())?;
     let service = resolve_ai_config_service(&app, &state)?;
     let agent = AiConfigAgent::parse(&agent)

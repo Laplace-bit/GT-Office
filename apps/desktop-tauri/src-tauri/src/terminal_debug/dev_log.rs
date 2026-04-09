@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
-use vb_task::AgentToolKind;
+use gt_task::AgentToolKind;
 
 use crate::app_state::RenderedScreenSnapshot;
 use crate::terminal_debug::human_log::TerminalDebugHumanEntry;

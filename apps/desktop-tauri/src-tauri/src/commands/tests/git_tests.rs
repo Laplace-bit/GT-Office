@@ -4,8 +4,8 @@ use super::{
     build_git_log_payload, build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
     build_git_stash_list_payload, build_git_status_payload, build_git_unstage_payload,
 };
-use vb_abstractions::{GitStatusFile, GitStatusSummary, WorkspaceId};
-use vb_git::{
+use gt_abstractions::{GitStatusFile, GitStatusSummary, WorkspaceId};
+use gt_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
     GitStashEntry,
 };
