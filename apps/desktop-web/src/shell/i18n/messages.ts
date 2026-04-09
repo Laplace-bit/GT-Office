@@ -487,6 +487,8 @@ export const messages = {
   'station.role.analyst': { 'zh-CN': '分析', 'en-US': 'Analyst' },
   'station.role.generator': { 'zh-CN': '生成', 'en-US': 'Generator' },
   'station.role.evaluator': { 'zh-CN': '评估', 'en-US': 'Evaluator' },
+  'station.scope.global': { 'zh-CN': '全局', 'en-US': 'Global' },
+  'station.scope.workspace': { 'zh-CN': '工作区', 'en-US': 'Workspace' },
   'station.department.orchestration': {
     'zh-CN': '编排调度',
     'en-US': 'Orchestration',

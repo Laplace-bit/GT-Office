@@ -67,6 +67,21 @@ interface RoleManageModalProps {
   onChanged?: () => Promise<void> | void
 }
 
+function agentRoleLabel(locale: Locale, role: AgentRole): string {
+  switch (role.roleKey) {
+    case 'orchestrator':
+      return t(locale, 'station.role.orchestrator')
+    case 'analyst':
+      return t(locale, 'station.role.analyst')
+    case 'generator':
+      return t(locale, 'station.role.generator')
+    case 'evaluator':
+      return t(locale, 'station.role.evaluator')
+    default:
+      return role.roleName || role.roleKey
+  }
+}
+
 function RoleManageModal({
   open,
   locale,
@@ -174,7 +189,7 @@ function RoleManageModal({
                 className={`station-role-modal__list-item ${selectedRoleId === role.id ? 'is-active' : ''}`}
                 onClick={() => setSelectedRoleId(role.id)}
               >
-                <strong>{role.roleName}</strong>
+                <strong>{agentRoleLabel(locale, role)}</strong>
                 <span>
                   {role.scope === 'global'
                     ? locale === 'zh-CN'
@@ -243,12 +258,12 @@ function RoleManageModal({
                     )
                     if (locale === 'zh-CN') {
                       return fallbackRole
-                        ? `删除「${deleteConfirmRole.roleName}」后，相关 Agent 将自动回退到「${fallbackRole.roleName}」。`
-                        : `删除「${deleteConfirmRole.roleName}」后将无法恢复，系统预设角色除外。`
+                        ? `删除「${agentRoleLabel(locale, deleteConfirmRole)}」后，相关 Agent 将自动回退到「${agentRoleLabel(locale, fallbackRole)}」。`
+                        : `删除「${agentRoleLabel(locale, deleteConfirmRole)}」后将无法恢复，系统预设角色除外。`
                     }
                     return fallbackRole
-                      ? `Deleting "${deleteConfirmRole.roleName}" will automatically move assigned agents to "${fallbackRole.roleName}".`
-                      : `Deleting "${deleteConfirmRole.roleName}" cannot be undone, except for system preset roles.`
+                      ? `Deleting "${agentRoleLabel(locale, deleteConfirmRole)}" will automatically move assigned agents to "${agentRoleLabel(locale, fallbackRole)}".`
+                      : `Deleting "${agentRoleLabel(locale, deleteConfirmRole)}" cannot be undone, except for system preset roles.`
                   })()}
                 </p>
                 <div className="station-role-modal__confirm-actions">
@@ -356,8 +371,8 @@ function RoleManageModal({
                               kind: 'success',
                               text:
                                 locale === 'zh-CN'
-                                  ? `已恢复系统预设角色「${role.roleName}」。`
-                                  : `Restored system preset role "${role.roleName}".`,
+                                  ? `已恢复系统预设角色「${agentRoleLabel(locale, role)}」。`
+                                  : `Restored system preset role "${agentRoleLabel(locale, role)}".`,
                             })
                           } catch (error) {
                             setRoleFeedback({
@@ -370,7 +385,7 @@ function RoleManageModal({
                         })()
                       }}
                     >
-                      <span>{role.roleName}</span>
+                      <span>{agentRoleLabel(locale, role)}</span>
                       <AppIcon name="undo" className="vb-icon" aria-hidden="true" />
                     </button>
                   ))}
@@ -663,7 +678,7 @@ export function StationManageModal({
                 >
                   {effectiveRoles.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.roleName} {item.scope === 'global' ? '(Global)' : '(Workspace)'}
+                      {agentRoleLabel(locale, item)} {item.scope === 'global' ? `(${t(locale, 'station.scope.global')})` : `(${t(locale, 'station.scope.workspace')})`}
                     </option>
                   ))}
                 </select>
