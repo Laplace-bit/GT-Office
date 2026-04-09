@@ -391,7 +391,7 @@ function TaskCenterPaneView({
       <section className="task-center-target-picker">
         <div className="task-center-targets-header">
           <span>{t(locale, 'taskCenter.targetAgents')}</span>
-          <strong>{selectedCount}</strong>
+          {selectedCount > 0 ? <strong>{selectedCount}</strong> : null}
         </div>
         <button
           ref={targetTriggerRef}
