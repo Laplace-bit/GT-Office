@@ -190,11 +190,6 @@ function RoleManageModal({
               </select>
             </label>
 
-            <div className="station-role-modal__hint">
-              {locale === 'zh-CN'
-                ? '删除已被 Agent 使用的角色时，系统会阻止并提示先迁移。'
-                : 'Deleting a role that is still assigned to agents will be blocked.'}
-            </div>
           </div>
         </section>
 
