@@ -2,8 +2,6 @@ use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, State};
 use gt_ai_config::{
     AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
     CodexDraftInput, GeminiDraftInput, StoredAiConfigPreview,
@@ -11,6 +9,8 @@ use gt_ai_config::{
 use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
 use gt_task::AgentToolKind;
 use gt_tools::agent_installer::{AgentInstaller, AgentType};
+use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::app_state::AppState;
 const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";

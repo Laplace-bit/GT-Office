@@ -6,9 +6,6 @@ use std::{
     time::SystemTime,
 };
 
-use serde_json::{json, Value};
-use thiserror::Error;
-use uuid::Uuid;
 use gt_abstractions::SettingsScope;
 use gt_security::SecretStore;
 use gt_settings::{JsonSettingsService, SettingsPaths};
@@ -16,6 +13,9 @@ use gt_storage::{
     AiConfigAuditLogInput, SavedAiProviderInput, SavedAiProviderRecord, SavedClaudeProviderInput,
     SavedClaudeProviderRecord, SqliteAiConfigRepository,
 };
+use serde_json::{json, Value};
+use thiserror::Error;
+use uuid::Uuid;
 
 use crate::{
     catalog::{
@@ -2415,7 +2415,15 @@ impl AiConfigService {
         auth_scheme: Option<&crate::models::ClaudeAuthScheme>,
         secret: Option<&str>,
     ) -> AiConfigResult<BTreeMap<String, String>> {
-        build_claude_managed_env(mode, provider_id, base_url, model, auth_scheme, secret, None)
+        build_claude_managed_env(
+            mode,
+            provider_id,
+            base_url,
+            model,
+            auth_scheme,
+            secret,
+            None,
+        )
     }
 
     fn read_claude_config_from_value(value: &Value) -> AiConfigResult<ClaudeConfigSnapshot> {
@@ -3023,22 +3031,22 @@ impl AiConfigService {
         gemini_snapshot.saved_providers = saved_gemini_providers;
         let (claude_install_status, codex_install_status, gemini_install_status) =
             thread::scope(|scope| {
-            let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
-            let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
-            let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
+                let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
+                let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
+                let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
 
-            (
-                claude_install
-                    .join()
-                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
-                codex_install
-                    .join()
-                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
-                gemini_install
-                    .join()
-                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
-            )
-        });
+                (
+                    claude_install
+                        .join()
+                        .unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
+                    codex_install
+                        .join()
+                        .unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
+                    gemini_install
+                        .join()
+                        .unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
+                )
+            });
 
         Ok(AiConfigSnapshot {
             agents: vec![
@@ -4033,8 +4041,14 @@ fn build_claude_managed_env(
         .and_then(|o| o.opus_model.as_deref())
         .filter(|v| !v.trim().is_empty())
         .unwrap_or(model);
-    env.insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(), haiku.to_string());
-    env.insert("ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(), sonnet.to_string());
+    env.insert(
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
+        haiku.to_string(),
+    );
+    env.insert(
+        "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
+        sonnet.to_string(),
+    );
     env.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(), opus.to_string());
     env.insert(auth_scheme.env_var_name().to_string(), secret.to_string());
     Ok(env)

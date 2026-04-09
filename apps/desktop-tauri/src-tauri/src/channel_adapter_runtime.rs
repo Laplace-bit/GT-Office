@@ -1,3 +1,4 @@
+use gt_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -15,7 +16,6 @@ use tokio::{
 };
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-use gt_task::{ExternalInboundMessage, ExternalInboundStatus, ExternalPeerKind};
 
 use crate::{
     app_state::AppState,

@@ -1,16 +1,17 @@
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use gt_abstractions::{WorkspaceId, WorkspaceService};
+use gt_agent::{
+    default_agent_workdir, default_prompt_content, default_prompt_content_with_role,
+    normalize_agent_slug, prompt_file_name_for_tool, AgentProfile, AgentRepository, AgentRole,
+    AgentRoleScope, AgentState, CreateAgentInput, UpdateAgentInput, DEFAULT_ROLES,
+    GLOBAL_ROLE_WORKSPACE_ID,
+};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
-use gt_abstractions::{WorkspaceId, WorkspaceService};
-use gt_agent::{
-    default_agent_workdir, default_prompt_content, normalize_agent_slug, prompt_file_name_for_tool,
-    AgentProfile, AgentRepository, AgentRole, AgentRoleScope, AgentState, CreateAgentInput,
-    UpdateAgentInput, GLOBAL_ROLE_WORKSPACE_ID,
-};
-use gt_storage::{SqliteAgentRepository, SqliteStorage};
 
 use crate::app_state::AppState;
 
@@ -127,6 +128,14 @@ fn role_scope_workspace_id(scope: &AgentRoleScope, workspace_id: &str) -> String
         AgentRoleScope::Global => GLOBAL_ROLE_WORKSPACE_ID.to_string(),
         AgentRoleScope::Workspace => workspace_id.to_string(),
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestorableSystemRoleSummary {
+    role_id: String,
+    role_key: String,
+    role_name: String,
 }
 
 fn normalize_relative_workdir(value: &str) -> Option<String> {
@@ -279,6 +288,7 @@ fn write_prompt_file(
     tool: &str,
     prompt_file_name: Option<&str>,
     prompt_content: Option<String>,
+    role_key: Option<&str>,
 ) -> Result<Option<(String, String)>, String> {
     let Some(file_name) = resolve_prompt_file_name(tool, prompt_file_name)? else {
         return Ok(None);
@@ -291,7 +301,7 @@ fn write_prompt_file(
         .map_err(|error| format!("AGENT_WORKDIR_CREATE_FAILED: {error}"))?;
     let content = prompt_content
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| default_prompt_content(agent_name, tool));
+        .unwrap_or_else(|| default_prompt_content_with_role(agent_name, tool, role_key));
     std::fs::write(workdir_path.join(&file_name), content)
         .map_err(|error| format!("AGENT_PROMPT_WRITE_FAILED: {error}"))?;
     Ok(Some((file_name, relative_path)))
@@ -349,9 +359,9 @@ fn find_agent(
 mod tests {
     use std::{fs, path::PathBuf};
 
-    use uuid::Uuid;
     use gt_agent::{AgentProfile, AgentState};
     use gt_task::{ChannelRouteBinding, ExternalPeerKind, TaskService};
+    use uuid::Uuid;
 
     use super::{
         binding_cleanup::{
@@ -532,6 +542,7 @@ mod tests {
             "claude",
             Some("GEMINI.md"),
             Some("custom prompt".to_string()),
+            None,
         )
         .unwrap();
 
@@ -545,6 +556,7 @@ mod tests {
                 workdir,
                 "claude",
                 Some("GEMINI.md"),
+                None,
                 None,
             )
             .unwrap();
@@ -570,6 +582,7 @@ mod tests {
             "claude",
             Some("GEMINI.md"),
             Some("custom prompt".to_string()),
+            None,
         )
         .unwrap();
 
@@ -601,6 +614,7 @@ mod tests {
             "claude",
             resolved_prompt_file_name.as_deref(),
             Some("updated prompt".to_string()),
+            None,
         )
         .unwrap();
 
@@ -756,7 +770,22 @@ pub fn agent_role_list(
     repo.ensure_schema().map_err(to_command_error)?;
     seed_agent_defaults(&repo, &workspace_id)?;
     let roles = repo.list_roles(&workspace_id).map_err(to_command_error)?;
-    Ok(json!({ "roles": roles }))
+    let deleted_ids = repo
+        .list_deleted_system_role_seed_ids(GLOBAL_ROLE_WORKSPACE_ID)
+        .map_err(to_command_error)?;
+    let restorable_system_roles = DEFAULT_ROLES
+        .iter()
+        .filter(|role| deleted_ids.iter().any(|id| id == role.id))
+        .map(|role| RestorableSystemRoleSummary {
+            role_id: role.id.to_string(),
+            role_key: role.role_key.to_string(),
+            role_name: role.role_name.to_string(),
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "roles": roles,
+        "restorableSystemRoles": restorable_system_roles,
+    }))
 }
 
 #[tauri::command]
@@ -857,10 +886,82 @@ pub fn agent_role_delete(
     seed_agent_defaults(&repo, &request.workspace_id)?;
     let scope = parse_role_scope(request.scope.as_deref());
     let role_workspace_id = role_scope_workspace_id(&scope, &request.workspace_id);
+    let roles = repo
+        .list_roles(&request.workspace_id)
+        .map_err(to_command_error)?;
+    let target_role = roles
+        .iter()
+        .find(|role| role.id == request.role_id && role.workspace_id == role_workspace_id)
+        .cloned()
+        .ok_or_else(|| {
+            "AGENT_ROLE_DELETE_NOT_FOUND: roleId was not found in the requested scope".to_string()
+        })?;
+    let blocking_agents = repo
+        .list_agents(&request.workspace_id)
+        .map_err(to_command_error)?
+        .into_iter()
+        .filter(|agent| agent.role_id == request.role_id)
+        .collect::<Vec<_>>();
+    let fallback_role = roles
+        .iter()
+        .find(|role| {
+            role.id != target_role.id
+                && role.role_key == target_role.role_key
+                && role.status != gt_agent::RoleStatus::Disabled
+        })
+        .cloned();
+    if !blocking_agents.is_empty() {
+        if let Some(fallback_role) = fallback_role.clone() {
+            let _ = repo
+                .reassign_agents_role(
+                    &request.workspace_id,
+                    &target_role.id,
+                    &fallback_role.id,
+                    &fallback_role.workspace_id,
+                )
+                .map_err(to_command_error)?;
+        } else {
+            return Ok(json!({
+                "deleted": false,
+                "errorCode": "AGENT_ROLE_DELETE_BLOCKED_BY_ASSIGNED_AGENTS",
+                "blockingAgents": blocking_agents,
+            }));
+        }
+    }
     let deleted = repo
         .delete_role(&role_workspace_id, &request.role_id)
         .map_err(to_command_error)?;
-    Ok(json!({ "deleted": deleted }))
+    Ok(json!({
+        "deleted": deleted,
+        "fallbackRoleId": fallback_role.as_ref().map(|role| role.id.clone()),
+        "fallbackRoleName": fallback_role.as_ref().map(|role| role.role_name.clone()),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRoleRestoreSystemRequest {
+    pub workspace_id: String,
+    pub role_id: String,
+}
+
+#[tauri::command]
+pub fn agent_role_restore_system(
+    request: AgentRoleRestoreSystemRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    ensure_workspace_exists(&state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(&app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    seed_agent_defaults(&repo, &request.workspace_id)?;
+    let restored = repo
+        .restore_system_role(GLOBAL_ROLE_WORKSPACE_ID, &request.role_id)
+        .map_err(to_command_error)?;
+    match restored {
+        Some(role) => Ok(json!({ "role": role })),
+        None => Err("AGENT_ROLE_SYSTEM_RESTORE_INVALID: roleId is not a system preset".to_string()),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -899,6 +1000,7 @@ pub fn agent_create(
     )?;
     let workspace_root = get_workspace_root(state.inner(), &request.workspace_id)?;
 
+    let role_key_lookup = request.role_id.clone();
     let input = CreateAgentInput {
         workspace_id: request.workspace_id.clone(),
         agent_id: request.agent_id,
@@ -912,6 +1014,11 @@ pub fn agent_create(
     };
 
     let agent = repo.create_agent(input).map_err(to_command_error)?;
+    let role_key = repo
+        .list_roles(&request.workspace_id)
+        .ok()
+        .and_then(|roles| roles.into_iter().find(|r| r.id == role_key_lookup))
+        .map(|r| r.role_key.clone());
     write_prompt_file(
         &workspace_root,
         name.as_str(),
@@ -919,6 +1026,7 @@ pub fn agent_create(
         tool.as_str(),
         request.prompt_file_name.as_deref(),
         request.prompt_content,
+        role_key.as_deref(),
     )?;
     let refreshed = find_agent(&repo, &request.workspace_id, &agent.id)?;
     let _ =
@@ -970,11 +1078,11 @@ pub fn agent_update(
         request.prompt_file_name.as_deref(),
         request.prompt_content.as_deref(),
     );
+    let role_key_lookup = request.role_id.clone();
     let prompt_file_name = resolve_update_agent_prompt_file_name(
         existing_prompt_file_name.as_deref(),
         request.prompt_file_name.as_deref(),
     );
-
     let input = UpdateAgentInput {
         workspace_id: request.workspace_id.clone(),
         agent_id: request.agent_id.clone(),
@@ -988,6 +1096,11 @@ pub fn agent_update(
     };
 
     let agent = repo.update_agent(input).map_err(to_command_error)?;
+    let role_key = repo
+        .list_roles(&request.workspace_id)
+        .ok()
+        .and_then(|roles| roles.into_iter().find(|r| r.id == role_key_lookup))
+        .map(|r| r.role_key.clone());
     if should_write_prompt {
         write_prompt_file(
             &workspace_root,
@@ -996,6 +1109,7 @@ pub fn agent_update(
             tool.as_str(),
             prompt_file_name.as_deref(),
             request.prompt_content,
+            role_key.as_deref(),
         )?;
     }
     let refreshed = find_agent(&repo, &request.workspace_id, &agent.id)?;

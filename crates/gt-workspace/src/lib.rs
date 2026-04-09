@@ -1,3 +1,7 @@
+use gt_abstractions::{
+    AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
+    WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
+};
 use serde_json::Value;
 use std::{
     collections::hash_map::DefaultHasher,
@@ -6,10 +10,6 @@ use std::{
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
-};
-use gt_abstractions::{
-    AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
-    WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
 };
 
 pub fn module_name() -> &'static str {

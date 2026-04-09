@@ -1,8 +1,8 @@
+use gt_abstractions::{TerminalCwdMode, WorkspaceService};
+use gt_workspace::InMemoryWorkspaceService;
 use serde_json::json;
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
-use gt_abstractions::{TerminalCwdMode, WorkspaceService};
-use gt_workspace::InMemoryWorkspaceService;
 
 struct TempWorkspaceDir {
     path: PathBuf,

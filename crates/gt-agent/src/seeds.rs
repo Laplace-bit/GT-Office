@@ -72,3 +72,7 @@ pub const DEFAULT_ROLES: [RoleSeed; 4] = [
         charter_path: ".gtoffice/agents/roles/evaluator.md",
     },
 ];
+
+pub fn default_role_seed_by_id(role_id: &str) -> Option<&'static RoleSeed> {
+    DEFAULT_ROLES.iter().find(|role| role.id == role_id)
+}

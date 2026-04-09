@@ -1,3 +1,4 @@
+use gt_abstractions::SettingsScope;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -7,7 +8,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 use thiserror::Error;
-use gt_abstractions::SettingsScope;
 
 pub fn module_name() -> &'static str {
     "gt-settings"

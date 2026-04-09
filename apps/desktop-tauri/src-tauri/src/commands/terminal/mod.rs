@@ -1,12 +1,12 @@
 use base64::Engine;
+use gt_abstractions::{
+    AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use tauri::{AppHandle, State};
 use tracing::warn;
-use gt_abstractions::{
-    AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
-};
 
 use crate::app_state::{extract_rendered_debug_human_text, AppState, RenderedScreenSnapshot};
 use crate::commands::settings::ai_config::{
@@ -446,10 +446,7 @@ pub fn terminal_describe_processes(
 }
 
 #[tauri::command]
-pub fn terminal_activate(
-    session_id: String,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
+pub fn terminal_activate(session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
     // Check session exists
     if !state.terminal_provider.has_session(&session_id) {
         return Err(format!(

@@ -1,9 +1,9 @@
 pub mod ai_config;
 
-use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, State};
 use gt_abstractions::SettingsScope;
 use gt_settings::JsonSettingsService;
+use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::app_state::AppState;
 

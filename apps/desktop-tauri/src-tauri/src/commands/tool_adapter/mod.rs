@@ -2,6 +2,15 @@ mod binding_target_validation;
 pub mod command_catalog;
 pub mod tool_profiles;
 
+use gt_abstractions::WorkspaceService;
+use gt_agent::{AgentRepository, AgentState, RoleStatus};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
+use gt_task::{
+    AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelRouteBinding,
+    ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
+    ExternalInboundStatus, ExternalRouteResolution, TaskDispatchBatchRequest,
+    TaskDispatchProgressEvent, TaskDispatchStatus, TaskDispatchTargetResult,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -17,15 +26,6 @@ use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 use uuid::Uuid;
-use gt_abstractions::WorkspaceService;
-use gt_agent::{AgentRepository, AgentState, RoleStatus};
-use gt_storage::{SqliteAgentRepository, SqliteStorage};
-use gt_task::{
-    AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelRouteBinding,
-    ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
-    ExternalInboundStatus, ExternalRouteResolution, TaskDispatchBatchRequest,
-    TaskDispatchProgressEvent, TaskDispatchStatus, TaskDispatchTargetResult,
-};
 
 use crate::{
     app_state::{

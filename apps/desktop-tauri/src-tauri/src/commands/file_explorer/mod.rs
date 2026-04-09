@@ -2,6 +2,8 @@ pub mod preview;
 
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{sinks::UTF8, BinaryDetection, SearcherBuilder};
+use gt_abstractions::{WorkspaceId, WorkspaceService};
+use gt_daemon::protocol::SearchStartRequest;
 use ignore::{overrides::OverrideBuilder, WalkBuilder, WalkState};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -17,8 +19,6 @@ use std::{
 };
 use tauri::{AppHandle, State};
 use uuid::Uuid;
-use gt_abstractions::{WorkspaceId, WorkspaceService};
-use gt_daemon::protocol::SearchStartRequest;
 
 use crate::app_state::AppState;
 

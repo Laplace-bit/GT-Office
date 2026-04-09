@@ -135,6 +135,40 @@ impl SqliteAiConfigRepository {
         Ok(())
     }
 
+    pub fn reset_workspace_state(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), AiConfigRepositoryError> {
+        let mut conn = self.connection()?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        tx.execute(
+            "DELETE FROM ai_config_audit_logs WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })?;
+        tx.execute(
+            "DELETE FROM ai_config_saved_claude_providers WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map_err(|error| AiConfigRepositoryError::Storage {
+            message: error.to_string(),
+        })?;
+
+        tx.commit()
+            .map_err(|error| AiConfigRepositoryError::Storage {
+                message: error.to_string(),
+            })?;
+
+        Ok(())
+    }
+
     pub fn insert_audit_log(
         &self,
         input: &AiConfigAuditLogInput,

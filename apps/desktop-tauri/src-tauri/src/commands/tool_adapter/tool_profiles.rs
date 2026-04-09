@@ -5,9 +5,6 @@ use std::{
     time::Duration,
 };
 
-use serde_json::{json, Value};
-use tauri::{AppHandle, Manager, State};
-use uuid::Uuid;
 use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
@@ -17,6 +14,9 @@ use gt_ai_config::{
 };
 use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
 use gt_task::{AgentRuntimeRegistration, AgentToolKind};
+use serde_json::{json, Value};
+use tauri::{AppHandle, Manager, State};
+use uuid::Uuid;
 
 use crate::{
     app_state::AppState,

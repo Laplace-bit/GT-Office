@@ -1,6 +1,6 @@
+use gt_task::AgentToolKind;
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use gt_task::AgentToolKind;
 
 use crate::app_state::AppState;
 

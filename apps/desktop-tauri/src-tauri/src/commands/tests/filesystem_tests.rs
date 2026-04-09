@@ -5,14 +5,14 @@ use super::{
     is_likely_binary, resolve_target_path, sanitize_relative_path, search_file_matches,
     search_text_matches, FileSearchMatch, FileSystemEntry, SearchMatch, SearchTicket,
 };
+use gt_settings::{
+    DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES, DEFAULT_FS_FULL_READ_HARD_MAX_BYTES,
+    DEFAULT_FS_PREVIEW_MAX_BYTES,
+};
 use std::{
     fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
-};
-use gt_settings::{
-    DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES, DEFAULT_FS_FULL_READ_HARD_MAX_BYTES,
-    DEFAULT_FS_PREVIEW_MAX_BYTES,
 };
 
 struct TempDir {

@@ -1,11 +1,3 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
-use tracing::debug;
 use gt_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
 use gt_ai_config::StoredAiConfigPreview;
 use gt_git::GitService;
@@ -17,6 +9,14 @@ use gt_settings::{EffectiveSettings, JsonSettingsService, RuntimeSettings};
 use gt_task::{AgentProviderSessionMetadata, AgentToolKind, TaskService};
 use gt_terminal::PtyTerminalProvider;
 use gt_workspace::InMemoryWorkspaceService;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+use tracing::debug;
 
 use crate::commands::git::status_coordinator::GitStatusCoordinator;
 use crate::daemon_bridge::DaemonBridge;

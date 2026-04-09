@@ -2,8 +2,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager};
 use gt_task::AgentToolKind;
+use tauri::{AppHandle, Manager};
 
 use crate::app_state::RenderedScreenSnapshot;
 use crate::terminal_debug::human_log::TerminalDebugHumanEntry;

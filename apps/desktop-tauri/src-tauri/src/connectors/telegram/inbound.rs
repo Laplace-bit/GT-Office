@@ -1,5 +1,5 @@
-use serde_json::Value;
 use gt_task::{ExternalInboundMessage, ExternalPeerKind};
+use serde_json::Value;
 
 use super::api::json_to_string;
 

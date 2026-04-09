@@ -1,7 +1,7 @@
-use std::sync::{atomic::AtomicBool, Arc};
-use tokio::sync::mpsc;
 use gt_daemon::protocol::{Event, SearchStartRequest, ServerFrame, ServerPayload};
 use gt_daemon::search::run_search;
+use std::sync::{atomic::AtomicBool, Arc};
+use tokio::sync::mpsc;
 
 fn collect_events(root: &std::path::Path, query: &str) -> Vec<Event> {
     let (tx, mut rx) = mpsc::channel::<ServerFrame>(128);

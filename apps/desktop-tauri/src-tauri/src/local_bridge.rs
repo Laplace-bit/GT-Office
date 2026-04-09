@@ -1,3 +1,14 @@
+use gt_abstractions::{
+    AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
+    WorkspaceService,
+};
+use gt_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_storage::{SqliteAgentRepository, SqliteStorage};
+use gt_task::{
+    AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
+    ChannelPublishRequest, TaskDispatchBatchRequest, TaskDispatchProgressEvent,
+    TaskGetThreadRequest, TaskListThreadsRequest,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -13,23 +24,13 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tracing::{debug, info, warn};
-use gt_abstractions::{
-    AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
-    WorkspaceService,
-};
-use gt_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
-use gt_storage::{SqliteAgentRepository, SqliteStorage};
-use gt_task::{
-    AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
-    ChannelPublishRequest, TaskDispatchBatchRequest, TaskDispatchProgressEvent,
-    TaskGetThreadRequest, TaskListThreadsRequest,
-};
 
 use crate::app_state::AppState;
 use crate::commands::agent::{
     agent_create, agent_delete, agent_list, agent_prompt_read, agent_role_delete, agent_role_list,
-    agent_role_save, agent_update, AgentCreateRequest, AgentDeleteRequest, AgentPromptReadRequest,
-    AgentRoleDeleteRequest, AgentRoleSaveRequest, AgentUpdateRequest,
+    agent_role_restore_system, agent_role_save, agent_update, AgentCreateRequest,
+    AgentDeleteRequest, AgentPromptReadRequest, AgentRoleDeleteRequest,
+    AgentRoleRestoreSystemRequest, AgentRoleSaveRequest, AgentUpdateRequest,
 };
 use crate::commands::settings::ai_config::augment_terminal_env_for_agent;
 use crate::commands::task_center::write_terminal_with_submit;
@@ -103,10 +104,10 @@ impl BridgeResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{env, fs};
-    use uuid::Uuid;
     use gt_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentState, RoleStatus};
     use gt_task::{DispatchSender, DispatchSenderType};
+    use std::{env, fs};
+    use uuid::Uuid;
 
     #[test]
     fn bridge_response_serializes_stable_success_envelope() {
@@ -700,6 +701,9 @@ async fn handle_request(
         "agent.role_list" => bridge_agent_role_list(app, state, request.params.clone()),
         "agent.role_save" => bridge_agent_role_save(app, state, request.params.clone()),
         "agent.role_delete" => bridge_agent_role_delete(app, state, request.params.clone()),
+        "agent.role_restore_system" => {
+            bridge_agent_role_restore_system(app, state, request.params.clone())
+        }
         "agent.list" => bridge_agent_list(app, state, request.params.clone()),
         "agent.create" => bridge_agent_create(app, state, request.params.clone()),
         "agent.update" => bridge_agent_update(app, state, request.params.clone()),
@@ -770,6 +774,23 @@ fn bridge_agent_role_delete(
 
     let state_guard = app.state::<AppState>();
     agent_role_delete(request, state_guard, app.clone()).map_err(map_command_error)
+}
+
+fn bridge_agent_role_restore_system(
+    app: &AppHandle,
+    _state: &AppState,
+    params: Value,
+) -> Result<Value, BridgeError> {
+    let request: AgentRoleRestoreSystemRequest =
+        serde_json::from_value(params).map_err(|error| {
+            BridgeError::new(
+                "LOCAL_BRIDGE_INVALID_PARAMS",
+                format!("agent.role_restore_system params invalid: {error}"),
+            )
+        })?;
+
+    let state_guard = app.state::<AppState>();
+    agent_role_restore_system(request, state_guard, app.clone()).map_err(map_command_error)
 }
 
 fn bridge_agent_list(

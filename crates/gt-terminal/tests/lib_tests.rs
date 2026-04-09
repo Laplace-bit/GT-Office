@@ -1,3 +1,9 @@
+use gt_abstractions::{
+    AbstractionError, AllowAllPolicyEvaluator, TerminalCreateRequest, TerminalCwdMode,
+    TerminalProvider, WorkspaceService,
+};
+use gt_terminal::{InMemoryTerminalProvider, PtyTerminalProvider, TerminalRuntimeEvent};
+use gt_workspace::InMemoryWorkspaceService;
 use std::{
     collections::BTreeMap,
     fs,
@@ -5,12 +11,6 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use gt_abstractions::{
-    AbstractionError, AllowAllPolicyEvaluator, TerminalCreateRequest, TerminalCwdMode,
-    TerminalProvider, WorkspaceService,
-};
-use gt_terminal::{InMemoryTerminalProvider, PtyTerminalProvider, TerminalRuntimeEvent};
-use gt_workspace::InMemoryWorkspaceService;
 
 struct TempDir {
     path: PathBuf,

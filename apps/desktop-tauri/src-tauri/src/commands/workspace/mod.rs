@@ -1,9 +1,9 @@
 pub mod surface;
 
+use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
 use serde_json::{json, Value};
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
-use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
 
 use crate::app_state::AppState;
 

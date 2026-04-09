@@ -1,3 +1,7 @@
+use gt_abstractions::{
+    AbstractionError, AbstractionResult, CommandPolicyEvaluator, TerminalCreateRequest,
+    TerminalCwdMode, TerminalProvider, TerminalSession, WorkspaceService,
+};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,10 +21,6 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{self as tokio_mpsc, Sender as TokioSender},
     time::{interval, MissedTickBehavior},
-};
-use gt_abstractions::{
-    AbstractionError, AbstractionResult, CommandPolicyEvaluator, TerminalCreateRequest,
-    TerminalCwdMode, TerminalProvider, TerminalSession, WorkspaceService,
 };
 
 // Re-export from gt-terminal-core

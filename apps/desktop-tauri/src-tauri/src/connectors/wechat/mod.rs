@@ -2,6 +2,7 @@ mod api;
 pub mod auth;
 pub mod types;
 
+use gt_task::{ExternalInboundMessage, ExternalPeerKind};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,7 +16,6 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
-use gt_task::{ExternalInboundMessage, ExternalPeerKind};
 
 use crate::{
     app_state::AppState,

@@ -248,7 +248,6 @@ mod tests {
             assert_eq!(hint.as_deref(), Some(executable.to_string_lossy().as_ref()));
         });
     }
-
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
@@ -368,7 +367,11 @@ impl AgentInstaller {
                 if detection.executable.is_none() {
                     false
                 } else {
-                    let path_text = detection.executable.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+                    let path_text = detection
+                        .executable
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
                     // Homebrew installation doesn't require npm (includes Linuxbrew on Linux)
                     let is_homebrew = path_text.contains("/opt/homebrew/bin")
                         || path_text.contains("/usr/local/bin")
@@ -520,7 +523,8 @@ impl AgentInstaller {
                 program: "bash".to_string(),
                 args: vec![
                     "-lc".to_string(),
-                    "brew uninstall gemini-cli 2>/dev/null || echo 'Homebrew uninstall attempted'".to_string(),
+                    "brew uninstall gemini-cli 2>/dev/null || echo 'Homebrew uninstall attempted'"
+                        .to_string(),
                 ],
             });
         }

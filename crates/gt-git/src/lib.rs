@@ -1,4 +1,6 @@
 use git2::{BranchType, Repository, Status, StatusOptions};
+use gt_abstractions::{AbstractionError, AbstractionResult, GitStatusFile, GitStatusSummary};
+use gt_abstractions::{WorkspaceId, WorkspaceService};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::{
@@ -6,8 +8,6 @@ use std::{
     process::Command,
 };
 use tracing::{debug, instrument};
-use gt_abstractions::{AbstractionError, AbstractionResult, GitStatusFile, GitStatusSummary};
-use gt_abstractions::{WorkspaceId, WorkspaceService};
 
 const MAX_STATUS_FILES: usize = 2000;
 const LOG_FIELD_SEP: char = '\u{001f}';
@@ -2046,16 +2046,16 @@ fn configure_background_command(command: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::GitService;
+    use gt_abstractions::{
+        AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
+        WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
+    };
     use std::{
         fs,
         path::{Path, PathBuf},
         process::Command,
     };
     use uuid::Uuid;
-    use gt_abstractions::{
-        AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
-        WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
-    };
 
     #[derive(Clone)]
     struct TestWorkspaceService {

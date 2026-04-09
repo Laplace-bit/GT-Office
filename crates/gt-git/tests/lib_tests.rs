@@ -1,12 +1,12 @@
+use gt_abstractions::WorkspaceService;
+use gt_git::GitService;
+use gt_workspace::InMemoryWorkspaceService;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
 use uuid::Uuid;
-use gt_abstractions::WorkspaceService;
-use gt_git::GitService;
-use gt_workspace::InMemoryWorkspaceService;
 
 struct TempRepo {
     path: PathBuf,

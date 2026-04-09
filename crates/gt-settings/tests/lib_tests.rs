@@ -1,11 +1,11 @@
-use serde_json::json;
-use std::{fs, path::PathBuf, time::SystemTime};
 use gt_abstractions::SettingsScope;
 use gt_settings::{
     default_user_settings_path, JsonSettingsService, SettingsPaths,
     DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES, DEFAULT_FS_FULL_READ_HARD_MAX_BYTES,
     DEFAULT_FS_PREVIEW_MAX_BYTES,
 };
+use serde_json::json;
+use std::{fs, path::PathBuf, time::SystemTime};
 
 struct TempDir {
     path: PathBuf,

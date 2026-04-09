@@ -1,16 +1,16 @@
-use serde_json::json;
-use std::{
-    collections::HashMap,
-    env, fs,
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
-};
 use gt_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelDescriptor, ChannelKind, ChannelMessageType,
     ChannelPublishRequest, ChannelRouteBinding, DispatchSender, DispatchSenderType,
     ExternalAccessPolicyMode, ExternalInboundMessage, ExternalInboundResponse,
     ExternalInboundStatus, ExternalPeerKind, TaskDispatchBatchRequest, TaskDispatchStatus,
     TaskService, TaskThreadState,
+};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    env, fs,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 fn now_ms() -> u64 {
@@ -588,14 +588,26 @@ fn get_task_thread_returns_chronological_messages_for_task() {
     assert_eq!(thread.summary.title, "Prepare handover");
     assert_eq!(thread.summary.state, TaskThreadState::HandedOver);
     assert_eq!(thread.messages.len(), 2);
-    assert_eq!(thread.messages[0].message_type, ChannelMessageType::TaskInstruction);
-    assert_eq!(thread.messages[1].message_type, ChannelMessageType::Handover);
     assert_eq!(
-        thread.messages[0].payload.get("taskId").and_then(|value| value.as_str()),
+        thread.messages[0].message_type,
+        ChannelMessageType::TaskInstruction
+    );
+    assert_eq!(
+        thread.messages[1].message_type,
+        ChannelMessageType::Handover
+    );
+    assert_eq!(
+        thread.messages[0]
+            .payload
+            .get("taskId")
+            .and_then(|value| value.as_str()),
         Some(dispatch.response.results[0].task_id.as_str()),
     );
     assert_eq!(
-        thread.messages[1].payload.get("taskId").and_then(|value| value.as_str()),
+        thread.messages[1]
+            .payload
+            .get("taskId")
+            .and_then(|value| value.as_str()),
         Some(dispatch.response.results[0].task_id.as_str()),
     );
 
@@ -648,9 +660,14 @@ fn unregister_runtime_purges_agent_message_threads_by_default() {
         |_, _, _| Ok(()),
     );
 
-    assert_eq!(service.list_task_threads("ws-1", Some("worker"), 20).len(), 1);
+    assert_eq!(
+        service.list_task_threads("ws-1", Some("worker"), 20).len(),
+        1
+    );
     assert!(service.unregister_runtime("ws-1", "worker"));
-    assert!(service.list_task_threads("ws-1", Some("worker"), 20).is_empty());
+    assert!(service
+        .list_task_threads("ws-1", Some("worker"), 20)
+        .is_empty());
     assert!(service
         .get_task_thread("ws-1", dispatch.response.results[0].task_id.as_str())
         .is_none());

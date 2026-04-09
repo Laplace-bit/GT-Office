@@ -2,9 +2,9 @@ use super::{
     is_git_metadata_path_of_interest, map_event_kind, normalize_event_paths,
     should_ignore_relative_path, should_schedule_git_refresh,
 };
+use gt_settings::FilesystemWatcherSettings;
 use notify::EventKind;
 use std::path::Path;
-use gt_settings::FilesystemWatcherSettings;
 
 #[test]
 fn map_event_kind_maps_rename_to_renamed() {

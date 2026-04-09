@@ -4,6 +4,7 @@ import {
   desktopApi,
   type AgentRole,
   type AgentRoleScope,
+  type RestorableSystemRole,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
@@ -18,6 +19,13 @@ import {
   resolveProviderLabel,
   type ManagedAgentProvider,
 } from './agent-management-model'
+import { resolveRolePromptTemplate } from './role-prompt-templates'
+import {
+  resolveEffectiveRoles,
+  resolveRoleDeleteErrorMessage,
+  sortRestorableSystemRoles,
+  sortRoles,
+} from './role-management-model'
 import { StationDeleteBindingCleanupDialog } from './StationDeleteBindingCleanupDialog'
 import type {
   StationDeleteCleanupState,
@@ -32,6 +40,7 @@ interface StationManageModalProps {
   locale: Locale
   workspaceId?: string | null
   roles: AgentRole[]
+  restorableSystemRoles: RestorableSystemRole[]
   editingStation?: UpdateStationInput | null
   saving?: boolean
   deleting?: boolean
@@ -53,27 +62,9 @@ interface RoleManageModalProps {
   locale: Locale
   workspaceId?: string | null
   roles: AgentRole[]
+  restorableSystemRoles: RestorableSystemRole[]
   onClose: () => void
   onChanged?: () => Promise<void> | void
-}
-
-function sortRoles(roles: AgentRole[]): AgentRole[] {
-  return [...roles].sort((left, right) => {
-    if (left.scope !== right.scope) {
-      return left.scope === 'workspace' ? -1 : 1
-    }
-    return left.roleName.localeCompare(right.roleName)
-  })
-}
-
-function resolveEffectiveRoles(roles: AgentRole[]): AgentRole[] {
-  const effective = new Map<string, AgentRole>()
-  for (const role of sortRoles(roles.filter((item) => item.status !== 'disabled'))) {
-    if (!effective.has(role.roleKey)) {
-      effective.set(role.roleKey, role)
-    }
-  }
-  return [...effective.values()]
 }
 
 function RoleManageModal({
@@ -81,6 +72,7 @@ function RoleManageModal({
   locale,
   workspaceId,
   roles,
+  restorableSystemRoles,
   onClose,
   onChanged,
 }: RoleManageModalProps) {
@@ -89,8 +81,17 @@ function RoleManageModal({
   const [scope, setScope] = useState<AgentRoleScope>('workspace')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteConfirmRoleId, setDeleteConfirmRoleId] = useState<string | null>(null)
+  const [roleFeedback, setRoleFeedback] = useState<{
+    kind: 'success' | 'error'
+    text: string
+  } | null>(null)
 
   const sortedRoles = useMemo(() => sortRoles(roles), [roles])
+  const sortedRestorableSystemRoles = useMemo(
+    () => sortRestorableSystemRoles(restorableSystemRoles),
+    [restorableSystemRoles],
+  )
   const selectedRole = useMemo(
     () => sortedRoles.find((role) => role.id === selectedRoleId) ?? null,
     [selectedRoleId, sortedRoles],
@@ -109,11 +110,24 @@ function RoleManageModal({
     setScope('workspace')
   }, [open, selectedRole])
 
+  useEffect(() => {
+    if (!open) {
+      setDeleteConfirmRoleId(null)
+      setRoleFeedback(null)
+    }
+  }, [open])
+
+  useEffect(() => {
+    setDeleteConfirmRoleId(null)
+    setRoleFeedback(null)
+  }, [selectedRoleId])
+
   if (!open) {
     return null
   }
 
   const canManage = Boolean(workspaceId && desktopApi.isTauriRuntime())
+  const deleteConfirmRole = sortedRoles.find((role) => role.id === deleteConfirmRoleId) ?? null
 
   return (
     <div
@@ -161,7 +175,15 @@ function RoleManageModal({
                 onClick={() => setSelectedRoleId(role.id)}
               >
                 <strong>{role.roleName}</strong>
-                <span>{role.scope === 'global' ? 'Global' : 'Workspace'}</span>
+                <span>
+                  {role.scope === 'global'
+                    ? locale === 'zh-CN'
+                      ? role.isSystem ? '全局 · 系统预设' : '全局'
+                      : role.isSystem ? 'Global · System preset' : 'Global'
+                    : locale === 'zh-CN'
+                      ? role.isSystem ? '工作区 · 系统' : '工作区'
+                      : role.isSystem ? 'Workspace · System' : 'Workspace'}
+                </span>
               </button>
             ))}
           </div>
@@ -190,6 +212,172 @@ function RoleManageModal({
               </select>
             </label>
 
+            {selectedRole?.isSystem && (
+              <div className="station-role-modal__hint">
+                {locale === 'zh-CN'
+                  ? '这是系统预设角色。删除后不会自动重新出现，但你可以在下方“恢复系统预设角色”区域随时恢复。'
+                  : 'This is a system preset role. After deletion it stays removed until you restore it from the preset restore section below.'}
+              </div>
+            )}
+
+            {roleFeedback && (
+              <div
+                className={`station-role-modal__feedback ${
+                  roleFeedback.kind === 'error' ? 'is-error' : 'is-success'
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                {roleFeedback.text}
+              </div>
+            )}
+
+            {deleteConfirmRole && (
+              <div className="station-role-modal__confirm">
+                <strong>{locale === 'zh-CN' ? '确认删除角色' : 'Confirm Role Deletion'}</strong>
+                <p>
+                  {(() => {
+                    const fallbackRole = sortedRoles.find(
+                      (role) =>
+                        role.id !== deleteConfirmRole.id && role.roleKey === deleteConfirmRole.roleKey,
+                    )
+                    if (locale === 'zh-CN') {
+                      return fallbackRole
+                        ? `删除「${deleteConfirmRole.roleName}」后，相关 Agent 将自动回退到「${fallbackRole.roleName}」。`
+                        : `删除「${deleteConfirmRole.roleName}」后将无法恢复，系统预设角色除外。`
+                    }
+                    return fallbackRole
+                      ? `Deleting "${deleteConfirmRole.roleName}" will automatically move assigned agents to "${fallbackRole.roleName}".`
+                      : `Deleting "${deleteConfirmRole.roleName}" cannot be undone, except for system preset roles.`
+                  })()}
+                </p>
+                <div className="station-role-modal__confirm-actions">
+                  <button
+                    type="button"
+                    className="station-form-btn subtle"
+                    disabled={saving || deleting}
+                    onClick={() => setDeleteConfirmRoleId(null)}
+                  >
+                    {locale === 'zh-CN' ? '取消' : 'Cancel'}
+                  </button>
+                  <button
+                    type="button"
+                    className="station-form-btn danger"
+                    disabled={!workspaceId || saving || deleting}
+                    onClick={() => {
+                      if (!workspaceId || !deleteConfirmRole) {
+                        return
+                      }
+                      void (async () => {
+                        setDeleting(true)
+                        setRoleFeedback(null)
+                        try {
+                          const response = await desktopApi.agentRoleDelete({
+                            workspaceId,
+                            roleId: deleteConfirmRole.id,
+                            scope: deleteConfirmRole.scope,
+                          })
+                          if (!response.deleted) {
+                            setRoleFeedback({
+                              kind: 'error',
+                              text: resolveRoleDeleteErrorMessage(locale, response),
+                            })
+                            return
+                          }
+                          await onChanged?.()
+                          setSelectedRoleId(null)
+                          setDeleteConfirmRoleId(null)
+                          setRoleFeedback(
+                            response.fallbackRoleName
+                              ? {
+                                  kind: 'success',
+                                  text:
+                                    locale === 'zh-CN'
+                                      ? `角色已删除，相关 Agent 已自动回退到「${response.fallbackRoleName}」。`
+                                      : `Role deleted. Assigned agents were automatically moved to "${response.fallbackRoleName}".`,
+                                }
+                              : {
+                                  kind: 'success',
+                                  text:
+                                    locale === 'zh-CN'
+                                      ? '角色已删除。'
+                                      : 'Role deleted.',
+                                },
+                          )
+                        } catch (error) {
+                          setRoleFeedback({
+                            kind: 'error',
+                            text: error instanceof Error ? error.message : String(error),
+                          })
+                        } finally {
+                          setDeleting(false)
+                        }
+                      })()
+                    }}
+                  >
+                    <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
+                    <span>{locale === 'zh-CN' ? '确认删除' : 'Confirm Delete'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {sortedRestorableSystemRoles.length > 0 && (
+              <div className="station-role-modal__restore">
+                <div className="station-role-modal__restore-header">
+                  <strong>{locale === 'zh-CN' ? '恢复系统预设角色' : 'Restore System Presets'}</strong>
+                  <span>
+                    {locale === 'zh-CN'
+                      ? '已删除的系统预设角色可以在这里恢复。'
+                      : 'Previously deleted system preset roles can be restored here.'}
+                  </span>
+                </div>
+                <div className="station-role-modal__restore-list">
+                  {sortedRestorableSystemRoles.map((role) => (
+                    <button
+                      key={role.roleId}
+                      type="button"
+                      className="station-form-btn subtle station-role-modal__restore-action"
+                      disabled={!canManage || saving || deleting}
+                      onClick={() => {
+                        if (!workspaceId) {
+                          return
+                        }
+                        void (async () => {
+                          setSaving(true)
+                          setRoleFeedback(null)
+                          try {
+                            await desktopApi.agentRoleRestoreSystem({
+                              workspaceId,
+                              roleId: role.roleId,
+                            })
+                            await onChanged?.()
+                            setRoleFeedback({
+                              kind: 'success',
+                              text:
+                                locale === 'zh-CN'
+                                  ? `已恢复系统预设角色「${role.roleName}」。`
+                                  : `Restored system preset role "${role.roleName}".`,
+                            })
+                          } catch (error) {
+                            setRoleFeedback({
+                              kind: 'error',
+                              text: error instanceof Error ? error.message : String(error),
+                            })
+                          } finally {
+                            setSaving(false)
+                          }
+                        })()
+                      }}
+                    >
+                      <span>{role.roleName}</span>
+                      <AppIcon name="undo" className="vb-icon" aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         </section>
 
@@ -201,25 +389,11 @@ function RoleManageModal({
               style={{ marginRight: 'auto' }}
               disabled={!canManage || saving || deleting}
               onClick={() => {
-                if (!workspaceId || !selectedRole) {
+                if (!selectedRole) {
                   return
                 }
-                void (async () => {
-                  setDeleting(true)
-                  try {
-                    await desktopApi.agentRoleDelete({
-                      workspaceId,
-                      roleId: selectedRole.id,
-                      scope: selectedRole.scope,
-                    })
-                    await onChanged?.()
-                    setSelectedRoleId(null)
-                  } catch (error) {
-                    window.alert(error instanceof Error ? error.message : String(error))
-                  } finally {
-                    setDeleting(false)
-                  }
-                })()
+                setDeleteConfirmRoleId(selectedRole.id)
+                setRoleFeedback(null)
               }}
             >
               <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
@@ -274,6 +448,7 @@ export function StationManageModal({
   locale,
   workspaceId,
   roles,
+  restorableSystemRoles,
   editingStation,
   saving = false,
   deleting = false,
@@ -294,6 +469,7 @@ export function StationManageModal({
   const [provider, setProvider] = useState<ManagedAgentProvider>('codex')
   const [workdir, setWorkdir] = useState('')
   const [promptContent, setPromptContent] = useState('')
+  const [promptUserEdited, setPromptUserEdited] = useState(false)
   const [availableProviders, setAvailableProviders] = useState<
     ReturnType<typeof resolveAvailableAgentProviders>
   >([])
@@ -324,7 +500,19 @@ export function StationManageModal({
     setProvider(resolveManagedProviderKey(editingStation?.tool))
     setWorkdir(editingStation?.workdir ?? buildDefaultAgentWorkdir(copy.defaultName))
     setPromptContent('')
+    setPromptUserEdited(false)
   }, [copy.defaultName, editingStation, effectiveRoles, open])
+
+  // Auto-populate prompt content from role template when creating a new agent
+  // and the user hasn't manually edited the prompt content.
+  useEffect(() => {
+    if (isEdit || !selectedRole || promptUserEdited) {
+      return
+    }
+    const agentName = name.trim() || copy.defaultName
+    const template = resolveRolePromptTemplate(selectedRole.roleKey, agentName, locale)
+    setPromptContent(template)
+  }, [copy.defaultName, isEdit, locale, name, promptUserEdited, selectedRole])
 
   useEffect(() => {
     if (!open || !workspaceId || !desktopApi.isTauriRuntime()) {
@@ -529,9 +717,13 @@ export function StationManageModal({
               <span>{locale === 'zh-CN' ? '系统提示词文件' : 'System Prompt File'}</span>
               <strong>{promptFileName}</strong>
               <p>
-                {locale === 'zh-CN'
-                  ? '保存时会在该 Agent 工作目录下自动创建或更新这个文件。留空会写入默认说明。'
-                  : 'Saving will create or update this file inside the agent workdir. Leaving it blank writes the default note.'}
+                {isEdit
+                  ? locale === 'zh-CN'
+                    ? '保存时会在该 Agent 工作目录下自动创建或更新这个文件。'
+                    : 'Saving will create or update this file inside the agent workdir.'
+                  : locale === 'zh-CN'
+                    ? '系统已根据角色自动生成提示词模板，你可以自由编辑。保存时会在该 Agent 工作目录下自动创建或更新这个文件。'
+                    : 'A role-specific prompt template has been auto-generated. You can freely edit it. Saving will create or update this file inside the agent workdir.'}
               </p>
             </div>
 
@@ -546,7 +738,10 @@ export function StationManageModal({
                     ? '系统提示词文件是 markdown 文件，为项目、你的个人工作流或整个组织为 Agents 提供持久指令。你用纯文本编写这些文件；Agent 在每个会话开始时读取它们。'
                     : 'System prompt files are markdown files that give Agent persistent instructions for a project, your personal workflow, or your entire organization. You write these files in plain text; Agent reads them at the start of every session.'
                 }
-                onChange={(event) => setPromptContent(event.target.value)}
+                onChange={(event) => {
+                  setPromptContent(event.target.value)
+                  setPromptUserEdited(true)
+                }}
               />
             </label>
           </section>
@@ -623,6 +818,7 @@ export function StationManageModal({
         locale={locale}
         workspaceId={workspaceId}
         roles={roles}
+        restorableSystemRoles={restorableSystemRoles}
         onClose={() => setRoleManagerOpen(false)}
         onChanged={async () => {
           await onRolesChanged?.()

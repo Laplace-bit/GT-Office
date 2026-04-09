@@ -85,17 +85,15 @@ fn get_category_from_extension(ext: &str) -> &'static str {
     let ext = ext.to_lowercase();
     match ext.as_str() {
         // 代码文件
-        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts"
-        | "py" | "pyw" | "pyi"
-        | "rs" | "go" | "java" | "kt" | "kts" | "swift"
-        | "c" | "h" | "cc" | "cpp" | "hpp"
-        | "cs" | "php" | "rb" | "lua"
-        | "sh" | "bash" | "zsh" | "fish" | "ps1"
-        | "sql" | "vue" | "svelte" => "code",
+        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts" | "py" | "pyw" | "pyi"
+        | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "c" | "h" | "cc" | "cpp" | "hpp"
+        | "cs" | "php" | "rb" | "lua" | "sh" | "bash" | "zsh" | "fish" | "ps1" | "sql" | "vue"
+        | "svelte" => "code",
 
         // 数据格式
-        "json" | "jsonc" | "json5" | "yaml" | "yml" | "toml"
-        | "xml" | "ini" | "conf" | "cfg" => "code",
+        "json" | "jsonc" | "json5" | "yaml" | "yml" | "toml" | "xml" | "ini" | "conf" | "cfg" => {
+            "code"
+        }
 
         // 样式
         "css" | "scss" | "sass" | "less" | "html" | "htm" => "code",
@@ -104,8 +102,9 @@ fn get_category_from_extension(ext: &str) -> &'static str {
         "md" | "mdx" | "markdown" => "markdown",
 
         // 图片
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg"
-        | "ico" | "bmp" | "heic" | "avif" => "image",
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "ico" | "bmp" | "heic" | "avif" => {
+            "image"
+        }
 
         // 视频
         "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => "video",
@@ -156,15 +155,12 @@ pub async fn fs_get_file_info(path: String) -> Result<FileInfoResponse, String> 
     let path = Path::new(&path);
 
     // 获取文件大小
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
     let size = metadata.len();
 
     // 获取扩展名
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     // 获取 MIME 类型
     let mime_type = get_mime_type(path);
@@ -206,10 +202,7 @@ pub async fn fs_get_file_info(path: String) -> Result<FileInfoResponse, String> 
 
 /// 生成图片缩略图
 #[tauri::command]
-pub async fn fs_image_thumbnail(
-    path: String,
-    max_size: u32,
-) -> Result<ThumbnailResponse, String> {
+pub async fn fs_image_thumbnail(path: String, max_size: u32) -> Result<ThumbnailResponse, String> {
     use base64::Engine;
     use image::imageops::FilterType;
 
@@ -233,7 +226,10 @@ pub async fn fs_image_thumbnail(
     // 编码为 PNG
     let mut buffer = Vec::new();
     thumbnail
-        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Png,
+        )
         .map_err(|e| format!("Failed to encode thumbnail: {}", e))?;
 
     // Base64 编码
@@ -269,10 +265,7 @@ pub async fn fs_pdf_get_info(path: String) -> Result<PdfInfoResponse, String> {
             .iter()
             .next()
             .ok_or("PDF has no pages".to_string())?;
-        (
-            page.width().value as f32,
-            page.height().value as f32,
-        )
+        (page.width().value as f32, page.height().value as f32)
     } else {
         (595.0, 842.0) // A4 默认尺寸
     };
@@ -329,7 +322,10 @@ pub async fn fs_pdf_render_page(
     // 编码为 PNG
     let mut buffer = Vec::new();
     dynamic_image
-        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Png,
+        )
         .map_err(|e| format!("Failed to encode PNG: {}", e))?;
 
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&buffer);

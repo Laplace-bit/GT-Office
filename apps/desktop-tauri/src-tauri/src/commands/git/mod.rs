@@ -1,12 +1,12 @@
 pub mod status_coordinator;
 
-use serde_json::{json, Value};
-use tauri::{AppHandle, State};
 use gt_abstractions::{GitStatusSummary, WorkspaceId};
 use gt_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
     GitStashEntry,
 };
+use serde_json::{json, Value};
+use tauri::{AppHandle, State};
 
 use crate::app_state::AppState;
 

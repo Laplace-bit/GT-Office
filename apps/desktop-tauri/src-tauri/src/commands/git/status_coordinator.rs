@@ -1,3 +1,4 @@
+use gt_abstractions::{GitStatusSummary, WorkspaceId};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -7,7 +8,6 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use tokio::time::sleep;
 use tracing::warn;
-use gt_abstractions::{GitStatusSummary, WorkspaceId};
 
 use crate::app_state::AppState;
 

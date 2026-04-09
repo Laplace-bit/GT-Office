@@ -9,6 +9,10 @@ use std::{
 };
 
 use futures_util::{SinkExt, StreamExt};
+use gt_daemon::protocol::{
+    ClientFrame, Event, Request, Response, ResponseEnvelope, SearchCancelRequest,
+    SearchStartRequest, ServerFrame, ServerPayload,
+};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
 use tokio::{
@@ -17,10 +21,6 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing::{debug, warn};
-use gt_daemon::protocol::{
-    ClientFrame, Event, Request, Response, ResponseEnvelope, SearchCancelRequest,
-    SearchStartRequest, ServerFrame, ServerPayload,
-};
 
 const FRAME_MAX_BYTES: usize = 8 * 1024 * 1024;
 const OUTBOUND_QUEUE_CAPACITY: usize = 512;

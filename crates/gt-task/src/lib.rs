@@ -544,7 +544,11 @@ impl TaskService {
             .into_iter()
             .filter_map(|(task_id, messages)| {
                 if agent_id
-                    .map(|agent_id| messages.iter().any(|message| message_involves_agent(message, agent_id)))
+                    .map(|agent_id| {
+                        messages
+                            .iter()
+                            .any(|message| message_involves_agent(message, agent_id))
+                    })
                     .unwrap_or(true)
                 {
                     build_task_thread_summary(&task_id, &messages)
@@ -822,9 +826,11 @@ impl TaskService {
         if workspace_id.is_empty() {
             return None;
         }
-        self.resolve_external_route_matching(inbound, |binding| {
-            binding.workspace_id == workspace_id
-        }, None)
+        self.resolve_external_route_matching(
+            inbound,
+            |binding| binding.workspace_id == workspace_id,
+            None,
+        )
     }
 
     fn resolve_external_route_matching<F>(
@@ -1248,8 +1254,7 @@ fn purge_agent_messages_locked(guard: &mut TaskServiceState, workspace_id: &str,
         if message.workspace_id != workspace_id {
             return true;
         }
-        message.target_agent_id != agent_id
-            && message.sender_agent_id.as_deref() != Some(agent_id)
+        message.target_agent_id != agent_id && message.sender_agent_id.as_deref() != Some(agent_id)
     });
 }
 
@@ -1266,7 +1271,10 @@ fn message_involves_agent(message: &ChannelMessageEvent, agent_id: &str) -> bool
     message.target_agent_id == agent_id || message.sender_agent_id.as_deref() == Some(agent_id)
 }
 
-fn build_task_thread_summary(task_id: &str, messages: &[ChannelMessageEvent]) -> Option<TaskThreadSummary> {
+fn build_task_thread_summary(
+    task_id: &str,
+    messages: &[ChannelMessageEvent],
+) -> Option<TaskThreadSummary> {
     let first = messages.first()?;
     let latest = messages.last()?;
     Some(TaskThreadSummary {

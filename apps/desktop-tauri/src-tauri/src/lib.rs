@@ -11,13 +11,13 @@ mod process_utils;
 mod terminal_debug;
 
 use base64::Engine;
+use gt_terminal::TerminalRuntimeEvent;
 use rustls::crypto::aws_lc_rs;
 use serde_json::json;
 #[cfg(target_os = "linux")]
 use tauri::TitleBarStyle;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tracing::warn;
-use gt_terminal::TerminalRuntimeEvent;
 
 use commands::{
     agent, agentic_one, file_explorer, git, keybindings, security, settings, system, task_center,
@@ -149,6 +149,7 @@ pub fn run() {
             agent::agent_role_list,
             agent::agent_role_save,
             agent::agent_role_delete,
+            agent::agent_role_restore_system,
             agent::agent_list,
             agent::agent_create,
             agent::agent_update,
