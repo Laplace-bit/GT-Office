@@ -20,7 +20,7 @@ export function sortRoles(roles: AgentRole[]): AgentRole[] {
 
 export function resolveEffectiveRoles(roles: AgentRole[]): AgentRole[] {
   const effective = new Map<string, AgentRole>()
-  for (const role of sortRoles(roles.filter((item) => item.status !== 'disabled'))) {
+  for (const role of sortRoles(roles.filter((item) => item.status === 'active'))) {
     if (!effective.has(role.roleKey)) {
       effective.set(role.roleKey, role)
     }

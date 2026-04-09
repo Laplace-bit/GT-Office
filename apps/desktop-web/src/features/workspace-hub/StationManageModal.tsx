@@ -102,7 +102,7 @@ function RoleManageModal({
     text: string
   } | null>(null)
 
-  const sortedRoles = useMemo(() => sortRoles(roles), [roles])
+  const sortedRoles = useMemo(() => sortRoles(roles.filter((r) => r.status === 'active')), [roles])
   const sortedRestorableSystemRoles = useMemo(
     () => sortRestorableSystemRoles(restorableSystemRoles),
     [restorableSystemRoles],
