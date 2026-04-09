@@ -40,6 +40,7 @@ interface SettingsModalProps {
   onUiFontSizeChange: (value: UiFontSize) => void
   onTaskQuickDispatchShortcutChange: (binding: ShortcutBinding) => void
   onTaskQuickDispatchShortcutReset: () => void
+  onWorkspaceResetSuccess?: () => void
 }
 
 const SETTINGS_TAB_ICONS: Record<SettingsTab, 'settings' | 'command' | 'sparkles' | 'channels' | 'info'> = {
@@ -79,6 +80,7 @@ export function SettingsModal({
   onUiFontSizeChange,
   onTaskQuickDispatchShortcutChange,
   onTaskQuickDispatchShortcutReset,
+  onWorkspaceResetSuccess,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [visitedTabs, setVisitedTabs] = useState<SettingsTab[]>(['general'])
@@ -147,7 +149,7 @@ export function SettingsModal({
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
             />
-            <WorkspaceResetSection locale={locale} workspaceId={workspaceId} />
+            <WorkspaceResetSection locale={locale} workspaceId={workspaceId} onResetSuccess={onWorkspaceResetSuccess} />
           </div>
         )
       case 'channels':

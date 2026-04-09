@@ -5577,6 +5577,9 @@ export function ShellRoot() {
           })),
         onTaskQuickDispatchShortcutChange: handleTaskQuickDispatchShortcutChange,
         onTaskQuickDispatchShortcutReset: handleTaskQuickDispatchShortcutReset,
+        onWorkspaceResetSuccess: () => {
+          window.location.reload()
+        },
       }}
       stationManageModalProps={{
         open: isStationManageOpen,

@@ -6,9 +6,10 @@ import './WorkspaceResetSection.scss'
 interface WorkspaceResetSectionProps {
   locale: Locale
   workspaceId: string | null
+  onResetSuccess?: () => void
 }
 
-export function WorkspaceResetSection({ locale, workspaceId }: WorkspaceResetSectionProps) {
+export function WorkspaceResetSection({ locale, workspaceId, onResetSuccess }: WorkspaceResetSectionProps) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmationText, setConfirmationText] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -44,6 +45,7 @@ export function WorkspaceResetSection({ locale, workspaceId }: WorkspaceResetSec
       setConfirmOpen(false)
       setConfirmationText('')
       setSuccess(t(locale, 'settingsModal.reset.success'))
+      onResetSuccess?.()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t(locale, 'settingsModal.reset.errorFallback'))
     } finally {

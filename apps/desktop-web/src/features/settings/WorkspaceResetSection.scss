@@ -7,11 +7,16 @@
   align-items: start;
   padding: #{rem(24)};
   border-radius: var(--vb-radius-lg);
-  border: var(--vb-border-width) solid color-mix(in srgb, #c75353 28%, var(--vb-border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, #fff3f1 70%, transparent), transparent 55%),
-    color-mix(in srgb, var(--vb-surface) 74%, transparent);
-  box-shadow: 0 #{rem(10)} #{rem(28)} rgba(129, 36, 36, 0.08);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 50%, transparent);
+  box-shadow: 0 #{rem(2)} #{rem(12)} rgba(0, 0, 0, 0.03),
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+
+  &:hover {
+    box-shadow: 0 #{rem(8)} #{rem(24)} rgba(0, 0, 0, 0.05),
+      inset 0 rem(1) 0 rgba(255, 255, 255, 0.3);
+  }
 }
 
 .settings-reset-card__copy {
@@ -34,11 +39,12 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #b24747;
+  color: var(--vb-text-muted);
 }
 
 .settings-reset-card__warning {
-  color: #973737 !important;
+  color: var(--vb-text-muted) !important;
+  font-weight: 500;
 }
 
 .settings-reset-card__hint,
@@ -99,7 +105,7 @@
   gap: #{rem(16)};
   padding: #{rem(24)};
   border-radius: #{rem(18)};
-  border: var(--vb-border-width) solid color-mix(in srgb, #c75353 30%, var(--vb-border));
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
   background: color-mix(in srgb, var(--vb-surface) 88%, white 12%);
   box-shadow: 0 #{rem(24)} #{rem(48)} rgba(0, 0, 0, 0.16);
   animation: settings-reset-confirm-in 0.2s ease;
