@@ -171,12 +171,12 @@ function ShellLeftPaneContent({
   })()
 
   return (
-    <>
+    <div key={activeNavId} className="shell-left-pane-transition">
       <div className={fileTreeSlotClassName} aria-hidden={!showFileTree}>
         <FileTreePane {...fileTreePaneProps} />
       </div>
       {showFileTree ? null : <div className="shell-left-pane-slot">{secondaryPane}</div>}
-    </>
+    </div>
   )
 }
 
@@ -197,7 +197,7 @@ function ShellMainPaneContent({
 }: ShellMainPaneContentProps) {
   if (showWorkbenchCanvas) {
     return (
-      <div className="shell-main-view">
+      <div key={activeNavId} className="shell-main-view shell-pane-transition">
         <WorkbenchCanvas {...workbenchCanvasProps} />
       </div>
     )
@@ -205,7 +205,7 @@ function ShellMainPaneContent({
 
   if (activeNavId === 'files') {
     return (
-      <div className="shell-feature-view">
+      <div key="files" className="shell-feature-view shell-pane-transition">
         <FileEditorPane {...fileEditorPaneProps} />
       </div>
     )
@@ -213,13 +213,13 @@ function ShellMainPaneContent({
 
   if (activeNavId === 'git') {
     return (
-      <div className="shell-feature-view">
+      <div key="git" className="shell-feature-view shell-pane-transition">
         <GitHistoryPane {...gitHistoryPaneProps} />
       </div>
     )
   }
 
-  return <div className="shell-feature-view" />
+  return <div key="empty" className="shell-feature-view shell-pane-transition" />
 }
 
 interface ShellWorkspaceContentProps {
@@ -373,38 +373,34 @@ function ShellMainLayout({
         <ActivityRail {...activityRailProps} />
       </div>
 
-      {leftPaneVisible ? (
-        <div
-          ref={shellLeftPaneRef}
-          className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''}`}
-        >
-          <ShellLeftPaneContent
-            activeNavId={activeNavId}
-            fileTreePaneProps={fileTreePaneProps}
-            taskCenterPaneProps={taskCenterPaneProps}
-            stationOverviewPaneProps={stationOverviewPaneProps}
-            gitOperationsPaneProps={gitOperationsPaneProps}
-            communicationChannelsPaneProps={communicationChannelsPaneProps}
-            activePaneModel={activePaneModel}
-          />
-        </div>
-      ) : null}
-
-      {leftPaneVisible ? (
-        <div
-          ref={shellResizerRef}
-          className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''}`}
-          role="separator"
-          aria-label="Resize left panel"
-          aria-orientation="vertical"
-          aria-valuemin={LEFT_PANE_WIDTH_MIN}
-          aria-valuemax={leftPaneWidthMax}
-          aria-valuenow={leftPaneWidth}
-          tabIndex={0}
-          onPointerDown={onLeftPaneResizePointerDown}
-          onKeyDown={onLeftPaneResizeKeyDown}
+      <div
+        ref={shellLeftPaneRef}
+        className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''} ${!leftPaneVisible ? 'shell-left-pane--collapsed' : 'shell-left-pane--visible'}`}
+      >
+        <ShellLeftPaneContent
+          activeNavId={activeNavId}
+          fileTreePaneProps={fileTreePaneProps}
+          taskCenterPaneProps={taskCenterPaneProps}
+          stationOverviewPaneProps={stationOverviewPaneProps}
+          gitOperationsPaneProps={gitOperationsPaneProps}
+          communicationChannelsPaneProps={communicationChannelsPaneProps}
+          activePaneModel={activePaneModel}
         />
-      ) : null}
+      </div>
+
+      <div
+        ref={shellResizerRef}
+        className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''} ${!leftPaneVisible ? 'shell-column-resizer--collapsed' : ''}`}
+        role="separator"
+        aria-label="Resize left panel"
+        aria-orientation="vertical"
+        aria-valuemin={LEFT_PANE_WIDTH_MIN}
+        aria-valuemax={leftPaneWidthMax}
+        aria-valuenow={leftPaneWidth}
+        tabIndex={0}
+        onPointerDown={onLeftPaneResizePointerDown}
+        onKeyDown={onLeftPaneResizeKeyDown}
+      />
 
       <ShellMainArea
         shellMainPaneRef={shellMainPaneRef}

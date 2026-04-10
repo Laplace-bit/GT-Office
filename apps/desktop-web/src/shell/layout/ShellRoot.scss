@@ -105,6 +105,19 @@
 }
 
 
+// ── Left pane show/hide animation ──────────────────────────────────────────
+@keyframes shell-left-pane-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-#{rem(24)});
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .shell-left-pane {
   width: var(--shell-left-pane-width, #{rem(270)});
   min-width: var(--vb-platform-pane-min-width);
@@ -122,6 +135,25 @@
   transition: background-color 0.3s ease;
   contain: layout style;
   z-index: 5;
+
+  // ── Expanded state — slide in from left ────────────────────────────────
+  &.shell-left-pane--visible {
+    animation: shell-left-pane-slide-in 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  // ── Collapsed state ──────────────────────────────────────────────────
+  &.shell-left-pane--collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    border-width: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    overflow: hidden;
+  }
 }
 
 .shell-left-pane-slot {
@@ -140,6 +172,36 @@
 
 .shell-left-pane-slot--hidden {
   display: none;
+}
+
+// ── Pane transition animations ──────────────────────────────────────────────
+// Shared animation for left pane + main content switching.
+// Uses opacity + transform (GPU-composited) for 60fps.
+@keyframes shell-pane-enter {
+  from {
+    opacity: 0;
+    transform: translateY(#{rem(14)});
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Left pane content — wraps all tab content with key={activeNavId}
+// so React re-mounts on nav change, triggering the animation.
+.shell-left-pane-transition {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  animation: shell-pane-enter 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+// Main content area — each view gets key={activeNavId} + this class.
+.shell-pane-transition {
+  animation: shell-pane-enter 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .shell-main-content {
@@ -309,6 +371,17 @@
     background: var(--vb-accent);
     height: 60%;
     top: 20%;
+  }
+
+  // ── Collapsed state (matches left pane) ────────────────────────────────
+  &.shell-column-resizer--collapsed {
+    width: 0;
+    min-width: 0;
+    flex: 0 0 0;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
   }
 }
 

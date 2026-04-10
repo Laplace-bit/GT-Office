@@ -33,8 +33,15 @@ function activityIconName(id: NavItemId) {
 }
 
 export function ActivityRail({ items, activeId, onSelect, locale }: ActivityRailProps) {
+  const activeIndex = items.findIndex((item) => item.id === activeId)
+
   return (
     <nav className="activity-rail" aria-label={t(locale, 'activityRail.ariaLabel')}>
+      <div
+        className="activity-rail-indicator"
+        aria-hidden="true"
+        style={{ '--rail-active-idx': activeIndex >= 0 ? activeIndex : 0 } as React.CSSProperties}
+      />
       {items.map((item) => {
         const iconName = activityIconName(item.id)
         return (

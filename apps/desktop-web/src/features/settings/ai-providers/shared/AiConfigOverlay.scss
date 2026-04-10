@@ -14,7 +14,7 @@
 }
 
 .ai-config-overlay-container {
-  width: 80%; /* Slightly wider to accommodate side buttons if needed, but we keep buttons inside */
+  width: 60%;
   height: min(rem(820), 90vh);
   max-width: 100%;
   background: color-mix(in srgb, var(--vb-surface) 95%, transparent);

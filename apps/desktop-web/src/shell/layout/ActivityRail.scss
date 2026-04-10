@@ -27,12 +27,35 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
+  position: relative;
 
   &::-webkit-scrollbar {
     display: none;
   }
 
   transition: background-color 0.3s ease;
+}
+
+// ── Sliding active indicator ────────────────────────────────────────────────
+// A single element that slides to the active nav item using GPU-composited
+// transform. Position: padding-top + half button height minus half indicator
+// height. Step per item = button (30) + gap (14) = 44.
+$indicator-step: rem(44);
+
+.activity-rail-indicator {
+  position: absolute;
+  left: calc(var(--vb-space-sm) * -1);
+  top: calc(var(--vb-space-lg) + #{rem(10)});
+  width: #{rem(2)};
+  height: #{rem(10)};
+  background: var(--vb-accent);
+  border-radius: 0 var(--vb-radius-xs) var(--vb-radius-xs) 0;
+  box-shadow: #{rem(2)} 0 #{rem(10)} color-mix(in srgb, var(--vb-accent) 50%, transparent);
+  transform: translateY(calc(var(--rail-active-idx, 0) * #{$indicator-step}));
+  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .activity-rail-icon-btn {
@@ -61,20 +84,6 @@
     color: var(--vb-accent);
     background: var(--vb-accent-light);
     border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-accent) 20%, transparent);
-
-    /* Apple style indicator - sophisticated glow */
-    &::after {
-      content: '';
-      position: absolute;
-      left: calc(var(--vb-space-sm) * -1);
-      top: #{rem(10)};
-      bottom: #{rem(10)};
-      width: #{rem(2)};
-      height: #{rem(10)};
-      background: var(--vb-accent);
-      border-radius: 0 var(--vb-radius-xs) var(--vb-radius-xs) 0;
-      box-shadow: #{rem(2)} 0 #{rem(10)} color-mix(in srgb, var(--vb-accent) 50%, transparent);
-    }
   }
 
   .activity-rail-icon {

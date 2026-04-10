@@ -67,6 +67,8 @@ export const messages = {
   'quickCommands.custom.mode.insertAndSubmit': { 'zh-CN': '插入并发送', 'en-US': 'Insert and send' },
   'quickCommands.custom.add': { 'zh-CN': '新增自定义命令', 'en-US': 'Add custom command' },
   'quickCommands.custom.save': { 'zh-CN': '保存命令', 'en-US': 'Save command' },
+  'quickCommands.custom.saveAndAdd': { 'zh-CN': '保存并加入', 'en-US': 'Save and add' },
+  'quickCommands.custom.saveOnly': { 'zh-CN': '仅保存', 'en-US': 'Save only' },
   'quickCommands.custom.cancel': { 'zh-CN': '取消编辑', 'en-US': 'Cancel' },
   'quickCommands.custom.edit': { 'zh-CN': '编辑', 'en-US': 'Edit' },
   'quickCommands.custom.delete': { 'zh-CN': '删除', 'en-US': 'Delete' },
