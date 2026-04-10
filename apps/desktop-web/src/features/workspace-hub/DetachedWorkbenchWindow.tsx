@@ -86,7 +86,7 @@ function toStationRole(value: string): StationRole {
   return value
 }
 
-function mapDetachedStation(payload: SurfaceDetachedStationPayload): AgentStation {
+function mapDetachedStation(payload: SurfaceDetachedStationPayload, index: number): AgentStation {
   return {
     id: payload.stationId,
     name: payload.name,
@@ -103,6 +103,7 @@ function mapDetachedStation(payload: SurfaceDetachedStationPayload): AgentStatio
     terminalSessionId: payload.sessionId?.trim() ?? '',
     state: payload.sessionId ? 'running' : 'idle',
     workspaceId: payload.workspaceId,
+    orderIndex: index + 1,
   }
 }
 
@@ -139,7 +140,10 @@ type StationTerminalRestoreState = SessionOwnedRestoreState
 function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWindowPayload }) {
   const initialPreferences = useMemo(loadUiPreferences, [])
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(initialPreferences)
-  const stations = useMemo(() => payload.stations.map(mapDetachedStation), [payload.stations])
+  const stations = useMemo(
+    () => payload.stations.map((station, index) => mapDetachedStation(station, index)),
+    [payload.stations],
+  )
   const stationsRef = useRef(stations)
   const [container, setContainer] = useState<WorkbenchContainerModel>(() => buildDetachedContainer(payload))
   const [activeStationId, setActiveStationId] = useState(
