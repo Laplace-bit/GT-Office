@@ -766,6 +766,9 @@ export const messages = {
   'topControlBar.maximizeWindow': { 'zh-CN': '最大化', 'en-US': 'Maximize' },
   'topControlBar.restoreWindow': { 'zh-CN': '还原窗口', 'en-US': 'Restore Window' },
   'topControlBar.closeWindow': { 'zh-CN': '关闭窗口', 'en-US': 'Close Window' },
+  'topControlBar.pinRightDock': { 'zh-CN': '常驻右侧', 'en-US': 'Pin Right Dock' },
+  'topControlBar.unpinRightDock': { 'zh-CN': '取消常驻', 'en-US': 'Unpin Right Dock' },
+  'topControlBar.pinRightDockSelect': { 'zh-CN': '选择常驻容器', 'en-US': 'Select Container to Pin' },
   'settingsModal.title': { 'zh-CN': '系统设置', 'en-US': 'System Settings' },
   'settingsModal.subtitle': {
     'zh-CN': '集中管理显示偏好与通道接入配置',
@@ -2359,6 +2362,14 @@ export const messages = {
   'aiConfig.card.manualUninstallHint': {
     'zh-CN': '无法自动卸载。请使用原安装方式手动移除。',
     'en-US': 'Automatic uninstall is not available. Please remove it using the original installer.',
+  },
+  'aiConfig.card.issueShellNotReady': {
+    'zh-CN': '已找到可执行文件，但新终端可能无法直接调用。请重新打开终端或将路径加入 PATH。',
+    'en-US': 'Executable found, but a fresh shell may not resolve it. Reopen the terminal or add it to PATH.',
+  },
+  'aiConfig.card.issueUninstallUnknown': {
+    'zh-CN': '{name} 卸载来源无法自动识别，请使用原安装方式手动移除。',
+    'en-US': '{name} uninstall source could not be identified automatically. Remove it using the original installer or package manager.',
   },
   'aiConfig.progress.title.install': { 'zh-CN': '正在安装 {name}', 'en-US': 'Installing {name}' },
   'aiConfig.progress.title.uninstall': { 'zh-CN': '正在卸载 {name}', 'en-US': 'Uninstalling {name}' },

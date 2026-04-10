@@ -50,6 +50,49 @@
   }
 }
 
+.vb-top-action-tooltip-anchor.has-pin-dropdown {
+  position: relative;
+}
+
+.vb-pin-container-dropdown {
+  position: absolute;
+  top: calc(var(--vb-top-control-button-size) + var(--vb-space-2xs));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  min-width: #{rem(140)};
+  max-width: #{rem(280)};
+  padding: var(--vb-space-2xs) 0;
+  background: var(--vb-surface-elevated);
+  border: var(--vb-border-width) solid var(--vb-border);
+  border-radius: var(--vb-radius-md);
+  box-shadow: var(--vb-shadow-lg);
+  backdrop-filter: blur(#{rem(16)});
+  -webkit-backdrop-filter: blur(#{rem(16)});
+}
+
+.vb-pin-container-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: var(--vb-space-2xs) var(--vb-space-sm);
+  border: 0;
+  background: transparent;
+  color: var(--vb-text);
+  font-size: #{rem(12)};
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--vb-card-hover-bg);
+  }
+
+  &:active {
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-chip));
+  }
+}
+
 .vb-workspace-badge {
   display: flex;
   align-items: center;

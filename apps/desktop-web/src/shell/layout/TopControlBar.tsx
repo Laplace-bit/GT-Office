@@ -1,9 +1,14 @@
-import type { MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
 import type { WindowPlatform } from './window-performance-policy'
 import './TopControlBar.scss'
+
+interface DockedContainerOption {
+  id: string
+  label: string
+}
 
 interface TopControlBarProps {
   locale: Locale
@@ -24,6 +29,9 @@ interface TopControlBarProps {
   onWindowMinimize: () => void
   onWindowToggleMaximize: () => void
   onWindowClose: () => void
+  pinnedWorkbenchContainerId: string | null
+  dockedContainerOptions: DockedContainerOption[]
+  onTogglePinnedWorkbenchContainer: (containerId: string) => void
 }
 
 interface TopActionButton {
@@ -96,11 +104,57 @@ export function TopControlBar({
   onWindowMinimize,
   onWindowToggleMaximize,
   onWindowClose,
+  pinnedWorkbenchContainerId,
+  dockedContainerOptions,
+  onTogglePinnedWorkbenchContainer,
 }: TopControlBarProps) {
+  const [pinDropdownOpen, setPinDropdownOpen] = useState(false)
+  const pinDropdownRef = useRef<HTMLDivElement | null>(null)
+
   const workspacePathCandidate = extractWorkspacePathCandidate(workspacePath, connectionLabel)
   const displayWorkspacePath = formatWorkspacePathForDisplay(workspacePathCandidate)
   const workspacePathFallback = t(locale, 'workspace.label.unbound')
   const workspacePathText = displayWorkspacePath || workspacePathFallback
+
+  const isPinned = pinnedWorkbenchContainerId !== null
+  const hasMultipleDockedContainers = dockedContainerOptions.length > 1
+
+  const handlePinButtonClick = useCallback(() => {
+    if (isPinned) {
+      onTogglePinnedWorkbenchContainer(pinnedWorkbenchContainerId)
+      return
+    }
+    if (dockedContainerOptions.length === 1) {
+      onTogglePinnedWorkbenchContainer(dockedContainerOptions[0].id)
+      return
+    }
+    setPinDropdownOpen((prev) => !prev)
+  }, [isPinned, pinnedWorkbenchContainerId, dockedContainerOptions, onTogglePinnedWorkbenchContainer])
+
+  const handlePinDropdownSelect = useCallback(
+    (containerId: string) => {
+      onTogglePinnedWorkbenchContainer(containerId)
+      setPinDropdownOpen(false)
+    },
+    [onTogglePinnedWorkbenchContainer],
+  )
+
+  const handlePinDropdownOutsideClick = useCallback((event: MouseEvent) => {
+    if (pinDropdownRef.current && !pinDropdownRef.current.contains(event.target as Node)) {
+      setPinDropdownOpen(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!pinDropdownOpen) {
+      return
+    }
+    document.addEventListener('mousedown', handlePinDropdownOutsideClick)
+    return () => {
+      document.removeEventListener('mousedown', handlePinDropdownOutsideClick)
+    }
+  }, [pinDropdownOpen, handlePinDropdownOutsideClick])
+
   const actionButtons: TopActionButton[] = [
     {
       key: 'pick-workspace',
@@ -114,6 +168,14 @@ export function TopControlBar({
       action: onBatchLaunchAgents,
       icon: 'bolt' as AppIconName,
       disabled: batchLaunchDisabled,
+    },
+    {
+      key: 'pin-right-dock',
+      label: isPinned
+        ? t(locale, 'topControlBar.unpinRightDock')
+        : t(locale, 'topControlBar.pinRightDock'),
+      action: handlePinButtonClick,
+      icon: (isPinned ? 'panel-right-close' : 'panel-right-open') as AppIconName,
     },
     {
       key: 'open-settings',
@@ -216,12 +278,13 @@ export function TopControlBar({
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
           {actionButtons.map((btn) => (
-            <span key={btn.key} className="vb-top-action-tooltip-anchor" title={btn.label}>
+            <span key={btn.key} className={['vb-top-action-tooltip-anchor', btn.key === 'pin-right-dock' ? 'has-pin-dropdown' : ''].filter(Boolean).join(' ')} title={btn.label}>
               <button
                 type="button"
                 onClick={btn.action}
                 className={[
                   'vb-top-action-button',
+                  btn.key === 'pin-right-dock' && isPinned ? 'active' : '',
                   btn.key === 'toggle-performance-debug' ? 'with-label' : '',
                   btn.key === 'toggle-performance-debug' && performanceDebugEnabled ? 'active' : '',
                 ]
@@ -236,9 +299,26 @@ export function TopControlBar({
                   <span className="vb-top-action-label">Perf</span>
                 ) : null}
               </button>
+              {btn.key === 'pin-right-dock' && pinDropdownOpen && !isPinned && hasMultipleDockedContainers ? (
+                <div className="vb-pin-container-dropdown" ref={pinDropdownRef} role="listbox" aria-label={t(locale, 'topControlBar.pinRightDockSelect')}>
+                  {dockedContainerOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className="vb-pin-container-dropdown-item"
+                      role="option"
+                      aria-selected={false}
+                      onClick={() => handlePinDropdownSelect(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </span>
           ))}
         </div>
+
         <div
           className="vb-workspace-badge"
           data-tauri-drag-region={workspaceBadgeDragRegion}

@@ -16,6 +16,8 @@ import {
   FilePlus,
   FolderPlus,
   Link,
+  PanelRightClose,
+  PanelRightOpen,
   Scissors,
   CloudDownload,
   Command,
@@ -111,6 +113,8 @@ export type AppIconName =
   | 'copy'
   | 'clipboard-paste'
   | 'link'
+  | 'panel-right-close'
+  | 'panel-right-open'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
@@ -168,6 +172,8 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   copy: Copy,
   'clipboard-paste': ClipboardPaste,
   link: Link,
+  'panel-right-close': PanelRightClose,
+  'panel-right-open': PanelRightOpen,
 }
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {

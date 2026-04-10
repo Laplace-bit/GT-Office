@@ -654,7 +654,7 @@ function WorkbenchCanvasPanelView({
       })
     }
 
-    if (showUtilityBar && !detachedReadonly && onTogglePinnedWorkbenchContainer) {
+    if (!detachedReadonly && onTogglePinnedWorkbenchContainer) {
       actions.push({
         id: 'pin',
         element: (

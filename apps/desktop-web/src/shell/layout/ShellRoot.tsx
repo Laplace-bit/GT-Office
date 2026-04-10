@@ -5277,6 +5277,20 @@ export function ShellRoot() {
         : workbenchContainers,
     [pinnedWorkbenchContainer, workbenchContainers],
   )
+  const dockedContainerOptions = useMemo(
+    () =>
+      workbenchContainers
+        .filter((container) => container.mode === 'docked')
+        .map((container, index) => {
+          const activeStation = container.activeStationId
+            ? stations.find((s) => s.id === container.activeStationId)
+            : null
+          const label = activeStation?.name ?? `Container ${index + 1}`
+          return { id: container.id, label }
+        }),
+    [workbenchContainers, stations],
+  )
+
   const showWorkbenchCanvas = activeNavId !== 'files' && activeNavId !== 'git'
   const showPinnedWorkbenchPane =
     Boolean(pinnedWorkbenchContainer) &&
@@ -5436,6 +5450,9 @@ export function ShellRoot() {
         onWindowMinimize: handleWindowMinimize,
         onWindowToggleMaximize: handleWindowToggleMaximize,
         onWindowClose: handleWindowClose,
+        pinnedWorkbenchContainerId,
+        dockedContainerOptions,
+        onTogglePinnedWorkbenchContainer: togglePinnedWorkbenchContainer,
       }}
       telegramDebugToast={telegramDebugToast}
       onDismissTelegramDebugToast={dismissTelegramDebugToast}
