@@ -118,11 +118,11 @@ function TerminalStationPaneView({
       }
     }
     return {
-      title: t(locale, '需要在主工作台启动会话', 'Launch from the workspace first'),
+      title: t(locale, '终端尚未启动', 'Terminal idle'),
       detail: t(
         locale,
-        '独立窗口只接管已有会话。返回主工作台启动终端后，再将容器分离出来。',
-        'Detached windows only take over live sessions. Return to the workspace, launch the terminal, then detach it.',
+        '在独立窗口中启动终端会话，或返回主工作台操作。',
+        'Launch the terminal session here, or return to the workspace.',
       ),
     }
   }, [detachedReadonly, locale])
@@ -225,35 +225,32 @@ function TerminalStationPaneView({
             <p>{idleCopy.detail}</p>
           </div>
           <div className="terminal-station-pane-idle-actions">
-            {detachedReadonly ? (
+            <button
+              type="button"
+              className="terminal-station-pane-idle-button primary"
+              onClick={() => onLaunchStationTerminal(station.id)}
+            >
+              <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              <span>{t(locale, 'workbench.launchTerminal')}</span>
+            </button>
+            <button
+              type="button"
+              className="terminal-station-pane-idle-button"
+              onClick={() => onLaunchCliAgent(station.id)}
+            >
+              <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              <span>{t(locale, 'workbench.launchCliAgent')}</span>
+            </button>
+            {detachedReadonly && onReturnToWorkspace ? (
               <button
                 type="button"
-                className="terminal-station-pane-idle-button primary"
+                className="terminal-station-pane-idle-button"
                 onClick={onReturnToWorkspace}
               >
                 <AppIcon name="fullscreen-exit" className="vb-icon vb-icon-station-button" aria-hidden="true" />
                 <span>{t(locale, 'workbench.returnToWorkspace')}</span>
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="terminal-station-pane-idle-button primary"
-                  onClick={() => onLaunchStationTerminal(station.id)}
-                >
-                  <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-                  <span>{t(locale, 'workbench.launchTerminal')}</span>
-                </button>
-                <button
-                  type="button"
-                  className="terminal-station-pane-idle-button"
-                  onClick={() => onLaunchCliAgent(station.id)}
-                >
-                  <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-                  <span>{t(locale, 'workbench.launchCliAgent')}</span>
-                </button>
-              </>
-            )}
+            ) : null}
           </div>
         </div>
       )}

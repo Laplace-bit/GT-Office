@@ -27,7 +27,7 @@
   display: grid;
   grid-template-columns: repeat(var(--workbench-container-columns, 1), minmax(0, 1fr));
   grid-template-rows: repeat(var(--workbench-container-rows, 1), minmax(0, 1fr));
-  gap: rem(16);
+  gap: rem(5);
   min-height: 100%;
   height: 100%;
   align-content: stretch;

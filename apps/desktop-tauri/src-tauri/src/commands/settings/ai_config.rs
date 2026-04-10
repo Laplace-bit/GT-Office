@@ -134,6 +134,18 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
         }
     }
 
+    // Prepend common binary directories (homebrew, fnm, nvm, cargo, etc.)
+    // to PATH. macOS GUI apps inherit a minimal PATH that lacks these entries,
+    // so shell initialization (e.g. fnm env) may fail to find required tools.
+    // Adding them here ensures they are available even before the shell profile runs.
+    let common_dirs = AgentInstaller::common_binary_dirs();
+    for dir in common_dirs.into_iter().rev() {
+        let dir_str = dir.to_string_lossy().trim().to_string();
+        if !dir_str.is_empty() && !parts.iter().any(|part| part == &dir_str) {
+            parts.insert(0, dir_str);
+        }
+    }
+
     env_map.insert("PATH".to_string(), parts.join(&separator.to_string()));
 }
 

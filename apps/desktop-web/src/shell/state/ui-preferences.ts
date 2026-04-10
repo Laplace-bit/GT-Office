@@ -17,6 +17,7 @@ export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
 export type CommandRailProviderId = QuickCommandProviderId
 export type CommandCapsuleSubmitMode = 'insert' | 'insert_and_submit'
+export type CustomCommandSaveMode = 'save-and-add' | 'save-only'
 export {
   isQuickCommandProviderId,
   quickCommandDefaultVisibilityByProvider,
@@ -228,6 +229,31 @@ export function buildPresetCommandCapsuleOrderId(commandId: string): string {
 
 export function buildCustomCommandCapsuleOrderId(capsuleId: string): string {
   return `${CUSTOM_COMMAND_CAPSULE_PREFIX}${capsuleId.trim()}`
+}
+
+export function buildNextOrderedCommandCapsuleIdsForCustomSave(
+  currentOrderedCommandCapsuleIds: string[],
+  capsuleId: string,
+  saveMode: CustomCommandSaveMode,
+): string[] {
+  if (saveMode !== 'save-and-add') {
+    return currentOrderedCommandCapsuleIds
+  }
+
+  const orderId = buildCustomCommandCapsuleOrderId(capsuleId)
+  if (currentOrderedCommandCapsuleIds.includes(orderId)) {
+    return currentOrderedCommandCapsuleIds
+  }
+
+  return [...currentOrderedCommandCapsuleIds, orderId]
+}
+
+export function resolveCustomCommandSaveModeForEdit(
+  currentOrderedCommandCapsuleIds: string[],
+  capsuleId: string,
+): CustomCommandSaveMode {
+  const orderId = buildCustomCommandCapsuleOrderId(capsuleId)
+  return currentOrderedCommandCapsuleIds.includes(orderId) ? 'save-and-add' : 'save-only'
 }
 
 function createEmptyCustomCommandCapsulesByProvider(): Record<CommandRailProviderId, CustomCommandCapsule[]> {
@@ -475,6 +501,7 @@ function normalizeOrderedCommandCapsuleIdsByProvider(
     const allowedPresetOrderIds = new Set(pinnedIds.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)))
     const allowedCustomOrderIds = new Set(customIds.map((capsuleId) => buildCustomCommandCapsuleOrderId(capsuleId)))
     const seen = new Set<string>()
+    const hasStoredOrder = Object.prototype.hasOwnProperty.call(current, providerId)
     const values = Array.isArray(current[providerId]) ? current[providerId] : []
 
     values.forEach((value) => {
@@ -504,14 +531,16 @@ function normalizeOrderedCommandCapsuleIdsByProvider(
       normalized[providerId].push(orderId)
     })
 
-    customIds.forEach((capsuleId) => {
-      const orderId = buildCustomCommandCapsuleOrderId(capsuleId)
-      if (seen.has(orderId)) {
-        return
-      }
-      seen.add(orderId)
-      normalized[providerId].push(orderId)
-    })
+    if (!hasStoredOrder) {
+      customIds.forEach((capsuleId) => {
+        const orderId = buildCustomCommandCapsuleOrderId(capsuleId)
+        if (seen.has(orderId)) {
+          return
+        }
+        seen.add(orderId)
+        normalized[providerId].push(orderId)
+      })
+    }
   })
 
   return normalized

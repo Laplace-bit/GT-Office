@@ -715,7 +715,7 @@ impl AgentInstaller {
         dirs
     }
 
-    fn common_binary_dirs() -> Vec<PathBuf> {
+    pub fn common_binary_dirs() -> Vec<PathBuf> {
         let mut dirs = Vec::new();
         let home = Self::user_home_dir();
 

@@ -262,8 +262,28 @@ pub fn system_gto_cli_uninstall(app: tauri::AppHandle) -> Result<GtoCliStatusRes
 }
 
 fn command_exists(command: &str) -> bool {
+    // In macOS GUI apps, PATH is minimal (/usr/bin:/bin:/usr/sbin:/sbin).
+    // Use AgentInstaller to find node with PATH augmentation so that tools
+    // installed via Homebrew, fnm, nvm, etc. are discoverable.
+    if command == "node" {
+        if gt_tools::agent_installer::AgentInstaller::find_node_runtime_dir().is_some() {
+            return true;
+        }
+    }
+    // Also try common binary directories not in the GUI app PATH.
+    let mut env_path = std::env::var_os("PATH")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    for dir in gt_tools::agent_installer::AgentInstaller::common_binary_dirs() {
+        let dir_str = dir.to_string_lossy().to_string();
+        if !env_path.contains(&dir_str) {
+            env_path.push_str(&format!("{separator}{dir_str}"));
+        }
+    }
     std::process::Command::new(command)
         .arg("--version")
+        .env("PATH", &env_path)
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
@@ -304,14 +324,23 @@ fn install_gto_wrapper(command_path: &Path, target_script_path: &Path) -> Result
         }
         let replaceable = metadata.file_type().is_symlink() || wrapper_is_managed(command_path);
         if !replaceable {
-            return Err(
-                "GTO_CLI_INSTALL_REFUSED: existing gto command is not managed by GT Office"
-                    .to_string(),
+            // Externally-installed gto command — back up before replacing so the
+            // user can recover if needed.  This allows the "takeover" flow where
+            // the user explicitly chose to let GT Office manage gto.
+            let backup_path = command_path.with_extension("bak");
+            fs::rename(command_path, &backup_path).map_err(|error| {
+                format!("GTO_CLI_INSTALL_FAILED: backup existing command failed: {error}")
+            })?;
+            tracing::info!(
+                original = %command_path.display(),
+                backup = %backup_path.display(),
+                "backed up externally-installed gto command before takeover"
             );
+        } else {
+            fs::remove_file(command_path).map_err(|error| {
+                format!("GTO_CLI_INSTALL_FAILED: remove existing command failed: {error}")
+            })?;
         }
-        fs::remove_file(command_path).map_err(|error| {
-            format!("GTO_CLI_INSTALL_FAILED: remove existing command failed: {error}")
-        })?;
     }
 
     let script_body = if cfg!(target_os = "windows") {

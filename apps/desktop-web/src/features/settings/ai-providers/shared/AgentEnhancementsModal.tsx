@@ -35,6 +35,8 @@ export function AgentEnhancementsModal({
   onUninstallSkill,
   onClose,
 }: AgentEnhancementsModalProps) {
+  const cliLoaded = gtoCliStatus != null
+  const skillLoaded = gtoSkillStatus != null
   const pluginInstalled = Boolean(gtoCliStatus?.installed && gtoSkillStatus?.installed)
   const pluginManaged = Boolean(
     gtoCliStatus?.installed &&
@@ -50,19 +52,29 @@ export function AgentEnhancementsModal({
   )
   const pluginExternal = gtoCliStatus?.issue === 'GTO_CLI_EXTERNAL_INSTALL' || gtoSkillStatus?.issue === 'GTO_SKILL_EXTERNAL_INSTALL'
   const statusLabel = useMemo(() => {
+    if (!cliLoaded || !skillLoaded) {
+      return t(locale, '正在检查', 'Checking...')
+    }
+    if (pluginManaged) {
+      return t(locale, 'aiConfig.services.installedAction')
+    }
+    if (pluginExternal) {
+      return t(locale, 'aiConfig.services.gtoPluginPartial')
+    }
     if (pluginInstalled) {
       return t(locale, 'aiConfig.services.installedAction')
     }
     return t(locale, 'aiConfig.card.notInstalled')
-  }, [locale, pluginInstalled])
+  }, [locale, cliLoaded, skillLoaded, pluginManaged, pluginExternal, pluginInstalled])
   const description = useMemo(() => t(locale, 'aiConfig.services.gtoPluginDesc'), [locale])
-  const note = useMemo(
-    () =>
-      pluginExternal
-        ? t(locale, 'aiConfig.services.gtoPluginExternalNote')
-        : t(locale, 'aiConfig.services.gtoPluginManageNote'),
-    [locale, pluginExternal],
-  )
+  const note = useMemo(() => {
+    if (!cliLoaded || !skillLoaded) {
+      return ''
+    }
+    return pluginExternal
+      ? t(locale, 'aiConfig.services.gtoPluginExternalNote')
+      : t(locale, 'aiConfig.services.gtoPluginManageNote')
+  }, [locale, cliLoaded, skillLoaded, pluginExternal])
   const actionLabel = useMemo(() => {
     if (pluginManaged) {
       return uninstallingGto || uninstallingSkill
@@ -95,7 +107,7 @@ export function AgentEnhancementsModal({
               <div>
                 <div className="enhancement-service-card__title-row">
                   <h4>{t(locale, 'aiConfig.services.gtoPluginTitle')}</h4>
-                  <span className={`enhancement-service-card__status ${pluginInstalled ? 'is-installed' : 'is-idle'}`}>
+                  <span className={`enhancement-service-card__status ${pluginManaged ? 'is-installed' : pluginExternal ? 'is-external' : pluginInstalled ? 'is-installed' : 'is-idle'}`}>
                     {statusLabel}
                   </span>
                 </div>
@@ -119,7 +131,7 @@ export function AgentEnhancementsModal({
                   <button
                     type="button"
                     className="nav-btn btn-primary"
-                    disabled={!pluginInstallAvailable || pluginBusy}
+                    disabled={!cliLoaded || !skillLoaded || !pluginInstallAvailable || pluginBusy}
                     onClick={onInstallGto}
                   >
                     <AppIcon name={pluginBusy ? 'activity' : 'cloud-download'} width={16} height={16} />

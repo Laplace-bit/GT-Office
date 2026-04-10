@@ -2400,6 +2400,7 @@ export const messages = {
   },
   'aiConfig.services.gtoPluginInstall': { 'zh-CN': '安装 GTO Plugin', 'en-US': 'Install GTO Plugin' },
   'aiConfig.services.gtoPluginTakeover': { 'zh-CN': '接管 GTO Plugin', 'en-US': 'Take over GTO Plugin' },
+  'aiConfig.services.gtoPluginPartial': { 'zh-CN': '需接管', 'en-US': 'Takeover needed' },
   'aiConfig.services.gtoPluginUninstall': { 'zh-CN': '卸载 GTO Plugin', 'en-US': 'Uninstall GTO Plugin' },
   'aiConfig.services.gtoPluginManageNote': {
     'zh-CN': 'GT Office 会自动安装并维护 gto 命令与对应 skill，安装完成后当前 Agent 即可直接使用。',

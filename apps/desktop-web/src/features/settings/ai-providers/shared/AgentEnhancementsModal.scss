@@ -106,6 +106,11 @@
       background: rgba(148, 163, 184, 0.14);
       color: #475569;
     }
+
+    &.is-external {
+      background: rgba(234, 179, 8, 0.12);
+      color: #a16207;
+    }
   }
 
   &__path {
@@ -246,6 +251,11 @@
     .detail-item {
       background: rgba(15, 23, 42, 0.62);
       border-color: rgba(148, 163, 184, 0.12);
+    }
+
+    .enhancement-service-card__status.is-external {
+      background: rgba(234, 179, 8, 0.18);
+      color: #fbbf24;
     }
   }
 

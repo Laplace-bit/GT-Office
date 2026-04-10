@@ -3,6 +3,7 @@ import { AppIcon } from '@shell/ui/icons'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   buildCustomCommandCapsuleOrderId,
+  buildNextOrderedCommandCapsuleIdsForCustomSave,
   buildPresetCommandCapsuleOrderId,
   commandRailProviderCommandOptionsByProvider,
   defaultUiPreferences,
@@ -15,6 +16,7 @@ import {
   type CommandRailProviderId,
   type CustomCommandCapsule,
   type UiPreferences,
+  resolveCustomCommandSaveModeForEdit,
   quickCommandProviderCopyByProvider,
   resolveQuickCommandDescriptionKey,
 } from '@shell/state/ui-preferences'
@@ -62,6 +64,8 @@ function dedupeCommandIds(commandIds: string[]): string[] {
   return result
 }
 
+// The ordered rail is the source of truth for what is active.
+// Custom capsules are only included when their order ids are explicitly present.
 function reconcileOrderedCapsuleIds(
   orderIds: string[],
   pinnedCommandIds: string[],
@@ -84,15 +88,6 @@ function reconcileOrderedCapsuleIds(
 
   pinnedCommandIds.forEach((commandId) => {
     const orderId = buildPresetCommandCapsuleOrderId(commandId)
-    if (seen.has(orderId)) {
-      return
-    }
-    seen.add(orderId)
-    result.push(orderId)
-  })
-
-  customCapsules.forEach((capsule) => {
-    const orderId = buildCustomCommandCapsuleOrderId(capsule.id)
     if (seen.has(orderId)) {
       return
     }
@@ -151,7 +146,6 @@ function updateQuickCommandPreferences(updater: (current: UiPreferences) => UiPr
 }
 
 export function ProviderQuickCommands({ locale, providerId }: ProviderQuickCommandsProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
   const [isVisible, setIsVisible] = useState<boolean>(() =>
     isQuickCommandRailVisible(providerId, loadUiPreferences()),
   )
@@ -175,6 +169,7 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
   const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null)
   const [dropTargetOrderId, setDropTargetOrderId] = useState<string | null>(null)
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null)
+  const [isCreatingCustom, setIsCreatingCustom] = useState(false)
   const [draftLabel, setDraftLabel] = useState('')
   const [draftText, setDraftText] = useState('')
   const [draftSubmitMode, setDraftSubmitMode] = useState<CommandCapsuleSubmitMode>('insert')
@@ -264,22 +259,20 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
     setActiveCapsuleOrderId(fallbackOrderId)
   }, [activeCapsuleOrderId, capsuleItemByOrderId, customItems, enabledCapsules, presetItems])
 
-  const activeCapsule =
-    (activeCapsuleOrderId ? capsuleItemByOrderId.get(activeCapsuleOrderId) : null) ??
-    enabledCapsules[0] ??
-    presetItems[0] ??
-    customItems[0] ??
-    null
-
+  const selectedRailCapsule =
+    enabledCapsules.find((item) => item.orderId === activeCapsuleOrderId) ?? enabledCapsules[0] ?? null
+  const selectedRailOrderId = selectedRailCapsule?.orderId ?? null
   const providerCopy = quickCommandProviderCopyByProvider[providerId]
   const draftLabelTrimmed = draftLabel.trim()
   const draftTextTrimmed = draftText.trim()
+  const isComposerExpanded = isCreatingCustom || editingCustomId !== null
 
   if (presetItems.length === 0) {
     return null
   }
 
   const resetDraft = () => {
+    setIsCreatingCustom(false)
     setEditingCustomId(null)
     setDraftLabel('')
     setDraftText('')
@@ -319,6 +312,16 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
     persistOrderedState(nextPinnedCommandIds, customCapsules, normalizedOrderedCommandCapsuleIds)
   }
 
+  const toggleCustomCapsule = (capsuleId: string) => {
+    const orderId = buildCustomCommandCapsuleOrderId(capsuleId)
+    const nextOrderedCommandCapsuleIds = normalizedOrderedCommandCapsuleIds.includes(orderId)
+      ? normalizedOrderedCommandCapsuleIds.filter((candidate) => candidate !== orderId)
+      : [...normalizedOrderedCommandCapsuleIds, orderId]
+
+    persistOrderedState(normalizedPinnedCommandIds, customCapsules, nextOrderedCommandCapsuleIds)
+    setActiveCapsuleOrderId(orderId)
+  }
+
   const moveEnabledCapsule = (orderId: string, direction: -1 | 1) => {
     const nextOrderedCommandCapsuleIds = shiftOrderId(normalizedOrderedCommandCapsuleIds, orderId, direction)
     persistOrderedState(normalizedPinnedCommandIds, customCapsules, nextOrderedCommandCapsuleIds)
@@ -338,35 +341,45 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
     persistOrderedState(normalizedPinnedCommandIds, customCapsules, nextOrderedCommandCapsuleIds)
   }
 
-  const saveCustomCapsule = () => {
+  const saveCustomCapsule = (saveMode: 'save-and-add' | 'save-only' = 'save-and-add') => {
     if (!draftLabelTrimmed || !draftTextTrimmed) {
       return
     }
 
+    const nextCustomCapsuleId = editingCustomId ?? createCustomCapsuleId()
+    const nextSaveMode =
+      editingCustomId === null
+        ? saveMode
+        : resolveCustomCommandSaveModeForEdit(normalizedOrderedCommandCapsuleIds, nextCustomCapsuleId)
     const nextCustomCapsules =
       editingCustomId === null
         ? [
-          ...customCapsules,
-          {
-            id: createCustomCapsuleId(),
-            label: draftLabelTrimmed,
-            text: draftTextTrimmed,
-            submitMode: draftSubmitMode,
-            createdAt: Date.now(),
-          },
-        ]
-        : customCapsules.map((capsule) =>
-          capsule.id === editingCustomId
-            ? {
-              ...capsule,
+            ...customCapsules,
+            {
+              id: nextCustomCapsuleId,
               label: draftLabelTrimmed,
               text: draftTextTrimmed,
               submitMode: draftSubmitMode,
-            }
-            : capsule,
-        )
+              createdAt: Date.now(),
+            },
+          ]
+        : customCapsules.map((capsule) =>
+            capsule.id === editingCustomId
+              ? {
+                  ...capsule,
+                  label: draftLabelTrimmed,
+                  text: draftTextTrimmed,
+                  submitMode: draftSubmitMode,
+                }
+              : capsule,
+          )
+    const nextOrderedCommandCapsuleIds = buildNextOrderedCommandCapsuleIdsForCustomSave(
+      normalizedOrderedCommandCapsuleIds,
+      nextCustomCapsuleId,
+      nextSaveMode,
+    )
 
-    persistOrderedState(normalizedPinnedCommandIds, nextCustomCapsules, normalizedOrderedCommandCapsuleIds)
+    persistOrderedState(normalizedPinnedCommandIds, nextCustomCapsules, nextOrderedCommandCapsuleIds)
     resetDraft()
   }
 
@@ -382,11 +395,20 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
   }
 
   const beginEditCustomCapsule = (capsule: CustomCommandCapsule) => {
+    setIsCreatingCustom(false)
     setEditingCustomId(capsule.id)
     setDraftLabel(capsule.label)
     setDraftText(capsule.text)
     setDraftSubmitMode(capsule.submitMode)
     setActiveCapsuleOrderId(buildCustomCommandCapsuleOrderId(capsule.id))
+  }
+
+  const beginCreateCustomCapsule = () => {
+    setEditingCustomId(null)
+    setIsCreatingCustom(true)
+    setDraftLabel('')
+    setDraftText('')
+    setDraftSubmitMode('insert')
   }
 
   const toggleVisibility = () => {
@@ -397,201 +419,244 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
 
   return (
     <section className="provider-quick-commands" aria-label={t(locale, providerCopy.titleKey)}>
-      <div className={`provider-quick-commands__summary ${isExpanded ? 'is-expanded' : ''}`}>
-        <button
-          type="button"
-          className="provider-quick-commands__summary-main"
-          onClick={(event) => {
-            event.stopPropagation()
-            setIsExpanded((current) => !current)
-          }}
-          aria-expanded={isExpanded}
-        >
-          <div className="provider-quick-commands__summary-copy">
-            <strong>{t(locale, 'quickCommands.section.title')}</strong>
-            <span>{t(locale, providerCopy.descriptionKey)}</span>
-          </div>
-          <div className="provider-quick-commands__summary-meta">
-            <span className="provider-quick-commands__count">
-              {t(locale, 'quickCommands.section.count', {
-                count: String(enabledCapsules.length),
-              })}
-            </span>
-            <span className="provider-quick-commands__summary-icon" aria-hidden="true">
-              <AppIcon name={isExpanded ? 'collapse' : 'expand'} width={14} height={14} />
-            </span>
-          </div>
-        </button>
-        <button
-          type="button"
-          className={`provider-quick-commands__switch ${isVisible ? 'is-on' : ''}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            toggleVisibility()
-          }}
-          aria-pressed={isVisible}
-          aria-label={t(locale, 'quickCommands.section.visibility')}
-        >
-          <span className="provider-quick-commands__switch-thumb" />
-        </button>
-      </div>
+      <header className="provider-quick-commands__header provider-quick-commands__summary">
+        <div className="provider-quick-commands__header-copy provider-quick-commands__summary-copy">
+          <strong>{t(locale, 'quickCommands.section.title')}</strong>
+          <span>{t(locale, providerCopy.descriptionKey)}</span>
+        </div>
+        <div className="provider-quick-commands__header-meta provider-quick-commands__summary-meta">
+          <span className="provider-quick-commands__count">
+            {t(locale, 'quickCommands.section.count', {
+              count: String(enabledCapsules.length),
+            })}
+          </span>
+          <button
+            type="button"
+            className={`provider-quick-commands__switch ${isVisible ? 'is-on' : ''}`}
+            onClick={(event) => {
+              event.stopPropagation()
+              toggleVisibility()
+            }}
+            aria-pressed={isVisible}
+            aria-label={t(locale, 'quickCommands.section.visibility')}
+          >
+            <span className="provider-quick-commands__switch-thumb" />
+          </button>
+        </div>
+      </header>
 
-      {isExpanded ? (
-        <div className="provider-quick-commands__panel">
-          <p className="provider-quick-commands__hint">{t(locale, 'quickCommands.section.hint')}</p>
+      <div className="provider-quick-commands__panel">
+        <p className="provider-quick-commands__hint">{t(locale, 'quickCommands.section.hint')}</p>
 
-          <div className="provider-quick-commands__section">
-            <div className="provider-quick-commands__section-head">
-              <div>
-                <strong>{t(locale, 'quickCommands.preview.title')}</strong>
-                <span>{t(locale, 'quickCommands.preview.reorder')}</span>
-              </div>
+        <section className="provider-quick-commands__rail-section provider-quick-commands__section">
+          <div className="provider-quick-commands__section-head">
+            <div>
+              <strong>{t(locale, 'quickCommands.preview.title')}</strong>
+              <span>{t(locale, 'quickCommands.preview.reorder')}</span>
             </div>
+          </div>
 
-            {enabledCapsules.length > 0 ? (
-              <div className="provider-quick-commands__preview-rail" role="list">
-                {enabledCapsules.map((item, index) => (
-                  <div
-                    key={item.orderId}
-                    role="listitem"
-                    tabIndex={0}
-                    draggable
-                    className={[
-                      'provider-quick-commands__preview-item',
-                      `is-${item.kind}`,
-                      activeCapsuleOrderId === item.orderId ? 'is-active' : '',
-                      draggedOrderId === item.orderId ? 'is-dragging' : '',
-                      dropTargetOrderId === item.orderId ? 'is-drop-target' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = 'move'
-                      event.dataTransfer.setData('text/plain', item.orderId)
-                      setDraggedOrderId(item.orderId)
+          {enabledCapsules.length > 0 ? (
+            <div className="provider-quick-commands__rail provider-quick-commands__preview-rail" role="list">
+              {enabledCapsules.map((item, index) => (
+                <div
+                  key={item.orderId}
+                  role="listitem"
+                  tabIndex={0}
+                  draggable
+                  className={[
+                    'provider-quick-commands__rail-item',
+                    'provider-quick-commands__preview-item',
+                    `is-${item.kind}`,
+                    activeCapsuleOrderId === item.orderId ? 'is-active' : '',
+                    draggedOrderId === item.orderId ? 'is-dragging' : '',
+                    dropTargetOrderId === item.orderId ? 'is-drop-target' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => setActiveCapsuleOrderId(item.orderId)}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', item.orderId)
+                    setDraggedOrderId(item.orderId)
+                    setDropTargetOrderId(item.orderId)
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    if (dropTargetOrderId !== item.orderId) {
                       setDropTargetOrderId(item.orderId)
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault()
-                      if (dropTargetOrderId !== item.orderId) {
-                        setDropTargetOrderId(item.orderId)
-                      }
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      handleDropCapsule(item.orderId)
-                    }}
-                    onDragEnd={() => {
-                      setDraggedOrderId(null)
-                      setDropTargetOrderId(null)
-                    }}
-                    onPointerEnter={() => setActiveCapsuleOrderId(item.orderId)}
-                    onFocus={() => setActiveCapsuleOrderId(item.orderId)}
-                    aria-label={`${item.label}: ${item.description}`}
-                  >
-                    <div className="provider-quick-commands__preview-main">
-                      <span className="provider-quick-commands__preview-kind">
-                        {item.kind === 'preset'
-                          ? t(locale, 'quickCommands.capsule.preset')
-                          : t(locale, 'quickCommands.capsule.custom')}
-                      </span>
-                      <span className="provider-quick-commands__preview-label">{item.label}</span>
-                      {item.kind === 'custom' ? (
-                        <span className="provider-quick-commands__preview-mode">
-                          {item.submitMode === 'insert_and_submit'
-                            ? t(locale, 'quickCommands.custom.mode.insertAndSubmit')
-                            : t(locale, 'quickCommands.custom.mode.insert')}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="provider-quick-commands__preview-actions">
-                      <button
-                        type="button"
-                        className="provider-quick-commands__preview-action"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          moveEnabledCapsule(item.orderId, -1)
-                        }}
-                        disabled={index === 0}
-                        aria-label={t(locale, 'quickCommands.preview.moveEarlier')}
-                      >
-                        <AppIcon name="chevron-left" width={12} height={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="provider-quick-commands__preview-action"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          moveEnabledCapsule(item.orderId, 1)
-                        }}
-                        disabled={index === enabledCapsules.length - 1}
-                        aria-label={t(locale, 'quickCommands.preview.moveLater')}
-                      >
-                        <AppIcon name="chevron-right" width={12} height={12} />
-                      </button>
-                    </div>
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    handleDropCapsule(item.orderId)
+                  }}
+                  onDragEnd={() => {
+                    setDraggedOrderId(null)
+                    setDropTargetOrderId(null)
+                  }}
+                  onPointerEnter={() => setActiveCapsuleOrderId(item.orderId)}
+                  onFocus={() => setActiveCapsuleOrderId(item.orderId)}
+                  aria-label={`${item.label}: ${item.description}`}
+                >
+                  <div className="provider-quick-commands__preview-main">
+                    <span className="provider-quick-commands__preview-label">{item.label}</span>
+                    <span className="provider-quick-commands__preview-kind">
+                      {item.kind === 'preset'
+                        ? t(locale, 'quickCommands.capsule.preset')
+                        : item.submitMode === 'insert_and_submit'
+                          ? t(locale, 'quickCommands.custom.mode.insertAndSubmit')
+                          : t(locale, 'quickCommands.custom.mode.insert')}
+                    </span>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="provider-quick-commands__empty-state">
-                <p>{t(locale, 'quickCommands.preview.empty')}</p>
-              </div>
-            )}
+                  <div className="provider-quick-commands__preview-actions">
+                    <button
+                      type="button"
+                      className="provider-quick-commands__preview-action"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        moveEnabledCapsule(item.orderId, -1)
+                      }}
+                      disabled={index === 0}
+                      aria-label={t(locale, 'quickCommands.preview.moveEarlier')}
+                    >
+                      <AppIcon name="chevron-left" width={12} height={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="provider-quick-commands__preview-action"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        moveEnabledCapsule(item.orderId, 1)
+                      }}
+                      disabled={index === enabledCapsules.length - 1}
+                      aria-label={t(locale, 'quickCommands.preview.moveLater')}
+                    >
+                      <AppIcon name="chevron-right" width={12} height={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="provider-quick-commands__empty-state">
+              <p>{t(locale, 'quickCommands.preview.empty')}</p>
+            </div>
+          )}
 
-            {activeCapsule ? (
-              <div className="provider-quick-commands__detail" aria-live="polite">
+          {selectedRailCapsule ? (
+            <div className="provider-quick-commands__detail-strip provider-quick-commands__detail" aria-live="polite">
+              <div className="provider-quick-commands__detail-copy">
                 <div className="provider-quick-commands__detail-head">
-                  <strong>{activeCapsule.label}</strong>
+                  <strong>{selectedRailCapsule.label}</strong>
                   <span>
-                    {activeCapsule.kind === 'custom'
-                      ? activeCapsule.submitMode === 'insert_and_submit'
+                    {selectedRailCapsule.kind === 'custom'
+                      ? selectedRailCapsule.submitMode === 'insert_and_submit'
                         ? t(locale, 'quickCommands.custom.mode.insertAndSubmit')
                         : t(locale, 'quickCommands.custom.mode.insert')
-                      : t(locale, activeCapsule.enabled ? 'quickCommands.section.shown' : 'quickCommands.section.hidden')}
+                      : t(locale, 'quickCommands.capsule.preset')}
                   </span>
                 </div>
-                <p>{activeCapsule.description}</p>
+                <p>{selectedRailCapsule.description}</p>
               </div>
-            ) : null}
-          </div>
+              <div className="provider-quick-commands__detail-actions provider-quick-commands__custom-card-actions">
+                {selectedRailCapsule.kind === 'custom' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="provider-quick-commands__custom-action"
+                      onClick={() => {
+                        const capsule = customCapsules.find((candidate) => candidate.id === selectedRailCapsule.id)
+                        if (capsule) {
+                          beginEditCustomCapsule(capsule)
+                        }
+                      }}
+                    >
+                      <AppIcon name="pencil" width={12} height={12} />
+                      <span>{t(locale, 'quickCommands.custom.edit')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="provider-quick-commands__custom-action danger"
+                      onClick={() => deleteCustomCapsule(selectedRailCapsule.id)}
+                    >
+                      <AppIcon name="trash" width={12} height={12} />
+                      <span>{t(locale, 'quickCommands.custom.delete')}</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="provider-quick-commands__custom-action"
+                    onClick={() => togglePresetCommand(selectedRailCapsule.id)}
+                  >
+                    <AppIcon name="minus" width={12} height={12} />
+                    <span>{t(locale, 'quickCommands.section.hidden')}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </section>
 
-          <div className="provider-quick-commands__section">
+        <div className="provider-quick-commands__library">
+          <section className="provider-quick-commands__group provider-quick-commands__section">
             <div className="provider-quick-commands__section-head">
               <div>
                 <strong>{t(locale, 'quickCommands.presets.title')}</strong>
                 <span>{t(locale, 'quickCommands.presets.description')}</span>
               </div>
             </div>
-            <div className="provider-quick-commands__preset-grid" role="list">
+
+            <div className="provider-quick-commands__group-list" role="list">
               {presetItems.map((item) => (
-                <button
+                <article
                   key={item.orderId}
-                  type="button"
                   role="listitem"
-                  className={`provider-quick-commands__preset-chip ${item.enabled ? 'is-active' : ''}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    togglePresetCommand(item.id)
-                  }}
+                  className={[
+                    'provider-quick-commands__library-row',
+                    'provider-quick-commands__preset-chip',
+                    item.enabled ? 'is-active' : '',
+                    selectedRailOrderId === item.orderId ? 'is-selected' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   onPointerEnter={() => setActiveCapsuleOrderId(item.orderId)}
-                  onFocus={() => setActiveCapsuleOrderId(item.orderId)}
-                  aria-pressed={item.enabled}
-                  aria-label={`${item.label}: ${item.description}`}
-                  title={item.description}
                 >
-                  <span className="provider-quick-commands__preset-label">{item.label}</span>
+                  <button
+                    type="button"
+                    className="provider-quick-commands__library-copy"
+                    onClick={() => setActiveCapsuleOrderId(item.orderId)}
+                    aria-pressed={activeCapsuleOrderId === item.orderId}
+                    aria-label={`${item.label}: ${item.description}`}
+                    title={item.description}
+                  >
+                    <span className="provider-quick-commands__preset-label">{item.label}</span>
+                    <span className="provider-quick-commands__library-description">{item.description}</span>
+                  </button>
                   <span className="provider-quick-commands__preset-state">
-                    {item.enabled
-                      ? t(locale, 'quickCommands.section.shown')
-                      : t(locale, 'quickCommands.section.hidden')}
+                    {item.enabled ? t(locale, 'quickCommands.section.shown') : t(locale, 'quickCommands.section.hidden')}
                   </span>
-                </button>
+                  <button
+                    type="button"
+                    className="provider-quick-commands__library-action provider-quick-commands__custom-action"
+                    onClick={() => {
+                      togglePresetCommand(item.id)
+                      setActiveCapsuleOrderId(item.orderId)
+                    }}
+                    aria-pressed={item.enabled}
+                  >
+                    <AppIcon name={item.enabled ? 'minus' : 'plus'} width={12} height={12} />
+                    <span>
+                      {item.enabled ? t(locale, 'quickCommands.section.hidden') : t(locale, 'quickCommands.custom.add')}
+                    </span>
+                  </button>
+                </article>
               ))}
             </div>
-          </div>
+          </section>
 
-          <div className="provider-quick-commands__section">
+          <section className="provider-quick-commands__group provider-quick-commands__section">
             <div className="provider-quick-commands__section-head">
               <div>
                 <strong>{t(locale, 'quickCommands.custom.title')}</strong>
@@ -599,15 +664,29 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
               </div>
             </div>
 
-            <div className="provider-quick-commands__composer">
-              <div className="provider-quick-commands__composer-grid">
-                <label className="provider-quick-commands__field">
+            {isComposerExpanded ? (
+              <div
+                className="provider-quick-commands__library-row provider-quick-commands__inline-composer"
+                role="group"
+                aria-label={t(locale, 'quickCommands.custom.title')}
+              >
+                <label className="provider-quick-commands__library-copy provider-quick-commands__field">
                   <span>{t(locale, 'quickCommands.custom.label')}</span>
                   <input
                     type="text"
                     value={draftLabel}
                     onChange={(event) => setDraftLabel(event.target.value)}
                     placeholder={t(locale, 'quickCommands.custom.label', 'Label')}
+                  />
+                </label>
+
+                <label className="provider-quick-commands__field">
+                  <span>{t(locale, 'quickCommands.custom.text')}</span>
+                  <input
+                    type="text"
+                    value={draftText}
+                    onChange={(event) => setDraftText(event.target.value)}
+                    placeholder={t(locale, 'quickCommands.custom.formHint')}
                   />
                 </label>
 
@@ -623,105 +702,105 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
                     </option>
                   </select>
                 </label>
-              </div>
 
-              <label className="provider-quick-commands__field">
-                <span>{t(locale, 'quickCommands.custom.text')}</span>
-                <textarea
-                  value={draftText}
-                  onChange={(event) => setDraftText(event.target.value)}
-                  rows={4}
-                  placeholder={t(locale, 'quickCommands.custom.formHint')}
-                />
-              </label>
-
-              <p className="provider-quick-commands__composer-hint">
-                {t(locale, 'quickCommands.custom.formHint')}
-              </p>
-
-              <div className="provider-quick-commands__composer-actions">
-                <button
-                  type="button"
-                  className="provider-quick-commands__composer-primary"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    saveCustomCapsule()
-                  }}
-                  disabled={!draftLabelTrimmed || !draftTextTrimmed}
-                >
-                  <AppIcon name="plus" width={14} height={14} />
-                  <span>
-                    {editingCustomId === null
-                      ? t(locale, 'quickCommands.custom.add')
-                      : t(locale, 'quickCommands.custom.save')}
-                  </span>
-                </button>
-                {editingCustomId !== null ? (
+                <div className="provider-quick-commands__composer-actions">
+                  <button
+                    type="button"
+                    className="provider-quick-commands__composer-primary"
+                    onClick={() => saveCustomCapsule('save-and-add')}
+                    disabled={!draftLabelTrimmed || !draftTextTrimmed}
+                  >
+                    <AppIcon name="plus" width={14} height={14} />
+                    <span>{t(locale, 'quickCommands.custom.saveAndAdd', 'Save and add')}</span>
+                  </button>
                   <button
                     type="button"
                     className="provider-quick-commands__composer-secondary"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      resetDraft()
-                    }}
+                    onClick={() => saveCustomCapsule('save-only')}
+                    disabled={!draftLabelTrimmed || !draftTextTrimmed}
+                  >
+                    {t(locale, 'quickCommands.custom.saveOnly', 'Save only')}
+                  </button>
+                  <button
+                    type="button"
+                    className="provider-quick-commands__composer-secondary"
+                    onClick={resetDraft}
                   >
                     {t(locale, 'quickCommands.custom.cancel')}
                   </button>
-                ) : null}
+                </div>
               </div>
-            </div>
+            ) : (
+              <button
+                type="button"
+                className="provider-quick-commands__inline-composer-trigger provider-quick-commands__composer-secondary"
+                onClick={beginCreateCustomCapsule}
+              >
+                <AppIcon name="plus" width={14} height={14} />
+                <span>{t(locale, 'quickCommands.custom.add')}</span>
+              </button>
+            )}
 
             {customCapsules.length > 0 ? (
-              <div className="provider-quick-commands__custom-list">
+              <div className="provider-quick-commands__custom-list provider-quick-commands__group-list">
                 {customCapsules.map((capsule) => {
                   const orderId = buildCustomCommandCapsuleOrderId(capsule.id)
+                  const isEnabled = normalizedOrderedCommandCapsuleIds.includes(orderId)
                   return (
                     <article
                       key={capsule.id}
                       className={[
-                        'provider-quick-commands__custom-card',
+                        'provider-quick-commands__library-row',
                         editingCustomId === capsule.id ? 'is-editing' : '',
-                        activeCapsuleOrderId === orderId ? 'is-active' : '',
+                        selectedRailOrderId === orderId ? 'is-selected' : '',
                       ]
                         .filter(Boolean)
                         .join(' ')}
                       onPointerEnter={() => setActiveCapsuleOrderId(orderId)}
                     >
-                      <div className="provider-quick-commands__custom-card-head">
-                        <div className="provider-quick-commands__custom-card-copy">
-                          <strong>{capsule.label}</strong>
+                      <button
+                        type="button"
+                        className="provider-quick-commands__library-copy"
+                        onClick={() => setActiveCapsuleOrderId(orderId)}
+                      >
+                        <span className="provider-quick-commands__preset-label">{capsule.label}</span>
+                        <span className="provider-quick-commands__library-description">{capsule.text}</span>
+                      </button>
+                      <span className="provider-quick-commands__preset-state">
+                        {capsule.submitMode === 'insert_and_submit'
+                          ? t(locale, 'quickCommands.custom.mode.insertAndSubmit')
+                          : t(locale, 'quickCommands.custom.mode.insert')}
+                      </span>
+                      <div className="provider-quick-commands__custom-card-actions">
+                        <button
+                          type="button"
+                          className="provider-quick-commands__custom-action"
+                          onClick={() => toggleCustomCapsule(capsule.id)}
+                        >
                           <span>
-                            {capsule.submitMode === 'insert_and_submit'
-                              ? t(locale, 'quickCommands.custom.mode.insertAndSubmit')
-                              : t(locale, 'quickCommands.custom.mode.insert')}
+                            {isEnabled
+                              ? t(locale, 'quickCommands.section.hidden')
+                              : t(locale, 'quickCommands.custom.add')}
                           </span>
-                        </div>
-                        <div className="provider-quick-commands__custom-card-actions">
-                          <button
-                            type="button"
-                            className="provider-quick-commands__custom-action"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              beginEditCustomCapsule(capsule)
-                            }}
-                          >
-                            <AppIcon name="pencil" width={12} height={12} />
-                            <span>{t(locale, 'quickCommands.custom.edit')}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="provider-quick-commands__custom-action danger"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              deleteCustomCapsule(capsule.id)
-                            }}
-                          >
-                            <AppIcon name="trash" width={12} height={12} />
-                            <span>{t(locale, 'quickCommands.custom.delete')}</span>
-                          </button>
-                        </div>
+                          <AppIcon name={isEnabled ? 'minus' : 'plus'} width={12} height={12} />
+                        </button>
+                        <button
+                          type="button"
+                          className="provider-quick-commands__custom-action"
+                          onClick={() => beginEditCustomCapsule(capsule)}
+                        >
+                          <AppIcon name="pencil" width={12} height={12} />
+                          <span>{t(locale, 'quickCommands.custom.edit')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="provider-quick-commands__custom-action danger"
+                          onClick={() => deleteCustomCapsule(capsule.id)}
+                        >
+                          <AppIcon name="trash" width={12} height={12} />
+                          <span>{t(locale, 'quickCommands.custom.delete')}</span>
+                        </button>
                       </div>
-                      <p>{capsule.text}</p>
                     </article>
                   )
                 })}
@@ -731,9 +810,9 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
                 <p>{t(locale, 'quickCommands.custom.empty')}</p>
               </div>
             )}
-          </div>
+          </section>
         </div>
-      ) : null}
+      </div>
     </section>
   )
 }

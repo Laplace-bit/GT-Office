@@ -38,6 +38,23 @@ function resolveStatusTone(agent: AiAgentSnapshotCard): 'success' | 'warning' | 
   return 'muted'
 }
 
+function translateInstallIssue(locale: Locale, issue: string, agentKind: string): string {
+  if (issue.includes('npm is not available') || issue.includes('npm 不可用')) {
+    return t(locale, 'aiConfig.card.envNpmMissing')
+  }
+  if (issue.includes('Node.js runtime not found') || issue.includes('Node.js 运行时')) {
+    return t(locale, 'aiConfig.card.envNodeMissing')
+  }
+  if (issue.includes('fresh shell still may not resolve') || issue.includes('新终端可能无法')) {
+    return t(locale, 'aiConfig.card.issueShellNotReady')
+  }
+  if (issue.includes('uninstall source could not be identified') || issue.includes('卸载来源无法自动识别')) {
+    const name = agentKind === 'codex' ? 'Codex CLI' : agentKind === 'gemini' ? 'Gemini CLI' : agentKind
+    return t(locale, 'aiConfig.card.issueUninstallUnknown', { name })
+  }
+  return issue
+}
+
 function resolveStatusLabel(locale: Locale, agent: AiAgentSnapshotCard): string {
   if (agent.installStatus.installed && agent.configStatus === 'configured') {
     return t(locale, 'aiConfig.card.ready')
@@ -181,7 +198,7 @@ export function ProviderAgentCard({
           <div className="ai-provider-card__env-issues is-info">
             <div className="env-issue-item">
               <AppIcon name="info" width={12} height={12} />
-              <span>{agent.installStatus.issues[0]}</span>
+              <span>{translateInstallIssue(locale, agent.installStatus.issues[0], agent.agent)}</span>
             </div>
           </div>
         )}

@@ -8,9 +8,7 @@
   height: 100dvh;
   padding: 1.25rem;
   box-sizing: border-box;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--vb-accent) 12%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--vb-surface) 92%, transparent), color-mix(in srgb, var(--vb-background, #f4f7fb) 86%, transparent));
+  background: var(--vb-background, #f4f7fb);
 }
 
 .detached-workbench-window-frame {
@@ -21,14 +19,7 @@
   min-height: 0;
   padding: 0;
   border-radius: 1.5rem;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 92%, transparent), transparent),
-    color-mix(in srgb, var(--vb-glass-light) 90%, transparent);
-  box-shadow:
-    0 0 0 0.0625rem var(--vb-border-subtle),
-    0 1.125rem 3.25rem rgba(12, 18, 28, 0.16);
-  backdrop-filter: blur(1.5rem) saturate(180%);
-  -webkit-backdrop-filter: blur(1.5rem) saturate(180%);
+  overflow: hidden;
 
   > .workbench-canvas {
     flex: 1;
