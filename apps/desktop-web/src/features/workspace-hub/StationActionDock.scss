@@ -2,15 +2,18 @@
 
 .station-action-dock {
   position: relative;
-  z-index: 0;
+  z-index: 1;
   flex: 0 0 auto;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   padding: rem(1) rem(8);
   background: transparent;
   border-top: 0;
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  overflow: visible;
 }
 
 .station-action-dock-shell {
@@ -22,16 +25,24 @@
 
 .station-action-dock-rail {
   position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
   gap: rem(5);
   width: 100%;
   min-width: 0;
+  max-width: 100%;
   padding: rem(1) 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  touch-action: pan-y;
 
   &::-webkit-scrollbar {
     display: none;
@@ -46,6 +57,7 @@
   justify-content: center;
   gap: rem(5);
   flex: 0 0 auto;
+  flex-shrink: 0;
   min-height: rem(29);
   max-width: min(100%, rem(160));
   padding: 0 rem(10);

@@ -25,6 +25,25 @@ function StationActionDockView({ actions, compact = false, onAction }: StationAc
   const railRef = useRef<HTMLDivElement | null>(null)
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(() => loadUiPreferences())
 
+  const handleWheel = useCallback((event: WheelEvent) => {
+    const rail = railRef.current
+    if (!rail) {
+      return
+    }
+
+    // Only handle wheel if there's horizontal overflow
+    if (rail.scrollWidth <= rail.clientWidth) {
+      return
+    }
+
+    // Prevent default vertical scrolling
+    event.preventDefault()
+
+    // Convert vertical scroll to horizontal
+    const scrollAmount = event.deltaY || event.deltaX
+    rail.scrollLeft += scrollAmount
+  }, [])
+
   const { primaryActions } = useMemo(
     () => buildStationActionRailModel(actions, uiPreferences),
     [actions, uiPreferences],
@@ -86,6 +105,18 @@ function StationActionDockView({ actions, compact = false, onAction }: StationAc
       window.removeEventListener(UI_PREFERENCES_UPDATED_EVENT, syncPreferences)
     }
   }, [])
+
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) {
+      return undefined
+    }
+
+    rail.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      rail.removeEventListener('wheel', handleWheel)
+    }
+  }, [handleWheel])
 
   if (primaryActions.length === 0) {
     return null

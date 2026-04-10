@@ -62,7 +62,6 @@ export function WorkspaceResetSection({ locale, workspaceId, onResetSuccess }: W
           <div className="settings-reset-card__eyebrow">{t(locale, 'settingsModal.reset.eyebrow')}</div>
           <h4 id="settings-reset-title">{t(locale, 'settingsModal.reset.title')}</h4>
           <p>{t(locale, 'settingsModal.reset.description')}</p>
-          <p className="settings-reset-card__warning">{t(locale, 'settingsModal.reset.warning')}</p>
           {!workspaceId ? <p className="settings-reset-card__hint">{t(locale, 'settingsModal.reset.noWorkspace')}</p> : null}
           {success ? <p className="settings-reset-card__success">{success}</p> : null}
         </div>

@@ -145,6 +145,54 @@ export const messages = {
     'zh-CN': 'Gemini CLI 原生命令。',
     'en-US': 'Gemini CLI native command.',
   },
+  'quickCommands.command.claude.addDir': { 'zh-CN': '添加工作目录', 'en-US': 'Add a new working directory' },
+  'quickCommands.command.claude.agents': { 'zh-CN': '管理代理配置', 'en-US': 'Manage agent configurations' },
+  'quickCommands.command.claude.batch': { 'zh-CN': '批量执行并行代理', 'en-US': 'Research, plan and execute large-scale changes in parallel' },
+  'quickCommands.command.claude.branch': { 'zh-CN': '分支当前会话', 'en-US': 'Create a branch of the current conversation' },
+  'quickCommands.command.claude.btw': { 'zh-CN': '旁白问题 (不计入历史)', 'en-US': 'Ask a "by the way" side question' },
+  'quickCommands.command.claude.clear': { 'zh-CN': '清空会话历史', 'en-US': 'Clear conversation history and free up context' },
+  'quickCommands.command.claude.chrome': { 'zh-CN': 'Chrome 插件设置', 'en-US': 'Claude in Chrome (Beta) settings' },
+  'quickCommands.command.claude.color': { 'zh-CN': '设置提示栏颜色', 'en-US': 'Set the prompt bar color for this session' },
+  'quickCommands.command.claude.compact': { 'zh-CN': '压缩上下文', 'en-US': 'Manually trigger context compaction' },
+  'quickCommands.command.claude.config': { 'zh-CN': '打开配置面板', 'en-US': 'Open config panel' },
+  'quickCommands.command.claude.context': { 'zh-CN': '可视化上下文使用', 'en-US': 'Visualize current context usage as a colored grid' },
+  'quickCommands.command.claude.copy': { 'zh-CN': '复制最后一条回复', 'en-US': 'Copy last response to clipboard' },
+  'quickCommands.command.claude.cost': { 'zh-CN': '查看会话消耗', 'en-US': 'Show the total cost and duration of the current session' },
+  'quickCommands.command.claude.desktop': { 'zh-CN': '在桌面端继续', 'en-US': 'Continue the current session in Claude Desktop' },
+  'quickCommands.command.claude.diff': { 'zh-CN': '查看未提交改动', 'en-US': 'View uncommitted changes and per-turn diffs' },
+  'quickCommands.command.claude.doctor': { 'zh-CN': '运行环境诊断', 'en-US': 'Diagnose and verify your Claude Code installation' },
+  'quickCommands.command.claude.effort': { 'zh-CN': '设置推理强度', 'en-US': 'Set effort level for model usage' },
+  'quickCommands.command.claude.exit': { 'zh-CN': '退出会话', 'en-US': 'Exit the REPL' },
+  'quickCommands.command.claude.export': { 'zh-CN': '导出对话内容', 'en-US': 'Export the current conversation to a file or clipboard' },
+  'quickCommands.command.claude.fast': { 'zh-CN': '切换快速模式', 'en-US': 'Enable/disable fast mode' },
+  'quickCommands.command.claude.feedback': { 'zh-CN': '提交反馈', 'en-US': 'Submit feedback about Claude Code' },
+  'quickCommands.command.claude.files': { 'zh-CN': '列出上下文文件', 'en-US': 'List all files currently in context' },
+  'quickCommands.command.claude.help': { 'zh-CN': '查看帮助', 'en-US': 'Show help and available commands' },
+  'quickCommands.command.claude.hooks': { 'zh-CN': '查看钩子配置', 'en-US': 'View hook configurations for tool events' },
+  'quickCommands.command.claude.ide': { 'zh-CN': '管理 IDE 集成', 'en-US': 'Manage IDE integrations and show status' },
+  'quickCommands.command.claude.init': { 'zh-CN': '初始化项目记忆', 'en-US': 'Initialize or update CLAUDE.md' },
+  'quickCommands.command.claude.installGithubApp': { 'zh-CN': '安装 GitHub App', 'en-US': 'Set up Claude GitHub Actions for a repository' },
+  'quickCommands.command.claude.installSlackApp': { 'zh-CN': '安装 Slack App', 'en-US': 'Install the Claude Slack app' },
+  'quickCommands.command.claude.login': { 'zh-CN': '登录 Anthropic', 'en-US': 'Authenticate with Anthropic' },
+  'quickCommands.command.claude.logout': { 'zh-CN': '注销登录', 'en-US': 'Sign out from your Anthropic account' },
+  'quickCommands.command.claude.loop': { 'zh-CN': '设置循环任务', 'en-US': 'Run a prompt or slash command on a recurring interval' },
+  'quickCommands.command.claude.mcp': { 'zh-CN': '管理 MCP 服务', 'en-US': 'Manage MCP servers' },
+  'quickCommands.command.claude.memory': { 'zh-CN': '编辑项目记忆', 'en-US': 'Edit Claude memory files (CLAUDE.md)' },
+  'quickCommands.command.claude.mobile': { 'zh-CN': '手机端下载', 'en-US': 'Show QR code to download the Claude mobile app' },
+  'quickCommands.command.claude.model': { 'zh-CN': '切换 AI 模型', 'en-US': 'Switch the underlying AI model' },
+  'quickCommands.command.claude.plan': { 'zh-CN': '计划模式', 'en-US': 'Enable plan mode or view the current session plan' },
+  'quickCommands.command.claude.permissions': { 'zh-CN': '管理工具权限', 'en-US': 'Manage allow & deny tool permission rules' },
+  'quickCommands.command.claude.releaseNotes': { 'zh-CN': '查看版本说明', 'en-US': 'View the latest release notes' },
+  'quickCommands.command.claude.review': { 'zh-CN': '审查 Pull Request', 'en-US': 'Review a pull request' },
+  'quickCommands.command.claude.resume': { 'zh-CN': '恢复历史会话', 'en-US': 'Resume or switch to a different session' },
+  'quickCommands.command.claude.rewind': { 'zh-CN': '回溯代码和会话', 'en-US': 'Restore the code and/or conversation to a previous point' },
+  'quickCommands.command.claude.skills': { 'zh-CN': '列出可用技能', 'en-US': 'List available skills' },
+  'quickCommands.command.claude.status': { 'zh-CN': '查看当前状态', 'en-US': 'Display active tools and session config' },
+  'quickCommands.command.claude.simplify': { 'zh-CN': '简化并重构代码', 'en-US': 'Review changed code for reuse, quality and efficiency' },
+  'quickCommands.command.claude.stats': { 'zh-CN': '查看使用统计', 'en-US': 'Show your Claude Code usage statistics and activity' },
+  'quickCommands.command.claude.terminalSetup': { 'zh-CN': '终端集成设置', 'en-US': 'Set up terminal integration' },
+  'quickCommands.command.claude.vim': { 'zh-CN': '切换 Vim 模式', 'en-US': 'Toggle between Vim and Normal editing modes' },
+  'quickCommands.command.claude.statusline': { 'zh-CN': '状态栏 UI 设置', 'en-US': "Set up Claude Code's status line UI" },
   'quickCommands.rail.disabled.detachedReadonly': {
     'zh-CN': '分离窗口当前为只读模式。',
     'en-US': 'Detached windows are read only.',
@@ -788,10 +836,6 @@ export const messages = {
     'zh-CN': '这会清除当前工作区的 GT Office 本地状态与数据库数据，并重新初始化默认状态。',
     'en-US': 'This clears GT Office local state and database data for the current workspace, then re-initializes default state.',
   },
-  'settingsModal.reset.warning': {
-    'zh-CN': '不会修改你的源码文件，但此操作不可撤销。',
-    'en-US': 'Your source files will not be modified, but this action cannot be undone.',
-  },
   'settingsModal.reset.noWorkspace': {
     'zh-CN': '请先打开一个工作区，才能执行重置。',
     'en-US': 'Open a workspace before using reset.',
@@ -1413,27 +1457,27 @@ export const messages = {
 
   /* Agent Intro */
   'aiConfig.agent.claude.title': { 'zh-CN': 'Claude Code', 'en-US': 'Claude Code' },
-  'aiConfig.agent.claude.subtitle': { 
-    'zh-CN': '完整的供应商配置、模型覆盖及系统级 Claude settings 同步。', 
-    'en-US': 'Full provider configuration, model override, and system-level Claude settings sync.' 
+  'aiConfig.agent.claude.subtitle': {
+    'zh-CN': '完整的供应商配置、模型覆盖及系统级 Claude settings 同步。',
+    'en-US': 'Full provider configuration, model override, and system-level Claude settings sync.'
   },
   'aiConfig.agent.codex.title': { 'zh-CN': 'Codex CLI', 'en-US': 'Codex CLI' },
-  'aiConfig.agent.codex.subtitle': { 
-    'zh-CN': '轻量化 API Key 配置与终端环境注入。', 
-    'en-US': 'Lightweight API Key configuration and terminal injection.' 
+  'aiConfig.agent.codex.subtitle': {
+    'zh-CN': '轻量化 API Key 配置与终端环境注入。',
+    'en-US': 'Lightweight API Key configuration and terminal injection.'
   },
-  'aiConfig.agent.codex.summary': { 
-    'zh-CN': '自动注入 OPENAI_API_KEY。', 
-    'en-US': 'Injected OPENAI_API_KEY when starting.' 
+  'aiConfig.agent.codex.summary': {
+    'zh-CN': '自动注入 OPENAI_API_KEY。',
+    'en-US': 'Injected OPENAI_API_KEY when starting.'
   },
   'aiConfig.agent.gemini.title': { 'zh-CN': 'Gemini CLI', 'en-US': 'Gemini CLI' },
-  'aiConfig.agent.gemini.subtitle': { 
-    'zh-CN': '轻量化 API Key 配置与终端环境注入。', 
-    'en-US': 'Lightweight API Key configuration and terminal injection.' 
+  'aiConfig.agent.gemini.subtitle': {
+    'zh-CN': '轻量化 API Key 配置与终端环境注入。',
+    'en-US': 'Lightweight API Key configuration and terminal injection.'
   },
-  'aiConfig.agent.gemini.summary': { 
-    'zh-CN': '自动注入 GOOGLE_API_KEY。', 
-    'en-US': 'Injected GOOGLE_API_KEY when starting.' 
+  'aiConfig.agent.gemini.summary': {
+    'zh-CN': '自动注入 GOOGLE_API_KEY。',
+    'en-US': 'Injected GOOGLE_API_KEY when starting.'
   },
 
   /* Claude Presets */
@@ -2163,17 +2207,17 @@ export const messages = {
   'aiConfig.preset.geminiCTok.step3': { 'zh-CN': '在 GT Office 中确认 CTok.ai 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the CTok.ai API key, base URL, and model settings in GT Office.' },
 
   /* Light Guides */
-  'aiConfig.guide.codex.summary': { 
-    'zh-CN': 'GT Office 检查 Codex 的安装状态。大多数用户可以使用默认的 CLI 认证流程。', 
-    'en-US': 'GT Office checks install status for Codex. Most users can keep the default CLI auth flow.' 
+  'aiConfig.guide.codex.summary': {
+    'zh-CN': 'GT Office 检查 Codex 的安装状态。大多数用户可以使用默认的 CLI 认证流程。',
+    'en-US': 'GT Office checks install status for Codex. Most users can keep the default CLI auth flow.'
   },
   'aiConfig.guide.codex.tip1': { 'zh-CN': '先安装 CLI，然后使用官方流程登录。', 'en-US': 'Install the CLI first, then sign in with the official flow.' },
   'aiConfig.guide.codex.tip2': { 'zh-CN': '如果使用公司网关，请在 Codex 自身的配置文件中修改。', 'en-US': 'If using a company gateway, configure it in Codex\'s own config file.' },
   'aiConfig.guide.codex.tip3': { 'zh-CN': 'GT Office 将持续检测并确保其处于就绪状态。', 'en-US': 'GT Office will continue to detect readiness.' },
 
-  'aiConfig.guide.gemini.summary': { 
-    'zh-CN': 'GT Office 提供安装检测、官方文档及本地配置路径引导。', 
-    'en-US': 'GT Office provides install detection, official docs, and local config guidance.' 
+  'aiConfig.guide.gemini.summary': {
+    'zh-CN': 'GT Office 提供安装检测、官方文档及本地配置路径引导。',
+    'en-US': 'GT Office provides install detection, official docs, and local config guidance.'
   },
   'aiConfig.guide.gemini.tip1': { 'zh-CN': 'Gemini 通常在安装后通过官方 CLI 流程进行配置。', 'en-US': 'Gemini is usually configured with official CLI flow after install.' },
   'aiConfig.guide.gemini.tip2': { 'zh-CN': '如已使用 API Key，请保持在 Gemini 自身的配置文件中。', 'en-US': 'Keep existing API keys inside Gemini\'s own config file.' },
@@ -2476,8 +2520,8 @@ export const messages = {
   'image.zoomIn': { 'zh-CN': '放大', 'en-US': 'Zoom in' },
   'pdf.prevPage': { 'zh-CN': '上一页', 'en-US': 'Previous page' },
   'pdf.nextPage': { 'zh-CN': '下一页', 'en-US': 'Next page' },
-  'pdf.zoomIn': { 'zh-CN': '放大 PDF', 'en-US': 'Zoom in PDF' },
-  'pdf.zoomOut': { 'zh-CN': '缩小 PDF', 'en-US': 'Zoom out PDF' },
+  'pdf.zoomIn': { 'zh-CN': '放大', 'en-US': 'Zoom in' },
+  'pdf.zoomOut': { 'zh-CN': '缩小', 'en-US': 'Zoom out' },
   'pdf.pageStatus': { 'zh-CN': '页码 {detail}', 'en-US': 'Page {detail}' },
   'image.zoomOut': { 'zh-CN': '缩小', 'en-US': 'Zoom out' },
   'image.fitWindow': { 'zh-CN': '适应窗口', 'en-US': 'Fit to window' },
