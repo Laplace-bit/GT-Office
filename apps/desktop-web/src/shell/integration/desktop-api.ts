@@ -777,6 +777,26 @@ export interface ClaudeModelOverrides {
 }
 
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
+export type AgentInstallRecommendedAction = 'install' | 'install_node' | 'manual_help'
+export type AgentInstallProgressPhase =
+  | 'preparing'
+  | 'downloading'
+  | 'installing'
+  | 'verifying'
+  | 'completed'
+  | 'failed'
+export type AgentInstallDiagnosticCode =
+  | 'node_missing'
+  | 'npm_missing'
+  | 'dns_failed'
+  | 'timeout'
+  | 'tls_failed'
+  | 'registry_blocked'
+  | 'permission_denied'
+  | 'installer_corrupt'
+  | 'verification_failed'
+  | 'unknown'
+
 export interface AiAgentInstallStatus {
   installed: boolean
   executable?: string | null
@@ -787,6 +807,16 @@ export interface AiAgentInstallStatus {
   uninstallAvailable: boolean
   detectedBy: string[]
   issues: string[]
+  autoInstallSupported?: boolean
+  recommendedAction?: AgentInstallRecommendedAction | null
+}
+
+export interface AgentInstallProgressEvent {
+  phase: AgentInstallProgressPhase
+  message: string
+  detail?: string | null
+  attemptId?: string | null
+  diagnosticCode?: AgentInstallDiagnosticCode | null
 }
 
 export interface AiAgentSnapshotCard {
@@ -3153,14 +3183,14 @@ export const desktopApi = {
   },
   async listenInstallProgress(
     agent: AiConfigAgent,
-    onMessage: (message: string) => void,
+    onMessage: (message: AgentInstallProgressEvent) => void,
   ): Promise<() => void> {
     if (!isTauriRuntime()) {
       return () => {}
     }
 
     const eventApi = await import('@tauri-apps/api/event')
-    const unlisten = await eventApi.listen<string>(`install-progress:${agent}`, (event) =>
+    const unlisten = await eventApi.listen<AgentInstallProgressEvent>(`install-progress:${agent}`, (event) =>
       onMessage(event.payload),
     )
     return () => {

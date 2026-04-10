@@ -332,6 +332,8 @@ fn empty_ai_config_snapshot() -> AiConfigSnapshot {
                 uninstall_available: true,
                 detected_by: vec!["test".to_string()],
                 issues: Vec::new(),
+                auto_install_supported: true,
+                recommended_action: None,
             },
             config_status: AiAgentConfigStatus::Configured,
             active_summary: Some("Configured".to_string()),
@@ -409,8 +411,14 @@ fn workspace_reset_preserves_workspace_id_in_response() {
 fn workspace_reset_command_cleans_workspace_files() {
     let fixture = WorkspaceResetFixture::create();
 
-    assert!(fixture.workspace_root.join(".gtoffice/config.json").exists());
-    assert!(fixture.workspace_root.join(".gtoffice/session.snapshot.json").exists());
+    assert!(fixture
+        .workspace_root
+        .join(".gtoffice/config.json")
+        .exists());
+    assert!(fixture
+        .workspace_root
+        .join(".gtoffice/session.snapshot.json")
+        .exists());
     assert!(fixture
         .workspace_root
         .join(".gtoffice/tasks/task-alpha/task.md")
@@ -421,7 +429,10 @@ fn workspace_reset_command_cleans_workspace_files() {
 
     assert_eq!(response["workspaceId"], fixture.workspace_id);
     assert!(!fixture.workspace_root.join(".gtoffice").exists());
-    assert!(fixture.other_workspace_root.join(".gtoffice/config.json").exists());
+    assert!(fixture
+        .other_workspace_root
+        .join(".gtoffice/config.json")
+        .exists());
     assert!(fixture
         .other_workspace_root
         .join(".gtoffice/session.snapshot.json")

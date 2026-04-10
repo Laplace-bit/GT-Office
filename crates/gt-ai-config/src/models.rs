@@ -217,6 +217,8 @@ pub struct AiAgentInstallStatus {
     pub uninstall_available: bool,
     pub detected_by: Vec<String>,
     pub issues: Vec<String>,
+    pub auto_install_supported: bool,
+    pub recommended_action: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

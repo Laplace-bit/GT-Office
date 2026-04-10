@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -248,9 +249,87 @@ mod tests {
             assert_eq!(hint.as_deref(), Some(executable.to_string_lossy().as_ref()));
         });
     }
+
+    #[test]
+    fn preferred_registry_order_uses_faster_mirror_without_proxy() {
+        let order = AgentInstaller::preferred_registry_order(
+            false,
+            &HostProbe {
+                reachable: true,
+                latency_ms: Some(220),
+            },
+            &HostProbe {
+                reachable: true,
+                latency_ms: Some(40),
+            },
+        );
+
+        assert_eq!(order, vec![MIRROR_NPM_REGISTRY, OFFICIAL_NPM_REGISTRY]);
+    }
+
+    #[test]
+    fn build_install_plan_for_codex_uses_primary_and_fallback_registries() {
+        let plan = AgentInstaller::build_install_plan_with_profile(
+            AgentType::Codex,
+            &InstallNetworkProfile {
+                mode: InstallNetworkMode::MirrorPreferred,
+                has_inherited_proxy: false,
+                preferred_registry: MIRROR_NPM_REGISTRY.to_string(),
+                fallback_registry: Some(OFFICIAL_NPM_REGISTRY.to_string()),
+                claude_script_reachable: false,
+            },
+        );
+
+        assert_eq!(plan.attempts.len(), 2);
+        assert!(plan.attempts[0]
+            .args
+            .last()
+            .expect("script")
+            .contains(MIRROR_NPM_REGISTRY));
+        assert!(plan.attempts[1]
+            .args
+            .last()
+            .expect("script")
+            .contains(OFFICIAL_NPM_REGISTRY));
+    }
+
+    #[test]
+    fn classify_install_failure_detects_dns_and_timeout() {
+        assert_eq!(
+            AgentInstaller::classify_install_failure("npm ERR! code EAI_AGAIN", false),
+            AgentInstallDiagnosticCode::DnsFailed
+        );
+        assert_eq!(
+            AgentInstaller::classify_install_failure("connection timed out", false),
+            AgentInstallDiagnosticCode::Timeout
+        );
+    }
+
+    #[test]
+    fn claude_official_plan_retries_after_installer_corrupt_failure() {
+        let attempt = AgentInstaller::claude_official_install_attempt();
+
+        assert!(attempt
+            .retryable_diagnostics
+            .contains(&AgentInstallDiagnosticCode::InstallerCorrupt));
+        assert!(attempt
+            .retryable_diagnostics
+            .contains(&AgentInstallDiagnosticCode::Unknown));
+    }
+
+    #[test]
+    fn uninstall_failure_message_uses_removal_copy() {
+        let message = AgentInstaller::uninstall_failure_message(
+            AgentType::Codex,
+            AgentInstallDiagnosticCode::NpmMissing,
+        );
+
+        assert!(message.contains("remove Codex CLI"));
+        assert!(!message.contains("installing"));
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum AgentType {
     ClaudeCode,
     Codex,
@@ -269,6 +348,57 @@ pub struct AgentInstallStatus {
     pub uninstall_available: bool,
     pub detected_by: Vec<String>,
     pub issues: Vec<String>,
+    #[serde(default)]
+    pub auto_install_supported: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_action: Option<AgentInstallRecommendedAction>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInstallRecommendedAction {
+    Install,
+    InstallNode,
+    ManualHelp,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInstallProgressPhase {
+    Preparing,
+    Downloading,
+    Installing,
+    Verifying,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInstallDiagnosticCode {
+    NodeMissing,
+    NpmMissing,
+    DnsFailed,
+    Timeout,
+    TlsFailed,
+    RegistryBlocked,
+    PermissionDenied,
+    InstallerCorrupt,
+    VerificationFailed,
+    Unknown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentInstallProgressEvent {
+    pub phase: AgentInstallProgressPhase,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_code: Option<AgentInstallDiagnosticCode>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -288,11 +418,57 @@ struct AgentInstallStatusCacheStore {
 const AGENT_INSTALL_STATUS_CACHE_VERSION: u32 = 1;
 const AGENT_INSTALL_STATUS_POSITIVE_TTL_MS: u64 = 12 * 60 * 60 * 1000;
 const AGENT_INSTALL_STATUS_NEGATIVE_TTL_MS: u64 = 15 * 60 * 1000;
+const INSTALL_PROBE_TIMEOUT_MS: u64 = 1_200;
+const INSTALL_ATTEMPT_TIMEOUT_MS: u64 = 5 * 60 * 1000;
+const REGISTRY_LATENCY_MARGIN_MS: u128 = 80;
+const OFFICIAL_NPM_REGISTRY: &str = "https://registry.npmjs.org";
+const MIRROR_NPM_REGISTRY: &str = "https://registry.npmmirror.com";
+
 #[derive(Debug, Clone)]
 struct DetectionResult {
     executable: Option<PathBuf>,
     detected_by: Vec<String>,
     shell_ready: bool,
+}
+
+#[derive(Debug, Clone)]
+struct HostProbe {
+    reachable: bool,
+    latency_ms: Option<u128>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallNetworkMode {
+    Direct,
+    MirrorPreferred,
+    ProxyInherited,
+    OfflineOrBlocked,
+}
+
+#[derive(Debug, Clone)]
+struct InstallNetworkProfile {
+    mode: InstallNetworkMode,
+    has_inherited_proxy: bool,
+    preferred_registry: String,
+    fallback_registry: Option<String>,
+    claude_script_reachable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentInstallAttempt {
+    pub id: String,
+    pub label: String,
+    pub phase: AgentInstallProgressPhase,
+    pub program: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub timeout_ms: u64,
+    pub retryable_diagnostics: Vec<AgentInstallDiagnosticCode>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentInstallPlan {
+    pub attempts: Vec<AgentInstallAttempt>,
 }
 
 #[derive(Debug, Clone)]
@@ -327,9 +503,9 @@ impl AgentInstaller {
             true
         };
         let npm_ready = if requires_node {
-            let npm_detection = Self::find_executable_with_node_dir("npm", node_runtime_dir.as_deref());
-            npm_detection.executable.is_some()
-                || Self::command_succeeds("npm", &["-v"])
+            let npm_detection =
+                Self::find_executable_with_node_dir("npm", node_runtime_dir.as_deref());
+            npm_detection.executable.is_some() || Self::command_succeeds("npm", &["-v"])
         } else {
             false
         };
@@ -392,6 +568,20 @@ impl AgentInstaller {
             ));
         }
 
+        let auto_install_supported = match agent {
+            AgentType::ClaudeCode => true,
+            AgentType::Codex | AgentType::Gemini => npm_ready,
+        };
+        let recommended_action = if detection.executable.is_some() {
+            None
+        } else if requires_node && !node_ready {
+            Some(AgentInstallRecommendedAction::InstallNode)
+        } else if auto_install_supported {
+            Some(AgentInstallRecommendedAction::Install)
+        } else {
+            Some(AgentInstallRecommendedAction::ManualHelp)
+        };
+
         let status = AgentInstallStatus {
             installed: detection.executable.is_some(),
             executable: detection
@@ -401,71 +591,493 @@ impl AgentInstaller {
             requires_node,
             node_ready,
             npm_ready,
-            install_available: match agent {
-                AgentType::ClaudeCode => true,
-                AgentType::Codex | AgentType::Gemini => npm_ready,
-            },
+            install_available: auto_install_supported,
             uninstall_available,
             detected_by: detection.detected_by,
             issues,
+            auto_install_supported,
+            recommended_action,
         };
 
         Self::store_cached_install_status(agent, &status);
         status
     }
 
-    pub fn get_install_command(agent: AgentType) -> (String, Vec<String>) {
-        if cfg!(target_os = "windows") {
-            match agent {
-                AgentType::ClaudeCode => (
-                    "powershell".to_string(),
-                    vec![
-                        "-Command".to_string(),
-                        "irm https://claude.ai/install.ps1 | iex".to_string(),
-                    ],
-                ),
-                AgentType::Codex => (
-                    "cmd".to_string(),
-                    vec![
-                        "/C".to_string(),
-                        "npm install -g --prefix \"%USERPROFILE%\\.local\" @openai/codex"
-                            .to_string(),
-                    ],
-                ),
-                AgentType::Gemini => (
-                    "cmd".to_string(),
-                    vec![
-                        "/C".to_string(),
-                        "npm install -g --prefix \"%USERPROFILE%\\.local\" @google/gemini-cli"
-                            .to_string(),
-                    ],
-                ),
+    pub fn build_install_plan(agent: AgentType) -> AgentInstallPlan {
+        let profile = Self::probe_install_network(agent);
+        Self::build_install_plan_with_profile(agent, &profile)
+    }
+
+    pub fn classify_install_failure(output: &str, timed_out: bool) -> AgentInstallDiagnosticCode {
+        if timed_out {
+            return AgentInstallDiagnosticCode::Timeout;
+        }
+
+        let text = output.to_ascii_lowercase();
+
+        if Self::matches_any(
+            &text,
+            &[
+                "node.js runtime not found",
+                "node: command not found",
+                "'node' is not recognized",
+                "\"node\" is not recognized",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::NodeMissing;
+        }
+        if Self::matches_any(
+            &text,
+            &[
+                "npm is not available",
+                "npm: command not found",
+                "'npm' is not recognized",
+                "\"npm\" is not recognized",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::NpmMissing;
+        }
+        if Self::matches_any(
+            &text,
+            &["eacces", "eperm", "permission denied", "access is denied"],
+        ) {
+            return AgentInstallDiagnosticCode::PermissionDenied;
+        }
+        if Self::matches_any(
+            &text,
+            &[
+                "ssl",
+                "tls",
+                "certificate",
+                "self signed",
+                "unable to get local issuer",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::TlsFailed;
+        }
+        if Self::matches_any(
+            &text,
+            &[
+                "eai_again",
+                "enotfound",
+                "getaddrinfo",
+                "could not resolve host",
+                "name or service not known",
+                "temporary failure in name resolution",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::DnsFailed;
+        }
+        if Self::matches_any(
+            &text,
+            &[
+                "etimedout",
+                "timed out",
+                "timeout",
+                "socket hang up",
+                "econnreset",
+                "connection reset by peer",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::Timeout;
+        }
+        if Self::matches_any(
+            &text,
+            &[
+                "econnrefused",
+                "network is unreachable",
+                "503 service unavailable",
+                "502 bad gateway",
+                "403 forbidden",
+                "proxy error",
+                "failed to fetch",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::RegistryBlocked;
+        }
+        if Self::matches_any(
+            &text,
+            &[
+                "corrupt",
+                "corrupted",
+                "checksum",
+                "unexpected token",
+                "invalid or unexpected token",
+            ],
+        ) {
+            return AgentInstallDiagnosticCode::InstallerCorrupt;
+        }
+
+        AgentInstallDiagnosticCode::Unknown
+    }
+
+    pub fn install_failure_message(
+        agent: AgentType,
+        diagnostic: AgentInstallDiagnosticCode,
+    ) -> String {
+        let agent_name = Self::agent_name(agent);
+        match diagnostic {
+            AgentInstallDiagnosticCode::NodeMissing => format!(
+                "Node.js is not installed, so GT Office cannot continue installing {agent_name} automatically."
+            ),
+            AgentInstallDiagnosticCode::NpmMissing => format!(
+                "npm is not available, so GT Office cannot continue installing {agent_name} automatically."
+            ),
+            AgentInstallDiagnosticCode::DnsFailed
+            | AgentInstallDiagnosticCode::Timeout
+            | AgentInstallDiagnosticCode::TlsFailed
+            | AgentInstallDiagnosticCode::RegistryBlocked => "The current network could not reach the installation source. GT Office automatically tried alternate download routes, but installation still failed.".to_string(),
+            AgentInstallDiagnosticCode::PermissionDenied => format!(
+                "{agent_name} could not be written into the local tools directory because access was denied."
+            ),
+            AgentInstallDiagnosticCode::InstallerCorrupt => format!(
+                "The installer responded, but the downloaded payload for {agent_name} was not valid."
+            ),
+            AgentInstallDiagnosticCode::VerificationFailed => format!(
+                "{agent_name} finished downloading, but GT Office could not verify the command in a fresh shell."
+            ),
+            AgentInstallDiagnosticCode::Unknown => format!(
+                "{agent_name} installation failed. Retry once after reopening the terminal, or inspect the local shell environment."
+            ),
+        }
+    }
+
+    pub fn uninstall_failure_message(
+        agent: AgentType,
+        diagnostic: AgentInstallDiagnosticCode,
+    ) -> String {
+        let agent_name = Self::agent_name(agent);
+        match diagnostic {
+            AgentInstallDiagnosticCode::NodeMissing => format!(
+                "Node.js is not available, so GT Office cannot remove {agent_name} with the current package-manager path."
+            ),
+            AgentInstallDiagnosticCode::NpmMissing => format!(
+                "npm is not available, so GT Office cannot remove {agent_name} automatically."
+            ),
+            AgentInstallDiagnosticCode::DnsFailed
+            | AgentInstallDiagnosticCode::Timeout
+            | AgentInstallDiagnosticCode::TlsFailed
+            | AgentInstallDiagnosticCode::RegistryBlocked => format!(
+                "{agent_name} removal did not finish successfully. GT Office stopped the uninstall process and you can retry or use the original package manager."
+            ),
+            AgentInstallDiagnosticCode::PermissionDenied => format!(
+                "{agent_name} could not be removed because access was denied."
+            ),
+            AgentInstallDiagnosticCode::InstallerCorrupt
+            | AgentInstallDiagnosticCode::VerificationFailed
+            | AgentInstallDiagnosticCode::Unknown => format!(
+                "{agent_name} could not be removed automatically. Retry once or remove it with the original installer or package manager."
+            ),
+        }
+    }
+
+    fn build_install_plan_with_profile(
+        agent: AgentType,
+        profile: &InstallNetworkProfile,
+    ) -> AgentInstallPlan {
+        let mut attempts = Vec::new();
+        let registry_candidates = Self::registry_candidates(profile);
+
+        match agent {
+            AgentType::ClaudeCode => {
+                let npm_ready = Self::check_npm_env();
+                let should_try_official =
+                    profile.has_inherited_proxy || profile.claude_script_reachable || !npm_ready;
+                if should_try_official {
+                    attempts.push(Self::claude_official_install_attempt());
+                }
+                if npm_ready {
+                    for (index, registry) in registry_candidates.iter().enumerate() {
+                        attempts.push(Self::npm_install_attempt(agent, registry, index > 0));
+                    }
+                }
+                if attempts.is_empty() {
+                    attempts.push(Self::claude_official_install_attempt());
+                }
             }
-        } else {
-            match agent {
-                AgentType::ClaudeCode => (
-                    "bash".to_string(),
-                    vec![
-                        "-c".to_string(),
-                        "curl -fsSL https://claude.ai/install.sh | bash".to_string(),
-                    ],
-                ),
-                AgentType::Codex => (
-                    "bash".to_string(),
-                    vec![
-                        "-lc".to_string(),
-                        "mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" @openai/codex".to_string(),
-                    ],
-                ),
-                AgentType::Gemini => (
-                    "bash".to_string(),
-                    vec![
-                        "-lc".to_string(),
-                        "mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" @google/gemini-cli".to_string(),
-                    ],
-                ),
+            AgentType::Codex | AgentType::Gemini => {
+                for (index, registry) in registry_candidates.iter().enumerate() {
+                    attempts.push(Self::npm_install_attempt(agent, registry, index > 0));
+                }
             }
         }
+
+        AgentInstallPlan { attempts }
+    }
+
+    fn probe_install_network(agent: AgentType) -> InstallNetworkProfile {
+        let has_inherited_proxy = Self::has_inherited_proxy();
+        let official_registry_probe = if has_inherited_proxy {
+            HostProbe {
+                reachable: true,
+                latency_ms: Some(0),
+            }
+        } else {
+            Self::probe_https_host("registry.npmjs.org")
+        };
+        let mirror_registry_probe = if has_inherited_proxy {
+            HostProbe {
+                reachable: true,
+                latency_ms: Some(0),
+            }
+        } else {
+            Self::probe_https_host("registry.npmmirror.com")
+        };
+        let claude_script_reachable = if agent == AgentType::ClaudeCode {
+            has_inherited_proxy || Self::probe_https_host("claude.ai").reachable
+        } else {
+            false
+        };
+
+        let registry_order = Self::preferred_registry_order(
+            has_inherited_proxy,
+            &official_registry_probe,
+            &mirror_registry_probe,
+        );
+        let preferred_registry = registry_order
+            .first()
+            .copied()
+            .unwrap_or(OFFICIAL_NPM_REGISTRY)
+            .to_string();
+        let fallback_registry = registry_order.get(1).map(|value| (*value).to_string());
+        let mode = if has_inherited_proxy {
+            InstallNetworkMode::ProxyInherited
+        } else if preferred_registry == MIRROR_NPM_REGISTRY {
+            InstallNetworkMode::MirrorPreferred
+        } else if official_registry_probe.reachable {
+            InstallNetworkMode::Direct
+        } else {
+            InstallNetworkMode::OfflineOrBlocked
+        };
+
+        InstallNetworkProfile {
+            mode,
+            has_inherited_proxy,
+            preferred_registry,
+            fallback_registry,
+            claude_script_reachable,
+        }
+    }
+
+    fn registry_candidates(profile: &InstallNetworkProfile) -> Vec<String> {
+        let mut candidates = vec![profile.preferred_registry.clone()];
+        if let Some(fallback) = profile.fallback_registry.as_ref() {
+            if !candidates.iter().any(|item| item == fallback) {
+                candidates.push(fallback.clone());
+            }
+        }
+        if candidates.is_empty() {
+            candidates.push(match profile.mode {
+                InstallNetworkMode::MirrorPreferred => MIRROR_NPM_REGISTRY.to_string(),
+                _ => OFFICIAL_NPM_REGISTRY.to_string(),
+            });
+        }
+        candidates
+    }
+
+    fn preferred_registry_order(
+        has_inherited_proxy: bool,
+        official: &HostProbe,
+        mirror: &HostProbe,
+    ) -> Vec<&'static str> {
+        if has_inherited_proxy {
+            return vec![OFFICIAL_NPM_REGISTRY, MIRROR_NPM_REGISTRY];
+        }
+
+        match (official.reachable, mirror.reachable) {
+            (true, false) => vec![OFFICIAL_NPM_REGISTRY, MIRROR_NPM_REGISTRY],
+            (false, true) => vec![MIRROR_NPM_REGISTRY, OFFICIAL_NPM_REGISTRY],
+            (true, true) => {
+                let official_latency = official.latency_ms.unwrap_or(u128::MAX);
+                let mirror_latency = mirror.latency_ms.unwrap_or(u128::MAX);
+                if mirror_latency + REGISTRY_LATENCY_MARGIN_MS < official_latency {
+                    vec![MIRROR_NPM_REGISTRY, OFFICIAL_NPM_REGISTRY]
+                } else {
+                    vec![OFFICIAL_NPM_REGISTRY, MIRROR_NPM_REGISTRY]
+                }
+            }
+            (false, false) => vec![MIRROR_NPM_REGISTRY, OFFICIAL_NPM_REGISTRY],
+        }
+    }
+
+    fn npm_install_attempt(
+        agent: AgentType,
+        registry: &str,
+        is_fallback: bool,
+    ) -> AgentInstallAttempt {
+        let package_name = match agent {
+            AgentType::ClaudeCode => "@anthropic-ai/claude-code",
+            AgentType::Codex => "@openai/codex",
+            AgentType::Gemini => "@google/gemini-cli",
+        };
+        let registry_id = if registry.contains("npmmirror") {
+            "mirror"
+        } else {
+            "official"
+        };
+        let label = if is_fallback {
+            format!("Continuing {} installation...", Self::agent_name(agent))
+        } else {
+            format!("Downloading {}...", Self::agent_name(agent))
+        };
+        let phase = if is_fallback {
+            AgentInstallProgressPhase::Installing
+        } else {
+            AgentInstallProgressPhase::Downloading
+        };
+        let env = Self::npm_install_env(registry);
+
+        if cfg!(target_os = "windows") {
+            AgentInstallAttempt {
+                id: format!("{}-npm-{registry_id}", Self::cache_key(agent)),
+                label,
+                phase,
+                program: "cmd".to_string(),
+                args: vec![
+                    "/C".to_string(),
+                    format!(
+                        "if not exist \"%USERPROFILE%\\.local\\bin\" mkdir \"%USERPROFILE%\\.local\\bin\" >nul 2>nul & npm install -g --prefix \"%USERPROFILE%\\.local\" --no-fund --no-audit {package_name} --registry={registry}"
+                    ),
+                ],
+                env,
+                timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
+                retryable_diagnostics: Self::network_retryable_diagnostics(),
+            }
+        } else {
+            AgentInstallAttempt {
+                id: format!("{}-npm-{registry_id}", Self::cache_key(agent)),
+                label,
+                phase,
+                program: "bash".to_string(),
+                args: vec![
+                    "-lc".to_string(),
+                    format!(
+                        "mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" --no-fund --no-audit {package_name} --registry={registry}"
+                    ),
+                ],
+                env,
+                timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
+                retryable_diagnostics: Self::network_retryable_diagnostics(),
+            }
+        }
+    }
+
+    fn claude_official_install_attempt() -> AgentInstallAttempt {
+        if cfg!(target_os = "windows") {
+            AgentInstallAttempt {
+                id: "claude-official".to_string(),
+                label: "Downloading Claude Code...".to_string(),
+                phase: AgentInstallProgressPhase::Downloading,
+                program: "powershell".to_string(),
+                args: vec![
+                    "-Command".to_string(),
+                    "irm https://claude.ai/install.ps1 | iex".to_string(),
+                ],
+                env: BTreeMap::new(),
+                timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
+                retryable_diagnostics: Self::claude_official_retryable_diagnostics(),
+            }
+        } else {
+            AgentInstallAttempt {
+                id: "claude-official".to_string(),
+                label: "Downloading Claude Code...".to_string(),
+                phase: AgentInstallProgressPhase::Downloading,
+                program: "bash".to_string(),
+                args: vec![
+                    "-lc".to_string(),
+                    "curl -fsSL https://claude.ai/install.sh | bash".to_string(),
+                ],
+                env: BTreeMap::new(),
+                timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
+                retryable_diagnostics: Self::claude_official_retryable_diagnostics(),
+            }
+        }
+    }
+
+    fn npm_install_env(registry: &str) -> BTreeMap<String, String> {
+        let mut env = BTreeMap::new();
+        env.insert("npm_config_registry".to_string(), registry.to_string());
+        env.insert("NPM_CONFIG_REGISTRY".to_string(), registry.to_string());
+        env.insert("npm_config_fetch_retries".to_string(), "5".to_string());
+        env.insert(
+            "npm_config_fetch_retry_mintimeout".to_string(),
+            "20000".to_string(),
+        );
+        env.insert(
+            "npm_config_fetch_retry_maxtimeout".to_string(),
+            "120000".to_string(),
+        );
+        env
+    }
+
+    fn network_retryable_diagnostics() -> Vec<AgentInstallDiagnosticCode> {
+        vec![
+            AgentInstallDiagnosticCode::DnsFailed,
+            AgentInstallDiagnosticCode::Timeout,
+            AgentInstallDiagnosticCode::TlsFailed,
+            AgentInstallDiagnosticCode::RegistryBlocked,
+        ]
+    }
+
+    fn claude_official_retryable_diagnostics() -> Vec<AgentInstallDiagnosticCode> {
+        let mut diagnostics = Self::network_retryable_diagnostics();
+        diagnostics.push(AgentInstallDiagnosticCode::InstallerCorrupt);
+        diagnostics.push(AgentInstallDiagnosticCode::Unknown);
+        diagnostics
+    }
+
+    fn has_inherited_proxy() -> bool {
+        [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        ]
+        .iter()
+        .any(|key| env::var_os(key).is_some_and(|value| !value.is_empty()))
+    }
+
+    fn probe_https_host(host: &str) -> HostProbe {
+        let start = Instant::now();
+        let addrs = match (host, 443).to_socket_addrs() {
+            Ok(addrs) => addrs.collect::<Vec<_>>(),
+            Err(_) => {
+                return HostProbe {
+                    reachable: false,
+                    latency_ms: None,
+                };
+            }
+        };
+
+        for addr in addrs {
+            if TcpStream::connect_timeout(&addr, Duration::from_millis(INSTALL_PROBE_TIMEOUT_MS))
+                .is_ok()
+            {
+                return HostProbe {
+                    reachable: true,
+                    latency_ms: Some(start.elapsed().as_millis()),
+                };
+            }
+        }
+
+        HostProbe {
+            reachable: false,
+            latency_ms: None,
+        }
+    }
+
+    fn agent_name(agent: AgentType) -> &'static str {
+        match agent {
+            AgentType::ClaudeCode => "Claude Code",
+            AgentType::Codex => "Codex CLI",
+            AgentType::Gemini => "Gemini CLI",
+        }
+    }
+
+    fn matches_any(text: &str, patterns: &[&str]) -> bool {
+        patterns.iter().any(|pattern| text.contains(pattern))
     }
 
     pub fn get_uninstall_action(agent: AgentType) -> Option<AgentUninstallAction> {
@@ -1129,6 +1741,22 @@ impl AgentInstaller {
         let mut status = entry.status.clone();
         if !status.detected_by.iter().any(|label| label == "cache") {
             status.detected_by.insert(0, "cache".to_string());
+        }
+        if status.installed {
+            status.auto_install_supported = true;
+            status.recommended_action = None;
+        } else {
+            status.auto_install_supported = matches!(agent, AgentType::ClaudeCode)
+                || (status.requires_node && status.npm_ready);
+            if status.recommended_action.is_none() {
+                status.recommended_action = if status.requires_node && !status.node_ready {
+                    Some(AgentInstallRecommendedAction::InstallNode)
+                } else if status.auto_install_supported {
+                    Some(AgentInstallRecommendedAction::Install)
+                } else {
+                    Some(AgentInstallRecommendedAction::ManualHelp)
+                };
+            }
         }
         Some(status)
     }

@@ -62,6 +62,8 @@ function createPendingInstallStatus(): AiAgentInstallStatus {
     uninstallAvailable: false,
     detectedBy: [],
     issues: [],
+    autoInstallSupported: false,
+    recommendedAction: null,
   }
 }
 

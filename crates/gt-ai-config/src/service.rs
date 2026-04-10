@@ -4812,6 +4812,18 @@ fn map_install_status(agent: AiConfigAgent) -> crate::models::AiAgentInstallStat
         uninstall_available: status.uninstall_available,
         detected_by: status.detected_by,
         issues: status.issues,
+        auto_install_supported: status.auto_install_supported,
+        recommended_action: status.recommended_action.map(|value| match value {
+            gt_tools::agent_installer::AgentInstallRecommendedAction::Install => {
+                "install".to_string()
+            }
+            gt_tools::agent_installer::AgentInstallRecommendedAction::InstallNode => {
+                "install_node".to_string()
+            }
+            gt_tools::agent_installer::AgentInstallRecommendedAction::ManualHelp => {
+                "manual_help".to_string()
+            }
+        }),
     }
 }
 

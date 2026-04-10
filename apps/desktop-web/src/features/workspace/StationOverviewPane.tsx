@@ -41,7 +41,6 @@ interface SortableRowProps {
   locale: Locale
   station: AgentStation
   active: boolean
-  state: string
   showDragHandle: boolean
   onSelectStation: (stationId: string) => void
   onEditStation: (station: AgentStation) => void
@@ -66,7 +65,6 @@ const SortableRow = memo(function SortableRow({
   locale,
   station,
   active,
-  state,
   showDragHandle,
   onSelectStation,
   onEditStation,
@@ -82,9 +80,9 @@ const SortableRow = memo(function SortableRow({
 
   const style = transform
     ? {
-        transform: `translate3d(0, ${transform.y}px, 0)`,
-        transition,
-      }
+      transform: `translate3d(0, ${transform.y}px, 0)`,
+      transition,
+    }
     : { transition }
 
   return (
@@ -110,11 +108,6 @@ const SortableRow = memo(function SortableRow({
           <GripHorizontal className="vb-icon" strokeWidth={1.75} />
         </span>
       )}
-      <span
-        className="station-overview-state-indicator"
-        data-state={state}
-        aria-hidden="true"
-      />
       <div className="station-overview-select">
         <strong>{station.name}</strong>
         <span>{roleLabel(locale, station)} · {station.agentWorkdirRel}</span>
@@ -297,7 +290,6 @@ export function StationOverviewPane({
                   locale={locale}
                   station={station}
                   active={station.id === activeStationId}
-                  state={runtimeStateByStationId[station.id] ?? 'idle'}
                   showDragHandle
                   onSelectStation={onSelectStation}
                   onEditStation={onEditStation}
@@ -319,11 +311,6 @@ export function StationOverviewPane({
                 .join(' ')}
               onClick={() => onSelectStation(station.id)}
             >
-              <span
-                className="station-overview-state-indicator"
-                data-state={runtimeStateByStationId[station.id] ?? 'idle'}
-                aria-hidden="true"
-              />
               <div className="station-overview-select">
                 <strong>{station.name}</strong>
                 <span>{roleLabel(locale, station)} · {station.agentWorkdirRel}</span>

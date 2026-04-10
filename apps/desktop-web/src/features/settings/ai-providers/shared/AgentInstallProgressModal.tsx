@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { desktopApi, type AiConfigAgent } from '@shell/integration/desktop-api'
+import {
+  desktopApi,
+  type AgentInstallProgressEvent,
+  type AiConfigAgent,
+} from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 
@@ -34,6 +38,7 @@ export function AgentInstallProgressModal({
   const [lines, setLines] = useState<string[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showSlowHint, setShowSlowHint] = useState(false)
+  const [latestMessage, setLatestMessage] = useState<string | null>(null)
   const logEndRef = useRef<HTMLDivElement | null>(null)
   const startedAtRef = useRef(Date.now())
   const completedRef = useRef(false)
@@ -42,11 +47,13 @@ export function AgentInstallProgressModal({
     let unlisten: (() => void) | null = null
     let cancelled = false
 
-    void desktopApi.listenInstallProgress(agentId, (message) => {
+    void desktopApi.listenInstallProgress(agentId, (event: AgentInstallProgressEvent) => {
       if (cancelled) {
         return
       }
-      setLines((prev) => [...prev, message])
+      setLatestMessage(event.message)
+      const nextLine = event.detail ?? event.message
+      setLines((prev) => (prev[prev.length - 1] === nextLine ? prev : [...prev, nextLine]))
     }).then((fn) => {
       if (cancelled) {
         fn()
@@ -132,7 +139,10 @@ export function AgentInstallProgressModal({
           {phase === 'running' && (
             <div className="agent-install-progress-modal__badge is-running">
               <span className="agent-install-progress-modal__spinner" />
-              <span>{t(locale, lines.length > 0 ? 'aiConfig.progress.running' : 'aiConfig.progress.waiting')}</span>
+              <span>
+                {latestMessage ??
+                  t(locale, lines.length > 0 ? 'aiConfig.progress.running' : 'aiConfig.progress.waiting')}
+              </span>
             </div>
           )}
           {phase === 'success' && (
