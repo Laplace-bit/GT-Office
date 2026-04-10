@@ -28,7 +28,10 @@ function normalizeArgumentValue(argument: StationActionArgument): string | boole
   if (argument.defaultValue && argument.defaultValue.length > 0) {
     return argument.defaultValue
   }
-  return argument.options[0]?.value ?? ''
+  if (argument.kind === 'enum') {
+    return (argument.options ?? [])[0]?.value ?? ''
+  }
+  return ''
 }
 
 function ActionField({
@@ -43,6 +46,7 @@ function ActionField({
   const inputId = `station-action-field-${argument.name}`
 
   if (argument.kind === 'enum') {
+    const options = argument.options ?? []
     return (
       <label className="station-action-command-sheet-field" htmlFor={inputId}>
         <span className="station-action-command-sheet-field-label">{argument.label}</span>
@@ -52,7 +56,7 @@ function ActionField({
           value={String(value ?? '')}
           onChange={(event) => onChange(event.target.value)}
         >
-          {argument.options.map((option) => (
+          {options.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

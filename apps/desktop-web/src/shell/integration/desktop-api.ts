@@ -1575,6 +1575,41 @@ export interface ToolListCommandsResponse {
   commands: ToolCommandSummary[]
 }
 
+type ToolCommandArgumentWire = Omit<ToolCommandArgument, 'options'> & {
+  options?: ToolCommandArgumentOption[] | null
+}
+
+type ToolCommandSummaryWire = Omit<ToolCommandSummary, 'arguments'> & {
+  arguments?: ToolCommandArgumentWire[] | null
+}
+
+type ToolListCommandsResponseWire = Omit<ToolListCommandsResponse, 'commands'> & {
+  commands: ToolCommandSummaryWire[]
+}
+
+function normalizeToolCommandArgument(argument: ToolCommandArgumentWire): ToolCommandArgument {
+  return {
+    ...argument,
+    options: argument.options ?? [],
+  }
+}
+
+function normalizeToolCommandSummary(command: ToolCommandSummaryWire): ToolCommandSummary {
+  return {
+    ...command,
+    arguments: (command.arguments ?? []).map(normalizeToolCommandArgument),
+  }
+}
+
+export function normalizeToolListCommandsResponse(
+  response: ToolListCommandsResponseWire,
+): ToolListCommandsResponse {
+  return {
+    ...response,
+    commands: response.commands.map(normalizeToolCommandSummary),
+  }
+}
+
 export type ChannelKind = 'direct' | 'group' | 'broadcast'
 export type ChannelMessageType = 'task_instruction' | 'status' | 'handover'
 
@@ -2264,7 +2299,7 @@ export const desktopApi = {
     return invokeCommand<ToolListProfilesResponse>('tool_list_profiles', { workspaceId })
   },
   toolListCommands(request: ToolListCommandsRequest) {
-    return invokeCommand<ToolListCommandsResponse>('tool_list_commands', {
+    return invokeCommand<ToolListCommandsResponseWire>('tool_list_commands', {
       request: {
         workspaceId: request.workspaceId,
         toolKind: request.toolKind ?? null,
@@ -2275,7 +2310,7 @@ export const desktopApi = {
           resolvedCwd: request.station.resolvedCwd ?? null,
         },
       },
-    })
+    }).then(normalizeToolListCommandsResponse)
   },
   toolLaunch(request: ToolLaunchRequest) {
     return invokeCommand<ToolLaunchResponse>('tool_launch', {
