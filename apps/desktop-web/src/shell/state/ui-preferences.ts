@@ -7,6 +7,7 @@ import {
   quickCommandProviderCopyByProvider,
   resolveQuickCommandDescriptionKey,
   resolveQuickCommandDisabledReasonKey,
+  resolveQuickCommandMetadata,
   resolveQuickCommandPreferenceId,
   type QuickCommandProviderId,
 } from './quick-command-metadata.js'
@@ -24,6 +25,7 @@ export {
   quickCommandProviderCopyByProvider,
   resolveQuickCommandDescriptionKey,
   resolveQuickCommandDisabledReasonKey,
+  resolveQuickCommandMetadata,
   resolveQuickCommandPreferenceId,
 }
 

@@ -474,6 +474,7 @@ export function ShellRoot() {
     loadStationsFromDatabase,
     addStation,
     updateStation,
+    reorderStations,
   } = useShellStationController({
     initialStations,
     activeWorkspaceId,
@@ -5495,6 +5496,7 @@ export function ShellRoot() {
         onViewChange: handleStationOverviewViewChange,
         onSelectStation: handleStationOverviewSelectStation,
         onEditStation: handleStationOverviewEditStation,
+        onReorderStations: reorderStations,
       }}
       gitOperationsPaneProps={{
         controller: gitController,

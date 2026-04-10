@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, Reorder, AnimatePresence } from 'motion/react'
-import { AppIcon } from '@shell/ui/icons'
 import { t, type Locale } from '@shell/i18n/ui-locale'
-import { 
-  X, 
-  Pencil, 
-  Plus, 
-  Info,
+import {
+  X,
+  Pencil,
+  Plus,
 } from 'lucide-react'
 import {
   buildCustomCommandCapsuleOrderId,
@@ -23,7 +21,7 @@ import {
   type CustomCommandCapsule,
   type UiPreferences,
   quickCommandProviderCopyByProvider,
-  resolveQuickCommandDescriptionKey,
+  resolveQuickCommandMetadata,
 } from '@shell/state/ui-preferences'
 
 import './ProviderQuickCommands.scss'
@@ -40,6 +38,7 @@ interface PresetCapsuleItem {
   label: string
   description: string
   enabled: boolean
+  submitMode: CommandCapsuleSubmitMode
 }
 
 interface CustomCapsuleItem {
@@ -139,14 +138,18 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
   )
 
   const presetItems = useMemo<PresetCapsuleItem[]>(
-    () => (commandRailProviderCommandOptionsByProvider[providerId] ?? []).map(opt => ({
-      kind: 'preset',
-      id: opt.id,
-      orderId: buildPresetCommandCapsuleOrderId(opt.id),
-      label: opt.label,
-      description: t(locale, resolveQuickCommandDescriptionKey(providerId, opt.id)),
-      enabled: normalizedPinned.includes(opt.id)
-    })),
+    () => (commandRailProviderCommandOptionsByProvider[providerId] ?? []).map(opt => {
+      const metadata = resolveQuickCommandMetadata(providerId, opt.id)
+      return {
+        kind: 'preset',
+        id: opt.id,
+        orderId: buildPresetCommandCapsuleOrderId(opt.id),
+        label: opt.label,
+        description: t(locale, metadata.descriptionKey),
+        enabled: normalizedPinned.includes(opt.id),
+        submitMode: metadata.submitMode
+      }
+    }),
     [locale, normalizedPinned, providerId]
   )
 
@@ -277,7 +280,7 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
                   onMouseLeave={() => setHoveredOrderId(null)}
                 >
                   <span className="capsule-label">{item.label}</span>
-                  {item.kind === 'custom' && <span className="capsule-tag">{item.submitMode === 'insert_and_submit' ? 'Auto' : 'Ins'}</span>}
+                  <span className="capsule-tag">{item.submitMode === 'insert_and_submit' ? 'Auto' : 'Ins'}</span>
                   
                   <div className="capsule-actions">
                     {item.kind === 'custom' && (
