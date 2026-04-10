@@ -928,6 +928,7 @@ impl AppState {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn set_external_reply_session_tool_kind(
         &self,
         session_id: &str,
@@ -1514,6 +1515,7 @@ fn external_reply_vt_text(session: &ExternalReplyRelaySession) -> Option<String>
     }
 }
 
+#[allow(dead_code)]
 fn extract_rendered_interaction_prompt(
     snapshot: &RenderedScreenSnapshot,
     injected_input: Option<&str>,
@@ -2032,6 +2034,7 @@ fn trimmed_owned_option(input: &str) -> Option<String> {
     }
 }
 
+#[allow(dead_code)]
 fn extract_rendered_reply_text(
     snapshot: &RenderedScreenSnapshot,
     injected_input: Option<&str>,
@@ -2242,6 +2245,7 @@ fn snapshot_contains_permission_prompt(snapshot: &RenderedScreenSnapshot) -> boo
         .any(|row| is_permission_prompt_line(&row.text))
 }
 
+#[allow(dead_code)]
 fn snapshot_has_ready_prompt(snapshot: &RenderedScreenSnapshot) -> bool {
     snapshot_has_ready_prompt_for_tool(snapshot, ToolScreenProfile::Generic)
 }
@@ -2372,6 +2376,7 @@ fn extend_wrapped_injected_anchor_row(
     Some(last_anchor_row)
 }
 
+#[allow(dead_code)]
 fn is_prompt_anchor_line(line: &str) -> bool {
     is_prompt_anchor_line_for_tool(line, ToolScreenProfile::Generic)
 }
@@ -3352,6 +3357,7 @@ fn should_skip_cli_prompt_line_for_tool(line: &str, profile: ToolScreenProfile) 
     false
 }
 
+#[allow(dead_code)]
 fn is_placeholder_prompt_content(content: &str) -> bool {
     is_placeholder_prompt_content_for_tool(content, ToolScreenProfile::Generic)
 }
@@ -3411,6 +3417,7 @@ fn is_echo_of_injected_line(line: &str, injected_input: Option<&str>) -> bool {
 /// 2. Otherwise, return the full normalized text (already filtered by line-level filters)
 ///
 /// This makes the function work for agents that don't use `• ` markers.
+#[allow(dead_code)]
 fn extract_last_assistant_block(text: &str) -> Option<String> {
     extract_last_assistant_block_for_tool(text, ToolScreenProfile::Generic)
 }

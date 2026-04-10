@@ -17,6 +17,7 @@ pub fn configure_std_command(command: &mut std::process::Command) {
 }
 
 // Tokio commands wrap std::process::Command, so the same Windows flag must be applied via as_std_mut().
+#[allow(dead_code)]
 pub fn configure_tokio_command(command: &mut tokio::process::Command) {
     #[cfg(target_os = "windows")]
     {

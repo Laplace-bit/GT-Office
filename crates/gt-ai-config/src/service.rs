@@ -66,6 +66,7 @@ pub struct AiConfigService {
     audit_repository: SqliteAiConfigRepository,
 }
 
+#[allow(dead_code)]
 impl AiConfigService {
     pub fn new(settings: JsonSettingsService, audit_repository: SqliteAiConfigRepository) -> Self {
         Self {
@@ -398,7 +399,7 @@ impl AiConfigService {
 
     fn resolve_saved_claude_provider_id(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         normalized: &ClaudeNormalizedDraft,
         preferred_saved_provider_id: Option<&str>,
     ) -> AiConfigResult<String> {
@@ -431,7 +432,7 @@ impl AiConfigService {
 
     fn upsert_saved_claude_provider_record(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         saved_provider_id: &str,
         normalized: &ClaudeNormalizedDraft,
         settings_json: Option<String>,
@@ -1052,7 +1053,7 @@ impl AiConfigService {
 
     pub fn apply_codex_preview(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         workspace_root: &Path,
         confirmed_by: &str,
         preview: &StoredCodexPreview,
@@ -1144,7 +1145,7 @@ impl AiConfigService {
 
     pub fn apply_gemini_preview(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         workspace_root: &Path,
         confirmed_by: &str,
         preview: &StoredGeminiPreview,
@@ -2760,7 +2761,7 @@ impl AiConfigService {
 
     pub fn preview_claude_patch(
         &self,
-        workspace_id: &str,
+        _workspace_id: &str,
         workspace_root: &Path,
         scope: &str,
         draft: ClaudeDraftInput,

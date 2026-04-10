@@ -29,6 +29,7 @@ impl TerminalDebugHumanLogState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.entries.clear();
     }

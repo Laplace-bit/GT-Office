@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 mod binding_target_validation;
 pub mod command_catalog;
 pub mod tool_profiles;

@@ -10,6 +10,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct ChannelSinkCapabilities {
     pub supports_preview_edit: bool,
     pub supports_interaction_prompt: bool,
@@ -44,6 +45,7 @@ impl ChannelSinkKind {
         }
     }
 
+    #[allow(dead_code)]
     pub fn id(self) -> &'static str {
         match self {
             Self::Telegram => "telegram",
@@ -53,6 +55,7 @@ impl ChannelSinkKind {
         }
     }
 
+    #[allow(dead_code)]
     pub fn capabilities(self) -> ChannelSinkCapabilities {
         match self {
             Self::Telegram => ChannelSinkCapabilities {
