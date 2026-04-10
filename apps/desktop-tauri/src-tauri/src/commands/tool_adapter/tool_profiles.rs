@@ -8,12 +8,12 @@ use std::{
 use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
+use gt_agent::AgentRepository;
 use gt_ai_config::{
     AiConfigService, AiConfigSnapshot, ClaudeConfigSnapshot, CodexConfigSnapshot,
     GeminiConfigSnapshot,
 };
-use gt_agent::AgentRepository;
-use gt_storage::{SqliteAiConfigRepository, SqliteAgentRepository, SqliteStorage};
+use gt_storage::{SqliteAgentRepository, SqliteAiConfigRepository, SqliteStorage};
 use gt_task::{AgentRuntimeRegistration, AgentToolKind};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
@@ -79,8 +79,15 @@ fn resolve_launch_command(
     };
     let repo = SqliteAgentRepository::new(storage);
     if let Ok(agents) = repo.list_agents(workspace_id) {
-        if let Some(agent) = agents.iter().find(|a: &&gt_agent::AgentProfile| a.id == agent_id) {
-            if let Some(cmd) = agent.launch_command.as_deref().filter(|c: &&str| !c.trim().is_empty()) {
+        if let Some(agent) = agents
+            .iter()
+            .find(|a: &&gt_agent::AgentProfile| a.id == agent_id)
+        {
+            if let Some(cmd) = agent
+                .launch_command
+                .as_deref()
+                .filter(|c: &&str| !c.trim().is_empty())
+            {
                 return cmd.trim().to_string();
             }
         }

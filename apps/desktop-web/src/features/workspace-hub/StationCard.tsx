@@ -170,7 +170,9 @@ function StationCardView({
   onRunAction,
   commands = [],
   draggable = false,
+  onStationDragStart,
   onStationDragPointerStart,
+  onStationDragEnd,
 }: StationCardProps) {
   const rootRef = useRef<HTMLElement | null>(null)
   const terminalSinkRef = useRef<StationTerminalSink | null>(null)
@@ -472,6 +474,23 @@ function StationCardView({
               className="station-drag-handle"
               tooltip={t(locale, 'workbench.dragStation')}
               ariaLabel={t(locale, 'workbench.dragStation')}
+              draggable={draggable}
+              onDragStart={
+                onStationDragStart
+                  ? (event) => {
+                      event.stopPropagation()
+                      onStationDragStart(event, station.id)
+                    }
+                  : undefined
+              }
+              onDragEnd={
+                onStationDragEnd
+                  ? (event) => {
+                      event.stopPropagation()
+                      onStationDragEnd()
+                    }
+                  : undefined
+              }
               onPointerDown={
                 onStationDragPointerStart
                   ? (event) => {

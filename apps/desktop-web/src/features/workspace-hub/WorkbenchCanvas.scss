@@ -545,7 +545,7 @@
   grid-template-columns: repeat(var(--station-grid-columns, auto-fit), minmax(0, 1fr));
   grid-template-rows: repeat(var(--station-grid-rows, auto-fit), minmax(0, 1fr));
   gap: rem(8);
-  padding: rem(8);
+  padding: rem(4);
   overflow: hidden;
   min-height: 0;
   height: 100%;
@@ -644,7 +644,7 @@
     display: flex;
     flex-direction: column;
     gap: rem(12);
-    padding: rem(12);
+    padding: rem(5);
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
@@ -661,7 +661,7 @@
     gap: rem(10);
     width: 100%;
     min-height: rem(108);
-    padding: rem(14);
+    padding: rem(7);
     border: rem(1) solid var(--vb-border-subtle);
     border-radius: rem(16);
     background:
@@ -811,7 +811,7 @@
   }
 
   .station-grid.focus-mode {
-    --focus-ring-inline-size: clamp(rem(12.5), 32%, rem(17));
+    --focus-ring-inline-size: clamp(rem(5), 25%, rem(10));
     grid-template-columns: minmax(0, 1fr) minmax(rem(12.5), var(--focus-ring-inline-size));
     grid-template-rows: minmax(0, 1fr);
 
@@ -881,7 +881,7 @@
     }
 
     .focus-ring {
-      padding: rem(10);
+      padding: rem(5);
     }
 
     .focus-rail-item {

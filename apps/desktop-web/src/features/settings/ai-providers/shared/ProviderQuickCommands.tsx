@@ -1,11 +1,31 @@
 import { useEffect, useMemo, useState } from 'react'
-import { motion, Reorder, AnimatePresence } from 'motion/react'
+import { createPortal } from 'react-dom'
+import { motion, AnimatePresence } from 'motion/react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   X,
   Pencil,
   Plus,
 } from 'lucide-react'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   buildCustomCommandCapsuleOrderId,
   buildNextOrderedCommandCapsuleIdsForCustomSave,
@@ -53,6 +73,12 @@ interface CustomCapsuleItem {
 
 type ProviderCapsuleItem = PresetCapsuleItem | CustomCapsuleItem
 
+interface ActiveDragState {
+  id: string
+  width?: number
+  height?: number
+}
+
 function dedupeCommandIds(commandIds: string[]): string[] {
   const seen = new Set<string>()
   const result: string[] = []
@@ -99,10 +125,128 @@ function createCustomCapsuleId(): string {
   return (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)).toLowerCase()
 }
 
+function createCustomCapsuleTimestamp(): number {
+  return Date.now()
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+  return true
+}
+
+function areCustomCapsulesEqual(left: CustomCommandCapsule[], right: CustomCommandCapsule[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index]
+    const rightItem = right[index]
+    if (
+      leftItem.id !== rightItem.id ||
+      leftItem.label !== rightItem.label ||
+      leftItem.text !== rightItem.text ||
+      leftItem.submitMode !== rightItem.submitMode ||
+      leftItem.createdAt !== rightItem.createdAt
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 function updateQuickCommandPreferences(updater: (current: UiPreferences) => UiPreferences): void {
   const current = loadUiPreferences()
   saveUiPreferences(updater(current))
   window.dispatchEvent(new Event(UI_PREFERENCES_UPDATED_EVENT))
+}
+
+function CapsuleContent({ item }: { item: ProviderCapsuleItem }) {
+  return (
+    <>
+      <span className="capsule-label">{item.label}</span>
+      <span className="capsule-tag">{item.submitMode === 'insert_and_submit' ? 'Auto' : 'Ins'}</span>
+    </>
+  )
+}
+
+interface SortableCapsuleProps {
+  item: ProviderCapsuleItem
+  isHovered: boolean
+  onHover: (id: string | null) => void
+  onEdit: (item: CustomCapsuleItem) => void
+  onRemove: (item: ProviderCapsuleItem) => void
+}
+
+function SortableCapsule({ item, isHovered, onHover, onEdit, onRemove }: SortableCapsuleProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.orderId })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`command-capsule is-active${isDragging ? ' is-dragging' : ''}`}
+      onMouseEnter={() => onHover(item.orderId)}
+      onMouseLeave={() => onHover(null)}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
+      <div
+        ref={setActivatorNodeRef}
+        className="command-capsule__drag-hitbox"
+        {...attributes}
+        {...listeners}
+      >
+        <CapsuleContent item={item} />
+      </div>
+
+      {!isDragging ? (
+        <div className="capsule-actions">
+          {item.kind === 'custom' ? (
+            <button
+              type="button"
+              className="action-icon"
+              onClick={(event) => {
+                event.stopPropagation()
+                onEdit(item)
+              }}
+            >
+              <Pencil size={12} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="action-icon danger"
+            onClick={(event) => {
+              event.stopPropagation()
+              onRemove(item)
+            }}
+          >
+            <X size={12} strokeWidth={3} />
+          </button>
+        </div>
+      ) : null}
+
+      {isHovered && !isDragging ? (
+        <div className="capsule-tooltip">{item.description}</div>
+      ) : null}
+    </div>
+  )
 }
 
 export function ProviderQuickCommands({ locale, providerId }: ProviderQuickCommandsProps) {
@@ -111,7 +255,7 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
   const [customCapsules, setCustomCapsules] = useState<CustomCommandCapsule[]>([])
   const [orderedCommandCapsuleIds, setOrderedCommandCapsuleIds] = useState<string[]>([])
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null)
-  
+  const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null)
   const [isComposerOpen, setIsComposerOpen] = useState(false)
   const [editingCustomId, setEditingCustomId] = useState<string | null>(null)
   const [draftLabel, setDraftLabel] = useState('')
@@ -121,10 +265,17 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
   useEffect(() => {
     const sync = () => {
       const prefs = loadUiPreferences()
-      setIsVisible(isQuickCommandRailVisible(providerId, prefs))
-      setPinnedCommandIds(prefs.pinnedCommandIdsByProvider[providerId] ?? [])
-      setCustomCapsules(prefs.customCommandCapsulesByProvider[providerId] ?? [])
-      setOrderedCommandCapsuleIds(prefs.orderedCommandCapsuleIdsByProvider[providerId] ?? [])
+      const nextVisible = isQuickCommandRailVisible(providerId, prefs)
+      const nextPinned = prefs.pinnedCommandIdsByProvider[providerId] ?? []
+      const nextCustom = prefs.customCommandCapsulesByProvider[providerId] ?? []
+      const nextOrdered = prefs.orderedCommandCapsuleIdsByProvider[providerId] ?? []
+
+      setIsVisible((prev) => (prev === nextVisible ? prev : nextVisible))
+      setPinnedCommandIds((prev) => (areStringArraysEqual(prev, nextPinned) ? prev : nextPinned))
+      setCustomCapsules((prev) => (areCustomCapsulesEqual(prev, nextCustom) ? prev : nextCustom))
+      setOrderedCommandCapsuleIds((prev) =>
+        areStringArraysEqual(prev, nextOrdered) ? prev : nextOrdered,
+      )
     }
     sync()
     window.addEventListener(UI_PREFERENCES_UPDATED_EVENT, sync)
@@ -177,6 +328,7 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
     () => normalizedOrdered.map(id => capsuleByOrderId.get(id)).filter((i): i is ProviderCapsuleItem => !!i),
     [capsuleByOrderId, normalizedOrdered]
   )
+  const activeItem = activeDrag ? capsuleByOrderId.get(activeDrag.id) ?? null : null
 
   const providerCopy = quickCommandProviderCopyByProvider[providerId]
 
@@ -200,20 +352,50 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
     persist(normalizedPinned, customCapsules, next)
   }
 
-  const handleReorder = (nextItems: ProviderCapsuleItem[]) => {
-    const nextOrdered = nextItems.map(i => i.orderId)
-    persist(normalizedPinned, customCapsules, nextOrdered)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const id = String(event.active.id)
+    const initialRect = event.active.rect.current.initial
+    setHoveredOrderId(null)
+    setActiveDrag({
+      id,
+      width: initialRect?.width,
+      height: initialRect?.height,
+    })
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDrag(null)
+    const { active, over } = event
+    if (!over || active.id === over.id) {
+      return
+    }
+    const oldIndex = normalizedOrdered.indexOf(String(active.id))
+    const newIndex = normalizedOrdered.indexOf(String(over.id))
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) {
+      return
+    }
+    persist(normalizedPinned, customCapsules, arrayMove(normalizedOrdered, oldIndex, newIndex))
+  }
+
+  const handleDragCancel = () => {
+    setActiveDrag(null)
   }
 
   const saveCustom = (mode: 'save-and-add' | 'save-only') => {
     if (!draftLabel.trim() || !draftText.trim()) return
     const id = editingCustomId ?? createCustomCapsuleId()
+    const existingCreatedAt = customCapsules.find(c => c.id === id)?.createdAt
     const capsule: CustomCommandCapsule = {
       id,
       label: draftLabel.trim(),
       text: draftText.trim(),
       submitMode: draftSubmitMode,
-      createdAt: Date.now()
+      createdAt: existingCreatedAt ?? createCustomCapsuleTimestamp()
     }
     const nextCustom = editingCustomId ? customCapsules.map(c => c.id === id ? capsule : c) : [...customCapsules, capsule]
     const nextOrdered = buildNextOrderedCommandCapsuleIdsForCustomSave(normalizedOrdered, id, mode)
@@ -248,7 +430,7 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
           <span className="provider-quick-commands__count">
             {t(locale, 'quickCommands.section.count', { count: String(enabledCapsules.length) })}
           </span>
-          <button 
+          <button
             className={`provider-quick-commands__switch ${isVisible ? 'is-on' : ''}`}
             onClick={() => updateQuickCommandPreferences(curr => setQuickCommandRailVisibility(providerId, !isVisible, curr))}
           >
@@ -264,46 +446,54 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
             <span>{t(locale, 'quickCommands.preview.reorder')}</span>
           </div>
 
-          <Reorder.Group 
-            axis="x" 
-            values={enabledCapsules} 
-            onReorder={handleReorder}
-            className="capsule-group"
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
           >
-            <AnimatePresence>
-              {enabledCapsules.map((item) => (
-                <Reorder.Item
-                  key={item.orderId}
-                  value={item}
-                  className="command-capsule is-active"
-                  onMouseEnter={() => setHoveredOrderId(item.orderId)}
-                  onMouseLeave={() => setHoveredOrderId(null)}
-                >
-                  <span className="capsule-label">{item.label}</span>
-                  <span className="capsule-tag">{item.submitMode === 'insert_and_submit' ? 'Auto' : 'Ins'}</span>
-                  
-                  <div className="capsule-actions">
-                    {item.kind === 'custom' && (
-                      <div className="action-icon" onClick={() => beginEdit(item)}>
-                        <Pencil size={12} />
+            <SortableContext items={normalizedOrdered} strategy={rectSortingStrategy}>
+              <div className="capsule-group">
+                {enabledCapsules.map((item) => (
+                  <SortableCapsule
+                    key={item.orderId}
+                    item={item}
+                    isHovered={hoveredOrderId === item.orderId}
+                    onHover={setHoveredOrderId}
+                    onEdit={beginEdit}
+                    onRemove={(nextItem) => nextItem.kind === 'preset' ? togglePreset(nextItem.id) : toggleCustom(nextItem.id)}
+                  />
+                ))}
+                <button className="command-capsule is-disabled" onClick={() => setIsComposerOpen(true)}>
+                  <Plus size={14} />
+                  <span>{t(locale, 'quickCommands.custom.add')}</span>
+                </button>
+              </div>
+            </SortableContext>
+            {typeof document !== 'undefined'
+              ? createPortal(
+                  <DragOverlay
+                    adjustScale={false}
+                    zIndex={20002}
+                    dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}
+                  >
+                    {activeItem ? (
+                      <div
+                        className="drag-overlay-capsule"
+                        style={{
+                          width: activeDrag?.width,
+                          minHeight: activeDrag?.height,
+                        }}
+                      >
+                        <CapsuleContent item={activeItem} />
                       </div>
-                    )}
-                    <div className="action-icon danger" onClick={() => item.kind === 'preset' ? togglePreset(item.id) : toggleCustom(item.id)}>
-                      <X size={12} strokeWidth={3} />
-                    </div>
-                  </div>
-
-                  {hoveredOrderId === item.orderId && (
-                    <div className="capsule-tooltip">{item.description}</div>
-                  )}
-                </Reorder.Item>
-              ))}
-            </AnimatePresence>
-            <button className="command-capsule is-disabled" onClick={() => setIsComposerOpen(true)}>
-              <Plus size={14} />
-              <span>{t(locale, 'quickCommands.custom.add')}</span>
-            </button>
-          </Reorder.Group>
+                    ) : null}
+                  </DragOverlay>,
+                  document.body,
+                )
+              : null}
+          </DndContext>
         </section>
 
         <section className="provider-quick-commands__section">
@@ -314,8 +504,8 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
 
           <div className="library-flow">
             {[...presetItems, ...customItems].map(item => (
-              <div 
-                key={item.orderId} 
+              <div
+                key={item.orderId}
                 className={`library-capsule ${item.kind === 'preset' ? (item.enabled ? 'is-enabled' : '') : (normalizedOrdered.includes(item.orderId) ? 'is-enabled' : '')}`}
                 onClick={() => item.kind === 'preset' ? togglePreset(item.id) : toggleCustom(item.id)}
               >
@@ -333,29 +523,29 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
       <AnimatePresence>
         {isComposerOpen && (
           <div className="command-composer-overlay">
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               className="command-composer-card"
             >
               <h4>{editingCustomId ? t(locale, 'quickCommands.custom.edit') : t(locale, 'quickCommands.custom.title')}</h4>
-              
+
               <div className="form-group">
                 <label>{t(locale, 'quickCommands.custom.label')}</label>
-                <input 
+                <input
                   autoFocus
-                  value={draftLabel} 
-                  onChange={e => setDraftLabel(e.target.value)} 
+                  value={draftLabel}
+                  onChange={e => setDraftLabel(e.target.value)}
                   placeholder={t(locale, 'quickCommands.custom.label')}
                 />
               </div>
 
               <div className="form-group">
                 <label>{t(locale, 'quickCommands.custom.text')}</label>
-                <textarea 
-                  value={draftText} 
-                  onChange={e => setDraftText(e.target.value)} 
+                <textarea
+                  value={draftText}
+                  onChange={e => setDraftText(e.target.value)}
                   placeholder={t(locale, 'quickCommands.custom.formHint')}
                 />
               </div>
@@ -363,13 +553,13 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
               <div className="form-group">
                 <label>{t(locale, 'quickCommands.custom.mode')}</label>
                 <div className="segmented-control">
-                  <div 
+                  <div
                     className={`segment-option ${draftSubmitMode === 'insert' ? 'is-selected' : ''}`}
                     onClick={() => setDraftSubmitMode('insert')}
                   >
                     {t(locale, 'quickCommands.custom.mode.insert')}
                   </div>
-                  <div 
+                  <div
                     className={`segment-option ${draftSubmitMode === 'insert_and_submit' ? 'is-selected' : ''}`}
                     onClick={() => setDraftSubmitMode('insert_and_submit')}
                   >
@@ -382,8 +572,8 @@ export function ProviderQuickCommands({ locale, providerId }: ProviderQuickComma
                 <button className="secondary" onClick={closeComposer}>
                   {t(locale, 'quickCommands.custom.cancel')}
                 </button>
-                <button 
-                  className="primary" 
+                <button
+                  className="primary"
                   disabled={!draftLabel.trim() || !draftText.trim()}
                   onClick={() => saveCustom('save-and-add')}
                 >

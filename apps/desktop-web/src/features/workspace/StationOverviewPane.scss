@@ -297,52 +297,6 @@
   }
 }
 
-/* 状态指示灯 */
-.station-overview-state-indicator {
-  position: relative;
-  width: rem(8);
-  height: rem(8);
-  border-radius: rem(999);
-  flex-shrink: 0;
-
-  &::after {
-    content: '';
-    position: absolute;
-    inset: -rem(3);
-    border-radius: inherit;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  &[data-state='running'] {
-    background: #28c840;
-    box-shadow: 0 0 rem(8) rgba(40, 200, 64, 0.4);
-
-    &::after {
-      background: #28c840;
-      opacity: 0.3;
-      animation: pulse-glow 2s infinite;
-    }
-  }
-
-  &[data-state='starting'],
-  &[data-state='blocked'] {
-    background: #febc2e;
-    box-shadow: 0 0 rem(8) rgba(254, 188, 46, 0.4);
-  }
-
-  &[data-state='idle'] {
-    background: var(--vb-text-muted);
-    opacity: 0.4;
-  }
-
-  &[data-state='exited'],
-  &[data-state='killed'] {
-    background: #ff5f57;
-    box-shadow: 0 0 rem(8) rgba(255, 95, 87, 0.4);
-  }
-}
-
 @keyframes pulse-glow {
   0% {
     transform: scale(1);
@@ -441,7 +395,7 @@
     margin: 0;
   }
 
-  .station-overview-inline-filter > span {
+  .station-overview-inline-filter>span {
     width: 100%;
     margin-bottom: rem(4);
   }

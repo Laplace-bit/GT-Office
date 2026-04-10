@@ -66,7 +66,7 @@ $bg-capsule-active: rgba($system-blue, 0.1);
       border-radius: 50%;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      
+
       .is-on & { transform: translateX(16px); }
     }
   }
@@ -76,10 +76,11 @@ $bg-capsule-active: rgba($system-blue, 0.1);
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    align-items: center;
+    align-items: flex-start;
   }
 
   .command-capsule {
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     padding: 6px 12px;
@@ -91,18 +92,24 @@ $bg-capsule-active: rgba($system-blue, 0.1);
     color: var(--vb-text);
     cursor: grab;
     user-select: none;
-    transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+    transition:
+      background 0.2s cubic-bezier(0.2, 0, 0, 1),
+      border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1),
+      color 0.2s cubic-bezier(0.2, 0, 0, 1),
+      opacity 0.15s ease;
     position: relative;
+    min-width: 0;
+    white-space: nowrap;
 
     &:hover {
       background: var(--capsule-hover-bg, rgba(0, 0, 0, 0.08));
-      transform: translateY(-1px);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 
       .capsule-actions { opacity: 1; transform: scale(1); }
     }
 
-    &:active { cursor: grabbing; transform: scale(0.97); }
+    &:active { cursor: grabbing; }
 
     &.is-active {
       background: $bg-capsule-active;
@@ -115,16 +122,23 @@ $bg-capsule-active: rgba($system-blue, 0.1);
       background: transparent;
       border: 1px dashed var(--vb-border);
       color: var(--vb-text-muted);
+      cursor: pointer;
     }
 
     &.is-dragging {
-      z-index: 50;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.1);
-      background: white;
-      transform: scale(1.05);
+      opacity: 0.24;
+      cursor: grabbing;
     }
 
     .capsule-label { margin-right: 4px; }
+
+    &__drag-hitbox {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      cursor: inherit;
+      touch-action: none;
+    }
 
     .capsule-tag {
       font-size: 10px;
@@ -140,12 +154,15 @@ $bg-capsule-active: rgba($system-blue, 0.1);
       margin-left: 8px;
       opacity: 0;
       transform: scale(0.9);
-      transition: all 0.15s ease;
+      transition: opacity 0.15s ease, transform 0.15s ease;
     }
 
     .action-icon {
       width: 16px;
       height: 16px;
+      padding: 0;
+      border: none;
+      background: transparent;
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -303,7 +320,7 @@ $bg-capsule-active: rgba($system-blue, 0.1);
     &.is-enabled {
       background: rgba($system-green, 0.05);
       border-color: rgba($system-green, 0.2);
-      
+
       .status-dot { background: $system-green; }
     }
 
@@ -361,13 +378,47 @@ $bg-capsule-active: rgba($system-blue, 0.1);
 
     .command-capsule {
       background: $bg-capsule-dark;
-      &.is-dragging { background: #2c2c2e; }
+      &.is-dragging { opacity: 0.24; }
     }
 
     .library-capsule {
       background: #1c1c1e;
       &:hover { background: #2c2c2e; }
     }
+  }
+}
+
+.drag-overlay-capsule {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: $bg-capsule-active;
+  border: 1px solid rgba($system-blue, 0.3);
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: $system-blue;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16),
+              0 4px 10px rgba(0, 0, 0, 0.08);
+
+  .capsule-label { margin-right: 4px; }
+
+  .capsule-tag {
+    font-size: 10px;
+    text-transform: uppercase;
+    opacity: 0.5;
+    margin-left: 6px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .drag-overlay-capsule {
+    background: rgba($system-blue, 0.15);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4),
+                0 4px 10px rgba(0, 0, 0, 0.25);
   }
 }
 
