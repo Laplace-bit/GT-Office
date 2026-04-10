@@ -1234,6 +1234,7 @@ export interface AgentProfile {
   promptFileName?: string | null
   promptFileRelativePath?: string | null
   launchCommand?: string | null
+  orderIndex: number
   createdAtMs: number
   updatedAtMs: number
 }
@@ -1362,6 +1363,11 @@ export interface AgentPromptReadResponse {
   promptContent: string
   promptFileName?: string | null
   promptFileRelativePath?: string | null
+}
+
+export interface AgentReorderRequest {
+  workspaceId: string
+  orderedAgentIds: string[]
 }
 
 export interface AgentRuntimeRegisterRequest {
@@ -2816,6 +2822,14 @@ export const desktopApi = {
       request: {
         workspaceId: request.workspaceId,
         agentId: request.agentId,
+      },
+    })
+  },
+  agentReorder(request: AgentReorderRequest) {
+    return invokeCommand<{ reordered: boolean }>('agent_reorder', {
+      request: {
+        workspaceId: request.workspaceId,
+        orderedAgentIds: request.orderedAgentIds,
       },
     })
   },

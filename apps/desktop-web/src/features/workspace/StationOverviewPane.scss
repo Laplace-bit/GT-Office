@@ -360,6 +360,41 @@
   }
 }
 
+/* 拖拽手柄 */
+.station-overview-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: rem(20);
+  height: rem(20);
+  flex-shrink: 0;
+  color: var(--vb-text-muted);
+  opacity: 0.35;
+  cursor: grab;
+  transition: opacity 0.2s ease;
+  touch-action: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  .vb-icon {
+    width: rem(14);
+    height: rem(14);
+  }
+
+  .station-overview-row:hover & {
+    opacity: 0.7;
+  }
+}
+
+/* @dnd-kit 拖拽态 */
+.station-overview-row--dragging {
+  opacity: 0.5;
+  z-index: 10;
+  box-shadow: 0 rem(8) rem(24) rgba(0, 0, 0, 0.18);
+}
+
 .station-overview-remove {
   width: rem(26);
   height: rem(26);

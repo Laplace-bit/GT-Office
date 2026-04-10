@@ -156,6 +156,7 @@ pub fn run() {
             agent::agent_update,
             agent::agent_delete,
             agent::agent_prompt_read,
+            agent::agent_reorder,
             agentic_one::agent_install_status,
             agentic_one::install_agent,
             agentic_one::uninstall_agent,

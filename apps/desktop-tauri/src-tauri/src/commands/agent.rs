@@ -1013,6 +1013,7 @@ pub fn agent_create(
         employee_no: request.employee_no,
         state: agent_state,
         launch_command: request.launch_command,
+        order_index: None,
     };
 
     let agent = repo.create_agent(input).map_err(to_command_error)?;
@@ -1230,4 +1231,25 @@ pub fn agent_prompt_read(
         "promptFileName": prompt_file_name,
         "promptFileRelativePath": prompt_file_relative_path,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentReorderRequest {
+    pub workspace_id: String,
+    pub ordered_agent_ids: Vec<String>,
+}
+
+#[tauri::command]
+pub fn agent_reorder(
+    request: AgentReorderRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    ensure_workspace_exists(&state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(&app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    repo.reorder_agents(&request.workspace_id, request.ordered_agent_ids)
+        .map_err(to_command_error)?;
+    Ok(json!({ "reordered": true }))
 }

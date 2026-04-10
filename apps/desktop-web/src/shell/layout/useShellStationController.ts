@@ -38,6 +38,7 @@ export interface ShellStationController {
   loadStationsFromDatabase: (workspaceId: string) => Promise<void>
   addStation: (input: CreateStationInput) => Promise<void>
   updateStation: (stationId: string, input: CreateStationInput) => Promise<void>
+  reorderStations: (orderedIds: string[]) => Promise<void>
 }
 
 export function useShellStationController({
@@ -213,6 +214,40 @@ export function useShellStationController({
     ],
   )
 
+  const reorderStations = useMemo(
+    () => async (orderedIds: string[]) => {
+      // Optimistic local reorder: rearrange existing references, update orderIndex in-place
+      setStations((prev) => {
+        const stationMap = new Map(prev.map((s) => [s.id, s]))
+        const reordered = orderedIds
+          .map((id, index) => {
+            const station = stationMap.get(id)
+            if (!station) return null
+            // Only create new object if orderIndex changed
+            return station.orderIndex === index + 1
+              ? station
+              : { ...station, orderIndex: index + 1 }
+          })
+          .filter((s): s is AgentStation => s !== null)
+        // Append any stations not in the ordered list (unchanged references)
+        const remaining = prev.filter((s) => !orderedIds.includes(s.id))
+        return [...reordered, ...remaining]
+      })
+      // Persist to backend in the background — no full reload needed
+      if (desktopApi.isTauriRuntime() && activeWorkspaceId) {
+        desktopApi
+          .agentReorder({
+            workspaceId: activeWorkspaceId,
+            orderedAgentIds: orderedIds,
+          })
+          .catch((error) => {
+            console.error('failed to persist agent reorder', error)
+          })
+      }
+    },
+    [activeWorkspaceId],
+  )
+
   return {
     stations,
     setStations,
@@ -222,5 +257,6 @@ export function useShellStationController({
     loadStationsFromDatabase,
     addStation,
     updateStation,
+    reorderStations,
   }
 }

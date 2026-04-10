@@ -40,6 +40,7 @@ export interface AgentStation {
   terminalSessionId: string
   state: 'running' | 'idle' | 'blocked'
   workspaceId: string
+  orderIndex: number
 }
 
 export function normalizeStationToolKind(tool: string | null | undefined): StationToolKind {
@@ -101,10 +102,11 @@ export function mapAgentProfileToStation(
     terminalSessionId: '',
     state: agent.state === 'blocked' ? 'blocked' : 'idle',
     workspaceId: agent.workspaceId,
+    orderIndex: agent.orderIndex ?? 0,
   })
 }
 
-type DefaultStationSeed = Omit<AgentStation, 'roleWorkdirRel' | 'agentWorkdirRel' | 'customWorkdir' | 'toolKind'>
+type DefaultStationSeed = Omit<AgentStation, 'roleWorkdirRel' | 'agentWorkdirRel' | 'customWorkdir' | 'toolKind' | 'orderIndex'>
 
 const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKind }> = [
   createDefaultStationSeed({
@@ -153,13 +155,14 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   }),
 ]
 
-const defaultStationCards: AgentStation[] = defaultStationSeeds.map((station) =>
+const defaultStationCards: AgentStation[] = defaultStationSeeds.map((station, index) =>
   createAgentStation({
     ...station,
     ...buildStationWorkdirs(station.role, station.name),
     customWorkdir: false,
     promptFileName: null,
     promptFileRelativePath: null,
+    orderIndex: index + 1,
   }),
 )
 

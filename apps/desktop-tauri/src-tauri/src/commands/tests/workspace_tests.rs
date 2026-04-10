@@ -208,6 +208,7 @@ impl WorkspaceResetFixture {
                 employee_no: None,
                 state: AgentState::Ready,
                 launch_command: None,
+                order_index: None,
             })
             .expect("create target agent");
         agent_repo
@@ -222,6 +223,7 @@ impl WorkspaceResetFixture {
                 employee_no: None,
                 state: AgentState::Ready,
                 launch_command: None,
+                order_index: None,
             })
             .expect("create other agent");
 

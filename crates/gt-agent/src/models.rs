@@ -128,6 +128,7 @@ pub struct AgentProfile {
     pub prompt_file_name: Option<String>,
     pub prompt_file_relative_path: Option<String>,
     pub launch_command: Option<String>,
+    pub order_index: i32,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }

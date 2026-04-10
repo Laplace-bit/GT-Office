@@ -119,5 +119,5 @@ export function filterStationsForOverview(
         `${station.id} ${station.name} ${station.role} ${station.roleName} ${station.tool} ${station.agentWorkdirRel}`.toLowerCase()
       return searchable.includes(query)
     })
-    .sort((left, right) => left.name.localeCompare(right.name))
+    .sort((left, right) => left.orderIndex - right.orderIndex)
 }

@@ -195,6 +195,7 @@ impl SqliteAgentRepository {
               state TEXT NOT NULL,
               employee_no TEXT,
               policy_snapshot_id TEXT,
+              order_index INTEGER NOT NULL DEFAULT 0,
               created_at_ms INTEGER NOT NULL,
               updated_at_ms INTEGER NOT NULL,
               PRIMARY KEY (id, workspace_id),
@@ -214,6 +215,7 @@ impl SqliteAgentRepository {
               state,
               employee_no,
               policy_snapshot_id,
+              order_index,
               created_at_ms,
               updated_at_ms
             )
@@ -229,6 +231,7 @@ impl SqliteAgentRepository {
               state,
               employee_no,
               policy_snapshot_id,
+              COALESCE(order_index, 0),
               created_at_ms,
               updated_at_ms
             FROM agents;
@@ -357,6 +360,7 @@ CREATE TABLE IF NOT EXISTS agents (
   state TEXT NOT NULL,
   employee_no TEXT,
   policy_snapshot_id TEXT,
+  order_index INTEGER NOT NULL DEFAULT 0,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
   PRIMARY KEY (id, workspace_id),
@@ -441,6 +445,10 @@ impl AgentRepository for SqliteAgentRepository {
             (
                 "launch_command",
                 "ALTER TABLE agents ADD COLUMN launch_command TEXT",
+            ),
+            (
+                "order_index",
+                "ALTER TABLE agents ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
             ),
         ] {
             if existing_agent_columns
@@ -620,8 +628,8 @@ impl AgentRepository for SqliteAgentRepository {
         let conn = self.connection()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, created_at_ms, updated_at_ms
-                 FROM agents WHERE workspace_id = ?1 ORDER BY created_at_ms",
+                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, order_index, created_at_ms, updated_at_ms
+                 FROM agents WHERE workspace_id = ?1 ORDER BY order_index, created_at_ms",
             )
             .map_err(|error| AgentError::Storage {
                 message: error.to_string(),
@@ -641,10 +649,11 @@ impl AgentRepository for SqliteAgentRepository {
                     employee_no: row.get(8)?,
                     policy_snapshot_id: row.get(9)?,
                     launch_command: row.get(10)?,
+                    order_index: row.get(11)?,
                     prompt_file_name: None,
                     prompt_file_relative_path: None,
-                    created_at_ms: row.get(11)?,
-                    updated_at_ms: row.get(12)?,
+                    created_at_ms: row.get(12)?,
+                    updated_at_ms: row.get(13)?,
                 }))
             })
             .map_err(|error| AgentError::Storage {
@@ -700,8 +709,19 @@ impl AgentRepository for SqliteAgentRepository {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
+        let order_index = input.order_index.unwrap_or_else(|| {
+            let max_order: i32 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(order_index), 0) FROM agents WHERE workspace_id = ?1",
+                    params![input.workspace_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            max_order + 1
+        });
+
         conn.execute(
-            "INSERT INTO agents (id, workspace_id, name, role_id, role_workspace_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13)",
+            "INSERT INTO agents (id, workspace_id, name, role_id, role_workspace_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, order_index, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, ?14)",
             params![
                 agent_id,
                 input.workspace_id,
@@ -714,6 +734,7 @@ impl AgentRepository for SqliteAgentRepository {
                 input.state.as_str(),
                 input.employee_no,
                 input.launch_command,
+                order_index,
                 now_ms,
                 now_ms,
             ],
@@ -734,6 +755,7 @@ impl AgentRepository for SqliteAgentRepository {
             employee_no: input.employee_no,
             policy_snapshot_id: None,
             launch_command: input.launch_command,
+            order_index,
             prompt_file_name: None,
             prompt_file_relative_path: None,
             created_at_ms: now_ms,
@@ -764,17 +786,17 @@ impl AgentRepository for SqliteAgentRepository {
         }
 
         let conn = self.connection()?;
-        let existing_agent: Option<(i64, Option<String>)> = conn
+        let existing_agent: Option<(i64, Option<String>, i32)> = conn
             .query_row(
-                "SELECT created_at_ms, policy_snapshot_id FROM agents WHERE workspace_id = ?1 AND id = ?2",
+                "SELECT created_at_ms, policy_snapshot_id, order_index FROM agents WHERE workspace_id = ?1 AND id = ?2",
                 params![input.workspace_id, input.agent_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(|error| AgentError::Storage {
                 message: error.to_string(),
             })?;
-        let Some((created_at_ms, policy_snapshot_id)) = existing_agent else {
+        let Some((created_at_ms, policy_snapshot_id, order_index)) = existing_agent else {
             return Err(AgentError::InvalidArgument {
                 message: "agent_id not found".to_string(),
             });
@@ -828,6 +850,7 @@ impl AgentRepository for SqliteAgentRepository {
             employee_no: input.employee_no,
             policy_snapshot_id,
             launch_command: input.launch_command,
+            order_index,
             prompt_file_name: None,
             prompt_file_relative_path: None,
             created_at_ms,
@@ -846,6 +869,28 @@ impl AgentRepository for SqliteAgentRepository {
                 message: error.to_string(),
             })?;
         Ok(deleted > 0)
+    }
+
+    fn reorder_agents(&self, workspace_id: &str, ordered_ids: Vec<String>) -> AgentResult<()> {
+        let mut conn = self.connection()?;
+        let now_ms = Self::now_ms();
+        let tx = conn.transaction().map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        for (index, agent_id) in ordered_ids.iter().enumerate() {
+            let order_index = (index as i32) + 1;
+            tx.execute(
+                "UPDATE agents SET order_index = ?1, updated_at_ms = ?2 WHERE workspace_id = ?3 AND id = ?4",
+                params![order_index, now_ms, workspace_id, agent_id],
+            )
+            .map_err(|error| AgentError::Storage {
+                message: error.to_string(),
+            })?;
+        }
+        tx.commit().map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        Ok(())
     }
 
     fn upsert_role(&self, workspace_id: &str, role: AgentRole) -> AgentResult<AgentRole> {
@@ -1175,6 +1220,7 @@ mod tests {
             employee_no: None,
             state: AgentState::Ready,
             launch_command: None,
+            order_index: None,
         });
 
         assert!(created.is_ok(), "expected global roles to be assignable");
@@ -1206,6 +1252,7 @@ mod tests {
             employee_no: None,
             state: AgentState::Ready,
             launch_command: None,
+            order_index: None,
         });
 
         assert!(

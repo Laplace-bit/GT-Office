@@ -294,13 +294,21 @@ export function reconcileWorkbenchContainers(
   },
 ): WorkbenchContainer[] {
   const stationIdSet = new Set(stations.map((station) => station.id))
+  // Build an order map so container stationIds follow the global order
+  const stationOrderMap = new Map(stations.map((station, index) => [station.id, index]))
   let changed = false
   const nextContainers = containers.map((container) => {
     const mode = container.mode
     const filteredStationIds = container.stationIds.filter((stationId) => stationIdSet.has(stationId))
-    const stationIds = isSameStringArray(filteredStationIds, container.stationIds)
+    // Re-sort to match global station order, preserving any station not in global list at the end
+    const sortedStationIds = [...filteredStationIds].sort((a, b) => {
+      const orderA = stationOrderMap.get(a) ?? Number.MAX_SAFE_INTEGER
+      const orderB = stationOrderMap.get(b) ?? Number.MAX_SAFE_INTEGER
+      return orderA - orderB
+    })
+    const stationIds = isSameStringArray(sortedStationIds, container.stationIds)
       ? container.stationIds
-      : filteredStationIds
+      : sortedStationIds
     const activeStationId =
       container.activeStationId && stationIds.includes(container.activeStationId)
         ? container.activeStationId

@@ -780,6 +780,7 @@ export function createStationFromNumber(
     terminalSessionId: `ts_${String(number).padStart(3, '0')}`,
     state: 'idle',
     workspaceId: workspaceId ?? 'ws_gtoffice',
+    orderIndex: 0,
   }
 }
 
