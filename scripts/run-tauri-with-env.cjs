@@ -274,9 +274,96 @@ function hasTauriSigningKeyComment(secretKey) {
   return typeof secretKey === 'string' && secretKey.includes('untrusted comment:')
 }
 
-function resolveBuildConfigOverride(env) {
+function resolveTauriCliEntryPath(workspaceRequire) {
+  const packageJsonPath = workspaceRequire.resolve('@tauri-apps/cli/package.json')
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+  const binValue = packageJson?.bin?.tauri
+
+  if (typeof binValue !== 'string' || binValue.length === 0) {
+    throw new Error('[GT Office] Unable to resolve Tauri CLI entrypoint for updater signing preflight.')
+  }
+
+  return path.resolve(path.dirname(packageJsonPath), binValue)
+}
+
+function normalizeSigningPreflightOutput(result) {
+  return [result.stdout, result.stderr]
+    .filter((value) => typeof value === 'string' && value.trim().length > 0)
+    .join('\n')
+    .trim()
+}
+
+function summarizeSigningPreflightFailure(output) {
+  if (typeof output !== 'string' || output.trim().length === 0) {
+    return 'the Tauri signer preflight failed without diagnostic output'
+  }
+
+  if (
+    output.includes('incorrect updater private key password') ||
+    output.includes('Wrong password for that key')
+  ) {
+    return 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD could not unlock TAURI_SIGNING_PRIVATE_KEY'
+  }
+
+  if (output.includes('failed to decode secret key')) {
+    return 'TAURI_SIGNING_PRIVATE_KEY could not be decoded by the Tauri signer'
+  }
+
+  const compactOutput = output.replace(/\s+/g, ' ').trim()
+  return compactOutput.length > 240 ? `${compactOutput.slice(0, 237)}...` : compactOutput
+}
+
+function isUpdaterArtifactSigningReady(env, workspaceRequire = createRequire(path.join(workspacePath, 'package.json'))) {
+  const signingPrivateKey = readNonEmptyEnv(env, 'TAURI_SIGNING_PRIVATE_KEY')
+  if (!signingPrivateKey || !hasTauriSigningKeyComment(signingPrivateKey)) {
+    return false
+  }
+
+  const signingEnv = { ...env, TAURI_SIGNING_PRIVATE_KEY: signingPrivateKey }
+  const signingPassword = readNonEmptyEnv(env, 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')
+  if (signingPassword) {
+    signingEnv.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = signingPassword
+  } else {
+    delete signingEnv.TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gtoffice-tauri-signing-preflight-'))
+  const probeFilePath = path.join(tempDir, 'probe.txt')
+
+  try {
+    fs.writeFileSync(probeFilePath, 'GT Office updater signing preflight\n', 'utf8')
+    const tauriCliEntryPath = resolveTauriCliEntryPath(workspaceRequire)
+    const result = spawnSync(
+      process.execPath,
+      [tauriCliEntryPath, 'signer', 'sign', probeFilePath],
+      {
+        cwd: workspacePath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf8',
+        shell: false,
+        env: signingEnv,
+      },
+    )
+
+    if (result.status === 0) {
+      return true
+    }
+
+    console.warn(
+      `[GT Office] Skipping updater artifact signing because ${summarizeSigningPreflightFailure(
+        normalizeSigningPreflightOutput(result),
+      )}.`,
+    )
+    return false
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+}
+
+function resolveBuildConfigOverride(env, options = {}) {
   const config = {}
   const updaterPubkey = readNonEmptyEnv(env, 'GTO_UPDATER_PUBKEY')
+  const signingReadinessCheck = options.isUpdaterArtifactSigningReady ?? isUpdaterArtifactSigningReady
 
   if (updaterPubkey) {
     config.plugins = {
@@ -305,8 +392,10 @@ function resolveBuildConfigOverride(env) {
     return Object.keys(config).length > 0 ? config : null
   }
 
-  config.bundle = {
-    createUpdaterArtifacts: true,
+  if (signingReadinessCheck(env)) {
+    config.bundle = {
+      createUpdaterArtifacts: true,
+    }
   }
 
   return config
@@ -786,6 +875,8 @@ if (require.main === module) {
 
 module.exports = {
   hasTauriSigningKeyComment,
+  isUpdaterArtifactSigningReady,
   readNonEmptyEnv,
   resolveBuildConfigOverride,
+  summarizeSigningPreflightFailure,
 }

@@ -5,6 +5,7 @@ const path = require('node:path')
 const scriptPath = path.join(__dirname, '..', 'run-tauri-with-env.cjs')
 const {
   hasTauriSigningKeyComment,
+  summarizeSigningPreflightFailure,
   readNonEmptyEnv,
   resolveBuildConfigOverride,
 } = require(scriptPath)
@@ -33,11 +34,14 @@ test('resolveBuildConfigOverride keeps updater disabled when signing is not enab
 
 test('resolveBuildConfigOverride enables updater artifacts only for valid signing configuration', () => {
   assert.deepEqual(
-    resolveBuildConfigOverride({
-      GTO_ENABLE_UPDATER_ARTIFACTS: '1',
-      GTO_UPDATER_PUBKEY: 'pubkey-value',
-      TAURI_SIGNING_PRIVATE_KEY: 'untrusted comment: minisign secret key\nRWRTY0Iy...',
-    }),
+    resolveBuildConfigOverride(
+      {
+        GTO_ENABLE_UPDATER_ARTIFACTS: '1',
+        GTO_UPDATER_PUBKEY: 'pubkey-value',
+        TAURI_SIGNING_PRIVATE_KEY: 'untrusted comment: minisign secret key\nRWRTY0Iy...',
+      },
+      { isUpdaterArtifactSigningReady: () => true },
+    ),
     {
       bundle: {
         createUpdaterArtifacts: true,
@@ -53,11 +57,14 @@ test('resolveBuildConfigOverride enables updater artifacts only for valid signin
 
 test('resolveBuildConfigOverride skips updater artifacts for malformed signing keys', () => {
   assert.deepEqual(
-    resolveBuildConfigOverride({
-      GTO_ENABLE_UPDATER_ARTIFACTS: '1',
-      GTO_UPDATER_PUBKEY: 'pubkey-value',
-      TAURI_SIGNING_PRIVATE_KEY: 'not-a-valid-secret-key',
-    }),
+    resolveBuildConfigOverride(
+      {
+        GTO_ENABLE_UPDATER_ARTIFACTS: '1',
+        GTO_UPDATER_PUBKEY: 'pubkey-value',
+        TAURI_SIGNING_PRIVATE_KEY: 'not-a-valid-secret-key',
+      },
+      { isUpdaterArtifactSigningReady: () => true },
+    ),
     {
       plugins: {
         updater: {
@@ -65,5 +72,34 @@ test('resolveBuildConfigOverride skips updater artifacts for malformed signing k
         },
       },
     },
+  )
+})
+
+test('resolveBuildConfigOverride skips updater artifacts when signing preflight fails', () => {
+  assert.deepEqual(
+    resolveBuildConfigOverride(
+      {
+        GTO_ENABLE_UPDATER_ARTIFACTS: '1',
+        GTO_UPDATER_PUBKEY: 'pubkey-value',
+        TAURI_SIGNING_PRIVATE_KEY: 'untrusted comment: minisign secret key\nRWRTY0Iy...',
+      },
+      { isUpdaterArtifactSigningReady: () => false },
+    ),
+    {
+      plugins: {
+        updater: {
+          pubkey: 'pubkey-value',
+        },
+      },
+    },
+  )
+})
+
+test('summarizeSigningPreflightFailure reports wrong updater private key passwords clearly', () => {
+  assert.equal(
+    summarizeSigningPreflightFailure(
+      'failed to decode secret key: incorrect updater private key password: Wrong password for that key',
+    ),
+    'TAURI_SIGNING_PRIVATE_KEY_PASSWORD could not unlock TAURI_SIGNING_PRIVATE_KEY',
   )
 })
