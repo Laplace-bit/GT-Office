@@ -74,12 +74,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Rust check
-        run: cargo check --workspace
-
       - name: Ensure skill resources exist
         shell: bash
         run: mkdir -p .codex/skills/gto-agent-communication/agents
+
+      - name: Rust check
+        run: cargo check --workspace
 
       - name: Build desktop bundle
         shell: bash
