@@ -86,15 +86,16 @@ jobs:
         env:
           CARGO_TERM_COLOR: always
           GTO_ALLOW_UNSIGNED_MACOS_BUNDLE: ${{ matrix.allow_unsigned_macos_bundle }}
+          GTO_ENABLE_UPDATER_ARTIFACTS: '0'
           GTO_UPDATER_PUBKEY: ${{ vars.GTO_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -n "${{ matrix.build_args }}" ]; then
-            npm run build:tauri -- ${{ matrix.build_args }}
+            node scripts/run-tauri-with-env.cjs build ${{ matrix.build_args }}
           else
-            npm run build:tauri
+            node scripts/run-tauri-with-env.cjs build
           fi
 
       - name: Prepare release assets
@@ -172,13 +173,17 @@ jobs:
               ;;
           esac
 
-          node scripts/release/generate-updater-platform-manifest.cjs \
-            --assets-dir "$assets_dir" \
-            --output "$assets_dir/updater-manifest-${{ matrix.platform }}.json" \
-            --os "$target_os" \
-            --arch "$arch" \
-            --repo "$REPO_SLUG" \
-            --tag "$VERSION"
+          if find "$assets_dir" -maxdepth 1 -type f -name '*.sig' | grep -q .; then
+            node scripts/release/generate-updater-platform-manifest.cjs \
+              --assets-dir "$assets_dir" \
+              --output "$assets_dir/updater-manifest-${{ matrix.platform }}.json" \
+              --os "$target_os" \
+              --arch "$arch" \
+              --repo "$REPO_SLUG" \
+              --tag "$VERSION"
+          else
+            echo "No signed updater artifacts found for ${{ matrix.platform }}; skipping updater manifest generation."
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -212,12 +217,16 @@ jobs:
         run: |
           set -euo pipefail
           version="${VERSION#v}"
-          node scripts/release/merge-updater-manifests.cjs \
-            --input-dir release-assets \
-            --output release-assets/latest.json \
-            --version "$version" \
-            --notes-file "docs/releases/${VERSION}.md"
-          rm -f release-assets/updater-manifest-*.json
+          if find release-assets -maxdepth 1 -type f -name 'updater-manifest-*.json' | grep -q .; then
+            node scripts/release/merge-updater-manifests.cjs \
+              --input-dir release-assets \
+              --output release-assets/latest.json \
+              --version "$version" \
+              --notes-file "docs/releases/${VERSION}.md"
+            rm -f release-assets/updater-manifest-*.json
+          else
+            echo "No updater manifests found; skipping latest.json generation."
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

@@ -41,7 +41,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "externalBin": [
       "binaries/gto-agent-mcp-sidecar"

@@ -261,6 +261,57 @@ function hasBundleTargetArg(args) {
   return args.includes('--bundles') || args.includes('-b')
 }
 
+function readNonEmptyEnv(env, key) {
+  const value = env[key]
+  if (typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function hasTauriSigningKeyComment(secretKey) {
+  return typeof secretKey === 'string' && secretKey.includes('untrusted comment:')
+}
+
+function resolveBuildConfigOverride(env) {
+  const config = {}
+  const updaterPubkey = readNonEmptyEnv(env, 'GTO_UPDATER_PUBKEY')
+
+  if (updaterPubkey) {
+    config.plugins = {
+      updater: {
+        pubkey: updaterPubkey,
+      },
+    }
+  }
+
+  if (env.GTO_ENABLE_UPDATER_ARTIFACTS !== '1') {
+    return Object.keys(config).length > 0 ? config : null
+  }
+
+  const signingPrivateKey = readNonEmptyEnv(env, 'TAURI_SIGNING_PRIVATE_KEY')
+  if (!updaterPubkey || !signingPrivateKey) {
+    console.warn(
+      '[GT Office] Skipping updater artifact signing because GTO_UPDATER_PUBKEY or TAURI_SIGNING_PRIVATE_KEY is missing.',
+    )
+    return Object.keys(config).length > 0 ? config : null
+  }
+
+  if (!hasTauriSigningKeyComment(signingPrivateKey)) {
+    console.warn(
+      '[GT Office] Skipping updater artifact signing because TAURI_SIGNING_PRIVATE_KEY is not a valid minisign secret key payload.',
+    )
+    return Object.keys(config).length > 0 ? config : null
+  }
+
+  config.bundle = {
+    createUpdaterArtifacts: true,
+  }
+
+  return config
+}
+
 function shouldUseCustomMacOsDmgFlow(args) {
   return process.platform === 'darwin' && args[0] === 'build' && !hasBundleTargetArg(args)
 }
@@ -646,22 +697,35 @@ async function resolveFrontendPort() {
 async function resolveTauriArgs(passthroughArgs) {
   const normalizedArgs = resolveMacOsBuildArgs(passthroughArgs)
   const isDevCommand = passthroughArgs[0] === 'dev'
-  if (!isDevCommand || hasTauriConfigArg(normalizedArgs)) {
+  const buildConfigOverride = passthroughArgs[0] === 'build' ? resolveBuildConfigOverride(process.env) : null
+
+  if (!isDevCommand && !buildConfigOverride) {
     return normalizedArgs
   }
 
-  const port = await resolveFrontendPort()
-  const beforeDevCommand = `cd ../desktop-web && npm run dev -- --port ${port} --strictPort`
-  const devUrl = `http://localhost:${port}`
-  const configOverride = JSON.stringify({
-    build: {
+  if (hasTauriConfigArg(normalizedArgs)) {
+    return normalizedArgs
+  }
+
+  const configOverride = {}
+
+  if (isDevCommand) {
+    const port = await resolveFrontendPort()
+    const beforeDevCommand = `cd ../desktop-web && npm run dev -- --port ${port} --strictPort`
+    const devUrl = `http://localhost:${port}`
+    configOverride.build = {
       beforeDevCommand,
       devUrl,
-    },
-  })
+    }
 
-  console.log(`[GT Office] Using frontend dev server ${devUrl}`)
-  return [...normalizedArgs, '--config', configOverride]
+    console.log(`[GT Office] Using frontend dev server ${devUrl}`)
+  }
+
+  if (buildConfigOverride) {
+    Object.assign(configOverride, buildConfigOverride)
+  }
+
+  return [...normalizedArgs, '--config', JSON.stringify(configOverride)]
 }
 
 async function main() {
@@ -716,4 +780,12 @@ async function main() {
   }
 }
 
-void main()
+if (require.main === module) {
+  void main()
+}
+
+module.exports = {
+  hasTauriSigningKeyComment,
+  readNonEmptyEnv,
+  resolveBuildConfigOverride,
+}
