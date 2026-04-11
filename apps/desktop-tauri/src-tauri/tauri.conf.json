@@ -46,7 +46,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "externalBin": [
       "binaries/gto-agent-mcp-sidecar"
@@ -65,8 +65,10 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": [],
-      "pubkey": "",
+      "endpoints": [
+        "https://github.com/Laplace-bit/GT-Office/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ3NzAxN0Y1Nzg0QkFDMTMKUldRVHJFdDQ5UmR3MTBjK0pjaWllQ1orMWc4OW5ydEJjTlBZNVh4NFgvSW4yMXRwQkJuaVpYcUkK",
       "windows": {
         "installMode": "passive"
       }

@@ -68,7 +68,7 @@ pub struct AppUpdateInstallResponse {
 #[tauri::command]
 pub fn settings_update_status(app: AppHandle) -> Result<AppUpdateStatusResponse, String> {
     let package = app.package_info();
-    let config = resolve_update_config();
+    let config = resolve_update_config(&app);
 
     Ok(match config {
         Ok(config) => AppUpdateStatusResponse {
@@ -96,7 +96,7 @@ pub fn settings_update_status(app: AppHandle) -> Result<AppUpdateStatusResponse,
 pub async fn settings_update_check(app: AppHandle) -> Result<AppUpdateCheckResponse, String> {
     let package = app.package_info();
     let current_version = package.version.to_string();
-    let config = match resolve_update_config() {
+    let config = match resolve_update_config(&app) {
         Ok(config) => config,
         Err(reason) => {
             return Ok(AppUpdateCheckResponse {
@@ -183,7 +183,7 @@ pub async fn settings_update_download_and_install(
 ) -> Result<AppUpdateInstallResponse, String> {
     let package = app.package_info();
     let current_version = package.version.to_string();
-    let config = match resolve_update_config() {
+    let config = match resolve_update_config(&app) {
         Ok(config) => config,
         Err(reason) => {
             return Ok(AppUpdateInstallResponse {
@@ -342,7 +342,7 @@ fn build_updater(
         .map_err(|error| format!("failed to initialize updater: {error}"))
 }
 
-fn resolve_update_config() -> Result<AppUpdateConfig, String> {
+fn resolve_update_config(app: &AppHandle) -> Result<AppUpdateConfig, String> {
     let repository = std::env::var("GTO_UPDATE_REPOSITORY")
         .ok()
         .map(|value| value.trim().to_string())
@@ -368,6 +368,7 @@ fn resolve_update_config() -> Result<AppUpdateConfig, String> {
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned)
         })
+        .or_else(|| resolve_pubkey_from_config(app))
         .ok_or_else(|| "UPDATER_PUBKEY_MISSING".to_string())?;
 
     Ok(AppUpdateConfig {
@@ -376,6 +377,13 @@ fn resolve_update_config() -> Result<AppUpdateConfig, String> {
         releases_url,
         pubkey,
     })
+}
+
+fn resolve_pubkey_from_config(app: &AppHandle) -> Option<String> {
+    let config = app.config();
+    let updater_config = config.plugins.0.get("updater")?;
+    let pubkey = updater_config.get("pubkey")?;
+    pubkey.as_str().map(str::trim).filter(|v| !v.is_empty()).map(ToOwned::to_owned)
 }
 
 fn build_release_page_url(config: &AppUpdateConfig, version: Option<&str>) -> String {

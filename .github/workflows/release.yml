@@ -86,7 +86,7 @@ jobs:
         env:
           CARGO_TERM_COLOR: always
           GTO_ALLOW_UNSIGNED_MACOS_BUNDLE: ${{ matrix.allow_unsigned_macos_bundle }}
-          GTO_ENABLE_UPDATER_ARTIFACTS: '0'
+          GTO_ENABLE_UPDATER_ARTIFACTS: '1'
           GTO_UPDATER_PUBKEY: ${{ vars.GTO_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
