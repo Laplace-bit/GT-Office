@@ -14,7 +14,12 @@
       "csp": "default-src 'self' customprotocol: asset: ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost blob: data: https:; media-src 'self' asset: http://asset.localhost https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/**", "$APPCONFIG/**", "$APPDATA/**", "$RESOURCE/**"]
+        "scope": [
+          "$HOME/**",
+          "$APPCONFIG/**",
+          "$APPDATA/**",
+          "$RESOURCE/**"
+        ]
       }
     },
     "windows": [
@@ -34,7 +39,7 @@
         "acceptFirstMouse": true,
         "trafficLightPosition": {
           "x": 16,
-          "y": 24
+          "y": 25
         }
       }
     ]
