@@ -1,4 +1,5 @@
 export * from './DisplayPreferences'
 export * from './SettingsModal'
 export * from './TaskDispatchPreferences'
+export * from './UpdatePreferences'
 export * from './ai-providers'

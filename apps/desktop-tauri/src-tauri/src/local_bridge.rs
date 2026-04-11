@@ -154,6 +154,8 @@ mod tests {
             policy_snapshot_id: None,
             prompt_file_name: Some("CLAUDE.md".to_string()),
             prompt_file_relative_path: Some(".gtoffice/alpha/CLAUDE.md".to_string()),
+            launch_command: None,
+            order_index: 0,
             created_at_ms: 1,
             updated_at_ms: 1,
         }];

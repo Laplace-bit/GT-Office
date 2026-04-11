@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GT Office",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "identifier": "dev.gtoffice.app",
   "build": {
     "beforeDevCommand": "cd ../desktop-web && npm run dev",
@@ -56,5 +56,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [],
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

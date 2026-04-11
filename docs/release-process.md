@@ -28,11 +28,18 @@ Platform-specific bundle targets:
 - Windows: `npm run build:tauri -- --bundles nsis`
 - Linux: `npm run build:tauri -- --bundles appimage,deb`
 
+Updater artifacts:
+
+- the release workflow turns on `bundle.createUpdaterArtifacts` only in CI, so local `npm run build:tauri` does not require signing keys
+- every tagged release now also uploads a signed `latest.json` companion manifest for the in-app updater
+- the desktop app reads updates from `https://github.com/<owner>/<repo>/releases/latest/download/latest.json`
+
 ## Secrets and Signing
 
 ### GitHub
 
 - `GITHUB_TOKEN` is required for creating or updating the GitHub Release
+- `GTO_UPDATER_PUBKEY` should be configured as a repository variable so release builds embed the updater verification key
 
 ### macOS
 
@@ -60,6 +67,15 @@ Common secret names for a later signing pass are `WINDOWS_CERTIFICATE_PFX_BASE64
 ### Linux
 
 Linux packaging does not require special signing secrets for the base release flow.
+
+### Updater signing
+
+To publish signed updater artifacts, configure the standard Tauri updater signing secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key is password protected
+
+The matching public key must be exposed to the app build as `GTO_UPDATER_PUBKEY`.
 
 ## Tagging a Release
 
@@ -151,3 +167,4 @@ If the tag itself is wrong, delete the tag, correct the commit, and create a new
 - Windows release signing is not enforced by this workflow
 - Linux package coverage depends on the bundle types emitted by Tauri on the runner
 - The workflow assumes a single release tag per version and does not try to synthesize notes from commits automatically
+- in-app updates stay unavailable until `GTO_UPDATER_PUBKEY` and the Tauri signing key pair are configured

@@ -1,8 +1,10 @@
 import { startTransition, useEffect, useState } from 'react'
 import { DisplayPreferences } from './DisplayPreferences'
 import { TaskDispatchPreferences } from './TaskDispatchPreferences'
+import { UpdatePreferences } from './UpdatePreferences'
 import { WorkspaceResetSection } from './WorkspaceResetSection'
 import { AiProvidersSection } from './ai-providers'
+import { useAppUpdate } from './useAppUpdate'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
@@ -41,6 +43,10 @@ interface SettingsModalProps {
   onTaskQuickDispatchShortcutChange: (binding: ShortcutBinding) => void
   onTaskQuickDispatchShortcutReset: () => void
   onWorkspaceResetSuccess?: () => void
+  autoCheckAppUpdates: boolean
+  skippedAppUpdateVersion: string | null
+  onAutoCheckAppUpdatesChange: (value: boolean) => void
+  onSkipAppUpdateVersion: (value: string | null) => void
 }
 
 const SETTINGS_TAB_ICONS: Record<SettingsTab, 'settings' | 'command' | 'sparkles' | 'channels' | 'info'> = {
@@ -81,10 +87,20 @@ export function SettingsModal({
   onTaskQuickDispatchShortcutChange,
   onTaskQuickDispatchShortcutReset,
   onWorkspaceResetSuccess,
+  autoCheckAppUpdates,
+  skippedAppUpdateVersion,
+  onAutoCheckAppUpdatesChange,
+  onSkipAppUpdateVersion,
 }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [visitedTabs, setVisitedTabs] = useState<SettingsTab[]>(['general'])
   const [aboutAppInfo, setAboutAppInfo] = useState<SettingsAboutAppInfo>(createInitialAboutAppInfo)
+  const appUpdate = useAppUpdate({
+    locale,
+    skippedVersion: skippedAppUpdateVersion,
+    onAutoCheckChange: onAutoCheckAppUpdatesChange,
+    onSkipVersionChange: onSkipAppUpdateVersion,
+  })
 
   useEffect(() => {
     setVisitedTabs((current) => (current.includes(activeTab) ? current : [...current, activeTab]))
@@ -148,6 +164,24 @@ export function SettingsModal({
               onUiFontChange={onUiFontChange}
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
+            />
+            <UpdatePreferences
+              locale={locale}
+              autoCheckOnLaunch={autoCheckAppUpdates}
+              skippedVersion={skippedAppUpdateVersion}
+              hasAvailableUpdate={appUpdate.hasAvailableUpdate}
+              updateState={appUpdate.state}
+              onAutoCheckOnLaunchChange={onAutoCheckAppUpdatesChange}
+              onCheckForUpdates={() => {
+                void appUpdate.checkForUpdates()
+              }}
+              onInstallUpdate={() => {
+                void appUpdate.installUpdate()
+              }}
+              onOpenReleasePage={() => {
+                void appUpdate.openReleasePage()
+              }}
+              onSkipVersion={onSkipAppUpdateVersion}
             />
             <WorkspaceResetSection locale={locale} workspaceId={workspaceId} onResetSuccess={onWorkspaceResetSuccess} />
           </div>

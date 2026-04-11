@@ -48,6 +48,8 @@ export interface UiPreferences {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
+  autoCheckAppUpdates: boolean
+  skippedAppUpdateVersion: string | null
   showWorkspaceActionsInRail: boolean
   quickCommandVisibilityByProvider: Record<CommandRailProviderId, boolean>
   pinnedCommandIdsByProvider: Record<string, string[]>
@@ -287,6 +289,8 @@ export const defaultUiPreferences: UiPreferences = {
   uiFont: 'sf-pro',
   monoFont: 'jetbrains-mono',
   uiFontSize: 'medium',
+  autoCheckAppUpdates: true,
+  skippedAppUpdateVersion: null,
   showWorkspaceActionsInRail: true,
   quickCommandVisibilityByProvider: quickCommandDefaultVisibilityByProvider,
   pinnedCommandIdsByProvider: commandRailDefaultPinnedCommandIdsByProvider,
@@ -617,6 +621,14 @@ export function loadUiPreferences(): UiPreferences {
         parsed.uiFontSize === 'large' || parsed.uiFontSize === 'xlarge'
           ? parsed.uiFontSize
           : defaultUiPreferences.uiFontSize,
+      autoCheckAppUpdates:
+        typeof parsed.autoCheckAppUpdates === 'boolean'
+          ? parsed.autoCheckAppUpdates
+          : defaultUiPreferences.autoCheckAppUpdates,
+      skippedAppUpdateVersion:
+        typeof parsed.skippedAppUpdateVersion === 'string' && parsed.skippedAppUpdateVersion.trim().length > 0
+          ? parsed.skippedAppUpdateVersion.trim()
+          : null,
       showWorkspaceActionsInRail:
         typeof parsed.showWorkspaceActionsInRail === 'boolean'
           ? parsed.showWorkspaceActionsInRail

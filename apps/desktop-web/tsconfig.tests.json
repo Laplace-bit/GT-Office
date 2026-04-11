@@ -36,6 +36,7 @@
     "src/features/tool-adapter/channel-message-layout.ts",
     "src/features/workspace-hub/station-task-ack-emoji.ts",
     "src/features/workspace-hub/station-mutation-error.ts",
+    "src/features/settings/update-preferences-model.ts",
     "src/shell/i18n/messages.ts",
     "src/shell/i18n/ui-locale.ts"
   ]

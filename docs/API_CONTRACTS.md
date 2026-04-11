@@ -111,6 +111,9 @@ Error example:
 | `settings.get` | `key` | `value` |
 | `settings.set` | `key, value` | `set` |
 | `settings.reset` | `key` | `reset` |
+| `settings.update_status` | `{}` | `enabled, currentVersion, manifestUrl` |
+| `settings.update_check` | `{}` | `updateAvailable, version?, notes?` |
+| `settings.update_download_and_install` | `{}` | `started, version?, errorCode?` |
 
 ### AI Config
 

@@ -1,7 +1,7 @@
 {
   "name": "@gtoffice/desktop-tauri",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "ensure:tauri-cli": "node ../../scripts/ensure-tauri-cli-binding.cjs",
@@ -10,7 +10,8 @@
     "tauri": "node ../../scripts/run-tauri-with-env.cjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2"
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-updater": "^2.10.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

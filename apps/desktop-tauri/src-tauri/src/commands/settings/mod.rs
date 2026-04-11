@@ -1,4 +1,5 @@
 pub mod ai_config;
+pub mod update;
 
 use gt_abstractions::SettingsScope;
 use gt_settings::JsonSettingsService;

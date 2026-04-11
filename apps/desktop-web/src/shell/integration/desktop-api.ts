@@ -41,6 +41,54 @@ export interface DesktopAppInfoResponse {
   tauriVersion: string
 }
 
+export interface AppUpdateStatusResponse {
+  enabled: boolean
+  currentVersion: string
+  channel: string
+  repository: string
+  manifestUrl: string
+  releasesUrl: string
+  unavailableReason?: string | null
+}
+
+export interface AppUpdateCheckResponse {
+  enabled: boolean
+  updateAvailable: boolean
+  currentVersion: string
+  version?: string | null
+  notes?: string | null
+  publishedAt?: string | null
+  target?: string | null
+  repository: string
+  manifestUrl: string
+  releasePageUrl: string
+  unavailableReason?: string | null
+  errorCode?: string | null
+  errorDetail?: string | null
+}
+
+export interface AppUpdateInstallResponse {
+  enabled: boolean
+  updateAvailable: boolean
+  currentVersion: string
+  version?: string | null
+  repository: string
+  manifestUrl: string
+  releasePageUrl: string
+  unavailableReason?: string | null
+  errorCode?: string | null
+  errorDetail?: string | null
+  started: boolean
+}
+
+export interface AppUpdateProgressPayload {
+  stage: 'started' | 'progress' | 'verifying' | 'finished' | 'error'
+  version?: string | null
+  downloadedBytes: number
+  contentLength?: number | null
+  detail?: string | null
+}
+
 export interface GitStatusFile {
   path: string
   staged: boolean
@@ -2325,6 +2373,15 @@ export const desktopApi = {
       workspaceId: workspaceId ?? null,
     })
   },
+  settingsUpdateStatus() {
+    return invokeCommand<AppUpdateStatusResponse>('settings_update_status')
+  },
+  settingsUpdateCheck() {
+    return invokeCommand<AppUpdateCheckResponse>('settings_update_check')
+  },
+  settingsUpdateDownloadAndInstall() {
+    return invokeCommand<AppUpdateInstallResponse>('settings_update_download_and_install')
+  },
   toolListProfiles(workspaceId: string) {
     return invokeCommand<ToolListProfilesResponse>('tool_list_profiles', { workspaceId })
   },
@@ -3162,6 +3219,21 @@ export const desktopApi = {
 
     const eventApi = await import('@tauri-apps/api/event')
     const unlisten = await eventApi.listen<SettingsUpdatedPayload>('settings/updated', (event) =>
+      onUpdated(event.payload),
+    )
+    return () => {
+      unlisten()
+    }
+  },
+  async subscribeAppUpdateProgress(
+    onUpdated: (payload: AppUpdateProgressPayload) => void,
+  ): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlisten = await eventApi.listen<AppUpdateProgressPayload>('settings/update_progress', (event) =>
       onUpdated(event.payload),
     )
     return () => {

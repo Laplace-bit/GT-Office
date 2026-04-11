@@ -29,6 +29,7 @@ pub fn run() {
     let _ = aws_lc_rs::default_provider().install_default();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state::AppState::default())
         .setup(|app| {
             let _ = terminal_debug::dev_log::reset_dev_logs(&app.handle());
@@ -244,6 +245,9 @@ pub fn run() {
             settings::settings_get_effective,
             settings::settings_update,
             settings::settings_reset,
+            settings::update::settings_update_status,
+            settings::update::settings_update_check,
+            settings::update::settings_update_download_and_install,
             keybindings::keymap_list,
             keybindings::keymap_update_binding,
             keybindings::keymap_reset,

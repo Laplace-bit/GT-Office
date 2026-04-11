@@ -76,18 +76,22 @@ jobs:
         env:
           CARGO_TERM_COLOR: always
           GTO_ALLOW_UNSIGNED_MACOS_BUNDLE: ${{ matrix.allow_unsigned_macos_bundle }}
+          GTO_UPDATER_PUBKEY: ${{ vars.GTO_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -n "${{ matrix.build_args }}" ]; then
-            npm run build:tauri -- ${{ matrix.build_args }}
+            npm run build:tauri -- --config '{"bundle":{"createUpdaterArtifacts":true}}' ${{ matrix.build_args }}
           else
-            npm run build:tauri
+            npm run build:tauri -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
           fi
 
       - name: Prepare release assets
         shell: bash
         env:
           VERSION: ${{ github.ref_name }}
+          REPO_SLUG: ${{ github.repository }}
         run: |
           set -euo pipefail
           version="${VERSION#v}"
@@ -123,7 +127,48 @@ jobs:
             done < <(find target/linux/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \))
           fi
 
+          while IFS= read -r sig_file; do
+            [ -n "$sig_file" ] || continue
+            asset_file="${sig_file%.sig}"
+            if [ -f "$asset_file" ]; then
+              cp "$asset_file" "$assets_dir/$(basename "$asset_file")"
+            fi
+            cp "$sig_file" "$assets_dir/$(basename "$sig_file")"
+          done < <(find "target/${{ matrix.platform }}/release/bundle" -type f -name '*.sig')
+
           ls -la "$assets_dir"
+
+          case "${{ matrix.platform }}" in
+            macos)
+              arch="$(uname -m)"
+              target_os="darwin"
+              ;;
+            windows)
+              arch="x86_64"
+              target_os="windows"
+              ;;
+            *)
+              arch="$(uname -m)"
+              target_os="linux"
+              ;;
+          esac
+
+          case "$arch" in
+            arm64)
+              arch="aarch64"
+              ;;
+            amd64|x64)
+              arch="x86_64"
+              ;;
+          esac
+
+          node scripts/release/generate-updater-platform-manifest.cjs \
+            --assets-dir "$assets_dir" \
+            --output "$assets_dir/updater-manifest-${{ matrix.platform }}.json" \
+            --os "$target_os" \
+            --arch "$arch" \
+            --repo "$REPO_SLUG" \
+            --tag "$VERSION"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -150,6 +195,19 @@ jobs:
 
       - name: Summarize release assets
         run: find release-assets -maxdepth 2 -type f | sort
+
+      - name: Generate updater manifest
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          node scripts/release/merge-updater-manifests.cjs \
+            --input-dir release-assets \
+            --output release-assets/latest.json \
+            --version "$version" \
+            --notes-file "docs/releases/${VERSION}.md"
+          rm -f release-assets/updater-manifest-*.json
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

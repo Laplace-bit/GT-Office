@@ -39,6 +39,7 @@ function sampleAgent(id: string, name: string): AgentProfile {
     policySnapshotId: null,
     promptFileName: 'AGENTS.md',
     promptFileRelativePath: '.gtoffice/product/AGENTS.md',
+    orderIndex: 0,
     createdAtMs: 1,
     updatedAtMs: 1,
   }

@@ -157,6 +157,7 @@ import {
   // TODO: 性能调试按钮暂时隐藏
   // savePerformanceDebugState,
 } from '../state/performance-debug'
+import { addNotification } from '@/stores/notification'
 import { pickDirectory } from '../integration/directory-picker'
 import {
   EXTERNAL_CHANNEL_EVENT_HISTORY_LIMIT,
@@ -668,6 +669,46 @@ export function ShellRoot() {
       window.removeEventListener(UI_PREFERENCES_UPDATED_EVENT, syncUiPreferences)
     }
   }, [])
+
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime() || !uiPreferences.autoCheckAppUpdates) {
+      return
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void desktopApi.settingsUpdateCheck().then((response) => {
+        if (
+          cancelled ||
+          !response.updateAvailable ||
+          !response.version ||
+          response.version === uiPreferences.skippedAppUpdateVersion
+        ) {
+          return
+        }
+        addNotification({
+          type: 'info',
+          message: t(
+            uiPreferences.locale,
+            `GT Office ${response.version} 已可更新，请在设置中查看并安装。`,
+            `GT Office ${response.version} is available. Open Settings to review and install it.`,
+          ),
+          duration: 8000,
+        })
+      }).catch(() => {
+        // Startup update checks are best-effort and should stay silent here.
+      })
+    }, 4000)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    uiPreferences.autoCheckAppUpdates,
+    uiPreferences.locale,
+    uiPreferences.skippedAppUpdateVersion,
+  ])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -5600,6 +5641,18 @@ export function ShellRoot() {
         onWorkspaceResetSuccess: () => {
           window.location.reload()
         },
+        autoCheckAppUpdates: uiPreferences.autoCheckAppUpdates,
+        skippedAppUpdateVersion: uiPreferences.skippedAppUpdateVersion,
+        onAutoCheckAppUpdatesChange: (value) =>
+          setUiPreferences((prev) => ({
+            ...prev,
+            autoCheckAppUpdates: value,
+          })),
+        onSkipAppUpdateVersion: (value) =>
+          setUiPreferences((prev) => ({
+            ...prev,
+            skippedAppUpdateVersion: value,
+          })),
       }}
       stationManageModalProps={{
         open: isStationManageOpen,

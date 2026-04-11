@@ -52,6 +52,7 @@ This document is the single source of truth for every dependency the project is 
 | Animation | `motion` | Limited to opacity/transform transitions only |
 | Tauri | `@tauri-apps/api` | Tauri JS bindings |
 | | `@tauri-apps/cli` | Tauri CLI for dev & build |
+| | `@tauri-apps/plugin-updater` | Native update checks and install flow from the desktop shell |
 
 ### P1 — Next Milestone
 
@@ -80,6 +81,7 @@ Core workspace dependencies. All crates are managed through the workspace `Cargo
 | Category | Crate | Features / Notes |
 |---|---|---|
 | Framework | `tauri` | Core desktop framework |
+| | `tauri-plugin-updater` | Native updater plugin for signed release installation |
 | Async runtime | `tokio` | Async runtime (full features as needed) |
 | Serialization | `serde` | Derive macros |
 | | `serde_json` | JSON serde |
