@@ -361,7 +361,11 @@ function isUpdaterArtifactSigningReady(env, workspaceRequire = createRequire(pat
 }
 
 function resolveBuildConfigOverride(env, options = {}) {
-  const config = {}
+  const config = {
+    bundle: {
+      createUpdaterArtifacts: false,
+    },
+  }
   const updaterPubkey = readNonEmptyEnv(env, 'GTO_UPDATER_PUBKEY')
   const signingReadinessCheck = options.isUpdaterArtifactSigningReady ?? isUpdaterArtifactSigningReady
 
@@ -374,7 +378,7 @@ function resolveBuildConfigOverride(env, options = {}) {
   }
 
   if (env.GTO_ENABLE_UPDATER_ARTIFACTS !== '1') {
-    return Object.keys(config).length > 0 ? config : null
+    return config
   }
 
   const signingPrivateKey = readNonEmptyEnv(env, 'TAURI_SIGNING_PRIVATE_KEY')
@@ -382,20 +386,18 @@ function resolveBuildConfigOverride(env, options = {}) {
     console.warn(
       '[GT Office] Skipping updater artifact signing because GTO_UPDATER_PUBKEY or TAURI_SIGNING_PRIVATE_KEY is missing.',
     )
-    return Object.keys(config).length > 0 ? config : null
+    return config
   }
 
   if (!hasTauriSigningKeyComment(signingPrivateKey)) {
     console.warn(
       '[GT Office] Skipping updater artifact signing because TAURI_SIGNING_PRIVATE_KEY is not a valid minisign secret key payload.',
     )
-    return Object.keys(config).length > 0 ? config : null
+    return config
   }
 
   if (signingReadinessCheck(env)) {
-    config.bundle = {
-      createUpdaterArtifacts: true,
-    }
+    config.bundle.createUpdaterArtifacts = true
   }
 
   return config

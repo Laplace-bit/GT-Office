@@ -24,6 +24,9 @@ test('hasTauriSigningKeyComment detects minisign secret key payloads', () => {
 
 test('resolveBuildConfigOverride keeps updater disabled when signing is not enabled', () => {
   assert.deepEqual(resolveBuildConfigOverride({ GTO_UPDATER_PUBKEY: 'pubkey-value' }), {
+    bundle: {
+      createUpdaterArtifacts: false,
+    },
     plugins: {
       updater: {
         pubkey: 'pubkey-value',
@@ -66,6 +69,9 @@ test('resolveBuildConfigOverride skips updater artifacts for malformed signing k
       { isUpdaterArtifactSigningReady: () => true },
     ),
     {
+      bundle: {
+        createUpdaterArtifacts: false,
+      },
       plugins: {
         updater: {
           pubkey: 'pubkey-value',
@@ -86,6 +92,9 @@ test('resolveBuildConfigOverride skips updater artifacts when signing preflight 
       { isUpdaterArtifactSigningReady: () => false },
     ),
     {
+      bundle: {
+        createUpdaterArtifacts: false,
+      },
       plugins: {
         updater: {
           pubkey: 'pubkey-value',
