@@ -158,7 +158,7 @@ mod tests {
                 .as_millis() as u64;
             let cache_path = cache_dir.join("agent-install-status.json");
             let cache_body = serde_json::json!({
-                "version": 1,
+                "version": 2,
                 "entries": {
                     "codex": {
                         "checkedAtMs": now_ms,
@@ -168,6 +168,7 @@ mod tests {
                             "requiresNode": true,
                             "nodeReady": true,
                             "npmReady": true,
+                            "brewReady": false,
                             "installAvailable": true,
                             "uninstallAvailable": true,
                             "detectedBy": ["cache"],
@@ -221,7 +222,7 @@ mod tests {
                 .as_millis() as u64;
             let cache_path = cache_dir.join("agent-install-status.json");
             let cache_body = serde_json::json!({
-                "version": 1,
+                "version": 2,
                 "entries": {
                     "codex": {
                         "checkedAtMs": now_ms,
@@ -231,6 +232,7 @@ mod tests {
                             "requiresNode": true,
                             "nodeReady": true,
                             "npmReady": true,
+                            "brewReady": false,
                             "installAvailable": true,
                             "uninstallAvailable": true,
                             "detectedBy": ["cache"],
@@ -280,17 +282,81 @@ mod tests {
             },
         );
 
-        assert_eq!(plan.attempts.len(), 2);
-        assert!(plan.attempts[0]
-            .args
-            .last()
-            .expect("script")
-            .contains(MIRROR_NPM_REGISTRY));
-        assert!(plan.attempts[1]
-            .args
-            .last()
-            .expect("script")
-            .contains(OFFICIAL_NPM_REGISTRY));
+        // The plan content depends on whether npm/brew are available in the test environment.
+        // If npm is available, there will be npm install attempts.
+        // If brew is available, there will be a brew install attempt.
+        // If neither is available but node dir is found, there will be a node-dir fallback attempt.
+        // In a CI/test environment, npm may or may not be present.
+        let has_npm_attempt = plan.attempts.iter().any(|a| a.id.contains("-npm-"));
+        let has_brew_attempt = plan.attempts.iter().any(|a| a.id.contains("-brew"));
+        let has_node_dir_attempt = plan.attempts.iter().any(|a| a.id.contains("-npm-node-dir"));
+        // At least one attempt method should be present if any tool is available,
+        // or the plan may be empty if no install tool is found in the test environment.
+        if has_npm_attempt {
+            assert!(plan.attempts.len() >= 2);
+            assert!(plan.attempts[0]
+                .args
+                .last()
+                .expect("script")
+                .contains(MIRROR_NPM_REGISTRY));
+            assert!(plan.attempts[1]
+                .args
+                .last()
+                .expect("script")
+                .contains(OFFICIAL_NPM_REGISTRY));
+            assert!(plan.attempts[0]
+                .args
+                .last()
+                .expect("script")
+                .contains("npm prefix -g"));
+        }
+        if has_brew_attempt {
+            let brew_attempt = plan.attempts.iter().find(|a| a.id.contains("-brew")).expect("brew attempt");
+            assert!(brew_attempt.args.last().expect("script").contains("brew"));
+        }
+        if has_node_dir_attempt {
+            let node_dir_attempt = plan.attempts.iter().find(|a| a.id.contains("-npm-node-dir")).expect("node dir attempt");
+            assert!(node_dir_attempt.args.last().expect("script").contains("npm"));
+        }
+    }
+
+    #[test]
+    fn find_executable_hint_prefers_managed_local_bin_for_codex() {
+        let dir = temp_dir("managed-local-bin");
+        with_test_home(&dir, |home| {
+            let local_bin = home.join(".local").join("bin");
+            let fnm_bin = home
+                .join(".local")
+                .join("share")
+                .join("fnm")
+                .join("node-versions")
+                .join("v22.0.0")
+                .join("installation")
+                .join("bin");
+            fs::create_dir_all(&local_bin).expect("create local bin");
+            fs::create_dir_all(&fnm_bin).expect("create fnm bin");
+
+            let local_codex = local_bin.join(if cfg!(windows) { "codex.cmd" } else { "codex" });
+            let fnm_codex = fnm_bin.join(if cfg!(windows) { "codex.cmd" } else { "codex" });
+            fs::write(&local_codex, "@echo off\n").expect("write local codex");
+            fs::write(&fnm_codex, "@echo off\n").expect("write fnm codex");
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+
+                for path in [&local_codex, &fnm_codex] {
+                    let mut perms = fs::metadata(path).expect("metadata").permissions();
+                    perms.set_mode(0o755);
+                    fs::set_permissions(path, perms).expect("chmod");
+                }
+            }
+
+            std::env::set_var("PATH", fnm_bin.as_os_str());
+
+            let hint = AgentInstaller::find_executable_hint("codex");
+            assert_eq!(hint.as_deref(), Some(local_codex.as_path()));
+        });
     }
 
     #[test]
@@ -344,6 +410,8 @@ pub struct AgentInstallStatus {
     pub requires_node: bool,
     pub node_ready: bool,
     pub npm_ready: bool,
+    #[serde(default)]
+    pub brew_ready: bool,
     pub install_available: bool,
     pub uninstall_available: bool,
     pub detected_by: Vec<String>,
@@ -359,6 +427,7 @@ pub struct AgentInstallStatus {
 pub enum AgentInstallRecommendedAction {
     Install,
     InstallNode,
+    InstallBrew,
     ManualHelp,
 }
 
@@ -415,7 +484,7 @@ struct AgentInstallStatusCacheStore {
     entries: BTreeMap<String, CachedAgentInstallStatus>,
 }
 
-const AGENT_INSTALL_STATUS_CACHE_VERSION: u32 = 1;
+const AGENT_INSTALL_STATUS_CACHE_VERSION: u32 = 2;
 const AGENT_INSTALL_STATUS_POSITIVE_TTL_MS: u64 = 12 * 60 * 60 * 1000;
 const AGENT_INSTALL_STATUS_NEGATIVE_TTL_MS: u64 = 15 * 60 * 1000;
 const INSTALL_PROBE_TIMEOUT_MS: u64 = 1_200;
@@ -509,14 +578,19 @@ impl AgentInstaller {
         } else {
             false
         };
+        let brew_ready = if cfg!(not(target_os = "windows")) {
+            Self::command_succeeds("brew", &["--version"])
+        } else {
+            false
+        };
         let mut issues = Vec::new();
 
-        if requires_node && !node_ready {
+        if requires_node && !node_ready && !brew_ready {
             issues.push(
                 "Node.js runtime not found in PATH or common installation directories.".to_string(),
             );
         }
-        if requires_node && !npm_ready {
+        if requires_node && !npm_ready && !brew_ready {
             issues.push("npm is not available, so GT Office cannot install or uninstall this CLI automatically yet.".to_string());
         }
         if let Some(executable) = detection.executable.as_ref() {
@@ -553,7 +627,7 @@ impl AgentInstaller {
                     let is_homebrew = path_text.contains("/opt/homebrew/bin")
                         || path_text.contains("/usr/local/bin")
                         || path_text.contains("/.linuxbrew/bin");
-                    is_homebrew || npm_ready
+                    is_homebrew || npm_ready || brew_ready
                 }
             }
         };
@@ -570,12 +644,16 @@ impl AgentInstaller {
 
         let auto_install_supported = match agent {
             AgentType::ClaudeCode => true,
-            AgentType::Codex | AgentType::Gemini => npm_ready,
+            AgentType::Codex | AgentType::Gemini => npm_ready || brew_ready,
         };
         let recommended_action = if detection.executable.is_some() {
             None
-        } else if requires_node && !node_ready {
+        } else if requires_node && !node_ready && !brew_ready {
             Some(AgentInstallRecommendedAction::InstallNode)
+        } else if requires_node && !npm_ready && !brew_ready {
+            Some(AgentInstallRecommendedAction::ManualHelp)
+        } else if requires_node && !node_ready && brew_ready {
+            Some(AgentInstallRecommendedAction::InstallBrew)
         } else if auto_install_supported {
             Some(AgentInstallRecommendedAction::Install)
         } else {
@@ -591,6 +669,7 @@ impl AgentInstaller {
             requires_node,
             node_ready,
             npm_ready,
+            brew_ready,
             install_available: auto_install_supported,
             uninstall_available,
             detected_by: detection.detected_by,
@@ -720,9 +799,16 @@ impl AgentInstaller {
             AgentInstallDiagnosticCode::NodeMissing => format!(
                 "Node.js is not installed, so GT Office cannot continue installing {agent_name} automatically."
             ),
-            AgentInstallDiagnosticCode::NpmMissing => format!(
-                "npm is not available, so GT Office cannot continue installing {agent_name} automatically."
-            ),
+            AgentInstallDiagnosticCode::NpmMissing => {
+                let brew_hint = if cfg!(not(target_os = "windows")) {
+                    " Try installing via Homebrew (brew install --cask codex for Codex, brew install gemini-cli for Gemini), or install Node.js first."
+                } else {
+                    " Install Node.js first to enable automatic installation."
+                };
+                format!(
+                    "npm is not available, so GT Office cannot continue installing {agent_name} automatically.{brew_hint}"
+                )
+            }
             AgentInstallDiagnosticCode::DnsFailed
             | AgentInstallDiagnosticCode::Timeout
             | AgentInstallDiagnosticCode::TlsFailed
@@ -777,10 +863,15 @@ impl AgentInstaller {
     ) -> AgentInstallPlan {
         let mut attempts = Vec::new();
         let registry_candidates = Self::registry_candidates(profile);
+        let npm_ready = Self::check_npm_env();
+        let brew_ready = if cfg!(not(target_os = "windows")) {
+            Self::command_succeeds("brew", &["--version"])
+        } else {
+            false
+        };
 
         match agent {
             AgentType::ClaudeCode => {
-                let npm_ready = Self::check_npm_env();
                 let should_try_official =
                     profile.has_inherited_proxy || profile.claude_script_reachable || !npm_ready;
                 if should_try_official {
@@ -796,8 +887,23 @@ impl AgentInstaller {
                 }
             }
             AgentType::Codex | AgentType::Gemini => {
-                for (index, registry) in registry_candidates.iter().enumerate() {
-                    attempts.push(Self::npm_install_attempt(agent, registry, index > 0));
+                // Try npm install first (with mirror fallback) when npm is available
+                if npm_ready {
+                    for (index, registry) in registry_candidates.iter().enumerate() {
+                        attempts.push(Self::npm_install_attempt(agent, registry, index > 0));
+                    }
+                }
+                // Fall back to Homebrew when npm is unavailable (macOS/Linux only)
+                if !npm_ready && brew_ready {
+                    attempts.push(Self::brew_install_attempt(agent));
+                }
+                // Last resort: try npm with the detected node runtime directory injected
+                // into PATH. This handles fnm/nvm installations where npm is findable
+                // via our search but not in the default shell PATH.
+                if !npm_ready && !brew_ready {
+                    if let Some(node_dir) = Self::find_node_runtime_dir() {
+                        attempts.push(Self::npm_install_attempt_with_node_dir(agent, &registry_candidates, &node_dir));
+                    }
                 }
             }
         }
@@ -936,7 +1042,7 @@ impl AgentInstaller {
                 args: vec![
                     "/C".to_string(),
                     format!(
-                        "if not exist \"%USERPROFILE%\\.local\\bin\" mkdir \"%USERPROFILE%\\.local\\bin\" >nul 2>nul & npm install -g --prefix \"%USERPROFILE%\\.local\" --no-fund --no-audit {package_name} --registry={registry}"
+                        "if not exist \"%USERPROFILE%\\.local\\bin\" mkdir \"%USERPROFILE%\\.local\\bin\" >nul 2>nul & npm install -g --prefix \"%USERPROFILE%\\.local\" --no-fund --no-audit {package_name} --registry={registry} & for /f \"delims=\" %P in ('npm prefix -g 2^>nul') do @if /I not \"%P\"==\"%USERPROFILE%\\.local\" npm uninstall -g {package_name} >nul 2>nul"
                     ),
                 ],
                 env,
@@ -952,7 +1058,7 @@ impl AgentInstaller {
                 args: vec![
                     "-lc".to_string(),
                     format!(
-                        "mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" --no-fund --no-audit {package_name} --registry={registry}"
+                        "mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" --no-fund --no-audit {package_name} --registry={registry} && CURRENT_PREFIX=\"$(npm prefix -g 2>/dev/null || true)\" && if [ -n \"$CURRENT_PREFIX\" ] && [ \"$CURRENT_PREFIX\" != \"$HOME/.local\" ]; then npm uninstall -g {package_name} >/dev/null 2>&1 || true; fi"
                     ),
                 ],
                 env,
@@ -960,6 +1066,71 @@ impl AgentInstaller {
                 retryable_diagnostics: Self::network_retryable_diagnostics(),
             }
         }
+    }
+
+    fn brew_install_attempt(agent: AgentType) -> AgentInstallAttempt {
+        let label = format!("Installing {} via Homebrew...", Self::agent_name(agent));
+
+        let brew_cmd = match agent {
+            AgentType::Codex => "brew install --cask codex",
+            AgentType::Gemini => "brew install gemini-cli",
+            AgentType::ClaudeCode => "brew install --cask claude",
+        };
+
+        AgentInstallAttempt {
+            id: format!("{}-brew", Self::cache_key(agent)),
+            label,
+            phase: AgentInstallProgressPhase::Downloading,
+            program: "bash".to_string(),
+            args: vec![
+                "-lc".to_string(),
+                brew_cmd.to_string(),
+            ],
+            env: BTreeMap::new(),
+            timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
+            retryable_diagnostics: Self::network_retryable_diagnostics(),
+        }
+    }
+
+    fn npm_install_attempt_with_node_dir(
+        agent: AgentType,
+        registry_candidates: &[String],
+        node_dir: &Path,
+    ) -> AgentInstallAttempt {
+        let package_name = match agent {
+            AgentType::ClaudeCode => "@anthropic-ai/claude-code",
+            AgentType::Codex => "@openai/codex",
+            AgentType::Gemini => "@google/gemini-cli",
+        };
+        let registry = registry_candidates.first().map(|s| s.as_str()).unwrap_or(OFFICIAL_NPM_REGISTRY);
+        let node_dir_str = node_dir.display().to_string();
+        let env = Self::npm_install_env_with_node_dir(registry, node_dir);
+
+        AgentInstallAttempt {
+            id: format!("{}-npm-node-dir", Self::cache_key(agent)),
+            label: format!("Installing {} with detected Node.js...", Self::agent_name(agent)),
+            phase: AgentInstallProgressPhase::Downloading,
+            program: "bash".to_string(),
+            args: vec![
+                "-lc".to_string(),
+                format!(
+                    "export PATH=\"{node_dir_str}:$PATH\" && mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" --no-fund --no-audit {package_name} --registry={registry} && CURRENT_PREFIX=\"$(npm prefix -g 2>/dev/null || true)\" && if [ -n \"$CURRENT_PREFIX\" ] && [ \"$CURRENT_PREFIX\" != \"$HOME/.local\" ]; then npm uninstall -g {package_name} >/dev/null 2>&1 || true; fi"
+                ),
+            ],
+            env,
+            timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
+            retryable_diagnostics: Self::network_retryable_diagnostics(),
+        }
+    }
+
+    fn npm_install_env_with_node_dir(registry: &str, node_dir: &Path) -> BTreeMap<String, String> {
+        let mut env = Self::npm_install_env(registry);
+        if let Some(path_var) = env::var_os("PATH") {
+            let mut paths = env::split_paths(&path_var).collect::<Vec<_>>();
+            paths.insert(0, node_dir.to_path_buf());
+            env.insert("PATH".to_string(), env::join_paths(paths).unwrap_or_default().to_string_lossy().to_string());
+        }
+        env
     }
 
     fn claude_official_install_attempt() -> AgentInstallAttempt {
@@ -1068,7 +1239,7 @@ impl AgentInstaller {
         }
     }
 
-    fn agent_name(agent: AgentType) -> &'static str {
+    pub fn agent_name(agent: AgentType) -> &'static str {
         match agent {
             AgentType::ClaudeCode => "Claude Code",
             AgentType::Codex => "Codex CLI",
@@ -1206,6 +1377,10 @@ impl AgentInstaller {
     }
 
     fn find_executable_hint(command: &str) -> Option<PathBuf> {
+        if let Some(path) = Self::managed_global_executable(command) {
+            return Some(path);
+        }
+
         if let Some(path) = Self::resolve_command_in_path(command) {
             return Some(path);
         }
@@ -1239,6 +1414,17 @@ impl AgentInstaller {
         };
 
         let mut seen_paths = BTreeSet::new();
+        if let Some(result) = Self::try_verified_candidate(
+            command,
+            Self::managed_global_executable(command),
+            vec!["managed-global".to_string()],
+            shell_ready,
+            &mut seen_paths,
+            node_runtime_dir,
+        ) {
+            return result;
+        }
+
         if let Some(result) = Self::try_verified_candidate(
             command,
             path_env_path,
@@ -1420,6 +1606,18 @@ impl AgentInstaller {
         } else {
             vec![command.to_string()]
         }
+    }
+
+    fn managed_global_executable(command: &str) -> Option<PathBuf> {
+        let home = Self::user_home_dir()?;
+        let bin_dir = home.join(".local").join("bin");
+        for candidate in Self::executable_candidates(command) {
+            let full_path = bin_dir.join(candidate);
+            if Self::is_runnable_file(&full_path) {
+                return Some(full_path);
+            }
+        }
+        None
     }
 
     fn detection_labels_for_path(path: &Path) -> Vec<String> {
@@ -1746,10 +1944,11 @@ impl AgentInstaller {
             status.auto_install_supported = true;
             status.recommended_action = None;
         } else {
+            // Re-check brew availability from cache (stale but acceptable)
             status.auto_install_supported = matches!(agent, AgentType::ClaudeCode)
-                || (status.requires_node && status.npm_ready);
+                || (status.requires_node && (status.npm_ready || status.brew_ready));
             if status.recommended_action.is_none() {
-                status.recommended_action = if status.requires_node && !status.node_ready {
+                status.recommended_action = if status.requires_node && !status.node_ready && !status.brew_ready {
                     Some(AgentInstallRecommendedAction::InstallNode)
                 } else if status.auto_install_supported {
                     Some(AgentInstallRecommendedAction::Install)

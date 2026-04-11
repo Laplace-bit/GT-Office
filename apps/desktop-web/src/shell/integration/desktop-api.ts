@@ -825,7 +825,7 @@ export interface ClaudeModelOverrides {
 }
 
 export type AiAgentConfigStatus = 'unconfigured' | 'configured' | 'guidance_only'
-export type AgentInstallRecommendedAction = 'install' | 'install_node' | 'manual_help'
+export type AgentInstallRecommendedAction = 'install' | 'install_node' | 'install_brew' | 'manual_help'
 export type AgentInstallProgressPhase =
   | 'preparing'
   | 'downloading'
@@ -851,6 +851,7 @@ export interface AiAgentInstallStatus {
   requiresNode: boolean
   nodeReady: boolean
   npmReady: boolean
+  brewReady: boolean
   installAvailable: boolean
   uninstallAvailable: boolean
   detectedBy: string[]

@@ -2401,8 +2401,8 @@ export const messages = {
     'en-US': 'Node.js runtime not found. Please install Node.js (https://nodejs.org) before installing this CLI.',
   },
   'aiConfig.card.envNpmMissing': {
-    'zh-CN': '未检测到 npm 包管理器。请确保 Node.js 安装完整，或通过系统包管理器安装 npm。',
-    'en-US': 'npm package manager not found. Ensure Node.js is fully installed, or install npm via your system package manager.',
+    'zh-CN': '未检测到 npm，将通过 Homebrew 安装。如需使用 npm 安装，请确保 Node.js 完整安装。',
+    'en-US': 'npm not found. Homebrew will be used as fallback. To install via npm, ensure Node.js is fully installed.',
   },
   'aiConfig.card.manualUninstall': { 'zh-CN': '手动卸载', 'en-US': 'Manual Uninstall' },
   'aiConfig.card.manualUninstallHint': {
@@ -2421,7 +2421,7 @@ export const messages = {
   'aiConfig.progress.title.uninstall': { 'zh-CN': '正在卸载 {name}', 'en-US': 'Uninstalling {name}' },
   'aiConfig.progress.waiting': { 'zh-CN': '等待执行...', 'en-US': 'Waiting to start...' },
   'aiConfig.progress.running': { 'zh-CN': '执行中...', 'en-US': 'Running...' },
-  'aiConfig.progress.success': { 'zh-CN': '操作成功完成', 'en-US': 'Operation completed successfully' },
+  'aiConfig.progress.success': { 'zh-CN': '操作成功', 'en-US': 'Operation completed successfully' },
   'aiConfig.progress.error': { 'zh-CN': '操作失败', 'en-US': 'Operation failed' },
   'aiConfig.progress.close': { 'zh-CN': '关闭', 'en-US': 'Close' },
   'aiConfig.progress.retry': { 'zh-CN': '重试', 'en-US': 'Retry' },

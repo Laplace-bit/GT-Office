@@ -58,6 +58,7 @@ function createPendingInstallStatus(): AiAgentInstallStatus {
     requiresNode: false,
     nodeReady: false,
     npmReady: false,
+    brewReady: false,
     installAvailable: false,
     uninstallAvailable: false,
     detectedBy: [],

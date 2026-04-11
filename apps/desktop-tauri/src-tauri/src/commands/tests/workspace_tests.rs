@@ -328,6 +328,7 @@ fn empty_ai_config_snapshot() -> AiConfigSnapshot {
                 requires_node: false,
                 node_ready: true,
                 npm_ready: true,
+                brew_ready: false,
                 install_available: false,
                 uninstall_available: true,
                 detected_by: vec!["test".to_string()],

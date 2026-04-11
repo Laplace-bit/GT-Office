@@ -90,7 +90,7 @@ export function ProviderAgentCard({
     ? t(locale, '正在检查本机环境', 'Checking local environment')
     : resolveStatusLabel(locale, agent)
   const enabledEnhancementCount = resolveEnabledEnhancementCount(agent)
-  const hasEnvIssues = !statusLoading && !agent.installStatus.installed && agent.installStatus.requiresNode && (!agent.installStatus.nodeReady || !agent.installStatus.npmReady)
+  const hasEnvIssues = !statusLoading && !agent.installStatus.installed && agent.installStatus.requiresNode && (!agent.installStatus.nodeReady || !agent.installStatus.npmReady) && !agent.installStatus.brewReady
   const showManualUninstall = !statusLoading && agent.installStatus.installed && !agent.installStatus.uninstallAvailable
 
   const hasQuickCommands = agent.agent === 'claude' || agent.agent === 'codex' || agent.agent === 'gemini'
@@ -180,18 +180,27 @@ export function ProviderAgentCard({
         {/* Env issues banner */}
         {hasEnvIssues && (
           <div className="ai-provider-card__env-issues">
-            {!agent.installStatus.nodeReady && (
+            {!agent.installStatus.nodeReady && !agent.installStatus.brewReady && (
               <div className="env-issue-item">
                 <AppIcon name="info" width={12} height={12} />
                 <span>{t(locale, 'aiConfig.card.envNodeMissing')}</span>
               </div>
             )}
-            {agent.installStatus.nodeReady && !agent.installStatus.npmReady && (
+            {agent.installStatus.nodeReady && !agent.installStatus.npmReady && !agent.installStatus.brewReady && (
               <div className="env-issue-item">
                 <AppIcon name="info" width={12} height={12} />
                 <span>{t(locale, 'aiConfig.card.envNpmMissing')}</span>
               </div>
             )}
+          </div>
+        )}
+        {/* Brew fallback info: npm missing but brew available */}
+        {!statusLoading && !agent.installStatus.installed && agent.installStatus.requiresNode && !agent.installStatus.npmReady && agent.installStatus.brewReady && (
+          <div className="ai-provider-card__env-issues is-info">
+            <div className="env-issue-item">
+              <AppIcon name="info" width={12} height={12} />
+              <span>{t(locale, 'aiConfig.card.envNpmMissing')}</span>
+            </div>
           </div>
         )}
         {showManualUninstall && agent.installStatus.issues.length > 0 && (

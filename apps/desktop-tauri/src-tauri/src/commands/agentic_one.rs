@@ -40,8 +40,19 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
         return Ok(());
     }
 
-    // 1. 环境预检
+    // 1. 环境预检 — 当没有可用的安装方式时提前返回并给出明确指引
     if !status.install_available {
+        let name = AgentInstaller::agent_name(agent);
+        if status.requires_node && !status.node_ready && !status.brew_ready {
+            return Err(format!(
+                "Node.js is not installed and Homebrew is not available, so GT Office cannot install {name} automatically. Please install Node.js (https://nodejs.org) or Homebrew (https://brew.sh) first."
+            ));
+        }
+        if status.requires_node && !status.npm_ready && !status.brew_ready {
+            return Err(format!(
+                "npm is not available and Homebrew is not found, so GT Office cannot install {name} automatically. Please install Node.js (which includes npm) or Homebrew first."
+            ));
+        }
         return Err(status.issues.join(" "));
     }
 
@@ -445,10 +456,10 @@ fn ensure_global_shell_path_for_local_bin(window: &tauri::Window, progress_event
 }
 
 fn default_install_failure_code(status: &AgentInstallStatus) -> AgentInstallDiagnosticCode {
-    if status.requires_node && !status.node_ready {
+    if status.requires_node && !status.node_ready && !status.brew_ready {
         return AgentInstallDiagnosticCode::NodeMissing;
     }
-    if status.requires_node && !status.npm_ready {
+    if status.requires_node && !status.npm_ready && !status.brew_ready {
         return AgentInstallDiagnosticCode::NpmMissing;
     }
     AgentInstallDiagnosticCode::Unknown

@@ -4808,6 +4808,7 @@ fn map_install_status(agent: AiConfigAgent) -> crate::models::AiAgentInstallStat
         requires_node: status.requires_node,
         node_ready: status.node_ready,
         npm_ready: status.npm_ready,
+        brew_ready: status.brew_ready,
         install_available: status.install_available,
         uninstall_available: status.uninstall_available,
         detected_by: status.detected_by,
@@ -4819,6 +4820,9 @@ fn map_install_status(agent: AiConfigAgent) -> crate::models::AiAgentInstallStat
             }
             gt_tools::agent_installer::AgentInstallRecommendedAction::InstallNode => {
                 "install_node".to_string()
+            }
+            gt_tools::agent_installer::AgentInstallRecommendedAction::InstallBrew => {
+                "install_brew".to_string()
             }
             gt_tools::agent_installer::AgentInstallRecommendedAction::ManualHelp => {
                 "manual_help".to_string()

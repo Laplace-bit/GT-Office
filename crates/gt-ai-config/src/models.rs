@@ -213,6 +213,8 @@ pub struct AiAgentInstallStatus {
     pub requires_node: bool,
     pub node_ready: bool,
     pub npm_ready: bool,
+    #[serde(default)]
+    pub brew_ready: bool,
     pub install_available: bool,
     pub uninstall_available: bool,
     pub detected_by: Vec<String>,
