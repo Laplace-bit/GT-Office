@@ -836,6 +836,14 @@ function StationXtermTerminalView({
             ensureFitWhenVisible()
           })
         }
+        let replayGeneratedInputSuppressionDepth = 0
+        const writeReplayContent = (content: string, onComplete: () => void) => {
+          replayGeneratedInputSuppressionDepth += 1
+          terminal.write(content, () => {
+            replayGeneratedInputSuppressionDepth = Math.max(0, replayGeneratedInputSuppressionDepth - 1)
+            onComplete()
+          })
+        }
         const submitFromXterm = () => {
           if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
             return false
@@ -851,6 +859,12 @@ function StationXtermTerminalView({
         }
 
         dataDisposable = terminal.onData((data) => {
+          // Replaying cached terminal output can include control sequences such as
+          // CPR/DSR requests. xterm will synthesize the matching response locally;
+          // do not forward those replay-only responses back into the live PTY.
+          if (replayGeneratedInputSuppressionDepth > 0) {
+            return
+          }
           if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
             return
           }
@@ -935,7 +949,7 @@ function StationXtermTerminalView({
               if (terminal.cols <= 0 || terminal.rows <= 0) {
                 scheduleFitRetry()
               }
-              terminal.write(content, () => {
+              writeReplayContent(content, () => {
                 scheduleRefresh()
                 scheduleSerializedRestoreStateCapture()
               })
@@ -947,7 +961,7 @@ function StationXtermTerminalView({
               terminal.resize(cols, rows)
             }
             terminal.reset()
-            terminal.write(content, () => {
+            writeReplayContent(content, () => {
               scheduleRefresh()
               scheduleSerializedRestoreStateCapture()
               if (fitAndRefresh()) {
