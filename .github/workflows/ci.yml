@@ -52,8 +52,13 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Ensure skill resources exist
+        run: mkdir -p .codex/skills/gto-agent-communication/agents
+
       - name: cargo check
         run: cargo check --workspace
+        env:
+          GTO_ALLOW_UNSIGNED_MACOS_BUNDLE: "1"
 
       - name: cargo clippy
         run: cargo clippy --workspace -- -D warnings

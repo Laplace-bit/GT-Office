@@ -77,6 +77,10 @@ jobs:
       - name: Rust check
         run: cargo check --workspace
 
+      - name: Ensure skill resources exist
+        shell: bash
+        run: mkdir -p .codex/skills/gto-agent-communication/agents
+
       - name: Build desktop bundle
         shell: bash
         env:
