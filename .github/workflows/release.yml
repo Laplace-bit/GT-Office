@@ -92,9 +92,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${{ matrix.build_args }}" ]; then
-            npm run build:tauri -- --config '{"bundle":{"createUpdaterArtifacts":true}}' ${{ matrix.build_args }}
+            npm run build:tauri -- ${{ matrix.build_args }}
           else
-            npm run build:tauri -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
+            npm run build:tauri
           fi
 
       - name: Prepare release assets

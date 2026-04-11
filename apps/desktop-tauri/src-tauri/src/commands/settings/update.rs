@@ -326,16 +326,16 @@ pub async fn settings_update_download_and_install(
     }
 }
 
-fn build_updater(app: &AppHandle, config: &AppUpdateConfig) -> Result<tauri_plugin_updater::Updater, String> {
+fn build_updater(
+    app: &AppHandle,
+    config: &AppUpdateConfig,
+) -> Result<tauri_plugin_updater::Updater, String> {
     let updater_builder = app
         .updater_builder()
         .pubkey(config.pubkey.clone())
-        .endpoints(vec![
-            config
-                .manifest_url
-                .parse()
-                .map_err(|error| format!("invalid updater manifest url: {error}"))?,
-        ])
+        .endpoints(vec![config.manifest_url.parse().map_err(|error| {
+            format!("invalid updater manifest url: {error}")
+        })?])
         .map_err(|error| format!("invalid updater endpoints: {error}"))?;
     updater_builder
         .build()
@@ -444,8 +444,14 @@ mod tests {
 
     #[test]
     fn update_error_code_maps_common_updater_failures() {
-        assert_eq!(update_error_code(&Error::EmptyEndpoints), "UPDATE_ENDPOINTS_EMPTY");
-        assert_eq!(update_error_code(&Error::UnsupportedArch), "UPDATE_UNSUPPORTED_ARCH");
+        assert_eq!(
+            update_error_code(&Error::EmptyEndpoints),
+            "UPDATE_ENDPOINTS_EMPTY"
+        );
+        assert_eq!(
+            update_error_code(&Error::UnsupportedArch),
+            "UPDATE_UNSUPPORTED_ARCH"
+        );
         assert_eq!(
             update_error_code(&Error::TargetNotFound("darwin-aarch64".to_string())),
             "UPDATE_TARGET_NOT_FOUND"
