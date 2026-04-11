@@ -14,7 +14,6 @@ import { desktopApi } from '@shell/integration/desktop-api'
 import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
 import {
   buildSettingsAboutCapabilities,
-  buildSettingsAboutSections,
   buildSettingsAboutSummary,
   buildSettingsTabItems,
   normalizeSettingsAboutAppInfo,
@@ -146,7 +145,6 @@ export function SettingsModal({
   const normalizedAboutAppInfo = normalizeSettingsAboutAppInfo(aboutAppInfo)
   const aboutSummary = buildSettingsAboutSummary(locale)
   const aboutCapabilities = buildSettingsAboutCapabilities(locale)
-  const aboutSections = buildSettingsAboutSections(locale, aboutAppInfo)
 
   const renderTabContent = (tab: SettingsTab) => {
     switch (tab) {
@@ -164,24 +162,6 @@ export function SettingsModal({
               onUiFontChange={onUiFontChange}
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
-            />
-            <UpdatePreferences
-              locale={locale}
-              autoCheckOnLaunch={autoCheckAppUpdates}
-              skippedVersion={skippedAppUpdateVersion}
-              hasAvailableUpdate={appUpdate.hasAvailableUpdate}
-              updateState={appUpdate.state}
-              onAutoCheckOnLaunchChange={onAutoCheckAppUpdatesChange}
-              onCheckForUpdates={() => {
-                void appUpdate.checkForUpdates()
-              }}
-              onInstallUpdate={() => {
-                void appUpdate.installUpdate()
-              }}
-              onOpenReleasePage={() => {
-                void appUpdate.openReleasePage()
-              }}
-              onSkipVersion={onSkipAppUpdateVersion}
             />
             <WorkspaceResetSection locale={locale} workspaceId={workspaceId} onResetSuccess={onWorkspaceResetSuccess} />
           </div>
@@ -231,24 +211,24 @@ export function SettingsModal({
                 ))}
               </div>
             </div>
-            <div className="settings-about-grid">
-              {aboutSections.map((section) => (
-                <section key={section.id} className="settings-about-card">
-                  <header className="settings-about-card-header">
-                    <h5>{section.title}</h5>
-                    <p>{section.description}</p>
-                  </header>
-                  <dl className="settings-about-meta-list">
-                    {section.items.map((item) => (
-                      <div key={`${section.id}-${item.label}`} className="settings-about-meta-row">
-                        <dt>{item.label}</dt>
-                        <dd>{item.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              ))}
-            </div>
+            <UpdatePreferences
+              locale={locale}
+              autoCheckOnLaunch={autoCheckAppUpdates}
+              skippedVersion={skippedAppUpdateVersion}
+              hasAvailableUpdate={appUpdate.hasAvailableUpdate}
+              updateState={appUpdate.state}
+              onAutoCheckOnLaunchChange={onAutoCheckAppUpdatesChange}
+              onCheckForUpdates={() => {
+                void appUpdate.checkForUpdates()
+              }}
+              onInstallUpdate={() => {
+                void appUpdate.installUpdate()
+              }}
+              onOpenReleasePage={() => {
+                void appUpdate.openReleasePage()
+              }}
+              onSkipVersion={onSkipAppUpdateVersion}
+            />
           </div>
         )
       case 'shortcuts':
