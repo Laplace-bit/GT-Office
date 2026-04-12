@@ -3,7 +3,15 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](CHANGELOG.md)
 
-<!-- ![GT Office 截图](docs/assets/screenshot.png) -->
+## 截图
+
+| Agent 工位 | 通道 |
+|:---:|:---:|
+| ![Agents View](docs/assets/agents-view.png) | ![Channel View](docs/assets/channel-view.png) |
+
+| 任务 | 文件浏览 | Git |
+|:---:|:---:|:---:|
+| ![Task View](docs/assets/task-view.png) | ![Explorer View](docs/assets/explorer-view.png) | ![Git View](docs/assets/git-view.png) |
 
 面向 macOS 和 Windows 的跨平台 AI Agent 桌面工作台，代码库同时支持 Linux 开发调试。GT Office 把 workspace 感知的文件操作、真实 PTY 终端、Git 工作流、多 Agent 协作、tool adapters 和外部通道路由整合到同一个桌面壳层中。
 

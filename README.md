@@ -3,7 +3,15 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](CHANGELOG.md)
 
-<!-- ![GT Office Screenshot](docs/assets/screenshot.png) -->
+## Screenshots
+
+| Agents | Channels |
+|:---:|:---:|
+| ![Agents View](docs/assets/agents-view.png) | ![Channel View](docs/assets/channel-view.png) |
+
+| Tasks | Explorer | Git |
+|:---:|:---:|:---:|
+| ![Task View](docs/assets/task-view.png) | ![Explorer View](docs/assets/explorer-view.png) | ![Git View](docs/assets/git-view.png) |
 
 A cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support. GT Office combines workspace-aware file operations, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
 
