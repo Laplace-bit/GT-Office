@@ -2,14 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
-## v1.1.0 - 2026-04-13
+## v0.2.0 - 2026-04-13
 
 ### Highlights
 
 - Fixed AI provider deletion so workspace-scoped provider cleanup and related persistence no longer leave stale records behind.
 - Reworked Markdown preview rendering to restore local image display and improve split-view preview behavior in the file editor.
 - Stabilized the desktop Tauri build and Rust CI path, including bundled agent communication resources and follow-up workspace/runtime fixes.
-- Refreshed the public README and release-facing project positioning ahead of the 1.1.0 release line.
+- Refreshed the public README and release-facing project positioning ahead of the 0.2.0 release line.
 
 ## v0.1.6 - 2026-04-08
 

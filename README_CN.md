@@ -1,7 +1,7 @@
 # GT Office
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
 
 ## 截图
 
@@ -109,7 +109,7 @@ npm run build:tauri
 
 1. 更新版本号和 `CHANGELOG.md`
 2. 将发布变更提交到 `main`
-3. 给提交打 tag（如 `v0.1.7`）
+3. 给提交打 tag（如 `v0.2.0`）
 4. 推送 tag，由 GitHub Actions 自动构建并发布 macOS、Windows、Linux 产物
 
 更详细的发布操作、secrets 与失败重试说明见 [docs/release-process.md](docs/release-process.md)

@@ -1,7 +1,7 @@
 # GT Office
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.6-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
 
 ## Screenshots
 
@@ -109,7 +109,7 @@ Recommended release flow:
 
 1. Update version numbers and `CHANGELOG.md`
 2. Commit the release changes on `main`
-3. Tag the commit (e.g., `v0.1.7`)
+3. Tag the commit (e.g., `v0.2.0`)
 4. Push the tag and let GitHub Actions build and publish macOS, Windows, and Linux artifacts
 
 Detailed release operations, secrets, and retry guidance: [docs/release-process.md](docs/release-process.md)
