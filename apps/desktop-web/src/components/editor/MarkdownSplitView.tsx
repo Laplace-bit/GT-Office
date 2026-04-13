@@ -13,6 +13,7 @@ interface MarkdownSplitViewProps {
   locale: Locale
   content: string
   filePath: string
+  workspaceRoot: string | null
   readOnly?: boolean
   onChange?: (content: string) => void
   onSave?: () => void
@@ -22,6 +23,7 @@ export function MarkdownSplitView({
   locale,
   content,
   filePath,
+  workspaceRoot,
   readOnly = false,
   onChange,
   onSave,
@@ -90,7 +92,7 @@ export function MarkdownSplitView({
       {/* Preview panel */}
       <div ref={previewRef} className="markdown-split-preview">
         <div className="markdown-preview-content">
-          <MarkdownRenderer content={content} filePath={filePath} />
+          <MarkdownRenderer content={content} filePath={filePath} workspaceRoot={workspaceRoot} />
         </div>
       </div>
     </div>

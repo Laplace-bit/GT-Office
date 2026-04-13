@@ -495,7 +495,11 @@ export function FileEditorPane({
             // Pure preview mode
             <div className="markdown-preview-pane">
               <div className="markdown-preview-content">
-                <MarkdownRenderer content={activeContent} filePath={activeFile.path} />
+                <MarkdownRenderer
+                  content={activeContent}
+                  filePath={activeFile.path}
+                  workspaceRoot={workspaceRoot}
+                />
               </div>
             </div>
           ) : isMarkdown && viewMode === 'split' ? (
@@ -504,6 +508,7 @@ export function FileEditorPane({
               locale={locale}
               content={activeContent}
               filePath={activeFile.path}
+              workspaceRoot={workspaceRoot}
               readOnly={isReadOnly}
               onChange={handleContentChange}
               onSave={handleSave}

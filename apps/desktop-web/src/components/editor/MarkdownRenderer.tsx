@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
+import { useDeferredValue, useMemo, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { resolveMediaPreviewPath } from '@features/file-preview/previewers/media-preview-path'
 
 function isWindowsAbsolutePath(path: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\\?\\[A-Za-z]:[\\/]/.test(path)
@@ -92,7 +93,11 @@ function safeConvertFileSrc(filePath: string): string | null {
   }
 }
 
-function resolveMarkdownImageSource(src: string | undefined, filePath: string): string | undefined {
+function resolveMarkdownImageSource(
+  src: string | undefined,
+  filePath: string,
+  workspaceRoot: string | null,
+): string | undefined {
   const trimmed = src?.trim()
   if (!trimmed) {
     return src
@@ -101,10 +106,15 @@ function resolveMarkdownImageSource(src: string | undefined, filePath: string): 
     return trimmed
   }
 
+  const resolvedMarkdownPath = resolveMediaPreviewPath(workspaceRoot, filePath)
+  if (!resolvedMarkdownPath) {
+    return src
+  }
+
   const { pathname, suffix } = splitResourceSuffix(trimmed)
   const localPath = isAbsolutePath(pathname)
     ? pathname
-    : normalizeJoinedPath(dirname(filePath), pathname)
+    : normalizeJoinedPath(dirname(resolvedMarkdownPath), pathname)
   const converted = safeConvertFileSrc(localPath)
   return converted ? `${converted}${suffix}` : src
 }
@@ -112,32 +122,43 @@ function resolveMarkdownImageSource(src: string | undefined, filePath: string): 
 interface MarkdownRendererProps {
   content: string
   filePath: string
+  workspaceRoot: string | null
 }
 
-export function MarkdownRenderer({ content, filePath }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, filePath, workspaceRoot }: MarkdownRendererProps) {
+  const deferredContent = useDeferredValue(content)
+  const markdownComponents = useMemo(
+    () => ({
+      a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+        const isExternal = href?.startsWith('http://') || href?.startsWith('https://')
+        return (
+          <a
+            href={href}
+            target={isExternal ? '_blank' : undefined}
+            rel={isExternal ? 'noopener noreferrer' : undefined}
+          >
+            {children}
+          </a>
+        )
+      },
+      img: ({ src, alt }: { src?: string; alt?: string }) => (
+        <img
+          src={resolveMarkdownImageSource(src, filePath, workspaceRoot)}
+          alt={alt}
+          loading="lazy"
+        />
+      ),
+    }),
+    [filePath, workspaceRoot],
+  )
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
-      components={{
-        a: ({ href, children }: { href?: string; children?: ReactNode }) => {
-          const isExternal = href?.startsWith('http://') || href?.startsWith('https://')
-          return (
-            <a
-              href={href}
-              target={isExternal ? '_blank' : undefined}
-              rel={isExternal ? 'noopener noreferrer' : undefined}
-            >
-              {children}
-            </a>
-          )
-        },
-        img: ({ src, alt }: { src?: string; alt?: string }) => (
-          <img src={resolveMarkdownImageSource(src, filePath)} alt={alt} loading="lazy" />
-        ),
-      }}
+      components={markdownComponents}
     >
-      {content}
+      {deferredContent}
     </ReactMarkdown>
   )
 }

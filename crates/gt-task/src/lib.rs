@@ -11,17 +11,12 @@ use std::{
 };
 use tracing::{debug, warn};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DispatchSenderType {
+    #[default]
     Human,
     Agent,
-}
-
-impl Default for DispatchSenderType {
-    fn default() -> Self {
-        Self::Human
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1477,7 +1472,7 @@ fn resolve_publish_targets(request: &ChannelPublishRequest) -> Vec<String> {
         return targets;
     }
     match request.channel.kind {
-        ChannelKind::Direct => normalize_agent_ids(&[request.channel.id.clone()]),
+        ChannelKind::Direct => normalize_agent_ids(std::slice::from_ref(&request.channel.id)),
         ChannelKind::Group | ChannelKind::Broadcast => Vec::new(),
     }
 }

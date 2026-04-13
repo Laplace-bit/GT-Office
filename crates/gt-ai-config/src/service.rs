@@ -314,7 +314,7 @@ impl AiConfigService {
             .ok_or_else(|| AiConfigError::SavedProviderNotFound(saved_provider_id.to_string()))?;
         let normalized = normalized_from_saved_claude_provider(&saved_provider)?;
         let current = self.read_claude_config(workspace_root)?;
-        let live_settings_backup = self.snapshot_file_state(&live_settings_path)?;
+        let live_settings_backup = self.snapshot_file_state(live_settings_path)?;
 
         tracing::info!(
             workspace_id,
@@ -791,9 +791,15 @@ impl AiConfigService {
                 })
             }
             AiConfigAgent::Codex => {
-                self.audit_repository
+                let deleted = self
+                    .audit_repository
                     .delete_saved_provider("codex", saved_provider_id)
                     .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                if !deleted {
+                    return Err(AiConfigError::SavedProviderNotFound(
+                        saved_provider_id.to_string(),
+                    ));
+                }
                 let remaining = self
                     .audit_repository
                     .list_saved_providers("codex")
@@ -842,9 +848,15 @@ impl AiConfigService {
                 })
             }
             AiConfigAgent::Gemini => {
-                self.audit_repository
+                let deleted = self
+                    .audit_repository
                     .delete_saved_provider("gemini", saved_provider_id)
                     .map_err(|error| AiConfigError::Storage(error.to_string()))?;
+                if !deleted {
+                    return Err(AiConfigError::SavedProviderNotFound(
+                        saved_provider_id.to_string(),
+                    ));
+                }
                 let remaining = self
                     .audit_repository
                     .list_saved_providers("gemini")
@@ -2652,7 +2664,7 @@ impl AiConfigService {
                 .as_deref()
                 .and_then(|s| serde_json::from_str::<Value>(s).ok())
                 .as_ref()
-                .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+                .and_then(|v| v.get("__gto_meta__").or(Some(v)))
                 .and_then(|v| v.get("apiFormat"))
                 .and_then(Value::as_str)
                 .and_then(ClaudeApiFormat::parse),
@@ -2661,7 +2673,7 @@ impl AiConfigService {
                 .as_deref()
                 .and_then(|s| serde_json::from_str::<Value>(s).ok())
                 .as_ref()
-                .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+                .and_then(|v| v.get("__gto_meta__").or(Some(v)))
                 .and_then(|v| v.get("modelOverrides"))
                 .and_then(|v| serde_json::from_value::<ClaudeModelOverrides>(v.clone()).ok()),
         })
@@ -3588,7 +3600,7 @@ fn saved_claude_provider_snapshot_from_record(
             .as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .as_ref()
-            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("__gto_meta__").or(Some(v)))
             .and_then(|v| v.get("apiFormat"))
             .and_then(Value::as_str)
             .and_then(ClaudeApiFormat::parse),
@@ -3597,7 +3609,7 @@ fn saved_claude_provider_snapshot_from_record(
             .as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .as_ref()
-            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("__gto_meta__").or(Some(v)))
             .and_then(|v| v.get("modelOverrides"))
             .and_then(|v| serde_json::from_value::<ClaudeModelOverrides>(v.clone()).ok()),
     })
@@ -3642,7 +3654,7 @@ fn normalized_from_saved_claude_provider(
             .as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .as_ref()
-            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("__gto_meta__").or(Some(v)))
             .and_then(|v| v.get("apiFormat"))
             .and_then(Value::as_str)
             .and_then(ClaudeApiFormat::parse),
@@ -3651,7 +3663,7 @@ fn normalized_from_saved_claude_provider(
             .as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .as_ref()
-            .and_then(|v| v.get("__gto_meta__").or_else(|| Some(v)))
+            .and_then(|v| v.get("__gto_meta__").or(Some(v)))
             .and_then(|v| v.get("modelOverrides"))
             .and_then(|v| serde_json::from_value::<ClaudeModelOverrides>(v.clone()).ok()),
     })
@@ -5187,6 +5199,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: None,
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap_err()
@@ -5216,6 +5230,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("deepseek-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5252,6 +5268,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: None,
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5312,6 +5330,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("secret-token".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5369,6 +5389,8 @@ mod tests {
                     model: Some("claude-sonnet-4-5".to_string()),
                     auth_scheme: Some(crate::models::ClaudeAuthScheme::AnthropicAuthToken),
                     api_key: Some("custom-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5426,6 +5448,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("deepseek-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5465,6 +5489,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("minimax-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5589,6 +5615,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("deepseek-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5643,6 +5671,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("minimax-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5713,6 +5743,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("deepseek-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5752,6 +5784,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("minimax-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5783,6 +5817,8 @@ mod tests {
                     model: Some("DeepSeek-V3.2".to_string()),
                     auth_scheme: Some(crate::models::ClaudeAuthScheme::AnthropicAuthToken),
                     api_key: None,
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5833,6 +5869,8 @@ mod tests {
             auth_scheme: Some(crate::models::ClaudeAuthScheme::AnthropicAuthToken),
             secret_ref: Some("secret-ref".to_string()),
             has_secret: true,
+            api_format: None,
+            model_overrides: None,
         });
         assert_eq!(
             warnings,
@@ -5884,6 +5922,8 @@ mod tests {
                     model: None,
                     auth_scheme: None,
                     api_key: Some("minimax-secret".to_string()),
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -5974,6 +6014,8 @@ mod tests {
                     auth_scheme: None,
                     secret_ref: None,
                     has_secret: false,
+                    api_format: None,
+                    model_overrides: None,
                 },
             )
             .unwrap();
@@ -6081,8 +6123,8 @@ command = "npx"
                 .unwrap();
 
             let env = parse_simple_env_file(&home.join(".gemini").join(".env"));
-            assert!(env.get("GOOGLE_GEMINI_BASE_URL").is_none());
-            assert!(env.get("GEMINI_API_KEY").is_none());
+            assert!(!env.contains_key("GOOGLE_GEMINI_BASE_URL"));
+            assert!(!env.contains_key("GEMINI_API_KEY"));
             assert_eq!(
                 env.get("UNRELATED_FLAG").map(String::as_str),
                 Some("keep-me")

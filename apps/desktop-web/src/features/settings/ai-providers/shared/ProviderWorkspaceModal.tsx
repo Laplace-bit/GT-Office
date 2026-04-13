@@ -133,6 +133,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   const [loading, setLoading] = useState(false)
   const [switchingSavedProviderId, setSwitchingSavedProviderId] = useState<string | null>(null)
   const [deletingSavedProviderId, setDeletingSavedProviderId] = useState<string | null>(null)
+  const [pendingDeleteSavedProviderId, setPendingDeleteSavedProviderId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   // Advanced Claude options
@@ -152,6 +153,68 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
         return snapshot.codex as typeof guide
       case 'gemini':
         return snapshot.gemini as typeof guide
+    }
+  }
+
+  function removeSavedProviderFromGuide(
+    nextGuide: typeof guide,
+    savedProviderId: string,
+  ): typeof guide {
+    switch (agentId) {
+      case 'claude': {
+        const typedGuide = nextGuide as ClaudeSnapshot
+        const remainingSavedProviders = typedGuide.savedProviders.filter(
+          (item) => item.savedProviderId !== savedProviderId,
+        )
+        return {
+          ...typedGuide,
+          savedProviders: remainingSavedProviders,
+          config:
+            typedGuide.config.savedProviderId === savedProviderId
+              ? {
+                  ...typedGuide.config,
+                  savedProviderId:
+                    remainingSavedProviders.find((item) => item.isActive)?.savedProviderId,
+                }
+              : typedGuide.config,
+        } as typeof guide
+      }
+      case 'codex': {
+        const typedGuide = nextGuide as CodexSnapshot
+        const remainingSavedProviders = typedGuide.savedProviders.filter(
+          (item) => item.savedProviderId !== savedProviderId,
+        )
+        return {
+          ...typedGuide,
+          savedProviders: remainingSavedProviders,
+          config:
+            typedGuide.config.savedProviderId === savedProviderId
+              ? {
+                  ...typedGuide.config,
+                  savedProviderId:
+                    remainingSavedProviders.find((item) => item.isActive)?.savedProviderId,
+                }
+              : typedGuide.config,
+        } as typeof guide
+      }
+      case 'gemini': {
+        const typedGuide = nextGuide as GeminiSnapshot
+        const remainingSavedProviders = typedGuide.savedProviders.filter(
+          (item) => item.savedProviderId !== savedProviderId,
+        )
+        return {
+          ...typedGuide,
+          savedProviders: remainingSavedProviders,
+          config:
+            typedGuide.config.savedProviderId === savedProviderId
+              ? {
+                  ...typedGuide.config,
+                  savedProviderId:
+                    remainingSavedProviders.find((item) => item.isActive)?.savedProviderId,
+                }
+              : typedGuide.config,
+        } as typeof guide
+      }
     }
   }
 
@@ -181,6 +244,10 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
     () => filterSavedProviders(locale, savedProviders, searchValue),
     [locale, savedProviders, searchValue],
   )
+  const pendingDeleteSavedProvider =
+    pendingDeleteSavedProviderId != null
+      ? savedProviders.find((item) => item.savedProviderId === pendingDeleteSavedProviderId) ?? null
+      : null
   const currentPreset =
     mode === 'official'
       ? officialPreset
@@ -608,8 +675,17 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
     } satisfies GeminiDraftInput
   }
 
-  async function syncAfterMutation(response: AiConfigApplyResponse, message: string) {
-    setLocalGuide(selectGuideFromSnapshot(response.effective))
+  async function syncAfterMutation(
+    response: AiConfigApplyResponse,
+    message: string,
+    options?: { deletedSavedProviderId?: string },
+  ) {
+    const nextGuide = selectGuideFromSnapshot(response.effective)
+    setLocalGuide(
+      options?.deletedSavedProviderId
+        ? removeSavedProviderFromGuide(nextGuide, options.deletedSavedProviderId)
+        : nextGuide,
+    )
     onSnapshotUpdate(response.effective)
     await onReload()
     setSuccess(message)
@@ -686,15 +762,15 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
     }
   }
 
-  async function handleDeleteSavedProvider(savedProviderId: string) {
-    const confirmed = window.confirm(
-      t(locale, '删除后不可恢复，确认继续？', 'This deletion cannot be undone. Continue?'),
-    )
-    if (!confirmed) {
-      return
-    }
+  function requestDeleteSavedProvider(savedProviderId: string) {
+    setPendingDeleteSavedProviderId(savedProviderId)
+    setError(null)
+    setSuccess(null)
+  }
 
+  async function handleDeleteSavedProvider(savedProviderId: string) {
     setDeletingSavedProviderId(savedProviderId)
+    setPendingDeleteSavedProviderId(null)
     setError(null)
     setSuccess(null)
 
@@ -705,7 +781,9 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
         savedProviderId,
         'System Admin',
       )
-      await syncAfterMutation(response, t(locale, '模型供应商已删除', 'Provider deleted'))
+      await syncAfterMutation(response, t(locale, '模型供应商已删除', 'Provider deleted'), {
+        deletedSavedProviderId: savedProviderId,
+      })
       if (editingSavedProviderId === savedProviderId) {
         setViewMode('list')
         setEditingSavedProviderId(null)
@@ -855,7 +933,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
                           }
                           disabled={isBusy}
                           tone="danger"
-                          onClick={() => void handleDeleteSavedProvider(savedProvider.savedProviderId)}
+                          onClick={() => requestDeleteSavedProvider(savedProvider.savedProviderId)}
                         />
                       </div>
                     </article>
@@ -1197,6 +1275,49 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
           </section>
         )}
       </div>
+      {pendingDeleteSavedProvider && (
+        <div
+          className="provider-workspace__confirm-overlay"
+          onClick={() => setPendingDeleteSavedProviderId(null)}
+        >
+          <div
+            className="provider-workspace__confirm-dialog"
+            onClick={(event) => event.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={t(locale, '删除模型供应商', 'Delete provider')}
+          >
+            <div className="provider-workspace__confirm-icon">
+              <AppIcon name="trash" width={20} height={20} />
+            </div>
+            <h4>{t(locale, '删除模型供应商', 'Delete provider')}</h4>
+            <p>
+              {t(
+                locale,
+                '删除后不可恢复。确认删除当前配置？',
+                'This action cannot be undone. Delete this saved provider?',
+              )}
+            </p>
+            <strong>{localizeLabel(locale, pendingDeleteSavedProvider.providerName)}</strong>
+            <div className="provider-workspace__confirm-actions">
+              <button
+                type="button"
+                className="provider-workspace__confirm-btn is-cancel"
+                onClick={() => setPendingDeleteSavedProviderId(null)}
+              >
+                {t(locale, '取消', 'Cancel')}
+              </button>
+              <button
+                type="button"
+                className="provider-workspace__confirm-btn is-danger"
+                onClick={() => void handleDeleteSavedProvider(pendingDeleteSavedProvider.savedProviderId)}
+              >
+                {t(locale, '确认删除', 'Delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AiConfigOverlay>
   )
 }
