@@ -311,12 +311,24 @@ mod tests {
                 .contains("npm prefix -g"));
         }
         if has_brew_attempt {
-            let brew_attempt = plan.attempts.iter().find(|a| a.id.contains("-brew")).expect("brew attempt");
+            let brew_attempt = plan
+                .attempts
+                .iter()
+                .find(|a| a.id.contains("-brew"))
+                .expect("brew attempt");
             assert!(brew_attempt.args.last().expect("script").contains("brew"));
         }
         if has_node_dir_attempt {
-            let node_dir_attempt = plan.attempts.iter().find(|a| a.id.contains("-npm-node-dir")).expect("node dir attempt");
-            assert!(node_dir_attempt.args.last().expect("script").contains("npm"));
+            let node_dir_attempt = plan
+                .attempts
+                .iter()
+                .find(|a| a.id.contains("-npm-node-dir"))
+                .expect("node dir attempt");
+            assert!(node_dir_attempt
+                .args
+                .last()
+                .expect("script")
+                .contains("npm"));
         }
     }
 
@@ -902,7 +914,11 @@ impl AgentInstaller {
                 // via our search but not in the default shell PATH.
                 if !npm_ready && !brew_ready {
                     if let Some(node_dir) = Self::find_node_runtime_dir() {
-                        attempts.push(Self::npm_install_attempt_with_node_dir(agent, &registry_candidates, &node_dir));
+                        attempts.push(Self::npm_install_attempt_with_node_dir(
+                            agent,
+                            &registry_candidates,
+                            &node_dir,
+                        ));
                     }
                 }
             }
@@ -1082,10 +1098,7 @@ impl AgentInstaller {
             label,
             phase: AgentInstallProgressPhase::Downloading,
             program: "bash".to_string(),
-            args: vec![
-                "-lc".to_string(),
-                brew_cmd.to_string(),
-            ],
+            args: vec!["-lc".to_string(), brew_cmd.to_string()],
             env: BTreeMap::new(),
             timeout_ms: INSTALL_ATTEMPT_TIMEOUT_MS,
             retryable_diagnostics: Self::network_retryable_diagnostics(),
@@ -1102,7 +1115,10 @@ impl AgentInstaller {
             AgentType::Codex => "@openai/codex",
             AgentType::Gemini => "@google/gemini-cli",
         };
-        let registry = registry_candidates.first().map(|s| s.as_str()).unwrap_or(OFFICIAL_NPM_REGISTRY);
+        let registry = registry_candidates
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or(OFFICIAL_NPM_REGISTRY);
         let node_dir_str = node_dir.display().to_string();
         let env = Self::npm_install_env_with_node_dir(registry, node_dir);
 
@@ -1128,7 +1144,13 @@ impl AgentInstaller {
         if let Some(path_var) = env::var_os("PATH") {
             let mut paths = env::split_paths(&path_var).collect::<Vec<_>>();
             paths.insert(0, node_dir.to_path_buf());
-            env.insert("PATH".to_string(), env::join_paths(paths).unwrap_or_default().to_string_lossy().to_string());
+            env.insert(
+                "PATH".to_string(),
+                env::join_paths(paths)
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            );
         }
         env
     }
@@ -1948,13 +1970,14 @@ impl AgentInstaller {
             status.auto_install_supported = matches!(agent, AgentType::ClaudeCode)
                 || (status.requires_node && (status.npm_ready || status.brew_ready));
             if status.recommended_action.is_none() {
-                status.recommended_action = if status.requires_node && !status.node_ready && !status.brew_ready {
-                    Some(AgentInstallRecommendedAction::InstallNode)
-                } else if status.auto_install_supported {
-                    Some(AgentInstallRecommendedAction::Install)
-                } else {
-                    Some(AgentInstallRecommendedAction::ManualHelp)
-                };
+                status.recommended_action =
+                    if status.requires_node && !status.node_ready && !status.brew_ready {
+                        Some(AgentInstallRecommendedAction::InstallNode)
+                    } else if status.auto_install_supported {
+                        Some(AgentInstallRecommendedAction::Install)
+                    } else {
+                        Some(AgentInstallRecommendedAction::ManualHelp)
+                    };
             }
         }
         Some(status)

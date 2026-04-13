@@ -383,7 +383,11 @@ fn resolve_pubkey_from_config(app: &AppHandle) -> Option<String> {
     let config = app.config();
     let updater_config = config.plugins.0.get("updater")?;
     let pubkey = updater_config.get("pubkey")?;
-    pubkey.as_str().map(str::trim).filter(|v| !v.is_empty()).map(ToOwned::to_owned)
+    pubkey
+        .as_str()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn build_release_page_url(config: &AppUpdateConfig, version: Option<&str>) -> String {

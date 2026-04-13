@@ -13,7 +13,7 @@
 |:---:|:---:|:---:|
 | ![Task View](docs/assets/task-view.png) | ![Explorer View](docs/assets/explorer-view.png) | ![Git View](docs/assets/git-view.png) |
 
-面向 macOS 和 Windows 的跨平台 AI Agent 桌面工作台，代码库同时支持 Linux 开发调试。GT Office 把 workspace 感知的文件操作、真实 PTY 终端、Git 工作流、多 Agent 协作、tool adapters 和外部通道路由整合到同一个桌面壳层中。
+面向 macOS，linux和 Windows 的跨平台 AI Agent 桌面工作台，代码库同时支持 Linux 开发调试。GT Office 把 workspace 感知的文件操作、真实 PTY 终端、Git 工作流、多 Agent 协作、tool adapters 和外部通道路由整合到同一个桌面壳层中。
 
 **[English](README.md)**
 
