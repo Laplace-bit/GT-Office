@@ -110,7 +110,7 @@ fn terminal_snapshot_response_keeps_contract_fields() {
     assert_eq!(payload["maxBytes"], 4);
     assert_eq!(payload["truncated"], false);
     assert_eq!(payload["currentSeq"], 9);
-    assert!(payload["chunk"].as_str().unwrap_or_default().len() > 0);
+    assert!(!payload["chunk"].as_str().unwrap_or_default().is_empty());
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn terminal_delta_response_keeps_contract_fields() {
     assert_eq!(payload["currentSeq"], 5);
     assert_eq!(payload["gap"], false);
     assert_eq!(payload["truncated"], false);
-    assert!(payload["chunk"].as_str().unwrap_or_default().len() > 0);
+    assert!(!payload["chunk"].as_str().unwrap_or_default().is_empty());
 }
 
 #[test]

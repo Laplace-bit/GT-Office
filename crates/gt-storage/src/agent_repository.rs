@@ -195,6 +195,7 @@ impl SqliteAgentRepository {
               state TEXT NOT NULL,
               employee_no TEXT,
               policy_snapshot_id TEXT,
+              launch_command TEXT,
               order_index INTEGER NOT NULL DEFAULT 0,
               created_at_ms INTEGER NOT NULL,
               updated_at_ms INTEGER NOT NULL,
@@ -215,6 +216,7 @@ impl SqliteAgentRepository {
               state,
               employee_no,
               policy_snapshot_id,
+              launch_command,
               order_index,
               created_at_ms,
               updated_at_ms
@@ -231,6 +233,7 @@ impl SqliteAgentRepository {
               state,
               employee_no,
               policy_snapshot_id,
+              NULL,
               COALESCE(order_index, 0),
               created_at_ms,
               updated_at_ms
@@ -1240,6 +1243,25 @@ mod tests {
             .expect("seed global defaults");
         repo.seed_defaults("ws_alpha")
             .expect("seed workspace defaults");
+        repo.upsert_role(
+            global_workspace_id(),
+            AgentRole {
+                id: "global_role_manager".to_string(),
+                workspace_id: global_workspace_id().to_string(),
+                role_key: "manager".to_string(),
+                role_name: "Manager".to_string(),
+                department_id: "dept_orchestration".to_string(),
+                scope: AgentRoleScope::Global,
+                charter_path: None,
+                policy_json: Some("{}".to_string()),
+                version: 1,
+                status: RoleStatus::Active,
+                is_system: false,
+                created_at_ms: 1,
+                updated_at_ms: 1,
+            },
+        )
+        .expect("save global manager role");
 
         let created = repo.create_agent(CreateAgentInput {
             workspace_id: "ws_alpha".to_string(),

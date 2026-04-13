@@ -85,9 +85,9 @@ fn build_detached_window_url(
     ))
 }
 
-fn resolve_window<'a>(
+fn resolve_window(
     window_label: Option<String>,
-    window: &'a Window,
+    window: &Window,
 ) -> Result<(tauri::AppHandle, tauri::WebviewWindow), String> {
     let app: tauri::AppHandle = window.app_handle().clone();
     if let Some(label) = window_label
@@ -183,7 +183,7 @@ pub fn surface_open_detached_window(
         .map_err(|error| format!("SURFACE_WINDOW_CREATE_FAILED: {error}"))?;
 
     state.bind_window_workspace(&window_label, workspace_id)?;
-    emit_surface_window_updated(&app, &window_label, topmost)?;
+    emit_surface_window_updated(app, &window_label, topmost)?;
 
     let app_handle = app.clone();
     let state_handle = state.inner().clone();

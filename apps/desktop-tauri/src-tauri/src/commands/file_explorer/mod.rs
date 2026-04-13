@@ -90,6 +90,7 @@ fn build_fs_list_dir_response(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_fs_read_file_response(
     workspace_id: &str,
     path: &str,
@@ -1095,6 +1096,7 @@ pub async fn fs_show_in_folder(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn fs_search_stream_start(
     workspace_id: String,
     search_id: Option<String>,

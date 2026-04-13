@@ -30,7 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state::AppState::default())
         .setup(|app| {
-            let _ = terminal_debug::dev_log::reset_dev_logs(&app.handle());
+            let _ = terminal_debug::dev_log::reset_dev_logs(app.handle());
             let main_window_config = app
                 .config()
                 .app

@@ -202,6 +202,7 @@ pub struct ToolCommandCatalogItem {
     pub arguments: Vec<ToolCommandArgument>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn text_command(
     id: &str,
     label: &str,
@@ -255,6 +256,7 @@ fn text_command(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sheet_command(
     id: &str,
     label: &str,

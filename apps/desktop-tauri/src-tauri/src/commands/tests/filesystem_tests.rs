@@ -268,8 +268,9 @@ fn search_file_matches_finds_by_file_name() {
 
 #[test]
 fn full_read_limit_is_larger_than_preview_limit() {
-    assert!(DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES > DEFAULT_FS_PREVIEW_MAX_BYTES);
-    assert!(DEFAULT_FS_FULL_READ_HARD_MAX_BYTES >= DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES);
+    const _: () = assert!(DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES > DEFAULT_FS_PREVIEW_MAX_BYTES);
+    const _: () =
+        assert!(DEFAULT_FS_FULL_READ_HARD_MAX_BYTES >= DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES);
 }
 
 #[test]

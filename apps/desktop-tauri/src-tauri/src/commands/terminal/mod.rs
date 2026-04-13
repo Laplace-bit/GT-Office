@@ -111,6 +111,7 @@ fn build_terminal_snapshot_response(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_terminal_delta_response(
     session_id: &str,
     chunk: Vec<u8>,
@@ -178,6 +179,7 @@ fn to_terminal_error(error: AbstractionError) -> String {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn terminal_create(
     workspace_id: String,
     shell: Option<String>,

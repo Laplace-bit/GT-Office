@@ -25,7 +25,7 @@ fn sample_runtime(
         workspace_id: "ws-1".to_string(),
         agent_id: "agent-01".to_string(),
         station_id: "agent-01".to_string(),
-        role_key: Some("product".to_string()),
+        role_key: Some("analyst".to_string()),
         session_id: "ts-1".to_string(),
         tool_kind,
         resolved_cwd: resolved_cwd.map(str::to_string),
@@ -55,16 +55,16 @@ fn seed_workspace_agent(repo: &SqliteAgentRepository, workspace_id: &str, agent_
         .list_roles(workspace_id)
         .expect("list roles")
         .into_iter()
-        .find(|role| role.role_key == "product")
-        .expect("product role")
+        .find(|role| role.role_key == "analyst")
+        .expect("analyst role")
         .id;
     repo.create_agent(CreateAgentInput {
         workspace_id: workspace_id.to_string(),
         agent_id: Some(agent_id.to_string()),
-        name: "Agent Product".to_string(),
+        name: "Agent Analyst".to_string(),
         role_id,
         tool: "codex".to_string(),
-        workdir: Some(".gtoffice/agent-product".to_string()),
+        workdir: Some(".gtoffice/agent-analyst".to_string()),
         custom_workdir: false,
         employee_no: None,
         state: AgentState::Ready,
@@ -443,7 +443,7 @@ fn validate_binding_target_selector_accepts_existing_agent_and_role_targets() {
 
     validate_binding_target_selector(&repo, "ws-1", "agent-1")
         .expect("direct agent target should be accepted");
-    validate_binding_target_selector(&repo, "ws-1", "role:manager")
+    validate_binding_target_selector(&repo, "ws-1", "role:analyst")
         .expect("role selector should be accepted");
 }
 

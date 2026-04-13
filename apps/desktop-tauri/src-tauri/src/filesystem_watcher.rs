@@ -301,12 +301,12 @@ fn normalize_path(root: &Path, target: &Path) -> Option<String> {
     if target == root {
         return Some(".".to_string());
     }
-    target.strip_prefix(root).ok().and_then(|relative| {
+    target.strip_prefix(root).ok().map(|relative| {
         let normalized = relative.to_string_lossy().replace('\\', "/");
         if normalized.is_empty() || normalized == "." {
-            Some(".".to_string())
+            ".".to_string()
         } else {
-            Some(normalized)
+            normalized
         }
     })
 }

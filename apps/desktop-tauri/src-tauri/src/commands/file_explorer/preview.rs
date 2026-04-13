@@ -265,7 +265,7 @@ pub async fn fs_pdf_get_info(path: String) -> Result<PdfInfoResponse, String> {
             .iter()
             .next()
             .ok_or("PDF has no pages".to_string())?;
-        (page.width().value as f32, page.height().value as f32)
+        (page.width().value, page.height().value)
     } else {
         (595.0, 842.0) // A4 默认尺寸
     };

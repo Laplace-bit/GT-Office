@@ -25,7 +25,7 @@ fn test_full_session_lifecycle() {
     // Get rendered screen
     router.activate_session("test-session");
     let screen = router.get_rendered_screen("test-session").unwrap();
-    assert!(screen.content.len() > 0);
+    assert!(!screen.content.is_empty());
 
     // Deactivate
     router.set_visibility("test-session", SessionVisibility::Hidden);

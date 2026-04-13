@@ -265,10 +265,10 @@ fn command_exists(command: &str) -> bool {
     // In macOS GUI apps, PATH is minimal (/usr/bin:/bin:/usr/sbin:/sbin).
     // Use AgentInstaller to find node with PATH augmentation so that tools
     // installed via Homebrew, fnm, nvm, etc. are discoverable.
-    if command == "node" {
-        if gt_tools::agent_installer::AgentInstaller::find_node_runtime_dir().is_some() {
-            return true;
-        }
+    if command == "node"
+        && gt_tools::agent_installer::AgentInstaller::find_node_runtime_dir().is_some()
+    {
+        return true;
     }
     // Also try common binary directories not in the GUI app PATH.
     let mut env_path = std::env::var_os("PATH")

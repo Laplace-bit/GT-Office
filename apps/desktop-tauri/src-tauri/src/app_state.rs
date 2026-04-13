@@ -668,6 +668,7 @@ impl AppState {
         Ok(())
     }
 
+    #[cfg(not(test))]
     pub fn invalidate_workspace_reset_state(
         &self,
         app: &tauri::AppHandle,
@@ -1670,9 +1671,8 @@ fn extract_rendered_menu_prompt(
     if title_info.is_none() && !has_slash_option {
         return None;
     }
-    let (start_row, title) = title_info
-        .map(|(row, title)| (row, title))
-        .unwrap_or_else(|| (option_start_row, "请选择一个操作".to_string()));
+    let (start_row, title) =
+        title_info.unwrap_or_else(|| (option_start_row, "请选择一个操作".to_string()));
     let hint = find_menu_hint_after_row(&filtered_rows, end_row);
     if let Some((hint_row, _)) = hint.as_ref() {
         end_row = end_row.max(*hint_row);
@@ -2322,9 +2322,7 @@ fn extend_wrapped_injected_anchor_row(
     anchor_row: Option<usize>,
     injected_input: Option<&str>,
 ) -> Option<usize> {
-    let Some(anchor_row) = anchor_row else {
-        return None;
-    };
+    let anchor_row = anchor_row?;
     let Some(injected) = injected_input
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -2650,6 +2648,7 @@ fn normalize_carriage_returns(input: &str) -> String {
 ///
 /// 1. Backspace (BS, 0x08) → pop previous character (terminal overwrite emulation)
 /// 2. Strip remaining control characters except LF and TAB
+///
 /// Note: CR handling is done in normalize_carriage_returns before ANSI stripping
 #[allow(dead_code)]
 fn normalize_terminal_text(input: &str) -> String {
@@ -2732,10 +2731,10 @@ fn normalize_reply_text(input: &str, injected_input: Option<&str>) -> String {
     };
 
     let mut result = best_island;
-    while result.first().map_or(false, |l| l.trim().is_empty()) {
+    while result.first().is_some_and(|l| l.trim().is_empty()) {
         result.remove(0);
     }
-    while result.last().map_or(false, |l| l.trim().is_empty()) {
+    while result.last().is_some_and(|l| l.trim().is_empty()) {
         result.pop();
     }
 
@@ -2882,7 +2881,7 @@ fn should_skip_tool_execution_line_for_tool(line: &str, profile: ToolScreenProfi
             && prefix
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_ascii_uppercase())
+                .is_some_and(|c| c.is_ascii_uppercase())
             && display_trimmed.ends_with(')')
         {
             return true;
@@ -3163,7 +3162,7 @@ fn should_skip_startup_banner_line_for_tool(line: &str, profile: ToolScreenProfi
     let lower = normalized.to_ascii_lowercase();
 
     // Version patterns: "v1.0.0", "version 2.3", "ver 1.2"
-    if lower.starts_with("v") && lower.chars().nth(1).map_or(false, |c| c.is_ascii_digit()) {
+    if lower.starts_with("v") && lower.chars().nth(1).is_some_and(|c| c.is_ascii_digit()) {
         return true;
     }
     if lower.starts_with("version ") || lower.starts_with("ver ") {

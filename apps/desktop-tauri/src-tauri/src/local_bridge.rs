@@ -145,7 +145,7 @@ mod tests {
             id: "agent_alpha".to_string(),
             workspace_id: "ws-1".to_string(),
             name: "Alpha".to_string(),
-            role_id: "role_product".to_string(),
+            role_id: "role_analyst".to_string(),
             tool: "claude".to_string(),
             workdir: Some(".gtoffice/alpha".to_string()),
             custom_workdir: false,
@@ -177,7 +177,7 @@ mod tests {
 
         assert_eq!(
             resolve_bootstrap_role_key("agent_alpha", &agents, &roles),
-            Some("product".to_string())
+            Some("analyst".to_string())
         );
     }
 
@@ -200,14 +200,14 @@ mod tests {
         }];
 
         assert_eq!(
-            resolve_bootstrap_role_key("build", &[], &roles),
-            Some("build".to_string())
+            resolve_bootstrap_role_key("generator", &[], &roles),
+            Some("generator".to_string())
         );
     }
 
     #[test]
     fn build_agent_terminal_env_includes_role_key_when_present() {
-        let env = build_agent_terminal_env("ws-1", "agent_alpha", Some("product"), "station-1");
+        let env = build_agent_terminal_env("ws-1", "agent_alpha", Some("analyst"), "station-1");
 
         assert_eq!(
             env.get("GTO_WORKSPACE_ID").map(String::as_str),
@@ -217,7 +217,7 @@ mod tests {
             env.get("GTO_AGENT_ID").map(String::as_str),
             Some("agent_alpha")
         );
-        assert_eq!(env.get("GTO_ROLE_KEY").map(String::as_str), Some("product"));
+        assert_eq!(env.get("GTO_ROLE_KEY").map(String::as_str), Some("analyst"));
         assert_eq!(
             env.get("GTO_STATION_ID").map(String::as_str),
             Some("station-1")
@@ -430,7 +430,7 @@ mod tests {
 
         let before = repo.list_roles("ws_alpha").expect("list roles before seed");
         assert!(
-            !before.iter().any(|role| role.role_key == "build"),
+            !before.iter().any(|role| role.role_key == "evaluator"),
             "fresh database should not expose built-in global roles before seeding"
         );
 
@@ -439,7 +439,7 @@ mod tests {
         let after = repo.list_roles("ws_alpha").expect("list roles after seed");
         assert!(
             after.iter().any(|role| {
-                role.workspace_id == GLOBAL_ROLE_WORKSPACE_ID && role.role_key == "build"
+                role.workspace_id == GLOBAL_ROLE_WORKSPACE_ID && role.role_key == "evaluator"
             }),
             "workspace role listing should include seeded global built-in roles"
         );

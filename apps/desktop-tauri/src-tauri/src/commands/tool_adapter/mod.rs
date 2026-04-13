@@ -851,6 +851,7 @@ fn runtime_supports_structured_relay(runtime: &AgentRuntimeRegistration) -> bool
         .is_some_and(|value| !value.is_empty())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_external_outbound_result(
     app: &AppHandle,
     target: &ExternalReplyRelayTarget,
@@ -1503,7 +1504,7 @@ fn gemini_event_text(event: &Value) -> Option<(String, bool)> {
     let is_delta = event
         .get("delta")
         .and_then(Value::as_bool)
-        .unwrap_or_else(|| matches!(event_type, Some("content_delta" | "text_delta")));
+        .unwrap_or(matches!(event_type, Some("content_delta" | "text_delta")));
 
     let text = event
         .get("response")
@@ -3467,7 +3468,7 @@ pub fn channel_access_policy_set(
     state.task_service.set_external_access_policy(
         &request.channel,
         &account_id,
-        request.mode.clone(),
+        request.mode,
     );
     state.task_service.clear_external_idempotency_cache();
     persist_access_policy(&app, &request.channel, &account_id, request.mode)?;
