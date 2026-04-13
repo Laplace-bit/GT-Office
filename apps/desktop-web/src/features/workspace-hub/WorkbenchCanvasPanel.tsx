@@ -132,6 +132,29 @@ interface ExitingStationSnapshot {
   height: number
 }
 
+export function resolveFocusStageStationVisibility(
+  stationId: string,
+  selectedStationId: string | null,
+  slotMode: 'stable' | 'entering' | 'exiting' | 'parked',
+): { focusHidden: boolean; inert: boolean } {
+  const focusHidden = slotMode !== 'parked' && stationId !== selectedStationId
+  return {
+    focusHidden,
+    inert: focusHidden && slotMode !== 'exiting',
+  }
+}
+
+export function resolveRenderedActiveStationId(
+  layoutMode: WorkbenchLayoutMode,
+  selectedStationId: string | null,
+  effectiveActiveStationId: string | null,
+): string | null {
+  if (layoutMode === 'focus') {
+    return selectedStationId ?? effectiveActiveStationId
+  }
+  return effectiveActiveStationId
+}
+
 function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -234,11 +257,13 @@ function StationCardSlot({
   stationId,
   mode,
   snapshot,
+  inert = false,
   children,
 }: {
   stationId: string
   mode: 'stable' | 'entering' | 'exiting' | 'parked'
   snapshot?: ExitingStationSnapshot | null
+  inert?: boolean
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
@@ -253,6 +278,7 @@ function StationCardSlot({
         isParked ? 'station-card-slot--parked' : '',
         mode === 'entering' ? 'station-card-slot--entering' : '',
         mode === 'exiting' ? 'station-card-slot--exiting' : '',
+        inert ? 'station-card-slot--inert' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -272,12 +298,13 @@ function StationCardSlot({
           : { type: 'spring', stiffness: 320, damping: 30, mass: 0.88 },
       }}
       style={{
-        pointerEvents: isParked || mode === 'exiting' ? 'none' : undefined,
+        pointerEvents: isParked || isExiting || inert ? 'none' : undefined,
         willChange: isParked ? undefined : 'transform, opacity',
         top: isExiting ? snapshot?.top : undefined,
         left: isExiting ? snapshot?.left : undefined,
         width: isExiting ? snapshot?.width : undefined,
         height: isExiting ? snapshot?.height : undefined,
+        zIndex: inert ? 0 : isExiting ? 2 : 1,
       }}
     >
       {children}
@@ -494,6 +521,15 @@ function WorkbenchCanvasPanelView({
     }
     return selectedStationId ?? activeGlobalStationId
   }, [activeGlobalStationId, displayedStations, selectedStationId])
+  const renderedActiveStationId = useMemo(
+    () =>
+      resolveRenderedActiveStationId(
+        fullscreenStationIdRaw ? 'focus' : container.layoutMode,
+        fullscreenStationIdRaw ?? selectedStationId,
+        effectiveActiveStationId,
+      ),
+    [container.layoutMode, effectiveActiveStationId, fullscreenStationIdRaw, selectedStationId],
+  )
   const fullscreenStation = useMemo(
     () => displayedStations.find((station) => station.id === fullscreenStationIdRaw) ?? null,
     [displayedStations, fullscreenStationIdRaw],
@@ -858,6 +894,7 @@ function WorkbenchCanvasPanelView({
       station: AgentStation,
       options?: {
         focusHidden?: boolean
+        inert?: boolean
         fullscreen?: boolean
         fullscreenMode?: boolean
         slotMode?: 'stable' | 'entering' | 'exiting' | 'parked'
@@ -869,13 +906,14 @@ function WorkbenchCanvasPanelView({
           stationId={station.id}
           mode={options?.slotMode ?? 'stable'}
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
+          inert={Boolean(options?.inert)}
         >
           <StationCard
             locale={locale}
             appearanceVersion={appearanceVersion}
             performanceDebugEnabled={performanceDebugEnabled}
             station={station}
-            active={station.id === effectiveActiveStationId}
+            active={station.id === renderedActiveStationId}
             runtime={terminalByStation[station.id]}
             agentRunning={agentRunningByStationId[station.id] ?? false}
             taskSignal={taskSignalByStationId[station.id]}
@@ -918,6 +956,7 @@ function WorkbenchCanvasPanelView({
     },
     [
       effectiveActiveStationId,
+      renderedActiveStationId,
       agentRunningByStationId,
       appearanceVersion,
       performanceDebugEnabled,
@@ -1113,13 +1152,15 @@ function WorkbenchCanvasPanelView({
               style={displayedStations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}
             >
               <div className="focus-main-stage">
-                {stations.map((station) =>
-                  renderStationCard(station, {
-                    focusHidden:
-                      resolveStationSlotMode(station.id) !== 'parked' && station.id !== selectedStationId,
-                    slotMode: resolveStationSlotMode(station.id),
-                  }),
-                )}
+                {stations.map((station) => {
+                  const slotMode = resolveStationSlotMode(station.id)
+                  const visibility = resolveFocusStageStationVisibility(station.id, selectedStationId, slotMode)
+                  return renderStationCard(station, {
+                    focusHidden: visibility.focusHidden,
+                    inert: visibility.inert,
+                    slotMode,
+                  })
+                })}
               </div>
             </div>
             {displayedStations.length > 1 ? (
