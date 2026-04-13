@@ -1,12 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import {
   CodeMirrorEditor,
+  MarkdownRenderer,
   MarkdownSplitView,
   type CodeEditorCommandRequest,
   type MarkdownViewMode,
@@ -497,9 +495,7 @@ export function FileEditorPane({
             // Pure preview mode
             <div className="markdown-preview-pane">
               <div className="markdown-preview-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {activeContent}
-                </ReactMarkdown>
+                <MarkdownRenderer content={activeContent} filePath={activeFile.path} />
               </div>
             </div>
           ) : isMarkdown && viewMode === 'split' ? (

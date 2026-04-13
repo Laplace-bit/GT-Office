@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   desktopApi,
@@ -115,6 +115,7 @@ function ProviderIconButton({
 
 export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   const { agentId, locale, agent, guide, onReload, onSnapshotUpdate, onClose } = props
+  const [localGuide, setLocalGuide] = useState<typeof guide>(guide)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [editorMode, setEditorMode] = useState<EditorMode>('create')
   const [editingSavedProviderId, setEditingSavedProviderId] = useState<string | null>(null)
@@ -139,7 +140,22 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   const [modelOverrides, setModelOverrides] = useState<ClaudeModelOverrides>({})
   const [showAdvanced, setShowAdvanced] = useState(false)
 
-  const presets = guide.presets
+  useEffect(() => {
+    setLocalGuide(guide)
+  }, [guide])
+
+  function selectGuideFromSnapshot(snapshot: AiConfigSnapshot): typeof guide {
+    switch (agentId) {
+      case 'claude':
+        return snapshot.claude as typeof guide
+      case 'codex':
+        return snapshot.codex as typeof guide
+      case 'gemini':
+        return snapshot.gemini as typeof guide
+    }
+  }
+
+  const presets = localGuide.presets
   const officialProviderId =
     agentId === 'claude'
       ? 'anthropic-official'
@@ -152,11 +168,11 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
     (item) => item.providerId !== officialProviderId && item.providerId !== CUSTOM_PROVIDER_ID,
   )
   const defaultPreset = selectablePresets[0] ?? officialPreset ?? customPreset ?? presets[0] ?? null
-  const savedProviders = guide.savedProviders
-  const currentConfig = guide.config
-  const claudeGuide = agentId === 'claude' ? guide : null
-  const codexGuide = agentId === 'codex' ? guide : null
-  const geminiGuide = agentId === 'gemini' ? guide : null
+  const savedProviders = localGuide.savedProviders
+  const currentConfig = localGuide.config
+  const claudeGuide = agentId === 'claude' ? (localGuide as ClaudeSnapshot) : null
+  const codexGuide = agentId === 'codex' ? (localGuide as CodexSnapshot) : null
+  const geminiGuide = agentId === 'gemini' ? (localGuide as GeminiSnapshot) : null
   const currentSavedProvider =
     editingSavedProviderId != null
       ? savedProviders.find((item) => item.savedProviderId === editingSavedProviderId) ?? null
@@ -593,6 +609,7 @@ export function ProviderWorkspaceModal(props: ProviderWorkspaceModalProps) {
   }
 
   async function syncAfterMutation(response: AiConfigApplyResponse, message: string) {
+    setLocalGuide(selectGuideFromSnapshot(response.effective))
     onSnapshotUpdate(response.effective)
     await onReload()
     setSuccess(message)

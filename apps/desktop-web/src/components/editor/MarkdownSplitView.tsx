@@ -1,9 +1,7 @@
-import { useMemo, useRef, useCallback, useEffect } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { useRef, useCallback, useEffect } from 'react'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
+import { MarkdownRenderer } from './MarkdownRenderer'
 import './MarkdownSplitView.scss'
 
 // Import code highlighting styles
@@ -72,30 +70,6 @@ export function MarkdownSplitView({
     }
   }, [syncScrollPosition, content, filePath])
 
-  // Markdown rendering configuration
-  const markdownComponents = useMemo(
-    () => ({
-      // Custom link rendering - open external links in new window
-      a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
-        const isExternal = href?.startsWith('http://') || href?.startsWith('https://')
-        return (
-          <a
-            href={href}
-            target={isExternal ? '_blank' : undefined}
-            rel={isExternal ? 'noopener noreferrer' : undefined}
-          >
-            {children}
-          </a>
-        )
-      },
-      // Image rendering
-      img: ({ src, alt }: { src?: string; alt?: string }) => (
-        <img src={src} alt={alt} loading="lazy" />
-      ),
-    }),
-    []
-  )
-
   return (
     <div className="markdown-split-view">
       {/* Editor panel */}
@@ -116,13 +90,7 @@ export function MarkdownSplitView({
       {/* Preview panel */}
       <div ref={previewRef} className="markdown-split-preview">
         <div className="markdown-preview-content">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-            components={markdownComponents}
-          >
-            {content}
-          </ReactMarkdown>
+          <MarkdownRenderer content={content} filePath={filePath} />
         </div>
       </div>
     </div>
