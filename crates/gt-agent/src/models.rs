@@ -22,7 +22,7 @@ impl AgentState {
         }
     }
 
-    pub fn from_str(value: &str) -> Self {
+    pub fn from_storage_str(value: &str) -> Self {
         match value {
             "paused" => AgentState::Paused,
             "blocked" => AgentState::Blocked,
@@ -49,7 +49,7 @@ impl RoleStatus {
         }
     }
 
-    pub fn from_str(value: &str) -> Self {
+    pub fn from_storage_str(value: &str) -> Self {
         match value {
             "deprecated" => RoleStatus::Deprecated,
             "disabled" => RoleStatus::Disabled,
@@ -73,7 +73,7 @@ impl AgentRoleScope {
         }
     }
 
-    pub fn from_str(value: &str) -> Self {
+    pub fn from_storage_str(value: &str) -> Self {
         match value {
             "global" => AgentRoleScope::Global,
             _ => AgentRoleScope::Workspace,

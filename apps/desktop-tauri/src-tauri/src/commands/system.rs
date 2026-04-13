@@ -411,9 +411,17 @@ fn resolve_gto_script_path(app: &tauri::AppHandle) -> Option<PathBuf> {
 fn resolve_gto_skill_source_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("resources").join(GTO_SKILL_DIR_NAME));
         candidates.push(resource_dir.join(GTO_SKILL_DIR_NAME));
     }
     if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(
+            cwd.join("apps")
+                .join("desktop-tauri")
+                .join("src-tauri")
+                .join("resources")
+                .join(GTO_SKILL_DIR_NAME),
+        );
         candidates.push(
             cwd.join("..")
                 .join("..")

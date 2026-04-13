@@ -7,6 +7,10 @@ use gt_settings::{
 use serde_json::json;
 use std::{fs, path::PathBuf, time::SystemTime};
 
+const _: () = assert!(DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES > DEFAULT_FS_PREVIEW_MAX_BYTES);
+const _: () =
+    assert!(DEFAULT_FS_FULL_READ_HARD_MAX_BYTES >= DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES);
+
 struct TempDir {
     path: PathBuf,
 }
@@ -191,7 +195,4 @@ fn runtime_settings_are_normalized() {
         runtime.filesystem.preview.full_read_hard_max_bytes,
         runtime.filesystem.preview.full_read_default_max_bytes
     );
-
-    assert!(DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES > DEFAULT_FS_PREVIEW_MAX_BYTES);
-    assert!(DEFAULT_FS_FULL_READ_HARD_MAX_BYTES >= DEFAULT_FS_FULL_READ_DEFAULT_MAX_BYTES);
 }

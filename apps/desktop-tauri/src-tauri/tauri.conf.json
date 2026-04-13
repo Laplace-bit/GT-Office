@@ -53,7 +53,7 @@
     ],
     "resources": [
       "../../../tools/gto/bin/gto.mjs",
-      "../../../.codex/skills/gto-agent-communication"
+      "resources/gto-agent-communication"
     ],
     "icon": [
       "icons/32x32.png",

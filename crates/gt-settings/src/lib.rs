@@ -67,18 +67,10 @@ impl Default for SettingsPaths {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RuntimeSettings {
     pub filesystem: FilesystemSettings,
-}
-
-impl Default for RuntimeSettings {
-    fn default() -> Self {
-        Self {
-            filesystem: FilesystemSettings::default(),
-        }
-    }
 }
 
 impl RuntimeSettings {
@@ -87,20 +79,11 @@ impl RuntimeSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct FilesystemSettings {
     pub watcher: FilesystemWatcherSettings,
     pub preview: FilePreviewSettings,
-}
-
-impl Default for FilesystemSettings {
-    fn default() -> Self {
-        Self {
-            watcher: FilesystemWatcherSettings::default(),
-            preview: FilePreviewSettings::default(),
-        }
-    }
 }
 
 impl FilesystemSettings {

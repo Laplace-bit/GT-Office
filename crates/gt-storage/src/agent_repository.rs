@@ -577,11 +577,11 @@ impl AgentRepository for SqliteAgentRepository {
                     role_key: row.get(2)?,
                     role_name: row.get(3)?,
                     department_id: row.get(4)?,
-                    scope: AgentRoleScope::from_str(scope.as_str()),
+                    scope: AgentRoleScope::from_storage_str(scope.as_str()),
                     charter_path: row.get(6)?,
                     policy_json: row.get(7)?,
                     version: row.get(8)?,
-                    status: RoleStatus::from_str(status.as_str()),
+                    status: RoleStatus::from_storage_str(status.as_str()),
                     is_system: row.get::<_, i32>(10)? != 0,
                     created_at_ms: row.get(11)?,
                     updated_at_ms: row.get(12)?,
@@ -645,7 +645,7 @@ impl AgentRepository for SqliteAgentRepository {
                     tool: row.get(4)?,
                     workdir: row.get(5)?,
                     custom_workdir: row.get::<_, i32>(6)? != 0,
-                    state: AgentState::from_str(state.as_str()),
+                    state: AgentState::from_storage_str(state.as_str()),
                     employee_no: row.get(8)?,
                     policy_snapshot_id: row.get(9)?,
                     launch_command: row.get(10)?,
@@ -1365,6 +1365,7 @@ mod tests {
             employee_no: None,
             state: AgentState::Ready,
             launch_command: None,
+            order_index: None,
         })
         .expect("create agent");
 
