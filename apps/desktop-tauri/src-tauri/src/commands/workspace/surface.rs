@@ -2,7 +2,6 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window};
-use uuid::Uuid;
 
 use crate::app_state::AppState;
 
@@ -65,13 +64,7 @@ fn sanitized_window_label(seed: &str) -> String {
     } else {
         sanitized
     };
-    let suffix = Uuid::new_v4()
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>();
-    format!("surface-{fallback}-{suffix}")
+    format!("surface-{fallback}")
 }
 
 fn build_detached_window_url(
@@ -143,6 +136,18 @@ pub fn surface_open_detached_window(
     let app = window.app_handle();
     let window_label = sanitized_window_label(container_id);
     let topmost = payload.topmost.unwrap_or(false);
+
+    // If a window with this label already exists, focus it instead of creating a duplicate
+    if let Some(existing) = app.get_webview_window(&window_label) {
+        let _ = existing.set_focus();
+        let _ = existing.unminimize();
+        emit_surface_window_updated(app, &window_label, topmost)?;
+        return Ok(json!({
+            "windowLabel": window_label,
+            "created": false,
+        }));
+    }
+
     let query_payload = SurfaceDetachedWindowQueryPayload {
         window_label: window_label.clone(),
         container_id: container_id.to_string(),
