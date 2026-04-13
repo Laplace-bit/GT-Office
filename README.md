@@ -13,13 +13,15 @@
 |:---:|:---:|:---:|
 | ![Task View](docs/assets/task-view.png) | ![Explorer View](docs/assets/explorer-view.png) | ![Git View](docs/assets/git-view.png) |
 
-A cross-platform AI Agent desktop workspace for macOS and Windows, with Linux development support. GT Office combines workspace-aware file operations, real PTY terminals, Git tooling, multi-agent collaboration, tool adapters, and external channel routing into one desktop shell.
+**GT-Office: A Native Multi-Agent Collaborative Workspace**
+
+A next-generation desktop workspace designed to orchestrate, persist, and collaborate with native AI CLI tools (like Claude Code, Codex, and Gemini CLI). Instead of managing isolated command-line sessions, GT-Office provides a unified graphical environment for multi-agent concurrency, workflow persistence, and structured agent-to-agent communication.
 
 **[简体中文](README_CN.md)**
 
 ## Table of Contents
 
-- [What It Includes](#what-it-includes)
+- [Core Capabilities](#core-capabilities)
 - [Monorepo Layout](#monorepo-layout)
 - [Requirements](#requirements)
 - [Development](#development)
@@ -30,15 +32,15 @@ A cross-platform AI Agent desktop workspace for macOS and Windows, with Linux de
 - [Roadmap](#roadmap)
 - [License](#license)
 
-## What It Includes
+## Core Capabilities
 
-- Workspace-bound file explorer, search, preview, and editor flows
-- Real terminal sessions with workspace ownership, session restore, and CLI agent launch
-- Git status, diff, history, branch, stash, and refresh coordination
-- Multi-station workbench for manager / product / build / quality-release collaboration
-- Tool adapter and external connector foundation for Telegram, WeChat, and related workflows
-- The `gto` local CLI supports agent directory lookup, task dispatch, waiting for replies, status replies, and handoff
-- The desktop app ships a local bridge runtime that `gto` connects to on the same machine
+- **Workspace-Centric Agent Persistence**: Create agents once and persist them within workspaces. Launch multiple concurrent agents with one click and manage them via a unified GUI, eliminating repetitive directory navigation and state loss inherent to standalone CLI tools.
+- **100% Native Tool Integration**: Natively embeds official CLI tools (Claude Code, Codex, Gemini CLI) without abstraction layers, preserving their uncompromised underlying capabilities while adding a powerful management shell.
+- **Agent-to-Agent Communication Bus**: Built-in `gto` CLI bridging serves as an internal network, enabling agents to securely dispatch tasks, share execution context, and hand over work without human intervention.
+- **Customizable Command Workflows**: High-level GUI abstractions for complex CLI operations. Preset and custom command profiles make invoking sophisticated agent routines effortless.
+- **External Channel Reverse-Proxy**: Extend local CLI visibility beyond your machine. Route agent execution streams to Telegram, WeChat, and Feishu for remote monitoring and instruction dispatching.
+- **Adversarial Reasoning Architecture**: Pre-configured Generator-Evaluator agent roles systematically elevate output quality through automated internal review before human delivery.
+- **Visual Model Configuration**: UI-driven configuration panel to map and switch API backing models on the fly, without modifying system-level settings files.
 
 ## Monorepo Layout
 
