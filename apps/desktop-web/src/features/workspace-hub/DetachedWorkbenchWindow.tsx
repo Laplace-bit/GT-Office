@@ -58,6 +58,7 @@ import {
   patchTouchesSessionBinding,
   resolveNextPendingLaunchCommand,
   retainSessionOwnedRestoreState,
+  shouldPreferSessionOwnedRestoreState,
   setStationTerminalDebugHumanLog,
   shouldClearPendingFocusIntent,
   shouldClearPendingLaunchCommand,
@@ -162,6 +163,10 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const sinkByStationRef = useRef<Record<string, StationTerminalSink | null>>({})
   const stationTerminalRestoreStateRef = useRef<Record<string, StationTerminalRestoreState>>({})
   const outputCacheRef = useRef<Record<string, string>>({})
+  const outputRevisionRef = useRef<Record<string, number>>({})
+  const pendingReplayRef = useRef<
+    Record<string, { version: number; ops: Array<{ kind: 'write'; chunk: string } | { kind: 'reset'; content: string }> }>
+  >({})
   const projectionSeqRef = useRef<Record<string, number>>({})
   const hydrateInFlightRef = useRef(false)
   const ensureSessionInFlightRef = useRef<Record<string, boolean>>({})
@@ -172,6 +177,11 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
 
   useEffect(() => {
     stationsRef.current = stations
+    stations.forEach((station) => {
+      if (typeof outputRevisionRef.current[station.id] !== 'number') {
+        outputRevisionRef.current[station.id] = 0
+      }
+    })
   }, [stations])
 
   useEffect(() => {
@@ -357,6 +367,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         return
       }
       outputCacheRef.current[stationId] = appendDetachedTerminalOutput(outputCacheRef.current[stationId], chunk)
+      outputRevisionRef.current[stationId] = (outputRevisionRef.current[stationId] ?? 0) + 1
       const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
       pushStationTerminalDebugRecord(stationId, {
         sessionId,
@@ -366,7 +377,12 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         summary: formatTerminalDebugPreview(chunk, 84),
         body: chunk,
       })
-      sinkByStationRef.current[stationId]?.write(chunk)
+      const pendingReplay = pendingReplayRef.current[stationId]
+      if (pendingReplay) {
+        pendingReplay.ops.push({ kind: 'write', chunk })
+      } else {
+        void sinkByStationRef.current[stationId]?.write(chunk)
+      }
     },
     [pushStationTerminalDebugRecord],
   )
@@ -374,6 +390,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
   const resetStationTerminalOutput = useCallback(
     (stationId: string, content = '') => {
       outputCacheRef.current[stationId] = content
+      outputRevisionRef.current[stationId] = (outputRevisionRef.current[stationId] ?? 0) + 1
       const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
       pushStationTerminalDebugRecord(stationId, {
         sessionId,
@@ -383,7 +400,12 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         summary: formatTerminalDebugPreview(content, 84),
         body: content,
       })
-      sinkByStationRef.current[stationId]?.reset(content)
+      const pendingReplay = pendingReplayRef.current[stationId]
+      if (pendingReplay) {
+        pendingReplay.ops.push({ kind: 'reset', content })
+      } else {
+        void sinkByStationRef.current[stationId]?.reset(content)
+      }
     },
     [pushStationTerminalDebugRecord],
   )
@@ -556,7 +578,11 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         (acc, station) => {
           const restoreState = message.restoreStates?.[station.id]
           const capturedRestoreState = restoreState
-            ? captureSessionOwnedRestoreState(nextRuntimes[station.id], restoreState)
+            ? captureSessionOwnedRestoreState(
+                nextRuntimes[station.id],
+                restoreState,
+                outputRevisionRef.current[station.id] ?? 0,
+              )
             : null
           if (capturedRestoreState) {
             acc[station.id] = capturedRestoreState
@@ -573,10 +599,17 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           stationTerminalRestoreStateRef.current[stationId],
           nextRuntimes[stationId]?.sessionId ?? null,
         )
-        if (restoreState) {
-          sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
+        const outputRevision = outputRevisionRef.current[stationId] ?? 0
+        if (
+          shouldPreferSessionOwnedRestoreState(
+            restoreState,
+            nextRuntimes[stationId]?.sessionId ?? null,
+            outputRevision,
+          )
+        ) {
+          void sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         } else {
-          sink.reset(nextOutputs[stationId] ?? '')
+          void sink.reset(nextOutputs[stationId] ?? '')
         }
         flushPendingStationFocus(stationId)
       })
@@ -751,6 +784,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         if (meta?.sourceSink && sinkByStationRef.current[stationId] !== meta.sourceSink) {
           return
         }
+        delete pendingReplayRef.current[stationId]
         const capturedRestoreState = meta?.restoreState
           ? captureMatchingSessionOwnedRestoreState(
               stationRuntimesRef.current[stationId],
@@ -760,6 +794,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
                 cols: meta.restoreCols ?? 0,
                 rows: meta.restoreRows ?? 0,
               },
+              outputRevisionRef.current[stationId] ?? 0,
             )
           : null
         if (capturedRestoreState) {
@@ -773,25 +808,55 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
 
       sinkByStationRef.current[stationId] = sink
 
+      const outputRevision = outputRevisionRef.current[stationId] ?? 0
       const restoreState = retainSessionOwnedRestoreState(
         stationTerminalRestoreStateRef.current[stationId],
         stationRuntimesRef.current[stationId]?.sessionId ?? null,
       )
-      if (restoreState) {
-        sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
-        flushPendingStationFocus(stationId)
-        return
+      const replayVersion = (pendingReplayRef.current[stationId]?.version ?? 0) + 1
+      pendingReplayRef.current[stationId] = {
+        version: replayVersion,
+        ops: [],
       }
-      delete stationTerminalRestoreStateRef.current[stationId]
-
-      if (Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId)) {
-        sink.reset(outputCacheRef.current[stationId] ?? '')
-        flushPendingStationFocus(stationId)
-        return
+      const shouldUseRestore = shouldPreferSessionOwnedRestoreState(
+        restoreState,
+        stationRuntimesRef.current[stationId]?.sessionId ?? null,
+        outputRevision,
+      )
+      const replay = shouldUseRestore
+        ? sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
+        : sink.reset(outputCacheRef.current[stationId] ?? '')
+      if (!shouldUseRestore) {
+        delete stationTerminalRestoreStateRef.current[stationId]
       }
-
-      sink.reset('')
-      if (stationRuntimesRef.current[stationId]?.sessionId) {
+      void replay.finally(() => {
+        const pendingReplay = pendingReplayRef.current[stationId]
+        if (
+          !pendingReplay ||
+          pendingReplay.version !== replayVersion ||
+          sinkByStationRef.current[stationId] !== sink
+        ) {
+          return
+        }
+        const pendingOps = pendingReplay.ops.slice()
+        delete pendingReplayRef.current[stationId]
+        void pendingOps.reduce<Promise<void>>((chain, op) => {
+          return chain.then(() => {
+            if (sinkByStationRef.current[stationId] !== sink) {
+              return
+            }
+            if (op.kind === 'reset') {
+              return sink.reset(op.content)
+            }
+            return sink.write(op.chunk)
+          })
+        }, Promise.resolve())
+      })
+      if (
+        !shouldUseRestore &&
+        !Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId) &&
+        stationRuntimesRef.current[stationId]?.sessionId
+      ) {
         requestHydrate()
       }
       flushPendingStationFocus(stationId)
@@ -858,6 +923,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         stationRuntimesRef.current[stationId],
         sourceSessionId,
         state,
+        outputRevisionRef.current[stationId] ?? 0,
       )
       if (capturedRestoreState) {
         stationTerminalRestoreStateRef.current[stationId] = capturedRestoreState

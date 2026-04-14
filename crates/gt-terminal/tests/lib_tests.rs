@@ -223,11 +223,22 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
     provider
         .write_session(&session.session_id, "sleep 2\n")
         .expect("write sleep command");
-    thread::sleep(Duration::from_millis(250));
-
-    let snapshot = provider
+    let mut snapshot = provider
         .describe_session_processes(&session.session_id)
         .expect("describe session processes");
+    let sleep_visible = (0..20).any(|_| {
+        let found = snapshot.processes.iter().any(|process| {
+            process.args.contains("sleep 2") || process.executable == "sleep"
+        });
+        if found {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(100));
+        snapshot = provider
+            .describe_session_processes(&session.session_id)
+            .expect("describe session processes");
+        false
+    });
 
     assert_eq!(snapshot.session_id, session.session_id);
     assert!(
@@ -235,10 +246,7 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
         "expected shell pid to be present"
     );
     assert!(
-        snapshot
-            .processes
-            .iter()
-            .any(|process| process.args.contains("sleep 2") || process.executable == "sleep"),
+        sleep_visible,
         "expected process tree to include sleep, got: {:?}",
         snapshot.processes
     );

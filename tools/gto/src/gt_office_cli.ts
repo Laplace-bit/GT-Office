@@ -98,6 +98,9 @@ type WorkspaceDirectoryRecord = {
 }
 
 async function requireWorkspaceId(argv: string[], deps: CliDeps) {
+  if (argv.includes('--workspace-id') && readOption(argv, '--workspace-id') == null) {
+    throw new CliError('MISSING_REQUIRED_OPTION', 'Option --workspace-id is required')
+  }
   const workspaceId = readOption(argv, '--workspace-id')
     ?? readEnvVar('GTO_WORKSPACE_ID')
     ?? await resolveWorkspaceIdFromContext(deps)

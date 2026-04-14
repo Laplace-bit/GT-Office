@@ -197,7 +197,7 @@ function ShellMainPaneContent({
 }: ShellMainPaneContentProps) {
   if (showWorkbenchCanvas) {
     return (
-      <div key={activeNavId} className="shell-main-view shell-pane-transition">
+      <div className="shell-main-view shell-pane-transition">
         <WorkbenchCanvas {...workbenchCanvasProps} />
       </div>
     )

@@ -23,9 +23,9 @@ import {
 } from './station-terminal-focus-runtime'
 
 export interface StationTerminalSink {
-  write: (chunk: string) => void
-  reset: (content?: string) => void
-  restore: (content: string, cols: number, rows: number) => void
+  write: (chunk: string) => Promise<void>
+  reset: (content?: string) => Promise<void>
+  restore: (content: string, cols: number, rows: number) => Promise<void>
   focus: () => void
   submit: () => boolean
 }
@@ -837,11 +837,16 @@ function StationXtermTerminalView({
           })
         }
         let replayGeneratedInputSuppressionDepth = 0
-        const writeReplayContent = (content: string, onComplete: () => void) => {
+        const writeTerminalChunk = (content: string) =>
+          new Promise<void>((resolve) => {
+            terminal.write(content, () => {
+              resolve()
+            })
+          })
+        const writeReplayContent = (content: string) => {
           replayGeneratedInputSuppressionDepth += 1
-          terminal.write(content, () => {
+          return writeTerminalChunk(content).finally(() => {
             replayGeneratedInputSuppressionDepth = Math.max(0, replayGeneratedInputSuppressionDepth - 1)
-            onComplete()
           })
         }
         const submitFromXterm = () => {
@@ -930,46 +935,43 @@ function StationXtermTerminalView({
         })
 
         const sink: StationTerminalSink = {
-          write: (chunk: string) => {
+          write: async (chunk: string) => {
             if (!chunk) {
               return
             }
             if (terminal.cols <= 0 || terminal.rows <= 0) {
               scheduleFitRetry()
             }
-            terminal.write(chunk, () => {
-              scheduleRefresh()
-              scheduleSerializedRestoreStateCapture()
-              scheduleRenderedScreenSnapshot()
-            })
+            await writeTerminalChunk(chunk)
+            scheduleRefresh()
+            scheduleSerializedRestoreStateCapture()
+            scheduleRenderedScreenSnapshot()
           },
-          reset: (content?: string) => {
+          reset: async (content?: string) => {
             terminal.reset()
             if (content) {
               if (terminal.cols <= 0 || terminal.rows <= 0) {
                 scheduleFitRetry()
               }
-              writeReplayContent(content, () => {
-                scheduleRefresh()
-                scheduleSerializedRestoreStateCapture()
-              })
+              await writeReplayContent(content)
+              scheduleRefresh()
+              scheduleSerializedRestoreStateCapture()
             }
             scheduleRefresh()
           },
-          restore: (content: string, cols: number, rows: number) => {
+          restore: async (content: string, cols: number, rows: number) => {
             if (cols > 0 && rows > 0 && (terminal.cols !== cols || terminal.rows !== rows)) {
               terminal.resize(cols, rows)
             }
             terminal.reset()
-            writeReplayContent(content, () => {
-              scheduleRefresh()
-              scheduleSerializedRestoreStateCapture()
-              if (fitAndRefresh()) {
-                onResizeRef.current(stationId, terminal.cols, terminal.rows)
-                return
-              }
-              scheduleFitRetry()
-            })
+            await writeReplayContent(content)
+            scheduleRefresh()
+            scheduleSerializedRestoreStateCapture()
+            if (fitAndRefresh()) {
+              onResizeRef.current(stationId, terminal.cols, terminal.rows)
+              return
+            }
+            scheduleFitRetry()
           },
           focus: () => {
             requestTerminalFocus()

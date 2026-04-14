@@ -56,6 +56,7 @@ import {
   resolveDroppedStationRuntimeCleanup,
   resolveDroppedStationSessionCleanup,
   resolveStationRuntimeRegistrationCleanup,
+  shouldPreferSessionOwnedRestoreState,
   shouldApplyRecoveredStationOutput,
   shouldApplyStationSessionLaunchFailure,
   shouldApplyStationSessionResult,
@@ -366,6 +367,10 @@ export function ShellRoot() {
   const stationToolLaunchSeqRef = useRef<Record<string, number>>({})
   const stationTerminalSinkRef = useRef<Record<string, StationTerminalSink>>({})
   const stationTerminalOutputCacheRef = useRef<Record<string, string>>({})
+  const stationTerminalOutputRevisionRef = useRef<Record<string, number>>({})
+  const stationTerminalPendingReplayRef = useRef<
+    Record<string, { version: number; ops: Array<{ kind: 'write'; chunk: string } | { kind: 'reset'; content: string }> }>
+  >({})
   const stationTerminalRestoreStateRef = useRef<Record<string, SessionOwnedRestoreState>>({})
   const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
@@ -1250,6 +1255,8 @@ export function ShellRoot() {
         stationTerminalOutputCacheRef.current[stationId],
         chunk,
       )
+      stationTerminalOutputRevisionRef.current[stationId] =
+        (stationTerminalOutputRevisionRef.current[stationId] ?? 0) + 1
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       pushStationTerminalDebugRecord(stationId, {
         sessionId,
@@ -1259,7 +1266,12 @@ export function ShellRoot() {
         summary: formatTerminalDebugPreview(chunk, 84),
         body: chunk,
       })
-      stationTerminalSinkRef.current[stationId]?.write(chunk)
+      const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
+      if (pendingReplay) {
+        pendingReplay.ops.push({ kind: 'write', chunk })
+      } else {
+        void stationTerminalSinkRef.current[stationId]?.write(chunk)
+      }
       publishDetachedOutputAppend(stationId, chunk)
     },
     [publishDetachedOutputAppend, pushStationTerminalDebugRecord],
@@ -1275,6 +1287,8 @@ export function ShellRoot() {
           ? nextContentRaw.slice(nextContentRaw.length - DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS)
           : nextContentRaw
       stationTerminalOutputCacheRef.current[stationId] = nextContent
+      stationTerminalOutputRevisionRef.current[stationId] =
+        (stationTerminalOutputRevisionRef.current[stationId] ?? 0) + 1
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       pushStationTerminalDebugRecord(stationId, {
         sessionId,
@@ -1284,7 +1298,12 @@ export function ShellRoot() {
         summary: formatTerminalDebugPreview(nextContent, 84),
         body: nextContent,
       })
-      stationTerminalSinkRef.current[stationId]?.reset(nextContent)
+      const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
+      if (pendingReplay) {
+        pendingReplay.ops.push({ kind: 'reset', content: nextContent })
+      } else {
+        void stationTerminalSinkRef.current[stationId]?.reset(nextContent)
+      }
       publishDetachedOutputReset(stationId, nextContent)
     },
     [publishDetachedOutputReset, pushStationTerminalDebugRecord],
@@ -1693,6 +1712,7 @@ export function ShellRoot() {
         if (meta?.sourceSink && stationTerminalSinkRef.current[stationId] !== meta.sourceSink) {
           return
         }
+        delete stationTerminalPendingReplayRef.current[stationId]
         const capturedRestoreState = meta?.restoreState
           ? captureMatchingSessionOwnedRestoreState(
               stationTerminalsRef.current[stationId],
@@ -1702,6 +1722,7 @@ export function ShellRoot() {
                 cols: meta.restoreCols ?? 0,
                 rows: meta.restoreRows ?? 0,
               },
+              stationTerminalOutputRevisionRef.current[stationId] ?? 0,
             )
           : null
         if (capturedRestoreState) {
@@ -1715,11 +1736,28 @@ export function ShellRoot() {
       stationTerminalSinkRef.current[stationId] = sink
       const station = stationsRef.current.find((item) => item.id === stationId)
       const cachedContent = stationTerminalOutputCacheRef.current[stationId] ?? getStationIdleBanner(station)
+      const outputRevision = stationTerminalOutputRevisionRef.current[stationId] ?? 0
       const restoreState = retainSessionOwnedRestoreState(
         stationTerminalRestoreStateRef.current[stationId],
         stationTerminalsRef.current[stationId]?.sessionId ?? null,
       )
-      if (restoreState) {
+      const replayVersion = (stationTerminalPendingReplayRef.current[stationId]?.version ?? 0) + 1
+      stationTerminalPendingReplayRef.current[stationId] = {
+        version: replayVersion,
+        ops: [],
+      }
+      const replay = shouldPreferSessionOwnedRestoreState(
+        restoreState,
+        stationTerminalsRef.current[stationId]?.sessionId ?? null,
+        outputRevision,
+      )
+        ? sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
+        : sink.reset(cachedContent)
+      if (shouldPreferSessionOwnedRestoreState(
+        restoreState,
+        stationTerminalsRef.current[stationId]?.sessionId ?? null,
+        outputRevision,
+      )) {
         pushStationTerminalDebugRecord(stationId, {
           sessionId: stationTerminalsRef.current[stationId]?.sessionId ?? null,
           lane: 'xterm',
@@ -1728,11 +1766,32 @@ export function ShellRoot() {
           summary: formatTerminalDebugPreview(restoreState.state.content, 84),
           body: restoreState.state.content,
         })
-        sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
-        return
+      } else {
+        delete stationTerminalRestoreStateRef.current[stationId]
       }
-      delete stationTerminalRestoreStateRef.current[stationId]
-      sink.reset(cachedContent)
+      void replay.finally(() => {
+        const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
+        if (
+          !pendingReplay ||
+          pendingReplay.version !== replayVersion ||
+          stationTerminalSinkRef.current[stationId] !== sink
+        ) {
+          return
+        }
+        const pendingOps = pendingReplay.ops.slice()
+        delete stationTerminalPendingReplayRef.current[stationId]
+        void pendingOps.reduce<Promise<void>>((chain, op) => {
+          return chain.then(() => {
+            if (stationTerminalSinkRef.current[stationId] !== sink) {
+              return
+            }
+            if (op.kind === 'reset') {
+              return sink.reset(op.content)
+            }
+            return sink.write(op.chunk)
+          })
+        }, Promise.resolve())
+      })
     },
     [pushStationTerminalDebugRecord],
   )
@@ -2420,8 +2479,13 @@ export function ShellRoot() {
     stationToolLaunchSeqRef.current = {}
     terminalSessionVisibilityRef.current = {}
     stationTerminalRestoreStateRef.current = {}
+    stationTerminalPendingReplayRef.current = {}
     stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
       acc[station.id] = getStationIdleBanner(station)
+      return acc
+    }, {})
+    stationTerminalOutputRevisionRef.current = stationsRef.current.reduce<Record<string, number>>((acc, station) => {
+      acc[station.id] = 0
       return acc
     }, {})
     stationTerminalInputControllerRef.current?.dispose()
@@ -2477,6 +2541,8 @@ export function ShellRoot() {
     Object.keys(stationTerminalOutputCacheRef.current).forEach((stationId) => {
       if (!stationIdSet.has(stationId)) {
         delete stationTerminalOutputCacheRef.current[stationId]
+        delete stationTerminalOutputRevisionRef.current[stationId]
+        delete stationTerminalPendingReplayRef.current[stationId]
       }
     })
     Object.keys(stationTerminalRestoreStateRef.current).forEach((stationId) => {
@@ -2495,6 +2561,9 @@ export function ShellRoot() {
     stations.forEach((station) => {
       if (!stationTerminalOutputCacheRef.current[station.id]) {
         stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
+      }
+      if (typeof stationTerminalOutputRevisionRef.current[station.id] !== 'number') {
+        stationTerminalOutputRevisionRef.current[station.id] = 0
       }
     })
     Object.entries(sessionStationRef.current).forEach(([sessionId, stationId]) => {
@@ -3376,6 +3445,7 @@ export function ShellRoot() {
           const capturedRestoreState = captureSessionOwnedRestoreState(
             stationTerminalsRef.current[message.stationId],
             message.state,
+            stationTerminalOutputRevisionRef.current[message.stationId] ?? 0,
           )
           if (capturedRestoreState) {
             stationTerminalRestoreStateRef.current[message.stationId] = capturedRestoreState
