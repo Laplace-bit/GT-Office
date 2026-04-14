@@ -1,6 +1,6 @@
 [package]
 name = "gt-tools"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 license.workspace = true
 
