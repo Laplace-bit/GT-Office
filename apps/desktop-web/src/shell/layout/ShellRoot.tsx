@@ -221,7 +221,7 @@ import { useShellFileController } from './useShellFileController'
 import { useShellStationController } from './useShellStationController'
 import { useShellTaskMentionController } from './useShellTaskMentionController'
 import { useShellWorkbenchController } from './useShellWorkbenchController'
-import { useWorkspaceTabController } from '../state/useWorkspaceTabController'
+import { useShellWorkspaceController } from './useShellWorkspaceController'
 import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
 import './ShellRoot.scss'
@@ -481,23 +481,18 @@ export function ShellRoot() {
   const locale = uiPreferences.locale
   const {
     workspacePathInput,
+    setWorkspacePathInput,
     activeWorkspaceId,
     activeWorkspaceRoot,
     setActiveWorkspaceRoot,
     connectionState,
     gitSummary,
     refreshGit,
-    workspaceTabs,
-    workspaceSwitching,
     openWorkspaceAtPath,
-    switchWorkspaceTab,
-    closeWorkspaceTab,
-    reorderWorkspaceTab,
-  } = useWorkspaceTabController()
+  } = useShellWorkspaceController()
   const {
     stations,
     setStations,
-    stationsLoadedWorkspaceId,
     agentRoles,
     restorableSystemRoles,
     stationSavePending,
@@ -2801,9 +2796,10 @@ export function ShellRoot() {
         return
       }
       const normalized = normalizeFsPath(selected)
+      setWorkspacePathInput(normalized)
       await openWorkspaceAtPath(normalized, 'picker')
     },
-    [activeWorkspaceRoot, openWorkspaceAtPath, workspacePathInput],
+    [activeWorkspaceRoot, openWorkspaceAtPath, setWorkspacePathInput, workspacePathInput],
   )
 
   const handlePickStationWorkdir = useMemo(
@@ -4406,11 +4402,6 @@ export function ShellRoot() {
       return
     }
 
-    if (stationsLoadedWorkspaceId !== activeWorkspaceId) {
-      workspaceSessionHydratingRef.current = true
-      return
-    }
-
     workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
       window.clearTimeout(timerId)
     })
@@ -4618,7 +4609,6 @@ export function ShellRoot() {
     canvasLayoutMode,
     ensureTerminalSessionVisible,
     loadFileContentRef,
-    stationsLoadedWorkspaceId,
     setActiveFilePath,
     setOpenedFiles,
     setStationTerminalState,
@@ -5589,19 +5579,6 @@ export function ShellRoot() {
         onPickWorkspaceDirectory: () => {
           void handlePickWorkspaceDirectory()
         },
-        workspaceTabs,
-        activeTabId: activeWorkspaceId,
-        workspaceSwitching,
-        onSwitchTab: (workspaceId) => {
-          void switchWorkspaceTab(workspaceId)
-        },
-        onCloseTab: (workspaceId) => {
-          void closeWorkspaceTab(workspaceId)
-        },
-        onAddTab: () => {
-          void handlePickWorkspaceDirectory()
-        },
-        onReorderTabs: reorderWorkspaceTab,
         onBatchLaunchAgents: () => {
           void handleBatchLaunchAgents()
         },
