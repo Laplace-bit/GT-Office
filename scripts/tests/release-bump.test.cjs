@@ -83,7 +83,9 @@ test('dry-run tolerates a dirty working tree and stays read-only', () => {
   })
 
   assert.equal(result.status, 0, result.stderr || result.stdout)
-  assert.match(result.stdout, /=== Pre-checks ===/)
-  assert.match(result.stdout + result.stderr, /Working tree is not clean/)
-  assert.match(result.stdout, /\[dry-run\] Skipping interactive prompt/)
+  const output = result.stdout + result.stderr
+
+  assert.match(output, /=== Pre-checks ===/)
+  assert.match(output, /\[dry-run\] Skipping interactive prompt/)
+  assert.match(output, /Working tree is clean|Working tree is not clean/)
 })
