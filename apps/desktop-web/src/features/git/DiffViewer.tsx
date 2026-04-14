@@ -279,7 +279,7 @@ export const DiffViewer = memo(function DiffViewer({
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{activePath}</span>
+            <span className="diff-viewer__path-text">{activePath}</span>
             <span className="diff-viewer__badge diff-viewer__badge--binary">Binary</span>
           </div>
         </header>
@@ -298,7 +298,7 @@ export const DiffViewer = memo(function DiffViewer({
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{activePath}</span>
+            <span className="diff-viewer__path-text">{activePath}</span>
           </div>
         </header>
         <div className="diff-viewer__loading">
@@ -316,7 +316,7 @@ export const DiffViewer = memo(function DiffViewer({
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{activePath ?? t(locale, 'git.diff.none')}</span>
+            <span className="diff-viewer__path-text">{activePath ?? t(locale, 'git.diff.none')}</span>
           </div>
         </header>
         <div className="diff-viewer__empty">
@@ -333,7 +333,7 @@ export const DiffViewer = memo(function DiffViewer({
         <header className="diff-viewer__header">
           <div className="diff-viewer__path">
             <AppIcon name="file-text" className="diff-viewer__path-icon" />
-            <span>{activePath ?? t(locale, 'git.diff.none')}</span>
+            <span className="diff-viewer__path-text">{activePath ?? t(locale, 'git.diff.none')}</span>
           </div>
         </header>
         <div className="diff-viewer__empty">
@@ -348,26 +348,30 @@ export const DiffViewer = memo(function DiffViewer({
     <div className="diff-viewer">
       {/* Compact Header */}
       <header className="diff-viewer__header">
-        <div className="diff-viewer__path">
-          <AppIcon name="file-text" className="diff-viewer__path-icon" />
-          <span>{activeDiff.path}</span>
-          {activeDiff.isNew && <span className="diff-viewer__badge diff-viewer__badge--new">New</span>}
-          {activeDiff.isDeleted && <span className="diff-viewer__badge diff-viewer__badge--deleted">Deleted</span>}
-          {activeDiff.isRenamed && (
-            <span className="diff-viewer__badge diff-viewer__badge--renamed">← {activeDiff.oldPath}</span>
-          )}
-          {fullFileExpanded && (
-            <span className="diff-viewer__badge diff-viewer__badge--expanded">
-              {diffScope === 'staged'
-                ? t(locale, 'git.diff.expand.scope.staged')
-                : t(locale, 'git.diff.expand.scope.unstaged')}
-            </span>
-          )}
+        <div className="diff-viewer__summary">
+          <div className="diff-viewer__path">
+            <AppIcon name="file-text" className="diff-viewer__path-icon" />
+            <span className="diff-viewer__path-text">{activeDiff.path}</span>
+            {activeDiff.isNew && <span className="diff-viewer__badge diff-viewer__badge--new">New</span>}
+            {activeDiff.isDeleted && <span className="diff-viewer__badge diff-viewer__badge--deleted">Deleted</span>}
+            {activeDiff.isRenamed && (
+              <span className="diff-viewer__badge diff-viewer__badge--renamed">← {activeDiff.oldPath}</span>
+            )}
+            {fullFileExpanded && (
+              <span className="diff-viewer__badge diff-viewer__badge--expanded">
+                {diffScope === 'staged'
+                  ? t(locale, 'git.diff.expand.scope.staged')
+                  : t(locale, 'git.diff.expand.scope.unstaged')}
+              </span>
+            )}
+          </div>
+          <div className="diff-viewer__stats">
+            <span className="diff-viewer__stat diff-viewer__stat--add">+{activeDiff.additions}</span>
+            <span className="diff-viewer__stat diff-viewer__stat--del">-{activeDiff.deletions}</span>
+            <span className="diff-viewer__separator">|</span>
+          </div>
         </div>
-        <div className="diff-viewer__meta">
-          <span className="diff-viewer__stat diff-viewer__stat--add">+{activeDiff.additions}</span>
-          <span className="diff-viewer__stat diff-viewer__stat--del">-{activeDiff.deletions}</span>
-          <span className="diff-viewer__separator">|</span>
+        <div className="diff-viewer__actions">
           <button
             type="button"
             className="diff-viewer__mode-chip"

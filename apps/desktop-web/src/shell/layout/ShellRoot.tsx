@@ -200,6 +200,7 @@ import {
   normalizeSubmitSequence,
   resolveLeftPaneWidthMax,
   resolveRightPaneWidthMax,
+  resolveShellMainContentMinWidth,
   readNumber,
   readRecord,
   readString,
@@ -220,7 +221,7 @@ import { useShellFileController } from './useShellFileController'
 import { useShellStationController } from './useShellStationController'
 import { useShellTaskMentionController } from './useShellTaskMentionController'
 import { useShellWorkbenchController } from './useShellWorkbenchController'
-import { useShellWorkspaceController } from './useShellWorkspaceController'
+import { useWorkspaceTabController } from '../state/useWorkspaceTabController'
 import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
 import './ShellRoot.scss'
@@ -258,6 +259,7 @@ export function ShellRoot() {
   )
   const [leftPaneWidth, setLeftPaneWidth] = useState(loadLeftPaneWidthPreference)
   const [rightPaneWidth, setRightPaneWidth] = useState(loadRightPaneWidthPreference)
+  const [shellMainContentMinWidth, setShellMainContentMinWidth] = useState<number | null>(null)
   const leftPaneWidthRef = useRef(leftPaneWidth)
   const rightPaneWidthRef = useRef(rightPaneWidth)
   const [leftPaneWidthMax, setLeftPaneWidthMax] = useState(LEFT_PANE_WIDTH_MAX)
@@ -393,23 +395,40 @@ export function ShellRoot() {
   const shellMainPaneRef = useRef<HTMLDivElement | null>(null)
   const windowResizeSyncTimerRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    const updatePaneWidthBounds = () => {
-      const containerWidth = shellMainRef.current?.clientWidth ?? window.innerWidth
-      const nextLeftMax = resolveLeftPaneWidthMax(containerWidth)
-      const nextRightMax = resolveRightPaneWidthMax(containerWidth)
-      setLeftPaneWidthMax(nextLeftMax)
-      setRightPaneWidthMax(nextRightMax)
-      setLeftPaneWidth((prev) => clampLeftPaneWidth(prev, nextLeftMax))
-      setRightPaneWidth((prev) => clampRightPaneWidth(prev, nextRightMax))
-    }
+  const updatePaneWidthBounds = useCallback(() => {
+    const layoutWidth = shellMainRef.current?.clientWidth ?? window.innerWidth
+    const railWidth = shellRailRef.current?.getBoundingClientRect().width ?? 0
+    const leftWidth = shellLeftPaneRef.current?.getBoundingClientRect().width ?? 0
+    const leftResizerWidth = shellResizerRef.current?.getBoundingClientRect().width ?? 0
+    const rightPaneElement = shellMainRef.current?.querySelector<HTMLElement>('.shell-right-pane')
+    const rightVisibleWidth = rightPaneElement?.getBoundingClientRect().width ?? 0
+    const centerAvailableWidth = Math.max(0, layoutWidth - railWidth - leftWidth - leftResizerWidth)
+    const nextMainContentMinWidth = resolveShellMainContentMinWidth(centerAvailableWidth)
+    const nextRightMax =
+      rightVisibleWidth > 0 ? resolveRightPaneWidthMax(centerAvailableWidth) : RIGHT_PANE_WIDTH_MAX
+    const nextRightWidth = clampRightPaneWidth(rightPaneWidthRef.current, nextRightMax)
+    const reservedRightWidth = rightVisibleWidth > 0 ? nextRightWidth : 0
+    const nextLeftMax = resolveLeftPaneWidthMax(
+      layoutWidth,
+      railWidth + leftResizerWidth + reservedRightWidth + nextMainContentMinWidth,
+    )
 
+    setShellMainContentMinWidth(nextMainContentMinWidth)
+    setLeftPaneWidthMax(nextLeftMax)
+    setRightPaneWidthMax(nextRightMax)
+    leftPaneWidthRef.current = clampLeftPaneWidth(leftPaneWidthRef.current, nextLeftMax)
+    rightPaneWidthRef.current = nextRightWidth
+    setLeftPaneWidth((prev) => clampLeftPaneWidth(prev, nextLeftMax))
+    setRightPaneWidth((prev) => clampRightPaneWidth(prev, nextRightMax))
+  }, [])
+
+  useEffect(() => {
     updatePaneWidthBounds()
     window.addEventListener('resize', updatePaneWidthBounds)
     return () => {
       window.removeEventListener('resize', updatePaneWidthBounds)
     }
-  }, [])
+  }, [updatePaneWidthBounds])
   const localeRef = useRef(uiPreferences.locale)
   const activeWorkspaceIdRef = useRef<string | null>(null)
   const workspaceSessionPersistTimerRef = useRef<number | null>(null)
@@ -462,18 +481,23 @@ export function ShellRoot() {
   const locale = uiPreferences.locale
   const {
     workspacePathInput,
-    setWorkspacePathInput,
     activeWorkspaceId,
     activeWorkspaceRoot,
     setActiveWorkspaceRoot,
     connectionState,
     gitSummary,
     refreshGit,
+    workspaceTabs,
+    workspaceSwitching,
     openWorkspaceAtPath,
-  } = useShellWorkspaceController()
+    switchWorkspaceTab,
+    closeWorkspaceTab,
+    reorderWorkspaceTab,
+  } = useWorkspaceTabController()
   const {
     stations,
     setStations,
+    stationsLoadedWorkspaceId,
     agentRoles,
     restorableSystemRoles,
     stationSavePending,
@@ -2777,10 +2801,9 @@ export function ShellRoot() {
         return
       }
       const normalized = normalizeFsPath(selected)
-      setWorkspacePathInput(normalized)
       await openWorkspaceAtPath(normalized, 'picker')
     },
-    [activeWorkspaceRoot, openWorkspaceAtPath, setWorkspacePathInput, workspacePathInput],
+    [activeWorkspaceRoot, openWorkspaceAtPath, workspacePathInput],
   )
 
   const handlePickStationWorkdir = useMemo(
@@ -4383,6 +4406,11 @@ export function ShellRoot() {
       return
     }
 
+    if (stationsLoadedWorkspaceId !== activeWorkspaceId) {
+      workspaceSessionHydratingRef.current = true
+      return
+    }
+
     workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
       window.clearTimeout(timerId)
     })
@@ -4590,6 +4618,7 @@ export function ShellRoot() {
     canvasLayoutMode,
     ensureTerminalSessionVisible,
     loadFileContentRef,
+    stationsLoadedWorkspaceId,
     setActiveFilePath,
     setOpenedFiles,
     setStationTerminalState,
@@ -5295,8 +5324,11 @@ export function ShellRoot() {
       ({
         '--shell-left-pane-width': `${leftPaneWidth}px`,
         '--shell-right-pane-width': `${rightPaneWidth}px`,
+        '--shell-main-content-min-width': shellMainContentMinWidth
+          ? `${shellMainContentMinWidth}px`
+          : '35%',
       }) as CSSProperties,
-    [leftPaneWidth, rightPaneWidth],
+    [leftPaneWidth, rightPaneWidth, shellMainContentMinWidth],
   )
 
   const dismissTelegramDebugToast = useCallback(() => {
@@ -5407,6 +5439,10 @@ export function ShellRoot() {
   const showPinnedWorkbenchPane =
     Boolean(pinnedWorkbenchContainer) &&
     (activeNavId === 'files' || activeNavId === 'git' || unpinnedWorkbenchContainers.length > 0)
+  useEffect(() => {
+    updatePaneWidthBounds()
+  }, [updatePaneWidthBounds, leftPaneWidth, rightPaneWidth, leftPaneVisible, showPinnedWorkbenchPane])
+
   const projectedWorkbenchContainers = showPinnedWorkbenchPane ? unpinnedWorkbenchContainers : workbenchContainers
   const hasGlobalTopmostWorkbench = useMemo(
     () => workbenchContainers.some((container) => container.mode === 'floating' && container.topmost),
@@ -5553,6 +5589,19 @@ export function ShellRoot() {
         onPickWorkspaceDirectory: () => {
           void handlePickWorkspaceDirectory()
         },
+        workspaceTabs,
+        activeTabId: activeWorkspaceId,
+        workspaceSwitching,
+        onSwitchTab: (workspaceId) => {
+          void switchWorkspaceTab(workspaceId)
+        },
+        onCloseTab: (workspaceId) => {
+          void closeWorkspaceTab(workspaceId)
+        },
+        onAddTab: () => {
+          void handlePickWorkspaceDirectory()
+        },
+        onReorderTabs: reorderWorkspaceTab,
         onBatchLaunchAgents: () => {
           void handleBatchLaunchAgents()
         },

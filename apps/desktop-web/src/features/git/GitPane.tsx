@@ -1135,7 +1135,9 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
                   })
             }
           >
-            <span className="git-history-switch__label">{currentViewLabel}</span>
+            <span className="git-history-switch__icon-wrap" aria-hidden="true">
+              <AppIcon name="git-commit" className="git-history-switch__icon" />
+            </span>
             <span className="git-history-switch__track" aria-hidden="true">
               <span className="git-history-switch__thumb" />
             </span>

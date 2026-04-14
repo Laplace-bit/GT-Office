@@ -106,6 +106,12 @@ export const LEFT_PANE_WIDTH_DEFAULT = 270
 export const RIGHT_PANE_WIDTH_MIN = 280
 export const RIGHT_PANE_WIDTH_MAX = 1600
 export const RIGHT_PANE_WIDTH_DEFAULT = 360
+export const SHELL_MAIN_CONTENT_MIN_SHARE = 0.35
+export const SHELL_RIGHT_PANE_MAX_SHARE = 1 - SHELL_MAIN_CONTENT_MIN_SHARE
+
+export function resolveShellMainContentMinWidth(availableWidth: number): number {
+  return Math.max(0, Math.round(availableWidth * SHELL_MAIN_CONTENT_MIN_SHARE))
+}
 export function buildDefaultWorkbenchContainerId(): string {
   return 'canvas-main'
 }
@@ -299,16 +305,22 @@ export function clampLeftPaneWidth(width: number, maxWidth = LEFT_PANE_WIDTH_MAX
   return Math.max(LEFT_PANE_WIDTH_MIN, Math.min(maxWidth, Math.round(width)))
 }
 
-export function resolveLeftPaneWidthMax(containerWidth: number): number {
-  return Math.max(LEFT_PANE_WIDTH_MIN, Math.round(containerWidth * 0.7))
+export function resolveLeftPaneWidthMax(containerWidth: number, reservedWidth = 0): number {
+  return Math.max(
+    LEFT_PANE_WIDTH_MIN,
+    Math.min(LEFT_PANE_WIDTH_MAX, Math.round(containerWidth - reservedWidth)),
+  )
 }
 
 export function clampRightPaneWidth(width: number, maxWidth = RIGHT_PANE_WIDTH_MAX): number {
   return Math.max(RIGHT_PANE_WIDTH_MIN, Math.min(maxWidth, Math.round(width)))
 }
 
-export function resolveRightPaneWidthMax(containerWidth: number): number {
-  return Math.max(RIGHT_PANE_WIDTH_MIN, Math.round(containerWidth * 0.75))
+export function resolveRightPaneWidthMax(availableWidth: number): number {
+  return Math.max(
+    RIGHT_PANE_WIDTH_MIN,
+    Math.min(RIGHT_PANE_WIDTH_MAX, Math.round(availableWidth * SHELL_RIGHT_PANE_MAX_SHARE)),
+  )
 }
 
 export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
