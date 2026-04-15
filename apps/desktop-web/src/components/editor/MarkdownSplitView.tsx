@@ -55,23 +55,44 @@ export function MarkdownSplitView({
   )
 
   useEffect(() => {
-    // Monaco uses .monaco-scrollable-element > .scrollable-element as its scroll container
-    const editorScroller = editorContainerRef.current?.querySelector<HTMLElement>(
-      '.monaco-scrollable-element .scrollable-element',
-    ) ?? editorContainerRef.current?.querySelector<HTMLElement>('.monaco-editor .scrollable-element')
+    // Monaco's scroll container is created asynchronously, so we retry until it appears
+    const editorContainer = editorContainerRef.current
     const previewScroller = previewRef.current
-    if (!editorScroller || !previewScroller) {
+    if (!editorContainer || !previewScroller) {
       return
     }
 
-    const handleEditorScroll = () => syncScrollPosition(editorScroller, previewScroller, 'editor')
-    const handlePreviewScroll = () => syncScrollPosition(previewScroller, editorScroller, 'preview')
+    let editorScroller: HTMLElement | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
 
-    editorScroller.addEventListener('scroll', handleEditorScroll)
-    previewScroller.addEventListener('scroll', handlePreviewScroll)
+    const attachScrollListeners = () => {
+      editorScroller = editorContainer.querySelector<HTMLElement>(
+        '.monaco-scrollable-element .scrollable-element',
+      ) ?? editorContainer.querySelector<HTMLElement>('.monaco-editor .scrollable-element')
+
+      if (!editorScroller) {
+        // Monaco DOM not ready yet — retry after a short delay
+        retryTimer = setTimeout(attachScrollListeners, 100)
+        return
+      }
+
+      const handleEditorScroll = () => syncScrollPosition(editorScroller!, previewScroller, 'editor')
+      const handlePreviewScroll = () => syncScrollPosition(previewScroller, editorScroller!, 'preview')
+
+      editorScroller.addEventListener('scroll', handleEditorScroll)
+      previewScroller.addEventListener('scroll', handlePreviewScroll)
+      cleanup = () => {
+        editorScroller!.removeEventListener('scroll', handleEditorScroll)
+        previewScroller.removeEventListener('scroll', handlePreviewScroll)
+      }
+    }
+
+    let cleanup: () => void = () => {}
+    attachScrollListeners()
+
     return () => {
-      editorScroller.removeEventListener('scroll', handleEditorScroll)
-      previewScroller.removeEventListener('scroll', handlePreviewScroll)
+      if (retryTimer) clearTimeout(retryTimer)
+      cleanup()
     }
   }, [syncScrollPosition, content, filePath])
 

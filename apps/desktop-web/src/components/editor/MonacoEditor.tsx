@@ -132,6 +132,12 @@ export function MonacoEditor({
     const model = editor.getModel()
     if (!model) return
 
+    // Skip setValue if model already has the same content — preserves undo history
+    if (model.getValue() === content) {
+      contentRef.current = content
+      return
+    }
+
     isExternalUpdateRef.current = true
     editor.pushUndoStop()
     model.setValue(content)
