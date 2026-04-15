@@ -16,9 +16,9 @@ Key constraint: all path operations are validated against the workspace root. No
 ## File Operations
 
 1. **Browse** — The file tree in the sidebar shows the workspace directory structure with configurable depth.
-2. **Open** — Double-click or use quick open to view a file. Text files open in the CodeMirror editor; images, PDFs, and media open in the unified preview tab.
+2. **Open** — Double-click or use quick open to view a file. Text files open in the Monaco editor; images, PDFs, and media open in the unified preview tab.
 3. **Search** — Full-text search across the workspace with result navigation.
-4. **Edit** — CodeMirror-powered editor with language extensions (JavaScript, Python, Rust, JSON, Markdown, CSS, HTML). Edits are saved explicitly.
+4. **Edit** — Monaco-powered editor with language support (JavaScript, TypeScript, Python, Rust, JSON, Markdown, CSS, HTML) and VS Code editing experience. Edits are saved explicitly.
 5. **Preview** — Images, PDFs, audio, and video render inline. Preview tabs share the same tab bar as editor tabs.
 
 ## Terminal Sessions
