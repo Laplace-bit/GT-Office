@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor, { type OnMount, type Monaco } from '@monaco-editor/react'
 import type { editor as MonacoEditorAPI } from 'monaco-editor'
 import { detectLanguageFromPath, toMonacoLanguageId } from './monaco-languages'
@@ -24,10 +24,24 @@ export interface MonacoEditorCommandRequest {
   targetPath?: string | null
 }
 
-function getThemeName(): string {
+function resolveThemeName(): string {
   if (typeof document === 'undefined') return 'gt-office-light'
   const theme = document.documentElement.getAttribute('data-theme')
   return theme === 'graphite-dark' ? 'gt-office-dark' : 'gt-office-light'
+}
+
+function configureTypeScriptDefaults(monaco: Monaco) {
+  // Disable semantic validation — Monaco cannot resolve project node_modules/tsconfig,
+  // so import statements would produce false "Cannot find module" errors.
+  // Syntax validation remains enabled to catch real syntax errors.
+  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: false,
+  })
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: false,
+  })
 }
 
 function defineThemes(monaco: Monaco) {
@@ -102,6 +116,7 @@ export function MonacoEditor({
   const commandNonceRef = useRef(0)
   const contentRef = useRef(content)
   const isExternalUpdateRef = useRef(false)
+  const [themeName, setThemeName] = useState(resolveThemeName)
 
   // Sync refs
   useEffect(() => {
@@ -130,9 +145,10 @@ export function MonacoEditor({
 
     if (!themesDefined) {
       defineThemes(monaco)
+      configureTypeScriptDefaults(monaco)
       themesDefined = true
     }
-    monaco.editor.setTheme(getThemeName())
+    monaco.editor.setTheme(resolveThemeName())
 
     // Content change listener
     editor.onDidChangeModelContent(() => {
@@ -192,14 +208,15 @@ export function MonacoEditor({
     }
   }, [commandRequest, filePath])
 
-  // Theme switching
+  // Theme switching — keep React state and Monaco in sync with data-theme
   useEffect(() => {
-    if (!monacoRef.current) return
-    monacoRef.current.editor.setTheme(getThemeName())
+    const applyTheme = () => {
+      const next = resolveThemeName()
+      setThemeName(next)
+      monacoRef.current?.editor.setTheme(next)
+    }
 
-    const observer = new MutationObserver(() => {
-      monacoRef.current?.editor.setTheme(getThemeName())
-    })
+    const observer = new MutationObserver(applyTheme)
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme'],
@@ -215,7 +232,7 @@ export function MonacoEditor({
         path={filePath ?? 'untitled'}
         defaultValue=""
         value={content}
-        theme={getThemeName()}
+        theme={themeName}
         onChange={(_value) => {
           // onChange is handled via onDidChangeModelContent in onMount
         }}
