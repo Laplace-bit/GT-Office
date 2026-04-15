@@ -155,6 +155,7 @@ import {
 } from '../state/ui-preferences'
 import {
   loadPerformanceDebugState,
+  logPerformanceDebug,
   // TODO: 性能调试按钮暂时隐藏
   // savePerformanceDebugState,
 } from '../state/performance-debug'
@@ -222,13 +223,19 @@ import { useShellStationController } from './useShellStationController'
 import { useShellTaskMentionController } from './useShellTaskMentionController'
 import { useShellWorkbenchController } from './useShellWorkbenchController'
 import { useWorkspaceTabController } from '../state/useWorkspaceTabController'
+import type { WorkspaceTearOffRequest } from './WorkspaceTabBar'
 import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
 import './ShellRoot.scss'
 
 const TERMINAL_DEBUG_RECORD_LIMIT = 0
 
-export function ShellRoot() {
+interface ShellRootProps {
+  workspaceWindowId?: string
+}
+
+export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
+  const isSingleWorkspaceMode = !!workspaceWindowId
   const initialStations = useMemo(() => createDefaultStations(), [])
   const stationCounterRef = useRef(nextStationNumber(initialStations))
   const workbenchContainerCounterRef = useRef(initialStations.length + 1)
@@ -379,6 +386,21 @@ export function ShellRoot() {
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
   const terminalDebugRecordSeqRef = useRef(0)
+  const workspaceTerminalCacheRef = useRef<
+    Record<
+      string,
+      {
+        stationTerminals: Record<string, StationTerminalRuntime>
+        outputCache: Record<string, string>
+        outputRevision: Record<string, number>
+        restoreState: Record<string, SessionOwnedRestoreState>
+        sessionStation: Record<string, string>
+        sessionSeq: Record<string, number>
+        sessionVisibility: Record<string, boolean>
+      }
+    >
+  >({})
+  const previousActiveWorkspaceIdRef = useRef<string | null>(null)
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number; rafId: number | null; lastClientX: number; currentWidth: number } | null>(
     null,
   )
@@ -447,6 +469,8 @@ export function ShellRoot() {
   const pendingSearchRequestFrameRef = useRef<number | null>(null)
   const pendingFileEditorCommandFrameRef = useRef<number | null>(null)
   const macOsNativeMenuInstallSeqRef = useRef(0)
+  const workspaceSessionRestoreWaitRef = useRef<string | null>(null)
+  const workspaceSessionRestoreWaitStartRef = useRef<number | null>(null)
   const leftPaneVisibleRef = useRef(leftPaneVisible)
   const shortcutBindingsRef = useRef(shortcutBindings)
   const nativeWindowTopMacOsRef = useRef(nativeWindowTopMacOs)
@@ -492,8 +516,9 @@ export function ShellRoot() {
     openWorkspaceAtPath,
     switchWorkspaceTab,
     closeWorkspaceTab,
+    detachWorkspaceTab,
     reorderWorkspaceTab,
-  } = useWorkspaceTabController()
+  } = useWorkspaceTabController(workspaceWindowId)
   const {
     stations,
     setStations,
@@ -2483,6 +2508,29 @@ export function ShellRoot() {
   ])
 
   useEffect(() => {
+    const resetStartedAt = performance.now()
+    // Park departing workspace's terminal data before clearing refs.
+    // NOTE: activeWorkspaceIdRef.current is already the NEW value here (updated by a
+    // preceding effect). Use previousActiveWorkspaceIdRef for the departing workspace.
+    const departingWorkspaceId = previousActiveWorkspaceIdRef.current
+    if (departingWorkspaceId && departingWorkspaceId !== activeWorkspaceId) {
+      const hasActiveSessions = Object.keys(sessionStationRef.current).length > 0
+      if (hasActiveSessions) {
+        workspaceTerminalCacheRef.current[departingWorkspaceId] = {
+          stationTerminals: { ...stationTerminalsRef.current },
+          outputCache: { ...stationTerminalOutputCacheRef.current },
+          outputRevision: { ...stationTerminalOutputRevisionRef.current },
+          restoreState: { ...stationTerminalRestoreStateRef.current },
+          sessionStation: { ...sessionStationRef.current },
+          sessionSeq: { ...terminalSessionSeqRef.current },
+          sessionVisibility: { ...terminalSessionVisibilityRef.current },
+        }
+        logPerformanceDebug('workspace-switch', 'parked terminal cache for departing workspace', {
+          departingWorkspaceId,
+          sessionCount: Object.keys(sessionStationRef.current).length,
+        })
+      }
+    }
     if (desktopApi.isTauriRuntime()) {
       workbenchContainersRef.current.forEach((container) => {
         if (!container.detachedWindowLabel) {
@@ -2543,6 +2591,11 @@ export function ShellRoot() {
     stationTaskSignalNonceRef.current = {}
     setStationTaskSignals({})
     setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
+    previousActiveWorkspaceIdRef.current = activeWorkspaceId
+    logPerformanceDebug('workspace-switch', 'workspace reset effect completed', {
+      activeWorkspaceId,
+      durationMs: Math.round(performance.now() - resetStartedAt),
+    })
   }, [activeWorkspaceId, clearStationTaskSignalTimer, resetFileState])
 
   useEffect(() => {
@@ -2804,6 +2857,40 @@ export function ShellRoot() {
       await openWorkspaceAtPath(normalized, 'picker')
     },
     [activeWorkspaceRoot, openWorkspaceAtPath, workspacePathInput],
+  )
+
+  const handleTearOffWorkspaceTab = useCallback(
+    async ({
+      workspaceId,
+      screenX,
+      screenY,
+    }: {
+      workspaceId: string
+      screenX: number
+      screenY: number
+    }) => {
+      const startedAt = performance.now()
+      try {
+        const openResponse = await desktopApi.workspaceOpenInNewWindow(workspaceId, {
+          x: Math.max(0, screenX - 220),
+          y: Math.max(0, screenY - 18),
+        })
+        detachWorkspaceTab(workspaceId, openResponse.windowLabel)
+        logPerformanceDebug('workspace-tabs', 'tore off workspace tab into new window', {
+          workspaceId,
+          durationMs: Math.round(performance.now() - startedAt),
+          screenX,
+          screenY,
+        })
+      } catch (error) {
+        logPerformanceDebug('workspace-tabs', 'failed to tear off workspace tab', {
+          workspaceId,
+          durationMs: Math.round(performance.now() - startedAt),
+          error: describeError(error),
+        })
+      }
+    },
+    [detachWorkspaceTab],
   )
 
   const handlePickStationWorkdir = useMemo(
@@ -4402,14 +4489,33 @@ export function ShellRoot() {
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+      workspaceSessionRestoreWaitRef.current = null
       workspaceSessionHydratingRef.current = false
       return
     }
 
     if (stationsLoadedWorkspaceId !== activeWorkspaceId) {
+      if (workspaceSessionRestoreWaitRef.current !== activeWorkspaceId) {
+        workspaceSessionRestoreWaitRef.current = activeWorkspaceId
+        workspaceSessionRestoreWaitStartRef.current = performance.now()
+        logPerformanceDebug('workspace-session', 'waiting for station snapshot before restore', {
+          activeWorkspaceId,
+          stationsLoadedWorkspaceId,
+        })
+      }
       workspaceSessionHydratingRef.current = true
       return
     }
+    if (workspaceSessionRestoreWaitRef.current === activeWorkspaceId) {
+      const waitDurationMs = workspaceSessionRestoreWaitStartRef.current
+        ? Math.round(performance.now() - workspaceSessionRestoreWaitStartRef.current)
+        : 0
+      logPerformanceDebug('workspace-session', 'station snapshot wait ended', {
+        activeWorkspaceId,
+        waitDurationMs,
+      })
+    }
+    workspaceSessionRestoreWaitRef.current = null
 
     workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
       window.clearTimeout(timerId)
@@ -4420,6 +4526,7 @@ export function ShellRoot() {
     const restoreSeq = workspaceSessionRestoreSeqRef.current + 1
     workspaceSessionRestoreSeqRef.current = restoreSeq
     workspaceSessionHydratingRef.current = true
+    const restoreStartedAt = performance.now()
     let cancelled = false
 
     const restoreWorkspaceSession = async () => {
@@ -4519,80 +4626,230 @@ export function ShellRoot() {
           .slice(0, WORKSPACE_SESSION_MAX_RESTORE_TERMINALS)
 
         let restoredActiveStationId: string | null = null
-        for (const terminal of restorableTerminals) {
-          if (
-            cancelled ||
-            workspaceSessionRestoreSeqRef.current !== restoreSeq ||
-            activeWorkspaceIdRef.current !== workspaceId
-          ) {
-            return
-          }
-          try {
-            const station = stationsRef.current.find((item) => item.id === terminal.stationId)
-            const restoreCwd =
-              station && workspaceRoot
-                ? resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
-                : terminal.resolvedCwd
-            const restoreCwdMode = restoreCwd ? 'custom' : 'workspace_root'
-            const terminalEnv = station
-              ? {
-                  GTO_WORKSPACE_ID: workspaceId,
-                  GTO_AGENT_ID: station.id,
-                  GTO_ROLE_KEY: station.role,
-                  GTO_STATION_ID: station.id,
+
+        // Check if we have a parked terminal cache for this workspace (from a previous switch).
+        // If so, try to reattach alive sessions instead of creating new ones.
+        const parkedCache = workspaceTerminalCacheRef.current[workspaceId]
+        const reattachResults: Array<{
+          stationId: string
+          sessionId: string
+          shell: string | null
+          cwdMode: 'workspace_root' | 'custom'
+          resolvedCwd: string | null
+          active: boolean
+        }> = []
+        const createNeededTerminals: typeof restorableTerminals = []
+
+        if (parkedCache && Object.keys(parkedCache.sessionStation).length > 0) {
+          // Check which parked sessions are still alive on the backend.
+          const aliveChecks = await Promise.all(
+            Object.entries(parkedCache.sessionStation).map(
+              async ([sessionId, stationId]) => {
+                try {
+                  const { alive } = await desktopApi.terminalHasSession(sessionId)
+                  return { sessionId, stationId, alive }
+                } catch {
+                  return { sessionId, stationId, alive: false }
                 }
-              : undefined
-            const session = await desktopApi.terminalCreate(workspaceId, {
-              shell: terminal.shell,
-              cwdMode: restoreCwdMode,
-              cwd: restoreCwd,
-              env: terminalEnv,
-              agentToolKind: station ? normalizeStationToolKind(station.tool) : 'unknown',
-              injectProviderEnv: false,
-            })
-            if (
-              !shouldApplyStationSessionResult(
-                workspaceId,
-                activeWorkspaceIdRef.current,
-                stationsRef.current.some((item) => item.id === terminal.stationId),
-                stationTerminalsRef.current[terminal.stationId],
-              )
-            ) {
-              const droppedSessionCleanup = resolveDroppedStationSessionCleanup(session.sessionId)
-              if (droppedSessionCleanup) {
-                void desktopApi.terminalKill(
-                  droppedSessionCleanup.sessionId,
-                  droppedSessionCleanup.signal,
-                ).catch(() => {
-                  // Dropped restore sessions must not leave orphan backend sessions behind.
-                })
-              }
-              continue
+              },
+            ),
+          )
+          const aliveSessions = new Map<string, string>()
+          for (const check of aliveChecks) {
+            if (check.alive) {
+              aliveSessions.set(check.sessionId, check.stationId)
             }
-            sessionStationRef.current[session.sessionId] = terminal.stationId
-            terminalSessionSeqRef.current[session.sessionId] = 0
-            terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
-            delete stationTerminalRestoreStateRef.current[terminal.stationId]
-            ensureTerminalSessionVisible(session.sessionId)
-            setStationTerminalState(terminal.stationId, {
-              sessionId: session.sessionId,
+          }
+
+          // Build a set of station IDs that have been reattached from cache.
+          const reattachedStationIds = new Set<string>()
+
+          for (const check of aliveChecks) {
+            if (!check.alive) continue
+            const { sessionId, stationId } = check
+            const cachedTerminal = parkedCache.stationTerminals[stationId]
+            if (!cachedTerminal || cachedTerminal.sessionId !== sessionId) continue
+            if (!stationIdSet.has(stationId)) continue
+
+            reattachedStationIds.add(stationId)
+            reattachResults.push({
+              stationId,
+              sessionId,
+              shell: cachedTerminal.shell,
+              cwdMode: cachedTerminal.cwdMode,
+              resolvedCwd: cachedTerminal.resolvedCwd,
+              active: true,
+            })
+
+            // Restore terminal state from cache.
+            sessionStationRef.current[sessionId] = stationId
+            terminalSessionSeqRef.current[sessionId] = parkedCache.sessionSeq[sessionId] ?? 0
+            terminalOutputQueueRef.current[sessionId] = Promise.resolve()
+            const outputContent = parkedCache.outputCache[stationId] ?? ''
+            stationTerminalOutputCacheRef.current[stationId] = outputContent
+            stationTerminalOutputRevisionRef.current[stationId] = parkedCache.outputRevision[stationId] ?? 0
+            if (parkedCache.restoreState[stationId]) {
+              stationTerminalRestoreStateRef.current[stationId] = parkedCache.restoreState[stationId]
+            }
+            if (parkedCache.sessionVisibility[sessionId] !== undefined) {
+              terminalSessionVisibilityRef.current[sessionId] = parkedCache.sessionVisibility[sessionId]
+            }
+            ensureTerminalSessionVisible(sessionId)
+            // Sync any output that was generated during the workspace switch.
+            // The PTY kept running, but the frontend dropped events because sessionStationRef was cleared.
+            // Read a delta from the last known seq to catch up on missed output.
+            const lastKnownSeq = parkedCache.sessionSeq[sessionId] ?? 0
+            void desktopApi.terminalReadDelta(sessionId, lastKnownSeq).then((delta) => {
+              if (delta && !delta.gap && !delta.truncated) {
+                // Update seq to the latest so subsequent events are processed correctly.
+                terminalSessionSeqRef.current[sessionId] = delta.toSeq
+                // The terminal output event handler will process future events from toSeq onward.
+              }
+            }).catch(() => {
+              // Best-effort delta sync — if it fails, the terminal still shows the parked content.
+            })
+            setStationTerminalState(stationId, {
+              sessionId,
               stateRaw: 'running',
               unreadCount: 0,
-              shell: session.shell,
-              cwdMode: session.cwdMode,
-              resolvedCwd: session.resolvedCwd,
+              shell: cachedTerminal.shell,
+              cwdMode: cachedTerminal.cwdMode,
+              resolvedCwd: cachedTerminal.resolvedCwd,
             })
-            if (terminal.active && !restoredActiveStationId) {
-              restoredActiveStationId = terminal.stationId
+          }
+
+          logPerformanceDebug('workspace-session', 'reattached parked terminal sessions', {
+            workspaceId,
+            aliveCount: aliveSessions.size,
+            totalParked: Object.keys(parkedCache.sessionStation).length,
+          })
+
+          // Filter out reattached stations from restorableTerminals — only create new sessions for those.
+          for (const terminal of restorableTerminals) {
+            if (!reattachedStationIds.has(terminal.stationId)) {
+              createNeededTerminals.push(terminal)
             }
-          } catch {
-            // Keep restore resilient: one terminal failure must not block overall restore.
+          }
+
+          // Clear the cache for this workspace since we've consumed it.
+          delete workspaceTerminalCacheRef.current[workspaceId]
+        } else {
+          createNeededTerminals.push(...restorableTerminals)
+        }
+
+        // Create all terminal sessions in parallel to reduce total wait from N*RTT to 1*RTT.
+        const terminalCreateStartedAt = performance.now()
+        const terminalCreateResults = await Promise.all(
+          createNeededTerminals.map(async (terminal) => {
+            try {
+              const station = stationsRef.current.find((item) => item.id === terminal.stationId)
+              const restoreCwd =
+                station && workspaceRoot
+                  ? resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
+                  : terminal.resolvedCwd
+              const restoreCwdMode = restoreCwd ? 'custom' : 'workspace_root'
+              const terminalEnv = station
+                ? {
+                    GTO_WORKSPACE_ID: workspaceId,
+                    GTO_AGENT_ID: station.id,
+                    GTO_ROLE_KEY: station.role,
+                    GTO_STATION_ID: station.id,
+                  }
+                : undefined
+              const session = await desktopApi.terminalCreate(workspaceId, {
+                shell: terminal.shell,
+                cwdMode: restoreCwdMode,
+                cwd: restoreCwd,
+                env: terminalEnv,
+                agentToolKind: station ? normalizeStationToolKind(station.tool) : 'unknown',
+                injectProviderEnv: false,
+              })
+              return { terminal, session }
+            } catch {
+              return null
+            }
+          }),
+        )
+        if (
+          cancelled ||
+          workspaceSessionRestoreSeqRef.current !== restoreSeq ||
+          activeWorkspaceIdRef.current !== workspaceId
+        ) {
+          // Workspace moved on — clean up all sessions created in this batch.
+          for (const result of terminalCreateResults) {
+            if (!result) continue
+            const cleanup = resolveDroppedStationSessionCleanup(result.session.sessionId)
+            if (cleanup) {
+              void desktopApi.terminalKill(cleanup.sessionId, cleanup.signal).catch(() => {})
+            }
+          }
+          return
+        }
+        logPerformanceDebug('workspace-session', 'created terminal sessions in parallel', {
+          workspaceId,
+          durationMs: Math.round(performance.now() - terminalCreateStartedAt),
+          terminalCount: terminalCreateResults.filter(Boolean).length,
+        })
+        // Apply all terminal state bindings in a single pass.
+        for (const result of terminalCreateResults) {
+          if (!result) continue
+          const { terminal, session } = result
+          if (
+            !shouldApplyStationSessionResult(
+              workspaceId,
+              activeWorkspaceIdRef.current,
+              stationsRef.current.some((item) => item.id === terminal.stationId),
+              stationTerminalsRef.current[terminal.stationId],
+            )
+          ) {
+            const droppedSessionCleanup = resolveDroppedStationSessionCleanup(session.sessionId)
+            if (droppedSessionCleanup) {
+              void desktopApi.terminalKill(
+                droppedSessionCleanup.sessionId,
+                droppedSessionCleanup.signal,
+              ).catch(() => {
+                // Dropped restore sessions must not leave orphan backend sessions behind.
+              })
+            }
+            continue
+          }
+          sessionStationRef.current[session.sessionId] = terminal.stationId
+          terminalSessionSeqRef.current[session.sessionId] = 0
+          terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
+          delete stationTerminalRestoreStateRef.current[terminal.stationId]
+          ensureTerminalSessionVisible(session.sessionId)
+          setStationTerminalState(terminal.stationId, {
+            sessionId: session.sessionId,
+            stateRaw: 'running',
+            unreadCount: 0,
+            shell: session.shell,
+            cwdMode: session.cwdMode,
+            resolvedCwd: session.resolvedCwd,
+          })
+          if (terminal.active && !restoredActiveStationId) {
+            restoredActiveStationId = terminal.stationId
           }
         }
 
+        // Determine the active station from both reattached and newly created sessions.
+        for (const reattached of reattachResults) {
+          if (reattached.active && !restoredActiveStationId) {
+            restoredActiveStationId = reattached.stationId
+          }
+        }
         if (restoredActiveStationId) {
           setActiveStationId(restoredActiveStationId)
         }
+        logPerformanceDebug('workspace-session', 'restored workspace session', {
+          workspaceId,
+          restoreSeq,
+          durationMs: Math.round(performance.now() - restoreStartedAt),
+          restoredTabCount: tabsToRestore.length,
+          reattachedTerminalCount: reattachResults.length,
+          restoredTerminalCount: restorableTerminals.length,
+          restoredWorkbenchContainerCount: restored.workbenchContainers.length,
+          restoredActiveStationId,
+        })
       } finally {
         if (workspaceSessionRestoreSeqRef.current === restoreSeq) {
           workspaceSessionHydratingRef.current = false
@@ -4600,10 +4857,24 @@ export function ShellRoot() {
       }
     }
 
-    void restoreWorkspaceSession()
+    void restoreWorkspaceSession().catch((error) => {
+      logPerformanceDebug('workspace-session', 'failed to restore workspace session', {
+        workspaceId,
+        restoreSeq,
+        durationMs: Math.round(performance.now() - restoreStartedAt),
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
 
     return () => {
       cancelled = true
+      if (workspaceSessionRestoreSeqRef.current === restoreSeq) {
+        logPerformanceDebug('workspace-session', 'cancelled workspace session restore', {
+          workspaceId,
+          restoreSeq,
+          durationMs: Math.round(performance.now() - restoreStartedAt),
+        })
+      }
       workspaceSessionRestoreTabTimersRef.current.forEach((timerId) => {
         window.clearTimeout(timerId)
       })
@@ -5589,19 +5860,27 @@ export function ShellRoot() {
         onPickWorkspaceDirectory: () => {
           void handlePickWorkspaceDirectory()
         },
-        workspaceTabs,
-        activeTabId: activeWorkspaceId,
-        workspaceSwitching,
-        onSwitchTab: (workspaceId) => {
-          void switchWorkspaceTab(workspaceId)
-        },
-        onCloseTab: (workspaceId) => {
-          void closeWorkspaceTab(workspaceId)
-        },
-        onAddTab: () => {
-          void handlePickWorkspaceDirectory()
-        },
-        onReorderTabs: reorderWorkspaceTab,
+        ...(isSingleWorkspaceMode
+          ? {}
+          : {
+              workspaceTabs,
+              activeTabId: activeWorkspaceId,
+              workspaceSwitching,
+              workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
+              onSwitchTab: (workspaceId: string) => {
+                void switchWorkspaceTab(workspaceId)
+              },
+              onCloseTab: (workspaceId: string) => {
+                void closeWorkspaceTab(workspaceId)
+              },
+              onAddTab: () => {
+                void handlePickWorkspaceDirectory()
+              },
+              onReorderTabs: reorderWorkspaceTab,
+              onTearOffTab: (request: WorkspaceTearOffRequest) => {
+                void handleTearOffWorkspaceTab(request)
+              },
+            }),
         onBatchLaunchAgents: () => {
           void handleBatchLaunchAgents()
         },
@@ -5728,6 +6007,7 @@ export function ShellRoot() {
         uiFont: uiPreferences.uiFont,
         monoFont: uiPreferences.monoFont,
         uiFontSize: uiPreferences.uiFontSize,
+        workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
         isMacOs: nativeWindowTopMacOs,
         taskQuickDispatchShortcut: shortcutBindings.taskQuickDispatch,
         defaultTaskQuickDispatchShortcut: platformDefaultShortcutBindings.taskQuickDispatch,
@@ -5754,6 +6034,11 @@ export function ShellRoot() {
           setUiPreferences((prev) => ({
             ...prev,
             uiFontSize: value,
+          })),
+        onWorkspaceSwitchAnimationChange: (value) =>
+          setUiPreferences((prev) => ({
+            ...prev,
+            workspaceSwitchAnimation: value,
           })),
         onTaskQuickDispatchShortcutChange: handleTaskQuickDispatchShortcutChange,
         onTaskQuickDispatchShortcutReset: handleTaskQuickDispatchShortcutReset,
@@ -5843,6 +6128,8 @@ export function ShellRoot() {
         onClose: () => setIsFileSearchModalOpen(false),
         onSelectFile: handleFileTreeSelectFile,
       }}
+      workspaceSwitching={workspaceSwitching}
+      workspaceSwitchAnimation={uiPreferences.workspaceSwitchAnimation}
     />
       <StationActionCommandSheet
         locale={locale}

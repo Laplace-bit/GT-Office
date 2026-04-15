@@ -5,6 +5,7 @@ import type {
   PointerEventHandler,
   RefObject,
 } from 'react'
+import { useEffect, useRef } from 'react'
 import { FileEditorPane, FileTreePane, GlobalFileSearchModal } from '@features/file-explorer'
 import { GitHistoryPane, GitOperationsPane } from '@features/git'
 import { GlobalTaskDispatchOverlay, TaskCenterPane } from '@features/task-center'
@@ -25,6 +26,19 @@ import { resolveLeftPaneSlotClassName } from './left-pane-layout'
 import { StatusBar } from './StatusBar'
 import { TopControlBar } from './TopControlBar'
 import type { NavItemId, PaneModel } from './navigation-model'
+import type { WorkspaceTabInfo } from '../state/workspace-tab-model'
+import type { WorkspaceSwitchAnimation } from '../state/ui-preferences'
+
+type ShellTopControlBarProps = ComponentProps<typeof TopControlBar> & {
+  workspaceTabs?: WorkspaceTabInfo[]
+  activeTabId?: string | null
+  workspaceSwitching?: boolean
+  workspaceSwitchAnimation?: WorkspaceSwitchAnimation
+  onSwitchTab?: (workspaceId: string) => void | Promise<void>
+  onCloseTab?: (workspaceId: string) => void | Promise<void>
+  onAddTab?: () => void | Promise<void>
+  onReorderTabs?: (fromIndex: number, toIndex: number) => void
+}
 
 interface ShellRootViewProps {
   shellContainerRef: RefObject<HTMLDivElement | null>
@@ -37,7 +51,7 @@ interface ShellRootViewProps {
   shellMainPaneRef: RefObject<HTMLDivElement | null>
   nativeWindowTopWindows: boolean
   locale: Locale
-  topControlBarProps: ComponentProps<typeof TopControlBar>
+  topControlBarProps: ShellTopControlBarProps
   telegramDebugToast: TelegramInboundDebugToast | null
   onDismissTelegramDebugToast: () => void
   shellMainStyle: CSSProperties
@@ -73,6 +87,8 @@ interface ShellRootViewProps {
   channelStudioProps: ComponentProps<typeof ChannelStudio>
   stationSearchModalProps: ComponentProps<typeof StationSearchModal>
   globalFileSearchModalProps: ComponentProps<typeof GlobalFileSearchModal>
+  workspaceSwitching: boolean
+  workspaceSwitchAnimation: WorkspaceSwitchAnimation
 }
 
 interface TelegramDebugToastCardProps {
@@ -502,7 +518,43 @@ export function ShellRootView({
   channelStudioProps,
   stationSearchModalProps,
   globalFileSearchModalProps,
+  workspaceSwitching,
+  workspaceSwitchAnimation,
 }: ShellRootViewProps) {
+  // For slide animation: track the "entering from right" phase.
+  // When workspaceSwitching goes from true→false with slide mode, we briefly
+  // position content on the right (no transition), then animate it to center.
+  const slideEnterRef = useRef(false)
+  const prevSwitchingRef = useRef(false)
+
+  useEffect(() => {
+    if (workspaceSwitchAnimation !== 'slide') return
+    // Detect true→false transition (switch just ended)
+    if (prevSwitchingRef.current && !workspaceSwitching) {
+      slideEnterRef.current = true
+      // Force a re-render with the enter class, then remove it next frame
+      // so the CSS transition kicks in from translateX(8%) → translateX(0).
+      const main = shellMainRef.current
+      const status = shellStatusRef.current
+      if (main) main.classList.add('workspace-switching-slide-enter')
+      if (status) status.classList.add('workspace-switching-slide-enter')
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (main) main.classList.remove('workspace-switching-slide-enter')
+          if (status) status.classList.remove('workspace-switching-slide-enter')
+          slideEnterRef.current = false
+        })
+      })
+    }
+    prevSwitchingRef.current = workspaceSwitching
+  }, [workspaceSwitching, workspaceSwitchAnimation, shellMainRef, shellStatusRef])
+
+  const switchingClass = workspaceSwitching && workspaceSwitchAnimation !== 'none'
+    ? workspaceSwitchAnimation === 'slide'
+      ? ' workspace-switching-slide'
+      : ' workspace-switching'
+    : ''
+
   return (
     <div
       ref={shellContainerRef}
@@ -521,7 +573,12 @@ export function ShellRootView({
         ) : null}
       </div>
 
-      <main ref={shellMainRef} className="shell-main-layout relative z-10" style={shellMainStyle}>
+      <main
+        ref={shellMainRef}
+        className={`shell-main-layout relative z-10${switchingClass}`}
+        data-switch-anim={workspaceSwitchAnimation !== 'none' ? workspaceSwitchAnimation : undefined}
+        style={shellMainStyle}
+      >
         <ShellMainLayout
           shellRailRef={shellRailRef}
           shellLeftPaneRef={shellLeftPaneRef}
@@ -556,7 +613,7 @@ export function ShellRootView({
 
       {topmostWorkbenchCanvasProps ? <WorkbenchCanvas {...topmostWorkbenchCanvasProps} /> : null}
 
-      <div ref={shellStatusRef} className="relative z-10">
+      <div ref={shellStatusRef} className={`shell-status-wrapper relative z-10${switchingClass}`}>
         <StatusBar {...statusBarProps} />
       </div>
 

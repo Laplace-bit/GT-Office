@@ -8,7 +8,7 @@ import { useAppUpdate } from './useAppUpdate'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
-import type { MonoFont, ThemeMode, UiFont, UiFontSize } from '@shell/state/ui-preferences'
+import type { MonoFont, ThemeMode, UiFont, UiFontSize, WorkspaceSwitchAnimation } from '@shell/state/ui-preferences'
 import type { ShortcutBinding } from '@features/keybindings'
 import { desktopApi } from '@shell/integration/desktop-api'
 import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
@@ -30,6 +30,7 @@ interface SettingsModalProps {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
+  workspaceSwitchAnimation: WorkspaceSwitchAnimation
   isMacOs: boolean
   taskQuickDispatchShortcut: ShortcutBinding
   defaultTaskQuickDispatchShortcut: ShortcutBinding
@@ -39,6 +40,7 @@ interface SettingsModalProps {
   onUiFontChange: (value: UiFont) => void
   onMonoFontChange: (value: MonoFont) => void
   onUiFontSizeChange: (value: UiFontSize) => void
+  onWorkspaceSwitchAnimationChange: (value: WorkspaceSwitchAnimation) => void
   onTaskQuickDispatchShortcutChange: (binding: ShortcutBinding) => void
   onTaskQuickDispatchShortcutReset: () => void
   onWorkspaceResetSuccess?: () => void
@@ -83,6 +85,8 @@ export function SettingsModal({
   onUiFontChange,
   onMonoFontChange,
   onUiFontSizeChange,
+  workspaceSwitchAnimation,
+  onWorkspaceSwitchAnimationChange,
   onTaskQuickDispatchShortcutChange,
   onTaskQuickDispatchShortcutReset,
   onWorkspaceResetSuccess,
@@ -157,11 +161,13 @@ export function SettingsModal({
               uiFont={uiFont}
               monoFont={monoFont}
               uiFontSize={uiFontSize}
+              workspaceSwitchAnimation={workspaceSwitchAnimation}
               onLocaleChange={onLocaleChange}
               onThemeModeChange={onThemeModeChange}
               onUiFontChange={onUiFontChange}
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
+              onWorkspaceSwitchAnimationChange={onWorkspaceSwitchAnimationChange}
             />
             <WorkspaceResetSection locale={locale} workspaceId={workspaceId} onResetSuccess={onWorkspaceResetSuccess} />
           </div>

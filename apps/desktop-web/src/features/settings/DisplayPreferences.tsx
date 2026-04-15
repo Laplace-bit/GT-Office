@@ -4,10 +4,12 @@ import {
   themeOptions,
   uiFontOptions,
   uiFontSizeOptions,
+  workspaceSwitchAnimationOptions,
   type MonoFont,
   type ThemeMode,
   type UiFont,
   type UiFontSize,
+  type WorkspaceSwitchAnimation,
 } from '@shell/state/ui-preferences'
 import './DisplayPreferences.scss'
 
@@ -17,11 +19,13 @@ interface DisplayPreferencesProps {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
+  workspaceSwitchAnimation: WorkspaceSwitchAnimation
   onLocaleChange: (value: Locale) => void
   onThemeModeChange: (value: ThemeMode) => void
   onUiFontChange: (value: UiFont) => void
   onMonoFontChange: (value: MonoFont) => void
   onUiFontSizeChange: (value: UiFontSize) => void
+  onWorkspaceSwitchAnimationChange: (value: WorkspaceSwitchAnimation) => void
 }
 
 export function DisplayPreferences({
@@ -30,11 +34,13 @@ export function DisplayPreferences({
   uiFont,
   monoFont,
   uiFontSize,
+  workspaceSwitchAnimation,
   onLocaleChange,
   onThemeModeChange,
   onUiFontChange,
   onMonoFontChange,
   onUiFontSizeChange,
+  onWorkspaceSwitchAnimationChange,
 }: DisplayPreferencesProps) {
   return (
     <div className="display-preferences" aria-label={t(locale, 'displayPreferences.title')}>
@@ -128,6 +134,29 @@ export function DisplayPreferences({
               onChange={(event) => onUiFontSizeChange(event.target.value as UiFontSize)}
             >
               {uiFontSizeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(locale, option.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group-title">{t(locale, 'displayPreferences.switchAnimation')}</div>
+      <div className="settings-group">
+        <div className="settings-row">
+          <div className="settings-row-label">
+            <strong>{t(locale, 'displayPreferences.switchAnimation')}</strong>
+            <span>{t(locale, '切换工作区时的过渡动画效果', 'Transition animation when switching workspaces.')}</span>
+          </div>
+          <div className="settings-row-control">
+            <select
+              className="settings-select"
+              value={workspaceSwitchAnimation}
+              onChange={(event) => onWorkspaceSwitchAnimationChange(event.target.value as WorkspaceSwitchAnimation)}
+            >
+              {workspaceSwitchAnimationOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {t(locale, option.labelKey)}
                 </option>

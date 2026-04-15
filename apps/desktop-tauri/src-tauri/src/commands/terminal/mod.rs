@@ -448,6 +448,15 @@ pub fn terminal_describe_processes(
 }
 
 #[tauri::command]
+pub fn terminal_has_session(session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
+    let alive = state.terminal_provider.has_session(&session_id);
+    Ok(json!({
+        "sessionId": session_id,
+        "alive": alive,
+    }))
+}
+
+#[tauri::command]
 pub fn terminal_activate(session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
     // Check session exists
     if !state.terminal_provider.has_session(&session_id) {

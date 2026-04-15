@@ -1,6 +1,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::path::Path;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window};
 use uuid::Uuid;
 
@@ -74,6 +75,31 @@ fn sanitized_window_label(seed: &str) -> String {
     format!("surface-{fallback}-{suffix}")
 }
 
+fn sanitized_workspace_window_label(workspace_id: &str) -> String {
+    let sanitized = workspace_id
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    let fallback = if sanitized.is_empty() {
+        "workspace".to_string()
+    } else {
+        sanitized
+    };
+    format!("workspace-{fallback}")
+}
+
+fn workspace_window_title(workspace_root: &Path, workspace_id: &str) -> String {
+    workspace_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| workspace_id.to_string())
+}
+
 fn build_detached_window_url(
     query_payload: &SurfaceDetachedWindowQueryPayload,
 ) -> Result<WebviewUrl, String> {
@@ -83,6 +109,10 @@ fn build_detached_window_url(
     Ok(WebviewUrl::App(
         format!("index.html?surface=detached&payload={encoded}").into(),
     ))
+}
+
+fn build_workspace_window_url(workspace_id: &str) -> WebviewUrl {
+    WebviewUrl::App(format!("index.html?workspace={workspace_id}").into())
 }
 
 fn resolve_window(
@@ -120,6 +150,91 @@ fn emit_surface_window_updated(
         }),
     )
     .map_err(|error| format!("SURFACE_EVENT_EMIT_FAILED: {error}"))
+}
+
+#[tauri::command]
+pub fn workspace_open_in_new_window(
+    workspace_id: String,
+    position: Option<(f64, f64)>,
+    size: Option<(f64, f64)>,
+    state: State<'_, AppState>,
+    window: Window,
+) -> Result<Value, String> {
+    let workspace_id = workspace_id.trim();
+    if workspace_id.is_empty() {
+        return Err("WORKSPACE_WINDOW_INVALID_PARAMS: workspaceId is required".to_string());
+    }
+
+    let workspace_root = state.workspace_root_path(workspace_id)?;
+    let window_label = sanitized_workspace_window_label(workspace_id);
+    let existing_window = window.app_handle().get_webview_window(&window_label);
+    if let Some(target) = existing_window {
+        let _ = target.set_focus();
+        return Ok(json!({
+            "workspaceId": workspace_id,
+            "windowLabel": target.label(),
+            "root": workspace_root.to_string_lossy(),
+            "created": false,
+        }));
+    }
+
+    let app = window.app_handle();
+    let window_title = workspace_window_title(&workspace_root, workspace_id);
+    let mut workspace_window_builder =
+        WebviewWindowBuilder::new(app, &window_label, build_workspace_window_url(workspace_id))
+            .title(&window_title)
+            .inner_size(
+                size.map(|(width, _)| width).unwrap_or(1280.0),
+                size.map(|(_, height)| height).unwrap_or(840.0),
+            )
+            .min_inner_size(960.0, 640.0)
+            .resizable(true)
+            .decorations(true)
+            .shadow(true)
+            .accept_first_mouse(true);
+
+    if let Some((x, y)) = position {
+        workspace_window_builder = workspace_window_builder.position(x, y);
+    } else {
+        workspace_window_builder = workspace_window_builder.center();
+    }
+
+    #[cfg(target_os = "macos")]
+    let workspace_window_builder = workspace_window_builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    state.bind_window_workspace(&window_label, workspace_id)?;
+    let workspace_window = match workspace_window_builder.build() {
+        Ok(window) => window,
+        Err(error) => {
+            let _ = state.clear_window_workspace(&window_label);
+            return Err(format!("WORKSPACE_WINDOW_CREATE_FAILED: {error}"));
+        }
+    };
+
+    let app_handle = app.clone();
+    let state_handle = state.inner().clone();
+    let close_window_label = window_label.clone();
+    workspace_window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = state_handle.clear_window_workspace(&close_window_label);
+            let _ = app_handle.emit(
+                "workspace/window_closed",
+                json!({
+                    "windowLabel": close_window_label,
+                }),
+            );
+        }
+    });
+
+    Ok(json!({
+        "workspaceId": workspace_id,
+        "windowLabel": window_label,
+        "root": workspace_root.to_string_lossy(),
+        "title": window_title,
+        "created": true,
+    }))
 }
 
 #[tauri::command]

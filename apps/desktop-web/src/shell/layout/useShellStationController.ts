@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import {
   mapAgentProfileToStation,
   type AgentStation,
@@ -9,6 +9,7 @@ import { resolveStationMutationErrorMessage } from '@features/workspace-hub/stat
 import { buildRoleWorkdirRel } from '@features/workspace'
 import { desktopApi, type AgentRole, type RestorableSystemRole } from '../integration/desktop-api'
 import type { Locale } from '../i18n/ui-locale'
+import { logPerformanceDebug } from '../state/performance-debug'
 import {
   createInitialStationTerminals,
   createStationFromNumber,
@@ -32,6 +33,7 @@ interface UseShellStationControllerInput {
 export interface ShellStationController {
   stations: AgentStation[]
   setStations: Dispatch<SetStateAction<AgentStation[]>>
+  stationsLoadedWorkspaceId: string | null
   agentRoles: AgentRole[]
   restorableSystemRoles: RestorableSystemRole[]
   stationSavePending: boolean
@@ -53,15 +55,30 @@ export function useShellStationController({
   setEditingStation,
 }: UseShellStationControllerInput): ShellStationController {
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
+  const [stationsLoadedWorkspaceId, setStationsLoadedWorkspaceId] = useState<string | null>(null)
   const [agentRoles, setAgentRoles] = useState<AgentRole[]>([])
   const [restorableSystemRoles, setRestorableSystemRoles] = useState<RestorableSystemRole[]>([])
   const [stationSavePending, setStationSavePending] = useState(false)
+  const latestRequestedWorkspaceIdRef = useRef<string | null>(activeWorkspaceId)
+
+  useEffect(() => {
+    latestRequestedWorkspaceIdRef.current = activeWorkspaceId
+  }, [activeWorkspaceId])
 
   const loadStationsFromDatabase = useCallback(async (workspaceId: string) => {
+    const startedAt = performance.now()
+    latestRequestedWorkspaceIdRef.current = workspaceId
     const [roleResponse, agentResponse] = await Promise.all([
       desktopApi.agentRoleList(workspaceId),
       desktopApi.agentList(workspaceId),
     ])
+    if (latestRequestedWorkspaceIdRef.current !== workspaceId) {
+      logPerformanceDebug('workspace-stations', 'drop stale station load result', {
+        workspaceId,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+      return
+    }
     const activeRoles = roleResponse.roles.filter((role) => role.status !== 'disabled')
     const roleMap = new Map(activeRoles.map((role) => [role.id, role]))
     setAgentRoles(activeRoles)
@@ -71,20 +88,33 @@ export function useShellStationController({
         .map((agent) => mapAgentProfileToStation(agent, roleMap))
         .filter((station): station is AgentStation => station !== null),
     )
+    setStationsLoadedWorkspaceId(workspaceId)
+    logPerformanceDebug('workspace-stations', 'loaded station snapshot', {
+      workspaceId,
+      durationMs: Math.round(performance.now() - startedAt),
+      roleCount: activeRoles.length,
+      stationCount: agentResponse.agents.length,
+    })
   }, [])
 
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
+      latestRequestedWorkspaceIdRef.current = null
+      setStationsLoadedWorkspaceId(null)
       setAgentRoles([])
       setRestorableSystemRoles([])
       return
     }
     if (!activeWorkspaceId) {
+      latestRequestedWorkspaceIdRef.current = null
+      setStationsLoadedWorkspaceId(null)
       setAgentRoles([])
       setRestorableSystemRoles([])
       setStations([])
       return
     }
+    setStationsLoadedWorkspaceId(null)
+    latestRequestedWorkspaceIdRef.current = activeWorkspaceId
     void loadStationsFromDatabase(activeWorkspaceId).catch((error) => {
       console.error('failed to load agents', error)
     })
@@ -251,6 +281,7 @@ export function useShellStationController({
   return {
     stations,
     setStations,
+    stationsLoadedWorkspaceId,
     agentRoles,
     restorableSystemRoles,
     stationSavePending,

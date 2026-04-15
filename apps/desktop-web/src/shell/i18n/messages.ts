@@ -796,11 +796,18 @@ export const messages = {
     'zh-CN': '输入工作区路径',
     'en-US': 'Enter workspace path',
   },
+  'topControlBar.workspaceTabs': { 'zh-CN': '工作区标签页', 'en-US': 'Workspace tabs' },
   'topControlBar.pickWorkspaceDirectory': {
     'zh-CN': '选择工作区目录',
     'en-US': 'Pick Workspace Directory',
   },
   'topControlBar.openWorkspace': { 'zh-CN': '打开工作区', 'en-US': 'Open Workspace' },
+  'topControlBar.addWorkspaceTab': { 'zh-CN': '新增工作区标签页', 'en-US': 'Add workspace tab' },
+  'topControlBar.closeWorkspaceTab': { 'zh-CN': '关闭工作区标签页', 'en-US': 'Close workspace tab' },
+  'topControlBar.switchWorkspaceTab': {
+    'zh-CN': '切换工作区标签页',
+    'en-US': 'Switch workspace tab',
+  },
   'topControlBar.refreshGit': { 'zh-CN': '刷新 Git', 'en-US': 'Refresh Git' },
   'topControlBar.openSettings': { 'zh-CN': '打开设置', 'en-US': 'Open Settings' },
   'topControlBar.performanceDebug.enable': { 'zh-CN': '开启性能调试', 'en-US': 'Enable Performance Debug' },
@@ -882,6 +889,10 @@ export const messages = {
   'displayPreferences.fontSizeMedium': { 'zh-CN': '中（默认）', 'en-US': 'Medium (Default)' },
   'displayPreferences.fontSizeLarge': { 'zh-CN': '大', 'en-US': 'Large' },
   'displayPreferences.fontSizeXLarge': { 'zh-CN': '超大', 'en-US': 'XLarge' },
+  'displayPreferences.switchAnimation': { 'zh-CN': '工作区切换动画', 'en-US': 'Workspace Switch Animation' },
+  'displayPreferences.animationCrossfade': { 'zh-CN': '渐隐渐现', 'en-US': 'Crossfade' },
+  'displayPreferences.animationSlide': { 'zh-CN': '左右滑动', 'en-US': 'Slide' },
+  'displayPreferences.animationNone': { 'zh-CN': '无', 'en-US': 'None' },
 
 
   'settings.channel.entry.title': { 'zh-CN': 'Channel 管理', 'en-US': 'Channel Management' },

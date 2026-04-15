@@ -1,13 +1,23 @@
-
 export interface WorkspaceWindowActiveResponse {
   windowLabel: string
-  workspaceId?: string | null
+  workspaceId: string | null
 }
 
 export interface WorkspaceOpenResponse {
   workspaceId: string
   name: string
   root: string
+}
+
+export interface WorkspaceListItem {
+  workspaceId: string
+  name: string
+  root: string
+  active: boolean
+}
+
+export interface WorkspaceListResponse {
+  workspaces: WorkspaceListItem[]
 }
 
 export interface WorkspaceContextResponse {
@@ -32,6 +42,36 @@ export interface WorkspaceRestoreSessionResponse {
 export interface WorkspaceResetResponse {
   workspaceId: string
   reset: boolean
+}
+
+export interface WorkspaceUpdatedPayload {
+  workspaceId: string
+  kind: string
+}
+
+export interface WorkspaceActiveChangedPayload {
+  workspaceId: string | null
+  previousWorkspaceId: string | null
+}
+
+export interface WorkspaceCloseResponse {
+  workspaceId: string
+  closed: boolean
+}
+
+export interface WorkspaceSwitchActiveResponse {
+  activeWorkspaceId: string
+}
+
+export interface WorkspaceOpenInNewWindowResponse {
+  workspaceId: string
+  windowLabel: string
+  root: string
+  created: boolean
+}
+
+export interface WorkspaceWindowClosedPayload {
+  windowLabel: string
 }
 
 export interface DesktopAppInfoResponse {
@@ -353,6 +393,11 @@ export interface TerminalKillResponse {
   sessionId: string
   signal: string
   killed: boolean
+}
+
+export interface TerminalHasSessionResponse {
+  sessionId: string
+  alive: boolean
 }
 
 export interface TerminalVisibilityResponse {
@@ -2123,8 +2168,28 @@ export const desktopApi = {
   workspaceGetWindowActive() {
     return invokeCommand<WorkspaceWindowActiveResponse>('workspace_get_window_active')
   },
+  workspaceList() {
+    return invokeCommand<WorkspaceListResponse>('workspace_list')
+  },
   workspaceOpen(path: string) {
     return invokeCommand<WorkspaceOpenResponse>('workspace_open', { path })
+  },
+  workspaceClose(workspaceId: string) {
+    return invokeCommand<WorkspaceCloseResponse>('workspace_close', { workspaceId })
+  },
+  workspaceSwitchActive(workspaceId: string) {
+    return invokeCommand<WorkspaceSwitchActiveResponse>('workspace_switch_active', { workspaceId })
+  },
+  workspaceOpenInNewWindow(
+    workspaceId: string,
+    position?: { x: number; y: number } | null,
+    size?: { width: number; height: number } | null,
+  ) {
+    return invokeCommand<WorkspaceOpenInNewWindowResponse>('workspace_open_in_new_window', {
+      workspaceId,
+      position: position ? [position.x, position.y] : null,
+      size: size ? [size.width, size.height] : null,
+    })
   },
   workspaceGetContext(workspaceId: string) {
     return invokeCommand<WorkspaceContextResponse>('workspace_get_context', { workspaceId })
@@ -2568,6 +2633,11 @@ export const desktopApi = {
     return invokeCommand<TerminalKillResponse>('terminal_kill', {
       sessionId,
       signal: signal ?? null,
+    })
+  },
+  terminalHasSession(sessionId: string) {
+    return invokeCommand<TerminalHasSessionResponse>('terminal_has_session', {
+      sessionId,
     })
   },
   terminalSetVisibility(sessionId: string, visible: boolean) {
@@ -3249,6 +3319,44 @@ export const desktopApi = {
     const eventApi = await import('@tauri-apps/api/event')
     const unlisten = await eventApi.listen<GitUpdatedPayload>('git/updated', (event) =>
       onUpdated(event.payload),
+    )
+    return () => {
+      unlisten()
+    }
+  },
+  async subscribeWorkspaceEvents(handlers: {
+    onUpdated?: (payload: WorkspaceUpdatedPayload) => void
+    onActiveChanged?: (payload: WorkspaceActiveChangedPayload) => void
+  }): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlistenUpdated = await eventApi.listen<WorkspaceUpdatedPayload>(
+      'workspace/updated',
+      (event: { payload: WorkspaceUpdatedPayload }) => handlers.onUpdated?.(event.payload),
+    )
+    const unlistenActiveChanged = await eventApi.listen<WorkspaceActiveChangedPayload>(
+      'workspace/active_changed',
+      (event: { payload: WorkspaceActiveChangedPayload }) => handlers.onActiveChanged?.(event.payload),
+    )
+    return () => {
+      unlistenUpdated()
+      unlistenActiveChanged()
+    }
+  },
+  async subscribeWorkspaceWindowClosed(
+    onWindowClosed: (payload: WorkspaceWindowClosedPayload) => void,
+  ): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlisten = await eventApi.listen<WorkspaceWindowClosedPayload>(
+      'workspace/window_closed',
+      (event: { payload: WorkspaceWindowClosedPayload }) => onWindowClosed(event.payload),
     )
     return () => {
       unlisten()
