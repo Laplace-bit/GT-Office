@@ -3,10 +3,10 @@ import { X } from 'lucide-react'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import {
-  CodeMirrorEditor,
+  MonacoEditor,
   MarkdownRenderer,
   MarkdownSplitView,
-  type CodeEditorCommandRequest,
+  type MonacoEditorCommandRequest as CodeEditorCommandRequest,
   type MarkdownViewMode,
 } from '@/components/editor'
 import { FilePreviewPane } from '@features/file-preview'
@@ -67,7 +67,7 @@ function isSameCommandRequest(
 
 // Memoized editor - 完全隔离，不会因父组件状态变化而重渲染
 const MemoizedEditor = memo(
-  CodeMirrorEditor,
+  MonacoEditor,
   (prev, next) =>
     prev.locale === next.locale &&
     prev.content === next.content &&
