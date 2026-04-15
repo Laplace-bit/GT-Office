@@ -9,16 +9,16 @@
   overflow-y: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  transition: opacity 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 
   &::-webkit-scrollbar {
     display: none;
   }
 
   &.workspace-switching {
-    opacity: 0.5;
+    opacity: 0.72;
     pointer-events: none;
-    transition: opacity 0.13s cubic-bezier(0.4, 0, 1, 1);
+    transition: opacity 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 }
 
@@ -36,7 +36,12 @@
   border: none;
   background: transparent;
   color: var(--vb-text-secondary);
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
   max-width: rem(160);
   min-width: 0;
   flex: 0 0 auto;
@@ -50,10 +55,24 @@
     background: var(--vb-active);
     color: var(--vb-text-primary);
     font-weight: 500;
+    box-shadow: inset 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 18%, transparent);
+  }
+
+  &.pending {
+    background: color-mix(in srgb, var(--vb-active) 74%, white 26%);
+    color: var(--vb-text-primary);
+    transform: translateY(#{rem(-1)});
+    box-shadow:
+      inset 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 28%, transparent),
+      0 rem(6) rem(14) color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 
   &.dragging {
     opacity: 0.6;
+  }
+
+  &:active {
+    transform: scale(0.985);
   }
 }
 

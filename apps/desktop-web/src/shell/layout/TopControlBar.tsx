@@ -30,6 +30,7 @@ interface TopControlBarProps {
   workspaceTabs?: WorkspaceTabInfo[]
   activeTabId?: string | null
   workspaceSwitching?: boolean
+  pendingWorkspaceSwitchId?: string | null
   workspaceSwitchAnimation?: WorkspaceSwitchAnimation
   onSwitchTab?: (workspaceId: string) => void
   onCloseTab?: (workspaceId: string) => void
@@ -115,6 +116,7 @@ export function TopControlBar({
   workspaceTabs,
   activeTabId = null,
   workspaceSwitching = false,
+  pendingWorkspaceSwitchId = null,
   workspaceSwitchAnimation = 'crossfade',
   onSwitchTab,
   onCloseTab,
@@ -365,6 +367,7 @@ export function TopControlBar({
                 tabs={workspaceTabs ?? []}
                 activeTabId={activeTabId}
                 workspaceSwitching={workspaceSwitching}
+                pendingTabId={pendingWorkspaceSwitchId}
                 workspaceSwitchAnimation={workspaceSwitchAnimation}
                 onSwitchTab={onSwitchTab as (workspaceId: string) => void}
                 onCloseTab={onCloseTab as (workspaceId: string) => void}

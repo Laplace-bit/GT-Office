@@ -445,6 +445,8 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   }, [updatePaneWidthBounds])
   const localeRef = useRef(uiPreferences.locale)
   const activeWorkspaceIdRef = useRef<string | null>(null)
+  const [presentedWorkspaceId, setPresentedWorkspaceId] = useState<string | null>(null)
+  const presentedWorkspaceIdRef = useRef<string | null>(null)
   const workspaceSessionPersistTimerRef = useRef<number | null>(null)
   const workspaceSessionHydratingRef = useRef(false)
   const workspaceSessionRestoreSeqRef = useRef(0)
@@ -463,6 +465,10 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   const macOsNativeMenuInstallSeqRef = useRef(0)
   const workspaceSessionRestoreWaitRef = useRef<string | null>(null)
   const workspaceSessionRestoreWaitStartRef = useRef<number | null>(null)
+  const pendingWorkspacePresentationSwitchRef = useRef<{
+    departingWorkspaceId: string | null
+    targetWorkspaceId: string | null
+  } | null>(null)
   const leftPaneVisibleRef = useRef(leftPaneVisible)
   const shortcutBindingsRef = useRef(shortcutBindings)
   const nativeWindowTopMacOsRef = useRef(nativeWindowTopMacOs)
@@ -505,8 +511,11 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     refreshGit,
     workspaceTabs,
     workspaceSwitching,
+    pendingWorkspaceSwitchId,
     openWorkspaceAtPath,
     switchWorkspaceTab,
+    beginWorkspaceSwitchAnimation,
+    completeWorkspaceSwitch,
     closeWorkspaceTab,
     detachWorkspaceTab,
     reorderWorkspaceTab,
@@ -653,6 +662,10 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   useEffect(() => {
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId])
+
+  useEffect(() => {
+    presentedWorkspaceIdRef.current = presentedWorkspaceId
+  }, [presentedWorkspaceId])
 
   useEffect(() => {
     return () => {
@@ -1324,7 +1337,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   )
 
   const persistActiveWorkspaceTerminalDocument = useCallback(() => {
-    captureActiveWorkspaceTerminalDocument(activeWorkspaceIdRef.current)
+    captureActiveWorkspaceTerminalDocument(presentedWorkspaceIdRef.current)
   }, [captureActiveWorkspaceTerminalDocument])
 
   const appendStationTerminalOutput = useMemo(
@@ -2551,10 +2564,14 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     emitTelegramInboundDebugToast,
   ])
 
-  useEffect(() => {
+  const applyWorkspacePresentationSwitch = useCallback((input: {
+    activeWorkspaceId: string | null
+    departingWorkspaceId: string | null
+    clearVisibleState: boolean
+  }) => {
     const resetStartedAt = performance.now()
-    const departingWorkspaceId = previousActiveWorkspaceIdRef.current
-    if (departingWorkspaceId && departingWorkspaceId !== activeWorkspaceId) {
+    const { activeWorkspaceId: nextWorkspaceId, departingWorkspaceId, clearVisibleState } = input
+    if (departingWorkspaceId && departingWorkspaceId !== nextWorkspaceId) {
       captureActiveWorkspaceTerminalDocument(departingWorkspaceId)
       logPerformanceDebug('workspace-switch', 'persisted terminal document for departing workspace', {
         departingWorkspaceId,
@@ -2582,7 +2599,6 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     stationTerminalInputControllerRef.current?.dispose()
     stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
-    resetFileState()
     setTaskDispatchHistory([])
     setTaskSending(false)
     setTaskRetryingTaskId(null)
@@ -2593,33 +2609,61 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     externalTraceContextRef.current = {}
     pendingWorkbenchContainerSnapshotsRef.current = null
     detachedWindowOpenInFlightRef.current = {}
-    setPinnedWorkbenchContainerId(null)
-    setWorkbenchContainers(
-      createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId, {
-        mode: canvasLayoutModeRef.current,
-        customLayout: canvasCustomLayoutRef.current,
-      }),
-    )
     Object.entries(stationTaskSignalTimerRef.current).forEach(([stationId]) => {
       clearStationTaskSignalTimer(stationId)
     })
     stationTaskSignalTimerRef.current = {}
     stationTaskSignalNonceRef.current = {}
-    setStationTaskSignals({})
-    setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
-    previousActiveWorkspaceIdRef.current = activeWorkspaceId
-    logPerformanceDebug('workspace-switch', 'workspace reset effect completed', {
-      activeWorkspaceId,
+    if (clearVisibleState) {
+      resetFileState()
+      setPinnedWorkbenchContainerId(null)
+      setWorkbenchContainers(
+        createInitialWorkbenchContainers(stationsRef.current, buildDefaultWorkbenchContainerId, {
+          mode: canvasLayoutModeRef.current,
+          customLayout: canvasCustomLayoutRef.current,
+        }),
+      )
+      setStationTaskSignals({})
+      setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
+    }
+    setPresentedWorkspaceId(nextWorkspaceId)
+    logPerformanceDebug('workspace-switch', 'workspace presentation switch applied', {
+      activeWorkspaceId: nextWorkspaceId,
+      clearVisibleState,
       durationMs: Math.round(performance.now() - resetStartedAt),
     })
   }, [activeWorkspaceId, captureActiveWorkspaceTerminalDocument, clearStationTaskSignalTimer, resetFileState])
 
   useEffect(() => {
-    if (activeWorkspaceId && stationsLoadedWorkspaceId !== activeWorkspaceId) {
+    const departingWorkspaceId = previousActiveWorkspaceIdRef.current
+    if (departingWorkspaceId === activeWorkspaceId) {
+      return
+    }
+    previousActiveWorkspaceIdRef.current = activeWorkspaceId
+    pendingWorkspacePresentationSwitchRef.current = {
+      departingWorkspaceId,
+      targetWorkspaceId: activeWorkspaceId,
+    }
+    if (!activeWorkspaceId) {
+      applyWorkspacePresentationSwitch({
+        activeWorkspaceId: null,
+        departingWorkspaceId,
+        clearVisibleState: true,
+      })
+      pendingWorkspacePresentationSwitchRef.current = null
+      completeWorkspaceSwitch()
+    }
+  }, [activeWorkspaceId, applyWorkspacePresentationSwitch, completeWorkspaceSwitch])
+
+  useEffect(() => {
+    if (!presentedWorkspaceId || activeWorkspaceId !== presentedWorkspaceId) {
+      return
+    }
+    if (stationsLoadedWorkspaceId !== presentedWorkspaceId) {
       return
     }
     const stationIdSet = new Set(stations.map((station) => station.id))
-    const terminalDocument = resolveWorkspaceTerminalDocument(activeWorkspaceId, stations)
+    const terminalDocument = resolveWorkspaceTerminalDocument(presentedWorkspaceId, stations)
     stationTerminalsRef.current = { ...terminalDocument.stationTerminals }
     stationTerminalOutputCacheRef.current = { ...terminalDocument.outputCache }
     stationTerminalOutputRevisionRef.current = { ...terminalDocument.outputRevision }
@@ -2670,7 +2714,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       },
       {},
     )
-    captureActiveWorkspaceTerminalDocument(activeWorkspaceId)
+    captureActiveWorkspaceTerminalDocument(presentedWorkspaceId)
 
     if (!activeStationId && stations[0]) {
       setActiveStationId(stations[0].id)
@@ -2682,6 +2726,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   }, [
     activeStationId,
     activeWorkspaceId,
+    presentedWorkspaceId,
     captureActiveWorkspaceTerminalDocument,
     clearStationTaskSignalTimer,
     resolveWorkspaceTerminalDocument,
@@ -4507,6 +4552,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
       workspaceSessionRestoreWaitRef.current = null
       workspaceSessionHydratingRef.current = false
+      completeWorkspaceSwitch()
       return
     }
 
@@ -4578,7 +4624,26 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
               workbenchContainers: [],
             }),
           )
+        const shouldAnimateWorkspaceSwitch = beginWorkspaceSwitchAnimation(workspaceId)
+        if (
+          cancelled ||
+          workspaceSessionRestoreSeqRef.current !== restoreSeq ||
+          activeWorkspaceIdRef.current !== workspaceId
+        ) {
+          completeWorkspaceSwitch(workspaceId)
+          return
+        }
+        const pendingPresentationSwitch = pendingWorkspacePresentationSwitchRef.current
+        if (pendingPresentationSwitch?.targetWorkspaceId === workspaceId) {
+          applyWorkspacePresentationSwitch({
+            activeWorkspaceId: workspaceId,
+            departingWorkspaceId: pendingPresentationSwitch.departingWorkspaceId,
+            clearVisibleState: false,
+          })
+          pendingWorkspacePresentationSwitchRef.current = null
+        }
         if (!restored) {
+          completeWorkspaceSwitch(workspaceId)
           return
         }
 
@@ -4631,7 +4696,15 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
         )
         setActiveFilePath(activeTabPath)
         if (activeTabPath) {
-          await loadFileContentRef.current(activeTabPath, 'full')
+          void loadFileContentRef.current(activeTabPath, 'full')
+        }
+
+        if (shouldAnimateWorkspaceSwitch) {
+          requestAnimationFrame(() => {
+            completeWorkspaceSwitch(workspaceId)
+          })
+        } else {
+          completeWorkspaceSwitch(workspaceId)
         }
 
         const stationIdSet = new Set(stationsRef.current.map((station) => station.id))
@@ -4895,12 +4968,22 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     }
 
     void restoreWorkspaceSession().catch((error) => {
+      const pendingPresentationSwitch = pendingWorkspacePresentationSwitchRef.current
+      if (pendingPresentationSwitch?.targetWorkspaceId === workspaceId) {
+        applyWorkspacePresentationSwitch({
+          activeWorkspaceId: workspaceId,
+          departingWorkspaceId: pendingPresentationSwitch.departingWorkspaceId,
+          clearVisibleState: true,
+        })
+        pendingWorkspacePresentationSwitchRef.current = null
+      }
       logPerformanceDebug('workspace-session', 'failed to restore workspace session', {
         workspaceId,
         restoreSeq,
         durationMs: Math.round(performance.now() - restoreStartedAt),
         error: error instanceof Error ? error.message : String(error),
       })
+      completeWorkspaceSwitch(workspaceId)
     })
 
     return () => {
@@ -4931,11 +5014,13 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     setActiveFilePath,
     setOpenedFiles,
     setStationTerminalState,
+    applyWorkspacePresentationSwitch,
+    completeWorkspaceSwitch,
     workspaceSessionFilePath,
   ])
 
   useEffect(() => {
-    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+    if (!presentedWorkspaceId || !desktopApi.isTauriRuntime()) {
       return
     }
     if (workspaceSessionHydratingRef.current) {
@@ -4947,9 +5032,9 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       window.clearTimeout(existingTimerId)
     }
 
-    const workspaceId = activeWorkspaceId
+    const workspaceId = presentedWorkspaceId
     workspaceSessionPersistTimerRef.current = window.setTimeout(() => {
-      if (workspaceSessionHydratingRef.current || activeWorkspaceIdRef.current !== workspaceId) {
+      if (workspaceSessionHydratingRef.current || presentedWorkspaceIdRef.current !== workspaceId) {
         return
       }
       const snapshot = buildWorkspaceSessionSnapshot({
@@ -4975,8 +5060,8 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     }
   }, [
     activeNavId,
-    activeWorkspaceId,
     pinnedWorkbenchContainerId,
+    presentedWorkspaceId,
     tabSessionSnapshotSignature,
     workbenchContainerSnapshotSignature,
     terminalSessionSnapshotSignature,
@@ -5904,6 +5989,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
               workspaceTabs,
               activeTabId: activeWorkspaceId,
               workspaceSwitching,
+              pendingWorkspaceSwitchId,
               workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
               onSwitchTab: (workspaceId: string) => {
                 void switchWorkspaceTab(workspaceId)

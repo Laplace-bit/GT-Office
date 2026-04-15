@@ -15,8 +15,11 @@ export interface UseWorkspaceTabControllerResult {
   refreshGit: ReturnType<typeof useShellWorkspaceController>['refreshGit']
   workspaceTabs: WorkspaceTabInfo[]
   workspaceSwitching: boolean
+  pendingWorkspaceSwitchId: string | null
   openWorkspaceAtPath: ReturnType<typeof useShellWorkspaceController>['openWorkspaceAtPath']
   switchWorkspaceTab: (workspaceId: string) => Promise<void>
+  beginWorkspaceSwitchAnimation: (workspaceId?: string | null) => boolean
+  completeWorkspaceSwitch: (workspaceId?: string | null) => void
   closeWorkspaceTab: (workspaceId: string) => Promise<void>
   detachWorkspaceTab: (workspaceId: string, windowLabel: string) => void
   reorderWorkspaceTab: (fromIndex: number, toIndex: number) => void
@@ -40,7 +43,28 @@ export function useWorkspaceTabController(
 
   const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceTabInfo[]>([])
   const [workspaceSwitching, setWorkspaceSwitching] = useState(false)
-  const switchingTimeoutRef = useRef<number | null>(null)
+  const [pendingWorkspaceSwitchId, setPendingWorkspaceSwitchId] = useState<string | null>(null)
+  const pendingWorkspaceSwitchIdRef = useRef<string | null>(null)
+
+  const beginWorkspaceSwitchAnimation = useCallback((workspaceId?: string | null) => {
+    if (workspaceId && pendingWorkspaceSwitchIdRef.current !== workspaceId) {
+      return false
+    }
+    if (!pendingWorkspaceSwitchIdRef.current) {
+      return false
+    }
+    setWorkspaceSwitching(true)
+    return true
+  }, [])
+
+  const completeWorkspaceSwitch = useCallback((workspaceId?: string | null) => {
+    if (workspaceId && pendingWorkspaceSwitchIdRef.current !== workspaceId) {
+      return
+    }
+    pendingWorkspaceSwitchIdRef.current = null
+    setPendingWorkspaceSwitchId(null)
+    setWorkspaceSwitching(false)
+  }, [])
 
   // --- Tab switching ---
 
@@ -48,7 +72,9 @@ export function useWorkspaceTabController(
     async (workspaceId: string) => {
       if (workspaceId === activeWorkspaceId) return
       logPerformanceDebug('workspace-tabs', 'switching tab', { workspaceId })
-      setWorkspaceSwitching(true)
+      pendingWorkspaceSwitchIdRef.current = workspaceId
+      setPendingWorkspaceSwitchId(workspaceId)
+      beginWorkspaceSwitchAnimation(workspaceId)
       try {
         const response = await desktopApi.workspaceSwitchActive(workspaceId)
         const tab = workspaceTabs.find((t) => t.workspaceId === response.activeWorkspaceId)
@@ -60,16 +86,10 @@ export function useWorkspaceTabController(
           workspaceId,
           error: error instanceof Error ? error.message : String(error),
         })
-      } finally {
-        if (switchingTimeoutRef.current !== null) {
-          window.clearTimeout(switchingTimeoutRef.current)
-        }
-        switchingTimeoutRef.current = window.setTimeout(() => {
-          setWorkspaceSwitching(false)
-        }, 300)
+        completeWorkspaceSwitch(workspaceId)
       }
     },
-    [activeWorkspaceId, workspaceTabs, openWorkspaceAtPath],
+    [activeWorkspaceId, beginWorkspaceSwitchAnimation, completeWorkspaceSwitch, workspaceTabs, openWorkspaceAtPath],
   )
 
   // --- Tab close ---
@@ -200,8 +220,11 @@ export function useWorkspaceTabController(
     refreshGit,
     workspaceTabs: visibleTabs,
     workspaceSwitching,
+    pendingWorkspaceSwitchId,
     openWorkspaceAtPath,
     switchWorkspaceTab,
+    beginWorkspaceSwitchAnimation,
+    completeWorkspaceSwitch,
     closeWorkspaceTab,
     detachWorkspaceTab,
     reorderWorkspaceTab,

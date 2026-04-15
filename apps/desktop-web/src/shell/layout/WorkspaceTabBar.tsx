@@ -15,6 +15,7 @@ interface WorkspaceTabBarProps {
   locale: Locale
   tabs: WorkspaceTabInfo[]
   activeTabId?: string | null
+  pendingTabId?: string | null
   workspaceSwitching?: boolean
   workspaceSwitchAnimation?: WorkspaceSwitchAnimation
   onSwitchTab: (workspaceId: string) => void
@@ -28,6 +29,7 @@ export function WorkspaceTabBar({
   locale,
   tabs,
   activeTabId,
+  pendingTabId = null,
   workspaceSwitching = false,
   workspaceSwitchAnimation = 'crossfade',
   onSwitchTab,
@@ -92,11 +94,12 @@ export function WorkspaceTabBar({
     >
       {tabs.map((tab, index) => {
         const isActive = tab.workspaceId === activeTabId
+        const isPending = tab.workspaceId === pendingTabId && !isActive
         const tabName = tab.name || tab.root.split('/').pop() || tab.workspaceId
         return (
           <div
             key={tab.workspaceId}
-            className={`vb-workspace-tab${isActive ? ' active' : ''}${
+            className={`vb-workspace-tab${isActive ? ' active' : ''}${isPending ? ' pending' : ''}${
               index === dragIndex ? ' dragging' : ''
             }`}
             onMouseDown={(e) => handleTabMouseDown(e, index)}
@@ -104,6 +107,7 @@ export function WorkspaceTabBar({
             onDoubleClick={(e) => handleDoubleClick(e, tab)}
             role="tab"
             aria-selected={isActive}
+            aria-busy={isPending || undefined}
             tabIndex={isActive ? 0 : -1}
             title={tab.root}
           >
