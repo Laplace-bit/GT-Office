@@ -15,6 +15,8 @@ export type LanguageId =
   | 'ruby'
   | 'lua'
   | 'shell'
+  | 'powershell'
+  | 'bat'
   // Systems languages
   | 'rust'
   | 'go'
@@ -31,10 +33,16 @@ export type LanguageId =
   | 'toml'
   | 'xml'
   | 'sql'
-  // Markup languages
+  | 'graphql'
+  | 'protobuf'
+  // Markup / style languages
   | 'markdown'
   | 'html'
   | 'css'
+  | 'scss'
+  | 'less'
+  // Infrastructure
+  | 'dockerfile'
   // Frameworks
   | 'vue'
   | 'svelte'
@@ -54,16 +62,18 @@ const LANGUAGE_TO_MONACO: Record<LanguageId, string> = {
 
   // Scripting languages
   python: 'python',
-  ruby: 'plaintext',
-  lua: 'plaintext',
-  shell: 'plaintext',
+  ruby: 'ruby',
+  lua: 'lua',
+  shell: 'shell',
+  powershell: 'powershell',
+  bat: 'bat',
 
   // Systems languages
   rust: 'rust',
   go: 'go',
   java: 'java',
-  kotlin: 'plaintext',
-  swift: 'plaintext',
+  kotlin: 'kotlin',
+  swift: 'swift',
   c: 'c',
   cpp: 'cpp',
   csharp: 'csharp',
@@ -72,14 +82,21 @@ const LANGUAGE_TO_MONACO: Record<LanguageId, string> = {
   // Data formats
   json: 'json',
   yaml: 'yaml',
-  toml: 'plaintext',
+  toml: 'ini',
   xml: 'xml',
   sql: 'sql',
+  graphql: 'graphql',
+  protobuf: 'protobuf',
 
-  // Markup languages
+  // Markup / style languages
   markdown: 'markdown',
   html: 'html',
   css: 'css',
+  scss: 'scss',
+  less: 'less',
+
+  // Infrastructure
+  dockerfile: 'dockerfile',
 
   // Frameworks
   vue: 'html',
@@ -133,6 +150,14 @@ const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
   zsh: 'shell',
   fish: 'shell',
 
+  // PowerShell
+  ps1: 'powershell',
+  psm1: 'powershell',
+
+  // Batch
+  bat: 'bat',
+  cmd: 'bat',
+
   // Rust
   rs: 'rust',
 
@@ -181,6 +206,13 @@ const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
   // SQL
   sql: 'sql',
 
+  // GraphQL
+  graphql: 'graphql',
+  gql: 'graphql',
+
+  // Protobuf
+  proto: 'protobuf',
+
   // Markdown
   md: 'markdown',
   mdx: 'markdown',
@@ -192,9 +224,9 @@ const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
 
   // CSS
   css: 'css',
-  scss: 'css',
-  sass: 'css',
-  less: 'css',
+  scss: 'scss',
+  sass: 'scss',
+  less: 'less',
 
   // Vue
   vue: 'vue',
@@ -207,7 +239,7 @@ const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
  * Filename (without extension) to LanguageId mapping.
  */
 const BASENAME_TO_LANGUAGE: Record<string, LanguageId> = {
-  dockerfile: 'shell',
+  dockerfile: 'dockerfile',
   makefile: 'shell',
   justfile: 'shell',
   procfile: 'shell',
