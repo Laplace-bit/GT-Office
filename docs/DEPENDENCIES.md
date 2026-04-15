@@ -59,7 +59,7 @@ This document is the single source of truth for every dependency the project is 
 | Category | Package | Notes |
 |---|---|---|
 | Syntax highlighting | `shiki` | Multi-language syntax highlighting |
-| Code editor | `codemirror` + language packages | In-app code editing |
+| Code editor | `monaco-editor` + `@monaco-editor/react` | In-app code editing (VS Code editor core) |
 | Markdown | `remark` | Markdown processor |
 | | `remark-gfm` | GitHub-Flavored Markdown support |
 | Diff | `diff2html` | Side-by-side diff rendering |
@@ -152,3 +152,5 @@ When a dependency is no longer used:
 | Date | Action | Package | Notes |
 |---|---|---|---|
 | 2026-04-08 | Created | — | Initial allowlist extracted from project |
+| 2026-04-15 | Replaced | codemirror + language packages | Replaced by monaco-editor for VS Code parity |
+| 2026-04-15 | Added | monaco-editor, @monaco-editor/react | VS Code editor core for in-app editing |
