@@ -223,6 +223,11 @@ import { useShellStationController } from './useShellStationController'
 import { useShellTaskMentionController } from './useShellTaskMentionController'
 import { useShellWorkbenchController } from './useShellWorkbenchController'
 import { useWorkspaceTabController } from '../state/useWorkspaceTabController'
+import {
+  createWorkspaceTerminalSessionDocument,
+  hydrateWorkspaceTerminalSessionDocument,
+  type WorkspaceTerminalSessionDocument,
+} from '../state/workspace-terminal-session-store'
 import type { WorkspaceTearOffRequest } from './WorkspaceTabBar'
 import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
@@ -386,20 +391,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
   const terminalDebugRecordSeqRef = useRef(0)
-  const workspaceTerminalCacheRef = useRef<
-    Record<
-      string,
-      {
-        stationTerminals: Record<string, StationTerminalRuntime>
-        outputCache: Record<string, string>
-        outputRevision: Record<string, number>
-        restoreState: Record<string, SessionOwnedRestoreState>
-        sessionStation: Record<string, string>
-        sessionSeq: Record<string, number>
-        sessionVisibility: Record<string, boolean>
-      }
-    >
-  >({})
+  const workspaceTerminalCacheRef = useRef<Record<string, WorkspaceTerminalSessionDocument>>({})
   const previousActiveWorkspaceIdRef = useRef<string | null>(null)
   const leftPaneResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number; rafId: number | null; lastClientX: number; currentWidth: number } | null>(
     null,
@@ -1298,6 +1290,43 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     [],
   )
 
+  const captureActiveWorkspaceTerminalDocument = useCallback(
+    (workspaceId: string | null) => {
+      if (!workspaceId) {
+        return
+      }
+      workspaceTerminalCacheRef.current[workspaceId] = {
+        stationTerminals: { ...stationTerminalsRef.current },
+        outputCache: { ...stationTerminalOutputCacheRef.current },
+        outputRevision: { ...stationTerminalOutputRevisionRef.current },
+        restoreState: { ...stationTerminalRestoreStateRef.current },
+        sessionStation: { ...sessionStationRef.current },
+        sessionSeq: { ...terminalSessionSeqRef.current },
+        sessionVisibility: { ...terminalSessionVisibilityRef.current },
+      }
+    },
+    [],
+  )
+
+  const resolveWorkspaceTerminalDocument = useCallback(
+    (workspaceId: string | null, stationsForWorkspace: AgentStation[]) => {
+      if (!workspaceId) {
+        return createWorkspaceTerminalSessionDocument(stationsForWorkspace)
+      }
+      const hydrated = hydrateWorkspaceTerminalSessionDocument(
+        workspaceTerminalCacheRef.current[workspaceId],
+        stationsForWorkspace,
+      )
+      workspaceTerminalCacheRef.current[workspaceId] = hydrated
+      return hydrated
+    },
+    [],
+  )
+
+  const persistActiveWorkspaceTerminalDocument = useCallback(() => {
+    captureActiveWorkspaceTerminalDocument(activeWorkspaceIdRef.current)
+  }, [captureActiveWorkspaceTerminalDocument])
+
   const appendStationTerminalOutput = useMemo(
     () => (stationId: string, chunk: string) => {
       stationTerminalOutputCacheRef.current[stationId] = appendDetachedTerminalOutput(
@@ -1321,9 +1350,10 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       } else {
         void stationTerminalSinkRef.current[stationId]?.write(chunk)
       }
+      persistActiveWorkspaceTerminalDocument()
       publishDetachedOutputAppend(stationId, chunk)
     },
-    [publishDetachedOutputAppend, pushStationTerminalDebugRecord],
+    [persistActiveWorkspaceTerminalDocument, publishDetachedOutputAppend, pushStationTerminalDebugRecord],
   )
 
   const resetStationTerminalOutput = useMemo(
@@ -1353,9 +1383,10 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       } else {
         void stationTerminalSinkRef.current[stationId]?.reset(nextContent)
       }
+      persistActiveWorkspaceTerminalDocument()
       publishDetachedOutputReset(stationId, nextContent)
     },
-    [publishDetachedOutputReset, pushStationTerminalDebugRecord],
+    [persistActiveWorkspaceTerminalDocument, publishDetachedOutputReset, pushStationTerminalDebugRecord],
   )
 
   const setStationTerminalState = useMemo(
@@ -1386,11 +1417,12 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
           ...next,
         }
       })
+      persistActiveWorkspaceTerminalDocument()
       if (projectionPatch) {
         publishDetachedRuntimePatch(stationId, projectionPatch)
       }
     },
-    [publishDetachedRuntimePatch],
+    [persistActiveWorkspaceTerminalDocument, publishDetachedRuntimePatch],
   )
 
   const clearStationUnread = useMemo(
@@ -1401,16 +1433,19 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
         if (!current || current.unreadCount === 0) {
           return prev
         }
-        return {
+        const next = {
           ...prev,
           [stationId]: {
             ...current,
             unreadCount: 0,
           },
         }
+        stationTerminalsRef.current = next
+        return next
       })
+      persistActiveWorkspaceTerminalDocument()
     },
-    [],
+    [persistActiveWorkspaceTerminalDocument],
   )
 
   const flushStationUnreadDeltas = useMemo(
@@ -1440,10 +1475,14 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
           }
           changed = true
         })
+        if (changed) {
+          stationTerminalsRef.current = next
+        }
         return changed ? next : prev
       })
+      persistActiveWorkspaceTerminalDocument()
     },
-    [],
+    [persistActiveWorkspaceTerminalDocument],
   )
 
   const incrementStationUnread = useMemo(
@@ -1928,6 +1967,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
                   appendStationTerminalOutput(stationId, text)
                 }
                 terminalSessionSeqRef.current[payload.sessionId] = payload.seq
+                persistActiveWorkspaceTerminalDocument()
                 if (unread) {
                   incrementStationUnread(stationId, 1)
                 }
@@ -1976,6 +2016,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
                   appendStationTerminalOutput(stationId, text)
                 }
                 terminalSessionSeqRef.current[payload.sessionId] = delta.toSeq
+                persistActiveWorkspaceTerminalDocument()
                 if (unread) {
                   incrementStationUnread(stationId, 1)
                 }
@@ -2018,6 +2059,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
               })
               resetStationTerminalOutput(stationId, snapshotText)
               terminalSessionSeqRef.current[payload.sessionId] = snapshot.currentSeq
+              persistActiveWorkspaceTerminalDocument()
               if (unread) {
                 incrementStationUnread(stationId, 1)
               }
@@ -2090,6 +2132,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
                 })
             }
           }
+          persistActiveWorkspaceTerminalDocument()
         },
         onMeta: (payload: TerminalMetaPayload) => {
           const stationId = sessionStationRef.current[payload.sessionId]
@@ -2142,6 +2185,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     appendStationTerminalOutput,
     decodeBase64Chunk,
     incrementStationUnread,
+    persistActiveWorkspaceTerminalDocument,
     pushStationTerminalDebugRecord,
     resetStationTerminalOutput,
     setStationTerminalState,
@@ -2509,27 +2553,13 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
 
   useEffect(() => {
     const resetStartedAt = performance.now()
-    // Park departing workspace's terminal data before clearing refs.
-    // NOTE: activeWorkspaceIdRef.current is already the NEW value here (updated by a
-    // preceding effect). Use previousActiveWorkspaceIdRef for the departing workspace.
     const departingWorkspaceId = previousActiveWorkspaceIdRef.current
     if (departingWorkspaceId && departingWorkspaceId !== activeWorkspaceId) {
-      const hasActiveSessions = Object.keys(sessionStationRef.current).length > 0
-      if (hasActiveSessions) {
-        workspaceTerminalCacheRef.current[departingWorkspaceId] = {
-          stationTerminals: { ...stationTerminalsRef.current },
-          outputCache: { ...stationTerminalOutputCacheRef.current },
-          outputRevision: { ...stationTerminalOutputRevisionRef.current },
-          restoreState: { ...stationTerminalRestoreStateRef.current },
-          sessionStation: { ...sessionStationRef.current },
-          sessionSeq: { ...terminalSessionSeqRef.current },
-          sessionVisibility: { ...terminalSessionVisibilityRef.current },
-        }
-        logPerformanceDebug('workspace-switch', 'parked terminal cache for departing workspace', {
-          departingWorkspaceId,
-          sessionCount: Object.keys(sessionStationRef.current).length,
-        })
-      }
+      captureActiveWorkspaceTerminalDocument(departingWorkspaceId)
+      logPerformanceDebug('workspace-switch', 'persisted terminal document for departing workspace', {
+        departingWorkspaceId,
+        sessionCount: Object.keys(sessionStationRef.current).length,
+      })
     }
     if (desktopApi.isTauriRuntime()) {
       workbenchContainersRef.current.forEach((container) => {
@@ -2541,31 +2571,17 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
         })
       })
     }
-    setStationTerminals(createInitialStationTerminals(stationsRef.current))
-    sessionStationRef.current = {}
     detachedProjectionSeqRef.current = {}
     detachedProjectionDispatchQueueRef.current = {}
+    sessionStationRef.current = {}
     terminalSessionSeqRef.current = {}
     terminalOutputQueueRef.current = {}
     ensureStationTerminalSessionInFlightRef.current = {}
     stationToolLaunchSeqRef.current = {}
     terminalSessionVisibilityRef.current = {}
-    stationTerminalRestoreStateRef.current = {}
-    stationTerminalPendingReplayRef.current = {}
-    stationTerminalOutputCacheRef.current = stationsRef.current.reduce<Record<string, string>>((acc, station) => {
-      acc[station.id] = getStationIdleBanner(station)
-      return acc
-    }, {})
-    stationTerminalOutputRevisionRef.current = stationsRef.current.reduce<Record<string, number>>((acc, station) => {
-      acc[station.id] = 0
-      return acc
-    }, {})
     stationTerminalInputControllerRef.current?.dispose()
     stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
-    Object.entries(stationTerminalSinkRef.current).forEach(([stationId, sink]) => {
-      sink.reset(stationTerminalOutputCacheRef.current[stationId])
-    })
     resetFileState()
     setTaskDispatchHistory([])
     setTaskSending(false)
@@ -2596,35 +2612,26 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       activeWorkspaceId,
       durationMs: Math.round(performance.now() - resetStartedAt),
     })
-  }, [activeWorkspaceId, clearStationTaskSignalTimer, resetFileState])
+  }, [activeWorkspaceId, captureActiveWorkspaceTerminalDocument, clearStationTaskSignalTimer, resetFileState])
 
   useEffect(() => {
+    if (activeWorkspaceId && stationsLoadedWorkspaceId !== activeWorkspaceId) {
+      return
+    }
     const stationIdSet = new Set(stations.map((station) => station.id))
-    setStationTerminals((prev) => {
-      const next: Record<string, StationTerminalRuntime> = {}
-      stations.forEach((station) => {
-        next[station.id] = prev[station.id] ?? {
-          sessionId: null,
-          stateRaw: 'idle',
-          unreadCount: 0,
-          shell: null,
-          cwdMode: 'workspace_root',
-          resolvedCwd: null,
-        }
-      })
-      return next
-    })
+    const terminalDocument = resolveWorkspaceTerminalDocument(activeWorkspaceId, stations)
+    stationTerminalsRef.current = { ...terminalDocument.stationTerminals }
+    stationTerminalOutputCacheRef.current = { ...terminalDocument.outputCache }
+    stationTerminalOutputRevisionRef.current = { ...terminalDocument.outputRevision }
+    stationTerminalRestoreStateRef.current = { ...terminalDocument.restoreState }
+    sessionStationRef.current = { ...terminalDocument.sessionStation }
+    terminalSessionSeqRef.current = { ...terminalDocument.sessionSeq }
+    terminalSessionVisibilityRef.current = { ...terminalDocument.sessionVisibility }
+    setStationTerminals({ ...terminalDocument.stationTerminals })
 
-    Object.keys(stationTerminalOutputCacheRef.current).forEach((stationId) => {
+    Object.keys(stationTerminalPendingReplayRef.current).forEach((stationId) => {
       if (!stationIdSet.has(stationId)) {
-        delete stationTerminalOutputCacheRef.current[stationId]
-        delete stationTerminalOutputRevisionRef.current[stationId]
         delete stationTerminalPendingReplayRef.current[stationId]
-      }
-    })
-    Object.keys(stationTerminalRestoreStateRef.current).forEach((stationId) => {
-      if (!stationIdSet.has(stationId)) {
-        delete stationTerminalRestoreStateRef.current[stationId]
       }
     })
     Object.keys(stationTaskSignalTimerRef.current).forEach((stationId) => {
@@ -2663,6 +2670,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       },
       {},
     )
+    captureActiveWorkspaceTerminalDocument(activeWorkspaceId)
 
     if (!activeStationId && stations[0]) {
       setActiveStationId(stations[0].id)
@@ -2671,7 +2679,15 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     if (activeStationId && !stationIdSet.has(activeStationId)) {
       setActiveStationId(stations[0]?.id ?? '')
     }
-  }, [activeStationId, clearStationTaskSignalTimer, stations])
+  }, [
+    activeStationId,
+    activeWorkspaceId,
+    captureActiveWorkspaceTerminalDocument,
+    clearStationTaskSignalTimer,
+    resolveWorkspaceTerminalDocument,
+    stationsLoadedWorkspaceId,
+    stations,
+  ])
 
   useEffect(() => {
     setWorkbenchContainers((prev) => {
@@ -4695,19 +4711,41 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
               terminalSessionVisibilityRef.current[sessionId] = parkedCache.sessionVisibility[sessionId]
             }
             ensureTerminalSessionVisible(sessionId)
-            // Sync any output that was generated during the workspace switch.
-            // The PTY kept running, but the frontend dropped events because sessionStationRef was cleared.
-            // Read a delta from the last known seq to catch up on missed output.
             const lastKnownSeq = parkedCache.sessionSeq[sessionId] ?? 0
-            void desktopApi.terminalReadDelta(sessionId, lastKnownSeq).then((delta) => {
-              if (delta && !delta.gap && !delta.truncated) {
-                // Update seq to the latest so subsequent events are processed correctly.
-                terminalSessionSeqRef.current[sessionId] = delta.toSeq
-                // The terminal output event handler will process future events from toSeq onward.
-              }
-            }).catch(() => {
-              // Best-effort delta sync — if it fails, the terminal still shows the parked content.
-            })
+            void desktopApi
+              .terminalReadDelta(sessionId, lastKnownSeq)
+              .then(async (delta) => {
+                if (
+                  delta &&
+                  !delta.gap &&
+                  !delta.truncated &&
+                  delta.fromSeq === lastKnownSeq + 1 &&
+                  delta.toSeq >= lastKnownSeq
+                ) {
+                  const deltaText = decodeBase64Chunk(sessionId, delta.chunk, true)
+                  if (deltaText) {
+                    appendStationTerminalOutput(stationId, deltaText)
+                  }
+                  terminalSessionSeqRef.current[sessionId] = delta.toSeq
+                  persistActiveWorkspaceTerminalDocument()
+                  return
+                }
+                const snapshot = await desktopApi.terminalReadSnapshot(sessionId).catch(() => null)
+                if (!snapshot) {
+                  return
+                }
+                const decoder =
+                  terminalChunkDecoderBySessionRef.current[sessionId] ??
+                  (terminalChunkDecoderBySessionRef.current[sessionId] = createTerminalChunkDecoder())
+                resetTerminalChunkDecoder(decoder)
+                const snapshotText = decodeTerminalBase64Chunk(decoder, snapshot.chunk, false)
+                resetStationTerminalOutput(stationId, snapshotText)
+                terminalSessionSeqRef.current[sessionId] = snapshot.currentSeq
+                persistActiveWorkspaceTerminalDocument()
+              })
+              .catch(() => {
+                // Best-effort catch-up — if this fails, the session still reattaches with the parked content.
+              })
             setStationTerminalState(stationId, {
               sessionId,
               stateRaw: 'running',
@@ -4731,8 +4769,6 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
             }
           }
 
-          // Clear the cache for this workspace since we've consumed it.
-          delete workspaceTerminalCacheRef.current[workspaceId]
         } else {
           createNeededTerminals.push(...restorableTerminals)
         }
@@ -4840,6 +4876,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
         if (restoredActiveStationId) {
           setActiveStationId(restoredActiveStationId)
         }
+        captureActiveWorkspaceTerminalDocument(workspaceId)
         logPerformanceDebug('workspace-session', 'restored workspace session', {
           workspaceId,
           restoreSeq,
@@ -4887,6 +4924,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     activeWorkspaceId,
     canvasCustomLayout,
     canvasLayoutMode,
+    captureActiveWorkspaceTerminalDocument,
     ensureTerminalSessionVisible,
     loadFileContentRef,
     stationsLoadedWorkspaceId,
