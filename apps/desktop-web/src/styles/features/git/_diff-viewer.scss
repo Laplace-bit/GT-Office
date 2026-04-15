@@ -332,7 +332,7 @@
   background: color-mix(in srgb, var(--vb-input-bg) 22%, transparent);
 }
 
-.diff-viewer__full-editor .codemirror-editor-container {
+.diff-viewer__full-editor .monaco-editor-container {
   height: 100%;
 }
 
