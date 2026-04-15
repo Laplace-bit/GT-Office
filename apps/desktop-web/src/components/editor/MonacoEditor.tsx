@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import Editor, { type OnMount, type Monaco } from '@monaco-editor/react'
-import type { editor as MonacoEditor } from 'monaco-editor'
+import type { editor as MonacoEditorAPI } from 'monaco-editor'
 import { detectLanguageFromPath, toMonacoLanguageId } from './monaco-languages'
-import { t, type Locale } from '@shell/i18n/ui-locale'
+import type { Locale } from '@shell/i18n/ui-locale'
 import './MonacoEditor.scss'
 
 export interface MonacoEditorProps {
@@ -87,7 +87,7 @@ function defineThemes(monaco: Monaco) {
 let themesDefined = false
 
 export function MonacoEditor({
-  locale,
+  locale: _locale,
   content,
   filePath,
   readOnly = false,
@@ -95,7 +95,7 @@ export function MonacoEditor({
   onSave,
   commandRequest = null,
 }: MonacoEditorProps) {
-  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const editorRef = useRef<MonacoEditorAPI.IStandaloneCodeEditor | null>(null)
   const monacoRef = useRef<Monaco | null>(null)
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
@@ -216,7 +216,7 @@ export function MonacoEditor({
         defaultValue=""
         value={content}
         theme={getThemeName()}
-        onChange={(value) => {
+        onChange={(_value) => {
           // onChange is handled via onDidChangeModelContent in onMount
         }}
         onMount={handleEditorMount}
