@@ -1,10 +1,10 @@
 import { useRef, useCallback, useEffect } from 'react'
 import type { Locale } from '@shell/i18n/ui-locale'
-import { CodeMirrorEditor } from './CodeMirrorEditor'
+import { MonacoEditor } from './MonacoEditor'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import './MarkdownSplitView.scss'
 
-// Import code highlighting styles
+// Import code highlighting styles for markdown preview
 import 'highlight.js/styles/github-dark.css'
 
 export type MarkdownViewMode = 'edit' | 'preview' | 'split'
@@ -28,7 +28,7 @@ export function MarkdownSplitView({
   onChange,
   onSave,
 }: MarkdownSplitViewProps) {
-  const editorRef = useRef<HTMLDivElement>(null)
+  const editorContainerRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const syncingPaneRef = useRef<'editor' | 'preview' | null>(null)
 
@@ -55,7 +55,10 @@ export function MarkdownSplitView({
   )
 
   useEffect(() => {
-    const editorScroller = editorRef.current?.querySelector<HTMLElement>('.cm-scroller')
+    // Monaco uses .monaco-scrollable-element > .scrollable-element as its scroll container
+    const editorScroller = editorContainerRef.current?.querySelector<HTMLElement>(
+      '.monaco-scrollable-element .scrollable-element',
+    ) ?? editorContainerRef.current?.querySelector<HTMLElement>('.monaco-editor .scrollable-element')
     const previewScroller = previewRef.current
     if (!editorScroller || !previewScroller) {
       return
@@ -75,8 +78,8 @@ export function MarkdownSplitView({
   return (
     <div className="markdown-split-view">
       {/* Editor panel */}
-      <div ref={editorRef} className="markdown-split-editor">
-        <CodeMirrorEditor
+      <div ref={editorContainerRef} className="markdown-split-editor">
+        <MonacoEditor
           locale={locale}
           content={content}
           filePath={filePath}

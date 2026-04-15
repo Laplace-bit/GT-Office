@@ -1,0 +1,67 @@
+@use '../../styles/tokens/responsive' as *;
+
+.monaco-editor-container {
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+
+  .monaco-editor-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--vb-text-muted);
+    font-size: #{rem(13)};
+  }
+}
+
+/* Monaco Editor CSS overrides using GT Office design tokens */
+.monaco-editor {
+  --vscode-editor-background: var(--vb-surface);
+  --vscode-editor-foreground: var(--vb-text);
+  --vscode-editor-font-family: var(--vb-font-mono);
+  --vscode-editor-font-size: #{rem(13)};
+  --vscode-editor-line-height: 1.5;
+
+  /* Override scrollbar to match app style */
+  .scroll-decoration {
+    display: none;
+  }
+
+  /* Minimize the default Monaco chrome */
+  .overflow-guard {
+    border: none;
+  }
+}
+
+/* Light theme overrides */
+[data-theme='graphite-light'] .monaco-editor,
+:not([data-theme]) .monaco-editor {
+  background: var(--vb-surface) !important;
+}
+
+/* Dark theme overrides */
+[data-theme='graphite-dark'] .monaco-editor {
+  background: var(--vb-surface) !important;
+}
+
+/* Ensure the container fills its parent */
+.monaco-editor-container .monaco-editor,
+.monaco-editor-container .overflow-guard {
+  height: 100% !important;
+}
+
+/* Search widget styling — keep minimal overrides, Monaco has good defaults */
+.monaco-editor .find-widget {
+  font-family: var(--vb-font-mono);
+  font-size: #{rem(12)};
+}
+
+/* Loading state */
+.monaco-editor-container .monaco-editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--vb-text-muted);
+}

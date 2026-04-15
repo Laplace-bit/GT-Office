@@ -341,7 +341,7 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 }
 
 export function isCodeEditorKeyboardTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(target.closest('.cm-editor, .codemirror-editor-container'))
+  return target instanceof HTMLElement && Boolean(target.closest('.monaco-editor, .monaco-editor-container'))
 }
 
 export function isTerminalKeyboardTarget(target: EventTarget | null): boolean {
