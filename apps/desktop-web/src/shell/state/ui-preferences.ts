@@ -16,6 +16,7 @@ export type ThemeMode = 'graphite-light' | 'graphite-dark'
 export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
+export type WorkspaceSwitchAnimation = 'crossfade' | 'slide' | 'none'
 export type CommandRailProviderId = QuickCommandProviderId
 export type CommandCapsuleSubmitMode = 'insert' | 'insert_and_submit'
 export type CustomCommandSaveMode = 'save-and-add' | 'save-only'
@@ -48,6 +49,7 @@ export interface UiPreferences {
   uiFont: UiFont
   monoFont: MonoFont
   uiFontSize: UiFontSize
+  workspaceSwitchAnimation: WorkspaceSwitchAnimation
   autoCheckAppUpdates: boolean
   skippedAppUpdateVersion: string | null
   showWorkspaceActionsInRail: boolean
@@ -289,6 +291,7 @@ export const defaultUiPreferences: UiPreferences = {
   uiFont: 'sf-pro',
   monoFont: 'jetbrains-mono',
   uiFontSize: 'medium',
+  workspaceSwitchAnimation: 'crossfade',
   autoCheckAppUpdates: true,
   skippedAppUpdateVersion: null,
   showWorkspaceActionsInRail: true,
@@ -320,6 +323,12 @@ export const uiFontSizeOptions: Array<{ value: UiFontSize; labelKey: Translation
   { value: 'medium', labelKey: 'displayPreferences.fontSizeMedium' },
   { value: 'large', labelKey: 'displayPreferences.fontSizeLarge' },
   { value: 'xlarge', labelKey: 'displayPreferences.fontSizeXLarge' },
+]
+
+export const workspaceSwitchAnimationOptions: Array<{ value: WorkspaceSwitchAnimation; labelKey: TranslationKey }> = [
+  { value: 'crossfade', labelKey: 'displayPreferences.animationCrossfade' },
+  { value: 'slide', labelKey: 'displayPreferences.animationSlide' },
+  { value: 'none', labelKey: 'displayPreferences.animationNone' },
 ]
 
 const uiFontSizeCssMap: Record<UiFontSize, string> = {
@@ -621,6 +630,10 @@ export function loadUiPreferences(): UiPreferences {
         parsed.uiFontSize === 'large' || parsed.uiFontSize === 'xlarge'
           ? parsed.uiFontSize
           : defaultUiPreferences.uiFontSize,
+      workspaceSwitchAnimation:
+        parsed.workspaceSwitchAnimation === 'crossfade' || parsed.workspaceSwitchAnimation === 'slide' || parsed.workspaceSwitchAnimation === 'none'
+          ? parsed.workspaceSwitchAnimation
+          : defaultUiPreferences.workspaceSwitchAnimation,
       autoCheckAppUpdates:
         typeof parsed.autoCheckAppUpdates === 'boolean'
           ? parsed.autoCheckAppUpdates

@@ -35,6 +35,7 @@
   display: flex;
   align-items: stretch;
   gap: var(--vb-space-2xs);
+  background: var(--vb-bg);
 }
 
 .shell-top-slot {
@@ -202,6 +203,65 @@
 // Main content area — each view gets key={activeNavId} + this class.
 .shell-pane-transition {
   animation: shell-pane-enter 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+// Workspace transition should keep the old view perceptible until the new one is ready.
+// Avoid fading the whole main region to zero, otherwise the user sees a blank shell.
+.shell-main-layout {
+  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: center center;
+
+  &.workspace-switching {
+    opacity: 0.93;
+    transform: scale(0.998);
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+                transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+// Workspace slide transition — preserve visibility while nudging content horizontally.
+.shell-main-layout[data-switch-anim='slide'] {
+  transition: opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+
+  &.workspace-switching-slide {
+    opacity: 0.93;
+    transform: translateX(-1.1%);
+    pointer-events: none;
+    transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+                transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+// Keep the incoming workspace visible during the first frame to avoid a blank gap.
+.shell-main-layout.workspace-switching-slide-enter {
+  transform: translateX(0.85%);
+  opacity: 0.95;
+  transition: none;
+}
+
+// Status bar wrapper also participates in the workspace transition.
+.shell-status-wrapper {
+  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+
+  &.workspace-switching {
+    opacity: 0.93;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  &.workspace-switching-slide {
+    opacity: 0.93;
+    pointer-events: none;
+    transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  &.workspace-switching-slide-enter {
+    opacity: 0.95;
+    transition: none;
+  }
 }
 
 .shell-main-content {

@@ -1,5 +1,6 @@
 import { DetachedWorkbenchWindow, type DetachedWorkbenchWindowPayload } from './features/workspace-hub'
 import { ShellRoot } from './shell/layout/ShellRoot'
+import { WorkspaceWindowRoot } from './shell/layout/WorkspaceWindowRoot'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 function parseDetachedPayload(): DetachedWorkbenchWindowPayload | null {
@@ -25,12 +26,30 @@ function parseDetachedPayload(): DetachedWorkbenchWindowPayload | null {
   }
 }
 
+function parseWorkspaceWindowId(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  const params = new URLSearchParams(window.location.search)
+  const workspaceId = params.get('workspace')
+  const normalized = workspaceId?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
 function App() {
   const detachedPayload = parseDetachedPayload()
   if (detachedPayload) {
     return (
       <ErrorBoundary>
         <DetachedWorkbenchWindow payload={detachedPayload} />
+      </ErrorBoundary>
+    )
+  }
+  const workspaceWindowId = parseWorkspaceWindowId()
+  if (workspaceWindowId) {
+    return (
+      <ErrorBoundary>
+        <WorkspaceWindowRoot workspaceId={workspaceWindowId} />
       </ErrorBoundary>
     )
   }

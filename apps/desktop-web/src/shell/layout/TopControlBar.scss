@@ -37,17 +37,16 @@
   align-items: center;
   gap: var(--vb-space-sm);
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: var(--vb-top-control-button-size);
+}
 
-  &::after {
-    content: '';
-    width: var(--vb-border-width);
-    height: #{rem(18)};
-    background: var(--vb-border);
-    opacity: 0.6;
-    margin-left: var(--vb-space-2xs);
-  }
+.vb-top-control-divider {
+  flex: 0 0 auto;
+  width: var(--vb-border-width);
+  height: #{rem(18)};
+  background: var(--vb-border);
+  opacity: 0.6;
 }
 
 .vb-top-action-tooltip-anchor.has-pin-dropdown {
@@ -132,13 +131,20 @@
   letter-spacing: -0.01em;
 }
 
+.vb-workspace-tab-bar-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .vb-top-actions {
   display: flex;
   align-items: center;
   gap: var(--vb-space-xs);
-  flex: 1;
+  flex: 0 0 auto;
   min-height: var(--vb-top-control-button-size);
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .vb-top-action-tooltip-anchor {
@@ -262,10 +268,6 @@
 
   .vb-top-actions {
     justify-content: flex-start;
-  }
-
-  .vb-top-control-leading::after {
-    margin-left: 0;
   }
 }
 

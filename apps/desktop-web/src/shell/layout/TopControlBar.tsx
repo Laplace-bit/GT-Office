@@ -3,6 +3,9 @@ import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
 import type { WindowPlatform } from './window-performance-policy'
+import { WorkspaceTabBar, type WorkspaceTearOffRequest } from './WorkspaceTabBar'
+import type { WorkspaceTabInfo } from '../state/workspace-tab-model'
+import type { WorkspaceSwitchAnimation } from '../state/ui-preferences'
 import './TopControlBar.scss'
 
 interface DockedContainerOption {
@@ -24,6 +27,16 @@ interface TopControlBarProps {
   onBatchLaunchAgents: () => void
   batchLaunchDisabled: boolean
   onOpenSettings: () => void
+  workspaceTabs?: WorkspaceTabInfo[]
+  activeTabId?: string | null
+  workspaceSwitching?: boolean
+  pendingWorkspaceSwitchId?: string | null
+  workspaceSwitchAnimation?: WorkspaceSwitchAnimation
+  onSwitchTab?: (workspaceId: string) => void
+  onCloseTab?: (workspaceId: string) => void
+  onAddTab?: () => void
+  onReorderTabs?: (fromIndex: number, toIndex: number) => void
+  onTearOffTab?: (request: WorkspaceTearOffRequest) => void
   // TODO: 性能调试按钮暂时隐藏
   // onTogglePerformanceDebug: () => void
   onWindowMinimize: () => void
@@ -100,6 +113,16 @@ export function TopControlBar({
   onBatchLaunchAgents,
   batchLaunchDisabled,
   onOpenSettings,
+  workspaceTabs,
+  activeTabId = null,
+  workspaceSwitching = false,
+  pendingWorkspaceSwitchId = null,
+  workspaceSwitchAnimation = 'crossfade',
+  onSwitchTab,
+  onCloseTab,
+  onAddTab,
+  onReorderTabs,
+  onTearOffTab,
   // onTogglePerformanceDebug,
   onWindowMinimize,
   onWindowToggleMaximize,
@@ -118,6 +141,11 @@ export function TopControlBar({
 
   const isPinned = pinnedWorkbenchContainerId !== null
   const hasMultipleDockedContainers = dockedContainerOptions.length > 1
+  const hasWorkspaceTabBar =
+    Array.isArray(workspaceTabs) &&
+    typeof onSwitchTab === 'function' &&
+    typeof onCloseTab === 'function' &&
+    typeof onReorderTabs === 'function'
 
   const handlePinButtonClick = useCallback(() => {
     if (isPinned) {
@@ -157,12 +185,6 @@ export function TopControlBar({
 
   const actionButtons: TopActionButton[] = [
     {
-      key: 'pick-workspace',
-      label: t(locale, 'topControlBar.pickWorkspaceDirectory'),
-      action: onPickWorkspaceDirectory,
-      icon: 'folder-open' as AppIconName,
-    },
-    {
       key: 'batch-launch',
       label: t(locale, 'topControlBar.batchLaunchAgents'),
       action: onBatchLaunchAgents,
@@ -193,6 +215,17 @@ export function TopControlBar({
     //   icon: 'activity' as AppIconName,
     // },
   ]
+  const visibleActionButtons = hasWorkspaceTabBar
+    ? actionButtons
+    : [
+        {
+          key: 'pick-workspace',
+          label: t(locale, 'topControlBar.pickWorkspaceDirectory'),
+          action: onPickWorkspaceDirectory,
+          icon: 'folder-open' as AppIconName,
+        },
+        ...actionButtons,
+      ]
   const windowActionButtons: TopActionButton[] = [
     {
       key: 'window-minimize',
@@ -234,7 +267,6 @@ export function TopControlBar({
     .filter(Boolean)
     .join(' ')
 
-  const workspaceBadgeDragRegion = nativeWindowTopLinux ? '' : undefined
   const headerDragRegion =
     nativeWindowTop && windowPlatform !== 'macos' ? '' : undefined
 
@@ -277,8 +309,17 @@ export function TopControlBar({
     >
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
-          {actionButtons.map((btn) => (
-            <span key={btn.key} className={['vb-top-action-tooltip-anchor', btn.key === 'pin-right-dock' ? 'has-pin-dropdown' : ''].filter(Boolean).join(' ')} title={btn.label}>
+          {visibleActionButtons.map((btn) => (
+            <span
+              key={btn.key}
+              className={[
+                'vb-top-action-tooltip-anchor',
+                btn.key === 'pin-right-dock' ? 'has-pin-dropdown' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              title={btn.label}
+            >
               <button
                 type="button"
                 onClick={btn.action}
@@ -295,9 +336,7 @@ export function TopControlBar({
                 disabled={btn.disabled}
               >
                 <AppIcon name={btn.icon} className="vb-icon vb-icon-top-action" aria-hidden="true" />
-                {btn.key === 'toggle-performance-debug' ? (
-                  <span className="vb-top-action-label">Perf</span>
-                ) : null}
+                {btn.key === 'toggle-performance-debug' ? <span className="vb-top-action-label">Perf</span> : null}
               </button>
               {btn.key === 'pin-right-dock' && pinDropdownOpen && !isPinned && hasMultipleDockedContainers ? (
                 <div className="vb-pin-container-dropdown" ref={pinDropdownRef} role="listbox" aria-label={t(locale, 'topControlBar.pinRightDockSelect')}>
@@ -319,21 +358,32 @@ export function TopControlBar({
           ))}
         </div>
 
-        <div
-          className="vb-workspace-badge"
-          data-tauri-drag-region={workspaceBadgeDragRegion}
-          title={workspacePathText}
-        >
-          <span className="vb-workspace-path">{workspacePathText}</span>
-        </div>
+        {hasWorkspaceTabBar ? (
+          <>
+            <div className="vb-top-control-divider" aria-hidden="true" />
+            <div className="vb-workspace-tab-bar-slot">
+              <WorkspaceTabBar
+                locale={locale}
+                tabs={workspaceTabs ?? []}
+                activeTabId={activeTabId}
+                workspaceSwitching={workspaceSwitching}
+                pendingTabId={pendingWorkspaceSwitchId}
+                workspaceSwitchAnimation={workspaceSwitchAnimation}
+                onSwitchTab={onSwitchTab as (workspaceId: string) => void}
+                onCloseTab={onCloseTab as (workspaceId: string) => void}
+                onAddTab={onAddTab ?? onPickWorkspaceDirectory}
+                onReorderTabs={onReorderTabs as (fromIndex: number, toIndex: number) => void}
+                onTearOffTab={onTearOffTab}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="vb-workspace-badge" title={workspacePathText}>
+            <span className="vb-workspace-path">{workspacePathText}</span>
+          </div>
+        )}
       </div>
-      {nativeWindowTop ? (
-        <div
-          className="titlebar-drag-region"
-          data-tauri-drag-region=""
-          aria-hidden="true"
-        />
-      ) : null}
+      {nativeWindowTop ? <div className="titlebar-drag-region" data-tauri-drag-region="" aria-hidden="true" /> : null}
       {nativeWindowTop && windowPlatform !== 'macos' ? renderWindowControls() : null}
     </header>
   )

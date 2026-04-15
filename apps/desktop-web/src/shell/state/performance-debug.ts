@@ -38,3 +38,22 @@ export function savePerformanceDebugState(state: PerformanceDebugState): void {
     }),
   )
 }
+
+export function logPerformanceDebug(
+  scope: string,
+  message: string,
+  detail?: Record<string, unknown>,
+): void {
+  const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV === true
+  const enabled = isDev || loadPerformanceDebugState().enabled
+  if (!enabled) {
+    return
+  }
+
+  const prefix = `[perf:${scope}] ${message}`
+  if (detail && Object.keys(detail).length > 0) {
+    console.debug(prefix, detail)
+    return
+  }
+  console.debug(prefix)
+}
