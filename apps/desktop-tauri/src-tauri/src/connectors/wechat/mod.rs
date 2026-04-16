@@ -408,10 +408,7 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
     let client = Client::new();
     mark_connected(&account_id, true);
 
-    loop {
-        let Some(record) = get_record(&app, &account_id).ok().flatten() else {
-            break;
-        };
+    while let Some(record) = get_record(&app, &account_id).ok().flatten() {
         if !record.enabled {
             break;
         }
