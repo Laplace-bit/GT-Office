@@ -16,6 +16,7 @@ export interface UseWorkspaceTabControllerResult {
   workspaceTabs: WorkspaceTabInfo[]
   workspaceSwitching: boolean
   pendingWorkspaceSwitchId: string | null
+  closingTabId: string | null
   openWorkspaceAtPath: ReturnType<typeof useShellWorkspaceController>['openWorkspaceAtPath']
   switchWorkspaceTab: (workspaceId: string) => Promise<void>
   beginWorkspaceSwitchAnimation: (workspaceId?: string | null) => boolean
@@ -44,6 +45,7 @@ export function useWorkspaceTabController(
   const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceTabInfo[]>([])
   const [workspaceSwitching, setWorkspaceSwitching] = useState(false)
   const [pendingWorkspaceSwitchId, setPendingWorkspaceSwitchId] = useState<string | null>(null)
+  const [closingTabId, setClosingTabId] = useState<string | null>(null)
   const pendingWorkspaceSwitchIdRef = useRef<string | null>(null)
 
   const beginWorkspaceSwitchAnimation = useCallback((workspaceId?: string | null) => {
@@ -97,14 +99,20 @@ export function useWorkspaceTabController(
   const closeWorkspaceTab = useCallback(
     async (workspaceId: string) => {
       logPerformanceDebug('workspace-tabs', 'closing tab', { workspaceId })
+      // Trigger closing animation
+      setClosingTabId(workspaceId)
       try {
         await desktopApi.workspaceClose(workspaceId)
+        // Wait for the CSS closing animation to complete before removing the tab
+        await new Promise<void>((resolve) => setTimeout(resolve, 220))
         setWorkspaceTabs((prev) => prev.filter((t) => t.workspaceId !== workspaceId))
       } catch (error) {
         logPerformanceDebug('workspace-tabs', 'failed to close tab', {
           workspaceId,
           error: error instanceof Error ? error.message : String(error),
         })
+      } finally {
+        setClosingTabId(null)
       }
     },
     [],
@@ -169,6 +177,17 @@ export function useWorkspaceTabController(
 
     void desktopApi
       .subscribeWorkspaceEvents({
+        onUpdated: () => {
+          void desktopApi.workspaceList().then((response) => {
+            const tabs: WorkspaceTabInfo[] = response.workspaces.map((w) => ({
+              workspaceId: w.workspaceId,
+              name: w.name,
+              root: w.root,
+              active: w.active,
+            }))
+            setWorkspaceTabs(tabs)
+          })
+        },
         onActiveChanged: () => {
           void desktopApi.workspaceList().then((response) => {
             const tabs: WorkspaceTabInfo[] = response.workspaces.map((w) => ({
@@ -221,6 +240,7 @@ export function useWorkspaceTabController(
     workspaceTabs: visibleTabs,
     workspaceSwitching,
     pendingWorkspaceSwitchId,
+    closingTabId,
     openWorkspaceAtPath,
     switchWorkspaceTab,
     beginWorkspaceSwitchAnimation,

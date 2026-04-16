@@ -826,6 +826,20 @@ export const messages = {
   'topControlBar.pinRightDock': { 'zh-CN': '常驻右侧', 'en-US': 'Pin Right Dock' },
   'topControlBar.unpinRightDock': { 'zh-CN': '取消常驻', 'en-US': 'Unpin Right Dock' },
   'topControlBar.pinRightDockSelect': { 'zh-CN': '选择常驻容器', 'en-US': 'Select Container to Pin' },
+  'workspaceTab.closeConfirm.title': { 'zh-CN': '关闭工作区', 'en-US': 'Close Workspace' },
+  'workspaceTab.closeConfirm.message': {
+    'zh-CN': '确定要关闭工作区吗？',
+    'en-US': 'Are you sure you want to close this workspace?',
+  },
+  'workspaceTab.closeConfirm.terminalWarning': {
+    'zh-CN': '这将终止 {count} 个活跃的终端会话。',
+    'en-US': 'This will terminate {count} active terminal session(s).',
+  },
+  'workspaceTab.closeConfirm.path': { 'zh-CN': '路径：{path}', 'en-US': 'Path: {path}' },
+  'workspaceTab.closeConfirm.cancel': { 'zh-CN': '取消', 'en-US': 'Cancel' },
+  'workspaceTab.closeConfirm.confirm': { 'zh-CN': '关闭工作区', 'en-US': 'Close Workspace' },
+  'workspaceTab.closeSuccess': { 'zh-CN': '工作区已关闭', 'en-US': 'Workspace closed' },
+  'workspaceTab.closeError': { 'zh-CN': '关闭工作区失败', 'en-US': 'Failed to close workspace' },
   'settingsModal.title': { 'zh-CN': '系统设置', 'en-US': 'System Settings' },
   'settingsModal.subtitle': {
     'zh-CN': '集中管理显示偏好与通道接入配置',
@@ -890,8 +904,8 @@ export const messages = {
   'displayPreferences.fontSizeLarge': { 'zh-CN': '大', 'en-US': 'Large' },
   'displayPreferences.fontSizeXLarge': { 'zh-CN': '超大', 'en-US': 'XLarge' },
   'displayPreferences.switchAnimation': { 'zh-CN': '工作区切换动画', 'en-US': 'Workspace Switch Animation' },
-  'displayPreferences.animationCrossfade': { 'zh-CN': '渐隐渐现', 'en-US': 'Crossfade' },
-  'displayPreferences.animationSlide': { 'zh-CN': '左右滑动', 'en-US': 'Slide' },
+  'displayPreferences.animationCrossfade': { 'zh-CN': '淡入淡出', 'en-US': 'Fade' },
+  'displayPreferences.animationSlide': { 'zh-CN': '向左滑动', 'en-US': 'Slide Left' },
   'displayPreferences.animationNone': { 'zh-CN': '无', 'en-US': 'None' },
 
 

@@ -229,6 +229,7 @@ import {
   type WorkspaceTerminalSessionDocument,
 } from '../state/workspace-terminal-session-store'
 import type { WorkspaceTearOffRequest } from './WorkspaceTabBar'
+import { WorkspaceCloseDialog } from './WorkspaceCloseDialog'
 import { resolveWindowPerformancePolicy } from './window-performance-policy'
 
 import './ShellRoot.scss'
@@ -354,6 +355,13 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   )
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [isBatchLaunchingAgents, setIsBatchLaunchingAgents] = useState(false)
+  const [closeConfirmState, setCloseConfirmState] = useState<{
+    workspaceId: string
+    workspaceName: string
+    workspacePath: string
+    activeTerminalCount: number
+  } | null>(null)
+  const [closeSubmitting, setCloseSubmitting] = useState(false)
   const [stationTaskSignals, setStationTaskSignals] = useState<Record<string, StationTaskSignal>>({})
   const [stationTerminals, setStationTerminals] = useState<Record<string, StationTerminalRuntime>>(
     () => createInitialStationTerminals(initialStations),
@@ -473,6 +481,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   const shortcutBindingsRef = useRef(shortcutBindings)
   const nativeWindowTopMacOsRef = useRef(nativeWindowTopMacOs)
   const triggerFileSearchRef = useRef<(mode?: 'file' | 'content') => void>(() => {})
+  const requestCloseWorkspaceRef = useRef<(workspaceId: string) => void>(() => {})
   const triggerFileEditorCommandRef = useRef<
     (type: 'find' | 'replace' | 'findNext' | 'findPrevious') => void
   >(() => {})
@@ -512,6 +521,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     workspaceTabs,
     workspaceSwitching,
     pendingWorkspaceSwitchId,
+    closingTabId,
     openWorkspaceAtPath,
     switchWorkspaceTab,
     beginWorkspaceSwitchAnimation,
@@ -2954,6 +2964,75 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     [detachWorkspaceTab],
   )
 
+  // --- Workspace close confirmation ---
+
+  const requestCloseWorkspace = useCallback(
+    (workspaceId: string) => {
+      const tab = workspaceTabs.find((t) => t.workspaceId === workspaceId)
+      if (!tab) return
+      const cachedDoc = workspaceTerminalCacheRef.current[workspaceId]
+      const terminalCount = cachedDoc
+        ? Object.keys(cachedDoc.sessionStation).length
+        : 0
+      setCloseConfirmState({
+        workspaceId,
+        workspaceName: tab.name || tab.root.split('/').pop() || workspaceId,
+        workspacePath: tab.root,
+        activeTerminalCount: terminalCount,
+      })
+    },
+    [workspaceTabs],
+  )
+
+  const confirmCloseWorkspace = useCallback(async () => {
+    if (!closeConfirmState) return
+    const { workspaceId } = closeConfirmState
+    setCloseSubmitting(true)
+    try {
+      // Kill all terminal sessions for the closing workspace
+      const cachedDoc = workspaceTerminalCacheRef.current[workspaceId]
+      if (cachedDoc) {
+        const sessionIds = Object.keys(cachedDoc.sessionStation)
+        for (const sessionId of sessionIds) {
+          desktopApi.terminalKill(sessionId, 'TERM').catch(() => {})
+        }
+        // Clean up the terminal cache for the closed workspace
+        delete workspaceTerminalCacheRef.current[workspaceId]
+      }
+      // Also clean station-specific output caches belonging to this workspace's stations
+      if (cachedDoc) {
+        const stationIds = Object.keys(cachedDoc.stationTerminals)
+        for (const stationId of stationIds) {
+          delete stationTerminalOutputCacheRef.current[stationId]
+          delete stationTerminalOutputRevisionRef.current[stationId]
+          delete stationTerminalRestoreStateRef.current[stationId]
+        }
+      }
+      // Close the workspace via backend
+      await closeWorkspaceTab(workspaceId)
+      addNotification({
+        type: 'success',
+        message: t(
+          uiPreferences.locale,
+          'workspaceTab.closeSuccess',
+          'workspaceTab.closeSuccess',
+        ),
+      })
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        message: t(
+          uiPreferences.locale,
+          'workspaceTab.closeError',
+          'workspaceTab.closeError',
+        ),
+      })
+    } finally {
+      setCloseSubmitting(false)
+      setCloseConfirmState(null)
+    }
+  }, [closeConfirmState, closeWorkspaceTab, uiPreferences.locale])
+
   const handlePickStationWorkdir = useMemo(
     () => async (): Promise<string | null> => {
       let workspaceRoot = activeWorkspaceRoot ?? workspacePathInput.trim()
@@ -4700,8 +4779,13 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
         }
 
         if (shouldAnimateWorkspaceSwitch) {
+          // Use two animation frames: first frame lets React commit the restored
+          // workspace data to the DOM; second frame removes the opacity mask so
+          // the enter transition animates from invisible to visible with real content.
           requestAnimationFrame(() => {
-            completeWorkspaceSwitch(workspaceId)
+            requestAnimationFrame(() => {
+              completeWorkspaceSwitch(workspaceId)
+            })
           })
         } else {
           completeWorkspaceSwitch(workspaceId)
@@ -5280,6 +5364,10 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
   }, [triggerFileSearch])
 
   useEffect(() => {
+    requestCloseWorkspaceRef.current = requestCloseWorkspace
+  }, [requestCloseWorkspace])
+
+  useEffect(() => {
     triggerFileEditorCommandRef.current = triggerFileEditorCommand
   }, [triggerFileEditorCommand])
 
@@ -5470,6 +5558,16 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       if (desktopApi.isTauriRuntime() && shouldPreventDesktopBrowserShortcut(event)) {
         event.preventDefault()
         event.stopPropagation()
+      }
+
+      // Cmd/Ctrl+W to close active workspace tab
+      if (event.key === 'w' && (isMacOs ? event.metaKey : event.ctrlKey)) {
+        const activeId = activeWorkspaceIdRef.current
+        if (activeId) {
+          event.preventDefault()
+          event.stopPropagation()
+          requestCloseWorkspaceRef.current(activeId)
+        }
       }
     }
 
@@ -5988,6 +6086,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
           : {
               workspaceTabs,
               activeTabId: activeWorkspaceId,
+              closingTabId,
               workspaceSwitching,
               pendingWorkspaceSwitchId,
               workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
@@ -5995,7 +6094,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
                 void switchWorkspaceTab(workspaceId)
               },
               onCloseTab: (workspaceId: string) => {
-                void closeWorkspaceTab(workspaceId)
+                requestCloseWorkspace(workspaceId)
               },
               onAddTab: () => {
                 void handlePickWorkspaceDirectory()
@@ -6266,6 +6365,16 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
         onSubmit={(values) => {
           void handleSubmitStationActionSheet(values)
         }}
+      />
+      <WorkspaceCloseDialog
+        open={closeConfirmState !== null}
+        locale={uiPreferences.locale}
+        workspaceName={closeConfirmState?.workspaceName ?? ''}
+        workspacePath={closeConfirmState?.workspacePath ?? ''}
+        activeTerminalCount={closeConfirmState?.activeTerminalCount ?? 0}
+        onClose={() => setCloseConfirmState(null)}
+        onConfirm={() => { void confirmCloseWorkspace() }}
+        submitting={closeSubmitting}
       />
     </>
   )
