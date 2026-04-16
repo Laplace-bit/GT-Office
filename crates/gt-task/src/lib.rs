@@ -502,7 +502,7 @@ impl TaskService {
             .cloned()
             .collect();
 
-        messages.sort_by(|left, right| right.ts_ms.cmp(&left.ts_ms));
+        messages.sort_by_key(|m| std::cmp::Reverse(m.ts_ms));
         messages.truncate(limit);
         messages
     }
@@ -553,7 +553,7 @@ impl TaskService {
             })
             .collect::<Vec<_>>();
 
-        threads.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+        threads.sort_by_key(|t| std::cmp::Reverse(t.updated_at_ms));
         threads.truncate(limit);
         threads
     }
