@@ -1,14 +1,20 @@
 @use '../../styles/tokens/responsive' as *;
 
+// ──────────────────────────────────────────────
+// Workspace Tab Bar — Premium Arc/Linear-inspired
+// Glass morphism + ambient accent + spring curves
+// ──────────────────────────────────────────────
+
 .vb-workspace-tab-bar {
   display: flex;
-  align-items: center;
-  gap: rem(2);
+  align-items: flex-end;
+  gap: rem(1);
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  padding: 0;
   transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 
   &::-webkit-scrollbar {
@@ -16,116 +22,366 @@
   }
 
   &.workspace-switching {
-    opacity: 0.72;
     pointer-events: none;
-    transition: opacity 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  &.workspace-switching--crossfade {
+    opacity: 0.96;
+    transition: opacity 0.14s cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  &.workspace-switching--slide {
+    opacity: 0.94;
+    transform: translateX(#{rem(-2)});
+    transition:
+      opacity 0.14s cubic-bezier(0.4, 0, 1, 1),
+      transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
   }
 }
 
+// ── Individual Tab ──
+
 .vb-workspace-tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: rem(4);
-  padding: rem(2) rem(8);
-  border-radius: rem(6);
+  gap: rem(6);
+  padding: rem(5) rem(12);
+  border-radius: rem(8) rem(8) 0 0;
   font-size: rem(12);
-  line-height: 1.2;
+  line-height: 1.35;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
   border: none;
   background: transparent;
-  color: var(--vb-text-secondary);
-  transition:
-    background 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    color 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
-  max-width: rem(160);
-  min-width: 0;
+  color: var(--vb-text-muted);
+  max-width: rem(200);
+  min-width: rem(80);
   flex: 0 0 auto;
+  // Apple spring curve for all state transitions
+  transition:
+    background 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.15s ease;
+
+  // Ambient glow behind tab on hover/active
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+    background: radial-gradient(
+      ellipse 80% 120% at 50% 100%,
+      color-mix(in srgb, var(--vb-accent) 6%, transparent),
+      transparent 70%
+    );
+    transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+  }
+
+  // Bottom separator line (inactive state) — subtle divider
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: rem(8);
+    right: rem(8);
+    height: rem(1);
+    background: color-mix(in srgb, var(--vb-border) 60%, transparent);
+    border-radius: rem(0.5);
+    transition:
+      background 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+      left 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+      right 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+      height 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  }
 
   &:hover {
-    background: var(--vb-hover);
-    color: var(--vb-text-primary);
+    background: var(--vb-hover-overlay);
+    color: var(--vb-text);
+
+    &::before {
+      opacity: 1;
+    }
+
+    &::after {
+      background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
+    }
   }
+
+  // ── Active Tab ──
 
   &.active {
-    background: var(--vb-active);
-    color: var(--vb-text-primary);
+    background: color-mix(in srgb, var(--vb-surface) 55%, transparent);
+    color: var(--vb-text);
     font-weight: 500;
-    box-shadow: inset 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 18%, transparent);
+    // Glass top highlight
+    box-shadow:
+      inset 0 rem(1) 0 0 color-mix(in srgb, rgba(255, 255, 255, 0.12), transparent),
+      0 0 0 0 transparent;
+
+    &::before {
+      opacity: 1;
+      background: radial-gradient(
+        ellipse 90% 140% at 50% 110%,
+        color-mix(in srgb, var(--vb-accent) 10%, transparent),
+        transparent 65%
+      );
+    }
+
+    // Active accent bar replaces separator
+    &::after {
+      left: 0;
+      right: 0;
+      height: rem(2);
+      background: var(--vb-accent);
+      border-radius: rem(1) rem(1) 0 0;
+      box-shadow: 0 0 rem(6) color-mix(in srgb, var(--vb-accent) 25%, transparent);
+    }
+
+    &:hover {
+      background: color-mix(in srgb, var(--vb-surface) 70%, transparent);
+    }
   }
+
+  // ── Pending (switching to) ──
 
   &.pending {
-    background: color-mix(in srgb, var(--vb-active) 74%, white 26%);
-    color: var(--vb-text-primary);
+    background: color-mix(in srgb, var(--vb-surface) 45%, transparent);
+    color: var(--vb-text);
     transform: translateY(#{rem(-1)});
     box-shadow:
-      inset 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 28%, transparent),
-      0 rem(6) rem(14) color-mix(in srgb, var(--vb-accent) 14%, transparent);
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 20%, transparent),
+      0 rem(2) rem(8) color-mix(in srgb, var(--vb-accent) 8%, transparent);
+
+    &::before {
+      opacity: 1;
+    }
+
+    &::after {
+      left: 0;
+      right: 0;
+      height: rem(2);
+      background: var(--vb-accent);
+      opacity: 0.6;
+      animation: vb-tab-pending-pulse 1.2s ease-in-out infinite;
+    }
   }
+
+  .vb-workspace-tab-bar.workspace-switching--crossfade &.pending {
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 16%, transparent),
+      0 rem(2) rem(10) color-mix(in srgb, var(--vb-accent) 12%, transparent);
+
+    &::after {
+      opacity: 0.72;
+    }
+  }
+
+  .vb-workspace-tab-bar.workspace-switching--slide &.pending {
+    transform: translateX(#{rem(4)}) translateY(#{rem(-1)});
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 20%, transparent),
+      rem(6) rem(4) rem(14) color-mix(in srgb, var(--vb-accent) 10%, transparent);
+
+    &::after {
+      opacity: 0.8;
+    }
+  }
+
+  // ── Closing animation ──
+
+  &.closing {
+    opacity: 0;
+    transform: translateX(#{rem(-16)}) scale(0.94);
+    max-width: 0;
+    padding: 0;
+    min-width: 0;
+    overflow: hidden;
+    transition:
+      opacity 0.18s cubic-bezier(0.4, 0, 1, 1),
+      transform 0.18s cubic-bezier(0.4, 0, 1, 1),
+      max-width 0.25s cubic-bezier(0.4, 0, 1, 1) 0.02s,
+      padding 0.25s cubic-bezier(0.4, 0, 1, 1) 0.02s,
+      min-width 0.25s cubic-bezier(0.4, 0, 1, 1) 0.02s;
+
+    &::after,
+    &::before {
+      opacity: 0;
+    }
+  }
+
+  // ── Dragging ──
 
   &.dragging {
-    opacity: 0.6;
+    opacity: 0.55;
+    transform: scale(1.02);
+    z-index: 1;
   }
 
-  &:active {
-    transform: scale(0.985);
+  // ── Pressed ──
+
+  &:active:not(.closing) {
+    transform: scale(0.975);
+
+    &.active {
+      transform: scale(0.98);
+    }
   }
 }
+
+@keyframes vb-tab-pending-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+// ── Tab Icon ──
+
+.vb-workspace-tab-icon {
+  width: rem(13);
+  height: rem(13);
+  flex-shrink: 0;
+  color: var(--vb-text-subtle);
+  transition: color 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+
+  .vb-workspace-tab:hover & {
+    color: var(--vb-text-muted);
+  }
+
+  .vb-workspace-tab.active & {
+    color: var(--vb-accent);
+  }
+}
+
+// ── Tab Label ──
 
 .vb-workspace-tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  letter-spacing: -0.01em;
 }
+
+// ── Close Button ──
 
 .vb-workspace-tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: rem(14);
-  height: rem(14);
-  border-radius: rem(4);
+  width: rem(16);
+  height: rem(16);
+  border-radius: rem(3);
   border: none;
   background: transparent;
-  color: var(--vb-text-tertiary);
+  color: var(--vb-text-subtle);
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  // Fast appear, smooth disappear
+  transition:
+    opacity 0.12s ease,
+    background 0.15s ease,
+    color 0.15s ease;
 
   .vb-workspace-tab:hover &,
   .vb-workspace-tab.active & {
+    opacity: 0.7;
+  }
+
+  .vb-workspace-tab:hover & {
     opacity: 1;
   }
 
   &:hover {
-    background: var(--vb-hover);
-    color: var(--vb-text-primary);
+    background: var(--vb-error-bg);
+    color: var(--vb-error);
+    opacity: 1;
+  }
+
+  &:active {
+    transform: scale(0.85);
   }
 }
+
+// ── Add Button ──
 
 .vb-workspace-tab-add {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: rem(22);
-  height: rem(22);
+  width: rem(24);
+  height: rem(24);
   border-radius: rem(6);
   border: none;
   background: transparent;
-  color: var(--vb-text-tertiary);
+  color: var(--vb-text-muted);
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background 0.15s ease, color 0.15s ease;
+  align-self: flex-end;
+  margin-bottom: rem(1);
+  transition:
+    background 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
 
   &:hover {
-    background: var(--vb-hover);
-    color: var(--vb-text-primary);
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-hover-overlay));
+    color: var(--vb-accent);
+    transform: scale(1.08);
+  }
+
+  &:active {
+    transform: scale(0.92);
+  }
+
+  .vb-icon {
+    width: rem(14);
+    height: rem(14);
+  }
+}
+
+// ── Reduced Motion ──
+
+@media (prefers-reduced-motion: reduce) {
+  .vb-workspace-tab-bar {
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
+
+  .vb-workspace-tab,
+  .vb-workspace-tab-close,
+  .vb-workspace-tab-add,
+  .vb-workspace-tab-icon {
+    transition-duration: 0.01ms !important;
+  }
+
+  .vb-workspace-tab.pending {
+    transform: none;
+
+    &::after {
+      animation: none;
+    }
+  }
+
+  .vb-workspace-tab.closing {
+    transition-duration: 0.01ms !important;
+  }
+
+  .vb-workspace-tab-add:hover,
+  .vb-workspace-tab-add:active,
+  .vb-workspace-tab:active,
+  .vb-workspace-tab-close:active {
+    transform: none;
+  }
+
+  .vb-workspace-tab::before,
+  .vb-workspace-tab::after {
+    transition-duration: 0.01ms !important;
   }
 }

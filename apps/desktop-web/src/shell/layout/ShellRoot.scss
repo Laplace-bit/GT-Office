@@ -208,58 +208,89 @@
 // Workspace transition should keep the old view perceptible until the new one is ready.
 // Avoid fading the whole main region to zero, otherwise the user sees a blank shell.
 .shell-main-layout {
-  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+              filter 0.36s cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: center center;
+  will-change: opacity, transform, filter;
 
   &.workspace-switching {
-    opacity: 0.93;
-    transform: scale(0.998);
     pointer-events: none;
-    transition: opacity 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
-                transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  &.workspace-switching--crossfade {
+    opacity: 0.92;
+    transform: scale(0.996);
+    filter: saturate(0.97);
+    transition: opacity 0.22s cubic-bezier(0.4, 0, 1, 1),
+                transform 0.22s cubic-bezier(0.4, 0, 1, 1),
+                filter 0.22s cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  &.workspace-switching--slide {
+    opacity: 0.72;
+    transform: translateX(-3.6%);
+    filter: saturate(0.96);
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 1, 1),
+                transform 0.24s cubic-bezier(0.55, 0, 1, 0.45),
+                filter 0.2s cubic-bezier(0.4, 0, 1, 1);
   }
 }
 
-// Workspace slide transition — preserve visibility while nudging content horizontally.
-.shell-main-layout[data-switch-anim='slide'] {
-  transition: opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-
-  &.workspace-switching-slide {
-    opacity: 0.93;
-    transform: translateX(-1.1%);
-    pointer-events: none;
-    transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
-                transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
+.shell-main-layout.workspace-switching-crossfade-enter {
+  opacity: 0.78;
+  transform: scale(1.008);
+  filter: blur(#{rem(1.5)}) saturate(1.02);
+  transition: none;
 }
 
-// Keep the incoming workspace visible during the first frame to avoid a blank gap.
 .shell-main-layout.workspace-switching-slide-enter {
-  transform: translateX(0.85%);
-  opacity: 0.95;
+  opacity: 0.74;
+  transform: translateX(4.5%);
+  filter: blur(#{rem(1.2)}) saturate(1.01);
   transition: none;
 }
 
 // Status bar wrapper also participates in the workspace transition.
 .shell-status-wrapper {
-  transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+              filter 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
 
   &.workspace-switching {
-    opacity: 0.93;
     pointer-events: none;
-    transition: opacity 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  &.workspace-switching-slide {
-    opacity: 0.93;
-    pointer-events: none;
-    transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  &.workspace-switching--crossfade {
+    opacity: 0.9;
+    transform: scaleY(0.985);
+    filter: saturate(0.98);
+    transition: opacity 0.22s cubic-bezier(0.4, 0, 1, 1),
+                transform 0.22s cubic-bezier(0.4, 0, 1, 1),
+                filter 0.22s cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  &.workspace-switching--slide {
+    opacity: 0.76;
+    transform: translateX(-2.8%);
+    filter: saturate(0.97);
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 1, 1),
+                transform 0.24s cubic-bezier(0.55, 0, 1, 0.45),
+                filter 0.2s cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  &.workspace-switching-crossfade-enter {
+    opacity: 0.78;
+    transform: scaleY(1.03);
+    filter: blur(#{rem(1)}) saturate(1.02);
+    transition: none;
   }
 
   &.workspace-switching-slide-enter {
-    opacity: 0.95;
+    opacity: 0.74;
+    transform: translateX(3.2%);
+    filter: blur(#{rem(0.8)}) saturate(1.01);
     transition: none;
   }
 }
@@ -488,6 +519,34 @@
 .vb-window-dragging .shell-native-window-top-windows * {
   pointer-events: none !important;
   user-select: none !important;
+}
+
+.agent-shell.workspace-switching-active {
+  :where(
+    .station-terminal-shell,
+    .station-terminal-shell *,
+    .terminal-station-pane-task-bubble,
+    .terminal-station-pane-comet,
+    .station-activity-comet,
+    .xterm,
+    .xterm *
+  ) {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  :where(.xterm-cursor, .xterm-cursor-layer, .xterm-cursor-layer *) {
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-main-layout,
+  .shell-status-wrapper {
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+    filter: none !important;
+  }
 }
 
 :root[data-vb-platform='macos'] {

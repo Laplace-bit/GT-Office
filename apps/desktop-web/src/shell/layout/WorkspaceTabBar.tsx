@@ -16,6 +16,7 @@ interface WorkspaceTabBarProps {
   tabs: WorkspaceTabInfo[]
   activeTabId?: string | null
   pendingTabId?: string | null
+  closingTabId?: string | null
   workspaceSwitching?: boolean
   workspaceSwitchAnimation?: WorkspaceSwitchAnimation
   onSwitchTab: (workspaceId: string) => void
@@ -30,6 +31,7 @@ export function WorkspaceTabBar({
   tabs,
   activeTabId,
   pendingTabId = null,
+  closingTabId = null,
   workspaceSwitching = false,
   workspaceSwitchAnimation = 'crossfade',
   onSwitchTab,
@@ -85,7 +87,33 @@ export function WorkspaceTabBar({
     [onTearOffTab],
   )
 
-  const switchingClass = workspaceSwitching && workspaceSwitchAnimation !== 'none' ? ' workspace-switching' : ''
+  const handleTabAuxClick = useCallback(
+    (e: ReactMouseEvent, tab: WorkspaceTabInfo) => {
+      if (e.button === 1) {
+        e.preventDefault()
+        onCloseTab(tab.workspaceId)
+      }
+    },
+    [onCloseTab],
+  )
+
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent, tab: WorkspaceTabInfo) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onSwitchTab(tab.workspaceId)
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        onCloseTab(tab.workspaceId)
+      }
+    },
+    [onSwitchTab, onCloseTab],
+  )
+
+  const switchingClass =
+    workspaceSwitching && workspaceSwitchAnimation !== 'none'
+      ? ` workspace-switching workspace-switching--${workspaceSwitchAnimation}`
+      : ''
 
   return (
     <div
@@ -95,22 +123,26 @@ export function WorkspaceTabBar({
       {tabs.map((tab, index) => {
         const isActive = tab.workspaceId === activeTabId
         const isPending = tab.workspaceId === pendingTabId && !isActive
+        const isClosing = tab.workspaceId === closingTabId
         const tabName = tab.name || tab.root.split('/').pop() || tab.workspaceId
         return (
           <div
             key={tab.workspaceId}
             className={`vb-workspace-tab${isActive ? ' active' : ''}${isPending ? ' pending' : ''}${
-              index === dragIndex ? ' dragging' : ''
-            }`}
+              isClosing ? ' closing' : ''
+            }${index === dragIndex ? ' dragging' : ''}`}
             onMouseDown={(e) => handleTabMouseDown(e, index)}
             onClick={() => onSwitchTab(tab.workspaceId)}
             onDoubleClick={(e) => handleDoubleClick(e, tab)}
+            onAuxClick={(e) => handleTabAuxClick(e, tab)}
+            onKeyDown={(e) => handleTabKeyDown(e, tab)}
             role="tab"
             aria-selected={isActive}
             aria-busy={isPending || undefined}
             tabIndex={isActive ? 0 : -1}
             title={tab.root}
           >
+            <AppIcon name="folder-open" className="vb-workspace-tab-icon" aria-hidden="true" />
             <span className="vb-workspace-tab-label">{tabName}</span>
             <button
               className="vb-workspace-tab-close"

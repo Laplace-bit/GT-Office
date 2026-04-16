@@ -521,44 +521,42 @@ export function ShellRootView({
   workspaceSwitching,
   workspaceSwitchAnimation,
 }: ShellRootViewProps) {
-  // For slide animation: track the "entering from right" phase.
-  // When workspaceSwitching goes from true→false with slide mode, we briefly
-  // position content on the right (no transition), then animate it to center.
-  const slideEnterRef = useRef(false)
   const prevSwitchingRef = useRef(false)
 
   useEffect(() => {
-    if (workspaceSwitchAnimation !== 'slide') return
-    // Detect true→false transition (switch just ended)
+    if (workspaceSwitchAnimation === 'none') {
+      prevSwitchingRef.current = workspaceSwitching
+      return
+    }
+
     if (prevSwitchingRef.current && !workspaceSwitching) {
-      slideEnterRef.current = true
-      // Force a re-render with the enter class, then remove it next frame
-      // so the CSS transition kicks in from translateX(8%) → translateX(0).
+      const enterClass =
+        workspaceSwitchAnimation === 'slide'
+          ? 'workspace-switching-slide-enter'
+          : 'workspace-switching-crossfade-enter'
       const main = shellMainRef.current
       const status = shellStatusRef.current
-      if (main) main.classList.add('workspace-switching-slide-enter')
-      if (status) status.classList.add('workspace-switching-slide-enter')
+      if (main) main.classList.add(enterClass)
+      if (status) status.classList.add(enterClass)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (main) main.classList.remove('workspace-switching-slide-enter')
-          if (status) status.classList.remove('workspace-switching-slide-enter')
-          slideEnterRef.current = false
+          if (main) main.classList.remove(enterClass)
+          if (status) status.classList.remove(enterClass)
         })
       })
     }
+
     prevSwitchingRef.current = workspaceSwitching
   }, [workspaceSwitching, workspaceSwitchAnimation, shellMainRef, shellStatusRef])
 
   const switchingClass = workspaceSwitching && workspaceSwitchAnimation !== 'none'
-    ? workspaceSwitchAnimation === 'slide'
-      ? ' workspace-switching-slide'
-      : ' workspace-switching'
+    ? ` workspace-switching workspace-switching--${workspaceSwitchAnimation}`
     : ''
 
   return (
     <div
       ref={shellContainerRef}
-      className={`agent-shell ${
+      className={`agent-shell${workspaceSwitching ? ' workspace-switching-active' : ''} ${
         nativeWindowTopWindows ? 'shell-native-window-top-windows' : ''
       }`}
     >
