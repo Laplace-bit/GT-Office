@@ -85,6 +85,7 @@ jobs:
         shell: bash
         env:
           CARGO_TERM_COLOR: always
+          NODE_OPTIONS: '--max-old-space-size=4096'
           GTO_ALLOW_UNSIGNED_MACOS_BUNDLE: ${{ matrix.allow_unsigned_macos_bundle }}
           GTO_ENABLE_UPDATER_ARTIFACTS: '1'
           GTO_UPDATER_PUBKEY: ${{ vars.GTO_UPDATER_PUBKEY }}
