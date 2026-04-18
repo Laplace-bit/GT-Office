@@ -1,153 +1,157 @@
-# GT Office
+<div align="center">
+
+# 🏢 GT Office
+
+### 面向开发者的原生多智能体协同工作台
+
+**告别终端 Tab 乱战，一个桌面 App 统一调度所有 AI Agent。**
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
+[![Latest Release](https://img.shields.io/github/v/release/Laplace-bit/GT-Office?color=green&label=下载)](https://github.com/Laplace-bit/GT-Office/releases)
+[![Stars](https://img.shields.io/github/stars/Laplace-bit/GT-Office?style=social)](https://github.com/Laplace-bit/GT-Office/stargazers)
 
-## 截图
+[下载 macOS 版](https://github.com/Laplace-bit/GT-Office/releases) · [下载 Windows 版](https://github.com/Laplace-bit/GT-Office/releases) · [下载 Linux 版](https://github.com/Laplace-bit/GT-Office/releases) · [文档](docs/README.md) · [English](README.md)
 
-| Agent 工位 | 通道 |
+</div>
+
+---
+
+## 为什么需要 GT Office？
+
+如果你在用 **Claude Code、Codex CLI 或 Gemini CLI**，这些痛点你一定懂：
+
+- 😫 十几个终端 Tab，每个跑一个 Agent
+- 😫 Agent 之间无法互通
+- 😫 关掉终端，状态全丢
+- 😫 无法查看每个 Agent 的实时进展
+- 😫 在手机上完全无法监控 Agent 运行
+
+**GT Office 解决了所有这些问题。** 它是一个原生桌面应用，把零散的 CLI 工具变成统一的多 Agent 协同工作台。
+
+| 没有 GT Office | 有 GT Office |
+|---|---|
+| 散落的终端 Tab | 统一工作台视图 |
+| Agent 之间无法通信 | Agent 间任务总线（`gto`） |
+| 关闭即丢失状态 | 工作区 & Agent 状态持久化 |
+| 无远程可见性 | 支持 Telegram / 微信 / 飞书通道 |
+| 手动编排 CLI 命令 | 一键启动 & 管理 Agent |
+
+---
+
+## ✨ 核心功能
+
+| 🖥️ Agent 工位 | 📡 通道 |
 |:---:|:---:|
 | ![Agents View](docs/assets/agents-view.png) | ![Channel View](docs/assets/channel-view.png) |
+| 在一个工作区启动 & 管理多个 AI Agent | 将 Agent 输出推送到 Telegram、微信、飞书 |
 
-| 任务 | 文件浏览 | Git |
+| ✅ 任务 | 📁 文件浏览 | 🔀 Git |
 |:---:|:---:|:---:|
 | ![Task View](docs/assets/task-view.png) | ![Explorer View](docs/assets/explorer-view.png) | ![Git View](docs/assets/git-view.png) |
+| 追踪 Agent 任务与进度 | 浏览 & 编辑项目文件 | 一键 Git 操作 |
 
-**GT-Office: 面向开发者的原生多智能体协同工作台**
+### GT Office 的差异化
 
-一个专为管理和编排本地原生 Agent 而设计的跨平台桌面环境。有别于零散的终端工具，GT-Office 将 Claude Code、Codex CLI 等原生命令行工具整合进了统一的图形化工作区，实现了多并发运行、状态持久化以及深度的“机机对话”协同工作流。
+- 🏠 **工作区持久化** — 创建一次 Agent，跨会话保持状态，无需重启
+- 🔌 **100% 原生集成** — 直接嵌入官方 CLI，无抽象层，无能力损耗
+- 🔄 **Agent 间通信** — 内置 `gto` CLI，Agent 自动派发任务、共享上下文、交接工作
+- 📡 **外部通道代理** — 手机上的 Telegram、微信、飞书即可监控和指挥 Agent
+- ⚔️ **对抗推理架构** — 预设 生成者-评审者 角色，交付前自动内部审核
+- ⚙️ **可视化模型切换** — 随时切换 LLM 后端，零配置文件修改
 
-**[English](README.md)**
+---
 
-## 目录
+## 🚀 快速上手
 
-- [核心设计与能力](#核心设计与能力)
-- [仓库结构](#仓库结构)
-- [环境要求](#环境要求)
-- [开发启动](#开发启动)
-- [验证命令](#验证命令)
-- [发布说明](#发布说明)
-- [文档导航](#文档导航)
-- [参与贡献](#参与贡献)
-- [路线图](#路线图)
-- [许可证](#许可证)
+### 直接安装
 
-## 核心设计与能力
+下载适合你平台的最新版本：
 
-- **工作区维度的状态持久化与多并发**：告别每次繁琐的终端环境配置。只需一键即可并发启动工作区内的多个目标 Agent，所有进程在统一的窗口内集中管理，过程所见即所得。
-- **原生能力，零妥协**：无缝接入原生 Claude Code、Codex CLI 与 Gemini CLI 工具，100% 保留官方工具的最核心系统级能力，不做限制性封装。
-- **Agent 间通信总线**：内置独创的 `gto` CLI 桥接技术。Agent 之间可以通过该总线自动交接任务、共享上下文与审查代码，从“人机协作”迈向真正的“多智能体协作”。
-- **快捷指令与自定义工作流**：通过直观的 UI 管理高频或复杂的命令行参数，让复杂的 AI 操作变得极为简单。
-- **外部通道反向代理**：打破命令行工具仅限本地的网络局限。支持将终端执行流双向映射至微信、飞书、Telegram 等应用，实现跨设备的远程监控与指令下发。
-- **对抗生成架构**：预设了生成器 (Generator) 与评估器 (Evaluator) 的对抗角色流，通过内部自我审查显著提升终端产出质量与逻辑完备性。
-- **可视化模型调度**：提供可视化的 API 外部模型配置能力，可随时为每个 Agent 动态映射和切换底层大模型。
+👉 **[GitHub Releases](https://github.com/Laplace-bit/GT-Office/releases)**
 
-## 仓库结构
-
-| 目录 | 用途 |
-|------|------|
-| `apps/desktop-web` | React + Vite 桌面前端 |
-| `apps/desktop-tauri` | Tauri 壳层、原生桥接与打包入口 |
-| `crates/` | terminal、git、workspace、task、storage、settings 等 Rust 领域模块 |
-| `packages/shared-types` | 前后端共享契约 |
-| `tools/` | CLI 与本地 bridge 相关工具 (`gto`) |
-| `docs/` | 技术文档 |
-
-## 环境要求
-
-- **Node.js** 20+
-- **npm** 10+
-- **Rust** stable
-- **Tauri 平台构建依赖**
-  - macOS：Xcode Command Line Tools
-  - Windows：Visual Studio Build Tools + WebView2 Runtime
-  - Linux：`libwebkit2gtk-4.1-dev`、`build-essential`、`libssl-dev`、`libayatana-appindicator3-dev`、`librsvg2-dev`、`patchelf`
-
-## 开发启动
-
-在仓库根目录安装依赖：
+### 从源码构建
 
 ```bash
+# 前置条件：Node.js 20+、Rust stable、平台 Tauri 依赖
+git clone https://github.com/Laplace-bit/GT-Office.git
+cd GT-Office
 npm install
-```
-
-启动 Web 前端：
-
-```bash
-npm run dev:web
-```
-
-启动桌面壳层：
-
-```bash
 npm run dev:tauri
 ```
 
-## 验证命令
+macOS 提示：未签名构建首次运行需执行 `xattr -dr com.apple.quarantine /Applications/GT\ Office.app`。代码签名已在[路线图](#-路线图)中。
 
-前端 typecheck / build：
+---
 
-```bash
-npm run typecheck
+## 🏗️ 架构
+
+```
+GT-Office/
+├── apps/desktop-web     # React + Vite 界面
+├── apps/desktop-tauri   # Tauri 壳（Rust ↔ JS 桥接）
+├── crates/              # Rust 领域模块
+│   ├── gt-terminal/     #   终端仿真
+│   ├── gt-git/          #   Git 操作
+│   ├── gt-workspace/    #   工作区管理
+│   ├── gt-task/         #   任务追踪
+│   └── ...
+├── packages/shared-types # 共享 TS/RS 契约
+├── tools/gto/           # Agent 通信 CLI
+└── docs/                # 架构 & 工作流文档
 ```
 
-Rust workspace 检查：
+技术栈：**Rust** 后端 + **React** 前端 + **Tauri** 壳 = 快速、轻量、跨平台
 
-```bash
-cargo check --workspace
-```
+---
 
-桌面生产构建：
+## 🗺️ 路线图
 
-```bash
-npm run build:tauri
-```
+- [x] 工作区级 Agent 管理
+- [x] Agent 间通信（`gto`）
+- [x] 外部通道代理（Telegram、微信、飞书）
+- [x] 跨平台构建（macOS, Windows, Linux）
+- [ ] 代码签名 & 公证（macOS + Windows）
+- [ ] 工具适配器插件系统
+- [ ] SSH 远程工作区
+- [ ] Homebrew / Winget / Scoop 分发
 
-## 发布说明
+---
 
-推荐发布流程：
+## 🤝 参与贡献
 
-1. 更新版本号和 `CHANGELOG.md`
-2. 将发布变更提交到 `main`
-3. 给提交打 tag（如 `v0.2.0`）
-4. 推送 tag，由 GitHub Actions 自动构建并发布 macOS、Windows、Linux 产物
+欢迎贡献！详见 [CONTRIBUTING.md](CONTRIBUTING.md) 了解开发环境、代码风格和 PR 流程。
 
-更详细的发布操作、secrets 与失败重试说明见 [docs/release-process.md](docs/release-process.md)
+**第一次参与？** 搜索 [`good first issue`](https://github.com/Laplace-bit/GT-Office/labels/good%20first%20issue) 标签快速上手。
 
-发布工作流会上传 macOS `.dmg` 和 `.app` 压缩包。若未在 CI 中配置 Developer ID 签名与 notarization，这个 DMG 只适合手动测试或内部分发，可能会被 Gatekeeper 拦截。
+---
 
-如果你要发布一个仅供手动本地测试的 unsigned macOS 安装包：
+## 📖 文档
 
-```bash
-GTO_ALLOW_UNSIGNED_MACOS_BUNDLE=1 npm run build:tauri
-```
+| 文档 | 内容 |
+|-----|------|
+| [架构设计](docs/ARCHITECTURE.md) | 系统设计、目录结构、数据流 |
+| [工作流](docs/WORKFLOWS.md) | 核心用户工作流 & 多工作站协同 |
+| [API 契约](docs/API_CONTRACTS.md) | Tauri 命令、事件、共享类型 |
+| [依赖策略](docs/DEPENDENCIES.md) | 依赖白名单 & 添加规则 |
+| [发布流程](docs/release-process.md) | 标签、CI、产物发布 |
 
-手动安装步骤：
+---
 
-1. 打开 DMG，并把 `GT Office.app` 拖到 `/Applications`
-2. 先尝试打开一次应用
-3. 如果被 macOS 拦截，到 `System Settings > Privacy & Security` 点击 `Open Anyway`
-4. 如有需要：`xattr -dr com.apple.quarantine /Applications/GT\ Office.app`
+## ⭐ 支持项目
 
-## 文档导航
+如果 GT Office 对你有用：
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 系统架构、仓库布局与数据流
-- [WORKFLOWS.md](docs/WORKFLOWS.md) — 核心用户工作流与多工位协作
-- [API_CONTRACTS.md](docs/API_CONTRACTS.md) — Tauri 命令、事件与共享类型
-- [DEPENDENCIES.md](docs/DEPENDENCIES.md) — 依赖策略与白名单
-- [release-process.md](docs/release-process.md) — 发布流程、tag 与产物
+- 给个 **Star** ⭐ — 帮助更多人发现它
+- 分享给你的团队
+- [提交 Issue](https://github.com/Laplace-bit/GT-Office/issues) 反馈 Bug 或需求
+- 加入社区讨论（即将开放）
 
-## 参与贡献
+---
 
-开发环境搭建、代码风格、PR 流程等见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+<div align="center">
 
-## 路线图
+**为每天和 AI Agent 打交道的开发者而造 ❤️**
 
-- **代码签名与公证** — 签名的 macOS DMG 与 Windows 安装包，用于正式分发
-- **插件系统** — 可扩展的 tool adapter 与通道集成框架
-- **远程工作区** — 通过 SSH 连接远程工作区
-- ~~**Crate 重命名** — 将 `vb-*` crate 重命名为 `gt-*`，统一品牌~~ (done)
+[Apache License 2.0](LICENSE) · [GitHub](https://github.com/Laplace-bit/GT-Office) · [Releases](https://github.com/Laplace-bit/GT-Office/releases)
 
-## 许可证
-
-本项目基于 [Apache License 2.0](LICENSE) 许可。
+</div>
