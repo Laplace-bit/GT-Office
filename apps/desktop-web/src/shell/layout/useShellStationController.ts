@@ -11,11 +11,8 @@ import { desktopApi, type AgentRole, type RestorableSystemRole } from '../integr
 import type { Locale } from '../i18n/ui-locale'
 import { logPerformanceDebug } from '../state/performance-debug'
 import {
-  createInitialStationTerminals,
   createStationFromNumber,
-  getStationIdleBanner,
   normalizeStationWorkdirInput,
-  type StationTerminalRuntime,
 } from './ShellRoot.shared'
 
 interface UseShellStationControllerInput {
@@ -23,8 +20,6 @@ interface UseShellStationControllerInput {
   activeWorkspaceId: string | null
   localeRef: MutableRefObject<Locale>
   stationCounterRef: MutableRefObject<number>
-  stationTerminalOutputCacheRef: MutableRefObject<Record<string, string>>
-  setStationTerminals: Dispatch<SetStateAction<Record<string, StationTerminalRuntime>>>
   setActiveStationId: Dispatch<SetStateAction<string>>
   setIsStationManageOpen: Dispatch<SetStateAction<boolean>>
   setEditingStation: Dispatch<SetStateAction<UpdateStationInput | null>>
@@ -48,8 +43,6 @@ export function useShellStationController({
   activeWorkspaceId,
   localeRef,
   stationCounterRef,
-  stationTerminalOutputCacheRef,
-  setStationTerminals,
   setActiveStationId,
   setIsStationManageOpen,
   setEditingStation,
@@ -158,11 +151,6 @@ export function useShellStationController({
       stationCounterRef.current += 1
       const station = createStationFromNumber(number, activeWorkspaceId, input)
       setStations((prev) => [...prev, station])
-      setStationTerminals((prev) => ({
-        ...prev,
-        [station.id]: createInitialStationTerminals([station])[station.id],
-      }))
-      stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
       setActiveStationId(station.id)
     },
     [
@@ -172,9 +160,7 @@ export function useShellStationController({
       localeRef,
       setActiveStationId,
       setIsStationManageOpen,
-      setStationTerminals,
       stationCounterRef,
-      stationTerminalOutputCacheRef,
     ],
   )
 
