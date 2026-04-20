@@ -56,7 +56,6 @@ import {
 import {
   appendDetachedTerminalOutput,
   createEmptyWorkbenchStationRuntime,
-  DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
   DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
   composeStationActionCommand,
   stripDetachedTerminalRuntimeProjectionPatch,
@@ -86,20 +85,17 @@ import {
   type AgentRuntimeRegisterRequest,
   type StationTerminalRestoreStatePayload,
   type SurfaceBridgeEventPayload,
-  type SurfaceDetachedStationPayload,
 } from '../integration/desktop-api'
-import { t } from '../i18n/ui-locale'
+import { t, type Locale } from '../i18n/ui-locale'
 import {
   createWorkspaceTerminalSessionDocument,
   hydrateWorkspaceTerminalSessionDocument,
   type WorkspaceTerminalSessionDocument,
 } from '../state/workspace-terminal-session-store'
 import {
-  SHELL_LAYOUT_STORAGE_KEY,
   STATION_INPUT_FLUSH_MS,
   STATION_INPUT_MAX_BUFFER_BYTES,
   STATION_TASK_SUBMIT_MAX_RETRY_FRAMES,
-  buildDefaultWorkbenchContainerId,
   createInitialStationTerminals,
   describeError,
   getStationIdleBanner,
@@ -118,7 +114,7 @@ interface UseShellTerminalControllerInput {
   activeWorkspaceId: string | null
   activeWorkspaceIdRef: MutableRefObject<string | null>
   activeStationId: string
-  locale: string
+  locale: Locale
   tauriRuntime: boolean
   initialStations: AgentStation[]
   stations: AgentStation[]
@@ -245,7 +241,6 @@ export interface ShellTerminalController {
   presentedWorkspaceIdRef: MutableRefObject<string | null>
   stationToolLaunchSeqRef: MutableRefObject<Record<string, number>>
   stationProcessSnapshotsRef: MutableRefObject<Record<string, TerminalDescribeProcessesResponse>>
-  stationTerminalOutputCacheRef_as_workspaceTerminalCache: MutableRefObject<Record<string, WorkspaceTerminalSessionDocument>>
 
   // Additional refs needed by workspace session restore
   resolveWorkspaceRoot: (workspaceId: string) => Promise<string | null>
@@ -256,20 +251,20 @@ export function useShellTerminalController({
   activeWorkspaceIdRef,
   activeStationId,
   locale,
-  tauriRuntime,
+  tauriRuntime: _tauriRuntime,
   initialStations,
   stations,
   stationsRef,
   activeWorkspaceRoot,
 
-  setActiveStationId,
+  setActiveStationId: _setActiveStationId,
   setStations,
   setIsStationManageOpen,
   setEditingStation,
 
   workbenchContainersRef,
   windowPerformancePolicy,
-  detachedWindowOpenInFlightRef,
+  detachedWindowOpenInFlightRef: _detachedWindowOpenInFlightRef,
   externalChannelController,
   performanceDebugState,
 }: UseShellTerminalControllerInput): ShellTerminalController {

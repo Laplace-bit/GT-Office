@@ -6,6 +6,7 @@ import {
   useState,
   type MutableRefObject,
 } from 'react'
+import type { OpenedFile } from '@features/file-explorer'
 import {
   createInitialWorkbenchContainers,
   reconcileWorkbenchContainers,
@@ -32,7 +33,9 @@ import {
 import { addNotification } from '@/stores/notification'
 import { desktopApi } from '../integration/desktop-api'
 import { pickDirectory } from '../integration/directory-picker'
-import { t } from '../i18n/ui-locale'
+import { t, type Locale } from '../i18n/ui-locale'
+import type { NavItemId } from './navigation-model'
+import type { UiPreferences } from '../state/ui-preferences'
 import {
   WORKSPACE_SESSION_MAX_RESTORE_TABS,
   WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS,
@@ -40,6 +43,7 @@ import {
   describeError,
   isNavItemId,
   normalizeFsPath,
+  type FileReadMode,
   type StationTerminalRuntime,
 } from './ShellRoot.shared'
 import {
@@ -62,21 +66,19 @@ interface UseShellWorkspaceSessionControllerInput {
   completeWorkspaceSwitch: (workspaceId?: string | null) => void
   closeWorkspaceTab: (workspaceId: string) => Promise<void>
   detachWorkspaceTab: (workspaceId: string, windowLabel: string) => void
-  openWorkspaceAtPath: (path: string, source: string) => Promise<void>
+  openWorkspaceAtPath: (
+    path: string,
+    reason?: 'manual' | 'restore' | 'picker' | 'debounce',
+  ) => Promise<void>
 
   // Terminal controller outputs
   terminalController: ShellTerminalController
 
   // File controller outputs
-  loadFileContentRef: MutableRefObject<(filePath: string, mode: string) => Promise<void>>
-  setOpenedFiles: React.Dispatch<React.SetStateAction<Array<{
-    path: string
-    content: string
-    size: number
-    isModified: boolean
-    hydrated: boolean
-    viewType: string
-  }>>>
+  loadFileContentRef: MutableRefObject<
+    (filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>
+  >
+  setOpenedFiles: React.Dispatch<React.SetStateAction<OpenedFile[]>>
   setActiveFilePath: React.Dispatch<React.SetStateAction<string | null>>
   resetFileState: () => void
   tabSessionSnapshotEntries: Array<{ path: string; active: boolean }>
@@ -101,8 +103,8 @@ interface UseShellWorkspaceSessionControllerInput {
   canvasCustomLayoutRef: MutableRefObject<WorkbenchCustomLayout>
 
   // Navigation state
-  activeNavId: string
-  setActiveNavId: (navId: string) => void
+  activeNavId: NavItemId
+  setActiveNavId: (navId: NavItemId) => void
   activeStationId: string
   setActiveStationId: React.Dispatch<React.SetStateAction<string>>
 
@@ -120,14 +122,8 @@ interface UseShellWorkspaceSessionControllerInput {
   tauriRuntime: boolean
   initialStations: AgentStation[]
   detachedWindowOpenInFlightRef: MutableRefObject<Record<string, boolean>>
-  locale: string
-  uiPreferences: {
-    locale: string
-    themeMode: string
-    monoFont: string
-    uiFontSize: number
-    workspaceSwitchAnimation: string
-  }
+  locale: Locale
+  uiPreferences: UiPreferences
 }
 
 export interface ShellWorkspaceSessionController {
@@ -167,7 +163,7 @@ export function useShellWorkspaceSessionController({
   activeWorkspaceId,
   activeWorkspaceIdRef,
   activeWorkspaceRoot,
-  setActiveWorkspaceRoot,
+  setActiveWorkspaceRoot: _setActiveWorkspaceRoot,
   workspaceTabs,
   beginWorkspaceSwitchAnimation,
   completeWorkspaceSwitch,
@@ -185,10 +181,10 @@ export function useShellWorkspaceSessionController({
   stationsRef,
   stationsLoadedWorkspaceId,
   setStations,
-  workbenchContainers,
+  workbenchContainers: _workbenchContainers,
   setWorkbenchContainers,
   workbenchContainersRef,
-  workbenchContainerCounterRef,
+  workbenchContainerCounterRef: _workbenchContainerCounterRef,
   workbenchContainerSnapshotEntries,
   workbenchContainerSnapshotSignature,
   canvasLayoutMode,
@@ -203,10 +199,10 @@ export function useShellWorkspaceSessionController({
   setPinnedWorkbenchContainerId,
   externalChannelController,
   taskDispatchController,
-  tauriRuntime,
-  initialStations,
+  tauriRuntime: _tauriRuntime,
+  initialStations: _initialStations,
   detachedWindowOpenInFlightRef,
-  locale,
+  locale: _locale,
   uiPreferences,
 }: UseShellWorkspaceSessionControllerInput): ShellWorkspaceSessionController {
   // ----- State -----
@@ -248,7 +244,7 @@ export function useShellWorkspaceSessionController({
     stationTerminalRestoreStateRef,
     stationTerminalPendingReplayRef,
     stationTerminalInputControllerRef,
-    stationTerminalSinkRef,
+    stationTerminalSinkRef: _stationTerminalSinkRef,
     ensureStationTerminalSessionInFlightRef,
     sessionStationRef,
     terminalSessionSeqRef,
@@ -259,7 +255,7 @@ export function useShellWorkspaceSessionController({
     resetTerminalStateOnWorkspaceSwitch,
     captureActiveWorkspaceTerminalDocument,
     resolveWorkspaceTerminalDocument,
-    persistActiveWorkspaceTerminalDocument,
+    persistActiveWorkspaceTerminalDocument: _persistActiveWorkspaceTerminalDocument,
   } = terminalController
 
   // ----- Terminal session snapshot -----

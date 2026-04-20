@@ -12,13 +12,7 @@ import {
 import {
   formatShortcutBinding,
   getDefaultShortcutBindings,
-  type ShortcutBindings,
 } from '@features/keybindings'
-import {
-  type TaskCenterNotice,
-  type TaskDispatchRecord,
-  type TaskDraftState,
-} from '@features/task-center'
 import {
   createDefaultFloatingFrame,
   createDefaultStations,
@@ -41,7 +35,6 @@ import {
 } from './navigation-model'
 import {
   desktopApi,
-  type ToolCommandSummary,
 } from '../integration/desktop-api'
 import { t } from '../i18n/ui-locale'
 import {
@@ -151,7 +144,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   const {
     leftPaneWidth,
     rightPaneWidth,
-    shellMainContentMinWidth,
     leftPaneWidthMax,
     rightPaneWidthMax,
     leftPaneVisible,
@@ -299,13 +291,10 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
 
   const {
     stationTerminals,
-    setStationTerminals,
-    stationProcessSnapshots,
     toolCommandsByStationId,
     isBatchLaunchingAgents,
     pendingStationActionSheet,
     stationTerminalsRef,
-    stationTerminalOutputCacheRef,
     stationSubmitSequenceRef,
     stationDeletePendingId,
     stationDeleteCleanupTargetId,
@@ -315,64 +304,24 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     handleStationDeleteCleanupClose,
     handleStationDeleteCleanupConfirm,
     bindStationTerminalSink,
-    appendStationTerminalOutput,
-    resetStationTerminalOutput,
-    setStationTerminalState,
-    clearStationUnread,
     ensureStationTerminalSession,
     launchStationTerminal,
-    sendStationTerminalInput,
     handleStationTerminalInput,
     submitStationTerminal,
-    writeStationTerminalWithSubmit,
-    resetStationTerminalToAgentWorkdir,
     resizeStationTerminal,
     reconcileStationRuntimeRegistration,
     removeStation,
-    cleanupRemovedStationRuntimeState,
     launchStationCliAgent,
     handleBatchLaunchAgents,
-    loadToolCommandsForStations,
     executeStationAction,
     handleSubmitStationActionSheet,
-    captureActiveWorkspaceTerminalDocument,
-    resolveWorkspaceTerminalDocument,
-    persistActiveWorkspaceTerminalDocument,
-    findDetachedProjectionTargetsByStationId,
-    publishDetachedRuntimePatch,
-    publishDetachedOutputAppend,
-    publishDetachedOutputReset,
     handleDetachedSurfaceBridgeMessage,
     reportRenderedScreenSnapshot,
-    updateStationProcessSnapshot,
-    inspectStationSessionProcesses,
-    setIsBatchLaunchingAgents,
     setPendingStationActionSheet,
     terminalSessionCount,
     stationAgentRunningById,
     batchLaunchableAgentCount,
-    toolCommandReloadKey,
     runtimeStateByStationId,
-    resetTerminalStateOnWorkspaceSwitch,
-    sessionStationRef,
-    terminalSessionSeqRef,
-    terminalOutputQueueRef,
-    ensureStationTerminalSessionInFlightRef,
-    stationTerminalRestoreStateRef,
-    stationTerminalPendingReplayRef,
-    stationTerminalInputControllerRef,
-    stationTerminalSinkRef,
-    stationTerminalOutputRevisionRef,
-    terminalSessionVisibilityRef,
-    terminalChunkDecoderBySessionRef,
-    registeredAgentRuntimeRef,
-    stationUnreadDeltaRef,
-    stationUnreadFlushTimerRef,
-    workspaceTerminalCacheRef,
-    presentedWorkspaceIdRef,
-    stationToolLaunchSeqRef,
-    stationProcessSnapshotsRef,
-    resolveWorkspaceRoot,
   } = terminalController
   const deleteCleanupSubmitting = stationDeleteCleanupSubmitting
   const taskDispatchController = useShellTaskDispatchController({

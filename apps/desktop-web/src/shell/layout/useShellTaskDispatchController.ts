@@ -12,6 +12,7 @@ import {
   type TaskDraftState,
 } from '@features/task-center'
 import type { AgentStation } from '@features/workspace-hub'
+import type { Locale } from '../i18n/ui-locale'
 import type { StationTerminalRuntime } from './ShellRoot.shared'
 import {
   TASK_DISPATCH_HISTORY_LIMIT,
@@ -26,7 +27,7 @@ interface UseShellTaskDispatchControllerInput {
   initialStations: AgentStation[]
   activeWorkspaceId: string | null
   activeStationId: string
-  locale: string
+  locale: Locale
   stationsRef: MutableRefObject<AgentStation[]>
   stationTerminalsRef: MutableRefObject<Record<string, StationTerminalRuntime>>
   activeWorkspaceIdRef: MutableRefObject<string | null>
@@ -293,8 +294,8 @@ export function useShellTaskDispatchController({
   }, [dispatchTaskToAgent])
 
   const handleRetryDispatchTask = useCallback(
-    (taskId: string) => {
-      void retryTaskDispatch(taskId)
+    async (taskId: string) => {
+      await retryTaskDispatch(taskId)
     },
     [retryTaskDispatch],
   )
