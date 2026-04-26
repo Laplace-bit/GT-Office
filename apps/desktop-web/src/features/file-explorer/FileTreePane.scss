@@ -86,6 +86,7 @@
 
 .file-tree-viewport::-webkit-scrollbar {
   width: var(--vb-space-xs);
+  height: var(--vb-space-xs);
 }
 
 .file-tree-viewport::-webkit-scrollbar-track {
@@ -121,8 +122,8 @@
 .file-tree-virtual-list {
   position: relative;
   min-height: 100%;
-  width: 100%;
-  contain: layout paint size;
+  min-width: 100%;
+  contain: layout size;
 }
 
 .file-tree-viewport[data-scrolling='true'] .tree-row {
@@ -132,14 +133,14 @@
 .tree-row {
   position: absolute;
   left: 0;
-  right: 0;
+  min-width: 100%;
   top: 0;
   display: flex;
   align-items: center;
   border-radius: var(--vb-radius-sm);
   border: var(--vb-hairline) solid transparent;
   will-change: transform;
-  contain: layout paint style;
+  contain: layout style;
   transition:
     background-color 160ms var(--vb-ease-out),
     box-shadow 160ms var(--vb-ease-out),
@@ -181,14 +182,10 @@
   color: var(--vb-text);
   font-size: var(--vb-file-tree-font-sm);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tree-toggle-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 
 .tree-file-button {
@@ -294,14 +291,10 @@
   color: inherit;
   font-size: var(--vb-file-tree-font-sm);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tree-file-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
   color: color-mix(in srgb, var(--vb-text) 92%, var(--vb-text-muted));
 }
 

@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -709,6 +710,96 @@ export function FileTreePane({
     const expandedRow = rows.find((row) => row.path === recentExpandedPath && row.kind === 'dir')
     return expandedRow?.depth ?? -1
   }, [recentExpandedPath, rows])
+
+  // Estimate max content width from row data (covers all rows, including non-visible)
+  const estimatedMaxWidth = useMemo(() => {
+    if (rows.length === 0) return 0
+
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return 0
+
+    const viewport = viewportRef.current
+    if (!viewport) return 0
+
+    ctx.font = getComputedStyle(viewport).font
+
+    const INDENT_BASE = 8
+    const INDENT_PER_DEPTH = 14
+    const CHEVRON = 16 + 8
+    const ICON = 19 + 8
+    const RIGHT_PAD = 12
+    const META_RESERVE = 52
+
+    let maxW = 0
+    for (const row of rows) {
+      const indent = INDENT_BASE + row.depth * INDENT_PER_DEPTH
+      const chevron = row.kind === 'dir' ? CHEVRON : 0
+      const nameW = ctx.measureText(row.name).width
+      const meta = row.kind === 'file' ? META_RESERVE : 0
+      maxW = Math.max(maxW, indent + chevron + ICON + nameW + meta + RIGHT_PAD)
+    }
+    return maxW
+  }, [rows])
+
+  const estimatedMaxWidthRef = useRef(0)
+
+  // Set virtual list width based on estimated content + DOM measurement for accuracy
+  useLayoutEffect(() => {
+    estimatedMaxWidthRef.current = estimatedMaxWidth
+
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    const virtualList = viewport.querySelector('.file-tree-virtual-list') as HTMLElement | null
+    if (!virtualList) return
+
+    const rowEls = viewport.querySelectorAll('.tree-row')
+    let domMaxWidth = 0
+    for (const row of rowEls) {
+      const el = row as HTMLElement
+      domMaxWidth = Math.max(domMaxWidth, el.scrollWidth)
+    }
+
+    const viewportWidth = viewport.clientWidth
+    const targetWidth = Math.max(viewportWidth, estimatedMaxWidth, domMaxWidth)
+    virtualList.style.width = targetWidth > viewportWidth ? `${targetWidth}px` : ''
+  }, [estimatedMaxWidth])
+
+  // Re-calculate virtual list width on viewport resize
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    const observer = new ResizeObserver(() => {
+      const virtualList = viewport.querySelector('.file-tree-virtual-list') as HTMLElement | null
+      if (!virtualList) return
+
+      const viewportWidth = viewport.clientWidth
+      const targetWidth = Math.max(viewportWidth, estimatedMaxWidthRef.current)
+      virtualList.style.width = targetWidth > viewportWidth ? `${targetWidth}px` : ''
+    })
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
+
+  // Auto-scroll horizontally when expanding a deeply nested directory
+  useEffect(() => {
+    if (!recentExpandedPath || recentExpandedDepth < 0) return
+
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    const indent = 8 + recentExpandedDepth * 14
+    const visibleWidth = viewport.clientWidth
+    const currentScrollLeft = viewport.scrollLeft
+
+    // If the expanded content is scrolled out of view, scroll to reveal it
+    const targetLeft = indent - Math.floor(visibleWidth * 0.3)
+    if (targetLeft > currentScrollLeft) {
+      viewport.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' })
+    }
+  }, [recentExpandedPath, recentExpandedDepth])
 
   useEffect(() => {
     if (!workspaceId || !selectedFilePath) {
