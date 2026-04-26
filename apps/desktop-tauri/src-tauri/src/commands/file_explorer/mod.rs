@@ -100,6 +100,7 @@ fn build_fs_read_file_response(
     preview_bytes: u64,
     previewable: bool,
     truncated: bool,
+    mtime_ms: u64,
 ) -> Value {
     json!({
         "workspaceId": workspace_id,
@@ -109,7 +110,8 @@ fn build_fs_read_file_response(
         "sizeBytes": size_bytes,
         "previewBytes": preview_bytes,
         "previewable": previewable,
-        "truncated": truncated
+        "truncated": truncated,
+        "mtimeMs": mtime_ms
     })
 }
 
@@ -343,6 +345,12 @@ fn read_file_with_limit(
         .metadata()
         .map_err(|error| format!("FS_READ_FAILED: metadata read failed: {error}"))?;
     let size_bytes = metadata.len();
+    let mtime_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
 
     let mut file = fs::File::open(target)
         .map_err(|error| format!("FS_READ_FAILED: unable to open file: {error}"))?;
@@ -368,6 +376,7 @@ fn read_file_with_limit(
             preview_bytes,
             false,
             truncated,
+            mtime_ms,
         ));
     }
 
@@ -381,6 +390,7 @@ fn read_file_with_limit(
         preview_bytes,
         true,
         truncated,
+        mtime_ms,
     ))
 }
 
@@ -803,6 +813,65 @@ pub async fn fs_read_file_full(
             &target,
             resolved_limit,
         )
+    })
+    .await
+}
+
+const MAX_STAT_PATHS: usize = 100;
+
+#[tauri::command]
+pub async fn fs_stat_files(
+    workspace_id: String,
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let root = resolve_workspace_root(&state, &workspace_id)?;
+    run_fs_blocking("FS_STAT_FAILED", move || {
+        let mut entries = Vec::new();
+        for path in paths.iter().take(MAX_STAT_PATHS) {
+            let relative = sanitize_relative_path(path);
+            let Ok(relative_path) = relative else {
+                continue;
+            };
+            let target = root.join(&relative_path);
+            let Ok(canonical) = target.canonicalize() else {
+                entries.push(json!({
+                    "path": path,
+                    "sizeBytes": 0,
+                    "mtimeMs": 0,
+                    "exists": false
+                }));
+                continue;
+            };
+            if !canonical.starts_with(&root) {
+                continue;
+            }
+            let Ok(metadata) = canonical.metadata() else {
+                entries.push(json!({
+                    "path": path,
+                    "sizeBytes": 0,
+                    "mtimeMs": 0,
+                    "exists": false
+                }));
+                continue;
+            };
+            let mtime_ms = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            entries.push(json!({
+                "path": path,
+                "sizeBytes": metadata.len(),
+                "mtimeMs": mtime_ms,
+                "exists": true
+            }));
+        }
+        Ok(json!({
+            "workspaceId": workspace_id,
+            "entries": entries
+        }))
     })
     .await
 }

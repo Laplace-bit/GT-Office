@@ -80,6 +80,7 @@ export function useShellFileController({
   const activeFilePathRef = useRef<string | null>(null)
   const fileReadModeRef = useRef<FileReadMode>('full')
   const fileReadSeqRef = useRef(0)
+  const recentlySavedPathsRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     openedFilesRef.current = openedFiles
@@ -116,6 +117,7 @@ export function useShellFileController({
               isModified: false,
               hydrated: true,
               viewType: 'preview',
+              mtimeMs: 0,
             },
           ]
         })
@@ -174,6 +176,8 @@ export function useShellFileController({
                     size: response.sizeBytes,
                     hydrated: true,
                     viewType: 'editor',
+                    mtimeMs: response.mtimeMs,
+                    isStale: false,
                   }
                 : file,
             )
@@ -187,6 +191,7 @@ export function useShellFileController({
               isModified: false,
               hydrated: true,
               viewType: 'editor',
+              mtimeMs: response.mtimeMs,
             },
           ]
         })
@@ -232,10 +237,21 @@ export function useShellFileController({
 
       try {
         await desktopApi.fsWriteFile(activeWorkspaceId, filePath, content)
+        const statResponse = await desktopApi.fsStatFiles(activeWorkspaceId, [filePath])
+        const statEntry = statResponse.entries.find((e) => e.path === filePath)
+        recentlySavedPathsRef.current.set(filePath, Date.now())
         setOpenedFiles((prev) =>
           prev.map((file) =>
             file.path === filePath
-              ? { ...file, content, isModified: false, hydrated: true, viewType: 'editor' }
+              ? {
+                  ...file,
+                  content,
+                  isModified: false,
+                  hydrated: true,
+                  viewType: 'editor',
+                  mtimeMs: statEntry?.mtimeMs ?? file.mtimeMs,
+                  isStale: false,
+                }
               : file,
           ),
         )
@@ -299,13 +315,32 @@ export function useShellFileController({
       }
       setActiveFilePath(filePath)
       setFileReadError(null)
+      if (existing?.hydrated && existing.mtimeMs > 0 && activeWorkspaceId) {
+        void desktopApi.fsStatFiles(activeWorkspaceId, [filePath]).then((statResponse) => {
+          const statEntry = statResponse.entries.find((e) => e.path === filePath)
+          if (!statEntry || !statEntry.exists) return
+          if (statEntry.mtimeMs !== existing.mtimeMs) {
+            if (!existing.isModified) {
+              void loadFileContent(filePath, fileReadModeRef.current, { activate: false })
+            } else {
+              setOpenedFiles((prev) =>
+                prev.map((file) =>
+                  file.path === filePath ? { ...file, isStale: true } : file,
+                ),
+              )
+            }
+          }
+        }).catch(() => {})
+      }
     },
-    [loadFileContent],
+    [loadFileContent, activeWorkspaceId],
   )
 
   const handleFileModified = useCallback((filePath: string, isModified: boolean) => {
     setOpenedFiles((prev) =>
-      prev.map((file) => (file.path === filePath ? { ...file, isModified } : file)),
+      prev.map((file) =>
+        file.path === filePath ? { ...file, isModified, ...(isModified ? {} : { isStale: false }) } : file,
+      ),
     )
   }, [])
 
@@ -425,10 +460,21 @@ export function useShellFileController({
           if (
             changedPaths.includes(file.path) &&
             file.viewType === 'editor' &&
-            file.hydrated &&
-            !file.isModified
+            file.hydrated
           ) {
-            void loadFileContent(file.path, fileReadModeRef.current, { activate: false })
+            const savedAt = recentlySavedPathsRef.current.get(file.path)
+            if (savedAt && Date.now() - savedAt < 2000) {
+              continue
+            }
+            if (!file.isModified) {
+              void loadFileContent(file.path, fileReadModeRef.current, { activate: false })
+            } else {
+              setOpenedFiles((prev) =>
+                prev.map((f) =>
+                  f.path === file.path ? { ...f, isStale: true } : f,
+                ),
+              )
+            }
           }
         }
       }
@@ -449,6 +495,53 @@ export function useShellFileController({
       }
     }
   }, [activeWorkspaceId, loadFileContent])
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+      return
+    }
+
+    let focusDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+    const handleWindowFocus = () => {
+      if (focusDebounceTimer) clearTimeout(focusDebounceTimer)
+      focusDebounceTimer = setTimeout(() => {
+        const currentOpenedFiles = openedFilesRef.current
+        const eligibleFiles = currentOpenedFiles.filter(
+          (file) => file.hydrated && file.viewType === 'editor' && file.mtimeMs > 0,
+        )
+        if (eligibleFiles.length === 0) return
+
+        const paths = eligibleFiles.map((file) => file.path)
+        void desktopApi.fsStatFiles(activeWorkspaceId, paths).then((statResponse) => {
+          const statByPath = new Map(statResponse.entries.map((e) => [e.path, e]))
+          for (const file of eligibleFiles) {
+            const stat = statByPath.get(file.path)
+            if (!stat || !stat.exists) continue
+            if (stat.mtimeMs !== file.mtimeMs) {
+              if (!file.isModified) {
+                void loadFileContentRef.current(file.path, fileReadModeRef.current, {
+                  activate: false,
+                })
+              } else {
+                setOpenedFiles((prev) =>
+                  prev.map((f) =>
+                    f.path === file.path ? { ...f, isStale: true } : f,
+                  ),
+                )
+              }
+            }
+          }
+        }).catch(() => {})
+      }, 250)
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      if (focusDebounceTimer) clearTimeout(focusDebounceTimer)
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [activeWorkspaceId])
 
   const requestFileSearch = useCallback((mode?: FileSearchMode) => {
     if (mode) {

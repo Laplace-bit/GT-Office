@@ -155,6 +155,7 @@ pub fn run() {
             file_explorer::fs_list_dir,
             file_explorer::fs_read_file,
             file_explorer::fs_read_file_full,
+            file_explorer::fs_stat_files,
             file_explorer::fs_write_file,
             file_explorer::fs_create_dir,
             file_explorer::fs_delete,

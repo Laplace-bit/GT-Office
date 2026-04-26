@@ -689,6 +689,7 @@ export interface FsReadFileResponse {
   previewBytes: number
   previewable: boolean
   truncated: boolean
+  mtimeMs: number
 }
 
 export interface FsWriteFileResponse {
@@ -696,6 +697,18 @@ export interface FsWriteFileResponse {
   path: string
   bytes: number
   written: boolean
+}
+
+export interface FsStatEntry {
+  path: string
+  sizeBytes: number
+  mtimeMs: number
+  exists: boolean
+}
+
+export interface FsStatFilesResponse {
+  workspaceId: string
+  entries: FsStatEntry[]
 }
 
 export interface FsDeleteResponse {
@@ -2377,6 +2390,9 @@ export const desktopApi = {
       path,
       limitBytes: limitBytes ?? null,
     })
+  },
+  fsStatFiles(workspaceId: string, paths: string[]) {
+    return invokeCommand<FsStatFilesResponse>('fs_stat_files', { workspaceId, paths })
   },
   fsWriteFile(workspaceId: string, path: string, content: string) {
     return invokeCommand<FsWriteFileResponse>('fs_write_file', { workspaceId, path, content })

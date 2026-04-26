@@ -97,6 +97,16 @@
   margin-left: #{rem(1)};
 }
 
+.file-editor-tab-stale {
+  width: #{rem(4)};
+  height: #{rem(4)};
+  border-radius: 50%;
+  background: #faad14;
+  box-shadow: 0 0 #{rem(4)} color-mix(in srgb, #faad14 75%, transparent);
+  flex: 0 0 auto;
+  margin-left: #{rem(1)};
+}
+
 .file-editor-tab-label {
   min-width: 0;
   overflow: hidden;
@@ -251,6 +261,7 @@
   &-unsaved { display: none; }
   &-error { color: var(--vb-error); }
   &-readonly { opacity: 0.5; }
+  &-stale { color: #faad14; }
 }
 
 /* === Content Area === */

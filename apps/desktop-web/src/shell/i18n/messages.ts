@@ -357,6 +357,10 @@ export const messages = {
     'zh-CN': '文件过大，仅支持只读预览',
     'en-US': 'File too large, read-only preview only',
   },
+  'fileContent.fileChangedOnDisk': {
+    'zh-CN': '文件已在磁盘上修改',
+    'en-US': 'File changed on disk',
+  },
   'fileContent.actionFind': { 'zh-CN': '查找', 'en-US': 'Find' },
   'fileContent.actionFindHint': {
     'zh-CN': '在当前文件中查找',

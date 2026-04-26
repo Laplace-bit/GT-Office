@@ -780,6 +780,7 @@ export function useShellWorkspaceSessionController({
             isModified: false,
             hydrated: false,
             viewType: isPreviewable(tab.path) ? 'preview' : 'editor',
+            mtimeMs: 0,
           })),
         )
         setActiveFilePath(activeTabPath)

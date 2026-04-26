@@ -26,6 +26,8 @@ export interface OpenedFile {
   isModified: boolean
   hydrated: boolean
   viewType: 'editor' | 'preview'
+  mtimeMs: number
+  isStale?: boolean
 }
 
 interface FileEditorPaneProps {
@@ -101,7 +103,7 @@ const FileTab = memo(function FileTab({
   return (
     <div
       ref={tabRef}
-      className={`file-editor-tab ${isActive ? 'active' : ''}`}
+      className={`file-editor-tab ${isActive ? 'active' : ''} ${file.isStale ? 'file-editor-tab--stale' : ''}`}
       onClick={onSelect}
       title={file.path}
     >
@@ -111,6 +113,7 @@ const FileTab = memo(function FileTab({
         </span>
         <span className="file-editor-tab-label">{getFileName(file.path)}</span>
         {file.isModified && <span className="file-editor-tab-modified" />}
+        {file.isStale && !file.isModified && <span className="file-editor-tab-stale" />}
       </span>
       <button
         type="button"
@@ -176,6 +179,7 @@ export function FileEditorPane({
     return !isPreviewFile && (lowerPath.endsWith('.md') || lowerPath.endsWith('.mdx'))
   }, [activeFilePath, isPreviewFile])
   const isLargeFile = (activeFile?.size ?? 0) > LARGE_FILE_THRESHOLD_BYTES
+  const isStaleFile = activeFile?.isStale === true
   const isReadOnly = isLargeFile || !onSaveFile
   const visibleSaveState = saveFeedback.path === activeFilePath ? saveFeedback.state : 'idle'
   const visibleSaveError = saveFeedback.path === activeFilePath ? saveFeedback.error : null
@@ -449,6 +453,11 @@ export function FileEditorPane({
             {activeFilePath}
           </span>
           <div className="file-editor-status-group">
+            {isStaleFile ? (
+              <span className="file-editor-status file-editor-status-stale">
+                {t(locale, 'fileContent.fileChangedOnDisk')}
+              </span>
+            ) : null}
             {isReadOnly ? (
               <span className="file-editor-status file-editor-status-readonly">
                 {isLargeFile ? t(locale, 'fileContent.readOnlyLargeFile') : t(locale, 'fileContent.readOnly')}
