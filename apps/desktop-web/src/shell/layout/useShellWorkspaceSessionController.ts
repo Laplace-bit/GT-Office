@@ -432,6 +432,10 @@ export function useShellWorkspaceSessionController({
         }
       }
       await closeWorkspaceTab(workspaceId)
+      const remainingTab = workspaceTabs.find((t) => t.workspaceId !== workspaceId)
+      if (remainingTab) {
+        await openWorkspaceAtPath(remainingTab.root, 'restore')
+      }
       addNotification({
         type: 'success',
         message: t(
@@ -453,7 +457,7 @@ export function useShellWorkspaceSessionController({
       setCloseSubmitting(false)
       setCloseConfirmState(null)
     }
-  }, [captureActiveWorkspaceTerminalDocument, closeConfirmState, closeWorkspaceTab, uiPreferences.locale])
+  }, [captureActiveWorkspaceTerminalDocument, closeConfirmState, closeWorkspaceTab, openWorkspaceAtPath, uiPreferences.locale, workspaceTabs])
 
   const dismissCloseConfirm = useCallback(() => {
     setCloseConfirmState(null)

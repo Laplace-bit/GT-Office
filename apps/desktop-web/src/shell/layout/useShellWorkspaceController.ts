@@ -278,7 +278,30 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
       return
     }
     let disposed = false
-    let cleanup: (() => void) | null = null
+    const cleanups: (() => void)[] = []
+
+    void desktopApi
+      .subscribeWorkspaceEvents({
+        onActiveChanged: (payload) => {
+          if (disposed) return
+          if (!payload.workspaceId) return
+          if (payload.workspaceId === activeWorkspaceIdRef.current) return
+          setActiveWorkspaceId(payload.workspaceId)
+          void desktopApi.workspaceGetContext(payload.workspaceId).then((context) => {
+            if (disposed) return
+            setActiveWorkspaceRoot(context.root)
+            setWorkspacePathInput(context.root)
+          }).catch(() => {})
+        },
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+          return
+        }
+        cleanups.push(unlisten)
+      })
+
     void desktopApi
       .subscribeGitUpdated((payload) => {
         if (disposed) {
@@ -295,12 +318,16 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
         setGitSummary(gitSummaryFromUpdatedPayload(payload))
       })
       .then((unlisten) => {
-        cleanup = unlisten
+        if (disposed) {
+          unlisten()
+          return
+        }
+        cleanups.push(unlisten)
       })
     return () => {
       disposed = true
-      if (cleanup) {
-        cleanup()
+      for (const fn of cleanups) {
+        fn()
       }
       const timerId = gitRefreshTimerRef.current
       if (typeof timerId === 'number') {

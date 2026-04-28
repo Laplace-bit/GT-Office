@@ -308,12 +308,15 @@ pub fn workspace_close(
 ) -> Result<Value, String> {
     let before_active = active_workspace_id(&state)?;
     let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_root = state.workspace_root_path(workspace_id.as_str())?;
     let closed = state
         .workspace_service
         .close(&workspace_id)
         .map_err(to_command_error)?;
     if closed {
         let _ = state.remove_workspace_watcher(workspace_id.as_str());
+        let snapshot_path = workspace_root.join(".gtoffice").join("session.snapshot.json");
+        let _ = std::fs::remove_file(&snapshot_path);
     }
     let after_active = active_workspace_id(&state)?;
     if let Some(active_workspace_id) = after_active.as_deref() {

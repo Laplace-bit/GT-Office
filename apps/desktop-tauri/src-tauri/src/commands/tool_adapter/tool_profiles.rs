@@ -572,6 +572,18 @@ pub fn tool_launch(
     let (agent_id, station_id, role_key, submit_sequence) =
         build_runtime_identity(context.as_ref(), tool_kind);
 
+    if let Some(cwd) = resolved_cwd.as_deref() {
+        let cwd_path = std::path::Path::new(cwd);
+        if !cwd_path.exists() {
+            std::fs::create_dir_all(cwd_path).map_err(|err| {
+                format!(
+                    "TOOL_LAUNCH_CWD_CREATE_FAILED: unable to create '{}': {err}",
+                    cwd_path.display()
+                )
+            })?;
+        }
+    }
+
     let mut env = build_launch_env(&workspace_id, &agent_id, role_key.as_deref(), &station_id);
     env.extend(context_env_map(context.as_ref()));
     let env =
