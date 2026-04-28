@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.3.3 (2026-04-28)
+
+- 6d5c1be fix(workspace): properly close workspace content and switch view on close
+- 22db542 feat(terminal): suspend/recover terminal sessions across workspace switches; simplify agent installer PATH detection
+
 ## v0.2.0 - 2026-04-13
 
 ### Highlights

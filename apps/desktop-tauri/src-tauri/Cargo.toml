@@ -1,6 +1,6 @@
 [package]
 name = "gtoffice-desktop-tauri"
-version = "0.3.1"
+version = "0.3.3"
 edition = "2021"
 description = "GT Office desktop shell"
 license.workspace = true
