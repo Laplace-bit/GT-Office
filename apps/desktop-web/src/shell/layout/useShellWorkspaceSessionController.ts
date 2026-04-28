@@ -256,6 +256,8 @@ export function useShellWorkspaceSessionController({
     captureActiveWorkspaceTerminalDocument,
     resolveWorkspaceTerminalDocument,
     persistActiveWorkspaceTerminalDocument: _persistActiveWorkspaceTerminalDocument,
+    suspendWorkspaceTerminalSessions,
+    recoverWorkspaceTerminalSessions,
   } = terminalController
 
   // ----- Terminal session snapshot -----
@@ -333,10 +335,14 @@ export function useShellWorkspaceSessionController({
   }) => {
     const resetStartedAt = performance.now()
     const { activeWorkspaceId: nextWorkspaceId, departingWorkspaceId, clearVisibleState } = input
-    if (departingWorkspaceId && departingWorkspaceId !== nextWorkspaceId) {
-      captureActiveWorkspaceTerminalDocument(departingWorkspaceId)
+    const presentedDepartingWorkspaceId =
+      presentedWorkspaceIdRef.current && presentedWorkspaceIdRef.current !== nextWorkspaceId
+        ? presentedWorkspaceIdRef.current
+        : departingWorkspaceId
+    if (presentedDepartingWorkspaceId && presentedDepartingWorkspaceId !== nextWorkspaceId) {
+      suspendWorkspaceTerminalSessions(presentedDepartingWorkspaceId)
       logPerformanceDebug('workspace-switch', 'persisted terminal document for departing workspace', {
-        departingWorkspaceId,
+        departingWorkspaceId: presentedDepartingWorkspaceId,
         sessionCount: Object.keys(sessionStationRef.current).length,
       })
     }
@@ -377,7 +383,7 @@ export function useShellWorkspaceSessionController({
       clearVisibleState,
       durationMs: Math.round(performance.now() - resetStartedAt),
     })
-  }, [captureActiveWorkspaceTerminalDocument, externalChannelController.resetExternalChannelState, externalChannelController.clearStationTaskSignals, resetFileState, resetTerminalStateOnWorkspaceSwitch])
+  }, [externalChannelController.resetExternalChannelState, externalChannelController.clearStationTaskSignals, resetFileState, resetTerminalStateOnWorkspaceSwitch, suspendWorkspaceTerminalSessions])
 
   const requestCloseWorkspace = useCallback(
     (workspaceId: string) => {
@@ -402,12 +408,19 @@ export function useShellWorkspaceSessionController({
     const { workspaceId } = closeConfirmState
     setCloseSubmitting(true)
     try {
+      if (presentedWorkspaceIdRef.current === workspaceId) {
+        captureActiveWorkspaceTerminalDocument(workspaceId)
+      }
       const cachedDoc = workspaceTerminalCacheRef.current[workspaceId]
       if (cachedDoc) {
         const sessionIds = Object.keys(cachedDoc.sessionStation)
+        const stationIds = new Set(Object.values(cachedDoc.sessionStation))
         for (const sessionId of sessionIds) {
           desktopApi.terminalKill(sessionId, 'TERM').catch(() => {})
         }
+        stationIds.forEach((stationId) => {
+          desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {})
+        })
         delete workspaceTerminalCacheRef.current[workspaceId]
       }
       if (cachedDoc) {
@@ -440,7 +453,7 @@ export function useShellWorkspaceSessionController({
       setCloseSubmitting(false)
       setCloseConfirmState(null)
     }
-  }, [closeConfirmState, closeWorkspaceTab, uiPreferences.locale])
+  }, [captureActiveWorkspaceTerminalDocument, closeConfirmState, closeWorkspaceTab, uiPreferences.locale])
 
   const dismissCloseConfirm = useCallback(() => {
     setCloseConfirmState(null)
@@ -569,6 +582,7 @@ export function useShellWorkspaceSessionController({
       {},
     )
     captureActiveWorkspaceTerminalDocument(presentedWorkspaceId)
+    recoverWorkspaceTerminalSessions(presentedWorkspaceId)
 
     if (!activeStationId && stations[0]) {
       setActiveStationId(stations[0].id)
@@ -582,6 +596,7 @@ export function useShellWorkspaceSessionController({
     activeWorkspaceId,
     presentedWorkspaceId,
     captureActiveWorkspaceTerminalDocument,
+    recoverWorkspaceTerminalSessions,
     externalChannelController.pruneStationTaskSignals,
     resolveWorkspaceTerminalDocument,
     stationsLoadedWorkspaceId,
@@ -798,9 +813,6 @@ export function useShellWorkspaceSessionController({
           completeWorkspaceSwitch(workspaceId)
         }
 
-        // Terminal restoration is handled by the terminal controller's
-        // workspace presentation restore flow
-        captureActiveWorkspaceTerminalDocument(workspaceId)
         logPerformanceDebug('workspace-session', 'restored workspace session', {
           workspaceId,
           restoreSeq,
@@ -920,6 +932,9 @@ export function useShellWorkspaceSessionController({
     if (!activeWorkspaceId) {
       return
     }
+    if (desktopApi.isTauriRuntime() && stationsLoadedWorkspaceId !== activeWorkspaceId) {
+      return
+    }
     setStations((prev) =>
       prev.map((station) =>
         station.workspaceId === activeWorkspaceId
@@ -927,7 +942,7 @@ export function useShellWorkspaceSessionController({
           : { ...station, workspaceId: activeWorkspaceId },
       ),
     )
-  }, [activeWorkspaceId, setStations])
+  }, [activeWorkspaceId, stationsLoadedWorkspaceId, setStations])
 
   return {
     // State

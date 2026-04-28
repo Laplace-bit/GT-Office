@@ -89,7 +89,10 @@ import {
 import { t, type Locale } from '../i18n/ui-locale'
 import {
   createWorkspaceTerminalSessionDocument,
+  findWorkspaceTerminalSessionOwner,
   hydrateWorkspaceTerminalSessionDocument,
+  removeWorkspaceTerminalSessionBinding,
+  setWorkspaceTerminalSessionVisibility,
   type WorkspaceTerminalSessionDocument,
 } from '../state/workspace-terminal-session-store'
 import {
@@ -197,6 +200,8 @@ export interface ShellTerminalController {
   captureActiveWorkspaceTerminalDocument: (workspaceId: string | null) => void
   resolveWorkspaceTerminalDocument: (workspaceId: string | null, stationsForWorkspace: AgentStation[]) => WorkspaceTerminalSessionDocument
   persistActiveWorkspaceTerminalDocument: () => void
+  suspendWorkspaceTerminalSessions: (workspaceId: string | null) => void
+  recoverWorkspaceTerminalSessions: (workspaceId: string | null) => void
 
   // Detached bridge
   findDetachedProjectionTargetsByStationId: (stationId: string) => DetachedProjectionTarget[]
@@ -317,6 +322,10 @@ export function useShellTerminalController({
   const presentedWorkspaceIdRef = useRef<string | null>(null)
 
   // ── Ref sync effects ──────────────────────────────────────────────────
+  useEffect(() => {
+    activeWorkspaceIdRef.current = activeWorkspaceId
+  }, [activeWorkspaceId, activeWorkspaceIdRef])
+
   useEffect(() => {
     stationTerminalsRef.current = stationTerminals
   }, [stationTerminals])
@@ -495,6 +504,9 @@ export function useShellTerminalController({
       if (!workspaceId) {
         return
       }
+      if (workspaceId !== presentedWorkspaceIdRef.current) {
+        return
+      }
       workspaceTerminalCacheRef.current[workspaceId] = {
         stationTerminals: { ...stationTerminalsRef.current },
         outputCache: { ...stationTerminalOutputCacheRef.current },
@@ -526,6 +538,40 @@ export function useShellTerminalController({
   const persistActiveWorkspaceTerminalDocument = useCallback(() => {
     captureActiveWorkspaceTerminalDocument(presentedWorkspaceIdRef.current)
   }, [captureActiveWorkspaceTerminalDocument])
+
+  const suspendWorkspaceTerminalSessions = useCallback(
+    (workspaceId: string | null) => {
+      if (!workspaceId) {
+        return
+      }
+      captureActiveWorkspaceTerminalDocument(workspaceId)
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const document = workspaceTerminalCacheRef.current[workspaceId]
+      if (!document) {
+        return
+      }
+      const sessionIds = setWorkspaceTerminalSessionVisibility(document, false)
+      sessionIds.forEach((sessionId) => {
+        void desktopApi
+          .terminalSetVisibility(sessionId, false)
+          .catch((error) => {
+            const detail = describeError(error)
+            if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+              return
+            }
+            const stationId = removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
+            if (stationId) {
+              void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
+                // Runtime sync will be refreshed when the workspace is presented again.
+              })
+            }
+          })
+      })
+    },
+    [captureActiveWorkspaceTerminalDocument],
+  )
 
   // ── Output streaming ──────────────────────────────────────────────────
   const appendStationTerminalOutput = useMemo(
@@ -821,6 +867,222 @@ export function useShellTerminalController({
     [],
   )
 
+  const cleanupMissingWorkspaceTerminalSession = useCallback(
+    (workspaceId: string, stationId: string, sessionId: string) => {
+      const document = workspaceTerminalCacheRef.current[workspaceId]
+      if (document) {
+        removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
+      }
+      if (sessionStationRef.current[sessionId] === stationId) {
+        delete sessionStationRef.current[sessionId]
+        delete terminalSessionSeqRef.current[sessionId]
+        delete terminalOutputQueueRef.current[sessionId]
+        delete terminalSessionVisibilityRef.current[sessionId]
+        delete terminalChunkDecoderBySessionRef.current[sessionId]
+      }
+      if (stationTerminalsRef.current[stationId]?.sessionId === sessionId) {
+        setStationTerminalState(stationId, {
+          sessionId: null,
+          stateRaw: 'exited',
+          shell: null,
+          cwdMode: 'workspace_root',
+          resolvedCwd: null,
+        })
+      }
+      void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
+        // The next live registration pass will reconcile this if the session still exists.
+      })
+    },
+    [setStationTerminalState],
+  )
+
+  const recoverStationTerminalOutput = useCallback(
+    async (workspaceId: string, stationId: string, sessionId: string): Promise<boolean> => {
+      if (!desktopApi.isTauriRuntime()) {
+        return false
+      }
+      if (activeWorkspaceIdRef.current !== workspaceId) {
+        return false
+      }
+      if (sessionStationRef.current[sessionId] !== stationId) {
+        return false
+      }
+
+      const previousSeq = terminalSessionSeqRef.current[sessionId] ?? 0
+      try {
+        const delta = await desktopApi.terminalReadDelta(sessionId, previousSeq)
+        if (activeWorkspaceIdRef.current !== workspaceId || sessionStationRef.current[sessionId] !== stationId) {
+          return false
+        }
+        if (delta.gap || delta.truncated) {
+          const snapshot = await desktopApi.terminalReadSnapshot(sessionId).catch(() => null)
+          if (!snapshot) {
+            return true
+          }
+          if (activeWorkspaceIdRef.current !== workspaceId || sessionStationRef.current[sessionId] !== stationId) {
+            return false
+          }
+          const decoder =
+            terminalChunkDecoderBySessionRef.current[sessionId] ??
+            (terminalChunkDecoderBySessionRef.current[sessionId] = createTerminalChunkDecoder())
+          resetTerminalChunkDecoder(decoder)
+          const snapshotText = decodeTerminalBase64Chunk(decoder, snapshot.chunk, false)
+          if (snapshotText) {
+            resetStationTerminalOutput(stationId, snapshotText)
+          }
+          terminalSessionSeqRef.current[sessionId] = snapshot.currentSeq
+          persistActiveWorkspaceTerminalDocument()
+          return true
+        }
+
+        if (delta.toSeq > previousSeq) {
+          const text = decodeBase64Chunk(sessionId, delta.chunk, true)
+          if (text) {
+            appendStationTerminalOutput(stationId, text)
+          }
+          terminalSessionSeqRef.current[sessionId] = delta.toSeq
+          persistActiveWorkspaceTerminalDocument()
+        }
+        return true
+      } catch (error) {
+        const detail = describeError(error)
+        if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+          cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId)
+        }
+        return false
+      }
+    },
+    [
+      appendStationTerminalOutput,
+      cleanupMissingWorkspaceTerminalSession,
+      decodeBase64Chunk,
+      persistActiveWorkspaceTerminalDocument,
+      resetStationTerminalOutput,
+    ],
+  )
+
+  const recoverWorkspaceTerminalSessions = useCallback(
+    (workspaceId: string | null) => {
+      if (!workspaceId || !desktopApi.isTauriRuntime()) {
+        return
+      }
+      const entries = Object.entries(sessionStationRef.current)
+      entries.forEach(([sessionId, stationId]) => {
+        void (async () => {
+          const recoveredWhileHidden = await recoverStationTerminalOutput(workspaceId, stationId, sessionId)
+          if (!recoveredWhileHidden) {
+            return
+          }
+          try {
+            await desktopApi.terminalSetVisibility(sessionId, true)
+            if (activeWorkspaceIdRef.current !== workspaceId || sessionStationRef.current[sessionId] !== stationId) {
+              return
+            }
+            terminalSessionVisibilityRef.current[sessionId] = true
+            const document = workspaceTerminalCacheRef.current[workspaceId]
+            if (document) {
+              document.sessionVisibility[sessionId] = true
+            }
+          } catch (error) {
+            const detail = describeError(error)
+            if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+              cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId)
+            }
+            return
+          }
+          await recoverStationTerminalOutput(workspaceId, stationId, sessionId)
+        })()
+      })
+    },
+    [cleanupMissingWorkspaceTerminalSession, recoverStationTerminalOutput],
+  )
+
+  const cacheBackgroundLaunchedTerminalSession = useCallback(
+    (input: {
+      workspaceId: string
+      station: AgentStation
+      sessionId: string
+      shell: string | null
+      cwdMode: 'workspace_root' | 'custom'
+      resolvedCwd: string | null
+      submitSequence?: string | null
+    }) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const sessionId = input.sessionId.trim()
+      if (!sessionId) {
+        return
+      }
+      const document =
+        workspaceTerminalCacheRef.current[input.workspaceId] ??
+        createWorkspaceTerminalSessionDocument([input.station])
+      workspaceTerminalCacheRef.current[input.workspaceId] = document
+
+      const currentRuntime = document.stationTerminals[input.station.id] ?? {
+        sessionId: null,
+        stateRaw: 'idle',
+        unreadCount: 0,
+        shell: null,
+        cwdMode: 'workspace_root' as const,
+        resolvedCwd: null,
+      }
+      const previousSessionId = currentRuntime.sessionId
+      if (previousSessionId && previousSessionId !== sessionId) {
+        removeWorkspaceTerminalSessionBinding(document, previousSessionId, 'killed')
+        void desktopApi.terminalKill(previousSessionId, 'TERM').catch(() => {
+          // Superseded background launches should not leave duplicate station sessions.
+        })
+      }
+
+      document.stationTerminals[input.station.id] = {
+        ...currentRuntime,
+        sessionId,
+        stateRaw: 'running',
+        unreadCount: currentRuntime.sessionId === sessionId ? currentRuntime.unreadCount : 0,
+        shell: input.shell,
+        cwdMode: input.cwdMode,
+        resolvedCwd: input.resolvedCwd,
+      }
+      document.sessionStation[sessionId] = input.station.id
+      document.sessionSeq[sessionId] = document.sessionSeq[sessionId] ?? 0
+      document.sessionVisibility[sessionId] = false
+      delete document.restoreState[input.station.id]
+      document.outputCache[input.station.id] =
+        document.outputCache[input.station.id] ??
+        `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
+          sessionId,
+          cwd: input.resolvedCwd ?? input.station.agentWorkdirRel,
+        })}`
+      document.outputRevision[input.station.id] = (document.outputRevision[input.station.id] ?? 0) + 1
+
+      void desktopApi
+        .terminalSetVisibility(sessionId, false)
+        .catch((error) => {
+          const detail = describeError(error)
+          if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+            removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
+          }
+        })
+      void desktopApi
+        .agentRuntimeRegister({
+          workspaceId: input.workspaceId,
+          agentId: input.station.id,
+          stationId: input.station.id,
+          roleKey: input.station.role,
+          sessionId,
+          toolKind: normalizeStationToolKind(input.station.tool),
+          resolvedCwd: input.resolvedCwd,
+          submitSequence: input.submitSequence ?? null,
+          online: true,
+        })
+        .catch(() => {
+          // The runtime will be registered again when the workspace is presented.
+        })
+    },
+    [locale],
+  )
+
   // ── Terminal event subscription ────────────────────────────────────────
   useEffect(() => {
     if (!desktopApi.isTauriRuntime()) {
@@ -841,6 +1103,34 @@ export function useShellTerminalController({
               }
               const stationId = sessionStationRef.current[payload.sessionId]
               if (!stationId) {
+                const owner = findWorkspaceTerminalSessionOwner(
+                  workspaceTerminalCacheRef.current,
+                  payload.sessionId,
+                )
+                if (!owner) {
+                  return
+                }
+                const seq = owner.document.sessionSeq[payload.sessionId] ?? 0
+                if (payload.seq <= seq) {
+                  return
+                }
+                const directText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
+                if (directText) {
+                  owner.document.outputCache[owner.stationId] = appendDetachedTerminalOutput(
+                    owner.document.outputCache[owner.stationId],
+                    directText,
+                  )
+                  owner.document.outputRevision[owner.stationId] =
+                    (owner.document.outputRevision[owner.stationId] ?? 0) + 1
+                }
+                owner.document.sessionSeq[payload.sessionId] = payload.seq
+                const runtime = owner.document.stationTerminals[owner.stationId]
+                if (runtime) {
+                  owner.document.stationTerminals[owner.stationId] = {
+                    ...runtime,
+                    unreadCount: Math.min(999, runtime.unreadCount + 1),
+                  }
+                }
                 return
               }
               const directText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
@@ -972,6 +1262,42 @@ export function useShellTerminalController({
         onStateChanged: (payload: TerminalStatePayload) => {
           const stationId = sessionStationRef.current[payload.sessionId]
           if (!stationId) {
+            const owner = findWorkspaceTerminalSessionOwner(
+              workspaceTerminalCacheRef.current,
+              payload.sessionId,
+            )
+            if (!owner) {
+              return
+            }
+            const runtime = owner.document.stationTerminals[owner.stationId]
+            if (runtime) {
+              owner.document.stationTerminals[owner.stationId] = {
+                ...runtime,
+                stateRaw: payload.to,
+              }
+            }
+            if (payload.to !== 'running') {
+              owner.document.outputCache[owner.stationId] = appendDetachedTerminalOutput(
+                owner.document.outputCache[owner.stationId],
+                `\n[terminal:${payload.to}]\n`,
+              )
+              owner.document.outputRevision[owner.stationId] =
+                (owner.document.outputRevision[owner.stationId] ?? 0) + 1
+            }
+            if (payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed') {
+              removeWorkspaceTerminalSessionBinding(
+                owner.document,
+                payload.sessionId,
+                payload.to as 'exited' | 'killed' | 'failed',
+              )
+              delete terminalOutputQueueRef.current[payload.sessionId]
+              delete terminalChunkDecoderBySessionRef.current[payload.sessionId]
+              void desktopApi
+                .agentRuntimeUnregister(owner.workspaceId, owner.stationId)
+                .catch(() => {
+                  // Runtime sync will retry when the workspace is presented again.
+                })
+            }
             return
           }
           pushStationTerminalDebugRecord(stationId, {
@@ -1041,6 +1367,18 @@ export function useShellTerminalController({
         onMeta: (payload: TerminalMetaPayload) => {
           const stationId = sessionStationRef.current[payload.sessionId]
           if (!stationId) {
+            const owner = findWorkspaceTerminalSessionOwner(
+              workspaceTerminalCacheRef.current,
+              payload.sessionId,
+            )
+            const runtime = owner?.document.stationTerminals[owner.stationId]
+            if (owner && runtime) {
+              const delta = Math.max(1, Math.min(99, payload.unreadChunks || 1))
+              owner.document.stationTerminals[owner.stationId] = {
+                ...runtime,
+                unreadCount: Math.min(999, runtime.unreadCount + delta),
+              }
+            }
             return
           }
           const tail = decodeBase64Chunk(payload.sessionId, payload.tailChunk, true)
@@ -1106,15 +1444,16 @@ export function useShellTerminalController({
       string,
       { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }
     > = {}
+    const presentedWorkspaceId = presentedWorkspaceIdRef.current
 
-    if (activeWorkspaceId) {
+    if (presentedWorkspaceId) {
       stations.forEach((station) => {
         const sessionId = stationTerminals[station.id]?.sessionId ?? null
         if (!sessionId) {
           return
         }
         desired[station.id] = {
-          workspaceId: activeWorkspaceId,
+          workspaceId: presentedWorkspaceId,
           sessionId,
           toolKind: normalizeStationToolKind(station.tool),
           resolvedCwd: stationTerminals[station.id]?.resolvedCwd ?? null,
@@ -1131,6 +1470,9 @@ export function useShellTerminalController({
         next.toolKind === runtime.toolKind &&
         next.resolvedCwd === runtime.resolvedCwd
       ) {
+        return
+      }
+      if (runtime.workspaceId !== presentedWorkspaceId) {
         return
       }
       void desktopApi
@@ -1293,6 +1635,9 @@ export function useShellTerminalController({
       if (!visible) {
         return
       }
+      if (terminalSessionVisibilityRef.current[sessionId] === false) {
+        return
+      }
       if (terminalSessionVisibilityRef.current[sessionId]) {
         return
       }
@@ -1412,6 +1757,17 @@ export function useShellTerminalController({
                 stationTerminalsRef.current[stationId],
               )
             ) {
+              if (activeWorkspaceIdRef.current !== launchWorkspaceId) {
+                cacheBackgroundLaunchedTerminalSession({
+                  workspaceId: launchWorkspaceId,
+                  station,
+                  sessionId: session.sessionId,
+                  shell: session.shell,
+                  cwdMode: session.cwdMode,
+                  resolvedCwd: session.resolvedCwd,
+                })
+                return null
+              }
               const droppedSessionCleanup = resolveDroppedStationSessionCleanup(session.sessionId)
               if (droppedSessionCleanup) {
                 void desktopApi.terminalKill(
@@ -1487,6 +1843,7 @@ export function useShellTerminalController({
     [
       activeWorkspaceId,
       appendStationTerminalOutput,
+      cacheBackgroundLaunchedTerminalSession,
       ensureTerminalSessionVisible,
       locale,
       resetStationTerminalOutput,
@@ -2076,6 +2433,21 @@ export function useShellTerminalController({
             stationToolLaunchSeqRef.current[station.id] ?? 0,
           )
         ) {
+          if (activeWorkspaceIdRef.current !== workspaceId) {
+            const submitSequence = response.submitSequence
+              ? normalizeSubmitSequence(response.submitSequence)
+              : null
+            cacheBackgroundLaunchedTerminalSession({
+              workspaceId,
+              station,
+              sessionId: terminalSessionId,
+              shell: response.shell ?? null,
+              cwdMode: response.resolvedCwd ? 'custom' : 'workspace_root',
+              resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
+              submitSequence,
+            })
+            return null
+          }
           const droppedSessionCleanup = resolveDroppedStationSessionCleanup(terminalSessionId)
           if (droppedSessionCleanup) {
             void desktopApi.terminalKill(
@@ -2187,6 +2559,7 @@ export function useShellTerminalController({
     },
     [
       appendStationTerminalOutput,
+      cacheBackgroundLaunchedTerminalSession,
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
       locale,
@@ -2746,6 +3119,8 @@ export function useShellTerminalController({
     captureActiveWorkspaceTerminalDocument,
     resolveWorkspaceTerminalDocument,
     persistActiveWorkspaceTerminalDocument,
+    suspendWorkspaceTerminalSessions,
+    recoverWorkspaceTerminalSessions,
 
     // Detached bridge
     findDetachedProjectionTargetsByStationId,

@@ -618,6 +618,8 @@ impl SessionFlowState {
             self.hidden_unread_bytes = self.hidden_unread_bytes.saturating_add(chunk.len() as u64);
             self.hidden_unread_chunks = self.hidden_unread_chunks.saturating_add(1);
             append_tail(&mut self.hidden_tail, chunk, HIDDEN_TAIL_PREVIEW_BYTES);
+            self.seq = self.seq.saturating_add(1);
+            self.push_frame(self.seq, chunk.to_vec());
         }
     }
 

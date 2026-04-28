@@ -333,7 +333,21 @@ mod tests {
     }
 
     #[test]
-    fn find_executable_hint_prefers_managed_local_bin_for_codex() {
+    fn codex_node_dir_install_attempt_uses_active_global_prefix() {
+        let attempt = AgentInstaller::npm_install_attempt_with_node_dir(
+            AgentType::Codex,
+            &[OFFICIAL_NPM_REGISTRY.to_string()],
+            Path::new("/tmp/mock-node"),
+        );
+        let script = attempt.args.last().expect("script");
+
+        assert!(script.contains("npm install -g --no-fund --no-audit @openai/codex"));
+        assert!(!script.contains("--prefix \"$HOME/.local\""));
+        assert!(!script.contains("CURRENT_PREFIX="));
+    }
+
+    #[test]
+    fn find_executable_hint_prefers_path_entry_over_managed_local_bin_for_codex() {
         let dir = temp_dir("managed-local-bin");
         with_test_home(&dir, |home| {
             let local_bin = home.join(".local").join("bin");
@@ -367,7 +381,80 @@ mod tests {
             std::env::set_var("PATH", fnm_bin.as_os_str());
 
             let hint = AgentInstaller::find_executable_hint("codex");
-            assert_eq!(hint.as_deref(), Some(local_codex.as_path()));
+            assert_eq!(hint.as_deref(), Some(fnm_codex.as_path()));
+        });
+    }
+
+    #[test]
+    fn launch_executable_hint_prefers_live_non_local_path_over_cached_local_bin() {
+        let dir = temp_dir("launch-hint-live-over-cache");
+        with_test_home(&dir, |home| {
+            let local_bin = home.join(".local").join("bin");
+            let fnm_bin = home
+                .join(".local")
+                .join("share")
+                .join("fnm")
+                .join("node-versions")
+                .join("v22.0.0")
+                .join("installation")
+                .join("bin");
+            fs::create_dir_all(&local_bin).expect("create local bin");
+            fs::create_dir_all(&fnm_bin).expect("create fnm bin");
+
+            let local_codex = local_bin.join(if cfg!(windows) { "codex.cmd" } else { "codex" });
+            let fnm_codex = fnm_bin.join(if cfg!(windows) { "codex.cmd" } else { "codex" });
+            fs::write(&local_codex, "@echo off\n").expect("write local codex");
+            fs::write(&fnm_codex, "@echo off\n").expect("write fnm codex");
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+
+                for path in [&local_codex, &fnm_codex] {
+                    let mut perms = fs::metadata(path).expect("metadata").permissions();
+                    perms.set_mode(0o755);
+                    fs::set_permissions(path, perms).expect("chmod");
+                }
+            }
+
+            let cache_dir = home.join(".gtoffice").join("cache");
+            fs::create_dir_all(&cache_dir).expect("create cache dir");
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_millis() as u64;
+            let cache_path = cache_dir.join("agent-install-status.json");
+            let cache_body = serde_json::json!({
+                "version": 2,
+                "entries": {
+                    "codex": {
+                        "checkedAtMs": now_ms,
+                        "status": {
+                            "installed": true,
+                            "executable": local_codex.display().to_string(),
+                            "requiresNode": true,
+                            "nodeReady": true,
+                            "npmReady": true,
+                            "brewReady": false,
+                            "installAvailable": true,
+                            "uninstallAvailable": true,
+                            "detectedBy": ["cache", "local-bin"],
+                            "issues": [],
+                            "autoInstallSupported": true
+                        }
+                    }
+                }
+            });
+            fs::write(
+                &cache_path,
+                serde_json::to_vec_pretty(&cache_body).expect("serialize cache"),
+            )
+            .expect("write cache");
+
+            std::env::set_var("PATH", fnm_bin.as_os_str());
+
+            let hint = AgentInstaller::launch_executable_hint(AgentType::Codex);
+            assert_eq!(hint.as_deref(), Some(fnm_codex.to_string_lossy().as_ref()));
         });
     }
 
@@ -858,9 +945,9 @@ impl AgentInstaller {
             | AgentInstallDiagnosticCode::RegistryBlocked => format!(
                 "{agent_name} removal did not finish successfully. GT Office stopped the uninstall process and you can retry or use the original package manager."
             ),
-            AgentInstallDiagnosticCode::PermissionDenied => format!(
-                "{agent_name} could not be removed because access was denied."
-            ),
+            AgentInstallDiagnosticCode::PermissionDenied => {
+                format!("{agent_name} could not be removed because access was denied.")
+            }
             AgentInstallDiagnosticCode::InstallerCorrupt
             | AgentInstallDiagnosticCode::VerificationFailed
             | AgentInstallDiagnosticCode::Unknown => format!(
@@ -1124,13 +1211,16 @@ impl AgentInstaller {
 
         AgentInstallAttempt {
             id: format!("{}-npm-node-dir", Self::cache_key(agent)),
-            label: format!("Installing {} with detected Node.js...", Self::agent_name(agent)),
+            label: format!(
+                "Installing {} with detected Node.js...",
+                Self::agent_name(agent)
+            ),
             phase: AgentInstallProgressPhase::Downloading,
             program: "bash".to_string(),
             args: vec![
                 "-lc".to_string(),
                 format!(
-                    "export PATH=\"{node_dir_str}:$PATH\" && mkdir -p \"$HOME/.local/bin\" && npm install -g --prefix \"$HOME/.local\" --no-fund --no-audit {package_name} --registry={registry} && CURRENT_PREFIX=\"$(npm prefix -g 2>/dev/null || true)\" && if [ -n \"$CURRENT_PREFIX\" ] && [ \"$CURRENT_PREFIX\" != \"$HOME/.local\" ]; then npm uninstall -g {package_name} >/dev/null 2>&1 || true; fi"
+                    "export PATH=\"{node_dir_str}:$PATH\" && npm install -g --no-fund --no-audit {package_name} --registry={registry}"
                 ),
             ],
             env,
@@ -1358,14 +1448,24 @@ impl AgentInstaller {
     }
 
     pub fn launch_executable_hint(agent: AgentType) -> Option<String> {
+        let command = Self::executable_name(agent);
+        let live_hint = Self::find_executable_hint(command).map(|path| path.display().to_string());
+
         if let Some(cached) = Self::load_cached_install_status(agent) {
-            if let Some(executable) = cached.executable {
-                return Some(executable);
+            if let Some(cached_executable) = cached.executable {
+                if let Some(live_executable) = live_hint.as_ref() {
+                    if cached_executable != *live_executable
+                        && Self::is_legacy_local_bin_path(Path::new(&cached_executable))
+                        && !Self::is_legacy_local_bin_path(Path::new(live_executable))
+                    {
+                        return Some(live_executable.clone());
+                    }
+                }
+                return Some(cached_executable);
             }
         }
 
-        let command = Self::executable_name(agent);
-        Self::find_executable_hint(command).map(|path| path.display().to_string())
+        live_hint
     }
 
     fn detect_installed_with_node_dir(
@@ -1399,11 +1499,15 @@ impl AgentInstaller {
     }
 
     fn find_executable_hint(command: &str) -> Option<PathBuf> {
-        if let Some(path) = Self::managed_global_executable(command) {
+        if let Some(path) = Self::resolve_command_in_path(command) {
             return Some(path);
         }
 
-        if let Some(path) = Self::resolve_command_in_path(command) {
+        if let Some(path) = Self::resolve_command_via_login_shell(command) {
+            return Some(path);
+        }
+
+        if let Some(path) = Self::managed_global_executable(command) {
             return Some(path);
         }
 
@@ -1438,8 +1542,8 @@ impl AgentInstaller {
         let mut seen_paths = BTreeSet::new();
         if let Some(result) = Self::try_verified_candidate(
             command,
-            Self::managed_global_executable(command),
-            vec!["managed-global".to_string()],
+            path_env_path,
+            vec!["path-env".to_string()],
             shell_ready,
             &mut seen_paths,
             node_runtime_dir,
@@ -1449,8 +1553,19 @@ impl AgentInstaller {
 
         if let Some(result) = Self::try_verified_candidate(
             command,
-            path_env_path,
-            vec!["path-env".to_string()],
+            shell_path.clone(),
+            vec!["login-shell".to_string()],
+            shell_ready,
+            &mut seen_paths,
+            node_runtime_dir,
+        ) {
+            return result;
+        }
+
+        if let Some(result) = Self::try_verified_candidate(
+            command,
+            Self::managed_global_executable(command),
+            vec!["managed-global".to_string()],
             shell_ready,
             &mut seen_paths,
             node_runtime_dir,
@@ -1476,17 +1591,6 @@ impl AgentInstaller {
                     return result;
                 }
             }
-        }
-
-        if let Some(result) = Self::try_verified_candidate(
-            command,
-            shell_path,
-            vec!["login-shell".to_string()],
-            shell_ready,
-            &mut seen_paths,
-            node_runtime_dir,
-        ) {
-            return result;
         }
 
         DetectionResult {
@@ -1640,6 +1744,13 @@ impl AgentInstaller {
             }
         }
         None
+    }
+
+    fn is_legacy_local_bin_path(path: &Path) -> bool {
+        let Some(home) = Self::user_home_dir() else {
+            return false;
+        };
+        path.starts_with(home.join(".local").join("bin"))
     }
 
     fn detection_labels_for_path(path: &Path) -> Vec<String> {

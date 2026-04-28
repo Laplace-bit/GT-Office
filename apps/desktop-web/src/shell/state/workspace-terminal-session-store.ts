@@ -13,6 +13,12 @@ export interface WorkspaceTerminalSessionDocument {
   sessionVisibility: Record<string, boolean>
 }
 
+export interface WorkspaceTerminalSessionOwner {
+  workspaceId: string
+  stationId: string
+  document: WorkspaceTerminalSessionDocument
+}
+
 export function createWorkspaceTerminalSessionDocument(
   stations: AgentStation[],
 ): WorkspaceTerminalSessionDocument {
@@ -91,4 +97,68 @@ export function hydrateWorkspaceTerminalSessionDocument(
   })
 
   return hydrated
+}
+
+export function findWorkspaceTerminalSessionOwner(
+  documents: Record<string, WorkspaceTerminalSessionDocument>,
+  sessionId: string | null | undefined,
+): WorkspaceTerminalSessionOwner | null {
+  const normalizedSessionId = sessionId?.trim() ?? ''
+  if (!normalizedSessionId) {
+    return null
+  }
+  for (const [workspaceId, document] of Object.entries(documents)) {
+    const stationId = document.sessionStation[normalizedSessionId]
+    if (!stationId) {
+      continue
+    }
+    return {
+      workspaceId,
+      stationId,
+      document,
+    }
+  }
+  return null
+}
+
+export function setWorkspaceTerminalSessionVisibility(
+  document: WorkspaceTerminalSessionDocument,
+  visible: boolean,
+): string[] {
+  const sessionIds = Object.keys(document.sessionStation)
+  sessionIds.forEach((sessionId) => {
+    document.sessionVisibility[sessionId] = visible
+  })
+  return sessionIds
+}
+
+export function removeWorkspaceTerminalSessionBinding(
+  document: WorkspaceTerminalSessionDocument,
+  sessionId: string | null | undefined,
+  nextStateRaw: 'exited' | 'killed' | 'failed' = 'exited',
+): string | null {
+  const normalizedSessionId = sessionId?.trim() ?? ''
+  if (!normalizedSessionId) {
+    return null
+  }
+  const stationId = document.sessionStation[normalizedSessionId] ?? null
+  if (!stationId) {
+    return null
+  }
+  delete document.sessionStation[normalizedSessionId]
+  delete document.sessionSeq[normalizedSessionId]
+  delete document.sessionVisibility[normalizedSessionId]
+
+  const runtime = document.stationTerminals[stationId]
+  if (runtime?.sessionId === normalizedSessionId) {
+    document.stationTerminals[stationId] = {
+      ...runtime,
+      sessionId: null,
+      stateRaw: nextStateRaw,
+      shell: null,
+      cwdMode: 'workspace_root',
+      resolvedCwd: null,
+    }
+  }
+  return stationId
 }

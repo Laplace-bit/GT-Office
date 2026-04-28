@@ -1,5 +1,4 @@
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -178,7 +177,6 @@ pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<()
         None,
     );
 
-    ensure_global_shell_path_for_local_bin(&window, &progress_event);
     AgentInstaller::invalidate_install_status_cache(Some(agent));
     let verified = AgentInstaller::install_status_fresh(agent);
     if !verified.installed {
@@ -337,124 +335,6 @@ fn emit_progress(
     );
 }
 
-fn ensure_global_shell_path_for_local_bin(window: &tauri::Window, progress_event: &str) {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = window;
-        let _ = progress_event;
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let Some(home) = user_home_dir() else {
-            return;
-        };
-        let local_bin = home.join(".local").join("bin");
-        if let Err(error) = fs::create_dir_all(&local_bin) {
-            emit_progress(
-                window,
-                progress_event,
-                AgentInstallProgressPhase::Verifying,
-                "Finishing shell integration...".to_string(),
-                Some(format!(
-                    "Failed to create {} for global CLI exposure: {}",
-                    local_bin.display(),
-                    error
-                )),
-                None,
-                None,
-            );
-            return;
-        }
-
-        let marker_start = "# >>> GT Office local-bin >>>";
-        let marker_end = "# <<< GT Office local-bin <<<";
-        let export_line = "export PATH=\"$HOME/.local/bin:$PATH\"";
-        let block = format!("\n{marker_start}\n{export_line}\n{marker_end}\n");
-        let rc_files = [
-            ".zshrc",
-            ".zprofile",
-            ".bashrc",
-            ".bash_profile",
-            ".profile",
-        ];
-        let mut updated = Vec::new();
-
-        for rc_name in rc_files {
-            let rc_path = home.join(rc_name);
-            let existing = match fs::read_to_string(&rc_path) {
-                Ok(content) => content,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-                Err(error) => {
-                    emit_progress(
-                        window,
-                        progress_event,
-                        AgentInstallProgressPhase::Verifying,
-                        "Finishing shell integration...".to_string(),
-                        Some(format!("Failed to read {}: {}", rc_path.display(), error)),
-                        None,
-                        None,
-                    );
-                    continue;
-                }
-            };
-
-            if existing.contains(export_line) || existing.contains(marker_start) {
-                continue;
-            }
-
-            let mut file = match OpenOptions::new().create(true).append(true).open(&rc_path) {
-                Ok(file) => file,
-                Err(error) => {
-                    emit_progress(
-                        window,
-                        progress_event,
-                        AgentInstallProgressPhase::Verifying,
-                        "Finishing shell integration...".to_string(),
-                        Some(format!("Failed to update {}: {}", rc_path.display(), error)),
-                        None,
-                        None,
-                    );
-                    continue;
-                }
-            };
-
-            if let Err(error) = file.write_all(block.as_bytes()) {
-                emit_progress(
-                    window,
-                    progress_event,
-                    AgentInstallProgressPhase::Verifying,
-                    "Finishing shell integration...".to_string(),
-                    Some(format!(
-                        "Failed to write PATH export into {}: {}",
-                        rc_path.display(),
-                        error
-                    )),
-                    None,
-                    None,
-                );
-                continue;
-            }
-            updated.push(rc_name.to_string());
-        }
-
-        if !updated.is_empty() {
-            emit_progress(
-                window,
-                progress_event,
-                AgentInstallProgressPhase::Verifying,
-                "Finishing shell integration...".to_string(),
-                Some(format!(
-                    "Added ~/.local/bin PATH export to {}. Reopen terminal sessions to apply.",
-                    updated.join(", ")
-                )),
-                None,
-                None,
-            );
-        }
-    }
-}
-
 fn default_install_failure_code(status: &AgentInstallStatus) -> AgentInstallDiagnosticCode {
     if status.requires_node && !status.node_ready && !status.brew_ready {
         return AgentInstallDiagnosticCode::NodeMissing;
@@ -463,17 +343,6 @@ fn default_install_failure_code(status: &AgentInstallStatus) -> AgentInstallDiag
         return AgentInstallDiagnosticCode::NpmMissing;
     }
     AgentInstallDiagnosticCode::Unknown
-}
-
-fn user_home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("USERPROFILE")
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-        })
 }
 
 fn run_progress_command(attempt: &AgentInstallAttempt) -> Result<CommandExecutionResult, String> {

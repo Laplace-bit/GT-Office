@@ -201,6 +201,63 @@ fn pty_provider_emits_output_event_after_write() {
 
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn pty_provider_records_hidden_output_for_delta_recovery() {
+    let workspace_dir = TempDir::create("gtoffice-terminal-pty-hidden-delta");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_dir.path)
+        .expect("open workspace");
+    let provider = PtyTerminalProvider::new(workspace_service, AllowAllPolicyEvaluator);
+
+    let session = provider
+        .create_session(TerminalCreateRequest {
+            workspace_id: workspace.workspace_id.clone(),
+            shell: Some("/bin/bash".to_string()),
+            cwd: None,
+            cwd_mode: TerminalCwdMode::WorkspaceRoot,
+            env: BTreeMap::new(),
+            agent_tool_kind: None,
+        })
+        .expect("create pty session");
+
+    provider
+        .write_session(
+            &session.session_id,
+            "printf '__GTO_HIDDEN_DELTA_TEST__\\n'\n",
+        )
+        .expect("write hidden pty command");
+
+    let mut observed_output = String::new();
+    let mut observed_seq = 0;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        let delta = provider
+            .read_session_delta(&session.session_id, observed_seq, 262_144)
+            .expect("read hidden delta");
+        if delta.to_seq > observed_seq {
+            observed_output.push_str(&String::from_utf8_lossy(&delta.chunk));
+            observed_seq = delta.to_seq;
+        }
+        if observed_output.contains("__GTO_HIDDEN_DELTA_TEST__") {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    assert!(
+        observed_output.contains("__GTO_HIDDEN_DELTA_TEST__"),
+        "hidden terminal output was not available via delta, got: {observed_output}"
+    );
+    assert!(
+        observed_seq > 0,
+        "expected hidden output to advance sequence"
+    );
+
+    let _ = provider.kill_session(&session.session_id);
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
     let workspace_dir = TempDir::create("gtoffice-terminal-pty-processes");
     let workspace_service = InMemoryWorkspaceService::new();
