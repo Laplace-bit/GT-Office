@@ -1071,6 +1071,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     ? {
         ...workbenchCanvasBaseProps,
         containers: [pinnedWorkbenchContainer],
+        workspaceTransitioning: workspaceSwitching,
         pinnedWorkbenchContainerId,
         showStage: true,
         showFloatingPortal: false,
@@ -1083,6 +1084,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   const mainWorkbenchCanvasProps = {
     ...workbenchCanvasBaseProps,
     containers: projectedWorkbenchContainers,
+    workspaceTransitioning: workspaceSwitching,
     showStage: true,
     floatingVisibility: 'non_topmost' as const,
     scrollToStationId: pendingScrollStationId,
@@ -1095,6 +1097,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     ? {
         ...workbenchCanvasBaseProps,
         containers: workbenchContainers,
+        workspaceTransitioning: workspaceSwitching,
         showStage: false,
         floatingVisibility: 'topmost' as const,
         onRunStationAction: executeStationAction,

@@ -126,6 +126,32 @@ interface UseShellWorkspaceSessionControllerInput {
   uiPreferences: UiPreferences
 }
 
+const WORKSPACE_SWITCH_CONTENT_READY_TIMEOUT_MS = 180
+
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve())
+    })
+  })
+}
+
+function waitForTimeout(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+async function waitForWorkspaceReveal(activeFileLoad: Promise<void> | null): Promise<void> {
+  if (activeFileLoad) {
+    await Promise.race([
+      activeFileLoad.catch(() => {}),
+      waitForTimeout(WORKSPACE_SWITCH_CONTENT_READY_TIMEOUT_MS),
+    ])
+  }
+  await waitForNextPaint()
+}
+
 export interface ShellWorkspaceSessionController {
   // State
   presentedWorkspaceId: string | null
@@ -803,17 +829,23 @@ export function useShellWorkspaceSessionController({
           })),
         )
         setActiveFilePath(activeTabPath)
-        if (activeTabPath) {
-          void loadFileContentRef.current(activeTabPath, 'full')
-        }
+        const activeFileLoad = activeTabPath ? loadFileContentRef.current(activeTabPath, 'full') : null
 
         if (shouldAnimateWorkspaceSwitch) {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              completeWorkspaceSwitch(workspaceId)
-            })
-          })
+          await waitForWorkspaceReveal(activeFileLoad)
+          if (
+            cancelled ||
+            workspaceSessionRestoreSeqRef.current !== restoreSeq ||
+            activeWorkspaceIdRef.current !== workspaceId
+          ) {
+            completeWorkspaceSwitch(workspaceId)
+            return
+          }
+          completeWorkspaceSwitch(workspaceId)
         } else {
+          if (activeFileLoad) {
+            void activeFileLoad.catch(() => {})
+          }
           completeWorkspaceSwitch(workspaceId)
         }
 

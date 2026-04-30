@@ -118,6 +118,7 @@ export function WorkspaceTabBar({
   return (
     <div
       className={`vb-workspace-tab-bar${switchingClass}`}
+      data-switch-anim={workspaceSwitchAnimation !== 'none' ? workspaceSwitchAnimation : undefined}
       ref={scrollContainerRef}
     >
       {tabs.map((tab, index) => {

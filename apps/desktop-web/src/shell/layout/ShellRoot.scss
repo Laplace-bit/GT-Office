@@ -1,5 +1,8 @@
 @use '../../styles/tokens/responsive' as *;
 
+$workspace-switch-ease: cubic-bezier(0.16, 1, 0.3, 1);
+$workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
+
 .agent-shell {
   height: 100dvh;
   min-height: 100dvh;
@@ -10,6 +13,15 @@
   gap: var(--vb-space-2xs);
   padding: 0;
   overflow: hidden;
+  position: relative;
+  --workspace-switch-crossfade-duration: 420ms;
+  --workspace-switch-crossfade-exit-duration: 240ms;
+  --workspace-switch-slide-duration: 460ms;
+  --workspace-switch-slide-exit-duration: 260ms;
+  --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
+  --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration);
+  --workspace-switch-ease: #{$workspace-switch-ease};
+  --workspace-switch-exit-ease: #{$workspace-switch-exit-ease};
   background:
     radial-gradient(ellipse 80% 50% at 0% 0%, rgba(0, 122, 255, 0.04), transparent 50%),
     radial-gradient(ellipse 60% 40% at 100% 100%, rgba(88, 86, 214, 0.03), transparent 50%),
@@ -208,90 +220,147 @@
 // Workspace transition should keep the old view perceptible until the new one is ready.
 // Avoid fading the whole main region to zero, otherwise the user sees a blank shell.
 .shell-main-layout {
-  transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-              filter 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  isolation: isolate;
+  transform: translate3d(0, 0, 0);
   transform-origin: center center;
-  will-change: opacity, transform, filter;
+  backface-visibility: hidden;
+  transition:
+    opacity var(--workspace-switch-duration) var(--workspace-switch-ease),
+    transform var(--workspace-switch-duration) var(--workspace-switch-ease);
+  will-change: transform;
+
+  &[data-switch-anim='crossfade'] {
+    --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
+    --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration);
+  }
+
+  &[data-switch-anim='slide'] {
+    --workspace-switch-duration: var(--workspace-switch-slide-duration);
+    --workspace-switch-exit-duration: var(--workspace-switch-slide-exit-duration);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    border-radius: #{rem(22)};
+    opacity: 0;
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--vb-surface-elevated) 24%, transparent),
+        color-mix(in srgb, var(--vb-bg) 14%, transparent)
+      ),
+      color-mix(in srgb, var(--vb-accent) 5%, transparent);
+    transition: opacity var(--workspace-switch-duration) var(--workspace-switch-ease);
+  }
 
   &.workspace-switching {
     pointer-events: none;
   }
 
   &.workspace-switching--crossfade {
-    opacity: 0.92;
-    transform: scale(0.996);
-    filter: saturate(0.97);
-    transition: opacity 0.22s cubic-bezier(0.4, 0, 1, 1),
-                transform 0.22s cubic-bezier(0.4, 0, 1, 1),
-                filter 0.22s cubic-bezier(0.4, 0, 1, 1);
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(0.992);
+    transition:
+      opacity var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease),
+      transform var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease);
+
+    &::after {
+      opacity: 0.28;
+      transition-duration: var(--workspace-switch-exit-duration);
+      transition-timing-function: var(--workspace-switch-exit-ease);
+    }
   }
 
   &.workspace-switching--slide {
-    opacity: 0.72;
-    transform: translateX(-3.6%);
-    filter: saturate(0.96);
-    transition: opacity 0.2s cubic-bezier(0.4, 0, 1, 1),
-                transform 0.24s cubic-bezier(0.55, 0, 1, 0.45),
-                filter 0.2s cubic-bezier(0.4, 0, 1, 1);
+    opacity: 1;
+    transform: translate3d(-#{rem(14)}, 0, 0) scale(0.994);
+    transition:
+      opacity var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease),
+      transform var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease);
+
+    &::after {
+      opacity: 0.24;
+      transition-duration: var(--workspace-switch-exit-duration);
+      transition-timing-function: var(--workspace-switch-exit-ease);
+    }
   }
-}
-
-.shell-main-layout.workspace-switching-crossfade-enter {
-  opacity: 0.78;
-  transform: scale(1.008);
-  filter: blur(#{rem(1.5)}) saturate(1.02);
-  transition: none;
-}
-
-.shell-main-layout.workspace-switching-slide-enter {
-  opacity: 0.74;
-  transform: translateX(4.5%);
-  filter: blur(#{rem(1.2)}) saturate(1.01);
-  transition: none;
 }
 
 // Status bar wrapper also participates in the workspace transition.
 .shell-status-wrapper {
-  transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-              filter 0.36s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: opacity, transform, filter;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transform: translate3d(0, 0, 0);
+  transform-origin: center center;
+  backface-visibility: hidden;
+  transition:
+    opacity var(--workspace-switch-duration) var(--workspace-switch-ease),
+    transform var(--workspace-switch-duration) var(--workspace-switch-ease);
+  will-change: transform;
+
+  &[data-switch-anim='crossfade'] {
+    --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
+    --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration);
+  }
+
+  &[data-switch-anim='slide'] {
+    --workspace-switch-duration: var(--workspace-switch-slide-duration);
+    --workspace-switch-exit-duration: var(--workspace-switch-slide-exit-duration);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+    border-radius: #{rem(14)};
+    opacity: 0;
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--vb-surface-elevated) 24%, transparent),
+        color-mix(in srgb, var(--vb-bg) 12%, transparent)
+      );
+    transition: opacity var(--workspace-switch-duration) var(--workspace-switch-ease);
+  }
 
   &.workspace-switching {
     pointer-events: none;
   }
 
   &.workspace-switching--crossfade {
-    opacity: 0.9;
-    transform: scaleY(0.985);
-    filter: saturate(0.98);
-    transition: opacity 0.22s cubic-bezier(0.4, 0, 1, 1),
-                transform 0.22s cubic-bezier(0.4, 0, 1, 1),
-                filter 0.22s cubic-bezier(0.4, 0, 1, 1);
+    opacity: 1;
+    transform: translate3d(0, #{rem(1)}, 0) scale(0.994);
+    transition:
+      opacity var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease),
+      transform var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease);
+
+    &::after {
+      opacity: 0.22;
+      transition-duration: var(--workspace-switch-exit-duration);
+      transition-timing-function: var(--workspace-switch-exit-ease);
+    }
   }
 
   &.workspace-switching--slide {
-    opacity: 0.76;
-    transform: translateX(-2.8%);
-    filter: saturate(0.97);
-    transition: opacity 0.2s cubic-bezier(0.4, 0, 1, 1),
-                transform 0.24s cubic-bezier(0.55, 0, 1, 0.45),
-                filter 0.2s cubic-bezier(0.4, 0, 1, 1);
-  }
+    opacity: 1;
+    transform: translate3d(-#{rem(9)}, 0, 0) scale(0.995);
+    transition:
+      opacity var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease),
+      transform var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease);
 
-  &.workspace-switching-crossfade-enter {
-    opacity: 0.78;
-    transform: scaleY(1.03);
-    filter: blur(#{rem(1)}) saturate(1.02);
-    transition: none;
-  }
-
-  &.workspace-switching-slide-enter {
-    opacity: 0.74;
-    transform: translateX(3.2%);
-    filter: blur(#{rem(0.8)}) saturate(1.01);
-    transition: none;
+    &::after {
+      opacity: 0.18;
+      transition-duration: var(--workspace-switch-exit-duration);
+      transition-timing-function: var(--workspace-switch-exit-ease);
+    }
   }
 }
 
@@ -523,6 +592,14 @@
 
 .agent-shell.workspace-switching-active {
   :where(
+    .shell-left-pane-transition,
+    .shell-pane-transition,
+    .station-card-slot,
+    .workbench-canvas,
+    .workbench-stage-grid,
+    .station-grid,
+    .file-editor-tabs,
+    .file-editor-content,
     .station-terminal-shell,
     .station-terminal-shell *,
     .terminal-station-pane-task-bubble,
@@ -545,7 +622,12 @@
   .shell-status-wrapper {
     transition-duration: 0.01ms !important;
     transform: none !important;
-    filter: none !important;
+  }
+
+  .shell-main-layout::after,
+  .shell-status-wrapper::after {
+    opacity: 0 !important;
+    transition: none !important;
   }
 }
 

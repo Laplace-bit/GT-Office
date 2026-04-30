@@ -73,6 +73,7 @@ interface WorkbenchCanvasProps {
   showStage?: boolean
   showFloatingPortal?: boolean
   floatingVisibility?: 'all' | 'topmost' | 'non_topmost'
+  workspaceTransitioning?: boolean
   stations: AgentStation[]
   roleFilter?: StationRole | 'all'
   containers: WorkbenchContainerModel[]
@@ -261,6 +262,7 @@ function WorkbenchCanvasView({
   showStage = true,
   showFloatingPortal = true,
   floatingVisibility = 'all',
+  workspaceTransitioning = false,
   stations,
   roleFilter = 'all',
   containers,
@@ -583,6 +585,7 @@ function WorkbenchCanvasView({
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
+                    workspaceTransitioning={workspaceTransitioning}
                     scrollToStationId={scrollToStationId && container.stationIds.includes(scrollToStationId) ? scrollToStationId : null}
                     onScrollToStationHandled={onScrollToStationHandled}
                     onSelectStation={onSelectStation}
@@ -661,6 +664,7 @@ function WorkbenchCanvasView({
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
+                    workspaceTransitioning={workspaceTransitioning}
                     onSelectStation={onSelectStation}
                     onLaunchStationTerminal={onLaunchStationTerminal}
                     onLaunchCliAgent={onLaunchCliAgent}

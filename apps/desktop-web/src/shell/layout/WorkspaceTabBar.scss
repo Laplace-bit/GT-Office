@@ -15,10 +15,23 @@
   scrollbar-width: none;
   -ms-overflow-style: none;
   padding: 0;
-  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translate3d(0, 0, 0);
+  transition:
+    opacity var(--workspace-switch-duration, 420ms) var(--workspace-switch-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+    transform var(--workspace-switch-duration, 420ms) var(--workspace-switch-ease, cubic-bezier(0.16, 1, 0.3, 1));
 
   &::-webkit-scrollbar {
     display: none;
+  }
+
+  &[data-switch-anim='crossfade'] {
+    --workspace-switch-duration: var(--workspace-switch-crossfade-duration, 420ms);
+    --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration, 240ms);
+  }
+
+  &[data-switch-anim='slide'] {
+    --workspace-switch-duration: var(--workspace-switch-slide-duration, 460ms);
+    --workspace-switch-exit-duration: var(--workspace-switch-slide-exit-duration, 260ms);
   }
 
   &.workspace-switching {
@@ -26,16 +39,18 @@
   }
 
   &.workspace-switching--crossfade {
-    opacity: 0.96;
-    transition: opacity 0.14s cubic-bezier(0.4, 0, 1, 1);
+    opacity: 0.98;
+    transition:
+      opacity var(--workspace-switch-exit-duration, 240ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
+      transform var(--workspace-switch-exit-duration, 240ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
   }
 
   &.workspace-switching--slide {
-    opacity: 0.94;
-    transform: translateX(#{rem(-2)});
+    opacity: 0.97;
+    transform: translate3d(#{rem(-4)}, 0, 0);
     transition:
-      opacity 0.14s cubic-bezier(0.4, 0, 1, 1),
-      transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+      opacity var(--workspace-switch-slide-exit-duration, 260ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
+      transform var(--workspace-switch-slide-exit-duration, 260ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
   }
 }
 

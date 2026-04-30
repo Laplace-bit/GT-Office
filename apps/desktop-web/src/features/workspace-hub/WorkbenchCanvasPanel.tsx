@@ -75,6 +75,7 @@ interface WorkbenchCanvasPanelProps {
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   dropActive?: boolean
   detachedReadonly?: boolean
+  workspaceTransitioning?: boolean
   scrollToStationId?: string | null
   onScrollToStationHandled?: (stationId: string) => void
   onSelectStation: (containerId: string, stationId: string) => void
@@ -258,17 +259,20 @@ function StationCardSlot({
   mode,
   snapshot,
   inert = false,
+  transitionSuspended = false,
   children,
 }: {
   stationId: string
   mode: 'stable' | 'entering' | 'exiting' | 'parked'
   snapshot?: ExitingStationSnapshot | null
   inert?: boolean
+  transitionSuspended?: boolean
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
   const isParked = mode === 'parked'
   const isExiting = mode === 'exiting'
+  const motionDisabled = reducedMotion || transitionSuspended
 
   return (
     <motion.div
@@ -282,18 +286,18 @@ function StationCardSlot({
       ]
         .filter(Boolean)
         .join(' ')}
-      layout={!reducedMotion && !isParked && !isExiting}
+      layout={!motionDisabled && !isParked && !isExiting}
       initial={false}
       animate={isParked || mode === 'exiting' ? { opacity: 0 } : { opacity: 1 }}
       transition={{
         opacity: {
-          duration: reducedMotion
+          duration: motionDisabled
             ? 0
             : (mode === 'entering' ? ROLE_FILTER_ENTER_MS : ROLE_FILTER_EXIT_MS) / 1000,
           ease: [0.32, 0.72, 0, 1],
           delay: 0,
         },
-        layout: reducedMotion
+        layout: motionDisabled
           ? { duration: 0 }
           : { type: 'spring', stiffness: 320, damping: 30, mass: 0.88 },
       }}
@@ -327,6 +331,7 @@ function WorkbenchCanvasPanelView({
   channelBotBindingsByStationId = {},
   dropActive = false,
   detachedReadonly = false,
+  workspaceTransitioning = false,
   scrollToStationId = null,
   onScrollToStationHandled,
   onSelectStation,
@@ -907,6 +912,7 @@ function WorkbenchCanvasPanelView({
           mode={options?.slotMode ?? 'stable'}
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
           inert={Boolean(options?.inert)}
+          transitionSuspended={workspaceTransitioning}
         >
           <StationCard
             locale={locale}
@@ -981,6 +987,7 @@ function WorkbenchCanvasPanelView({
       onStationDragEnd,
       taskSignalByStationId,
       terminalByStation,
+      workspaceTransitioning,
     ],
   )
 

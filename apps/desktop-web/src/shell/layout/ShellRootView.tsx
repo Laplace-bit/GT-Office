@@ -5,7 +5,6 @@ import type {
   PointerEventHandler,
   RefObject,
 } from 'react'
-import { useEffect, useRef } from 'react'
 import { FileEditorPane, FileTreePane, GlobalFileSearchModal } from '@features/file-explorer'
 import { GitHistoryPane, GitOperationsPane } from '@features/git'
 import { GlobalTaskDispatchOverlay, TaskCenterPane } from '@features/task-center'
@@ -521,34 +520,6 @@ export function ShellRootView({
   workspaceSwitching,
   workspaceSwitchAnimation,
 }: ShellRootViewProps) {
-  const prevSwitchingRef = useRef(false)
-
-  useEffect(() => {
-    if (workspaceSwitchAnimation === 'none') {
-      prevSwitchingRef.current = workspaceSwitching
-      return
-    }
-
-    if (prevSwitchingRef.current && !workspaceSwitching) {
-      const enterClass =
-        workspaceSwitchAnimation === 'slide'
-          ? 'workspace-switching-slide-enter'
-          : 'workspace-switching-crossfade-enter'
-      const main = shellMainRef.current
-      const status = shellStatusRef.current
-      if (main) main.classList.add(enterClass)
-      if (status) status.classList.add(enterClass)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (main) main.classList.remove(enterClass)
-          if (status) status.classList.remove(enterClass)
-        })
-      })
-    }
-
-    prevSwitchingRef.current = workspaceSwitching
-  }, [workspaceSwitching, workspaceSwitchAnimation, shellMainRef, shellStatusRef])
-
   const switchingClass = workspaceSwitching && workspaceSwitchAnimation !== 'none'
     ? ` workspace-switching workspace-switching--${workspaceSwitchAnimation}`
     : ''
@@ -611,7 +582,11 @@ export function ShellRootView({
 
       {topmostWorkbenchCanvasProps ? <WorkbenchCanvas {...topmostWorkbenchCanvasProps} /> : null}
 
-      <div ref={shellStatusRef} className={`shell-status-wrapper relative z-10${switchingClass}`}>
+      <div
+        ref={shellStatusRef}
+        className={`shell-status-wrapper relative z-10${switchingClass}`}
+        data-switch-anim={workspaceSwitchAnimation !== 'none' ? workspaceSwitchAnimation : undefined}
+      >
         <StatusBar {...statusBarProps} />
       </div>
 
