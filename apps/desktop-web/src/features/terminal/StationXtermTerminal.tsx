@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { shouldAcceptStationTerminalLocalInput } from './station-terminal-runtime-state'
 import { resolveTerminalDocument } from './station-terminal-document-scope'
 import '@xterm/xterm/css/xterm.css'
@@ -36,6 +36,7 @@ export interface StationTerminalSinkBindingMeta {
   restoreState?: string | null
   restoreCols?: number
   restoreRows?: number
+  restorePriority?: 'active' | 'background'
 }
 
 export type StationTerminalSinkBindingHandler = (
@@ -69,6 +70,77 @@ const TERMINAL_OVERVIEW_RULER_WIDTH = 0
 const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
 const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
+const BACKGROUND_TERMINAL_INIT_TIMEOUT_MS = 1200
+const BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS = 96
+
+interface IdleDeadlineLike {
+  didTimeout: boolean
+  timeRemaining: () => number
+}
+
+interface IdleCallbackScheduler {
+  requestIdleCallback?: (
+    callback: (deadline: IdleDeadlineLike) => void,
+    options?: { timeout?: number },
+  ) => number
+  cancelIdleCallback?: (handle: number) => void
+}
+
+interface BackgroundTerminalInitTask {
+  cancelled: boolean
+  run: () => void
+}
+
+let backgroundTerminalInitScheduled: { kind: 'idle' | 'timeout'; id: number } | null = null
+const backgroundTerminalInitQueue: BackgroundTerminalInitTask[] = []
+
+function scheduleBackgroundTerminalInitDrain() {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (backgroundTerminalInitScheduled || backgroundTerminalInitQueue.length === 0) {
+    return
+  }
+  const win = window as unknown as IdleCallbackScheduler
+  const runNext = (deadline: IdleDeadlineLike) => {
+    backgroundTerminalInitScheduled = null
+    if (!deadline.didTimeout && deadline.timeRemaining() < 6) {
+      scheduleBackgroundTerminalInitDrain()
+      return
+    }
+    let nextTask = backgroundTerminalInitQueue.shift()
+    while (nextTask?.cancelled) {
+      nextTask = backgroundTerminalInitQueue.shift()
+    }
+    nextTask?.run()
+    scheduleBackgroundTerminalInitDrain()
+  }
+
+  if (win.requestIdleCallback) {
+    backgroundTerminalInitScheduled = {
+      kind: 'idle',
+      id: win.requestIdleCallback(runNext, { timeout: BACKGROUND_TERMINAL_INIT_TIMEOUT_MS }),
+    }
+    return
+  }
+
+  backgroundTerminalInitScheduled = {
+    kind: 'timeout',
+    id: window.setTimeout(
+      () => runNext({ didTimeout: true, timeRemaining: () => 0 }),
+      BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS,
+    ),
+  }
+}
+
+function scheduleBackgroundTerminalInit(run: () => void): () => void {
+  const task: BackgroundTerminalInitTask = { cancelled: false, run }
+  backgroundTerminalInitQueue.push(task)
+  scheduleBackgroundTerminalInitDrain()
+  return () => {
+    task.cancelled = true
+  }
+}
 
 function isShellPromptText(text: string): boolean {
   const trimmed = text.trim()
@@ -278,6 +350,8 @@ function StationXtermTerminalView({
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
   const boundSinkRef = useRef<StationTerminalSink | null>(null)
+  const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(isActive)
+  const isActiveRef = useRef(isActive)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
   const onRenderedScreenSnapshotRef = useRef(onRenderedScreenSnapshot)
@@ -364,6 +438,33 @@ function StationXtermTerminalView({
   }, [onRestoreStateCaptured])
 
   useEffect(() => {
+    isActiveRef.current = isActive
+    if (isActive) {
+      setRuntimeInitAllowed(true)
+    }
+  }, [isActive])
+
+  useEffect(() => {
+    if (runtimeInitAllowed) {
+      return
+    }
+    return scheduleBackgroundTerminalInit(() => {
+      setRuntimeInitAllowed(true)
+    })
+  }, [runtimeInitAllowed])
+
+  useEffect(() => {
+    if (!isActive) {
+      return
+    }
+    const sink = boundSinkRef.current
+    if (!sink) {
+      return
+    }
+    onBindSink(stationId, sink, { restorePriority: 'active' })
+  }, [isActive, onBindSink, stationId])
+
+  useEffect(() => {
     screenRevisionRef.current = 0
     lastSnapshotSignatureRef.current = ''
   }, [sessionId])
@@ -424,7 +525,7 @@ function StationXtermTerminalView({
 
   useEffect(() => {
     const host = hostRef.current
-    if (!host) {
+    if (!host || !runtimeInitAllowed) {
       return
     }
 
@@ -438,6 +539,8 @@ function StationXtermTerminalView({
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
     let serializeFrameId: number | null = null
+    let captureLatestRestoreState: (() => void) | null = null
+    let removeViewportWakeListeners: (() => void) | null = null
     let removeCompositionStartSyncListener: (() => void) | null = null
     let removeMacOsImeFallbackListeners: (() => void) | null = null
     let pendingNativeTextInputRef: { current: boolean } | null = null
@@ -671,6 +774,7 @@ function StationXtermTerminalView({
             // No-op: serialization should not break terminal lifecycle.
           }
         }
+        captureLatestRestoreState = captureSerializedRestoreState
         const scheduleSerializedRestoreStateCapture = () => {
           if (performanceDebugEnabled) {
             return
@@ -836,6 +940,32 @@ function StationXtermTerminalView({
             ensureFitWhenVisible()
           })
         }
+        const hostDocument = resolveTerminalDocument(host, document)
+        const hostWindow = hostDocument.defaultView ?? window
+        const handleViewportWake = () => {
+          if (!active) {
+            return
+          }
+          if (fitAndRefresh()) {
+            onResizeRef.current(stationId, terminal.cols, terminal.rows)
+            return
+          }
+          scheduleFitRetry()
+        }
+        const handleVisibilityChange = () => {
+          if (hostDocument.visibilityState !== 'visible') {
+            return
+          }
+          handleViewportWake()
+        }
+        hostWindow.addEventListener('resize', handleViewportWake)
+        hostWindow.addEventListener('focus', handleViewportWake)
+        hostDocument.addEventListener('visibilitychange', handleVisibilityChange)
+        removeViewportWakeListeners = () => {
+          hostWindow.removeEventListener('resize', handleViewportWake)
+          hostWindow.removeEventListener('focus', handleViewportWake)
+          hostDocument.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
         let replayGeneratedInputSuppressionDepth = 0
         const writeTerminalChunk = (content: string) =>
           new Promise<void>((resolve) => {
@@ -979,7 +1109,9 @@ function StationXtermTerminalView({
           submit: () => submitFromXterm(),
         }
         boundSinkRef.current = sink
-        onBindSink(stationId, sink)
+        onBindSink(stationId, sink, {
+          restorePriority: isActiveRef.current ? 'active' : 'background',
+        })
       },
     ).catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
@@ -993,6 +1125,7 @@ function StationXtermTerminalView({
 
     return () => {
       active = false
+      captureLatestRestoreState?.()
       const boundSink = boundSinkRef.current
       boundSinkRef.current = null
       onBindSink(stationId, null, {
@@ -1004,6 +1137,7 @@ function StationXtermTerminalView({
       })
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
+      removeViewportWakeListeners?.()
       removeCompositionStartSyncListener?.()
       removeMacOsImeFallbackListeners?.()
       resizeObserver?.disconnect()
@@ -1037,6 +1171,7 @@ function StationXtermTerminalView({
     onBindSink,
     performanceDebugEnabled,
     recordFocusDiagnostic,
+    runtimeInitAllowed,
     scheduleTerminalAppearanceSync,
     sessionId,
     stationId,
@@ -1048,7 +1183,7 @@ function StationXtermTerminalView({
 
   return (
     <div
-      className="station-terminal-shell"
+      className={`station-terminal-shell${runtimeInitAllowed ? '' : ' is-runtime-pending'}`}
       onPointerDownCapture={(event) => {
         if (event.button !== 0) {
           return
@@ -1136,7 +1271,7 @@ function StationXtermTerminalView({
         forwardDeltaToGrid()
       }}
     >
-      <div ref={hostRef} className="station-terminal-host" />
+      <div ref={hostRef} className="station-terminal-host" aria-hidden={!runtimeInitAllowed || undefined} />
     </div>
   )
 }

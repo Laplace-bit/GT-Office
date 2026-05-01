@@ -111,6 +111,28 @@ import {
 import type { ShellExternalChannelController } from './useShellExternalChannelController'
 
 const TERMINAL_DEBUG_RECORD_LIMIT = 0
+const BACKGROUND_TERMINAL_REPLAY_TIMEOUT_MS = 900
+const BACKGROUND_TERMINAL_REPLAY_FALLBACK_DELAY_MS = 80
+
+interface IdleDeadlineLike {
+  didTimeout: boolean
+  timeRemaining: () => number
+}
+
+interface IdleCallbackScheduler {
+  requestIdleCallback?: (
+    callback: (deadline: IdleDeadlineLike) => void,
+    options?: { timeout?: number },
+  ) => number
+  cancelIdleCallback?: (handle: number) => void
+}
+
+interface ScheduledTerminalReplayTask {
+  stationId: string
+  sink: StationTerminalSink
+  replayVersion: number
+  run: () => Promise<void>
+}
 
 interface UseShellTerminalControllerInput {
   // Core state from root
@@ -305,6 +327,9 @@ export function useShellTerminalController({
   const stationTerminalPendingReplayRef = useRef<
     Record<string, { version: number; ops: Array<{ kind: 'write'; chunk: string } | { kind: 'reset'; content: string }> }>
   >({})
+  const scheduledTerminalReplayQueueRef = useRef<ScheduledTerminalReplayTask[]>([])
+  const scheduledTerminalReplayHandleRef = useRef<{ kind: 'idle' | 'timeout'; id: number } | null>(null)
+  const scheduledTerminalReplayRunningRef = useRef(false)
   const stationTerminalRestoreStateRef = useRef<Record<string, SessionOwnedRestoreState>>({})
   const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
@@ -748,6 +773,103 @@ export function useShellTerminalController({
     [flushStationUnreadDeltas],
   )
 
+  const cancelScheduledTerminalReplayDrain = useCallback(() => {
+    const scheduled = scheduledTerminalReplayHandleRef.current
+    if (!scheduled || typeof window === 'undefined') {
+      scheduledTerminalReplayHandleRef.current = null
+      return
+    }
+    if (scheduled.kind === 'idle') {
+      const win = window as unknown as IdleCallbackScheduler
+      win.cancelIdleCallback?.(scheduled.id)
+    } else {
+      window.clearTimeout(scheduled.id)
+    }
+    scheduledTerminalReplayHandleRef.current = null
+  }, [])
+
+  const drainScheduledTerminalReplayQueue = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (
+      scheduledTerminalReplayHandleRef.current ||
+      scheduledTerminalReplayRunningRef.current ||
+      scheduledTerminalReplayQueueRef.current.length === 0
+    ) {
+      return
+    }
+
+    const win = window as unknown as IdleCallbackScheduler
+    const runNext = (deadline: IdleDeadlineLike) => {
+      scheduledTerminalReplayHandleRef.current = null
+      if (scheduledTerminalReplayRunningRef.current) {
+        drainScheduledTerminalReplayQueue()
+        return
+      }
+      if (!deadline.didTimeout && deadline.timeRemaining() < 8) {
+        drainScheduledTerminalReplayQueue()
+        return
+      }
+      const task = scheduledTerminalReplayQueueRef.current.shift()
+      if (!task) {
+        return
+      }
+      if (
+        stationTerminalSinkRef.current[task.stationId] !== task.sink ||
+        stationTerminalPendingReplayRef.current[task.stationId]?.version !== task.replayVersion
+      ) {
+        drainScheduledTerminalReplayQueue()
+        return
+      }
+      scheduledTerminalReplayRunningRef.current = true
+      void task.run().finally(() => {
+        scheduledTerminalReplayRunningRef.current = false
+        drainScheduledTerminalReplayQueue()
+      })
+    }
+
+    if (win.requestIdleCallback) {
+      scheduledTerminalReplayHandleRef.current = {
+        kind: 'idle',
+        id: win.requestIdleCallback(runNext, { timeout: BACKGROUND_TERMINAL_REPLAY_TIMEOUT_MS }),
+      }
+      return
+    }
+
+    scheduledTerminalReplayHandleRef.current = {
+      kind: 'timeout',
+      id: window.setTimeout(
+        () => runNext({ didTimeout: true, timeRemaining: () => 0 }),
+        BACKGROUND_TERMINAL_REPLAY_FALLBACK_DELAY_MS,
+      ),
+    }
+  }, [])
+
+  const scheduleTerminalReplay = useCallback(
+    (task: ScheduledTerminalReplayTask, priority: 'active' | 'background') => {
+      scheduledTerminalReplayQueueRef.current = scheduledTerminalReplayQueueRef.current.filter(
+        (queued) => queued.stationId !== task.stationId || queued.sink !== task.sink,
+      )
+      if (priority === 'active') {
+        if (scheduledTerminalReplayRunningRef.current) {
+          scheduledTerminalReplayQueueRef.current.unshift(task)
+          drainScheduledTerminalReplayQueue()
+          return
+        }
+        scheduledTerminalReplayRunningRef.current = true
+        void task.run().finally(() => {
+          scheduledTerminalReplayRunningRef.current = false
+          drainScheduledTerminalReplayQueue()
+        })
+        return
+      }
+      scheduledTerminalReplayQueueRef.current.push(task)
+      drainScheduledTerminalReplayQueue()
+    },
+    [drainScheduledTerminalReplayQueue],
+  )
+
   // ── Sink binding ───────────────────────────────────────────────────────
   const bindStationTerminalSink = useMemo<StationTerminalSinkBindingHandler>(
     () => (stationId, sink, meta) => {
@@ -776,6 +898,10 @@ export function useShellTerminalController({
         delete stationTerminalSinkRef.current[stationId]
         return
       }
+      const previousSink = stationTerminalSinkRef.current[stationId]
+      if (previousSink === sink && !stationTerminalPendingReplayRef.current[stationId]) {
+        return
+      }
       stationTerminalSinkRef.current[stationId] = sink
       const station = stationsRef.current.find((item) => item.id === stationId)
       const cachedContent = stationTerminalOutputCacheRef.current[stationId] ?? getStationIdleBanner(station)
@@ -784,59 +910,73 @@ export function useShellTerminalController({
         stationTerminalRestoreStateRef.current[stationId],
         stationTerminalsRef.current[stationId]?.sessionId ?? null,
       )
+      const restoreStateToReplay = shouldPreferSessionOwnedRestoreState(
+        restoreState,
+        stationTerminalsRef.current[stationId]?.sessionId ?? null,
+        outputRevision,
+      )
+        ? restoreState
+        : null
       const replayVersion = (stationTerminalPendingReplayRef.current[stationId]?.version ?? 0) + 1
       stationTerminalPendingReplayRef.current[stationId] = {
         version: replayVersion,
         ops: [],
       }
-      const replay = shouldPreferSessionOwnedRestoreState(
-        restoreState,
-        stationTerminalsRef.current[stationId]?.sessionId ?? null,
-        outputRevision,
-      )
-        ? sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
-        : sink.reset(cachedContent)
-      if (shouldPreferSessionOwnedRestoreState(
-        restoreState,
-        stationTerminalsRef.current[stationId]?.sessionId ?? null,
-        outputRevision,
-      )) {
+      if (restoreStateToReplay) {
         pushStationTerminalDebugRecord(stationId, {
           sessionId: stationTerminalsRef.current[stationId]?.sessionId ?? null,
           lane: 'xterm',
           kind: 'restore',
           source: 'session_restore',
-          summary: formatTerminalDebugPreview(restoreState.state.content, 84),
-          body: restoreState.state.content,
+          summary: formatTerminalDebugPreview(restoreStateToReplay.state.content, 84),
+          body: restoreStateToReplay.state.content,
         })
       } else {
         delete stationTerminalRestoreStateRef.current[stationId]
       }
-      void replay.finally(() => {
-        const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
-        if (
-          !pendingReplay ||
-          pendingReplay.version !== replayVersion ||
-          stationTerminalSinkRef.current[stationId] !== sink
-        ) {
-          return
-        }
-        const pendingOps = pendingReplay.ops.slice()
-        delete stationTerminalPendingReplayRef.current[stationId]
-        void pendingOps.reduce<Promise<void>>((chain, op) => {
-          return chain.then(() => {
-            if (stationTerminalSinkRef.current[stationId] !== sink) {
+      scheduleTerminalReplay(
+        {
+          stationId,
+          sink,
+          replayVersion,
+          run: async () => {
+            if (
+              stationTerminalSinkRef.current[stationId] !== sink ||
+              stationTerminalPendingReplayRef.current[stationId]?.version !== replayVersion
+            ) {
               return
             }
-            if (op.kind === 'reset') {
-              return sink.reset(op.content)
+            const replay = restoreStateToReplay
+              ? sink.restore(restoreStateToReplay.state.content, restoreStateToReplay.state.cols, restoreStateToReplay.state.rows)
+              : sink.reset(cachedContent)
+            await replay
+            const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
+            if (
+              !pendingReplay ||
+              pendingReplay.version !== replayVersion ||
+              stationTerminalSinkRef.current[stationId] !== sink
+            ) {
+              return
             }
-            return sink.write(op.chunk)
-          })
-        }, Promise.resolve())
-      })
+            const pendingOps = pendingReplay.ops.slice()
+            delete stationTerminalPendingReplayRef.current[stationId]
+            await pendingOps.reduce<Promise<void>>((chain, op) => {
+              return chain.then(() => {
+                if (stationTerminalSinkRef.current[stationId] !== sink) {
+                  return
+                }
+                if (op.kind === 'reset') {
+                  return sink.reset(op.content)
+                }
+                return sink.write(op.chunk)
+              })
+            }, Promise.resolve())
+          },
+        },
+        meta?.restorePriority === 'active' ? 'active' : 'background',
+      )
     },
-    [pushStationTerminalDebugRecord],
+    [pushStationTerminalDebugRecord, scheduleTerminalReplay],
   )
 
   // ── Session visibility ────────────────────────────────────────────────
@@ -3020,6 +3160,9 @@ export function useShellTerminalController({
 
   // ── Terminal state reset for workspace switch ──────────────────────────
   const resetTerminalStateOnWorkspaceSwitch = useCallback(() => {
+    cancelScheduledTerminalReplayDrain()
+    scheduledTerminalReplayQueueRef.current = []
+    scheduledTerminalReplayRunningRef.current = false
     detachedProjectionSeqRef.current = {}
     detachedProjectionDispatchQueueRef.current = {}
     sessionStationRef.current = {}
@@ -3031,7 +3174,7 @@ export function useShellTerminalController({
     stationTerminalInputControllerRef.current?.dispose()
     stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
-  }, [])
+  }, [cancelScheduledTerminalReplayDrain])
 
   // ── Cleanup effect ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -3042,6 +3185,9 @@ export function useShellTerminalController({
       }
       stationUnreadFlushTimerRef.current = null
       stationUnreadDeltaRef.current = {}
+      cancelScheduledTerminalReplayDrain()
+      scheduledTerminalReplayQueueRef.current = []
+      scheduledTerminalReplayRunningRef.current = false
 
       if (desktopApi.isTauriRuntime()) {
         Object.entries(registeredAgentRuntimeRef.current).forEach(([agentId, runtime]) => {
@@ -3060,7 +3206,7 @@ export function useShellTerminalController({
       }
       registeredAgentRuntimeRef.current = {}
     }
-  }, [])
+  }, [cancelScheduledTerminalReplayDrain])
 
   // ── Tool commands loading ──────────────────────────────────────────────
   useEffect(() => {

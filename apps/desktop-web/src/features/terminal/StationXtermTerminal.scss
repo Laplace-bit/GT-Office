@@ -17,6 +17,12 @@
   z-index: 1;
 }
 
+.station-terminal-shell.is-runtime-pending .station-terminal-host {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-terminal-bg) 90%, transparent), transparent),
+    var(--vb-terminal-bg);
+}
+
 /* Keep xterm's internal layout untouched. FitAddon, helper textarea, and IME geometry
    rely on xterm-managed sizing rather than custom padding or themed sub-elements. */
 .station-terminal-shell .station-terminal-host .xterm,
