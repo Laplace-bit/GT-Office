@@ -132,6 +132,28 @@ pub struct FeishuSendSnapshot {
     pub delivered_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeishuQrLoginBeginResult {
+    pub device_code: String,
+    pub qr_url: String,
+    pub user_code: String,
+    pub interval: u32,
+    pub expire_in: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeishuQrLoginSuccessResult {
+    pub app_id: String,
+    pub app_secret: String,
+    pub domain: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bot_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeishuConnectorAccountRecord {
