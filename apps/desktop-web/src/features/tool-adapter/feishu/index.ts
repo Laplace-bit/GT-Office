@@ -1,4 +1,4 @@
-export * from './FeishuAccountForm'
+export * from './FeishuQrScan'
 export * from './FeishuConnectorWizard'
 export * from './FeishuHealthCard'
 export * from './FeishuPlatformGuide'

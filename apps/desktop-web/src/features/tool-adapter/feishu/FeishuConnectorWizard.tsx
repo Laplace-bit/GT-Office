@@ -9,7 +9,7 @@ import {
   type ChannelRouteBinding,
   type ExternalAccessPolicyMode,
 } from '@shell/integration/desktop-api'
-import { FeishuAccountForm } from './FeishuAccountForm'
+import { FeishuQrScan } from './FeishuQrScan'
 import { FeishuHealthCard } from './FeishuHealthCard'
 import { FeishuPlatformGuide } from './FeishuPlatformGuide'
 import { WizardStepBar } from '../WizardStepBar'
@@ -22,6 +22,7 @@ import {
   platformAppUrl,
   type FeishuGuideState,
   type FeishuWizardForm,
+  type FeishuDomain,
 } from './model'
 
 interface FeishuConnectorWizardProps {
@@ -38,10 +39,6 @@ interface FeishuConnectorWizardProps {
 
 const FEISHU_STEP_COUNT = 2
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
 function buildGuideState(locale: Locale, form: FeishuWizardForm, step: number): FeishuGuideState {
   const platform = form.domain === 'lark' ? 'Lark Open Platform' : '飞书开放平台'
   const platformUrl = platformAppUrl(form.domain)
@@ -50,24 +47,23 @@ function buildGuideState(locale: Locale, form: FeishuWizardForm, step: number): 
     case 0:
       return {
         eyebrow: t(locale, 'Step 1', 'Step 1'),
-        title: t(locale, '创建应用并启动连接', 'Create app & Start connection'),
+        title: t(locale, '扫码连接飞书', 'Scan QR to Connect'),
         summary: t(
           locale,
-          '在开放平台创建企业自建应用，开启 Bot，填写 App ID 和 Secret 到 GT Office，然后在这里启动长连接。切记：必须等长连接启动成功后，再去开放平台保存事件订阅！',
-          'Create an enterprise self-built app, enable Bot, fill the credentials here and start the long connection. Do not save long connection event subscription in platform until the connection starts successfully here!',
+          '使用飞书或 Lark 扫描二维码，GT Office 将自动创建应用并建立长连接。无需手动创建应用或填写凭据。',
+          'Scan the QR code with Feishu or Lark. GT Office will auto-create the app and establish a long connection. No manual app creation or credential entry needed.',
         ),
         platformLabel: platform,
         platformUrl,
         note: t(
           locale,
-          '当前环境无法直接拉起浏览器，请复制这个地址到系统浏览器手动打开。',
-          'This environment cannot open the browser directly. Copy this URL into your system browser manually.',
+          '扫码后请耐心等待，应用创建和连接建立是自动完成的。',
+          'Please wait after scanning — app creation and connection are automatic.',
         ),
         checklist: [
-          t(locale, '创建应用与开启 Bot', 'Create app & enable Bot'),
-          t(locale, '添加收发消息权限', 'Add message permissions'),
-          'App ID & App Secret',
-          t(locale, '等待 GT Office 侧显示“已连接”', 'Wait for GT Office to connect'),
+          t(locale, '点击”扫码连接飞书”', 'Click “Scan QR to Connect”'),
+          t(locale, '用飞书/Lark 扫描二维码', 'Scan the QR code with Feishu/Lark'),
+          t(locale, '等待 GT Office 显示”已连接”', 'Wait for GT Office to show “Connected”'),
         ],
       }
     default:
@@ -117,6 +113,7 @@ export function FeishuConnectorWizard({
   const [healthSnapshot, setHealthSnapshot] = useState<ChannelConnectorHealthResponse['health'] | null>(null)
   const [connectionTestPassed, setConnectionTestPassed] = useState(false)
   const [platformSubscriptionConfirmed, setPlatformSubscriptionConfirmed] = useState(false)
+  const [qrScanResult, setQrScanResult] = useState<{ appId: string; domain: string } | null>(null)
   const [form, setForm] = useState<FeishuWizardForm>(() =>
     buildFeishuDefaultForm({
       editingBinding,
@@ -125,15 +122,6 @@ export function FeishuConnectorWizard({
       defaultAgentId,
     }),
   )
-
-  const accountRecord = useMemo(() => {
-    const accountId = form.accountId.trim() || 'default'
-    return (
-      connectorAccounts.find(
-        (item) => item.channel === 'feishu' && item.accountId.toLowerCase() === accountId.toLowerCase(),
-      ) ?? null
-    )
-  }, [connectorAccounts, form.accountId])
 
   const roleLabelByKey = useMemo(() => {
     const map = new Map<string, string>()
@@ -159,90 +147,36 @@ export function FeishuConnectorWizard({
 
   const updateField = <K extends keyof FeishuWizardForm>(key: K, value: FeishuWizardForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
-    if (key === 'accountId' || key === 'domain' || key === 'appId' || key === 'appSecret') {
+    if (key === 'accountId' || key === 'domain' || key === 'appId') {
       setConnectionTestPassed(false)
       setPlatformSubscriptionConfirmed(false)
       setHealthSnapshot(null)
     }
   }
 
-  const persistConnectorAccount = async () => {
-    const normalizedAccountId = form.accountId.trim() || 'default'
-    await desktopApi.channelConnectorAccountUpsert({
-      channel: 'feishu',
-      accountId: normalizedAccountId,
-      enabled: true,
-      connectionMode: 'websocket',
-      domain: form.domain,
-      appId: form.appId.trim(),
-      appSecret: form.appSecret.trim() || null,
-    })
+  const handleQrScanSuccess = (result: { appId: string; domain: string }) => {
+    setForm((prev) => ({
+      ...prev,
+      appId: result.appId,
+      domain: result.domain as FeishuDomain,
+    }))
+    setQrScanResult(result)
+    setConnectionTestPassed(true)
+    setStatusMessage(
+      t(
+        locale,
+        '飞书长连接已建立。现在回到开放平台保存”使用长连接接收事件”。',
+        'Feishu long connection is now established. Return to Open Platform and save “use long connection to receive events”.',
+      ),
+    )
   }
 
-  const pollHealthUntilRuntimeConnected = async (accountId: string) => {
-    let latest: ChannelConnectorHealthResponse['health'] | null = null
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const response = await desktopApi.channelConnectorHealth('feishu', accountId)
-      latest = response.health
-      if (!latest.ok || latest.runtimeConnected) {
-        break
-      }
-      await sleep(900)
-    }
-    return latest
-  }
-
-  const testConnection = async () => {
-    setSaving(true)
-    setErrorMessage(null)
-    setStatusMessage(null)
-    setPlatformSubscriptionConfirmed(false)
-    try {
-      await persistConnectorAccount()
-      const accountId = form.accountId.trim() || 'default'
-      const health = await pollHealthUntilRuntimeConnected(accountId)
-      setHealthSnapshot(health)
-
-      const runtimeReady = Boolean(health?.ok && health.runtimeConnected)
-      setConnectionTestPassed(runtimeReady)
-
-      if (runtimeReady) {
-        setStatusMessage(
-          t(
-            locale,
-            '飞书长连接已建立。现在回到开放平台保存“使用长连接接收事件”。',
-            'Feishu long connection is now established. Return to Open Platform and save “use long connection to receive events”.',
-          ),
-        )
-        return
-      }
-
-      if (health?.ok) {
-        setErrorMessage(
-          t(
-            locale,
-            '应用凭据校验通过，但长连接尚未建立。请在当前弹窗重试，直到 runtime 状态显示“已启动”后，再回开放平台保存长连接。',
-            'App credentials are valid, but the long connection is not established yet. Retry in this modal until the runtime status becomes “Running”, then return to Open Platform to save long connection.',
-          ),
-        )
-        return
-      }
-
-      setErrorMessage(
-        t(locale, '连接测试未通过：{detail}', 'Connection test failed: {detail}', {
-          detail: health?.detail || health?.status || '-',
-        }),
-      )
-    } catch (error) {
-      setConnectionTestPassed(false)
-      setErrorMessage(
-        t(locale, '连接测试失败：{detail}', 'Connection test failed: {detail}', {
-          detail: describeError(error),
-        }),
-      )
-    } finally {
-      setSaving(false)
-    }
+  const handleQrScanError = (message: string) => {
+    setErrorMessage(
+      t(locale, '扫码连接失败：{detail}', 'QR scan connection failed: {detail}', {
+        detail: message,
+      }),
+    )
   }
 
   const applyWizard = async () => {
@@ -264,7 +198,6 @@ export function FeishuConnectorWizard({
     setSaving(true)
     setErrorMessage(null)
     try {
-      await persistConnectorAccount()
       await desktopApi.channelBindingUpsert({
         workspaceId,
         channel: 'feishu',
@@ -296,11 +229,11 @@ export function FeishuConnectorWizard({
   const canGoNext = useMemo(() => {
     switch (wizardStep) {
       case 0:
-        return connectionTestPassed
+        return connectionTestPassed && !!qrScanResult
       default:
         return platformSubscriptionConfirmed
     }
-  }, [connectionTestPassed, platformSubscriptionConfirmed, wizardStep])
+  }, [connectionTestPassed, qrScanResult, platformSubscriptionConfirmed, wizardStep])
 
   return (
     <div className="feishu-onboarding-shell">
@@ -329,32 +262,26 @@ export function FeishuConnectorWizard({
         <div className="channel-wizard-body feishu-wizard-layout">
           <section className="feishu-wizard-main">
 
-
             {statusMessage && <div className="settings-channel-message">{statusMessage}</div>}
             {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
 
             <div className="channel-wizard-step-animate" key={wizardStep}>
             {wizardStep === 0 && (
               <div className="settings-pane-section feishu-step-section">
-                <p className="channel-wizard-step-label">{t(locale, 'Step 1 — 创建应用与启动连接', 'Step 1 — Create app & Start connection')}</p>
-                
+                <p className="channel-wizard-step-label">{t(locale, 'Step 1 — 扫码连接', 'Step 1 — Scan QR to Connect')}</p>
 
-                <FeishuAccountForm
-                  locale={locale}
-                  saving={saving}
-                  editing={Boolean(editingBinding)}
-                  form={form}
-                  accountRecord={accountRecord}
-                  onChange={updateField}
-                />
-                <div className="feishu-step-actions">
-                  <button type="button" className="settings-btn settings-btn-primary" onClick={testConnection} disabled={saving}>
-                    {saving
-                      ? t(locale, '启动中...', 'Starting...')
-                      : t(locale, '保存并启动长连接', 'Save and start long connection')}
-                  </button>
-                </div>
-                <FeishuHealthCard locale={locale} health={healthSnapshot} />
+                {connectionTestPassed && qrScanResult ? (
+                  <FeishuHealthCard locale={locale} health={healthSnapshot} />
+                ) : (
+                  <FeishuQrScan
+                    locale={locale}
+                    onSuccess={handleQrScanSuccess}
+                    onError={handleQrScanError}
+                  />
+                )}
+
+                {statusMessage && <div className="settings-channel-message">{statusMessage}</div>}
+                {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
               </div>
             )}
 

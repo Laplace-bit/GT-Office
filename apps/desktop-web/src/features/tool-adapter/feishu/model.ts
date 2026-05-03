@@ -14,7 +14,6 @@ export interface FeishuWizardForm {
   accountId: string
   domain: FeishuDomain
   appId: string
-  appSecret: string
   peerKind: RoutePeerKind
   peerPattern: string
   targetBindingType: RouteTargetBindingType
@@ -86,7 +85,6 @@ export function buildFeishuDefaultForm(args: {
       accountId,
       domain: (account?.domain as FeishuDomain | undefined) ?? 'feishu',
       appId: account?.appId ?? '',
-      appSecret: '',
       peerKind: editingBinding.peerKind === 'group' ? 'group' : 'direct',
       peerPattern: editingBinding.peerPattern ?? '',
       targetBindingType: target.type as RouteTargetBindingType,
@@ -102,7 +100,6 @@ export function buildFeishuDefaultForm(args: {
     accountId: '',
     domain: 'feishu',
     appId: '',
-    appSecret: '',
     peerKind: 'direct',
     peerPattern: '',
     targetBindingType: 'role',
