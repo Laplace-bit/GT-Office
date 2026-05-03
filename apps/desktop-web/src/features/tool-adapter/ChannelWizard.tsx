@@ -114,7 +114,7 @@ function ChannelChooser({
           >
             <span className="channel-wizard-channel-eyebrow">{t(locale, '飞书 / Lark', 'Feishu / Lark')}</span>
             <strong>{t(locale, '长连接接入', 'WebSocket long connection')}</strong>
-            <p>{t(locale, '企业自建应用，分步引导完成 WebSocket 接入。', 'Enterprise self-built app with step-by-step WebSocket onboarding.')}</p>
+            <p>{t(locale, '扫码即可自动创建应用并连接，无需手动操作。', 'Scan QR to auto-create app and connect. No manual setup needed.')}</p>
           </button>
           <button
             type="button"
