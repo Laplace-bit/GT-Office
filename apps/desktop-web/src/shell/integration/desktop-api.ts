@@ -1924,6 +1924,14 @@ export interface WechatAuthSession {
   boundAccountId?: string | null
 }
 
+export interface FeishuQrLoginBeginResult {
+  deviceCode: string
+  qrUrl: string
+  userCode: string
+  interval: number
+  expireIn: number
+}
+
 export interface ChannelConnectorWebhookSyncResponse {
   channel: string
   result: {
@@ -2838,6 +2846,25 @@ export const desktopApi = {
         request: {
           authSessionId,
         },
+      },
+    )
+  },
+  feishuQrLoginStart(domain?: string | null) {
+    return invokeCommand<{ channel: string; result: FeishuQrLoginBeginResult }>(
+      'feishu_qr_login_start',
+      {
+        request: {
+          domain: domain ?? null,
+        },
+      },
+    )
+  },
+
+  feishuQrLoginCancel() {
+    return invokeCommand<{ channel: string; cancelled: boolean }>(
+      'feishu_qr_login_cancel',
+      {
+        request: {},
       },
     )
   },
