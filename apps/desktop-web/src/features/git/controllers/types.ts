@@ -61,6 +61,8 @@ export interface GitWorkspaceController {
   dismissRepositoryNotice: () => void
   commitMessage: string
   setCommitMessage: (message: string) => void
+  amendMode: boolean
+  setAmendMode: (amend: boolean) => void
   stashMessage: string
   setStashMessage: (message: string) => void
   checkoutTarget: string

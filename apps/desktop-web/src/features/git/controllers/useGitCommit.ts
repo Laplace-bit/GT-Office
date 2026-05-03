@@ -14,6 +14,8 @@ interface UseGitCommitInput {
 interface UseGitCommitResult {
   commitMessage: string
   setCommitMessage: (message: string) => void
+  amendMode: boolean
+  setAmendMode: (amend: boolean) => void
   commit: () => Promise<void>
 }
 
@@ -27,6 +29,7 @@ export function useGitCommit({
   onRefreshMeta,
 }: UseGitCommitInput): UseGitCommitResult {
   const [commitMessage, setCommitMessage] = useState('')
+  const [amendMode, setAmendMode] = useState(false)
 
   const commit = useCallback(async () => {
     const trimmed = commitMessage.trim()
@@ -34,8 +37,9 @@ export function useGitCommit({
       return
     }
     await runAction('commit', async () => {
-      await desktopApi.gitCommit(workspaceId, trimmed)
+      await desktopApi.gitCommit(workspaceId, trimmed, amendMode ? { amend: true } : undefined)
       setCommitMessage('')
+      setAmendMode(false)
       invalidateDiffCache()
       await Promise.all([
         onRefreshSummary(),
@@ -44,6 +48,7 @@ export function useGitCommit({
       ])
     })
   }, [
+    amendMode,
     commitMessage,
     invalidateDiffCache,
     isGitRepository,
@@ -57,6 +62,8 @@ export function useGitCommit({
   return {
     commitMessage,
     setCommitMessage,
+    amendMode,
+    setAmendMode,
     commit,
   }
 }

@@ -868,15 +868,19 @@
 
 .git-commit-form__input {
   width: 100%;
-  min-height: #{rem(32)};
+  min-height: #{rem(48)};
+  max-height: #{rem(128)};
   padding: #{rem(7)} #{rem(10)};
   border: var(--vb-border-width) solid var(--vb-input-border);
   border-radius: var(--vb-radius-md);
   background: color-mix(in srgb, var(--vb-input-bg) 78%, var(--vb-surface));
   color: var(--vb-text);
   font-size: #{rem(11)};
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
   outline: none;
-  transition: 
+  transition:
     border-color 150ms var(--vb-ease-out),
     box-shadow 150ms var(--vb-ease-out);
 }
@@ -887,6 +891,49 @@
 }
 
 .git-commit-form__input::placeholder {
+  color: var(--vb-text-subtle);
+}
+
+.git-commit-form__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vb-space-sm);
+}
+
+.git-commit-form__amend-toggle {
+  display: flex;
+  align-items: center;
+  gap: #{rem(4)};
+  font-size: #{rem(10)};
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: var(--vb-accent);
+  }
+}
+
+.git-commit-form__info {
+  display: flex;
+  align-items: center;
+  gap: var(--vb-space-sm);
+}
+
+.git-commit-form__char-count {
+  font-size: #{rem(10)};
+  font-family: var(--vb-font-mono);
+  color: var(--vb-text-subtle);
+
+  &--over {
+    color: var(--vb-warning);
+  }
+}
+
+.git-commit-form__shortcut-hint {
+  font-size: #{rem(10)};
   color: var(--vb-text-subtle);
 }
 

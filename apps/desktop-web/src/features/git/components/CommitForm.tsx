@@ -22,8 +22,12 @@ export const CommitForm = memo(function CommitForm({
     actionLoading,
     commitMessage,
     setCommitMessage,
+    amendMode,
+    setAmendMode,
     commit,
   } = controller
+
+  const firstLine = commitMessage.split('\n')[0] || ''
 
   return (
     <section className={`git-section ${!collapsed ? 'git-section--expanded' : ''}`}>
@@ -35,20 +39,39 @@ export const CommitForm = memo(function CommitForm({
       {!collapsed && (
         <div className="git-section__content">
           <div className="git-commit-form">
-            <input
-              type="text"
+            <textarea
               className="git-commit-form__input"
               value={commitMessage}
               onChange={(e) => setCommitMessage(e.target.value)}
               placeholder={t(locale, 'git.commit.placeholder')}
               disabled={!isGitRepository}
+              rows={2}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && hasStagedFiles && commitMessage.trim()) {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault()
                   void commit()
                 }
               }}
             />
+            <div className="git-commit-form__meta">
+              <label className="git-commit-form__amend-toggle">
+                <input
+                  type="checkbox"
+                  checked={amendMode}
+                  onChange={(e) => setAmendMode(e.target.checked)}
+                  disabled={!isGitRepository}
+                />
+                <span>{t(locale, 'git.commit.amend')}</span>
+              </label>
+              <div className="git-commit-form__info">
+                <span className={`git-commit-form__char-count ${firstLine.length > 50 ? 'git-commit-form__char-count--over' : ''}`}>
+                  {firstLine.length}/50
+                </span>
+                <span className="git-commit-form__shortcut-hint">
+                  {t(locale, 'git.commit.shortcut')}
+                </span>
+              </div>
+            </div>
             <div className="git-commit-form__actions">
               <GitIconButton
                 icon="git-commit"

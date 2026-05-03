@@ -321,6 +321,8 @@ export function useGitController({
     dismissRepositoryNotice,
     commitMessage: commit.commitMessage,
     setCommitMessage: commit.setCommitMessage,
+    amendMode: commit.amendMode,
+    setAmendMode: commit.setAmendMode,
     stashMessage: stash.stashMessage,
     setStashMessage: stash.setStashMessage,
     checkoutTarget,
