@@ -9,16 +9,20 @@ mod app_registration;
 pub mod types;
 
 use serde_json::Value;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
+use crate::app_state::AppState;
 use super::credential_store::{load_secret, store_secret};
 use account_store::{list_records, upsert_record};
 use types::{
     FeishuAccountUpsertInput, FeishuConnectionMode, FeishuConnectorAccountRecord,
-    FeishuConnectorAccountView, FeishuDomain, FeishuHealthSnapshot, FeishuSendSnapshot,
-    FeishuWebhookSyncSnapshot,
+    FeishuConnectorAccountView, FeishuDomain, FeishuHealthSnapshot, FeishuQrLoginBeginResult,
+    FeishuSendSnapshot, FeishuWebhookSyncSnapshot,
 };
 
 pub fn now_ms() -> u64 {
@@ -48,6 +52,17 @@ fn default_verification_token_ref(account_id: &str) -> String {
         "feishu/{}/verification_token",
         account_id.trim().to_ascii_lowercase()
     )
+}
+
+struct QrLoginSession {
+    cancel: CancellationToken,
+    handle: JoinHandle<()>,
+}
+
+static QR_LOGIN_SESSION: OnceLock<Mutex<Option<QrLoginSession>>> = OnceLock::new();
+
+fn qr_login_sessions() -> &'static Mutex<Option<QrLoginSession>> {
+    QR_LOGIN_SESSION.get_or_init(|| Mutex::new(None))
 }
 
 fn normalize_connection_mode(value: Option<&str>) -> Result<FeishuConnectionMode, String> {
@@ -346,6 +361,104 @@ pub async fn send_text_reply(
         message_id,
         delivered_at_ms: now_ms(),
     })
+}
+
+pub async fn qr_login_start(
+    app: AppHandle,
+    state: &AppState,
+    domain: FeishuDomain,
+) -> Result<FeishuQrLoginBeginResult, String> {
+    // Cancel any existing session
+    if let Ok(mut guard) = qr_login_sessions().lock() {
+        if let Some(session) = guard.take() {
+            session.cancel.cancel();
+            let _ = session.handle.await;
+        }
+    }
+
+    // Init: verify environment supports client_secret
+    app_registration::init_app_registration(domain).await?;
+
+    // Begin: get device code and QR URL
+    let begin_result = app_registration::begin_app_registration(domain).await?;
+
+    // Prepare for polling
+    let device_code = begin_result.device_code.clone();
+    let interval = begin_result.interval;
+    let expire_in = begin_result.expire_in;
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let app_clone = app.clone();
+    let state_clone = state.clone();
+
+    let handle = tokio::spawn(async move {
+        let result = app_registration::poll_app_registration(
+            app_clone.clone(),
+            domain,
+            device_code,
+            interval,
+            expire_in,
+            cancel_clone,
+        )
+        .await;
+
+        if let Ok(success) = result {
+            // Parse domain string back to FeishuDomain for upsert
+            let feishu_domain = match success.domain.as_str() {
+                "lark" => FeishuDomain::Lark,
+                _ => FeishuDomain::Feishu,
+            };
+
+            // Auto-save account
+            let upsert_input = FeishuAccountUpsertInput {
+                account_id: Some("default".to_string()),
+                enabled: Some(true),
+                connection_mode: Some("websocket".to_string()),
+                domain: Some(feishu_domain.as_str().to_string()),
+                app_id: Some(success.app_id.clone()),
+                app_secret: Some(success.app_secret.clone()),
+                app_secret_ref: None,
+                verification_token: None,
+                verification_token_ref: None,
+                webhook_path: None,
+                webhook_host: None,
+                webhook_port: None,
+            };
+
+            if let Err(e) = upsert_account(&app_clone, upsert_input) {
+                let _ = app_clone.emit(
+                    "feishu-qr/error",
+                    serde_json::json!({ "message": format!("Failed to save account: {e}") }),
+                );
+                return;
+            }
+
+            // Start websocket connection
+            websocket::reconcile(&app_clone, &state_clone);
+        }
+        // Error already emitted inside poll_app_registration
+
+        // Clear session
+        if let Ok(mut guard) = qr_login_sessions().lock() {
+            *guard = None;
+        }
+    });
+
+    // Store session
+    if let Ok(mut guard) = qr_login_sessions().lock() {
+        *guard = Some(QrLoginSession { cancel, handle });
+    }
+
+    Ok(begin_result)
+}
+
+pub fn qr_login_cancel() -> Result<(), String> {
+    if let Ok(mut guard) = qr_login_sessions().lock() {
+        if let Some(session) = guard.take() {
+            session.cancel.cancel();
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
