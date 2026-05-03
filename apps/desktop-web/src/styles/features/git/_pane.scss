@@ -1147,6 +1147,90 @@
   text-overflow: ellipsis;
 }
 
+/* === Tag Section === */
+.git-tag-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vb-space-xs);
+}
+
+.git-tag-create-form__row {
+  display: flex;
+  gap: var(--vb-space-xs);
+}
+
+.git-tag-create-form__checkbox {
+  display: flex;
+  align-items: center;
+  gap: #{rem(4)};
+  font-size: #{rem(10)};
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: var(--vb-accent);
+  }
+}
+
+.git-tag-create-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.git-tag-empty {
+  font-size: #{rem(10)};
+  color: var(--vb-text-subtle);
+  padding: var(--vb-space-xs) 0;
+}
+
+.git-tag-list {
+  display: flex;
+  flex-direction: column;
+  gap: #{rem(3)};
+  max-height: #{rem(160)};
+  overflow-y: auto;
+}
+
+.git-tag-item {
+  display: flex;
+  align-items: center;
+  gap: var(--vb-space-sm);
+  padding: #{rem(7)} var(--vb-space-sm);
+  background: color-mix(in srgb, var(--vb-chip) 46%, transparent);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 76%, transparent);
+  border-radius: var(--vb-radius-md);
+}
+
+.git-tag-item__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vb-border-width);
+}
+
+.git-tag-item__name {
+  font-size: #{rem(11)};
+  font-weight: 600;
+  color: var(--vb-accent);
+}
+
+.git-tag-item__message {
+  font-size: #{rem(10)};
+  color: var(--vb-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-tag-item__actions {
+  display: flex;
+  gap: var(--vb-space-2xs);
+  flex-shrink: 0;
+}
+
 /* ========================================
    Git History Pane
    ======================================== */

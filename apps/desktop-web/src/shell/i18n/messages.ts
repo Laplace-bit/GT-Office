@@ -1253,6 +1253,18 @@ export const messages = {
   'git.error.mergeFailed': { 'zh-CN': '合并失败', 'en-US': 'Merge failed' },
   'git.error.tagFailed': { 'zh-CN': '标签操作失败', 'en-US': 'Tag operation failed' },
 
+  'git.tag.title': { 'zh-CN': '标签管理', 'en-US': 'Tags' },
+  'git.tag.empty': { 'zh-CN': '暂无标签', 'en-US': 'No tags' },
+  'git.tag.namePlaceholder': { 'zh-CN': '标签名称', 'en-US': 'Tag name' },
+  'git.tag.targetPlaceholder': { 'zh-CN': '目标 (默认 HEAD)', 'en-US': 'Target (default HEAD)' },
+  'git.tag.messagePlaceholder': { 'zh-CN': '标签说明', 'en-US': 'Tag message' },
+  'git.tag.annotated': { 'zh-CN': '附注标签', 'en-US': 'Annotated' },
+  'git.action.createTag': { 'zh-CN': '创建标签', 'en-US': 'Create Tag' },
+  'git.action.deleteTag': { 'zh-CN': '删除标签', 'en-US': 'Delete Tag' },
+  'git.action.pushTag': { 'zh-CN': '推送标签', 'en-US': 'Push Tag' },
+  'git.confirm.deleteTagEyebrow': { 'zh-CN': '危险操作', 'en-US': 'Destructive action' },
+  'git.confirm.deleteTagTitle': { 'zh-CN': '确认删除标签？', 'en-US': 'Delete this tag?' },
+
   'workspace.label.id': { 'zh-CN': '工作区: {id}', 'en-US': 'Workspace: {id}' },
   'workspace.label.nameId': {
     'zh-CN': '工作区: {name} ({id})',

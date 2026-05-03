@@ -7,6 +7,7 @@ import {
   OVERSCAN_ROWS,
   type GitWorkspaceController,
 } from '../useGitWorkspaceController'
+import { useGitTags } from '../tags/useGitTags'
 import {
   scaleDesignPxToActualPx,
   useRootFontSizePx,
@@ -16,6 +17,7 @@ import { ChangesSection } from './ChangesSection'
 import { CommitForm } from './CommitForm'
 import { BranchSection } from './BranchSection'
 import { StashSection } from './StashSection'
+import { TagSection } from './TagSection'
 import { GitNoticeBanner } from './GitNoticeBanner'
 import { GitConfirmDialog } from './GitConfirmDialog'
 
@@ -43,7 +45,9 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     commit: true,
     branches: true,
     stash: true,
+    tags: true,
   })
+  const { tags, loading: tagsLoading, createTag, deleteTag, pushTag } = useGitTags(workspaceId, controller.isGitRepository)
   const [discardConfirmState, setDiscardConfirmState] = useState<{
     path: string
     includeUntracked: boolean
@@ -209,6 +213,19 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
             controller={controller}
             collapsed={collapsedSections.stash ?? true}
             onToggle={() => toggleSection('stash')}
+          />
+
+          <TagSection
+            tags={tags}
+            loading={tagsLoading}
+            locale={locale}
+            isGitRepository={controller.isGitRepository}
+            actionLoading={controller.actionLoading}
+            onCreateTag={createTag}
+            onDeleteTag={deleteTag}
+            onPushTag={pushTag}
+            collapsed={collapsedSections.tags ?? true}
+            onToggle={() => toggleSection('tags')}
           />
         </div>
       </section>
