@@ -1534,6 +1534,28 @@ where
         Ok(commit_id)
     }
 
+    #[instrument(skip(self), fields(workspace_id = %workspace_id))]
+    pub fn commit_amend(&self, workspace_id: &WorkspaceId, message: &str) -> AbstractionResult<String> {
+        let trimmed = message.trim();
+        if trimmed.is_empty() {
+            return Err(AbstractionError::InvalidArgument {
+                message: "GIT_COMMIT_MESSAGE_INVALID: commit message cannot be empty".to_string(),
+            });
+        }
+
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(
+            &root,
+            &["commit", "--amend", "-m", trimmed, "--no-gpg-sign"],
+            "GIT_COMMIT_FAILED",
+        )?;
+
+        let commit_id = self
+            .run_git(&root, &["rev-parse", "HEAD"], "GIT_COMMIT_FAILED")
+            .map(|stdout| stdout.trim().to_string())?;
+        Ok(commit_id)
+    }
+
     #[instrument(skip(self), fields(workspace_id = %workspace_id, limit = limit, skip = skip))]
     pub fn log(
         &self,

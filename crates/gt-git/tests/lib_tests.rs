@@ -471,6 +471,24 @@ fn unstage_hunk_reverses_staged_patch() {
 }
 
 #[test]
+fn commit_amend_updates_message() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    std::fs::write(repo.path.join("file.txt"), "content").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "original message").unwrap();
+
+    // Amend the message
+    git.commit_amend(&workspace.workspace_id, "amended message").unwrap();
+
+    let log = git.log(&workspace.workspace_id, 1, 0).unwrap();
+    assert_eq!(log[0].summary, "amended message");
+}
+
+#[test]
 fn list_branches_returns_repo_invalid_for_non_git_workspace() {
     let path = std::env::temp_dir().join(format!("gtoffice-git-nonrepo-test-{}", Uuid::new_v4()));
     fs::create_dir_all(&path).expect("create temp dir");

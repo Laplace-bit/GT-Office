@@ -68,14 +68,6 @@ fn build_git_discard_payload(workspace_id: &WorkspaceId, discarded: usize) -> Va
     })
 }
 
-fn build_git_commit_payload(workspace_id: &WorkspaceId, message: &str, commit_id: &str) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "message": message,
-        "commit": commit_id
-    })
-}
-
 fn build_git_log_payload(workspace_id: &WorkspaceId, entries: Vec<GitCommitEntry>) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
@@ -377,28 +369,24 @@ pub async fn git_discard(
 pub async fn git_commit(
     workspace_id: String,
     message: String,
+    amend: Option<bool>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
-    let workspace_id = WorkspaceId::new(workspace_id);
-    let workspace_id_owned = workspace_id.clone();
-    let message_owned = message.clone();
-    let commit_id = run_git_blocking(&state, "GIT_COMMIT_FAILED", move |app_state| {
-        app_state
-            .git_service
-            .commit(&workspace_id_owned, &message_owned)
-            .map_err(to_command_error)
-    })
-    .await?;
-    state
-        .inner()
-        .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
-    Ok(build_git_commit_payload(
-        &workspace_id,
-        &message,
-        &commit_id,
-    ))
+    let workspace_id_owned = WorkspaceId::new(workspace_id.clone());
+    let ws_id = workspace_id_owned.clone();
+    let is_amend = amend.unwrap_or(false);
+
+    let sha = run_git_blocking(&state, "GIT_COMMIT_FAILED", move |app_state| {
+        if is_amend {
+            app_state.git_service.commit_amend(&ws_id, &message).map_err(to_command_error)
+        } else {
+            app_state.git_service.commit(&ws_id, &message).map_err(to_command_error)
+        }
+    }).await?;
+
+    state.inner().git_status_coordinator.refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    Ok(json!({ "workspaceId": workspace_id_owned.as_str(), "commitSha": sha }))
 }
 
 #[tauri::command]
