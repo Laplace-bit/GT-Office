@@ -35,6 +35,7 @@ open = "5.3"
 strip-ansi-escapes = "0.2"
 tauri = { version = "2", features = ["protocol-asset"] }
 tokio = { workspace = true, features = ["fs", "io-util", "process"] }
+urlencoding = "2"
 vt100 = "0.15"
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { workspace = true }

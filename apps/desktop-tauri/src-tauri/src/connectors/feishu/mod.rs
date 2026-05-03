@@ -4,6 +4,7 @@ pub mod inbound;
 mod probe;
 pub mod webhook;
 pub mod websocket;
+mod app_registration;
 
 pub mod types;
 
