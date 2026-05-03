@@ -61,6 +61,18 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     filterRefreshInitializedRef.current = false
   }, [workspaceId])
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault()
+        refreshAll()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [refreshAll])
+
   useEffect(() => {
     if (!workspaceId) {
       return
@@ -115,6 +127,21 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
       observer.disconnect()
     }
   }, [collapsedSections.changes, rootFontSizePx])
+
+  // Keyboard shortcuts: ⌘R refresh, Esc close dialogs
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault()
+        controller.refreshAll()
+      }
+      if (e.key === 'Escape') {
+        setDiscardConfirmState(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [controller.refreshAll])
 
   useEffect(() => {
     fileVirtualizer.measure()
