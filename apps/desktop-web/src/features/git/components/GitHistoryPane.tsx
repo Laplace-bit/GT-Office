@@ -9,6 +9,7 @@ import {
 import type { GitWorkspaceController } from '../useGitWorkspaceController'
 import { DiffViewer } from '../DiffViewer'
 import { GitGraphView } from '../GitGraphView'
+import { MergeConflictPanel } from './MergeConflictPanel'
 import { describeUnknownError } from './git-helpers'
 
 interface GitHistoryPaneProps {
@@ -36,6 +37,10 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     loadOlderHistory,
     resetToLatestHistory,
     errorMessage,
+    isMerging,
+    mergeConflicts,
+    continueMerge,
+    abortMerge,
   } = controller
 
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
@@ -282,7 +287,14 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
 
       {/* Content: Mutually exclusive views */}
       <div className="git-pane__content git-history-pane__content">
-        {showDiffView ? (
+        {isMerging ? (
+          <MergeConflictPanel
+            conflicts={mergeConflicts.map((path) => ({ path, status: 'UU' }))}
+            onContinue={() => void continueMerge()}
+            onAbort={() => void abortMerge()}
+            locale={locale}
+          />
+        ) : showDiffView ? (
           <DiffViewer
             diff={structuredDiff}
             mode={diffViewMode}

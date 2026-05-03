@@ -99,6 +99,11 @@ export interface GitWorkspaceController {
   revert: (commit: string) => Promise<void>
   reset: (commit: string, mode: 'soft' | 'mixed' | 'hard') => Promise<void>
   createBranchFromCommit: (commit: string) => Promise<void>
+  mergeConflicts: string[]
+  isMerging: boolean
+  startMerge: (source: string) => Promise<void>
+  continueMerge: () => Promise<void>
+  abortMerge: () => Promise<void>
 }
 
 // ============================================

@@ -235,8 +235,8 @@ export function useGitController({
     cacheRefs,
   })
 
-  // Merge sub-controller (exposed through composition when interface adds merge fields)
-  useGitMerge({
+  // Merge sub-controller
+  const merge = useGitMerge({
     workspaceId,
     isGitRepository,
     runAction,
@@ -371,5 +371,10 @@ export function useGitController({
     revert: commitActions.revert,
     reset: commitActions.reset,
     createBranchFromCommit: commitActions.createBranchFromCommit,
+    mergeConflicts: merge.mergeConflicts,
+    isMerging: merge.isMerging,
+    startMerge: merge.startMerge,
+    continueMerge: merge.continueMerge,
+    abortMerge: merge.abortMerge,
   }
 }

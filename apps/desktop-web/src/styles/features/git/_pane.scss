@@ -2487,3 +2487,148 @@
     justify-items: start;
   }
 }
+
+/* ========================================
+   Merge Conflict Panel
+   ======================================== */
+
+.git-merge-conflict-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vb-space-md);
+  height: 100%;
+  padding: #{rem(20)};
+}
+
+.git-merge-conflict-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vb-space-sm);
+}
+
+.git-merge-conflict-title {
+  font-size: var(--vb-git-font-lg);
+  font-weight: 600;
+  color: var(--vb-text);
+}
+
+.git-merge-conflict-count {
+  font-size: var(--vb-git-font-sm);
+  color: var(--vb-text-muted);
+}
+
+.git-merge-conflict-files {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: #{rem(6)};
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.git-merge-conflict-file {
+  display: flex;
+  align-items: center;
+  gap: var(--vb-space-sm);
+  padding: var(--vb-space-sm) #{rem(12)};
+  border-radius: var(--vb-radius-md);
+  background: color-mix(in srgb, var(--vb-chip) 46%, transparent);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 76%, transparent);
+}
+
+.conflict-status {
+  flex-shrink: 0;
+  min-width: #{rem(26)};
+  font-size: var(--vb-git-font-2xs);
+  font-weight: 600;
+  font-family: var(--vb-font-mono);
+  text-align: center;
+  padding: #{rem(2)} #{rem(4)};
+  border-radius: var(--vb-radius-xs);
+  background: color-mix(in srgb, var(--vb-warning) 18%, transparent);
+  color: var(--vb-warning);
+}
+
+.conflict-status--uu {
+  background: color-mix(in srgb, var(--vb-error) 18%, transparent);
+  color: var(--vb-error);
+}
+
+.conflict-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--vb-git-font-xs);
+  font-family: var(--vb-font-mono);
+  color: var(--vb-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-merge-conflict-actions {
+  display: flex;
+  gap: var(--vb-space-sm);
+  flex-wrap: wrap;
+}
+
+.git-merge-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: #{rem(5)};
+  height: #{rem(32)};
+  padding: 0 #{rem(14)};
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-success) 35%, transparent);
+  border-radius: var(--vb-radius-sm);
+  background: color-mix(in srgb, var(--vb-success) 15%, var(--vb-chip));
+  color: var(--vb-success);
+  font-size: var(--vb-git-font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms var(--vb-ease-out), border-color 120ms var(--vb-ease-out);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vb-success) 25%, var(--vb-chip));
+    border-color: var(--vb-success);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.git-merge-abort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: #{rem(5)};
+  height: #{rem(32)};
+  padding: 0 #{rem(14)};
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-error) 35%, transparent);
+  border-radius: var(--vb-radius-sm);
+  background: color-mix(in srgb, var(--vb-error) 12%, var(--vb-chip));
+  color: var(--vb-error);
+  font-size: var(--vb-git-font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms var(--vb-ease-out), border-color 120ms var(--vb-ease-out);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vb-error) 22%, var(--vb-chip));
+    border-color: var(--vb-error);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.git-merge-conflict-hint {
+  font-size: var(--vb-git-font-2xs);
+  color: var(--vb-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}

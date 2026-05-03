@@ -28,6 +28,7 @@ export const BranchSection = memo(function BranchSection({
     checkout,
     createBranch,
     deleteBranch,
+    startMerge,
   } = controller
 
   const currentBranchEntry = branches.find((branch) => branch.current) ?? null
@@ -80,6 +81,13 @@ export const BranchSection = memo(function BranchSection({
                     icon="git-merge"
                     label={t(locale, 'git.action.checkout')}
                     onClick={() => void checkout()}
+                    disabled={!isGitRepository || !checkoutTarget || Boolean(actionLoading)}
+                    showLabel
+                  />
+                  <GitIconButton
+                    icon="git-merge"
+                    label={t(locale, 'git.merge.title')}
+                    onClick={() => void startMerge(checkoutTarget)}
                     disabled={!isGitRepository || !checkoutTarget || Boolean(actionLoading)}
                     showLabel
                   />
