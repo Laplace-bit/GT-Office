@@ -21,6 +21,7 @@ import { useGitRemote } from './useGitRemote'
 import { useGitStash } from './useGitStash'
 import { useGitDiff } from './useGitDiff'
 import { useGitMerge } from './useGitMerge'
+import { useGitCommitActions } from './useGitCommitActions'
 
 export function useGitController({
   locale,
@@ -243,6 +244,17 @@ export function useGitController({
     onRefreshMeta,
   })
 
+  // Commit actions sub-controller (cherry-pick, revert, reset, create branch from commit)
+  const commitActions = useGitCommitActions({
+    workspaceId,
+    isGitRepository,
+    runAction,
+    invalidateDiffCache,
+    onRefreshSummary: refreshSummaryOnly,
+    onRefreshMeta,
+    onRefreshHistory: refreshHistoryLatest,
+  })
+
   // Derived
   const graphCommits = useMemo(
     () => buildGraphCommits(logEntries, summary?.branch ?? 'main'),
@@ -355,5 +367,9 @@ export function useGitController({
     stashPop: stash.stashPop,
     loadOlderHistory,
     resetToLatestHistory,
+    cherryPick: commitActions.cherryPick,
+    revert: commitActions.revert,
+    reset: commitActions.reset,
+    createBranchFromCommit: commitActions.createBranchFromCommit,
   }
 }

@@ -312,6 +312,10 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
             onSelectCommit={handleSelectCommit}
             onLoadMore={loadOlderHistory}
             onResetToLatest={resetToLatestHistory}
+            onCherryPick={controller.cherryPick}
+            onRevert={controller.revert}
+            onReset={controller.reset}
+            onCreateBranch={controller.createBranchFromCommit}
           />
         )}
       </div>

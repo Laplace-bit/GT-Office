@@ -429,6 +429,10 @@ export interface GitGraphViewProps {
   onSelectCommit: (hash: string) => void
   onLoadMore: () => void
   onResetToLatest: () => void
+  onCherryPick?: (commit: string) => void
+  onRevert?: (commit: string) => void
+  onReset?: (commit: string, mode: 'soft' | 'mixed' | 'hard') => void
+  onCreateBranch?: (commit: string) => void
 }
 
 export const GitGraphView = memo(function GitGraphView({
@@ -443,10 +447,15 @@ export const GitGraphView = memo(function GitGraphView({
   onSelectCommit,
   onLoadMore,
   onResetToLatest,
+  onCherryPick,
+  onRevert,
+  onReset,
+  onCreateBranch,
 }: GitGraphViewProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('full')
+  const [resetConfirmTarget, setResetConfirmTarget] = useState<string | null>(null)
   const rootFontSizePx = useRootFontSizePx()
 
   // Build graph layout (memoized, only recalculates when entries change)
@@ -698,10 +707,78 @@ export const GitGraphView = memo(function GitGraphView({
               ) : (
                 <p className="git-graph-detail__state">{t(locale, 'git.history.detail.noFiles')}</p>
               )}
+
+              <div className="git-graph-detail-actions">
+                <button
+                  className="git-graph-action-btn"
+                  onClick={() => onCherryPick?.(selectedCommitDetail.commit)}
+                >
+                  {t(locale, 'git.graph.cherryPick')}
+                </button>
+                <button
+                  className="git-graph-action-btn"
+                  onClick={() => onRevert?.(selectedCommitDetail.commit)}
+                >
+                  {t(locale, 'git.graph.revert')}
+                </button>
+                <div className="git-graph-reset-dropdown">
+                  <button className="git-graph-action-btn git-graph-reset-trigger">
+                    {t(locale, 'git.graph.reset')}
+                  </button>
+                  <div className="git-graph-reset-menu">
+                    <button onClick={() => onReset?.(selectedCommitDetail.commit, 'soft')}>
+                      {t(locale, 'git.graph.resetSoft')}
+                    </button>
+                    <button onClick={() => onReset?.(selectedCommitDetail.commit, 'mixed')}>
+                      {t(locale, 'git.graph.resetMixed')}
+                    </button>
+                    <button onClick={() => {
+                      setResetConfirmTarget(selectedCommitDetail.commit)
+                    }}>
+                      {t(locale, 'git.graph.resetHard')}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  className="git-graph-action-btn"
+                  onClick={() => onCreateBranch?.(selectedCommitDetail.commit)}
+                >
+                  {t(locale, 'git.graph.createBranch')}
+                </button>
+                <button
+                  className="git-graph-action-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedCommitDetail.commit)
+                  }}
+                >
+                  {t(locale, 'git.graph.copyHash')}
+                </button>
+              </div>
             </>
           ) : null}
         </div>
       ) : null}
+
+      {/* Hard reset confirmation dialog */}
+      {resetConfirmTarget && (
+        <div className="git-confirm-overlay">
+          <div className="git-confirm-dialog git-confirm-dialog--danger">
+            <p>This will permanently discard all uncommitted changes. This cannot be undone.</p>
+            <div className="git-confirm-actions">
+              <button onClick={() => setResetConfirmTarget(null)}>Cancel</button>
+              <button
+                className="git-confirm-danger"
+                onClick={() => {
+                  onReset?.(resetConfirmTarget, 'hard')
+                  setResetConfirmTarget(null)
+                }}
+              >
+                {t(locale, 'git.graph.resetHard')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Load more / Reset actions */}
       <div className="git-graph-actions">

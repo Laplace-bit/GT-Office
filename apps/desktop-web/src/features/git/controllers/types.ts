@@ -95,6 +95,10 @@ export interface GitWorkspaceController {
   stashPop: (stash: string | null) => Promise<void>
   loadOlderHistory: () => Promise<void>
   resetToLatestHistory: () => Promise<void>
+  cherryPick: (commit: string) => Promise<void>
+  revert: (commit: string) => Promise<void>
+  reset: (commit: string, mode: 'soft' | 'mixed' | 'hard') => Promise<void>
+  createBranchFromCommit: (commit: string) => Promise<void>
 }
 
 // ============================================
