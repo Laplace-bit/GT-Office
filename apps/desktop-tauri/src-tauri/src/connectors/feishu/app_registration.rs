@@ -20,6 +20,7 @@ fn accounts_base_url(domain: FeishuDomain) -> &'static str {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct InitResponse {
     #[serde(default)]
     nonce: Option<String>,
@@ -29,6 +30,7 @@ struct InitResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 struct RawBeginResponse {
     device_code: String,
     verification_uri: String,
@@ -77,6 +79,7 @@ struct BotInfoEnvelope {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct BotInfoPayload {
     #[serde(default)]
     activate_status: Option<i64>,
