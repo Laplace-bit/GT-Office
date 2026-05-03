@@ -2041,36 +2041,28 @@ where
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
     pub fn tag_list(&self, workspace_id: &WorkspaceId) -> AbstractionResult<Vec<GitTagEntry>> {
         let root = self.workspace_root(workspace_id)?;
+        let format = format!(
+            "%(refname:short){fs}%(objectname){fs}%(objectname:short){fs}%(taggername){fs}%(subject){rs}",
+            fs = LOG_FIELD_SEP,
+            rs = LOG_RECORD_SEP,
+        );
         let output = self.run_git(
             &root,
-            &[
-                "for-each-ref",
-                "--format",
-                "%(refname:short)|%(objectname)|%(objectname:short)|%(taggername)|%(subject)",
-                "refs/tags/",
-            ],
+            &["for-each-ref", "--format", &format, "refs/tags/"],
             "GIT_TAG_LIST_FAILED",
         )?;
 
-        let entries: Vec<GitTagEntry> = output
-            .lines()
-            .filter(|line| !line.is_empty())
-            .filter_map(|line| {
-                let parts: Vec<&str> = line.splitn(5, '|').collect();
-                if parts.len() >= 5 {
-                    Some(GitTagEntry {
-                        name: parts[0].to_string(),
-                        oid: parts[1].to_string(),
-                        target: parts[2].to_string(),
-                        tagger: if parts[3].is_empty() { None } else { Some(parts[3].to_string()) },
-                        message: if parts[4].is_empty() { None } else { Some(parts[4].to_string()) },
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
+        let records = Self::parse_structured_output(&output, 5);
+        let mut entries = Vec::with_capacity(records.len());
+        for fields in records {
+            entries.push(GitTagEntry {
+                name: fields[0].clone(),
+                oid: fields[1].clone(),
+                target: fields[2].clone(),
+                tagger: if fields[3].is_empty() { None } else { Some(fields[3].clone()) },
+                message: if fields[4].is_empty() { None } else { Some(fields[4].clone()) },
+            });
+        }
         Ok(entries)
     }
 
@@ -2083,13 +2075,18 @@ where
         annotated: bool,
         message: Option<&str>,
     ) -> AbstractionResult<()> {
+        if annotated && message.map_or(true, |m| m.trim().is_empty()) {
+            return Err(AbstractionError::InvalidArgument {
+                message: "annotated tag requires a message".into(),
+            });
+        }
         let root = self.workspace_root(workspace_id)?;
         let mut args = vec!["tag".to_string()];
         if annotated {
             args.push("-a".to_string());
             args.push(name.to_string());
             args.push("-m".to_string());
-            args.push(message.unwrap_or("").to_string());
+            args.push(message.unwrap().to_string());
         } else {
             args.push(name.to_string());
         }
