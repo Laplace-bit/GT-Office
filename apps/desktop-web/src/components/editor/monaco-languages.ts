@@ -43,9 +43,24 @@ export type LanguageId =
   | 'less'
   // Infrastructure
   | 'dockerfile'
+  | 'hcl'
+  | 'ini'
   // Frameworks
   | 'vue'
   | 'svelte'
+  // Mobile / cross-platform
+  | 'dart'
+  // Data science
+  | 'r'
+  // Other common languages
+  | 'objectivec'
+  | 'fsharp'
+  | 'perl'
+  | 'clojure'
+  | 'julia'
+  | 'pascal'
+  | 'vb'
+  | 'coffee'
   // Default
   | 'plain'
 
@@ -97,10 +112,28 @@ const LANGUAGE_TO_MONACO: Record<LanguageId, string> = {
 
   // Infrastructure
   dockerfile: 'dockerfile',
+  hcl: 'hcl',
+  ini: 'ini',
 
   // Frameworks
   vue: 'html',
   svelte: 'html',
+
+  // Mobile / cross-platform
+  dart: 'dart',
+
+  // Data science
+  r: 'r',
+
+  // Other common languages
+  objectivec: 'objective-c',
+  fsharp: 'fsharp',
+  perl: 'perl',
+  clojure: 'clojure',
+  julia: 'julia',
+  pascal: 'pascal',
+  vb: 'vb',
+  coffee: 'coffee',
 
   // Default
   plain: 'plaintext',
@@ -233,6 +266,53 @@ const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
 
   // Svelte
   svelte: 'svelte',
+
+  // Dart / Flutter
+  dart: 'dart',
+
+  // R
+  r: 'r',
+
+  // Objective-C
+  m: 'objectivec',
+  mm: 'objectivec',
+
+  // F#
+  fs: 'fsharp',
+  fsx: 'fsharp',
+  fsi: 'fsharp',
+
+  // Perl
+  pl: 'perl',
+  pm: 'perl',
+
+  // Clojure
+  clj: 'clojure',
+  cljs: 'clojure',
+  cljc: 'clojure',
+
+  // HCL (Terraform)
+  tf: 'hcl',
+  tfvars: 'hcl',
+
+  // INI / Config
+  ini: 'ini',
+  cfg: 'ini',
+  conf: 'ini',
+
+  // Julia
+  jl: 'julia',
+
+  // Pascal / Delphi
+  pas: 'pascal',
+  dpr: 'pascal',
+  lp: 'pascal',
+
+  // Visual Basic
+  vb: 'vb',
+
+  // CoffeeScript
+  coffee: 'coffee',
 }
 
 /**
