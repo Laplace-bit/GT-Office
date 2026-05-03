@@ -231,11 +231,6 @@ export function StationOverviewPane({
           </div>
           <div className="metrics-divider" />
           <div className="metrics-item">
-            <strong className="status-blocked">{snapshot.blocked}</strong>
-            <span>{t(locale, 'station.metrics.blocked')}</span>
-          </div>
-          <div className="metrics-divider" />
-          <div className="metrics-item">
             <strong>{snapshot.idle}</strong>
             <span>{t(locale, 'station.metrics.idle')}</span>
           </div>
