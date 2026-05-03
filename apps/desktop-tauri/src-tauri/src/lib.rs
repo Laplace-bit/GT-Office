@@ -225,6 +225,8 @@ pub fn run() {
             tool_adapter::channel_connector_wechat_auth_start,
             tool_adapter::channel_connector_wechat_auth_status,
             tool_adapter::channel_connector_wechat_auth_cancel,
+            tool_adapter::feishu_qr_login_start,
+            tool_adapter::feishu_qr_login_cancel,
             tool_adapter::channel_binding_upsert,
             tool_adapter::channel_binding_list,
             tool_adapter::channel_binding_delete,

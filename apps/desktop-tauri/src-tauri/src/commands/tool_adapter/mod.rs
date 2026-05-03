@@ -170,6 +170,17 @@ pub struct ChannelConnectorWechatAuthCancelRequest {
     pub auth_session_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeishuQrLoginStartRequest {
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeishuQrLoginCancelRequest {}
+
 const ROLE_TARGET_PREFIX: &str = "role:";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3376,6 +3387,31 @@ pub fn channel_connector_wechat_auth_cancel(
         "channel": "wechat",
         "session": snapshot,
     }))
+}
+
+#[tauri::command]
+pub async fn feishu_qr_login_start(
+    request: FeishuQrLoginStartRequest,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let domain = match request.domain.as_deref() {
+        Some("lark") => feishu::types::FeishuDomain::Lark,
+        _ => feishu::types::FeishuDomain::Feishu,
+    };
+    let result = feishu::qr_login_start(app, state.inner(), domain).await?;
+    Ok(json!({
+        "channel": "feishu",
+        "result": result,
+    }))
+}
+
+#[tauri::command]
+pub fn feishu_qr_login_cancel(
+    _request: FeishuQrLoginCancelRequest,
+) -> Result<Value, String> {
+    feishu::qr_login_cancel()?;
+    Ok(json!({ "channel": "feishu", "cancelled": true }))
 }
 
 #[tauri::command]

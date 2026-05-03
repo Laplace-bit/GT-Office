@@ -369,11 +369,18 @@ pub async fn qr_login_start(
     domain: FeishuDomain,
 ) -> Result<FeishuQrLoginBeginResult, String> {
     // Cancel any existing session
-    if let Ok(mut guard) = qr_login_sessions().lock() {
-        if let Some(session) = guard.take() {
-            session.cancel.cancel();
-            let _ = session.handle.await;
+    let existing_handle = {
+        if let Ok(mut guard) = qr_login_sessions().lock() {
+            guard.take().map(|session| {
+                session.cancel.cancel();
+                session.handle
+            })
+        } else {
+            None
         }
+    };
+    if let Some(handle) = existing_handle {
+        let _ = handle.await;
     }
 
     // Init: verify environment supports client_secret
