@@ -145,33 +145,33 @@
 [data-theme='graphite-dark'],
 [data-theme='sakura-night'] {
   .settings-group {
-    background: color-mix(in srgb, var(--vb-surface) 20%, rgba(255,255,255,0.02));
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 rem(4) rem(20) rgba(0, 0, 0, 0.2);
+    background: var(--vb-surface-muted);
+    border-color: var(--vb-border);
+    box-shadow: var(--vb-shadow);
 
     &:hover {
-      box-shadow: 0 rem(8) rem(30) rgba(0, 0, 0, 0.3);
+      box-shadow: var(--vb-shadow-lg);
     }
   }
 
   .settings-row {
-    border-color: rgba(255, 255, 255, 0.05);
-    
+    border-color: var(--vb-border);
+
     &::before {
-      background: rgba(255, 255, 255, 0.04);
+      background: var(--vb-hover-overlay);
     }
   }
 
   .settings-row .settings-select {
-    background-color: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.1);
-    
+    background-color: var(--vb-chip);
+    border-color: var(--vb-border-strong);
+
     /* Light chevron for dark mode */
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.7)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
 
     &:hover {
-      background-color: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 255, 255, 0.15);
+      background-color: var(--vb-hover-overlay);
+      border-color: var(--vb-border-strong);
     }
   }
 

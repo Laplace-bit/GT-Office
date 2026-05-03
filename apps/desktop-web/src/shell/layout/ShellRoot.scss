@@ -33,11 +33,17 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   }
 }
 
-:root[data-theme='graphite-dark'],
-:root[data-theme='sakura-night'] .agent-shell {
+:root[data-theme='graphite-dark'] .agent-shell {
   background:
     radial-gradient(ellipse 80% 50% at 0% 0%, rgba(10, 132, 255, 0.06), transparent 50%),
     radial-gradient(ellipse 60% 40% at 100% 100%, rgba(175, 82, 222, 0.04), transparent 50%),
+    var(--vb-bg);
+}
+
+:root[data-theme='sakura-night'] .agent-shell {
+  background:
+    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(244, 114, 182, 0.06), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(192, 132, 252, 0.04), transparent 50%),
     var(--vb-bg);
 }
 

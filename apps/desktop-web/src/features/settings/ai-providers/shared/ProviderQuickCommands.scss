@@ -340,40 +340,40 @@ $bg-capsule-active: rgba($system-blue, 0.1);
   :root[data-theme='graphite-dark'] &,
   :root[data-theme='sakura-night'] & {
     .command-composer-card {
-      background: #1c1c1e;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-      border-color: rgba(255, 255, 255, 0.1);
+      background: var(--vb-surface-muted);
+      box-shadow: var(--vb-shadow-lg);
+      border-color: var(--vb-border-strong);
     }
 
     .form-group {
       input, textarea {
-        background: rgba(255, 255, 255, 0.08);
-        color: #ffffff;
+        background: var(--vb-input-bg);
+        color: var(--vb-text);
         &:focus {
-          background: rgba(255, 255, 255, 0.12);
-          border-color: $system-blue;
+          background: var(--vb-input-bg);
+          border-color: var(--vb-accent);
         }
-        &::placeholder { color: rgba(255, 255, 255, 0.3); }
+        &::placeholder { color: var(--vb-text-subtle); }
       }
     }
 
     .segmented-control {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--vb-chip);
       .segment-option {
-        color: rgba(255, 255, 255, 0.5);
+        color: var(--vb-text-muted);
         &.is-selected {
-          background: #636366;
-          color: #ffffff;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+          background: var(--vb-surface-elevated);
+          color: var(--vb-text);
+          box-shadow: var(--vb-shadow-sm);
         }
       }
     }
 
     .composer-footer {
       button.secondary {
-        background: rgba(255, 255, 255, 0.1);
-        color: #ffffff;
-        &:hover { background: rgba(255, 255, 255, 0.15); }
+        background: var(--vb-chip);
+        color: var(--vb-text);
+        &:hover { background: var(--vb-card-hover-bg); }
       }
     }
 
@@ -383,8 +383,8 @@ $bg-capsule-active: rgba($system-blue, 0.1);
     }
 
     .library-capsule {
-      background: #1c1c1e;
-      &:hover { background: #2c2c2e; }
+      background: var(--vb-surface-muted);
+      &:hover { background: var(--vb-surface-elevated); }
     }
   }
 }

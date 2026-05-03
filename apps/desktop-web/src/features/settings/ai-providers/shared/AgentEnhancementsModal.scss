@@ -214,62 +214,60 @@
 [data-theme='sakura-night'] {
   .agent-enhancements {
     &__tabs {
-      background: rgba(15, 23, 42, 0.7);
-      border-color: rgba(148, 163, 184, 0.12);
-      box-shadow: inset 0 rem(1) 0 rgba(255, 255, 255, 0.03);
+      background: var(--vb-surface-muted);
+      border-color: var(--vb-border);
+      box-shadow: var(--vb-shadow-inset);
     }
 
     &__tab {
-      color: #94a3b8;
+      color: var(--vb-text-muted);
 
       &.is-active {
-        background: rgba(255, 255, 255, 0.08);
-        color: #e2e8f0;
-        box-shadow: 0 rem(12) rem(24) rgba(2, 6, 23, 0.28);
+        background: var(--vb-hover-overlay);
+        color: var(--vb-text);
+        box-shadow: var(--vb-shadow);
       }
     }
   }
 
   .enhancement-service-card {
     background:
-      radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 30%),
-      linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.88));
-    border-color: rgba(148, 163, 184, 0.12);
-    box-shadow:
-      0 rem(20) rem(44) rgba(2, 6, 23, 0.34),
-      inset 0 rem(1) 0 rgba(255, 255, 255, 0.04);
+      radial-gradient(circle at top left, var(--vb-accent-light), transparent 30%),
+      linear-gradient(180deg, var(--vb-surface-muted), var(--vb-surface));
+    border-color: var(--vb-border);
+    box-shadow: var(--vb-shadow);
 
     &__title-row h4,
     .detail-item strong {
-      color: #e2e8f0;
+      color: var(--vb-text);
     }
 
     &__top p,
     .service-note {
-      color: #94a3b8;
+      color: var(--vb-text-muted);
     }
 
     .detail-item {
-      background: rgba(15, 23, 42, 0.62);
-      border-color: rgba(148, 163, 184, 0.12);
+      background: var(--vb-chip);
+      border-color: var(--vb-border);
     }
 
     .enhancement-service-card__status.is-external {
-      background: rgba(234, 179, 8, 0.18);
-      color: #fbbf24;
+      background: var(--vb-warning-bg);
+      color: var(--vb-warning);
     }
   }
 
   .enhancement-empty-state {
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.82));
-    border-color: rgba(148, 163, 184, 0.14);
+    background: linear-gradient(180deg, var(--vb-surface-muted), var(--vb-surface));
+    border-color: var(--vb-border);
 
     h4 {
-      color: #e2e8f0;
+      color: var(--vb-text);
     }
 
     p {
-      color: #94a3b8;
+      color: var(--vb-text-muted);
     }
   }
 }

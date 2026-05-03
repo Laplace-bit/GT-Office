@@ -50,7 +50,7 @@ export class ErrorBoundary extends Component<Props, State> {
             overflow: 'auto',
           }}
         >
-          <h2 style={{ margin: '0 0 16px 0', color: '#dc2626' }}>
+          <h2 style={{ margin: '0 0 16px 0', color: 'var(--vb-error)' }}>
             Something went wrong
           </h2>
           <details style={{ whiteSpace: 'pre-wrap' }}>

@@ -56,7 +56,7 @@
   }
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-pane,
 :root[data-theme='sakura-night'] .communication-channels-pane {
   --communication-surface-bg: color-mix(in srgb, var(--vb-panel-bg) 92%, rgba(8, 10, 14, 0.42));
   --communication-surface-border: color-mix(in srgb, rgba(255, 255, 255, 0.08) 52%, transparent);
@@ -105,7 +105,7 @@
   overflow: hidden;
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-surface,
 :root[data-theme='sakura-night'] .communication-channels-surface {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 34%),
@@ -172,7 +172,7 @@
   }
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-tab,
 :root[data-theme='sakura-night'] .communication-channels-tab {
   padding-inline: rem(6);
   border-width: 0;
@@ -180,7 +180,7 @@
   color: color-mix(in srgb, var(--vb-text) 72%, rgba(255, 255, 255, 0.28));
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-tab.is-active,
 :root[data-theme='sakura-night'] .communication-channels-tab.is-active {
   box-shadow:
     inset 0 rem(1) 0 rgba(255, 255, 255, 0.08),
@@ -280,7 +280,7 @@
   -webkit-backdrop-filter: blur(rem(18)) saturate(140%);
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-bubble,
 :root[data-theme='sakura-night'] .communication-channels-bubble {
   border-width: 0;
   border-radius: rem(16);
@@ -304,7 +304,7 @@
   pointer-events: none;
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-bubble::after,
 :root[data-theme='sakura-night'] .communication-channels-bubble::after {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
 }
@@ -322,7 +322,7 @@
     0 rem(16) rem(30) rgba(95, 23, 18, 0.16);
 }
 
-:root[data-theme='graphite-dark'],
+:root[data-theme='graphite-dark'] .communication-channels-bubble.is-failed,
 :root[data-theme='sakura-night'] .communication-channels-bubble.is-failed {
   box-shadow:
     0 rem(12) rem(24) rgba(42, 12, 14, 0.24),

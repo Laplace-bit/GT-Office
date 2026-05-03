@@ -41,7 +41,7 @@
 }
 
 /* Dark theme overrides */
-[data-theme='graphite-dark'],
+[data-theme='graphite-dark'] .monaco-editor,
 [data-theme='sakura-night'] .monaco-editor {
   background: var(--vb-surface) !important;
 }

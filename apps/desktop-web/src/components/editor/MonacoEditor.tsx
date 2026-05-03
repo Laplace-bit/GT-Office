@@ -28,6 +28,7 @@ export interface MonacoEditorCommandRequest {
 function resolveThemeName(): string {
   if (typeof document === 'undefined') return 'gt-office-light'
   const dataTheme = document.documentElement.getAttribute('data-theme')
+  if (dataTheme === 'sakura-night') return 'gt-office-sakura-night'
   return isDarkDataTheme(dataTheme) ? 'gt-office-dark' : 'gt-office-light'
 }
 
@@ -95,6 +96,36 @@ function defineThemes(monaco: Monaco) {
       'editorCursor.foreground': '#AEAFAD',
       'editor.inactiveSelectionBackground': '#3A3D41',
       'editorGutter.background': '#1E1E1E',
+    },
+  })
+
+  monaco.editor.defineTheme('gt-office-sakura-night', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: '6b4f66', fontStyle: 'italic' },
+      { token: 'keyword', foreground: 'f472b6' },
+      { token: 'string', foreground: 'f9a8d4' },
+      { token: 'number', foreground: 'c4b5fd' },
+      { token: 'type', foreground: '6ee7b7' },
+      { token: 'function', foreground: 'fbbf6a' },
+      { token: 'variable', foreground: 'f5e6ef' },
+      { token: 'operator', foreground: 'a8899e' },
+      { token: 'delimiter', foreground: 'a8899e' },
+      { token: 'tag', foreground: 'f472b6' },
+      { token: 'attribute.name', foreground: 'f9a8d4' },
+      { token: 'attribute.value', foreground: '6ee7b7' },
+    ],
+    colors: {
+      'editor.background': '#1a1018',
+      'editor.foreground': '#f5e6ef',
+      'editor.lineHighlightBackground': '#221420',
+      'editorLineNumber.foreground': '#6b4f66',
+      'editorLineNumber.activeForeground': '#f472b6',
+      'editor.selectionBackground': '#3d1f36',
+      'editorCursor.foreground': '#f472b6',
+      'editor.inactiveSelectionBackground': '#2a1628',
+      'editorGutter.background': '#1a1018',
     },
   })
 }

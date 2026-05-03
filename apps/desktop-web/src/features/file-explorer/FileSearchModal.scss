@@ -246,17 +246,17 @@
 [data-theme='graphite-dark'],
 [data-theme='sakura-night'] {
   .file-search-modal {
-    background: color-mix(in srgb, #1a1a1a 85%, transparent);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--vb-surface-muted);
+    border-color: var(--vb-border-strong);
   }
 
   .file-search-result-icon {
-    background: color-mix(in srgb, rgba(30, 41, 59, 0.62) 100%, transparent);
+    background: var(--vb-chip);
   }
 
   .file-search-result-badge {
-    border-color: color-mix(in srgb, rgba(148, 163, 184, 0.38) 100%, transparent);
-    background: color-mix(in srgb, rgba(30, 41, 59, 0.72) 100%, transparent);
+    border-color: var(--vb-border-strong);
+    background: var(--vb-surface-muted);
   }
 }
 

@@ -145,15 +145,15 @@
 [data-theme='graphite-dark'],
 [data-theme='sakura-night'] {
   .station-search-modal {
-    background: color-mix(in srgb, #1a1a1a 85%, transparent);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--vb-surface-muted);
+    border-color: var(--vb-border-strong);
   }
-  
+
   .station-search-result-btn {
-    background: rgba(255, 255, 255, 0.03);
-    
+    background: transparent;
+
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--vb-hover-overlay);
     }
   }
 }
