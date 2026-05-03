@@ -2202,12 +2202,6 @@ where
                 // Check if the failure is due to a merge conflict by looking for MERGE_HEAD
                 if root.join(".git").join("MERGE_HEAD").exists() {
                     let conflicts = self.conflict_list(workspace_id)?;
-                    // Abort the merge so working tree is clean
-                    let _ = self.run_git(
-                        &root,
-                        &["merge", "--abort"],
-                        "GIT_MERGE_ABORT_FAILED",
-                    );
                     Ok(MergeResult {
                         success: false,
                         conflicts,
