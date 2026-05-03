@@ -884,7 +884,8 @@
     linear-gradient(135deg, color-mix(in srgb, var(--vb-surface) 90%, #e6f9f6 10%), color-mix(in srgb, var(--vb-surface) 70%, #e6f9f6 30%));
 }
 
-[data-theme='graphite-dark'] .channel-wizard-channel-option.feishu {
+[data-theme='graphite-dark'],
+[data-theme='aurora-deep'] .channel-wizard-channel-option.feishu {
   background:
     radial-gradient(circle at top right, rgba(0, 214, 185, 0.2), transparent 44%),
     linear-gradient(135deg, rgba(28, 28, 30, 0.8), rgba(0, 100, 80, 0.2));
@@ -897,7 +898,8 @@
     linear-gradient(135deg, color-mix(in srgb, var(--vb-surface) 90%, #ebfff2 10%), color-mix(in srgb, var(--vb-surface) 70%, #ebfff2 30%));
 }
 
-[data-theme='graphite-dark'] .channel-wizard-channel-option.wechat {
+[data-theme='graphite-dark'],
+[data-theme='aurora-deep'] .channel-wizard-channel-option.wechat {
   background:
     radial-gradient(circle at top right, rgba(34, 197, 94, 0.22), transparent 44%),
     linear-gradient(135deg, rgba(28, 28, 30, 0.82), rgba(18, 83, 43, 0.26));
@@ -1479,4 +1481,111 @@
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+.feishu-qr-scan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem 0;
+}
+
+.feishu-qr-scan-idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.feishu-qr-scan-hint {
+  font-size: 0.875rem;
+  color: var(--vb-text-secondary);
+  text-align: center;
+  max-width: 20rem;
+}
+
+.feishu-qr-scan-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+
+  p {
+    color: var(--vb-text-secondary);
+  }
+}
+
+.feishu-qr-scan-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--vb-border);
+  border-top-color: var(--vb-primary);
+  border-radius: 50%;
+  animation: feishu-qr-spin 0.8s linear infinite;
+}
+
+@keyframes feishu-qr-spin {
+  to { transform: rotate(360deg); }
+}
+
+.feishu-qr-scan-scanning {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.feishu-qr-code-wrapper {
+  padding: 1rem;
+  background: #ffffff;
+  border-radius: 0.5rem;
+  border: 1px solid var(--vb-border);
+}
+
+.feishu-qr-scan-instruction {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.feishu-qr-scan-attempt {
+  font-size: 0.8125rem;
+  color: var(--vb-text-secondary);
+}
+
+.feishu-qr-scan-timer {
+  font-size: 0.8125rem;
+  color: var(--vb-text-tertiary);
+}
+
+.feishu-qr-scan-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+
+  .feishu-qr-scan-check {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    background: var(--vb-success, #22c55e);
+    color: #ffffff;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  p {
+    font-weight: 500;
+    color: var(--vb-success, #22c55e);
+  }
+}
+
+.feishu-qr-scan-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
 }
