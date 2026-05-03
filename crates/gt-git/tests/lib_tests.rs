@@ -259,6 +259,84 @@ fn tag_create_annotated_with_message() {
 }
 
 #[test]
+fn cherry_pick_applies_commit_on_branch() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    // Initial commit on main
+    std::fs::write(repo.path.join("file.txt"), "base").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    let _base_sha = git.commit(&workspace.workspace_id, "base").unwrap();
+
+    // Create feature branch with a commit
+    git.create_branch(&workspace.workspace_id, "feature", None).unwrap();
+    git.checkout(&workspace.workspace_id, "feature", false, None).unwrap();
+    std::fs::write(repo.path.join("feature.txt"), "feature").unwrap();
+    git.stage(&workspace.workspace_id, &["feature.txt".into()]).unwrap();
+    let feature_sha = git.commit(&workspace.workspace_id, "add feature").unwrap();
+
+    // Go back to main
+    git.checkout(&workspace.workspace_id, "main", false, None).unwrap();
+
+    // Cherry-pick the feature commit
+    git.cherry_pick(&workspace.workspace_id, &feature_sha).unwrap();
+
+    // Verify the file exists on main
+    assert!(repo.path.join("feature.txt").exists());
+    let log = git.log(&workspace.workspace_id, 5, 0).unwrap();
+    assert_eq!(log[0].summary, "add feature");
+}
+
+#[test]
+fn revert_undoes_commit() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    std::fs::write(repo.path.join("file.txt"), "original").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    std::fs::write(repo.path.join("file.txt"), "modified").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    let sha = git.commit(&workspace.workspace_id, "modify file").unwrap();
+
+    git.revert(&workspace.workspace_id, &sha).unwrap();
+
+    let content = std::fs::read_to_string(repo.path.join("file.txt")).unwrap();
+    assert_eq!(content, "original");
+}
+
+#[test]
+fn reset_soft_moves_head_without_changing_files() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    std::fs::write(repo.path.join("file.txt"), "v1").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    let sha1 = git.commit(&workspace.workspace_id, "first").unwrap();
+
+    std::fs::write(repo.path.join("file.txt"), "v2").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "second").unwrap();
+
+    git.reset(&workspace.workspace_id, &sha1, "soft").unwrap();
+
+    // File should still have v2 content
+    let content = std::fs::read_to_string(repo.path.join("file.txt")).unwrap();
+    assert_eq!(content, "v2");
+
+    // But HEAD should be at first commit
+    let log = git.log(&workspace.workspace_id, 5, 0).unwrap();
+    assert_eq!(log[0].summary, "first");
+}
+
+#[test]
 fn init_repo_bootstraps_non_git_workspace() {
     let path = std::env::temp_dir().join(format!("gtoffice-git-init-test-{}", Uuid::new_v4()));
     fs::create_dir_all(&path).expect("create temp dir");

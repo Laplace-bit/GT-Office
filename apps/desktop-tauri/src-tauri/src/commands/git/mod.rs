@@ -822,6 +822,76 @@ pub async fn git_tag_delete(
 }
 
 #[tauri::command]
+pub async fn git_cherry_pick(
+    workspace_id: String,
+    commit: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id_owned = WorkspaceId::new(workspace_id.clone());
+    let ws_id = workspace_id_owned.clone();
+    run_git_blocking(&state, "GIT_CHERRY_PICK_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .cherry_pick(&ws_id, &commit)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
+}
+
+#[tauri::command]
+pub async fn git_revert(
+    workspace_id: String,
+    commit: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id_owned = WorkspaceId::new(workspace_id.clone());
+    let ws_id = workspace_id_owned.clone();
+    run_git_blocking(&state, "GIT_REVERT_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .revert(&ws_id, &commit)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
+}
+
+#[tauri::command]
+pub async fn git_reset(
+    workspace_id: String,
+    target: String,
+    mode: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id_owned = WorkspaceId::new(workspace_id.clone());
+    let ws_id = workspace_id_owned.clone();
+    run_git_blocking(&state, "GIT_RESET_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .reset(&ws_id, &target, &mode)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
+}
+
+#[tauri::command]
 pub async fn git_tag_push(
     workspace_id: String,
     remote: Option<String>,

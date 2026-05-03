@@ -2119,6 +2119,55 @@ where
         self.run_git(&root, &["push", remote, "tag", tag_name], "GIT_TAG_PUSH_FAILED")?;
         Ok(())
     }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, commit_oid = commit_oid))]
+    pub fn cherry_pick(
+        &self,
+        workspace_id: &WorkspaceId,
+        commit_oid: &str,
+    ) -> AbstractionResult<()> {
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(&root, &["cherry-pick", commit_oid], "GIT_CHERRY_PICK_FAILED")?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, commit_oid = commit_oid))]
+    pub fn revert(
+        &self,
+        workspace_id: &WorkspaceId,
+        commit_oid: &str,
+    ) -> AbstractionResult<()> {
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(
+            &root,
+            &["revert", "--no-edit", commit_oid],
+            "GIT_REVERT_FAILED",
+        )?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, target = target, mode = mode))]
+    pub fn reset(
+        &self,
+        workspace_id: &WorkspaceId,
+        target: &str,
+        mode: &str,
+    ) -> AbstractionResult<()> {
+        let reset_flag = match mode {
+            "soft" => "--soft",
+            "mixed" => "--mixed",
+            "hard" => "--hard",
+            _ => {
+                return Err(AbstractionError::InvalidArgument {
+                    message: "GIT_RESET_INVALID_MODE: mode must be soft, mixed, or hard"
+                        .to_string(),
+                });
+            }
+        };
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(&root, &["reset", reset_flag, target], "GIT_RESET_FAILED")?;
+        Ok(())
+    }
 }
 
 fn configure_background_command(command: &mut Command) {
