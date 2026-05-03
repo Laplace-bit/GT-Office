@@ -359,6 +359,31 @@ export interface GitStashPopResponse {
   popped: boolean
 }
 
+export interface GitTagEntry {
+  name: string
+  oid: string
+  target: string
+  tagger: string | null
+  message: string | null
+}
+
+export interface GitTagListResponse {
+  workspaceId: string
+  tags: GitTagEntry[]
+}
+
+export interface GitConflictFile {
+  path: string
+  status: string
+}
+
+export interface GitMergeResult {
+  workspaceId: string
+  success: boolean
+  conflicts: GitConflictFile[]
+  mergedCommit: string | null
+}
+
 export interface TerminalCreateResponse {
   sessionId: string
   workspaceId: string
@@ -2267,8 +2292,10 @@ export const desktopApi = {
       includeUntracked: includeUntracked ?? false,
     })
   },
-  gitCommit(workspaceId: string, message: string) {
-    return invokeCommand<GitCommitResponse>('git_commit', { workspaceId, message })
+  gitCommit(workspaceId: string, message: string, options?: { amend?: boolean }) {
+    return invokeCommand<GitCommitResponse>('git_commit', {
+      workspaceId, message, amend: options?.amend ?? false,
+    })
   },
   gitLog(workspaceId: string, options?: { limit?: number; skip?: number }) {
     return invokeCommand<GitLogResponse>('git_log', {
@@ -2376,6 +2403,57 @@ export const desktopApi = {
       workspaceId,
       limit: limit ?? null,
     })
+  },
+  // Tags
+  gitTagList(workspaceId: string) {
+    return invokeCommand<GitTagListResponse>('git_tag_list', { workspaceId })
+  },
+  gitTagCreate(workspaceId: string, name: string, target: string, options?: { annotated?: boolean; message?: string }) {
+    return invokeCommand<{ workspaceId: string; name: string }>('git_tag_create', {
+      workspaceId, name, target,
+      annotated: options?.annotated ?? false,
+      message: options?.message ?? null,
+    })
+  },
+  gitTagDelete(workspaceId: string, name: string) {
+    return invokeCommand<{ workspaceId: string; name: string }>('git_tag_delete', { workspaceId, name })
+  },
+  gitTagPush(workspaceId: string, name: string, remote?: string) {
+    return invokeCommand<{ workspaceId: string; name: string }>('git_tag_push', {
+      workspaceId, name, remote: remote ?? null,
+    })
+  },
+  // Cherry-pick / Revert / Reset
+  gitCherryPick(workspaceId: string, commit: string) {
+    return invokeCommand<{ workspaceId: string }>('git_cherry_pick', { workspaceId, commit })
+  },
+  gitRevert(workspaceId: string, commit: string) {
+    return invokeCommand<{ workspaceId: string }>('git_revert', { workspaceId, commit })
+  },
+  gitReset(workspaceId: string, target: string, mode: 'soft' | 'mixed' | 'hard') {
+    return invokeCommand<{ workspaceId: string }>('git_reset', { workspaceId, target, mode })
+  },
+  // Merge
+  gitMerge(workspaceId: string, target: string, options?: { noFf?: boolean }) {
+    return invokeCommand<GitMergeResult>('git_merge', {
+      workspaceId, target, noFf: options?.noFf ?? false,
+    })
+  },
+  gitMergeContinue(workspaceId: string) {
+    return invokeCommand<{ workspaceId: string; mergedCommit: string }>('git_merge_continue', { workspaceId })
+  },
+  gitMergeAbort(workspaceId: string) {
+    return invokeCommand<{ workspaceId: string }>('git_merge_abort', { workspaceId })
+  },
+  gitConflictList(workspaceId: string) {
+    return invokeCommand<{ workspaceId: string; conflicts: GitConflictFile[] }>('git_conflict_list', { workspaceId })
+  },
+  // Hunk staging
+  gitStageHunk(workspaceId: string, path: string, patch: string) {
+    return invokeCommand<{ ok: boolean }>('git_stage_hunk', { workspaceId, path, patch })
+  },
+  gitUnstageHunk(workspaceId: string, path: string, patch: string) {
+    return invokeCommand<{ ok: boolean }>('git_unstage_hunk', { workspaceId, path, patch })
   },
   fsListDir(workspaceId: string, path: string, depth = 2) {
     return invokeCommand<FsListDirResponse>('fs_list_dir', { workspaceId, path, depth })

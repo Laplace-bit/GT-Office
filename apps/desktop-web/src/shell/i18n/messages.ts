@@ -1207,6 +1207,52 @@ export const messages = {
     'en-US': 'Delete branch {branch}?',
   },
 
+  // Tags
+  'git.tags': { 'zh-CN': '标签', 'en-US': 'Tags' },
+  'git.tags.create': { 'zh-CN': '创建标签', 'en-US': 'Create Tag' },
+  'git.tags.delete': { 'zh-CN': '删除标签', 'en-US': 'Delete Tag' },
+  'git.tags.push': { 'zh-CN': '推送标签', 'en-US': 'Push Tag' },
+  'git.tags.name': { 'zh-CN': '标签名称', 'en-US': 'Tag name' },
+  'git.tags.message': { 'zh-CN': '标签消息（注释标签）', 'en-US': 'Tag message (annotated)' },
+  'git.tags.confirmDelete': {
+    'zh-CN': '删除标签 "{name}"？',
+    'en-US': 'Delete tag "{name}"?',
+  },
+
+  // Merge
+  'git.merge.title': { 'zh-CN': '合并', 'en-US': 'Merge' },
+  'git.merge.target': { 'zh-CN': '要合并的分支', 'en-US': 'Branch to merge' },
+  'git.merge.conflicts': { 'zh-CN': '检测到合并冲突', 'en-US': 'Merge conflicts detected' },
+  'git.merge.continue': { 'zh-CN': '继续合并', 'en-US': 'Continue Merge' },
+  'git.merge.abort': { 'zh-CN': '中止合并', 'en-US': 'Abort Merge' },
+
+  // Commit
+  'git.commit.amend': { 'zh-CN': '修改', 'en-US': 'Amend' },
+  'git.commit.subject': { 'zh-CN': '主题（建议 50 字符）', 'en-US': 'Subject (50 chars recommended)' },
+  'git.commit.body': { 'zh-CN': '描述（可选）', 'en-US': 'Description (optional)' },
+  'git.commit.shortcut': { 'zh-CN': '⌘Enter 提交', 'en-US': '⌘Enter to commit' },
+
+  // Graph actions
+  'git.graph.cherryPick': { 'zh-CN': 'Cherry Pick', 'en-US': 'Cherry Pick' },
+  'git.graph.revert': { 'zh-CN': 'Revert', 'en-US': 'Revert' },
+  'git.graph.reset': { 'zh-CN': '重置', 'en-US': 'Reset' },
+  'git.graph.resetSoft': { 'zh-CN': '重置（Soft）', 'en-US': 'Reset (Soft)' },
+  'git.graph.resetMixed': { 'zh-CN': '重置（Mixed）', 'en-US': 'Reset (Mixed)' },
+  'git.graph.resetHard': { 'zh-CN': '重置（Hard）', 'en-US': 'Reset (Hard)' },
+  'git.graph.createBranch': { 'zh-CN': '从此创建分支', 'en-US': 'Create Branch from here' },
+  'git.graph.copyHash': { 'zh-CN': '复制 Hash', 'en-US': 'Copy Hash' },
+
+  // Hunk
+  'git.hunk.stage': { 'zh-CN': '暂存 Hunk', 'en-US': 'Stage Hunk' },
+  'git.hunk.unstage': { 'zh-CN': '取消暂存 Hunk', 'en-US': 'Unstage Hunk' },
+
+  // Errors
+  'git.error.cherryPickFailed': { 'zh-CN': 'Cherry-pick 失败', 'en-US': 'Cherry-pick failed' },
+  'git.error.revertFailed': { 'zh-CN': 'Revert 失败', 'en-US': 'Revert failed' },
+  'git.error.resetFailed': { 'zh-CN': '重置失败', 'en-US': 'Reset failed' },
+  'git.error.mergeFailed': { 'zh-CN': '合并失败', 'en-US': 'Merge failed' },
+  'git.error.tagFailed': { 'zh-CN': '标签操作失败', 'en-US': 'Tag operation failed' },
+
   'workspace.label.id': { 'zh-CN': '工作区: {id}', 'en-US': 'Workspace: {id}' },
   'workspace.label.nameId': {
     'zh-CN': '工作区: {name} ({id})',
