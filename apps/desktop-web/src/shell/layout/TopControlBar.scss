@@ -41,6 +41,10 @@
   min-height: var(--vb-top-control-button-size);
 }
 
+.native-window-top .vb-top-control-leading {
+  flex: 0 1 auto;
+}
+
 .vb-top-control-divider {
   flex: 0 0 auto;
   width: var(--vb-border-width);
