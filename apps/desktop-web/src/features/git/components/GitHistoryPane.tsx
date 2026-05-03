@@ -310,6 +310,19 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
             onToggleFullFile={handleToggleFullFile}
             onOpenInEditor={handleOpenInEditor}
             openInEditorDisabled={openInEditorDisabled}
+            scope={selectedDiffScope}
+            onStageHunk={async (filePath, patch) => {
+              if (workspaceId) {
+                await desktopApi.gitStageHunk(workspaceId, filePath, patch)
+                await controller.refreshSummary()
+              }
+            }}
+            onUnstageHunk={async (filePath, patch) => {
+              if (workspaceId) {
+                await desktopApi.gitUnstageHunk(workspaceId, filePath, patch)
+                await controller.refreshSummary()
+              }
+            }}
           />
         ) : (
           <GitGraphView

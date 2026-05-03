@@ -16,6 +16,7 @@ import { AppIcon } from '@shell/ui/icons'
 import type {
   DiffSegment,
   GitDiffExpansionResponse,
+  GitDiffHunk,
   GitDiffStructuredResponse,
 } from '@shell/integration/desktop-api'
 import type { GitDiffScope } from './useGitWorkspaceController'
@@ -53,6 +54,35 @@ export interface DiffViewerProps {
   onOpenInEditor: () => void
   /** Whether editor open action is disabled */
   openInEditorDisabled: boolean
+  /** Current diff scope (staged or unstaged) — enables hunk stage/unstage buttons */
+  scope?: GitDiffScope
+  /** Callback to stage a hunk */
+  onStageHunk?: (path: string, patch: string) => void
+  /** Callback to unstage a hunk */
+  onUnstageHunk?: (path: string, patch: string) => void
+}
+
+// ============================================
+// Hunk Patch Builder
+// ============================================
+
+/**
+ * Construct a unified-diff patch string for a single hunk.
+ * The result is suitable for passing to git apply --cached or git apply --reverse.
+ */
+function buildHunkPatch(hunk: GitDiffHunk): string {
+  const lines = hunk.lines.map((line) => {
+    switch (line.kind) {
+      case 'add':
+        return `+${line.content}`
+      case 'del':
+        return `-${line.content}`
+      default:
+        return ` ${line.content}`
+    }
+  })
+
+  return [hunk.header, ...lines, ''].join('\n')
 }
 
 // ============================================
@@ -110,15 +140,43 @@ const CustomDiffLine = memo(function CustomDiffLine({ content, segments, lineKin
 interface SimpleDiffViewProps {
   diff: GitDiffStructuredResponse
   mode: 'split' | 'unified'
+  locale: 'zh-CN' | 'en-US'
+  scope?: GitDiffScope
+  onStageHunk?: (path: string, patch: string) => void
+  onUnstageHunk?: (path: string, patch: string) => void
 }
 
-const SimpleDiffView = memo(function SimpleDiffView({ diff, mode }: SimpleDiffViewProps) {
+const SimpleDiffView = memo(function SimpleDiffView({ diff, mode, locale, scope, onStageHunk, onUnstageHunk }: SimpleDiffViewProps) {
   if (mode === 'split') {
     return (
       <div className="simple-diff simple-diff--split">
         {diff.hunks.map((hunk, hunkIdx) => (
           <div key={hunkIdx} className="simple-diff__hunk">
-            <div className="simple-diff__hunk-header">{hunk.header}</div>
+            <div className="simple-diff__hunk-header">
+              <span>{hunk.header}</span>
+              {(scope === 'unstaged' || scope === 'staged') && (
+                <div className="simple-diff__hunk-actions">
+                  {scope === 'unstaged' && onStageHunk && (
+                    <button
+                      type="button"
+                      className="simple-diff__hunk-stage-btn"
+                      onClick={() => onStageHunk(diff.path, buildHunkPatch(hunk))}
+                    >
+                      {t(locale, 'git.hunk.stage')}
+                    </button>
+                  )}
+                  {scope === 'staged' && onUnstageHunk && (
+                    <button
+                      type="button"
+                      className="simple-diff__hunk-unstage-btn"
+                      onClick={() => onUnstageHunk(diff.path, buildHunkPatch(hunk))}
+                    >
+                      {t(locale, 'git.hunk.unstage')}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="simple-diff__hunk-content">
               {/* Build paired lines for split view */}
               {(() => {
@@ -222,7 +280,31 @@ const SimpleDiffView = memo(function SimpleDiffView({ diff, mode }: SimpleDiffVi
     <div className="simple-diff simple-diff--unified">
       {diff.hunks.map((hunk, hunkIdx) => (
         <div key={hunkIdx} className="simple-diff__hunk">
-          <div className="simple-diff__hunk-header">{hunk.header}</div>
+          <div className="simple-diff__hunk-header">
+            <span>{hunk.header}</span>
+            {(scope === 'unstaged' || scope === 'staged') && (
+              <div className="simple-diff__hunk-actions">
+                {scope === 'unstaged' && onStageHunk && (
+                  <button
+                    type="button"
+                    className="simple-diff__hunk-stage-btn"
+                    onClick={() => onStageHunk(diff.path, buildHunkPatch(hunk))}
+                  >
+                    {t(locale, 'git.hunk.stage')}
+                  </button>
+                )}
+                {scope === 'staged' && onUnstageHunk && (
+                  <button
+                    type="button"
+                    className="simple-diff__hunk-unstage-btn"
+                    onClick={() => onUnstageHunk(diff.path, buildHunkPatch(hunk))}
+                  >
+                    {t(locale, 'git.hunk.unstage')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="simple-diff__hunk-content">
             {hunk.lines.map((line, lineIdx) => (
               <div key={lineIdx} className={`simple-diff__line simple-diff__line--${line.kind}`}>
@@ -262,6 +344,9 @@ export const DiffViewer = memo(function DiffViewer({
   onToggleFullFile,
   onOpenInEditor,
   openInEditorDisabled,
+  scope,
+  onStageHunk,
+  onUnstageHunk,
 }: DiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const expandButtonLabel = t(
@@ -413,7 +498,7 @@ export const DiffViewer = memo(function DiffViewer({
 
       {/* Diff Body */}
       <div ref={containerRef} className="diff-viewer__body" data-mode={mode}>
-        <SimpleDiffView diff={activeDiff} mode={mode} />
+        <SimpleDiffView diff={activeDiff} mode={mode} locale={locale} scope={scope} onStageHunk={onStageHunk} onUnstageHunk={onUnstageHunk} />
       </div>
     </div>
   )

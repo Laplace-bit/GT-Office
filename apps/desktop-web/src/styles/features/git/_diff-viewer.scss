@@ -443,6 +443,7 @@
 .simple-diff__hunk-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--vb-space-xs);
   min-height: #{rem(28)};
   padding: var(--vb-space-xs) #{rem(14)};
@@ -453,6 +454,41 @@
   font-size: var(--vb-git-diff-font-xs);
   font-weight: 500;
   flex-wrap: wrap;
+}
+
+.simple-diff__hunk-actions {
+  display: flex;
+  gap: #{rem(6)};
+  opacity: 0;
+  transition: opacity 150ms var(--vb-ease-out);
+}
+
+.simple-diff__hunk-header:hover .simple-diff__hunk-actions {
+  opacity: 1;
+}
+
+.simple-diff__hunk-stage-btn,
+.simple-diff__hunk-unstage-btn {
+  font-size: var(--vb-git-diff-font-2xs);
+  padding: #{rem(2)} #{rem(8)};
+  border-radius: var(--vb-radius-xs);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 70%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 86%, transparent);
+  color: var(--vb-text-muted);
+  font-family: var(--vb-font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 120ms var(--vb-ease-out),
+    border-color 120ms var(--vb-ease-out),
+    color 120ms var(--vb-ease-out);
+
+  &:hover {
+    background: color-mix(in srgb, var(--vb-hover-overlay) 82%, transparent);
+    border-color: color-mix(in srgb, var(--vb-border) 84%, transparent);
+    color: var(--vb-text);
+  }
 }
 
 .simple-diff__hunk-content {
