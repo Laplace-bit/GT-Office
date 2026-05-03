@@ -3,7 +3,7 @@ pub mod status_coordinator;
 use gt_abstractions::{GitStatusSummary, WorkspaceId};
 use gt_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
-    GitStashEntry,
+    GitStashEntry, GitTagEntry,
 };
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
@@ -138,6 +138,13 @@ fn build_git_push_payload(workspace_id: &WorkspaceId, result: GitPushResult) -> 
 }
 
 fn build_git_stash_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitStashEntry>) -> Value {
+    json!({
+        "workspaceId": workspace_id.as_str(),
+        "entries": entries
+    })
+}
+
+fn build_git_tag_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitTagEntry>) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "entries": entries
@@ -734,6 +741,114 @@ pub async fn git_stash_list(
     })
     .await?;
     Ok(build_git_stash_list_payload(&workspace_id, entries))
+}
+
+#[tauri::command]
+pub async fn git_tag_list(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let entries = run_git_blocking(&state, "GIT_TAG_LIST_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .tag_list(&workspace_id_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
+    Ok(build_git_tag_list_payload(&workspace_id, entries))
+}
+
+#[tauri::command]
+pub async fn git_tag_create(
+    workspace_id: String,
+    name: String,
+    target: String,
+    annotated: Option<bool>,
+    message: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let name_owned = name.clone();
+    let target_owned = target.clone();
+    let annotated = annotated.unwrap_or(false);
+    let message_for_task = message.clone();
+    run_git_blocking(&state, "GIT_TAG_CREATE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .tag_create(
+                &workspace_id_owned,
+                &name_owned,
+                &target_owned,
+                annotated,
+                message_for_task.as_deref(),
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "name": name,
+        "target": target,
+        "annotated": annotated,
+        "message": message,
+        "created": true
+    }))
+}
+
+#[tauri::command]
+pub async fn git_tag_delete(
+    workspace_id: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let name_owned = name.clone();
+    run_git_blocking(&state, "GIT_TAG_DELETE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .tag_delete(&workspace_id_owned, &name_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "name": name,
+        "deleted": true
+    }))
+}
+
+#[tauri::command]
+pub async fn git_tag_push(
+    workspace_id: String,
+    remote: Option<String>,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let name_owned = name.clone();
+    let remote_for_task = remote.clone();
+    run_git_blocking(&state, "GIT_TAG_PUSH_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .tag_push(
+                &workspace_id_owned,
+                remote_for_task.as_deref(),
+                &name_owned,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "remote": remote,
+        "name": name,
+        "pushed": true
+    }))
 }
 
 #[cfg(test)]

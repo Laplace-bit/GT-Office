@@ -187,6 +187,78 @@ fn stash_push_and_pop_work() {
 }
 
 #[test]
+fn tag_list_returns_empty_for_no_tags() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    // Create an initial commit so HEAD exists
+    std::fs::write(repo.path.join("file.txt"), "content").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    let tags = git.tag_list(&workspace.workspace_id).unwrap();
+    assert!(tags.is_empty());
+}
+
+#[test]
+fn tag_create_lightweight_and_list() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    std::fs::write(repo.path.join("file.txt"), "content").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    git.tag_create(&workspace.workspace_id, "v1.0", "HEAD", false, None).unwrap();
+
+    let tags = git.tag_list(&workspace.workspace_id).unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "v1.0");
+    assert!(tags[0].tagger.is_none());
+}
+
+#[test]
+fn tag_delete_removes_tag() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    std::fs::write(repo.path.join("file.txt"), "content").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+    git.tag_create(&workspace.workspace_id, "v1.0", "HEAD", false, None).unwrap();
+
+    git.tag_delete(&workspace.workspace_id, "v1.0").unwrap();
+
+    let tags = git.tag_list(&workspace.workspace_id).unwrap();
+    assert!(tags.is_empty());
+}
+
+#[test]
+fn tag_create_annotated_with_message() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    std::fs::write(repo.path.join("file.txt"), "content").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    git.tag_create(&workspace.workspace_id, "v2.0", "HEAD", true, Some("Release 2.0")).unwrap();
+
+    let tags = git.tag_list(&workspace.workspace_id).unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, "v2.0");
+    assert_eq!(tags[0].message.as_deref(), Some("Release 2.0"));
+}
+
+#[test]
 fn init_repo_bootstraps_non_git_workspace() {
     let path = std::env::temp_dir().join(format!("gtoffice-git-init-test-{}", Uuid::new_v4()));
     fs::create_dir_all(&path).expect("create temp dir");

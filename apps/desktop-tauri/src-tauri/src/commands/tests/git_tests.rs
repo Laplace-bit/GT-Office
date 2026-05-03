@@ -2,12 +2,13 @@ use super::{
     build_git_branches_payload, build_git_commit_detail_payload, build_git_commit_payload,
     build_git_diff_payload, build_git_discard_payload, build_git_fetch_payload,
     build_git_log_payload, build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
-    build_git_stash_list_payload, build_git_status_payload, build_git_unstage_payload,
+    build_git_stash_list_payload, build_git_status_payload, build_git_tag_list_payload,
+    build_git_unstage_payload,
 };
 use gt_abstractions::{GitStatusFile, GitStatusSummary, WorkspaceId};
 use gt_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
-    GitStashEntry,
+    GitStashEntry, GitTagEntry,
 };
 
 #[test]
@@ -177,4 +178,45 @@ fn git_fetch_pull_push_payloads_keep_contract_fields() {
     );
     assert_eq!(push_payload["pushed"], true);
     assert_eq!(push_payload["setUpstream"], true);
+}
+
+#[test]
+fn git_tag_list_payload_keeps_contract_fields() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_tag_list_payload(
+        &workspace_id,
+        vec![GitTagEntry {
+            name: "v1.0".to_string(),
+            oid: "abc123def456".to_string(),
+            target: "abc123".to_string(),
+            tagger: Some("bot".to_string()),
+            message: Some("Release 1.0".to_string()),
+        }],
+    );
+
+    assert_eq!(payload["workspaceId"], "ws-1");
+    assert_eq!(payload["entries"][0]["name"], "v1.0");
+    assert_eq!(payload["entries"][0]["oid"], "abc123def456");
+    assert_eq!(payload["entries"][0]["target"], "abc123");
+    assert_eq!(payload["entries"][0]["tagger"], "bot");
+    assert_eq!(payload["entries"][0]["message"], "Release 1.0");
+}
+
+#[test]
+fn git_tag_list_payload_handles_lightweight_tags() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_tag_list_payload(
+        &workspace_id,
+        vec![GitTagEntry {
+            name: "v2.0".to_string(),
+            oid: "def456".to_string(),
+            target: "def456".to_string(),
+            tagger: None,
+            message: None,
+        }],
+    );
+
+    assert_eq!(payload["entries"][0]["name"], "v2.0");
+    assert!(payload["entries"][0]["tagger"].is_null());
+    assert!(payload["entries"][0]["message"].is_null());
 }

@@ -96,6 +96,16 @@ pub struct GitStashEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitTagEntry {
+    pub name: String,
+    pub oid: String,
+    pub target: String,
+    pub tagger: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitFetchResult {
     pub remote: String,
     pub prune: bool,
@@ -2026,6 +2036,91 @@ where
             });
         }
         Ok(entries)
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id))]
+    pub fn tag_list(&self, workspace_id: &WorkspaceId) -> AbstractionResult<Vec<GitTagEntry>> {
+        let root = self.workspace_root(workspace_id)?;
+        let output = self.run_git(
+            &root,
+            &[
+                "for-each-ref",
+                "--format",
+                "%(refname:short)|%(objectname)|%(objectname:short)|%(taggername)|%(subject)",
+                "refs/tags/",
+            ],
+            "GIT_TAG_LIST_FAILED",
+        )?;
+
+        let entries: Vec<GitTagEntry> = output
+            .lines()
+            .filter(|line| !line.is_empty())
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.splitn(5, '|').collect();
+                if parts.len() >= 5 {
+                    Some(GitTagEntry {
+                        name: parts[0].to_string(),
+                        oid: parts[1].to_string(),
+                        target: parts[2].to_string(),
+                        tagger: if parts[3].is_empty() { None } else { Some(parts[3].to_string()) },
+                        message: if parts[4].is_empty() { None } else { Some(parts[4].to_string()) },
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(entries)
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, name = name, annotated = annotated))]
+    pub fn tag_create(
+        &self,
+        workspace_id: &WorkspaceId,
+        name: &str,
+        target: &str,
+        annotated: bool,
+        message: Option<&str>,
+    ) -> AbstractionResult<()> {
+        let root = self.workspace_root(workspace_id)?;
+        let mut args = vec!["tag".to_string()];
+        if annotated {
+            args.push("-a".to_string());
+            args.push(name.to_string());
+            args.push("-m".to_string());
+            args.push(message.unwrap_or("").to_string());
+        } else {
+            args.push(name.to_string());
+        }
+        args.push(target.to_string());
+
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        self.run_git(&root, &arg_refs, "GIT_TAG_CREATE_FAILED")?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, name = name))]
+    pub fn tag_delete(&self, workspace_id: &WorkspaceId, name: &str) -> AbstractionResult<()> {
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(&root, &["tag", "-d", name], "GIT_TAG_DELETE_FAILED")?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, remote = ?remote, tag_name = tag_name))]
+    pub fn tag_push(
+        &self,
+        workspace_id: &WorkspaceId,
+        remote: Option<&str>,
+        tag_name: &str,
+    ) -> AbstractionResult<()> {
+        let root = self.workspace_root(workspace_id)?;
+        let remote = remote
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("origin");
+        self.run_git(&root, &["push", remote, "tag", tag_name], "GIT_TAG_PUSH_FAILED")?;
+        Ok(())
     }
 }
 
