@@ -513,7 +513,8 @@
 }
 
 /* Dark Mode Overrides */
-[data-theme='graphite-dark'] {
+[data-theme='graphite-dark'],
+[data-theme='sakura-night'] {
   .station-form-modal {
     background: color-mix(in srgb, #1a1a1a 85%, transparent);
     border-color: rgba(255, 255, 255, 0.1);

@@ -12,11 +12,19 @@ import {
   type QuickCommandProviderId,
 } from './quick-command-metadata.js'
 
-export type ThemeMode = 'graphite-light' | 'graphite-dark'
+export type ThemeMode = 'graphite-light' | 'graphite-dark' | 'sakura-night'
 export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
 export type WorkspaceSwitchAnimation = 'crossfade' | 'slide' | 'none'
+
+export function isDarkTheme(theme: ThemeMode): boolean {
+  return theme !== 'graphite-light'
+}
+
+export function isDarkDataTheme(dataTheme: string | null): boolean {
+  return dataTheme !== null && dataTheme !== 'graphite-light'
+}
 export type CommandRailProviderId = QuickCommandProviderId
 export type CommandCapsuleSubmitMode = 'insert' | 'insert_and_submit'
 export type CustomCommandSaveMode = 'save-and-add' | 'save-only'
@@ -304,6 +312,7 @@ export const defaultUiPreferences: UiPreferences = {
 export const themeOptions: Array<{ value: ThemeMode; labelKey: TranslationKey }> = [
   { value: 'graphite-light', labelKey: 'themeOption.graphiteLight' },
   { value: 'graphite-dark', labelKey: 'themeOption.graphiteDark' },
+  { value: 'sakura-night', labelKey: 'themeOption.sakuraNight' },
 ]
 
 export const uiFontOptions: Array<{ value: UiFont; label: string }> = [

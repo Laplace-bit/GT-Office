@@ -205,6 +205,94 @@
   --vb-terminal-scrollbar-track: transparent;
 }
 
+/* === Sakura Night - Cyber Kawaii Dark === */
+:root[data-theme='sakura-night'] {
+  /* === Background Hierarchy - Deep rose-magenta undertones === */
+  --vb-bg: #120810;
+  --vb-surface: rgba(28, 14, 26, 0.78);
+  --vb-surface-muted: rgba(38, 20, 34, 0.85);
+  --vb-chip: rgba(46, 26, 42, 0.90);
+
+  /* Glass Effects - Rose-tinted glass */
+  --vb-glass-blur: 1.7143rem;
+  --vb-glass-light: rgba(32, 16, 30, 0.65);
+  --vb-glass-lighter: rgba(44, 24, 40, 0.55);
+
+  /* Input & Card Backgrounds */
+  --vb-input-bg: rgba(34, 18, 30, 0.95);
+  --vb-input-border: rgba(220, 140, 190, 0.12);
+  --vb-input-focus-border: #f472b6;
+  --vb-card-bg: rgba(30, 16, 28, 0.72);
+  --vb-card-hover-bg: rgba(40, 22, 36, 0.82);
+
+  /* Borders - Rose-tinted subtle glow */
+  --vb-border: rgba(220, 140, 190, 0.08);
+  --vb-border-strong: rgba(220, 140, 190, 0.18);
+
+  /* Shadows - Multi-layer with sakura glow */
+  --vb-shadow:
+    0 0 0 0.0714rem rgba(244, 114, 182, 0.14),
+    0 0.1429rem 0.2857rem rgba(244, 114, 182, 0.06),
+    0 0.5714rem 1.7143rem rgba(18, 8, 16, 0.50);
+  --vb-shadow-sm:
+    0 0 0 0.0714rem rgba(244, 114, 182, 0.09),
+    0 0.0714rem 0.1429rem rgba(0, 0, 0, 0.22),
+    0 0.2857rem 0.8571rem rgba(18, 8, 16, 0.35);
+  --vb-shadow-lg:
+    0 0 0 0.0714rem rgba(244, 114, 182, 0.18),
+    0 0.2857rem 0.5714rem rgba(244, 114, 182, 0.08),
+    0 1.4286rem 3.4286rem rgba(18, 8, 16, 0.60);
+  --vb-shadow-inset:
+    inset 0 0.0357rem 0 rgba(244, 114, 182, 0.10),
+    inset 0 0 0.2857rem rgba(244, 114, 182, 0.04);
+
+  /* Typography - Warm pink-white */
+  --vb-text: #f5e6ef;
+  --vb-text-muted: #a8899e;
+  --vb-text-subtle: #6b4f66;
+
+  /* Accent Colors - Neon Sakura Pink */
+  --vb-accent: #f472b6;
+  --vb-accent-hover: #f9a8d4;
+  --vb-accent-light: rgba(244, 114, 182, 0.14);
+  --vb-accent-glow: rgba(244, 114, 182, 0.30);
+
+  /* Status Colors - Kawaii-harmonized */
+  --vb-success: #6ee7b7;
+  --vb-success-bg: rgba(110, 231, 183, 0.15);
+  --vb-warning: #fbbf6a;
+  --vb-warning-bg: rgba(251, 191, 106, 0.15);
+  --vb-error: #fb7185;
+  --vb-error-bg: rgba(251, 113, 133, 0.15);
+
+  /* Interaction States */
+  --vb-hover-overlay: rgba(220, 140, 190, 0.06);
+  --vb-active-overlay: rgba(220, 140, 190, 0.12);
+  --vb-pressed-scale: 0.97;
+
+  /* Terminal Colors - Sakura terminal */
+  --vb-terminal-bg: #0e080c;
+  --vb-terminal-bg-top: #0c060a;
+  --vb-terminal-border: rgba(200, 120, 170, 0.20);
+  --vb-terminal-focus: #f472b6;
+  --vb-terminal-text: #ede0e8;
+  --vb-terminal-prompt: #6ee7b7;
+  --vb-terminal-prefix: #c4b5fd;
+  --vb-terminal-hint: #8e7090;
+  --vb-terminal-caret: #f472b6;
+  --vb-terminal-shell-bg: rgba(14, 8, 12, 0.9);
+  --vb-terminal-shell-shadow: rgba(8, 4, 6, 0.65);
+  --vb-terminal-selection-bg: rgba(244, 114, 182, 0.28);
+  --vb-terminal-selection-text: #fff0f6;
+  --vb-terminal-selection-inactive: rgba(200, 120, 170, 0.20);
+  --vb-terminal-selection-strong: rgba(244, 114, 182, 0.40);
+  --vb-terminal-scrollbar-size: 0.3571rem;
+  --vb-terminal-scrollbar-thumb: rgba(180, 120, 160, 0.38);
+  --vb-terminal-scrollbar-thumb-hover: rgba(200, 140, 180, 0.56);
+  --vb-terminal-scrollbar-thumb-active: rgba(220, 160, 200, 0.72);
+  --vb-terminal-scrollbar-track: transparent;
+}
+
 /* ========================================
    Base Styles & Reset
    ======================================== */
@@ -310,7 +398,8 @@ select:hover:not(:focus):not([class*="custom"]) {
 }
 
 /* Dark mode select dropdown rendering */
-:root[data-theme='graphite-dark'] select:not([class*="custom"]) {
+:root[data-theme='graphite-dark'] select:not([class*="custom"]),
+:root[data-theme='sakura-night'] select:not([class*="custom"]) {
   color-scheme: dark;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -326,7 +415,8 @@ select:hover:not(:focus):not([class*="custom"]) {
   padding-right: 2.2857rem;
 }
 
-:root:not([data-theme='graphite-dark']) select:not([class*="custom"]) {
+:root:not([data-theme]):not([data-theme='graphite-dark']):not([data-theme='sakura-night']) select:not([class*="custom"]),
+:root[data-theme='graphite-light'] select:not([class*="custom"]) {
   color-scheme: light;
   -webkit-appearance: none;
   -moz-appearance: none;

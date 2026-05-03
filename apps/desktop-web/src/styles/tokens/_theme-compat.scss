@@ -16,3 +16,9 @@
   --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 88%, #000000 12%);
   --vb-text-tertiary: var(--vb-text-subtle);
 }
+
+:root[data-theme='sakura-night'] {
+  --vb-panel-bg: color-mix(in srgb, var(--vb-surface) 86%, #120810 14%);
+  --vb-surface-elevated: color-mix(in srgb, var(--vb-surface) 88%, #120810 12%);
+  --vb-text-tertiary: var(--vb-text-subtle);
+}

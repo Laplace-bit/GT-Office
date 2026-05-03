@@ -316,7 +316,8 @@
   opacity: 0.3;
 }
 
-[data-theme='graphite-dark'] {
+[data-theme='graphite-dark'],
+[data-theme='sakura-night'] {
   .file-editor-tab-icon {
     background: color-mix(in srgb, rgba(30, 41, 59, 0.62) 100%, transparent);
   }

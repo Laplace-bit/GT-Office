@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
 import type { ITheme } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
+import { isDarkDataTheme } from '@shell/state/ui-preferences'
 import {
   consumeDeferredMacOsXtermEcho,
   isMacOsWebKitTextInputEnvironment,
@@ -254,7 +255,7 @@ function resolveTerminalFontSize(host?: HTMLElement | null): number {
 
 function getTerminalTheme(host?: HTMLElement | null): ITheme {
   const doc = resolveTerminalDocument(host, document)
-  const isDark = doc.documentElement.getAttribute('data-theme') === 'graphite-dark'
+  const isDark = isDarkDataTheme(doc.documentElement.getAttribute('data-theme'))
   if (!isDark) {
     return {
       background: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),

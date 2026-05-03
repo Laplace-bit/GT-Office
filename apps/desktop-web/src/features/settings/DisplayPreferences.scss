@@ -142,7 +142,8 @@
 }
 
 /* Dark Mode Overrides */
-[data-theme='graphite-dark'] {
+[data-theme='graphite-dark'],
+[data-theme='sakura-night'] {
   .settings-group {
     background: color-mix(in srgb, var(--vb-surface) 20%, rgba(255,255,255,0.02));
     border-color: rgba(255, 255, 255, 0.08);

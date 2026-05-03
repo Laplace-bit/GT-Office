@@ -240,7 +240,8 @@
 }
 
 /* Dark theme specific adjustments */
-[data-theme='graphite-dark'] .ai-config-overlay-container {
+[data-theme='graphite-dark'],
+[data-theme='sakura-night'] .ai-config-overlay-container {
   background: rgba(28, 28, 30, 0.95);
   border-color: rgba(255, 255, 255, 0.08);
 }

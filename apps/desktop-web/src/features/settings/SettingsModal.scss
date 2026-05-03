@@ -345,7 +345,8 @@
 }
 
 /* Dark Mode Extravaganza */
-[data-theme='graphite-dark'] {
+[data-theme='graphite-dark'],
+[data-theme='sakura-night'] {
   .settings-modal-backdrop {
     background: rgba(0, 0, 0, 0.5);
   }

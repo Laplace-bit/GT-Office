@@ -3,6 +3,7 @@ import Editor, { type OnMount, type Monaco } from '@monaco-editor/react'
 import type { editor as MonacoEditorAPI } from 'monaco-editor'
 import { detectLanguageFromPath, toMonacoLanguageId } from './monaco-languages'
 import type { Locale } from '@shell/i18n/ui-locale'
+import { isDarkDataTheme } from '@shell/state/ui-preferences'
 import './MonacoEditor.scss'
 
 export interface MonacoEditorProps {
@@ -26,8 +27,8 @@ export interface MonacoEditorCommandRequest {
 
 function resolveThemeName(): string {
   if (typeof document === 'undefined') return 'gt-office-light'
-  const theme = document.documentElement.getAttribute('data-theme')
-  return theme === 'graphite-dark' ? 'gt-office-dark' : 'gt-office-light'
+  const dataTheme = document.documentElement.getAttribute('data-theme')
+  return isDarkDataTheme(dataTheme) ? 'gt-office-dark' : 'gt-office-light'
 }
 
 function configureTypeScriptDefaults(monaco: Monaco) {

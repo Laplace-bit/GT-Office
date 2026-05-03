@@ -4,7 +4,7 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
-  darkMode: ['class', '[data-theme="graphite-dark"]'],
+  darkMode: ['class', '[data-theme="graphite-dark"]', '[data-theme="sakura-night"]'],
   theme: {
     extend: {
       colors: {

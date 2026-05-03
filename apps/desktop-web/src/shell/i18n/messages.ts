@@ -8,6 +8,7 @@ export const messages = {
   'displayPreferences.monoFont': { 'zh-CN': '代码字体', 'en-US': 'Mono Font' },
   'themeOption.graphiteLight': { 'zh-CN': '浅色石墨', 'en-US': 'Graphite Light' },
   'themeOption.graphiteDark': { 'zh-CN': '深色石墨', 'en-US': 'Graphite Dark' },
+  'themeOption.sakuraNight': { 'zh-CN': '樱花夜', 'en-US': 'Sakura Night' },
   'quickCommands.section.title': { 'zh-CN': '快捷命令', 'en-US': 'Quick commands' },
   'quickCommands.section.description': {
     'zh-CN': '按供应商配置显示在命令坞里的常用按钮。',

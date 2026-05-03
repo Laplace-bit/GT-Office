@@ -11,7 +11,8 @@
   --apple-radius: #{rem(24)};
 }
 
-[data-theme='graphite-dark'] {
+[data-theme='graphite-dark'],
+[data-theme='sakura-night'] {
   --apple-glass-bg: var(--apple-glass-bg-dark);
   --apple-border: var(--apple-border-dark);
 }

@@ -506,7 +506,8 @@
   background: color-mix(in srgb, var(--vb-error-bg) 78%, transparent);
 }
 
-:root[data-theme='graphite-dark'] {
+:root[data-theme='graphite-dark'],
+:root[data-theme='sakura-night'] {
   .tree-search-btn,
   .tree-refresh-btn {
     background: color-mix(in srgb, #1f2937 82%, transparent);
