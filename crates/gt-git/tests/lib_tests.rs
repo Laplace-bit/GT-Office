@@ -415,6 +415,62 @@ fn init_repo_bootstraps_non_git_workspace() {
 }
 
 #[test]
+fn stage_hunk_applies_partial_patch() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    // Create initial file with multiple lines
+    std::fs::write(repo.path.join("multi.txt"), "line1\nline2\nline3\n").unwrap();
+    git.stage(&workspace.workspace_id, &["multi.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    // Modify the first line
+    std::fs::write(repo.path.join("multi.txt"), "line1 changed\nline2\nline3\n").unwrap();
+
+    // Create a patch for the change (matching what `git diff` would produce)
+    let patch = "--- a/multi.txt\n+++ b/multi.txt\n@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
+
+    // Stage the hunk
+    git.stage_hunk(&workspace.workspace_id, "multi.txt", patch).unwrap();
+
+    // Verify the change is staged
+    let diff = git.diff_file(&workspace.workspace_id, "multi.txt", true).unwrap();
+    assert!(diff.contains("-line1"), "staged diff should contain deletion: {diff}");
+    assert!(diff.contains("+line1 changed"), "staged diff should contain addition: {diff}");
+}
+
+#[test]
+fn unstage_hunk_reverses_staged_patch() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    // Create initial file with multiple lines
+    std::fs::write(repo.path.join("multi.txt"), "line1\nline2\nline3\n").unwrap();
+    git.stage(&workspace.workspace_id, &["multi.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    // Modify the first line and stage it
+    std::fs::write(repo.path.join("multi.txt"), "line1 changed\nline2\nline3\n").unwrap();
+    git.stage(&workspace.workspace_id, &["multi.txt".into()]).unwrap();
+
+    // Verify it is staged
+    let staged_diff = git.diff_file(&workspace.workspace_id, "multi.txt", true).unwrap();
+    assert!(staged_diff.contains("+line1 changed"), "should be staged before unstage");
+
+    // Unstage via patch
+    let patch = "--- a/multi.txt\n+++ b/multi.txt\n@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
+    git.unstage_hunk(&workspace.workspace_id, "multi.txt", patch).unwrap();
+
+    // Verify nothing is staged now
+    let after_diff = git.diff_file(&workspace.workspace_id, "multi.txt", true).unwrap();
+    assert!(after_diff.trim().is_empty(), "nothing should be staged after unstage: {after_diff}");
+}
+
+#[test]
 fn list_branches_returns_repo_invalid_for_non_git_workspace() {
     let path = std::env::temp_dir().join(format!("gtoffice-git-nonrepo-test-{}", Uuid::new_v4()));
     fs::create_dir_all(&path).expect("create temp dir");

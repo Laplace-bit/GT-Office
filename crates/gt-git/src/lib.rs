@@ -2263,6 +2263,62 @@ where
         self.run_git(&root, &["merge", "--abort"], "GIT_MERGE_ABORT_FAILED")?;
         Ok(())
     }
+
+    #[instrument(skip(self, patch), fields(workspace_id = %workspace_id, path = path))]
+    pub fn stage_hunk(
+        &self,
+        workspace_id: &WorkspaceId,
+        path: &str,
+        patch: &str,
+    ) -> AbstractionResult<()> {
+        Self::validate_relative_repo_path(path)?;
+        let root = self.workspace_root(workspace_id)?;
+
+        let patch_path = root.join(".git").join("gto-patch.tmp");
+        std::fs::write(&patch_path, patch).map_err(|e| {
+            AbstractionError::Internal {
+                message: format!("GIT_STAGE_HUNK_FAILED: {e}"),
+            }
+        })?;
+
+        let result = self.run_git(
+            &root,
+            &["apply", "--cached", patch_path.to_str().unwrap()],
+            "GIT_STAGE_HUNK_FAILED",
+        );
+
+        let _ = std::fs::remove_file(&patch_path);
+        result?;
+        Ok(())
+    }
+
+    #[instrument(skip(self, patch), fields(workspace_id = %workspace_id, path = path))]
+    pub fn unstage_hunk(
+        &self,
+        workspace_id: &WorkspaceId,
+        path: &str,
+        patch: &str,
+    ) -> AbstractionResult<()> {
+        Self::validate_relative_repo_path(path)?;
+        let root = self.workspace_root(workspace_id)?;
+
+        let patch_path = root.join(".git").join("gto-patch.tmp");
+        std::fs::write(&patch_path, patch).map_err(|e| {
+            AbstractionError::Internal {
+                message: format!("GIT_UNSTAGE_HUNK_FAILED: {e}"),
+            }
+        })?;
+
+        let result = self.run_git(
+            &root,
+            &["apply", "--cached", "--reverse", patch_path.to_str().unwrap()],
+            "GIT_UNSTAGE_HUNK_FAILED",
+        );
+
+        let _ = std::fs::remove_file(&patch_path);
+        result?;
+        Ok(())
+    }
 }
 
 fn configure_background_command(command: &mut Command) {

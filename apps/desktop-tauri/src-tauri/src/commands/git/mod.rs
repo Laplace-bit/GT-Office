@@ -1022,6 +1022,56 @@ pub async fn git_conflict_list(
     }))
 }
 
+#[tauri::command]
+pub async fn git_stage_hunk(
+    workspace_id: String,
+    path: String,
+    patch: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id_owned = WorkspaceId::new(workspace_id.clone());
+    let ws_id = workspace_id_owned.clone();
+    let path_owned = path.clone();
+    run_git_blocking(&state, "GIT_STAGE_HUNK_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .stage_hunk(&ws_id, &path_owned, &patch)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn git_unstage_hunk(
+    workspace_id: String,
+    path: String,
+    patch: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id_owned = WorkspaceId::new(workspace_id.clone());
+    let ws_id = workspace_id_owned.clone();
+    let path_owned = path.clone();
+    run_git_blocking(&state, "GIT_UNSTAGE_HUNK_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .unstage_hunk(&ws_id, &path_owned, &patch)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    Ok(json!({ "ok": true }))
+}
+
 #[cfg(test)]
 #[path = "../tests/git_tests.rs"]
 mod tests;
