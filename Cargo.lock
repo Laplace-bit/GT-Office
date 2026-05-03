@@ -2246,6 +2246,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "urlencoding",
  "uuid",
  "vt100",
 ]
