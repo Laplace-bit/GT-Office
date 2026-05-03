@@ -1,5 +1,8 @@
 use git2::{BranchType, Repository, Status, StatusOptions};
-use gt_abstractions::{AbstractionError, AbstractionResult, GitStatusFile, GitStatusSummary};
+use gt_abstractions::{
+    AbstractionError, AbstractionResult, ConflictFile, ConflictStatus, GitStatusFile,
+    GitStatusSummary, MergeResult,
+};
 use gt_abstractions::{WorkspaceId, WorkspaceService};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
@@ -2166,6 +2169,104 @@ where
         };
         let root = self.workspace_root(workspace_id)?;
         self.run_git(&root, &["reset", reset_flag, target], "GIT_RESET_FAILED")?;
+        Ok(())
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, target = target, no_ff = no_ff))]
+    pub fn merge(
+        &self,
+        workspace_id: &WorkspaceId,
+        target: &str,
+        no_ff: bool,
+    ) -> AbstractionResult<MergeResult> {
+        let root = self.workspace_root(workspace_id)?;
+        let mut args = vec!["merge".to_string(), "--no-edit".to_string()];
+        if no_ff {
+            args.push("--no-ff".to_string());
+        }
+        args.push(target.to_string());
+
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        match self.run_git(&root, &arg_refs, "GIT_MERGE_FAILED") {
+            Ok(_) => {
+                let head = self
+                    .run_git(&root, &["rev-parse", "HEAD"], "GIT_MERGE_FAILED")?;
+                let head_sha = head.trim().to_string();
+                Ok(MergeResult {
+                    success: true,
+                    conflicts: vec![],
+                    merged_commit: Some(head_sha),
+                })
+            }
+            Err(e) => {
+                // Check if the failure is due to a merge conflict by looking for MERGE_HEAD
+                if root.join(".git").join("MERGE_HEAD").exists() {
+                    let conflicts = self.conflict_list(workspace_id)?;
+                    // Abort the merge so working tree is clean
+                    let _ = self.run_git(
+                        &root,
+                        &["merge", "--abort"],
+                        "GIT_MERGE_ABORT_FAILED",
+                    );
+                    Ok(MergeResult {
+                        success: false,
+                        conflicts,
+                        merged_commit: None,
+                    })
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id))]
+    pub fn conflict_list(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> AbstractionResult<Vec<ConflictFile>> {
+        let root = self.workspace_root(workspace_id)?;
+        let output =
+            self.run_git(&root, &["diff", "--name-only", "--diff-filter=U"], "GIT_CONFLICT_LIST_FAILED")?;
+
+        let conflicts: Vec<ConflictFile> = output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|path| ConflictFile {
+                path: path.to_string(),
+                status: ConflictStatus::BothModified,
+            })
+            .collect();
+
+        Ok(conflicts)
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id))]
+    pub fn merge_continue(&self, workspace_id: &WorkspaceId) -> AbstractionResult<String> {
+        // Check if all conflicts are resolved
+        let status = self.status(workspace_id)?;
+        let has_conflicts = status
+            .files
+            .iter()
+            .any(|f| f.status.contains('U') || f.status == "AA");
+        if has_conflicts {
+            return Err(AbstractionError::InvalidArgument {
+                message: "GIT_MERGE_CONFLICTS_REMAIN: resolve all conflicts before continuing"
+                    .to_string(),
+            });
+        }
+
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(&root, &["commit", "--no-edit"], "GIT_MERGE_CONTINUE_FAILED")?;
+
+        let head = self.run_git(&root, &["rev-parse", "HEAD"], "GIT_MERGE_CONTINUE_FAILED")?;
+        Ok(head.trim().to_string())
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id))]
+    pub fn merge_abort(&self, workspace_id: &WorkspaceId) -> AbstractionResult<()> {
+        let root = self.workspace_root(workspace_id)?;
+        self.run_git(&root, &["merge", "--abort"], "GIT_MERGE_ABORT_FAILED")?;
         Ok(())
     }
 }

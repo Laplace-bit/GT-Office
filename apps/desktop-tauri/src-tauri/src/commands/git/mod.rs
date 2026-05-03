@@ -921,6 +921,107 @@ pub async fn git_tag_push(
     }))
 }
 
+#[tauri::command]
+pub async fn git_merge(
+    workspace_id: String,
+    target: String,
+    no_ff: Option<bool>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let target_owned = target.clone();
+    let no_ff = no_ff.unwrap_or(false);
+    let result = run_git_blocking(&state, "GIT_MERGE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .merge(&workspace_id_owned, &target_owned, no_ff)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "success": result.success,
+        "conflicts": result.conflicts,
+        "mergedCommit": result.merged_commit,
+    }))
+}
+
+#[tauri::command]
+pub async fn git_merge_continue(
+    workspace_id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let commit = run_git_blocking(&state, "GIT_MERGE_CONTINUE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .merge_continue(&workspace_id_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "commit": commit,
+    }))
+}
+
+#[tauri::command]
+pub async fn git_merge_abort(
+    workspace_id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    run_git_blocking(&state, "GIT_MERGE_ABORT_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .merge_abort(&workspace_id_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
+    state
+        .inner()
+        .git_status_coordinator
+        .refresh_now(&app, state.inner(), &workspace_id);
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "aborted": true,
+    }))
+}
+
+#[tauri::command]
+pub async fn git_conflict_list(
+    workspace_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let conflicts = run_git_blocking(&state, "GIT_CONFLICT_LIST_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .conflict_list(&workspace_id_owned)
+            .map_err(to_command_error)
+    })
+    .await?;
+    Ok(json!({
+        "workspaceId": workspace_id.as_str(),
+        "conflicts": conflicts,
+    }))
+}
+
 #[cfg(test)]
 #[path = "../tests/git_tests.rs"]
 mod tests;

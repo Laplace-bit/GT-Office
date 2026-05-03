@@ -311,6 +311,68 @@ fn revert_undoes_commit() {
 }
 
 #[test]
+fn merge_fast_forward_combines_branches() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    // Initial commit
+    std::fs::write(repo.path.join("base.txt"), "base").unwrap();
+    git.stage(&workspace.workspace_id, &["base.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    // Create feature branch
+    git.create_branch(&workspace.workspace_id, "feature", None).unwrap();
+    git.checkout(&workspace.workspace_id, "feature", false, None).unwrap();
+    std::fs::write(repo.path.join("feature.txt"), "feature").unwrap();
+    git.stage(&workspace.workspace_id, &["feature.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "feature work").unwrap();
+
+    // Back to main
+    git.checkout(&workspace.workspace_id, "main", false, None).unwrap();
+
+    // Merge feature
+    let result = git.merge(&workspace.workspace_id, "feature", false).unwrap();
+    assert!(result.success);
+    assert!(result.conflicts.is_empty());
+    assert!(result.merged_commit.is_some());
+    assert!(repo.path.join("feature.txt").exists());
+}
+
+#[test]
+fn merge_conflict_returns_conflict_files() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    // Initial commit
+    std::fs::write(repo.path.join("shared.txt"), "original").unwrap();
+    git.stage(&workspace.workspace_id, &["shared.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "initial").unwrap();
+
+    // Feature branch modifies shared.txt
+    git.create_branch(&workspace.workspace_id, "feature", None).unwrap();
+    git.checkout(&workspace.workspace_id, "feature", false, None).unwrap();
+    std::fs::write(repo.path.join("shared.txt"), "feature version").unwrap();
+    git.stage(&workspace.workspace_id, &["shared.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "feature change").unwrap();
+
+    // Main also modifies shared.txt
+    git.checkout(&workspace.workspace_id, "main", false, None).unwrap();
+    std::fs::write(repo.path.join("shared.txt"), "main version").unwrap();
+    git.stage(&workspace.workspace_id, &["shared.txt".into()]).unwrap();
+    git.commit(&workspace.workspace_id, "main change").unwrap();
+
+    // Merge should conflict
+    let result = git.merge(&workspace.workspace_id, "feature", false).unwrap();
+    assert!(!result.success);
+    assert!(!result.conflicts.is_empty());
+    assert!(result.conflicts.iter().any(|c| c.path == "shared.txt"));
+}
+
+#[test]
 fn reset_soft_moves_head_without_changing_files() {
     let repo = TempRepo::create();
     let service = InMemoryWorkspaceService::new();

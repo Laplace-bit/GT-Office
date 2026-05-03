@@ -145,6 +145,31 @@ pub struct GitStatusFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeResult {
+    pub success: bool,
+    pub conflicts: Vec<ConflictFile>,
+    pub merged_commit: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFile {
+    pub path: String,
+    pub status: ConflictStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictStatus {
+    BothModified,
+    DeletedByUs,
+    DeletedByThem,
+    AddedByBoth,
+    BothAdded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingsScope {
     User,
