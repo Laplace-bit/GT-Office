@@ -2100,7 +2100,7 @@ where
         annotated: bool,
         message: Option<&str>,
     ) -> AbstractionResult<()> {
-        if annotated && message.map_or(true, |m| m.trim().is_empty()) {
+        if annotated && message.is_none_or(|m| m.trim().is_empty()) {
             return Err(AbstractionError::InvalidArgument {
                 message: "annotated tag requires a message".into(),
             });
