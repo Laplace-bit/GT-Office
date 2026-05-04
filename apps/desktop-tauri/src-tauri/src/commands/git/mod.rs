@@ -139,7 +139,7 @@ fn build_git_stash_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitStas
 fn build_git_tag_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitTagEntry>) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
-        "entries": entries
+        "tags": entries
     })
 }
 

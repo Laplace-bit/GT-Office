@@ -57,6 +57,9 @@ export function getPaneModels(locale: Locale): Record<NavItemId, PaneModel> {
     git: {
       title: t(locale, 'pane.git.title'),
       subtitle: t(locale, 'pane.git.subtitle'),
+      // TODO(wire): replace placeholders with live workspace git state
+      //   branch, pendingFiles, unpushedCommits should come from
+      //   a shared git summary store once the nav model accepts dynamic data.
       items: [
         t(locale, 'pane.git.currentBranch', { branch: 'main' }),
         t(locale, 'pane.git.pendingFiles', { count: 9 }),

@@ -880,6 +880,7 @@
   line-height: 1.5;
   resize: vertical;
   outline: none;
+  overflow-wrap: anywhere;
   transition:
     border-color 150ms var(--vb-ease-out),
     box-shadow 150ms var(--vb-ease-out);
@@ -899,6 +900,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--vb-space-sm);
+  flex-wrap: wrap;
 }
 
 .git-commit-form__amend-toggle {
@@ -985,6 +987,7 @@
   justify-content: flex-end;
   gap: var(--vb-space-sm);
   min-width: 0;
+  flex: 1;
 }
 
 .git-branch-panel__value {
@@ -998,12 +1001,14 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .git-branch-panel__count {
   flex: 0 0 auto;
   font-size: #{rem(10)};
   color: var(--vb-text-subtle);
+  white-space: nowrap;
 }
 
 .git-branch-grid {
@@ -1093,6 +1098,12 @@
 .git-stash-form__row {
   display: flex;
   gap: var(--vb-space-xs);
+  align-items: stretch;
+
+  > .git-stash-form__input {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .git-stash-form__input {
@@ -1118,7 +1129,7 @@
 
 .git-stash-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--vb-space-sm);
   padding: #{rem(7)} var(--vb-space-sm);
   background: color-mix(in srgb, var(--vb-chip) 46%, transparent);
@@ -1131,7 +1142,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--vb-border-width);
+  gap: #{rem(2)};
 }
 
 .git-stash-item__id {
@@ -1142,9 +1153,12 @@
 .git-stash-item__summary {
   font-size: #{rem(10)};
   color: var(--vb-text);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* === Tag Section === */
@@ -1157,6 +1171,11 @@
 .git-tag-create-form__row {
   display: flex;
   gap: var(--vb-space-xs);
+
+  > .git-stash-form__input {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .git-tag-create-form__checkbox {
@@ -1195,7 +1214,7 @@
 
 .git-tag-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--vb-space-sm);
   padding: #{rem(7)} var(--vb-space-sm);
   background: color-mix(in srgb, var(--vb-chip) 46%, transparent);
@@ -1208,27 +1227,33 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--vb-border-width);
+  gap: #{rem(2)};
 }
 
 .git-tag-item__name {
   font-size: #{rem(11)};
   font-weight: 600;
   color: var(--vb-accent);
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .git-tag-item__message {
   font-size: #{rem(10)};
-  color: var(--vb-text);
-  white-space: nowrap;
+  color: var(--vb-text-muted);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .git-tag-item__actions {
   display: flex;
   gap: var(--vb-space-2xs);
   flex-shrink: 0;
+  padding-top: #{rem(1)};
 }
 
 /* ========================================
@@ -2486,6 +2511,36 @@
     grid-template-columns: minmax(0, 1fr);
     justify-items: start;
   }
+
+  .git-tag-create-form__row {
+    flex-direction: column;
+  }
+
+  .git-stash-form__row {
+    flex-direction: column;
+
+    > .git-icon-btn {
+      align-self: flex-end;
+    }
+  }
+
+  .git-merge-conflict-panel {
+    padding: var(--vb-space-md);
+  }
+
+  .git-merge-conflict-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--vb-space-xs);
+  }
+
+  .git-merge-conflict-actions {
+    width: 100%;
+
+    > button {
+      flex: 1;
+    }
+  }
 }
 
 /* ========================================
@@ -2498,6 +2553,7 @@
   gap: var(--vb-space-md);
   height: 100%;
   padding: #{rem(20)};
+  overflow-y: auto;
 }
 
 .git-merge-conflict-header {
@@ -2505,6 +2561,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--vb-space-sm);
+  flex-wrap: wrap;
 }
 
 .git-merge-conflict-title {
@@ -2535,6 +2592,7 @@
   border-radius: var(--vb-radius-md);
   background: color-mix(in srgb, var(--vb-chip) 46%, transparent);
   border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 76%, transparent);
+  min-width: 0;
 }
 
 .conflict-status {
@@ -2548,6 +2606,7 @@
   border-radius: var(--vb-radius-xs);
   background: color-mix(in srgb, var(--vb-warning) 18%, transparent);
   color: var(--vb-warning);
+  white-space: nowrap;
 }
 
 .conflict-status--uu {
@@ -2564,6 +2623,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  word-break: break-all;
 }
 
 .git-merge-conflict-actions {
