@@ -570,7 +570,7 @@ function StationXtermTerminalView({
           theme: getTerminalTheme(host),
           overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,
-          minimumContrastRatio: 1,
+          minimumContrastRatio: 4.5,
         })
         const fitAddon = new fitModule.FitAddon()
         const serializeAddon = new serializeModule.SerializeAddon()
