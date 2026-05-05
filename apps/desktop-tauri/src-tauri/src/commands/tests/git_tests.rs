@@ -1,7 +1,7 @@
 use super::{
-    build_git_branches_payload, build_git_commit_detail_payload, build_git_commit_payload,
-    build_git_diff_payload, build_git_discard_payload, build_git_fetch_payload,
-    build_git_log_payload, build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
+    build_git_branches_payload, build_git_commit_detail_payload, build_git_diff_payload,
+    build_git_discard_payload, build_git_fetch_payload, build_git_log_payload,
+    build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
     build_git_stash_list_payload, build_git_status_payload, build_git_tag_list_payload,
     build_git_unstage_payload,
 };
@@ -59,15 +59,6 @@ fn git_unstage_and_discard_payload_keep_contract_fields() {
     let discard_payload = build_git_discard_payload(&workspace_id, 1);
     assert_eq!(unstage_payload["unstaged"], 2);
     assert_eq!(discard_payload["discarded"], 1);
-}
-
-#[test]
-fn git_commit_payload_keeps_contract_fields() {
-    let workspace_id = WorkspaceId::new("ws-1");
-    let payload = build_git_commit_payload(&workspace_id, "feat: init", "abc123");
-    assert_eq!(payload["workspaceId"], "ws-1");
-    assert_eq!(payload["message"], "feat: init");
-    assert_eq!(payload["commit"], "abc123");
 }
 
 #[test]
