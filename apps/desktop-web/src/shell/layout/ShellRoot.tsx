@@ -1,4 +1,4 @@
-import { StationActionCommandSheet } from '@features/workspace-hub'
+import { StationActionCommandSheet, StationForceCloseConfirmDialog } from '@features/workspace-hub'
 import { ShellRootView } from './ShellRootView'
 import { useShellRootController } from './useShellRootController'
 import { WorkspaceCloseDialog } from './WorkspaceCloseDialog'
@@ -14,6 +14,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
     shellRootViewProps,
     stationActionCommandSheetProps,
     workspaceCloseDialogProps,
+    stationForceCloseConfirmDialogProps,
   } = useShellRootController({ workspaceWindowId })
 
   return (
@@ -21,6 +22,7 @@ export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
       <ShellRootView {...shellRootViewProps} />
       <StationActionCommandSheet {...stationActionCommandSheetProps} />
       <WorkspaceCloseDialog {...workspaceCloseDialogProps} />
+      <StationForceCloseConfirmDialog {...stationForceCloseConfirmDialogProps} />
     </>
   )
 }

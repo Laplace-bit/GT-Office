@@ -201,7 +201,10 @@ export interface ShellTerminalController {
   writeStationTerminalWithSubmit: (stationId: string, input: string) => Promise<boolean>
   resetStationTerminalToAgentWorkdir: (stationId: string) => Promise<boolean>
   resizeStationTerminal: (stationId: string, cols: number, rows: number) => void
-  forceCloseStationTerminal: (stationId: string) => Promise<void>
+  forceCloseStationTerminal: (stationId: string) => void
+  confirmForceCloseStationTerminal: () => Promise<void>
+  dismissForceCloseConfirm: () => void
+  forceCloseConfirmPendingId: string | null
   reconcileStationRuntimeRegistration: (input: { workspaceId: string; stationId: string; expectedSessionId: string | null }) => Promise<void>
 
   // Station operations
@@ -301,6 +304,7 @@ export function useShellTerminalController({
   const [stationDeleteCleanupTargetId, setStationDeleteCleanupTargetId] = useState<string | null>(null)
   const [stationDeleteCleanupState, setStationDeleteCleanupState] = useState<StationDeleteCleanupState | null>(null)
   const [stationDeleteCleanupSubmitting, setStationDeleteCleanupSubmitting] = useState(false)
+  const [forceCloseConfirmPendingId, setForceCloseConfirmPendingId] = useState<string | null>(null)
 
   // ── Refs ──────────────────────────────────────────────────────────────
   const stationTerminalsRef = useRef(stationTerminals)
@@ -2731,7 +2735,21 @@ export function useShellTerminalController({
     [cleanupRemovedStationRuntimeState],
   )
 
-  const forceCloseStationTerminal = useCallback(async (stationId: string) => {
+  // ── Force close station terminal (two-step: confirm then kill) ───────
+  const forceCloseStationTerminal = useCallback((stationId: string) => {
+    const runtime = stationTerminalsRef.current[stationId]
+    if (!runtime?.sessionId) {
+      return
+    }
+    setForceCloseConfirmPendingId(stationId)
+  }, [])
+
+  const confirmForceCloseStationTerminal = useCallback(async () => {
+    const stationId = forceCloseConfirmPendingId
+    if (!stationId) {
+      return
+    }
+    setForceCloseConfirmPendingId(null)
     const runtime = stationTerminalsRef.current[stationId]
     const sessionId = runtime?.sessionId ?? null
     if (!sessionId) {
@@ -2779,13 +2797,17 @@ export function useShellTerminalController({
     resetStationTerminalOutput(stationId, station ? getStationIdleBanner(station) : undefined)
     setStationTerminalState(stationId, {
       sessionId: null,
-      stateRaw: 'killed',
+      stateRaw: 'idle',
       unreadCount: 0,
       shell: null,
       cwdMode: 'workspace_root',
       resolvedCwd: null,
     })
-  }, [appendStationTerminalOutput, locale, resetStationTerminalOutput, setStationTerminalState])
+  }, [forceCloseConfirmPendingId, appendStationTerminalOutput, locale, resetStationTerminalOutput, setStationTerminalState])
+
+  const dismissForceCloseConfirm = useCallback(() => {
+    setForceCloseConfirmPendingId(null)
+  }, [])
 
   // ── Station delete cleanup ─────────────────────────────────────────────
   const handleStationDeleteCleanupChange = useCallback((patch: Partial<StationDeleteCleanupState>) => {
@@ -3145,6 +3167,9 @@ export function useShellTerminalController({
     resetStationTerminalToAgentWorkdir,
     resizeStationTerminal,
     forceCloseStationTerminal,
+    confirmForceCloseStationTerminal,
+    dismissForceCloseConfirm,
+    forceCloseConfirmPendingId,
     reconcileStationRuntimeRegistration,
 
     // Station operations

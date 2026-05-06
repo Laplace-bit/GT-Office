@@ -19,6 +19,7 @@ export type {
 export { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
 export { StationManageModal } from './StationManageModal'
 export { StationDeleteBindingCleanupDialog } from './StationDeleteBindingCleanupDialog'
+export { StationForceCloseConfirmDialog } from './StationForceCloseConfirmDialog'
 export { StationSearchModal } from './StationSearchModal'
 export { TerminalStationPane } from './TerminalStationPane'
 export type { WorkbenchStationRuntime } from './TerminalStationPane'

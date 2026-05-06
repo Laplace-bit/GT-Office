@@ -308,6 +308,9 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     submitStationTerminal,
     resizeStationTerminal,
     forceCloseStationTerminal,
+    confirmForceCloseStationTerminal,
+    dismissForceCloseConfirm,
+    forceCloseConfirmPendingId,
     reconcileStationRuntimeRegistration,
     removeStation,
     launchStationCliAgent,
@@ -1423,5 +1426,16 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       },
       submitting: closeSubmitting,
     } satisfies ComponentProps<typeof WorkspaceCloseDialog>,
+    stationForceCloseConfirmDialogProps: {
+      open: forceCloseConfirmPendingId !== null,
+      locale: uiPreferences.locale,
+      stationName: forceCloseConfirmPendingId
+        ? (stations.find((s) => s.id === forceCloseConfirmPendingId)?.name ?? forceCloseConfirmPendingId)
+        : '',
+      onClose: dismissForceCloseConfirm,
+      onConfirm: () => {
+        void confirmForceCloseStationTerminal()
+      },
+    },
   }
 }
