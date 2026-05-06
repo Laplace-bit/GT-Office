@@ -161,6 +161,14 @@ When communicating with another GT Office agent, use `gto` by default. If it is 
 - 不要因为“看起来对”就宣布完成
 - 不要为了过测试而硬编码或绕路
 
+## 发布流程
+
+- 版本发布必须使用 `node scripts/release/bump.mjs [patch|minor|major]`
+- 禁止手动创建 git tag 进行发布，必须通过 bump 脚本
+- bump 脚本会同步更新所有配置文件的版本号（package.json、package-lock.json、tauri.conf.json、Cargo.toml、shared-types、gto），然后创建 git tag
+- CI workflow 会在构建前再次从 tag 同步版本号，确保产物版本号一致
+- 发布前确保：`npm run typecheck`、`cargo check --workspace` 通过
+
 ## 完成标准
 
 仅当以下适用项满足时，任务才算完成：

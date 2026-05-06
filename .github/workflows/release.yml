@@ -114,12 +114,36 @@ jobs:
           "
 
           # apps/desktop-tauri/src-tauri/Cargo.toml — [package] version
-          sed -i.bak 's/^version = ".*"/version = "${version}"/' apps/desktop-tauri/src-tauri/Cargo.toml
-          rm -f apps/desktop-tauri/src-tauri/Cargo.toml.bak
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('apps/desktop-tauri/src-tauri/Cargo.toml', 'utf8');
+            let inPkg = false;
+            content = content.split('\n').map(line => {
+              if (/^\[package\]/.test(line)) { inPkg = true; return line; }
+              if (/^\[/.test(line)) { inPkg = false; }
+              if (inPkg && /^version\s*=/.test(line)) {
+                return 'version = \"${version}\"';
+              }
+              return line;
+            }).join('\n');
+            fs.writeFileSync('apps/desktop-tauri/src-tauri/Cargo.toml', content);
+          "
 
           # Cargo.toml — [workspace.package] version
-          sed -i.bak '/^\[workspace\.package\]/,/^\[/{ s/^version = ".*"/version = "${version}"/ }' Cargo.toml
-          rm -f Cargo.toml.bak
+          node -e "
+            const fs = require('fs');
+            let content = fs.readFileSync('Cargo.toml', 'utf8');
+            let inSection = false;
+            content = content.split('\n').map(line => {
+              if (/^\[workspace\.package\]/.test(line)) { inSection = true; return line; }
+              if (/^\[/.test(line)) { inSection = false; }
+              if (inSection && /^version\s*=/.test(line)) {
+                return 'version = \"${version}\"';
+              }
+              return line;
+            }).join('\n');
+            fs.writeFileSync('Cargo.toml', content);
+          "
 
           # packages/shared-types/package.json
           node -e "
