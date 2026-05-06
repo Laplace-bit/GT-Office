@@ -80,6 +80,82 @@ jobs:
         shell: bash
         run: mkdir -p .codex/skills/gto-agent-communication/agents
 
+      - name: Sync version from tag
+        shell: bash
+        env:
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          echo "Syncing version to ${version}..."
+
+          # package.json (root)
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${version}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # apps/desktop-tauri/package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/desktop-tauri/package.json', 'utf8'));
+            pkg.version = '${version}';
+            fs.writeFileSync('apps/desktop-tauri/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # apps/desktop-tauri/src-tauri/tauri.conf.json
+          node -e "
+            const fs = require('fs');
+            const conf = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.conf.json', 'utf8'));
+            conf.version = '${version}';
+            fs.writeFileSync('apps/desktop-tauri/src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
+          "
+
+          # apps/desktop-tauri/src-tauri/Cargo.toml — [package] version
+          sed -i.bak 's/^version = ".*"/version = "${version}"/' apps/desktop-tauri/src-tauri/Cargo.toml
+          rm -f apps/desktop-tauri/src-tauri/Cargo.toml.bak
+
+          # Cargo.toml — [workspace.package] version
+          sed -i.bak '/^\[workspace\.package\]/,/^\[/{ s/^version = ".*"/version = "${version}"/ }' Cargo.toml
+          rm -f Cargo.toml.bak
+
+          # packages/shared-types/package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('packages/shared-types/package.json', 'utf8'));
+            pkg.version = '${version}';
+            fs.writeFileSync('packages/shared-types/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # tools/gto/package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('tools/gto/package.json', 'utf8'));
+            pkg.version = '${version}';
+            fs.writeFileSync('tools/gto/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # package-lock.json — sync workspace package versions
+          node -e "
+            const fs = require('fs');
+            const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+            if (lock.packages) {
+              const workspaces = ['apps/desktop-tauri', 'packages/shared-types', 'tools/gto'];
+              for (const ws of workspaces) {
+                const key = ws;
+                if (lock.packages[key]) {
+                  lock.packages[key].version = '${version}';
+                }
+              }
+            }
+            lock.version = '${version}';
+            fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+          "
+
+          echo "Version synced to ${version} in all config files."
+
       - name: Rust check
         run: cargo check --workspace
 
