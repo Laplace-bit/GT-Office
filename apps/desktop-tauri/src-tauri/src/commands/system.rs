@@ -281,10 +281,10 @@ fn command_exists(command: &str) -> bool {
             env_path.push_str(&format!("{separator}{dir_str}"));
         }
     }
-    std::process::Command::new(command)
-        .arg("--version")
-        .env("PATH", &env_path)
-        .output()
+    let mut cmd = std::process::Command::new(command);
+    cmd.arg("--version").env("PATH", &env_path);
+    crate::process_utils::configure_std_command(&mut cmd);
+    cmd.output()
         .map(|output| output.status.success())
         .unwrap_or(false)
 }

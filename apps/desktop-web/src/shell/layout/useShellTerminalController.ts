@@ -2738,14 +2738,6 @@ export function useShellTerminalController({
       return
     }
     const station = stationsRef.current.find((entry) => entry.id === stationId)
-    const confirmed = window.confirm(
-      t(locale, 'terminal.forceClose.confirmMessage', {
-        name: station?.name ?? stationId,
-      }),
-    )
-    if (!confirmed) {
-      return
-    }
 
     const workspaceId = activeWorkspaceIdRef.current
     try {
