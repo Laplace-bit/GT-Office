@@ -70,6 +70,7 @@ interface TerminalStationPaneProps {
   onSelectStation: (stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
@@ -91,6 +92,7 @@ function TerminalStationPaneView({
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
   onBindTerminalSink,
@@ -174,6 +176,20 @@ function TerminalStationPaneView({
               size="compact"
               className="terminal-station-pane-comet"
             />
+          ) : null}
+          {hasTerminalSession && onForceCloseTerminal ? (
+            <button
+              type="button"
+              className="terminal-station-pane-force-close"
+              aria-label={t(locale, 'terminal.forceClose.button')}
+              title={t(locale, 'terminal.forceClose.button')}
+              onClick={(event) => {
+                event.stopPropagation()
+                onForceCloseTerminal(station.id)
+              }}
+            >
+              <AppIcon name="close" className="vb-icon" aria-hidden="true" />
+            </button>
           ) : null}
         </div>
         <div className="terminal-station-pane-meta-row terminal-station-pane-meta-row-secondary">

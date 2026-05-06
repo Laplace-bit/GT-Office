@@ -155,9 +155,6 @@ interface UseShellTerminalControllerInput {
   // Workbench container refs
   workbenchContainersRef: MutableRefObject<WorkbenchContainerModel[]>
 
-  // Performance policy
-  windowPerformancePolicy: WindowPerformancePolicy
-
   // Detached projection callbacks (bridge to workbench controller)
   detachedWindowOpenInFlightRef: MutableRefObject<Record<string, boolean>>
 
@@ -168,13 +165,10 @@ interface UseShellTerminalControllerInput {
   performanceDebugState: { enabled: boolean }
 }
 
-import type { WindowPerformancePolicy } from './window-performance-policy'
-
 export interface ShellTerminalController {
   // State
   stationTerminals: Record<string, StationTerminalRuntime>
   setStationTerminals: Dispatch<SetStateAction<Record<string, StationTerminalRuntime>>>
-  stationProcessSnapshots: Record<string, TerminalDescribeProcessesResponse>
   toolCommandsByStationId: Record<string, ToolCommandSummary[]>
   isBatchLaunchingAgents: boolean
   pendingStationActionSheet: { station: AgentStation; action: StationActionDescriptor } | null
@@ -207,6 +201,7 @@ export interface ShellTerminalController {
   writeStationTerminalWithSubmit: (stationId: string, input: string) => Promise<boolean>
   resetStationTerminalToAgentWorkdir: (stationId: string) => Promise<boolean>
   resizeStationTerminal: (stationId: string, cols: number, rows: number) => void
+  forceCloseStationTerminal: (stationId: string) => Promise<void>
   reconcileStationRuntimeRegistration: (input: { workspaceId: string; stationId: string; expectedSessionId: string | null }) => Promise<void>
 
   // Station operations
@@ -232,7 +227,6 @@ export interface ShellTerminalController {
   publishDetachedOutputReset: (stationId: string, content: string) => void
   handleDetachedSurfaceBridgeMessage: (event: SurfaceBridgeEventPayload<DetachedTerminalBridgeMessage>) => void
   reportRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
-  updateStationProcessSnapshot: (stationId: string, snapshot: TerminalDescribeProcessesResponse | null) => void
   inspectStationSessionProcesses: (stationId: string, sessionId: string) => Promise<TerminalDescribeProcessesResponse | null>
 
   // Batch launch & actions
@@ -267,7 +261,6 @@ export interface ShellTerminalController {
   workspaceTerminalCacheRef: MutableRefObject<Record<string, WorkspaceTerminalSessionDocument>>
   presentedWorkspaceIdRef: MutableRefObject<string | null>
   stationToolLaunchSeqRef: MutableRefObject<Record<string, number>>
-  stationProcessSnapshotsRef: MutableRefObject<Record<string, TerminalDescribeProcessesResponse>>
 
   // Additional refs needed by workspace session restore
   resolveWorkspaceRoot: (workspaceId: string) => Promise<string | null>
@@ -290,7 +283,6 @@ export function useShellTerminalController({
   setEditingStation,
 
   workbenchContainersRef,
-  windowPerformancePolicy,
   detachedWindowOpenInFlightRef: _detachedWindowOpenInFlightRef,
   externalChannelController,
   performanceDebugState,
@@ -299,9 +291,6 @@ export function useShellTerminalController({
   const [stationTerminals, setStationTerminals] = useState<Record<string, StationTerminalRuntime>>(
     () => createInitialStationTerminals(initialStations),
   )
-  const [stationProcessSnapshots, setStationProcessSnapshots] = useState<
-    Record<string, TerminalDescribeProcessesResponse>
-  >({})
   const [toolCommandsByStationId, setToolCommandsByStationId] = useState<Record<string, ToolCommandSummary[]>>({})
   const [pendingStationActionSheet, setPendingStationActionSheet] = useState<{
     station: AgentStation
@@ -315,7 +304,6 @@ export function useShellTerminalController({
 
   // ── Refs ──────────────────────────────────────────────────────────────
   const stationTerminalsRef = useRef(stationTerminals)
-  const stationProcessSnapshotsRef = useRef(stationProcessSnapshots)
   const sessionStationRef = useRef<Record<string, string>>({})
   const terminalSessionSeqRef = useRef<Record<string, number>>({})
   const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
@@ -356,10 +344,6 @@ export function useShellTerminalController({
   }, [stationTerminals])
 
   useEffect(() => {
-    stationProcessSnapshotsRef.current = stationProcessSnapshots
-  }, [stationProcessSnapshots])
-
-  useEffect(() => {
     if (stations.length === 0) {
       return
     }
@@ -383,18 +367,6 @@ export function useShellTerminalController({
       stationTerminalOutputCacheRef.current[station.id] = getStationIdleBanner(station)
     })
   }, [stations])
-
-  // ── Station process snapshot pruning ──────────────────────────────────
-  useEffect(() => {
-    setStationProcessSnapshots((prev) => {
-      const nextEntries = Object.entries(prev).filter(([stationId, snapshot]) => {
-        const sessionId = stationTerminals[stationId]?.sessionId ?? null
-        return Boolean(sessionId && snapshot.sessionId === sessionId)
-      })
-      const next = Object.fromEntries(nextEntries)
-      return Object.keys(next).length === Object.keys(prev).length ? prev : next
-    })
-  }, [stationTerminals])
 
   // ── Detached projection helpers ───────────────────────────────────────
   const findDetachedProjectionTargetsByStationId = useCallback((stationId: string): DetachedProjectionTarget[] => {
@@ -1656,100 +1628,6 @@ export function useShellTerminalController({
     registeredAgentRuntimeRef.current = desired
   }, [activeWorkspaceId, stations, stationTerminals])
 
-  // ── Process snapshot polling ──────────────────────────────────────────
-  useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
-      setStationProcessSnapshots({})
-      return
-    }
-
-    let cancelled = false
-
-    const refresh = async () => {
-      const liveStations = stationsRef.current
-        .map((station) => ({
-          stationId: station.id,
-          sessionId: stationTerminalsRef.current[station.id]?.sessionId ?? null,
-        }))
-        .filter((item): item is { stationId: string; sessionId: string } => Boolean(item.sessionId))
-      const polledStations = windowPerformancePolicy.shouldPollAllLiveStationProcesses
-        ? liveStations
-        : liveStations.filter(({ stationId }) => stationId === activeStationId)
-
-      if (polledStations.length === 0) {
-        if (!cancelled) {
-          setStationProcessSnapshots({})
-        }
-        return
-      }
-
-      const entries = await Promise.all(
-        polledStations.map(async ({ stationId, sessionId }) => {
-          try {
-            const snapshot = await desktopApi.terminalDescribeProcesses(sessionId)
-            if (stationTerminalsRef.current[stationId]?.sessionId !== sessionId) {
-              return [stationId, null] as const
-            }
-            return [stationId, snapshot] as const
-          } catch {
-            return [stationId, stationProcessSnapshotsRef.current[stationId] ?? null] as const
-          }
-        }),
-      )
-
-      if (cancelled) {
-        return
-      }
-
-      const next = Object.fromEntries(
-        entries.filter((entry): entry is [string, TerminalDescribeProcessesResponse] => Boolean(entry[1])),
-      )
-      setStationProcessSnapshots((prev) => {
-        const prevKeys = Object.keys(prev)
-        const nextKeys = Object.keys(next)
-        if (prevKeys.length === nextKeys.length) {
-          const unchanged = nextKeys.every((stationId) => {
-            const prevSnapshot = prev[stationId]
-            const nextSnapshot = next[stationId]
-            return (
-              prevSnapshot?.sessionId === nextSnapshot?.sessionId &&
-              prevSnapshot?.rootPid === nextSnapshot?.rootPid &&
-              prevSnapshot?.currentProcess?.pid === nextSnapshot?.currentProcess?.pid &&
-              prevSnapshot?.currentProcess?.args === nextSnapshot?.currentProcess?.args &&
-              prevSnapshot?.processes.length === nextSnapshot?.processes.length &&
-              prevSnapshot?.processes.every(
-                (process, index) =>
-                  process.pid === nextSnapshot?.processes[index]?.pid &&
-                  process.args === nextSnapshot?.processes[index]?.args,
-              )
-            )
-          })
-          if (unchanged) {
-            return prev
-          }
-        }
-        return next
-      })
-    }
-
-    void refresh()
-    const timerId = window.setInterval(() => {
-      void refresh()
-    }, windowPerformancePolicy.stationProcessPollIntervalMs)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(timerId)
-    }
-  }, [
-    activeWorkspaceId,
-    activeStationId,
-    stationTerminals,
-    stations,
-    windowPerformancePolicy.shouldPollAllLiveStationProcesses,
-    windowPerformancePolicy.stationProcessPollIntervalMs,
-  ])
-
   // ── Active station unread clear ────────────────────────────────────────
   useEffect(() => {
     if (!activeStationId) {
@@ -2464,43 +2342,6 @@ export function useShellTerminalController({
   )
 
   // ── Process snapshot helpers ────────────────────────────────────────────
-  const updateStationProcessSnapshot = useCallback(
-    (stationId: string, snapshot: TerminalDescribeProcessesResponse | null) => {
-      setStationProcessSnapshots((prev) => {
-        if (!snapshot) {
-          if (!prev[stationId]) {
-            return prev
-          }
-          const next = { ...prev }
-          delete next[stationId]
-          return next
-        }
-
-        const current = prev[stationId]
-        const unchanged =
-          current?.sessionId === snapshot.sessionId &&
-          current?.rootPid === snapshot.rootPid &&
-          current?.currentProcess?.pid === snapshot.currentProcess?.pid &&
-          current?.currentProcess?.args === snapshot.currentProcess?.args &&
-          current?.processes.length === snapshot.processes.length &&
-          current?.processes.every(
-            (process, index) =>
-              process.pid === snapshot.processes[index]?.pid &&
-              process.args === snapshot.processes[index]?.args,
-          )
-        if (unchanged) {
-          return prev
-        }
-
-        return {
-          ...prev,
-          [stationId]: snapshot,
-        }
-      })
-    },
-    [],
-  )
-
   const inspectStationSessionProcesses = useCallback(
     async (stationId: string, sessionId: string): Promise<TerminalDescribeProcessesResponse | null> => {
       if (!desktopApi.isTauriRuntime()) {
@@ -2512,13 +2353,12 @@ export function useShellTerminalController({
         if (stationTerminalsRef.current[stationId]?.sessionId !== sessionId) {
           return null
         }
-        updateStationProcessSnapshot(stationId, snapshot)
         return snapshot
       } catch {
-        return stationProcessSnapshotsRef.current[stationId] ?? null
+        return null
       }
     },
-    [updateStationProcessSnapshot],
+    [],
   )
 
   // ── Launch tool profile for station ────────────────────────────────────
@@ -2868,6 +2708,9 @@ export function useShellTerminalController({
             }
             return
           }
+        } catch (error) {
+          console.error('[removeStation] agentDelete failed:', error)
+          return
         } finally {
           setStationDeletePendingId(null)
         }
@@ -2887,6 +2730,70 @@ export function useShellTerminalController({
     },
     [cleanupRemovedStationRuntimeState],
   )
+
+  const forceCloseStationTerminal = useCallback(async (stationId: string) => {
+    const runtime = stationTerminalsRef.current[stationId]
+    const sessionId = runtime?.sessionId ?? null
+    if (!sessionId) {
+      return
+    }
+    const station = stationsRef.current.find((entry) => entry.id === stationId)
+    const confirmed = window.confirm(
+      t(locale, 'terminal.forceClose.confirmMessage', {
+        name: station?.name ?? stationId,
+      }),
+    )
+    if (!confirmed) {
+      return
+    }
+
+    const workspaceId = activeWorkspaceIdRef.current
+    try {
+      if (desktopApi.isTauriRuntime()) {
+        await desktopApi.terminalKill(sessionId, 'KILL')
+      }
+    } catch (error) {
+      const detail = describeError(error)
+      if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+        appendStationTerminalOutput(
+          stationId,
+          t(locale, 'system.killFailed', {
+            detail,
+          }),
+        )
+        return
+      }
+    }
+
+    delete sessionStationRef.current[sessionId]
+    delete terminalSessionSeqRef.current[sessionId]
+    delete terminalOutputQueueRef.current[sessionId]
+    delete terminalSessionVisibilityRef.current[sessionId]
+    delete terminalChunkDecoderBySessionRef.current[sessionId]
+    delete stationSubmitSequenceRef.current[stationId]
+    delete stationTerminalRestoreStateRef.current[stationId]
+    stationTerminalInputControllerRef.current?.clear(stationId)
+
+    if (workspaceId) {
+      const document = workspaceTerminalCacheRef.current[workspaceId]
+      if (document) {
+        removeWorkspaceTerminalSessionBinding(document, sessionId, 'killed')
+      }
+      void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
+        // Runtime sync will reconcile if a later session is started.
+      })
+    }
+
+    resetStationTerminalOutput(stationId, station ? getStationIdleBanner(station) : undefined)
+    setStationTerminalState(stationId, {
+      sessionId: null,
+      stateRaw: 'killed',
+      unreadCount: 0,
+      shell: null,
+      cwdMode: 'workspace_root',
+      resolvedCwd: null,
+    })
+  }, [appendStationTerminalOutput, locale, resetStationTerminalOutput, setStationTerminalState])
 
   // ── Station delete cleanup ─────────────────────────────────────────────
   const handleStationDeleteCleanupChange = useCallback((patch: Partial<StationDeleteCleanupState>) => {
@@ -2950,6 +2857,9 @@ export function useShellTerminalController({
       setStationDeleteCleanupState(null)
       setIsStationManageOpen(false)
       setEditingStation(null)
+    } catch (error) {
+      console.error('[handleStationDeleteCleanupConfirm] agentDelete failed:', error)
+      return
     } finally {
       setStationDeleteCleanupSubmitting(false)
       setStationDeletePendingId(null)
@@ -2974,14 +2884,8 @@ export function useShellTerminalController({
         }
 
         const sessionId = stationTerminalsRef.current[station.id]?.sessionId ?? null
-        let agentRunning = isStationAgentProcessRunning(
-          station.toolKind,
-          stationProcessSnapshotsRef.current[station.id],
-        )
-        if (sessionId) {
-          const processSnapshot = await inspectStationSessionProcesses(station.id, sessionId)
-          agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
-        }
+        const runtime = stationTerminalsRef.current[station.id]
+        const agentRunning = Boolean(runtime?.sessionId && runtime.stateRaw !== 'killed' && runtime.stateRaw !== 'failed')
         if (agentRunning) {
           continue
         }
@@ -2997,7 +2901,6 @@ export function useShellTerminalController({
       setIsBatchLaunchingAgents(false)
     }
   }, [
-    inspectStationSessionProcesses,
     isBatchLaunchingAgents,
     launchToolProfileForStation,
     writeStationTerminalWithSubmit,
@@ -3119,13 +3022,13 @@ export function useShellTerminalController({
   const stationAgentRunningById = useMemo(
     () =>
       stations.reduce<Record<string, boolean>>((acc, station) => {
-        acc[station.id] = isStationAgentProcessRunning(
-          station.toolKind,
-          stationProcessSnapshots[station.id],
-        )
+        const runtime = stationTerminals[station.id]
+        // Derive running state from terminal session: active session = agent is running,
+        // killed/failed/no session = agent is not running. No process polling needed.
+        acc[station.id] = Boolean(runtime?.sessionId && runtime.stateRaw !== 'killed' && runtime.stateRaw !== 'failed')
         return acc
       }, {}),
-    [stationProcessSnapshots, stations],
+    [stationTerminals, stations],
   )
 
   const batchLaunchableAgentCount = useMemo(
@@ -3217,7 +3120,6 @@ export function useShellTerminalController({
     // State
     stationTerminals,
     setStationTerminals,
-    stationProcessSnapshots,
     toolCommandsByStationId,
     isBatchLaunchingAgents,
     pendingStationActionSheet,
@@ -3250,6 +3152,7 @@ export function useShellTerminalController({
     writeStationTerminalWithSubmit,
     resetStationTerminalToAgentWorkdir,
     resizeStationTerminal,
+    forceCloseStationTerminal,
     reconcileStationRuntimeRegistration,
 
     // Station operations
@@ -3275,7 +3178,6 @@ export function useShellTerminalController({
     publishDetachedOutputReset,
     handleDetachedSurfaceBridgeMessage,
     reportRenderedScreenSnapshot,
-    updateStationProcessSnapshot,
     inspectStationSessionProcesses,
 
     // Batch launch & actions
@@ -3310,7 +3212,6 @@ export function useShellTerminalController({
     workspaceTerminalCacheRef,
     presentedWorkspaceIdRef,
     stationToolLaunchSeqRef,
-    stationProcessSnapshotsRef,
 
     // resolveWorkspaceRoot for use by workspace session restore
     resolveWorkspaceRoot,

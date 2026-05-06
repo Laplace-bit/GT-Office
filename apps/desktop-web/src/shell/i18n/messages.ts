@@ -845,6 +845,11 @@ export const messages = {
   'workspaceTab.closeConfirm.confirm': { 'zh-CN': '关闭工作区', 'en-US': 'Close Workspace' },
   'workspaceTab.closeSuccess': { 'zh-CN': '工作区已关闭', 'en-US': 'Workspace closed' },
   'workspaceTab.closeError': { 'zh-CN': '关闭工作区失败', 'en-US': 'Failed to close workspace' },
+  'terminal.forceClose.button': { 'zh-CN': '强制关闭终端', 'en-US': 'Force close terminal' },
+  'terminal.forceClose.confirmMessage': {
+    'zh-CN': '确定要强制关闭「{name}」的当前终端吗？这会终止该终端中的所有进程。',
+    'en-US': 'Force close the current terminal for "{name}"? This will terminate every process in that terminal.',
+  },
   'settingsModal.title': { 'zh-CN': '系统设置', 'en-US': 'System Settings' },
   'settingsModal.subtitle': {
     'zh-CN': '集中管理显示偏好与通道接入配置',

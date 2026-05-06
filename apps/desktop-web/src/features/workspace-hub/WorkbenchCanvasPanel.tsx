@@ -81,6 +81,7 @@ interface WorkbenchCanvasPanelProps {
   onSelectStation: (containerId: string, stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
@@ -337,6 +338,7 @@ function WorkbenchCanvasPanelView({
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
   onBindTerminalSink,
@@ -946,6 +948,7 @@ function WorkbenchCanvasPanelView({
             onSelectStation={handleSelectStation}
             onLaunchStationTerminal={onLaunchStationTerminal}
             onLaunchCliAgent={onLaunchCliAgent}
+            onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
             onBindTerminalSink={onBindTerminalSink}
@@ -975,6 +978,7 @@ function WorkbenchCanvasPanelView({
       handleSelectStation,
       locale,
       onBindTerminalSink,
+      onForceCloseTerminal,
       onLaunchCliAgent,
       onLaunchStationTerminal,
       onRemoveStation,

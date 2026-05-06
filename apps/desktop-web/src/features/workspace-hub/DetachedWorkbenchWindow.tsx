@@ -26,7 +26,7 @@ import {
   createEmptyWorkbenchStationRuntime,
   normalizeDetachedTerminalRuntime,
 } from './detached-terminal-bridge'
-import type { Locale } from '@shell/i18n/ui-locale'
+import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   applyUiPreferences,
   loadUiPreferences,
@@ -500,6 +500,60 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       })
     },
     [payload.containerId, payload.workspaceId, postBridgeMessage],
+  )
+
+  const forceCloseTerminal = useCallback(
+    async (stationId: string) => {
+      const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
+      if (!sessionId) {
+        return
+      }
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      const confirmed = window.confirm(
+        t(uiPreferences.locale as Locale, 'terminal.forceClose.confirmMessage', {
+          name: station?.name ?? stationId,
+        }),
+      )
+      if (!confirmed) {
+        return
+      }
+
+      try {
+        await desktopApi.terminalKill(sessionId, 'KILL')
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+          appendStationTerminalOutput(stationId, `\r\n[terminal:kill-failed] ${detail}\r\n`)
+          return
+        }
+      }
+
+      delete stationTerminalRestoreStateRef.current[stationId]
+      delete pendingLaunchCommandRef.current[stationId]
+      inputControllerRef.current?.clear(stationId)
+      setStationRuntimes((prev) => {
+        const current = prev[stationId] ?? createEmptyWorkbenchStationRuntime()
+        const next = {
+          ...prev,
+          [stationId]: {
+            ...current,
+            sessionId: null,
+            stateRaw: 'killed',
+            unreadCount: 0,
+            shell: null,
+            cwdMode: 'workspace_root' as const,
+            resolvedCwd: null,
+          },
+        }
+        stationRuntimesRef.current = next
+        return next
+      })
+      resetStationTerminalOutput(stationId, '')
+      void desktopApi.agentRuntimeUnregister(payload.workspaceId, stationId).catch(() => {
+        // The main workspace will reconcile runtime state from terminal events.
+      })
+    },
+    [appendStationTerminalOutput, payload.workspaceId, resetStationTerminalOutput, uiPreferences.locale],
   )
 
   const ensureStationTerminalSession = useCallback(
@@ -1025,6 +1079,9 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           }}
           onLaunchCliAgent={(stationId) => {
             void launchStationCliAgent(stationId)
+          }}
+          onForceCloseTerminal={(stationId) => {
+            void forceCloseTerminal(stationId)
           }}
           onSendInputData={sendInput}
           onResizeTerminal={handleResize}

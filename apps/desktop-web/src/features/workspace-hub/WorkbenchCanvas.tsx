@@ -87,6 +87,7 @@ interface WorkbenchCanvasProps {
   onSelectStation: (containerId: string, stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
@@ -276,6 +277,7 @@ function WorkbenchCanvasView({
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
   onBindTerminalSink,
@@ -591,6 +593,7 @@ function WorkbenchCanvasView({
                     onSelectStation={onSelectStation}
                     onLaunchStationTerminal={onLaunchStationTerminal}
                     onLaunchCliAgent={onLaunchCliAgent}
+                    onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
             onBindTerminalSink={onBindTerminalSink}
@@ -668,6 +671,7 @@ function WorkbenchCanvasView({
                     onSelectStation={onSelectStation}
                     onLaunchStationTerminal={onLaunchStationTerminal}
                     onLaunchCliAgent={onLaunchCliAgent}
+                    onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
             onBindTerminalSink={onBindTerminalSink}

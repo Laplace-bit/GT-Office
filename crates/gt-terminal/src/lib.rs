@@ -1,6 +1,6 @@
 use gt_abstractions::{
     AbstractionError, AbstractionResult, CommandPolicyEvaluator, TerminalCreateRequest,
-    TerminalCwdMode, TerminalProvider, TerminalSession, WorkspaceService,
+    TerminalCwdMode, TerminalProvider, TerminalSession, WorkspaceId, WorkspaceService,
 };
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::Command as ProcessCommand,
+    process::{Command as ProcessCommand, Stdio},
     sync::mpsc::{self, Receiver, Sender},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -210,17 +210,21 @@ fn load_process_table() -> Result<Vec<RawProcessEntry>, String> {
         command_line: Option<String>,
     }
 
-    let output = ProcessCommand::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
-        ])
-        .output()
-        .map_err(|error| {
-            format!("TERMINAL_PROCESS_INSPECT_FAILED: unable to run PowerShell: {error}")
-        })?;
+    let mut command = ProcessCommand::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let output = command.output().map_err(|error| {
+        format!("TERMINAL_PROCESS_INSPECT_FAILED: unable to run PowerShell: {error}")
+    })?;
     if !output.status.success() {
         return Err(format!(
             "TERMINAL_PROCESS_INSPECT_FAILED: PowerShell exited with status {}",
@@ -894,6 +898,7 @@ async fn run_mux_loop(
 }
 
 struct PtySessionRuntime {
+    workspace_id: WorkspaceId,
     writer: Box<dyn Write + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send>,
@@ -1190,6 +1195,30 @@ where
         Ok(true)
     }
 
+    pub fn kill_workspace_sessions(&self, workspace_id: &str) -> AbstractionResult<Vec<String>> {
+        let session_ids = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| AbstractionError::Internal {
+                    message: "TERMINAL_INTERNAL: terminal session lock poisoned".to_string(),
+                })?;
+            sessions
+                .iter()
+                .filter(|(_, runtime)| runtime.workspace_id.as_str() == workspace_id)
+                .map(|(session_id, _)| session_id.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let mut killed = Vec::new();
+        for session_id in session_ids {
+            if self.kill_session(&session_id)? {
+                killed.push(session_id);
+            }
+        }
+        Ok(killed)
+    }
+
     pub fn kill_session(&self, session_id: &str) -> AbstractionResult<bool> {
         let runtime = {
             let mut sessions = self
@@ -1210,10 +1239,12 @@ where
             session_id: session_id.to_string(),
         });
 
+        let root_pid = runtime.child.process_id();
+        if let Some(root_pid) = root_pid {
+            let _ = terminate_process_tree(root_pid);
+        }
         let mut child = runtime.child;
-        child.kill().map_err(|err| AbstractionError::Internal {
-            message: format!("TERMINAL_KILL_FAILED: {err}"),
-        })?;
+        let _ = child.kill();
         self.emit_state(session_id, "running", "killed");
         Ok(true)
     }
@@ -1413,6 +1444,7 @@ where
         sessions.insert(
             session.session_id.clone(),
             PtySessionRuntime {
+                workspace_id: request.workspace_id.clone(),
                 writer,
                 master: pair.master,
                 child,
@@ -1420,6 +1452,57 @@ where
         );
         Ok(session)
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn terminate_process_tree(root_pid: u32) -> Result<(), String> {
+    let table = load_process_table()?;
+    let mut processes = build_process_tree(root_pid, &table);
+    processes.sort_by_key(|process| std::cmp::Reverse(process.depth));
+    let pids = processes
+        .into_iter()
+        .map(|process| process.pid.to_string())
+        .collect::<Vec<_>>();
+    if pids.is_empty() {
+        return Ok(());
+    }
+
+    let _ = ProcessCommand::new("kill")
+        .arg("-TERM")
+        .args(&pids)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("TERMINAL_KILL_FAILED: unable to send TERM: {error}"))?;
+
+    thread::sleep(Duration::from_millis(150));
+    let _ = ProcessCommand::new("kill")
+        .arg("-KILL")
+        .args(&pids)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn terminate_process_tree(root_pid: u32) -> Result<(), String> {
+    let mut command = ProcessCommand::new("taskkill.exe");
+    command.args(["/PID", &root_pid.to_string(), "/T", "/F"]);
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let status = command
+        .status()
+        .map_err(|error| format!("TERMINAL_KILL_FAILED: unable to run taskkill: {error}"))?;
+    if !status.success() {
+        return Err(format!(
+            "TERMINAL_KILL_FAILED: taskkill exited with status {status}"
+        ));
+    }
+    Ok(())
 }
 
 fn resolve_shell_name(shell: Option<&str>) -> String {

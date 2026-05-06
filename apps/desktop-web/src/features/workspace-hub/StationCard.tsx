@@ -124,6 +124,7 @@ interface StationCardProps {
 
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
@@ -160,6 +161,7 @@ function StationCardView({
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
   onBindTerminalSink,
@@ -419,13 +421,6 @@ function StationCardView({
         }
         activateStationOnly()
       }}
-      onDoubleClick={(event) => {
-        const target = event.target as HTMLElement
-        if (target.closest('.station-terminal-shell')) {
-          return
-        }
-        onEnterFullscreen(station.id)
-      }}
     >
       {taskSignal ? (
         <div key={taskSignal.nonce} className="station-task-ack-bubble" role="status" aria-live="polite">
@@ -531,6 +526,19 @@ function StationCardView({
               />
             )}
           </StationIconButton>
+          {runtime?.sessionId && onForceCloseTerminal ? (
+            <StationIconButton
+              className="station-force-close-btn"
+              tooltip={t(locale, 'terminal.forceClose.button')}
+              ariaLabel={t(locale, 'terminal.forceClose.button')}
+              onClick={(event) => {
+                event.stopPropagation()
+                onForceCloseTerminal(station.id)
+              }}
+            >
+              <AppIcon name="close" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+            </StationIconButton>
+          ) : null}
           <StationIconButton
             className="station-fullscreen-btn"
             tooltip={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
@@ -655,6 +663,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onSelectStation === next.onSelectStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&
     prev.onLaunchCliAgent === next.onLaunchCliAgent &&
+    prev.onForceCloseTerminal === next.onForceCloseTerminal &&
     prev.onSendInputData === next.onSendInputData &&
     prev.onResizeTerminal === next.onResizeTerminal &&
     prev.onBindTerminalSink === next.onBindTerminalSink &&

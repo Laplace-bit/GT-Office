@@ -327,6 +327,21 @@
   }
 }
 
+.station-force-close-btn {
+  color: var(--vb-text-muted);
+
+  &:hover {
+    background: color-mix(in srgb, var(--vb-danger) 12%, transparent);
+    color: color-mix(in srgb, var(--vb-danger) 82%, white 18%);
+  }
+
+  &:focus-visible {
+    box-shadow:
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-danger) 44%, transparent),
+      0 0 0 rem(4) color-mix(in srgb, var(--vb-danger) 14%, transparent);
+  }
+}
+
 .station-terminal-idle-state {
   flex: 1;
   display: flex;

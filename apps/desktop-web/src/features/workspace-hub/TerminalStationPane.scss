@@ -121,6 +121,43 @@
   margin-left: auto;
 }
 
+.terminal-station-pane-force-close {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.625rem;
+  height: 1.625rem;
+  margin: 0 0 0 auto;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  transition:
+    background 180ms var(--vb-ease-smooth),
+    color 180ms var(--vb-ease-smooth);
+
+  &:hover {
+    background: color-mix(in srgb, var(--vb-danger) 12%, transparent);
+    color: color-mix(in srgb, var(--vb-danger) 82%, white 18%);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-danger) 44%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-danger) 14%, transparent);
+  }
+
+  .vb-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+}
+
 .terminal-station-pane :where(.station-terminal-shell) {
   flex: 1;
   display: flex;

@@ -62,7 +62,6 @@ import { useShellTaskMentionController } from './useShellTaskMentionController'
 import { useShellWorkbenchController } from './useShellWorkbenchController'
 import { useShellTerminalController } from './useShellTerminalController'
 import { useWorkspaceTabController } from '../state/useWorkspaceTabController'
-import type { WorkspaceTearOffRequest } from './WorkspaceTabBar'
 import { resolveWindowPerformancePolicy } from './window-performance-policy'
 import { useShellPaneLayoutController } from './useShellPaneLayoutController'
 import { useShellShortcutController } from './useShellShortcutController'
@@ -283,7 +282,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     setIsStationManageOpen,
     setEditingStation,
     workbenchContainersRef,
-    windowPerformancePolicy,
     detachedWindowOpenInFlightRef,
     externalChannelController,
     performanceDebugState,
@@ -309,6 +307,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     handleStationTerminalInput,
     submitStationTerminal,
     resizeStationTerminal,
+    forceCloseStationTerminal,
     reconcileStationRuntimeRegistration,
     removeStation,
     launchStationCliAgent,
@@ -481,7 +480,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     requestCloseWorkspace,
     confirmCloseWorkspace,
     dismissCloseConfirm,
-    handleTearOffWorkspaceTab,
     handlePickWorkspaceDirectory,
   } = workspaceSessionController
 
@@ -1045,6 +1043,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onSelectStation: handleCanvasSelectStation,
     onLaunchStationTerminal: handleCanvasLaunchStationTerminal,
     onLaunchCliAgent: handleCanvasLaunchCliAgent,
+    onForceCloseTerminal: forceCloseStationTerminal,
     onSendInputData: handleStationTerminalInput,
     onResizeTerminal: resizeStationTerminal,
     onBindTerminalSink: bindStationTerminalSink,
@@ -1148,9 +1147,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
                 void handlePickWorkspaceDirectory()
               },
               onReorderTabs: reorderWorkspaceTab,
-              onTearOffTab: (request: WorkspaceTearOffRequest) => {
-                void handleTearOffWorkspaceTab(request)
-              },
             }),
         onBatchLaunchAgents: () => {
           void handleBatchLaunchAgents()

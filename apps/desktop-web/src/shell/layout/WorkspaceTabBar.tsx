@@ -23,7 +23,6 @@ interface WorkspaceTabBarProps {
   onCloseTab: (workspaceId: string) => void
   onAddTab: () => void
   onReorderTabs: (fromIndex: number, toIndex: number) => void
-  onTearOffTab?: (request: WorkspaceTearOffRequest) => void
 }
 
 export function WorkspaceTabBar({
@@ -38,7 +37,6 @@ export function WorkspaceTabBar({
   onCloseTab,
   onAddTab,
   onReorderTabs,
-  onTearOffTab,
 }: WorkspaceTabBarProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -73,18 +71,6 @@ export function WorkspaceTabBar({
       document.addEventListener('mouseup', handleUp)
     },
     [dragIndex, tabs.length, onReorderTabs],
-  )
-
-  const handleDoubleClick = useCallback(
-    (e: ReactMouseEvent, tab: WorkspaceTabInfo) => {
-      if (!onTearOffTab) return
-      onTearOffTab({
-        workspaceId: tab.workspaceId,
-        screenX: e.screenX,
-        screenY: e.screenY,
-      })
-    },
-    [onTearOffTab],
   )
 
   const handleTabAuxClick = useCallback(
@@ -134,7 +120,6 @@ export function WorkspaceTabBar({
             }${index === dragIndex ? ' dragging' : ''}`}
             onMouseDown={(e) => handleTabMouseDown(e, index)}
             onClick={() => onSwitchTab(tab.workspaceId)}
-            onDoubleClick={(e) => handleDoubleClick(e, tab)}
             onAuxClick={(e) => handleTabAuxClick(e, tab)}
             onKeyDown={(e) => handleTabKeyDown(e, tab)}
             role="tab"

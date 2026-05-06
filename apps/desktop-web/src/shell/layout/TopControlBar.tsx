@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
 import type { WindowPlatform } from './window-performance-policy'
-import { WorkspaceTabBar, type WorkspaceTearOffRequest } from './WorkspaceTabBar'
+import { WorkspaceTabBar } from './WorkspaceTabBar'
 import type { WorkspaceTabInfo } from '../state/workspace-tab-model'
 import type { WorkspaceSwitchAnimation } from '../state/ui-preferences'
 import './TopControlBar.scss'
@@ -37,7 +37,6 @@ interface TopControlBarProps {
   onCloseTab?: (workspaceId: string) => void
   onAddTab?: () => void
   onReorderTabs?: (fromIndex: number, toIndex: number) => void
-  onTearOffTab?: (request: WorkspaceTearOffRequest) => void
   // TODO: 性能调试按钮暂时隐藏
   // onTogglePerformanceDebug: () => void
   onWindowMinimize: () => void
@@ -124,7 +123,6 @@ export function TopControlBar({
   onCloseTab,
   onAddTab,
   onReorderTabs,
-  onTearOffTab,
   // onTogglePerformanceDebug,
   onWindowMinimize,
   onWindowToggleMaximize,
@@ -272,20 +270,6 @@ export function TopControlBar({
   const headerDragRegion =
     nativeWindowTop && windowPlatform !== 'macos' ? '' : undefined
 
-  const handleTitlebarDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
-    if (windowPlatform !== 'windows') {
-      return
-    }
-    const target = event.target
-    if (!(target instanceof Element)) {
-      return
-    }
-    if (target.closest("button,input,textarea,select,a,[role='button'],[contenteditable='true']")) {
-      return
-    }
-    onWindowToggleMaximize()
-  }
-
   const renderWindowControls = () => (
     <div className="vb-window-controls" role="toolbar" aria-label={t(locale, 'topControlBar.windowControls')}>
       {orderedWindowActionButtons.map((btn) => (
@@ -307,7 +291,6 @@ export function TopControlBar({
     <header
       className={topClassNames}
       data-tauri-drag-region={headerDragRegion}
-      onDoubleClick={handleTitlebarDoubleClick}
     >
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
@@ -376,7 +359,6 @@ export function TopControlBar({
                 onCloseTab={onCloseTab as (workspaceId: string) => void}
                 onAddTab={onAddTab ?? onPickWorkspaceDirectory}
                 onReorderTabs={onReorderTabs as (fromIndex: number, toIndex: number) => void}
-                onTearOffTab={onTearOffTab}
               />
             </div>
           </>
