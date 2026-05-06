@@ -11,7 +11,7 @@ export function useGitTags(workspaceId: string | null, isGitRepository: boolean)
     setLoading(true)
     try {
       const result = await desktopApi.gitTagList(workspaceId)
-      setTags(result.tags)
+      setTags(result.entries)
     } finally {
       setLoading(false)
     }

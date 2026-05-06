@@ -369,7 +369,7 @@ export interface GitTagEntry {
 
 export interface GitTagListResponse {
   workspaceId: string
-  tags: GitTagEntry[]
+  entries: GitTagEntry[]
 }
 
 export interface GitConflictFile {
