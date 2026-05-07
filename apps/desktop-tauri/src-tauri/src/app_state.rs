@@ -129,6 +129,7 @@ pub enum ExternalTerminalKey {
 pub enum ExternalInteractionAction {
     SubmitText(String),
     TerminalKey(ExternalTerminalKey),
+    SelectOption(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,6 +179,9 @@ impl ExternalInteractionPrompt {
                 ExternalInteractionAction::TerminalKey(key) => {
                     format!("{}=>key:{}", control.label, key.id())
                 }
+                ExternalInteractionAction::SelectOption(index) => {
+                    format!("{}=>select:{}", control.label, index + 1)
+                }
             })
             .collect::<Vec<_>>()
             .join("|");
@@ -198,42 +202,120 @@ impl ExternalInteractionPrompt {
         row_index >= self.start_row && row_index <= self.end_row
     }
 
-    fn matches_input(&self, input: &str) -> bool {
+    fn matches_submit_input(&self, input: &str) -> Option<String> {
         let normalized = input.trim();
         if normalized.is_empty() {
-            return false;
+            return None;
         }
         self.options
             .iter()
             .filter_map(|option| option.submit_text.as_deref())
-            .any(|submit_text| submit_text == normalized)
+            .find(|submit_text| submit_text.trim().eq_ignore_ascii_case(normalized))
+            .map(str::to_string)
     }
 
-    fn accepts_injected_input(&self, input: &str) -> bool {
-        if self.matches_input(input) {
-            return true;
+    fn action_for_text_input(&self, input: &str) -> Option<ExternalInteractionAction> {
+        if let Some(submit_text) = self.matches_submit_input(input) {
+            return Some(ExternalInteractionAction::SubmitText(submit_text));
         }
         let normalized = input.trim();
         if normalized.is_empty() {
-            return false;
+            return None;
         }
         let lower = normalized.to_ascii_lowercase();
         match self.control_mode {
             ExternalInteractionControlMode::SemanticButtons => {
-                normalized.chars().all(|ch| ch.is_ascii_digit())
-                    || normalized.starts_with('/')
-                    || matches!(lower.as_str(), "y" | "yes" | "n" | "no" | "allow" | "deny")
+                let alias = match lower.as_str() {
+                    "y" | "yes" | "allow" => Some("yes"),
+                    "n" | "no" | "deny" => Some("no"),
+                    _ => None,
+                }?;
+                self.options
+                    .iter()
+                    .filter_map(|option| option.submit_text.as_deref())
+                    .find(|submit_text| submit_text.eq_ignore_ascii_case(alias))
+                    .map(|submit_text| {
+                        ExternalInteractionAction::SubmitText(submit_text.to_string())
+                    })
             }
-            ExternalInteractionControlMode::TerminalNavigation => {
-                matches!(lower.as_str(), "up" | "down" | "enter" | "esc" | "tab")
-            }
+            ExternalInteractionControlMode::TerminalNavigation => parse_terminal_key_text(&lower)
+                .map(ExternalInteractionAction::TerminalKey)
+                .or_else(|| {
+                    parse_option_number_input(normalized).and_then(|option_index| {
+                        if option_index < self.options.len() {
+                            Some(ExternalInteractionAction::SelectOption(option_index))
+                        } else {
+                            None
+                        }
+                    })
+                }),
         }
     }
 
     pub(crate) fn allows_action(&self, action: &ExternalInteractionAction) -> bool {
-        self.controls
-            .iter()
-            .any(|control| &control.action == action)
+        match action {
+            ExternalInteractionAction::SelectOption(index) => {
+                self.control_mode == ExternalInteractionControlMode::TerminalNavigation
+                    && *index < self.options.len()
+                    && self.selected_index.is_some()
+            }
+            _ => self
+                .controls
+                .iter()
+                .any(|control| &control.action == action),
+        }
+    }
+
+    pub(crate) fn terminal_input_for_action(
+        &self,
+        action: &ExternalInteractionAction,
+    ) -> Option<String> {
+        match action {
+            ExternalInteractionAction::SubmitText(_) => None,
+            ExternalInteractionAction::TerminalKey(key) => Some(key.input().to_string()),
+            ExternalInteractionAction::SelectOption(target_index) => {
+                let selected_index = self.selected_index?;
+                if *target_index >= self.options.len() {
+                    return None;
+                }
+                let mut input = String::new();
+                if *target_index > selected_index {
+                    for _ in selected_index..*target_index {
+                        input.push_str(ExternalTerminalKey::Down.input());
+                    }
+                } else {
+                    for _ in *target_index..selected_index {
+                        input.push_str(ExternalTerminalKey::Up.input());
+                    }
+                }
+                input.push_str(ExternalTerminalKey::Enter.input());
+                Some(input)
+            }
+        }
+    }
+}
+
+fn parse_option_number_input(input: &str) -> Option<usize> {
+    let normalized = input
+        .trim()
+        .trim_end_matches(|ch| matches!(ch, '.' | ')' | ':' | '、'));
+    if normalized.is_empty() || !normalized.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let one_based = normalized.parse::<usize>().ok()?;
+    one_based.checked_sub(1)
+}
+
+fn parse_terminal_key_text(input: &str) -> Option<ExternalTerminalKey> {
+    match input.trim() {
+        "up" | "u" | "↑" | "上" | "上一项" => Some(ExternalTerminalKey::Up),
+        "down" | "d" | "↓" | "下" | "下一项" => Some(ExternalTerminalKey::Down),
+        "enter" | "return" | "confirm" | "ok" | "确认" | "回车" => {
+            Some(ExternalTerminalKey::Enter)
+        }
+        "esc" | "escape" | "cancel" | "取消" => Some(ExternalTerminalKey::Esc),
+        "tab" | "amend" | "修改" => Some(ExternalTerminalKey::Tab),
+        _ => None,
     }
 }
 
@@ -306,6 +388,8 @@ pub struct ExternalInteractionDispatchCandidate {
 pub struct ExternalInteractionSessionMatch {
     pub session_id: String,
     pub target: ExternalReplyRelayTarget,
+    pub action: ExternalInteractionAction,
+    pub terminal_input: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -719,7 +803,7 @@ impl AppState {
                         target
                             .injected_input
                             .as_deref()
-                            .is_some_and(|input| prompt.accepts_injected_input(input))
+                            .is_some_and(|input| prompt.action_for_text_input(input).is_some())
                     })
             {
                 existing.last_chunk_at_ms = now_ms;
@@ -1057,9 +1141,55 @@ impl AppState {
             return Ok(Some(ExternalInteractionSessionMatch {
                 session_id: session_id.clone(),
                 target: session.target.clone(),
+                action: action.clone(),
+                terminal_input: prompt.terminal_input_for_action(action),
             }));
         }
         Ok(None)
+    }
+
+    pub fn find_external_interaction_session_for_text(
+        &self,
+        channel: &str,
+        account_id: &str,
+        peer_id: &str,
+        input: &str,
+    ) -> Result<Option<ExternalInteractionSessionMatch>, String> {
+        let guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        let mut matched: Option<(u64, ExternalInteractionSessionMatch)> = None;
+        for (session_id, session) in guard.iter() {
+            if !session.target.channel.eq_ignore_ascii_case(channel)
+                || session.target.account_id != account_id
+                || session.target.peer_id != peer_id
+            {
+                continue;
+            }
+            let Some(prompt) = session.active_interaction_prompt.as_ref() else {
+                continue;
+            };
+            let Some(action) = prompt.action_for_text_input(input) else {
+                continue;
+            };
+            if !prompt.allows_action(&action) {
+                continue;
+            }
+            let candidate = ExternalInteractionSessionMatch {
+                session_id: session_id.clone(),
+                target: session.target.clone(),
+                terminal_input: prompt.terminal_input_for_action(&action),
+                action,
+            };
+            let should_replace = match matched.as_ref() {
+                Some((last_chunk_at_ms, _)) => session.last_chunk_at_ms >= *last_chunk_at_ms,
+                None => true,
+            };
+            if should_replace {
+                matched = Some((session.last_chunk_at_ms, candidate));
+            }
+        }
+        Ok(matched.map(|(_, candidate)| candidate))
     }
 
     pub fn take_external_interaction_dispatch_candidates(
@@ -1678,53 +1808,60 @@ fn extract_rendered_menu_prompt(
         end_row = end_row.max(*hint_row);
     }
     let hint_text = hint.map(|(_, hint)| hint);
-    let (controls, control_mode) = if semantic_menu {
-        (
-            options
-                .iter()
-                .filter_map(|option| {
-                    option
-                        .submit_text
-                        .as_ref()
-                        .map(|submit_text| ExternalInteractionControl {
-                            label: option.label.clone(),
-                            action: ExternalInteractionAction::SubmitText(submit_text.clone()),
-                        })
-                })
-                .collect::<Vec<_>>(),
-            ExternalInteractionControlMode::SemanticButtons,
-        )
-    } else {
-        let mut controls = vec![
-            ExternalInteractionControl {
-                label: "Up".to_string(),
-                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Up),
-            },
-            ExternalInteractionControl {
-                label: "Down".to_string(),
-                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Down),
-            },
-            ExternalInteractionControl {
-                label: "Enter".to_string(),
-                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Enter),
-            },
-            ExternalInteractionControl {
-                label: "Esc".to_string(),
-                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Esc),
-            },
-        ];
-        if hint_text
-            .as_deref()
-            .map(str::to_ascii_lowercase)
-            .is_some_and(|value| value.contains("tab"))
-        {
-            controls.push(ExternalInteractionControl {
-                label: "Tab".to_string(),
-                action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Tab),
-            });
-        }
-        (controls, ExternalInteractionControlMode::TerminalNavigation)
-    };
+    let (controls, control_mode) =
+        if semantic_menu {
+            (
+                options
+                    .iter()
+                    .filter_map(|option| {
+                        option
+                            .submit_text
+                            .as_ref()
+                            .map(|submit_text| ExternalInteractionControl {
+                                label: option.label.clone(),
+                                action: ExternalInteractionAction::SubmitText(submit_text.clone()),
+                            })
+                    })
+                    .collect::<Vec<_>>(),
+                ExternalInteractionControlMode::SemanticButtons,
+            )
+        } else {
+            let mut controls = vec![
+                ExternalInteractionControl {
+                    label: "Up".to_string(),
+                    action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Up),
+                },
+                ExternalInteractionControl {
+                    label: "Down".to_string(),
+                    action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Down),
+                },
+                ExternalInteractionControl {
+                    label: "Enter".to_string(),
+                    action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Enter),
+                },
+                ExternalInteractionControl {
+                    label: "Esc".to_string(),
+                    action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Esc),
+                },
+            ];
+            if hint_text
+                .as_deref()
+                .map(str::to_ascii_lowercase)
+                .is_some_and(|value| value.contains("tab"))
+            {
+                controls.push(ExternalInteractionControl {
+                    label: "Tab".to_string(),
+                    action: ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Tab),
+                });
+            }
+            controls.extend(options.iter().enumerate().map(|(index, _)| {
+                ExternalInteractionControl {
+                    label: (index + 1).to_string(),
+                    action: ExternalInteractionAction::SelectOption(index),
+                }
+            }));
+            (controls, ExternalInteractionControlMode::TerminalNavigation)
+        };
     if control_mode == ExternalInteractionControlMode::TerminalNavigation
         && selected_index.is_none()
     {

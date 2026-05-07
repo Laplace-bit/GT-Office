@@ -2712,6 +2712,115 @@ fn rendered_screen_extracts_terminal_navigation_menu_prompt() {
     assert!(prompt.controls.iter().any(|control| {
         control.action == ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Esc)
     }));
+    assert!(prompt
+        .controls
+        .iter()
+        .any(|control| { control.action == ExternalInteractionAction::SelectOption(1) }));
+    assert_eq!(
+        prompt.terminal_input_for_action(&ExternalInteractionAction::SelectOption(2)),
+        Some("\u{1b}[B\r".to_string())
+    );
+}
+
+#[test]
+fn text_input_can_control_terminal_navigation_prompt_across_channels() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_nav_text_1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-nav-1".to_string(),
+        inbound_message_id: "msg-nav-original".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-nav-1".to_string(),
+        injected_input: Some("/model".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
+    };
+    state
+        .bind_external_reply_session("s_nav_text_1", target, now_ms_for_test(1_000))
+        .expect("bind target");
+    state
+        .report_external_reply_rendered_screen(
+            "s_nav_text_1",
+            RenderedScreenSnapshot {
+                session_id: "s_nav_text_1".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 8,
+                base_y: 0,
+                cursor_row: Some(6),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› /model".to_string(),
+                        trimmed_text: "› /model".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "Select model".to_string(),
+                        trimmed_text: "Select model".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "  GPT-5.4".to_string(),
+                        trimmed_text: "GPT-5.4".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "› Claude Sonnet 4".to_string(),
+                        trimmed_text: "› Claude Sonnet 4".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "  Gemini 2.5 Pro".to_string(),
+                        trimmed_text: "Gemini 2.5 Pro".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "Use ↑/↓ to select · Enter to confirm · Esc to cancel".to_string(),
+                        trimmed_text: "Use ↑/↓ to select · Enter to confirm · Esc to cancel"
+                            .to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report menu");
+
+    let select_match = state
+        .find_external_interaction_session_for_text("feishu", "default", "peer-nav-1", "3")
+        .expect("find text control")
+        .expect("matched select control");
+    assert_eq!(select_match.session_id, "s_nav_text_1");
+    assert_eq!(
+        select_match.action,
+        ExternalInteractionAction::SelectOption(2)
+    );
+    assert_eq!(select_match.terminal_input.as_deref(), Some("\u{1b}[B\r"));
+
+    let down_match = state
+        .find_external_interaction_session_for_text("feishu", "default", "peer-nav-1", "down")
+        .expect("find down control")
+        .expect("matched down control");
+    assert_eq!(
+        down_match.action,
+        ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Down)
+    );
+    assert_eq!(down_match.terminal_input.as_deref(), Some("\u{1b}[B"));
 }
 
 #[test]

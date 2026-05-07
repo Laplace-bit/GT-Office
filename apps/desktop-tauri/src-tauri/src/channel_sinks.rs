@@ -65,12 +65,12 @@ impl ChannelSinkKind {
             },
             Self::Feishu => ChannelSinkCapabilities {
                 supports_preview_edit: false,
-                supports_interaction_prompt: false,
+                supports_interaction_prompt: true,
                 max_text_chars: 3_800,
             },
             Self::Wechat => ChannelSinkCapabilities {
                 supports_preview_edit: false,
-                supports_interaction_prompt: false,
+                supports_interaction_prompt: true,
                 max_text_chars: 3_800,
             },
             Self::Unsupported => ChannelSinkCapabilities {
@@ -89,10 +89,7 @@ pub async fn deliver_interaction_prompt(
     match ChannelSinkKind::from_channel(&candidate.target.channel) {
         ChannelSinkKind::Telegram => deliver_telegram_interaction_prompt(app, candidate).await,
         ChannelSinkKind::Feishu => deliver_feishu_interaction_prompt(app, candidate).await,
-        ChannelSinkKind::Wechat => Err(
-            "CHANNEL_REPLY_INTERACTION_UNSUPPORTED: wechat does not support interactive prompts"
-                .to_string(),
-        ),
+        ChannelSinkKind::Wechat => deliver_wechat_interaction_prompt(app, candidate).await,
         ChannelSinkKind::Unsupported => Err(format!(
             "CHANNEL_REPLY_INTERACTION_UNSUPPORTED: channel {} does not support interactive prompts",
             candidate.target.channel
@@ -199,6 +196,30 @@ async fn deliver_feishu_interaction_prompt(
             };
             let text = format_interaction_prompt_text(prompt, false);
             let snapshot = feishu::send_text_reply(
+                app,
+                Some(&candidate.target.account_id),
+                &candidate.target.peer_id,
+                &text,
+                Some(&candidate.target.inbound_message_id),
+            )
+            .await?;
+            Ok(Some(snapshot.message_id))
+        }
+        ExternalInteractionDispatchPhase::Clear => Ok(None),
+    }
+}
+
+async fn deliver_wechat_interaction_prompt(
+    app: &AppHandle,
+    candidate: &ExternalInteractionDispatchCandidate,
+) -> Result<Option<String>, String> {
+    match candidate.phase {
+        ExternalInteractionDispatchPhase::Show => {
+            let Some(prompt) = candidate.prompt.as_ref() else {
+                return Ok(None);
+            };
+            let text = format_interaction_prompt_text(prompt, false);
+            let snapshot = wechat::send_text_reply(
                 app,
                 Some(&candidate.target.account_id),
                 &candidate.target.peer_id,
@@ -405,15 +426,25 @@ fn build_telegram_interaction_keyboard(
         }
         ExternalInteractionControlMode::TerminalNavigation => {
             let mut rows = Vec::new();
+            let mut select_row = Vec::new();
             let mut first_row = Vec::new();
             let mut second_row = Vec::new();
             let mut third_row = Vec::new();
             for button in buttons {
                 match button.callback_data.as_str() {
+                    value if value.starts_with("gto-select:") => {
+                        select_row.push(button);
+                        if select_row.len() == 4 {
+                            rows.push(std::mem::take(&mut select_row));
+                        }
+                    }
                     "gto-key:up" | "gto-key:down" => first_row.push(button),
                     "gto-key:enter" | "gto-key:esc" => second_row.push(button),
                     _ => third_row.push(button),
                 }
+            }
+            if !select_row.is_empty() {
+                rows.push(select_row);
             }
             if !first_row.is_empty() {
                 rows.push(first_row);
@@ -442,6 +473,7 @@ fn interaction_callback_data(action: &ExternalInteractionAction) -> Option<Strin
         ExternalInteractionAction::TerminalKey(key) => {
             Some(format!("gto-key:{}", terminal_key_id(*key)))
         }
+        ExternalInteractionAction::SelectOption(index) => Some(format!("gto-select:{}", index + 1)),
     }
 }
 
@@ -471,7 +503,11 @@ fn format_interaction_prompt_text(
                 } else {
                     " "
                 };
-                format!("{marker} {}", option.label.trim())
+                if prompt.control_mode == ExternalInteractionControlMode::TerminalNavigation {
+                    format!("{marker} {}. {}", index + 1, option.label.trim())
+                } else {
+                    format!("{marker} {}", option.label.trim())
+                }
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -486,7 +522,13 @@ fn format_interaction_prompt_text(
         lines.push(hint.to_string());
     }
     if !interactive {
-        lines.push("当前通道仅展示此交互提示，暂不支持远程选择。".to_string());
+        if prompt.control_mode == ExternalInteractionControlMode::TerminalNavigation {
+            lines.push("回复编号直接选择，或发送 up/down/enter/esc 控制终端。".to_string());
+        } else {
+            lines.push("回复对应编号或选项文本完成选择。".to_string());
+        }
+    } else if prompt.control_mode == ExternalInteractionControlMode::TerminalNavigation {
+        lines.push("可点击编号直接选择，也可发送 up/down/enter/esc 控制终端。".to_string());
     }
     lines.join("\n\n")
 }

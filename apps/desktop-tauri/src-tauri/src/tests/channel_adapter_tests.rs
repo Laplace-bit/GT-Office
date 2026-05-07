@@ -1,10 +1,10 @@
 use super::{
     align_route_with_resolved_workspace, channel_supports_external_reply, codex_event_text,
     find_command_in_dir, gemini_event_text, migrate_legacy_wechat_access_policies,
-    normalize_executable_path, nvm_bin_dirs, resolve_cli_candidate,
-    runtime_supports_structured_relay, split_text_for_channel, validate_binding_target_selector,
-    AgentRuntimeRegistration, AgentToolKind, PersistedChannelAccessPolicy,
-    PersistedChannelStateFile, PersistedRouteBindingRecord,
+    normalize_executable_path, nvm_bin_dirs, parse_external_interaction_callback,
+    resolve_cli_candidate, runtime_supports_structured_relay, split_text_for_channel,
+    validate_binding_target_selector, AgentRuntimeRegistration, AgentToolKind,
+    PersistedChannelAccessPolicy, PersistedChannelStateFile, PersistedRouteBindingRecord,
 };
 use gt_agent::{AgentRepository, AgentState, CreateAgentInput};
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::{collections::HashSet, fs};
 use uuid::Uuid;
 
-use crate::app_state::AppState;
+use crate::app_state::{AppState, ExternalInteractionAction};
 
 fn sample_runtime(
     tool_kind: AgentToolKind,
@@ -33,6 +33,34 @@ fn sample_runtime(
         provider_session: None,
         online: true,
     }
+}
+
+#[test]
+fn parse_interaction_callback_accepts_terminal_option_select() {
+    let message = ExternalInboundMessage {
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Direct,
+        peer_id: "peer-1".to_string(),
+        sender_id: "sender-1".to_string(),
+        sender_name: None,
+        message_id: "callback-cbq-1".to_string(),
+        text: "gto-select:3".to_string(),
+        idempotency_key: Some("telegram-callback-cbq-1".to_string()),
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: serde_json::json!({
+            "callback_query": {
+                "id": "cbq-1",
+                "data": "gto-select:3",
+                "message": { "message_id": 42 }
+            }
+        }),
+    };
+
+    let parsed = parse_external_interaction_callback(&message).expect("select callback");
+    assert_eq!(parsed.0, "42");
+    assert_eq!(parsed.1, ExternalInteractionAction::SelectOption(2));
 }
 
 fn temp_agent_repo(label: &str) -> SqliteAgentRepository {

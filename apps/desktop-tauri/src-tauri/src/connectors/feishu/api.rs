@@ -208,6 +208,30 @@ fn message_content(text: &str) -> String {
     json!({ "text": text }).to_string()
 }
 
+fn send_text_message_query() -> Vec<(&'static str, &'static str)> {
+    vec![("receive_id_type", "chat_id")]
+}
+
+fn reply_text_message_query() -> Vec<(&'static str, &'static str)> {
+    vec![("msg_type", "text")]
+}
+
+fn send_text_message_body(peer_id: &str, text: &str, uuid: &str) -> Value {
+    json!({
+        "receive_id": peer_id.trim(),
+        "msg_type": "text",
+        "content": message_content(text.trim()),
+        "uuid": uuid,
+    })
+}
+
+fn reply_text_message_body(text: &str, uuid: &str) -> Value {
+    json!({
+        "content": message_content(text.trim()),
+        "uuid": uuid,
+    })
+}
+
 fn extract_message_id(payload: Value, error_prefix: &str) -> Result<String, String> {
     let response: MessageSendEnvelope = serde_json::from_value(payload.clone())
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
@@ -238,15 +262,12 @@ pub async fn send_text_message(
     peer_id: &str,
     text: &str,
 ) -> Result<String, String> {
-    let payload = json!({
-        "receive_id": peer_id.trim(),
-        "msg_type": "text",
-        "content": message_content(text.trim()),
-        "uuid": Uuid::new_v4().to_string(),
-    });
-    let response = client
-        .operation("im.v1.message.create")
-        .path_param("receive_id_type", "chat_id")
+    let payload = send_text_message_body(peer_id, text, &Uuid::new_v4().to_string());
+    let mut operation = client.operation("im.v1.message.create");
+    for (key, value) in send_text_message_query() {
+        operation = operation.query_param(key, value);
+    }
+    let response = operation
         .body_json(&payload)
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
         .send()
@@ -272,14 +293,14 @@ pub async fn reply_text_message(
     inbound_message_id: &str,
     text: &str,
 ) -> Result<String, String> {
-    let payload = json!({
-        "msg_type": "text",
-        "content": message_content(text.trim()),
-        "uuid": Uuid::new_v4().to_string(),
-    });
-    let response = client
+    let payload = reply_text_message_body(text, &Uuid::new_v4().to_string());
+    let mut operation = client
         .operation("im.v1.message.reply")
-        .path_param("message_id", inbound_message_id.trim())
+        .path_param("message_id", inbound_message_id.trim());
+    for (key, value) in reply_text_message_query() {
+        operation = operation.query_param(key, value);
+    }
+    let response = operation
         .body_json(&payload)
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
         .send()
@@ -298,4 +319,62 @@ pub async fn reply_text_message(
             .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?,
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        reply_text_message_body, reply_text_message_query, send_text_message_body,
+        send_text_message_query,
+    };
+
+    #[test]
+    fn send_text_message_query_uses_chat_receive_id_type() {
+        assert_eq!(
+            send_text_message_query(),
+            vec![("receive_id_type", "chat_id")]
+        );
+    }
+
+    #[test]
+    fn reply_text_message_query_carries_msg_type() {
+        assert_eq!(reply_text_message_query(), vec![("msg_type", "text")]);
+    }
+
+    #[test]
+    fn send_text_message_body_matches_feishu_create_contract() {
+        let body = send_text_message_body(" oc_123 ", " hello ", "uuid-1");
+
+        assert_eq!(
+            body.get("receive_id").and_then(|value| value.as_str()),
+            Some("oc_123")
+        );
+        assert_eq!(
+            body.get("msg_type").and_then(|value| value.as_str()),
+            Some("text")
+        );
+        assert_eq!(
+            body.get("content").and_then(|value| value.as_str()),
+            Some("{\"text\":\"hello\"}")
+        );
+        assert_eq!(
+            body.get("uuid").and_then(|value| value.as_str()),
+            Some("uuid-1")
+        );
+    }
+
+    #[test]
+    fn reply_text_message_body_keeps_msg_type_out_of_body() {
+        let body = reply_text_message_body(" hello ", "uuid-2");
+
+        assert!(body.get("msg_type").is_none());
+        assert_eq!(
+            body.get("content").and_then(|value| value.as_str()),
+            Some("{\"text\":\"hello\"}")
+        );
+        assert_eq!(
+            body.get("uuid").and_then(|value| value.as_str()),
+            Some("uuid-2")
+        );
+    }
 }

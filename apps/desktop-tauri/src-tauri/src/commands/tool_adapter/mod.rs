@@ -2497,6 +2497,18 @@ fn parse_external_interaction_callback(
         ));
     }
 
+    if let Some(option) = raw_data.strip_prefix("gto-select:") {
+        let option_index = option
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .and_then(|value| value.checked_sub(1))?;
+        return Some((
+            prompt_message_id,
+            ExternalInteractionAction::SelectOption(option_index),
+        ));
+    }
+
     let key = raw_data.strip_prefix("gto-key:")?;
     let key = match key.trim().to_ascii_lowercase().as_str() {
         "up" => ExternalTerminalKey::Up,
@@ -2510,6 +2522,75 @@ fn parse_external_interaction_callback(
         prompt_message_id,
         ExternalInteractionAction::TerminalKey(key),
     ))
+}
+
+fn dispatch_external_interaction_match(
+    state: &AppState,
+    matched: &crate::app_state::ExternalInteractionSessionMatch,
+    trace_id: &str,
+    app: &AppHandle,
+) -> Result<ExternalInboundResponse, String> {
+    let Some(runtime) =
+        find_runtime_for_session(state, &matched.target.workspace_id, &matched.session_id)
+    else {
+        let response = ExternalInboundResponse {
+            trace_id: trace_id.to_string(),
+            status: ExternalInboundStatus::Failed,
+            idempotent_hit: false,
+            workspace_id: Some(matched.target.workspace_id.clone()),
+            target_agent_id: Some(matched.target.target_agent_id.clone()),
+            task_id: None,
+            pairing_code: None,
+            detail: Some("CHANNEL_INTERACTION_RUNTIME_NOT_FOUND".to_string()),
+        };
+        emit_external_error(
+            app,
+            trace_id,
+            "CHANNEL_INTERACTION_RUNTIME_NOT_FOUND",
+            "interactive input matched a session without an online runtime",
+        );
+        return Ok(response);
+    };
+
+    match &matched.action {
+        ExternalInteractionAction::SubmitText(text) => {
+            write_terminal_with_submit(
+                state,
+                &matched.session_id,
+                text,
+                runtime.submit_sequence.as_deref().unwrap_or("\r"),
+            )?;
+        }
+        ExternalInteractionAction::TerminalKey(_) | ExternalInteractionAction::SelectOption(_) => {
+            let Some(input) = matched.terminal_input.as_deref() else {
+                return Err(
+                    "CHANNEL_INTERACTION_DELIVERY_FAILED: terminal input could not be resolved"
+                        .to_string(),
+                );
+            };
+            let accepted = state
+                .terminal_provider
+                .write_session(&matched.session_id, input)
+                .map_err(|error| error.to_string())?;
+            if !accepted {
+                return Err(
+                    "CHANNEL_INTERACTION_DELIVERY_FAILED: terminal write rejected".to_string(),
+                );
+            }
+        }
+    }
+    state.touch_external_reply_session_activity(&matched.session_id, now_ms())?;
+
+    Ok(ExternalInboundResponse {
+        trace_id: trace_id.to_string(),
+        status: ExternalInboundStatus::Dispatched,
+        idempotent_hit: false,
+        workspace_id: Some(matched.target.workspace_id.clone()),
+        target_agent_id: Some(matched.target.target_agent_id.clone()),
+        task_id: None,
+        pairing_code: None,
+        detail: Some("CHANNEL_INTERACTION_INPUT_DISPATCHED".to_string()),
+    })
 }
 
 fn find_runtime_for_session(
@@ -2562,61 +2643,27 @@ fn dispatch_external_interaction_callback(
         return Ok(Some(response));
     };
 
-    let Some(runtime) =
-        find_runtime_for_session(state, &matched.target.workspace_id, &matched.session_id)
+    dispatch_external_interaction_match(state, &matched, trace_id, app).map(Some)
+}
+
+fn dispatch_external_interaction_text_input(
+    state: &AppState,
+    app: &AppHandle,
+    message: &ExternalInboundMessage,
+    trace_id: &str,
+    account_id: &str,
+) -> Result<Option<ExternalInboundResponse>, String> {
+    let Some(matched) = state.find_external_interaction_session_for_text(
+        &message.channel,
+        account_id,
+        &message.peer_id,
+        &message.text,
+    )?
     else {
-        let response = ExternalInboundResponse {
-            trace_id: trace_id.to_string(),
-            status: ExternalInboundStatus::Failed,
-            idempotent_hit: false,
-            workspace_id: Some(matched.target.workspace_id.clone()),
-            target_agent_id: Some(matched.target.target_agent_id.clone()),
-            task_id: None,
-            pairing_code: None,
-            detail: Some("CHANNEL_INTERACTION_RUNTIME_NOT_FOUND".to_string()),
-        };
-        emit_external_error(
-            app,
-            trace_id,
-            "CHANNEL_INTERACTION_RUNTIME_NOT_FOUND",
-            "interactive callback matched a session without an online runtime",
-        );
-        return Ok(Some(response));
+        return Ok(None);
     };
 
-    match &action {
-        ExternalInteractionAction::SubmitText(text) => {
-            write_terminal_with_submit(
-                state,
-                &matched.session_id,
-                text,
-                runtime.submit_sequence.as_deref().unwrap_or("\r"),
-            )?;
-        }
-        ExternalInteractionAction::TerminalKey(key) => {
-            let accepted = state
-                .terminal_provider
-                .write_session(&matched.session_id, key.input())
-                .map_err(|error| error.to_string())?;
-            if !accepted {
-                return Err(
-                    "CHANNEL_INTERACTION_DELIVERY_FAILED: terminal write rejected".to_string(),
-                );
-            }
-        }
-    }
-    state.touch_external_reply_session_activity(&matched.session_id, now_ms())?;
-
-    Ok(Some(ExternalInboundResponse {
-        trace_id: trace_id.to_string(),
-        status: ExternalInboundStatus::Dispatched,
-        idempotent_hit: false,
-        workspace_id: Some(matched.target.workspace_id.clone()),
-        target_agent_id: Some(matched.target.target_agent_id.clone()),
-        task_id: None,
-        pairing_code: None,
-        detail: Some("CHANNEL_INTERACTION_CALLBACK_DISPATCHED".to_string()),
-    }))
+    dispatch_external_interaction_match(state, &matched, trace_id, app).map(Some)
 }
 
 pub(crate) fn process_external_inbound_message(
@@ -2668,6 +2715,15 @@ pub(crate) fn process_external_inbound_message(
 
     if let Some(response) =
         dispatch_external_interaction_callback(state, app, &message, &trace_id, &account_id)?
+    {
+        state
+            .task_service
+            .store_external_idempotency(idempotency_key, response.clone());
+        return Ok(response);
+    }
+
+    if let Some(response) =
+        dispatch_external_interaction_text_input(state, app, &message, &trace_id, &account_id)?
     {
         state
             .task_service
@@ -3407,9 +3463,7 @@ pub async fn feishu_qr_login_start(
 }
 
 #[tauri::command]
-pub fn feishu_qr_login_cancel(
-    _request: FeishuQrLoginCancelRequest,
-) -> Result<Value, String> {
+pub fn feishu_qr_login_cancel(_request: FeishuQrLoginCancelRequest) -> Result<Value, String> {
     feishu::qr_login_cancel()?;
     Ok(json!({ "channel": "feishu", "cancelled": true }))
 }
@@ -3501,11 +3555,9 @@ pub fn channel_access_policy_set(
         return Err("CHANNEL_ACCESS_POLICY_INVALID: channel is required".to_string());
     }
     let account_id = normalize_account_id(request.account_id.as_deref());
-    state.task_service.set_external_access_policy(
-        &request.channel,
-        &account_id,
-        request.mode,
-    );
+    state
+        .task_service
+        .set_external_access_policy(&request.channel, &account_id, request.mode);
     state.task_service.clear_external_idempotency_cache();
     persist_access_policy(&app, &request.channel, &account_id, request.mode)?;
     if request.channel.trim().eq_ignore_ascii_case("wechat") {
