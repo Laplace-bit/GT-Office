@@ -487,7 +487,7 @@ fn terminal_key_id(key: ExternalTerminalKey) -> &'static str {
     }
 }
 
-fn format_interaction_prompt_text(
+pub(crate) fn format_interaction_prompt_text(
     prompt: &crate::app_state::ExternalInteractionPrompt,
     interactive: bool,
 ) -> String {
@@ -505,6 +505,13 @@ fn format_interaction_prompt_text(
                 };
                 if prompt.control_mode == ExternalInteractionControlMode::TerminalNavigation {
                     format!("{marker} {}. {}", index + 1, option.label.trim())
+                } else if let Some(submit_text) = option.submit_text.as_deref().filter(|value| {
+                    let trimmed = value.trim();
+                    !interactive
+                        && !trimmed.is_empty()
+                        && trimmed.chars().all(|ch| ch.is_ascii_digit())
+                }) {
+                    format!("{marker} {}. {}", submit_text.trim(), option.label.trim())
                 } else {
                     format!("{marker} {}", option.label.trim())
                 }

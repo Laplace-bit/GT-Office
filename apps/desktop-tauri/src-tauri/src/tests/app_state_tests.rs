@@ -3397,6 +3397,125 @@ fn rendered_debug_human_text_keeps_last_final_answer_after_commentary_and_tool_r
 }
 
 #[test]
+fn external_reply_rendered_text_snapshot_accumulates_tui_tail_across_snapshots() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_snapshot_tui_tail_1".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-tui-tail-1".to_string(),
+        inbound_message_id: "msg-tui-tail-1".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-tui-tail-1".to_string(),
+        injected_input: Some("写两段话".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
+    };
+
+    state
+        .bind_external_reply_session("s_rendered_tui_tail_1", target, now_ms_for_test(1_000))
+        .expect("bind");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_tui_tail_1",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_tui_tail_1".to_string(),
+                screen_revision: 1,
+                captured_at_ms: now_ms_for_test(1_100),
+                viewport_top: 0,
+                viewport_height: 6,
+                base_y: 0,
+                cursor_row: Some(5),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 0,
+                        text: "› 写两段话".to_string(),
+                        trimmed_text: "› 写两段话".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 1,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "第一段的第一句。".to_string(),
+                        trimmed_text: "第一段的第一句。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "第一段的第二句。".to_string(),
+                        trimmed_text: "第一段的第二句。".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report first snapshot");
+    state
+        .report_external_reply_rendered_screen(
+            "s_rendered_tui_tail_1",
+            RenderedScreenSnapshot {
+                session_id: "s_rendered_tui_tail_1".to_string(),
+                screen_revision: 2,
+                captured_at_ms: now_ms_for_test(1_300),
+                viewport_top: 2,
+                viewport_height: 6,
+                base_y: 2,
+                cursor_row: Some(7),
+                cursor_col: Some(0),
+                rows: vec![
+                    RenderedScreenSnapshotRow {
+                        row_index: 2,
+                        text: "第一段的第二句。".to_string(),
+                        trimmed_text: "第一段的第二句。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 3,
+                        text: "".to_string(),
+                        trimmed_text: "".to_string(),
+                        is_blank: true,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 4,
+                        text: "第二段的第一句。".to_string(),
+                        trimmed_text: "第二段的第一句。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 5,
+                        text: "第二段的第二句。".to_string(),
+                        trimmed_text: "第二段的第二句。".to_string(),
+                        is_blank: false,
+                    },
+                    RenderedScreenSnapshotRow {
+                        row_index: 6,
+                        text: "❯ ".to_string(),
+                        trimmed_text: "❯".to_string(),
+                        is_blank: false,
+                    },
+                ],
+            },
+        )
+        .expect("report second snapshot");
+
+    assert_eq!(
+        state
+            .external_reply_rendered_text_snapshot("s_rendered_tui_tail_1")
+            .expect("read rendered text"),
+        Some(
+            "第一段的第一句。\n第一段的第二句。\n\n第二段的第一句。\n第二段的第二句。"
+                .to_string(),
+        )
+    );
+}
+
+#[test]
 fn menu_response_input_does_not_replace_active_reply_session() {
     let state = AppState::default();
     let original_target = ExternalReplyRelayTarget {
@@ -4020,4 +4139,482 @@ fn bound_reply_session_finalizes_with_pty_fallback_when_rendered_extract_is_empt
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0].phase, ExternalReplyDispatchPhase::Finalize);
     assert_eq!(candidates[0].text, "• 已经完成总结。");
+}
+
+#[test]
+fn rendered_screen_extracts_numbered_menu_with_separator_and_option_keyword_in_title() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_numbered_menu_separator_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 14,
+        base_y: 0,
+        cursor_row: Some(4),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "❯ ".to_string(),
+                trimmed_text: "❯".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "☐ Rust".to_string(),
+                trimmed_text: "☐ Rust".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "Rust 中，Option<T> 的 unwrap() 方法在值为 None 时会？".to_string(),
+                trimmed_text: "Rust 中，Option<T> 的 unwrap() 方法在值为 None 时会？".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "❯ 1. 返回默认值     返回 T 类型的默认值".to_string(),
+                trimmed_text: "❯ 1. 返回默认值     返回 T 类型的默认值".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  2. 触发 panic     程序直接 panic 终止".to_string(),
+                trimmed_text: "2. 触发 panic     程序直接 panic 终止".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "  3. 返回 Err     返回一个 Err 类型的值".to_string(),
+                trimmed_text: "3. 返回 Err     返回一个 Err 类型的值".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "  4. 编译报错     编译阶段就会报错".to_string(),
+                trimmed_text: "4. 编译报错     编译阶段就会报错".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "  5. Type something.".to_string(),
+                trimmed_text: "5. Type something.".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────".to_string(),
+                trimmed_text: "─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "  6. Chat about this".to_string(),
+                trimmed_text: "6. Chat about this".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 12,
+                text: "Enter to select · ↑/↓ to navigate · Esc to cancel".to_string(),
+                trimmed_text: "Enter to select · ↑/↓ to navigate · Esc to cancel".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let prompt = extract_rendered_interaction_prompt(&snapshot, None)
+        .expect("should extract menu prompt with 6 numbered options");
+    assert_eq!(prompt.options.len(), 6, "should extract all 6 options");
+    assert_eq!(prompt.options[0].submit_text.as_deref(), Some("1"));
+    assert_eq!(prompt.options[0].label, "返回默认值 返回 T 类型的默认值");
+    assert_eq!(prompt.options[5].submit_text.as_deref(), Some("6"));
+    assert_eq!(prompt.options[5].label, "Chat about this");
+    assert_eq!(
+        prompt.control_mode,
+        ExternalInteractionControlMode::SemanticButtons
+    );
+    assert_eq!(prompt.selected_index, Some(0));
+}
+
+#[test]
+fn rendered_screen_extracts_numbered_menu_with_description_rows() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_numbered_menu_desc_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 16,
+        base_y: 0,
+        cursor_row: Some(3),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "你想选择哪个选项？".to_string(),
+                trimmed_text: "你想选择哪个选项？".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "❯ 1. 选项 A".to_string(),
+                trimmed_text: "❯ 1. 选项 A".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "     选择第一个选项".to_string(),
+                trimmed_text: "选择第一个选项".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  2. 选项 B".to_string(),
+                trimmed_text: "2. 选项 B".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "     选择第二个选项".to_string(),
+                trimmed_text: "选择第二个选项".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "  3. 选项 C".to_string(),
+                trimmed_text: "3. 选项 C".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "     选择第三个选项".to_string(),
+                trimmed_text: "选择第三个选项".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "  4. Type something.".to_string(),
+                trimmed_text: "4. Type something.".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "───────────────────────────────────".to_string(),
+                trimmed_text: "───────────────────────────────────".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "  5. Chat about this".to_string(),
+                trimmed_text: "5. Chat about this".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 12,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 13,
+                text: "Enter to select · ↑/↓ to navigate ·".to_string(),
+                trimmed_text: "Enter to select · ↑/↓ to navigate ·".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 14,
+                text: " Esc to cancel".to_string(),
+                trimmed_text: "Esc to cancel".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let prompt = extract_rendered_interaction_prompt(&snapshot, None)
+        .expect("should extract numbered menu with description rows");
+    assert_eq!(
+        prompt.options.len(),
+        5,
+        "should extract 5 options without description rows, got: {:?}",
+        prompt.options
+    );
+    assert_eq!(prompt.options[0].submit_text.as_deref(), Some("1"));
+    assert_eq!(prompt.options[0].label, "选项 A 选择第一个选项");
+    assert_eq!(prompt.options[1].submit_text.as_deref(), Some("2"));
+    assert_eq!(prompt.options[1].label, "选项 B 选择第二个选项");
+    assert_eq!(prompt.options[4].submit_text.as_deref(), Some("5"));
+    assert_eq!(prompt.options[4].label, "Chat about this");
+}
+
+#[test]
+fn rendered_screen_treats_scrolling_claude_select_as_terminal_navigation() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_scrolling_claude_select_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 8,
+        base_y: 0,
+        cursor_row: Some(4),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "Select model".to_string(),
+                trimmed_text: "Select model".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "↑ 3. Sonnet".to_string(),
+                trimmed_text: "↑ 3. Sonnet".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "  4. Opus".to_string(),
+                trimmed_text: "4. Opus".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "❯ 5. Haiku".to_string(),
+                trimmed_text: "❯ 5. Haiku".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "↓ 6. Instant".to_string(),
+                trimmed_text: "↓ 6. Instant".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "Enter to select · ↑/↓ to navigate · Esc to cancel".to_string(),
+                trimmed_text: "Enter to select · ↑/↓ to navigate · Esc to cancel".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let prompt = extract_rendered_interaction_prompt(&snapshot, None)
+        .expect("should extract scrolling claude select");
+    assert_eq!(prompt.options.len(), 4);
+    assert_eq!(prompt.options[0].submit_text.as_deref(), Some("3"));
+    assert_eq!(prompt.options[3].submit_text.as_deref(), Some("6"));
+    assert_eq!(
+        prompt.control_mode,
+        ExternalInteractionControlMode::TerminalNavigation
+    );
+    assert_eq!(prompt.selected_index, Some(2));
+    let channel_text = crate::channel_sinks::format_interaction_prompt_text(&prompt, false);
+    assert!(channel_text.contains("› 3. Haiku") || channel_text.contains("› 5. Haiku"));
+    assert!(channel_text.contains("回复编号直接选择，或发送 up/down/enter/esc 控制终端。"));
+}
+
+#[test]
+fn external_channel_dispatch_extracts_full_numbered_agent_choice_menu() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_full_numbered_choice_menu_1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "chat_1".to_string(),
+        inbound_message_id: "msg_1".to_string(),
+        target_agent_id: "agent_1".to_string(),
+        workspace_id: "workspace_1".to_string(),
+        task_id: None,
+        injected_input: Some("出一道 Rust 选择题".to_string()),
+        reply_to_agent_id: None,
+    };
+    state
+        .bind_external_reply_session(
+            "s_full_numbered_choice_menu_1",
+            target,
+            now_ms_for_test(1_000),
+        )
+        .expect("start reply relay session");
+
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_full_numbered_choice_menu_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 20,
+        base_y: 0,
+        cursor_row: Some(3),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "☐ Rust".to_string(),
+                trimmed_text: "☐ Rust".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "Rust 中，Option<T> 的 unwrap() 方法在值为 None 时会？".to_string(),
+                trimmed_text: "Rust 中，Option<T> 的 unwrap() 方法在值为 None 时会？".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "❯\u{00a0}1. 返回默认值".to_string(),
+                trimmed_text: "❯\u{00a0}1. 返回默认值".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "     返回 T 类型的默认值".to_string(),
+                trimmed_text: "返回 T 类型的默认值".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "  2. 触发 panic".to_string(),
+                trimmed_text: "2. 触发 panic".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "     程序直接 panic 终止".to_string(),
+                trimmed_text: "程序直接 panic 终止".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "  3. 返回 Err".to_string(),
+                trimmed_text: "3. 返回 Err".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "     返回一个 Err 类型的值".to_string(),
+                trimmed_text: "返回一个 Err 类型的值".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "  4. 编译报错".to_string(),
+                trimmed_text: "4. 编译报错".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "     编译阶段就会报错".to_string(),
+                trimmed_text: "编译阶段就会报错".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "  5. Type something.".to_string(),
+                trimmed_text: "5. Type something.".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 12,
+                text: "──────────────────────────────────────────────────────────────────────────────────────".to_string(),
+                trimmed_text: "──────────────────────────────────────────────────────────────────────────────────────".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 13,
+                text: "──────────────────────────────".to_string(),
+                trimmed_text: "──────────────────────────────".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 14,
+                text: "  6. Chat about this".to_string(),
+                trimmed_text: "6. Chat about this".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 15,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 16,
+                text: "Enter to select · ↑/↓ to navigate · Esc to cancel".to_string(),
+                trimmed_text: "Enter to select · ↑/↓ to navigate · Esc to cancel".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    state
+        .report_external_reply_rendered_screen("s_full_numbered_choice_menu_1", snapshot)
+        .expect("report rendered screen");
+
+    let interaction_candidates = state
+        .take_external_interaction_dispatch_candidates()
+        .expect("take interaction candidates");
+    assert_eq!(interaction_candidates.len(), 1);
+    let prompt = interaction_candidates[0]
+        .prompt
+        .as_ref()
+        .expect("interaction prompt");
+    assert_eq!(
+        prompt.options.len(),
+        6,
+        "prompt should include every numbered option"
+    );
+    assert_eq!(prompt.options[0].submit_text.as_deref(), Some("1"));
+    assert_eq!(prompt.options[0].label, "返回默认值 返回 T 类型的默认值");
+    assert_eq!(prompt.options[1].submit_text.as_deref(), Some("2"));
+    assert_eq!(prompt.options[1].label, "触发 panic 程序直接 panic 终止");
+    assert_eq!(prompt.options[5].submit_text.as_deref(), Some("6"));
+    assert_eq!(prompt.options[5].label, "Chat about this");
+    assert_eq!(
+        prompt.hint.as_deref(),
+        Some("Enter to select · ↑/↓ to navigate · Esc to cancel")
+    );
+    let channel_text = crate::channel_sinks::format_interaction_prompt_text(prompt, false);
+    assert!(
+        channel_text.contains("1. 返回默认值 返回 T 类型的默认值"),
+        "channel text should render the first option with its reply number: {channel_text}"
+    );
+    assert!(
+        channel_text.contains("6. Chat about this"),
+        "channel text should render the final option with its reply number: {channel_text}"
+    );
+
+    let reply_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 20_000, 200, 10)
+        .expect("take reply candidates");
+    assert!(
+        reply_candidates.is_empty(),
+        "choice menu should be sent as interaction prompt, not fallback reply text: {reply_candidates:?}"
+    );
 }

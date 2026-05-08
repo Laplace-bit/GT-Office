@@ -354,7 +354,14 @@ pub fn terminal_report_rendered_screen(
     let resolved_tool_kind = agent_tool_kind_from_param(tool_kind);
     let accepted =
         state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
-    let human_text = extract_rendered_debug_human_text(&snapshot, resolved_tool_kind);
+    let snapshot_human_text = extract_rendered_debug_human_text(&snapshot, resolved_tool_kind);
+    let human_text = if accepted {
+        state
+            .external_reply_rendered_text_snapshot(&snapshot.session_id)?
+            .unwrap_or(snapshot_human_text)
+    } else {
+        snapshot_human_text
+    };
     let human_log = state.update_terminal_debug_human_log(
         &snapshot.session_id,
         snapshot.captured_at_ms,

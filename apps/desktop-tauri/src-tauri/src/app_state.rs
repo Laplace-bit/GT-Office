@@ -296,9 +296,7 @@ impl ExternalInteractionPrompt {
 }
 
 fn parse_option_number_input(input: &str) -> Option<usize> {
-    let normalized = input
-        .trim()
-        .trim_end_matches(|ch| matches!(ch, '.' | ')' | ':' | '、'));
+    let normalized = input.trim().trim_end_matches(['.', ')', ':', '、']);
     if normalized.is_empty() || !normalized.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
@@ -516,6 +514,19 @@ impl AppState {
         })?;
         logs.remove(session_id);
         Ok(())
+    }
+
+    pub fn external_reply_rendered_text_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, String> {
+        let guard = self.external_reply_sessions.lock().map_err(|_| {
+            "CHANNEL_REPLY_STATE_LOCK_POISONED: reply session state lock poisoned".to_string()
+        })?;
+        Ok(guard.get(session_id).and_then(|session| {
+            let text = session.last_rendered_reply_text.trim();
+            (!text.is_empty()).then(|| session.last_rendered_reply_text.clone())
+        }))
     }
 
     pub fn bind_window_workspace(
@@ -1663,8 +1674,9 @@ fn extract_rendered_interaction_prompt_for_tool(
     injected_input: Option<&str>,
     profile: ToolScreenProfile,
 ) -> Option<ExternalInteractionPrompt> {
-    extract_rendered_permission_prompt(snapshot, injected_input, profile)
-        .or_else(|| extract_rendered_menu_prompt(snapshot, injected_input, profile))
+    let perm = extract_rendered_permission_prompt(snapshot, injected_input, profile);
+    let menu = extract_rendered_menu_prompt(snapshot, injected_input, profile);
+    perm.or(menu)
 }
 
 fn extract_rendered_permission_prompt(
@@ -1672,13 +1684,13 @@ fn extract_rendered_permission_prompt(
     injected_input: Option<&str>,
     profile: ToolScreenProfile,
 ) -> Option<ExternalInteractionPrompt> {
-    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input, profile).unwrap_or(0);
+    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input, profile);
     let mut block_rows = Vec::new();
 
     for row in snapshot
         .rows
         .iter()
-        .filter(|row| row.row_index as usize > anchor_row)
+        .filter(|row| anchor_row.is_none_or(|anchor| row.row_index as usize > anchor))
     {
         let text = row.text.trim_end();
         if is_permission_prompt_line(text) {
@@ -1745,65 +1757,159 @@ fn extract_rendered_menu_prompt(
     injected_input: Option<&str>,
     profile: ToolScreenProfile,
 ) -> Option<ExternalInteractionPrompt> {
-    let anchor_row = find_rendered_reply_anchor_row(snapshot, injected_input, profile).unwrap_or(0);
-    let filtered_rows = snapshot
+    let anchor_opt = find_rendered_reply_anchor_row(snapshot, injected_input, profile);
+    let anchored_rows: Vec<&RenderedScreenSnapshotRow> = snapshot
         .rows
         .iter()
-        .filter(|row| row.row_index as usize > anchor_row)
-        .collect::<Vec<_>>();
-    let last_option_idx = filtered_rows
-        .iter()
-        .rposition(|row| is_interaction_menu_option_row(&row.text))?;
+        .filter(|row| anchor_opt.is_none_or(|anchor| row.row_index as usize > anchor))
+        .collect();
+    let anchored_prompt = extract_rendered_menu_prompt_from_rows(snapshot, &anchored_rows, profile);
 
-    let mut option_rows = Vec::new();
-    let mut cursor = last_option_idx;
-    loop {
+    let all_rows: Vec<&RenderedScreenSnapshotRow> = snapshot.rows.iter().collect();
+    let full_screen_prompt = extract_rendered_menu_prompt_from_rows(snapshot, &all_rows, profile)
+        .filter(|prompt| anchor_opt.is_none_or(|anchor| prompt.end_row as usize > anchor));
+
+    match (anchored_prompt, full_screen_prompt) {
+        (Some(anchored), Some(full_screen)) => {
+            if full_screen.options.len() > anchored.options.len()
+                && full_screen.end_row >= anchored.end_row
+            {
+                Some(full_screen)
+            } else {
+                Some(anchored)
+            }
+        }
+        (Some(anchored), None) => Some(anchored),
+        (None, Some(full_screen)) => Some(full_screen),
+        (None, None) => None,
+    }
+}
+
+fn extract_rendered_menu_prompt_from_rows(
+    snapshot: &RenderedScreenSnapshot,
+    filtered_rows: &[&RenderedScreenSnapshotRow],
+    profile: ToolScreenProfile,
+) -> Option<ExternalInteractionPrompt> {
+    // Use a backward walk from the last strong option to find the menu
+    // boundary. Strong options have explicit structural markers (numbers,
+    // slash commands, cursor indicators with content after them). Walking
+    // backward naturally stops at title lines and non-option prose text
+    // above the menu, which prevents bullet points and numbered lists in
+    // agent replies from being treated as menu options.
+    let last_strong_idx = filtered_rows
+        .iter()
+        .rposition(|row| is_strong_menu_option_row(&row.text))?;
+
+    // Walk backward from the last strong option. We include option rows,
+    // blank lines, horizontal rules, and description rows (non-option rows
+    // that appear directly below an option). We stop at boundaries: a
+    // non-option row that appears below another non-option row (e.g. a
+    // title or prose text above the menu).
+    let mut menu_start_idx = last_strong_idx;
+    let mut cursor = last_strong_idx;
+    let mut prev_was_option = true;
+    while cursor > 0 {
+        cursor -= 1;
         let row = filtered_rows[cursor];
         let trimmed = row.trimmed_text.trim();
         if is_interaction_menu_option_row(trimmed) {
-            option_rows.push(row);
-        } else if !trimmed.is_empty() {
+            menu_start_idx = cursor;
+            prev_was_option = true;
+        } else if is_horizontal_rule_line(trimmed) || trimmed.is_empty() {
+            menu_start_idx = cursor;
+            prev_was_option = false;
+        } else if prev_was_option {
+            // Non-option row directly below an option row — likely a
+            // description line for that option (e.g. "选择第一个选项").
+            menu_start_idx = cursor;
+            prev_was_option = false;
+        } else {
+            // Non-option row below a non-option, non-blank row — this is
+            // a boundary (title, prose, or prompt above the menu).
             break;
         }
-        if cursor == 0 {
-            break;
-        }
-        cursor -= 1;
     }
-    option_rows.reverse();
 
-    let options = option_rows
+    // For terminal navigation menus (no numbered options), expand forward
+    // from the last strong option to include non-strong option rows (e.g.
+    // "Gemini 2.5 Pro") and hints. For numbered menus, the strong options
+    // already define the range — no forward expansion needed.
+    let has_numbered_option = filtered_rows[menu_start_idx..=last_strong_idx]
         .iter()
-        .filter_map(|row| parse_interaction_menu_option(&row.text))
-        .collect::<Vec<_>>();
+        .any(|row| parse_numbered_option_line(&row.text).is_some());
+    let mut menu_end_idx = last_strong_idx;
+    if !has_numbered_option {
+        for (idx, row) in filtered_rows.iter().enumerate().skip(last_strong_idx + 1) {
+            let trimmed = row.trimmed_text.trim();
+            if is_interaction_menu_option_row(trimmed)
+                || is_horizontal_rule_line(trimmed)
+                || trimmed.is_empty()
+            {
+                menu_end_idx = idx;
+            } else if is_menu_hint_line(trimmed) {
+                menu_end_idx = idx;
+                break;
+            } else {
+                break;
+            }
+        }
+    }
+
+    let menu_rows: Vec<&RenderedScreenSnapshotRow> =
+        filtered_rows[menu_start_idx..=menu_end_idx].to_vec();
+
+    let (options, selected_raw_idx) = build_menu_options_from_rows(&menu_rows);
     if options.len() < 2 {
         return None;
     }
+    let has_scroll_window_markers = menu_rows
+        .iter()
+        .any(|row| row_has_scroll_window_marker(&row.text));
     let has_slash_option = options
         .iter()
         .filter_map(|option| option.submit_text.as_deref())
         .any(|submit_text| submit_text.trim_start().starts_with('/'));
-    let semantic_menu = options.iter().all(|option| option.submit_text.is_some());
-    let selected_index = option_rows
-        .iter()
-        .position(|row| row_has_selected_option_marker(&row.text))
-        .or_else(|| {
-            snapshot.cursor_row.and_then(|cursor_row| {
-                option_rows
-                    .iter()
-                    .position(|row| row.row_index == cursor_row)
-            })
-        });
+    let semantic_menu = !has_scroll_window_markers
+        && options.iter().all(|option| option.submit_text.is_some());
+    let selected_index = selected_raw_idx.or_else(|| {
+        snapshot
+            .cursor_row
+            .and_then(|cursor_row| menu_rows.iter().position(|row| row.row_index == cursor_row))
+    });
 
-    let option_start_row = option_rows.first()?.row_index;
-    let mut end_row = option_rows.last()?.row_index;
-    let title_info = find_menu_title_before_row(&filtered_rows, option_start_row, profile);
+    // Find the title above the first strong option, not the first menu row.
+    // The menu_rows may include description rows or the title itself (which
+    // is skipped by build_menu_options_from_rows), so we search for the
+    // title above the first strong option.
+    let first_strong_in_range = menu_rows
+        .iter()
+        .position(|row| is_strong_menu_option_row(&row.text));
+    let option_start_row = first_strong_in_range
+        .and_then(|pos| menu_rows.get(pos))
+        .map(|row| row.row_index)
+        .unwrap_or_else(|| menu_rows.first().expect("menu_rows non-empty").row_index);
+    let mut end_row = menu_rows.last().expect("menu_rows non-empty").row_index;
+    let snapshot_rows: Vec<&RenderedScreenSnapshotRow> = snapshot.rows.iter().collect();
+    let title_info = find_menu_title_before_row(&snapshot_rows, option_start_row, profile);
     if title_info.is_none() && !has_slash_option {
-        return None;
+        if !semantic_menu {
+            return None;
+        }
+        // Semantic menu without title — require evidence of user interaction.
+        // A cursor marker on an option shows it's a selectable menu, not
+        // just numbered items in prose text. A hint line below also signals
+        // an interactive prompt.
+        let has_cursor_marked_option = menu_rows
+            .iter()
+            .any(|row| row_has_selected_option_marker(&row.text));
+        let has_hint = find_menu_hint_after_row(filtered_rows, end_row).is_some();
+        if !has_cursor_marked_option && !has_hint {
+            return None;
+        }
     }
     let (start_row, title) =
         title_info.unwrap_or_else(|| (option_start_row, "请选择一个操作".to_string()));
-    let hint = find_menu_hint_after_row(&filtered_rows, end_row);
+    let hint = find_menu_hint_after_row(filtered_rows, end_row);
     if let Some((hint_row, _)) = hint.as_ref() {
         end_row = end_row.max(*hint_row);
     }
@@ -1942,6 +2048,20 @@ fn find_menu_hint_after_row(
     None
 }
 
+fn is_menu_hint_line(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || is_ready_prompt_line(trimmed) {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.contains("esc")
+        || lower.contains("enter")
+        || lower.contains("tab")
+        || lower.contains("select")
+        || trimmed.contains('↑')
+        || trimmed.contains('↓')
+}
+
 fn is_probable_interaction_menu_title(text: &str) -> bool {
     let lower = text.trim().to_ascii_lowercase();
     if lower.is_empty() {
@@ -1959,30 +2079,91 @@ fn is_probable_interaction_menu_title(text: &str) -> bool {
         || text.contains("菜单")
 }
 
-fn parse_numbered_option_line(line: &str) -> Option<(String, String)> {
-    let trimmed = line.trim_start();
-    let without_cursor = trimmed
-        .strip_prefix("› ")
-        .or_else(|| trimmed.strip_prefix("❯ "))
-        .unwrap_or(trimmed)
-        .trim_start();
-    let (prefix, rest) = without_cursor.split_once(". ")?;
-    if prefix.chars().all(|ch| ch.is_ascii_digit()) {
-        let label = collapse_whitespace(rest);
-        if !label.is_empty() {
-            return Some((prefix.to_string(), label));
+/// Build the final options list from menu rows. In numbered/slash menus,
+/// description rows (non-option text that appears between numbered choices)
+/// are merged into the parent option's label. In non-numbered menus, all
+/// directional labels are kept as separate options.
+fn build_menu_options_from_rows(
+    rows: &[&RenderedScreenSnapshotRow],
+) -> (Vec<ExternalInteractionOption>, Option<usize>) {
+    // Pre-scan: determine if this menu has numbered or slash options.
+    // This decides whether non-submit_text directional rows are
+    // descriptions (to merge) or standalone options. Cursor markers
+    // (›/❯) alone don't count — they appear in both numbered and
+    // non-numbered menus, so they can't distinguish the menu type.
+    let has_submit_text_option = rows.iter().any(|row| {
+        parse_numbered_option_line(&row.text)
+            .or_else(|| parse_slash_command_option_line(&row.text))
+            .is_some()
+    });
+
+    let mut options = Vec::new();
+    let mut selected_index = None;
+    let mut last_submit_text_idx: Option<usize> = None;
+
+    for row in rows {
+        let trimmed = row.text.trim();
+        if is_horizontal_rule_line(trimmed) || trimmed.is_empty() {
+            continue;
         }
+        if let Some(opt) = parse_interaction_menu_option(&row.text) {
+            if opt.submit_text.is_some() || row_has_selected_option_marker(&row.text) {
+                if row_has_selected_option_marker(&row.text) {
+                    selected_index = Some(options.len());
+                }
+                options.push(opt);
+                last_submit_text_idx = Some(options.len() - 1);
+            } else if has_submit_text_option && last_submit_text_idx.is_some() {
+                // Directional option without submit_text in a numbered menu,
+                // appearing after a numbered option → merge as description
+                if let Some(idx) = last_submit_text_idx {
+                    options[idx].label =
+                        format!("{} {}", options[idx].label.trim(), opt.label.trim());
+                }
+            } else {
+                // Non-numbered menu or no preceding numbered option:
+                // keep as a standalone option
+                if row_has_selected_option_marker(&row.text) {
+                    selected_index = Some(options.len());
+                }
+                options.push(opt);
+            }
+        } else if has_submit_text_option && last_submit_text_idx.is_some() {
+            // Non-option row in a numbered menu (e.g. description filtered by
+            // is_probable_interaction_menu_title). Merge into the nearest
+            // preceding numbered option.
+            if let Some(idx) = last_submit_text_idx {
+                let desc = collapse_whitespace(trimmed);
+                if !desc.is_empty() {
+                    options[idx].label = format!("{} {}", options[idx].label.trim(), desc);
+                }
+            }
+        }
+    }
+
+    (options, selected_index)
+}
+
+fn parse_numbered_option_line(line: &str) -> Option<(String, String)> {
+    let without_cursor = strip_menu_list_item_indicator(line);
+    let marker = without_cursor
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_digit())?;
+    let (marker_idx, marker_ch) = marker;
+    let prefix = &without_cursor[..marker_idx];
+    if prefix.is_empty() || !matches!(marker_ch, '.' | ')' | ':' | '、') {
+        return None;
+    }
+    let rest = without_cursor[marker_idx + marker_ch.len_utf8()..].trim_start();
+    let label = collapse_whitespace(rest);
+    if !label.is_empty() {
+        return Some((prefix.to_string(), label));
     }
     None
 }
 
 fn parse_slash_command_option_line(line: &str) -> Option<(String, String)> {
-    let trimmed = line.trim_start();
-    let without_cursor = trimmed
-        .strip_prefix("› ")
-        .or_else(|| trimmed.strip_prefix("❯ "))
-        .unwrap_or(trimmed)
-        .trim_start();
+    let without_cursor = strip_menu_list_item_indicator(line);
     let command_end = without_cursor
         .char_indices()
         .skip(1)
@@ -2025,13 +2206,34 @@ fn is_interaction_menu_option_row(line: &str) -> bool {
     parse_interaction_menu_option(line).is_some()
 }
 
-fn parse_directional_option_label(line: &str) -> Option<String> {
+/// A "strong" menu option has an explicit structural marker — a numbered
+/// prefix like "1.", a slash-command prefix like "/model", or a cursor
+/// indicator like "›" with content after it. This is more reliable than
+/// `is_interaction_menu_option_row` for determining menu boundaries, because
+/// directional labels (plain text that `parse_directional_option_label` matches)
+/// can appear in agent output that is NOT part of a menu (e.g. bullet points,
+/// numbered lists in prose). A bare cursor marker like "❯ " (empty prompt) is
+/// NOT a strong option — it's a shell prompt, not a menu selection.
+fn is_strong_menu_option_row(line: &str) -> bool {
     let trimmed = line.trim_start();
-    let without_cursor = trimmed
-        .strip_prefix("› ")
-        .or_else(|| trimmed.strip_prefix("❯ "))
-        .unwrap_or(trimmed)
-        .trim_start();
+    if parse_numbered_option_line(trimmed).is_some() {
+        return true;
+    }
+    if parse_slash_command_option_line(trimmed).is_some() {
+        return true;
+    }
+    if row_has_selected_option_marker(trimmed) {
+        let after_cursor = strip_menu_cursor_marker(trimmed);
+        let content = after_cursor.trim();
+        if !content.is_empty() && !is_ready_prompt_line(content) {
+            return true;
+        }
+    }
+    false
+}
+
+fn parse_directional_option_label(line: &str) -> Option<String> {
+    let without_cursor = strip_menu_list_item_indicator(line);
     if without_cursor.is_empty() {
         return None;
     }
@@ -2062,7 +2264,32 @@ fn parse_directional_option_label(line: &str) -> Option<String> {
 
 fn row_has_selected_option_marker(line: &str) -> bool {
     let trimmed = line.trim_start();
-    trimmed.starts_with("› ") || trimmed.starts_with("❯ ")
+    matches!(trimmed.chars().next(), Some('›' | '❯'))
+}
+
+fn row_has_scroll_window_marker(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    matches!(trimmed.chars().next(), Some('↑' | '↓'))
+}
+
+fn strip_menu_cursor_marker(line: &str) -> &str {
+    let trimmed = line.trim_start();
+    trimmed
+        .strip_prefix('›')
+        .or_else(|| trimmed.strip_prefix('❯'))
+        .unwrap_or(trimmed)
+        .trim_start()
+}
+
+fn strip_menu_list_item_indicator(line: &str) -> &str {
+    let trimmed = line.trim_start();
+    trimmed
+        .strip_prefix('›')
+        .or_else(|| trimmed.strip_prefix('❯'))
+        .or_else(|| trimmed.strip_prefix('↑'))
+        .or_else(|| trimmed.strip_prefix('↓'))
+        .unwrap_or(trimmed)
+        .trim_start()
 }
 
 fn permission_controls(options: &[ExternalInteractionOption]) -> Vec<ExternalInteractionControl> {
@@ -2524,7 +2751,10 @@ fn is_prompt_anchor_line_for_tool(line: &str, profile: ToolScreenProfile) -> boo
     for prefix in profile.prompt_prefixes() {
         if let Some(after) = trimmed.strip_prefix(prefix) {
             let after = after.trim();
-            if !after.is_empty() && !is_placeholder_prompt_content_for_tool(after, profile) {
+            if !after.is_empty()
+                && parse_numbered_option_line(after).is_none()
+                && !is_placeholder_prompt_content_for_tool(after, profile)
+            {
                 return true;
             }
         }
