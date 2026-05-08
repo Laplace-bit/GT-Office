@@ -18,6 +18,7 @@ export type StationTerminalFocusDiagnosticKind =
   | 'focus-success'
   | 'focus-deferred'
   | 'focus-error'
+  | 'viewport-wake'
   | 'window-error'
   | 'unhandled-rejection'
   | 'xterm-init-failed'

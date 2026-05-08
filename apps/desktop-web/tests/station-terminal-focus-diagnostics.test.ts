@@ -134,3 +134,24 @@ test('keeps local diagnostics even when the system logger append fails', async (
   assert.equal(targetWindow.readStoredEvents().length, 1)
   assert.equal(targetWindow.readStoredEvents()[0]?.kind, 'focus-error')
 })
+
+test('records viewport wake diagnostics for renderer recovery events', async () => {
+  const targetWindow = createSessionStorageWindow()
+
+  await recordStationTerminalFocusDiagnostic({
+    targetWindow: targetWindow as unknown as Window,
+    stationId: 'station-codex',
+    sessionId: 'session-codex',
+    kind: 'viewport-wake',
+    detail: 'renderer-recycle:workspace-switch',
+  })
+
+  assert.equal(targetWindow.readStoredEvents().length, 1)
+  assert.deepEqual(targetWindow.readStoredEvents()[0], {
+    atMs: targetWindow.readStoredEvents()[0].atMs,
+    stationId: 'station-codex',
+    sessionId: 'session-codex',
+    kind: 'viewport-wake',
+    detail: 'renderer-recycle:workspace-switch',
+  })
+})

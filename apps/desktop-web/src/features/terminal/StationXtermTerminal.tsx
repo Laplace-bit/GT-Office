@@ -3,7 +3,7 @@ import { shouldAcceptStationTerminalLocalInput } from './station-terminal-runtim
 import { resolveTerminalDocument } from './station-terminal-document-scope'
 import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
-import type { ITheme } from '@xterm/xterm'
+import type { ITheme, Terminal as XtermTerminal } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
 import { isDarkDataTheme } from '@shell/state/ui-preferences'
 import {
@@ -22,6 +22,7 @@ import {
   resolveStationTerminalFocusRequest,
   shouldFlushPendingStationTerminalFocus,
 } from './station-terminal-focus-runtime'
+import { shouldRecycleStationTerminalRenderer } from './station-terminal-render-recovery'
 
 export interface StationTerminalSink {
   write: (chunk: string) => Promise<void>
@@ -73,6 +74,8 @@ const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
 const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
 const BACKGROUND_TERMINAL_INIT_TIMEOUT_MS = 1200
 const BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS = 96
+const TERMINAL_RENDERER_RECOVERY_DELAY_MS = 180
+const TERMINAL_RENDERER_RECOVERY_FRAME_COUNT = 2
 
 interface IdleDeadlineLike {
   didTimeout: boolean
@@ -184,6 +187,22 @@ function isPromptAnchorText(text: string): boolean {
       continue
     }
     if (content.length > 0) {
+      return true
+    }
+  }
+  return false
+}
+
+function bufferHasMeaningfulContent(terminal: XtermTerminal): boolean {
+  const buffer = terminal.buffer.active
+  const totalLines =
+    typeof buffer.length === 'number'
+      ? buffer.length
+      : Math.max(buffer.baseY + terminal.rows, terminal.rows)
+  const start = Math.max(0, totalLines - 240)
+  for (let index = totalLines - 1; index >= start; index -= 1) {
+    const text = buffer.getLine(index)?.translateToString(false).trim() ?? ''
+    if (text.length > 0) {
       return true
     }
   }
@@ -352,6 +371,7 @@ function StationXtermTerminalView({
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
   const boundSinkRef = useRef<StationTerminalSink | null>(null)
   const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(isActive)
+  const [rendererRecoveryVersion, setRendererRecoveryVersion] = useState(0)
   const isActiveRef = useRef(isActive)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
@@ -364,6 +384,10 @@ function StationXtermTerminalView({
   const focusRetryFrameRef = useRef<number | null>(null)
   const focusRuntimeReadyRef = useRef(false)
   const pendingAutoFocusRef = useRef(false)
+  const rendererRecoveryTimerRef = useRef<number | null>(null)
+  const rendererRecoveryFrameRef = useRef<number | null>(null)
+  const rendererRecoveryTokenRef = useRef(0)
+  const rendererRecoveryInFlightRef = useRef(false)
   const isMacOsWebKitEnvironmentRef = useRef(
     typeof window !== 'undefined'
       ? isMacOsWebKitTextInputEnvironment({
@@ -376,6 +400,7 @@ function StationXtermTerminalView({
     active: false,
     sessionId: null,
   })
+  const lastRenderEventSeqRef = useRef(0)
 
   const recordFocusDiagnostic = useCallback(
     (kind: StationTerminalFocusDiagnosticKind, detail?: string) => {
@@ -421,6 +446,29 @@ function StationXtermTerminalView({
       syncTerminalAppearance()
     })
   }, [syncTerminalAppearance])
+
+  const cancelScheduledRendererRecovery = useCallback(() => {
+    if (rendererRecoveryTimerRef.current !== null) {
+      window.clearTimeout(rendererRecoveryTimerRef.current)
+      rendererRecoveryTimerRef.current = null
+    }
+    if (rendererRecoveryFrameRef.current !== null) {
+      window.cancelAnimationFrame(rendererRecoveryFrameRef.current)
+      rendererRecoveryFrameRef.current = null
+    }
+  }, [])
+
+  const recycleTerminalRenderer = useCallback(
+    (reason: string) => {
+      if (rendererRecoveryInFlightRef.current) {
+        return
+      }
+      rendererRecoveryInFlightRef.current = true
+      recordFocusDiagnostic('viewport-wake', `renderer-recycle:${reason}`)
+      setRendererRecoveryVersion((value) => value + 1)
+    },
+    [recordFocusDiagnostic],
+  )
 
   useEffect(() => {
     onDataRef.current = onData
@@ -506,6 +554,7 @@ function StationXtermTerminalView({
 
   useEffect(() => {
     return () => {
+      cancelScheduledRendererRecovery()
       const frameId = appearanceSyncFrameRef.current
       if (frameId === null) {
         focusTerminalRequestRef.current = null
@@ -521,8 +570,9 @@ function StationXtermTerminalView({
       focusRuntimeReadyRef.current = false
       focusTerminalRequestRef.current = null
       pendingAutoFocusRef.current = false
+      rendererRecoveryInFlightRef.current = false
     }
-  }, [])
+  }, [cancelScheduledRendererRecovery])
 
   useEffect(() => {
     const host = hostRef.current
@@ -540,6 +590,8 @@ function StationXtermTerminalView({
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
     let serializeFrameId: number | null = null
+    let renderDisposable: { dispose: () => void } | null = null
+    let workspaceTransitionObserver: MutationObserver | null = null
     let captureLatestRestoreState: (() => void) | null = null
     let removeViewportWakeListeners: (() => void) | null = null
     let removeCompositionStartSyncListener: (() => void) | null = null
@@ -580,6 +632,7 @@ function StationXtermTerminalView({
 
         terminalRef.current = terminal
         fitAddonRef.current = fitAddon
+        rendererRecoveryInFlightRef.current = false
         scheduleTerminalAppearanceSync()
 
         const isMacOsWebKitImeFallbackEnabled = isMacOsWebKitEnvironmentRef.current
@@ -898,6 +951,13 @@ function StationXtermTerminalView({
           }
           return terminal.cols > 0 && terminal.rows > 0
         }
+        const reviveRendererTextures = () => {
+          try {
+            terminal.clearTextureAtlas()
+          } catch {
+            // No-op: texture atlas recovery is best effort.
+          }
+        }
         const fitAndRefresh = () => {
           if (!active) {
             return false
@@ -906,6 +966,7 @@ function StationXtermTerminalView({
           if (clientWidth < TERMINAL_MIN_VISIBLE_SIZE_PX || clientHeight < TERMINAL_MIN_VISIBLE_SIZE_PX) {
             return false
           }
+          reviveRendererTextures()
           try {
             const nextFontSize = resolveTerminalFontSize(host)
             if (terminal.options.fontSize !== nextFontSize) {
@@ -920,6 +981,45 @@ function StationXtermTerminalView({
           }
           refreshTerminal()
           return true
+        }
+        const scheduleRendererRecoveryCheck = (reason: string) => {
+          if (!active) {
+            return
+          }
+          cancelScheduledRendererRecovery()
+          const recoveryToken = rendererRecoveryTokenRef.current + 1
+          rendererRecoveryTokenRef.current = recoveryToken
+          const renderEventSeqAtSchedule = lastRenderEventSeqRef.current
+          let remainingFrames = TERMINAL_RENDERER_RECOVERY_FRAME_COUNT
+          const waitForFrames = () => {
+            if (!active || rendererRecoveryTokenRef.current !== recoveryToken) {
+              return
+            }
+            if (remainingFrames > 0) {
+              remainingFrames -= 1
+              rendererRecoveryFrameRef.current = window.requestAnimationFrame(waitForFrames)
+              return
+            }
+            rendererRecoveryFrameRef.current = null
+            rendererRecoveryTimerRef.current = window.setTimeout(() => {
+              rendererRecoveryTimerRef.current = null
+              if (!active || rendererRecoveryTokenRef.current !== recoveryToken) {
+                return
+              }
+              if (
+                !shouldRecycleStationTerminalRenderer({
+                  hasMeaningfulContent: bufferHasMeaningfulContent(terminal),
+                  hasSerializedRestoreState: Boolean(serializedRestoreState),
+                  renderEventSeqAtSchedule,
+                  currentRenderEventSeq: lastRenderEventSeqRef.current,
+                })
+              ) {
+                return
+              }
+              recycleTerminalRenderer(reason)
+            }, TERMINAL_RENDERER_RECOVERY_DELAY_MS)
+          }
+          rendererRecoveryFrameRef.current = window.requestAnimationFrame(waitForFrames)
         }
         const ensureFitWhenVisible = () => {
           readyFitFrameId = null
@@ -949,9 +1049,11 @@ function StationXtermTerminalView({
           }
           if (fitAndRefresh()) {
             onResizeRef.current(stationId, terminal.cols, terminal.rows)
+            scheduleRendererRecoveryCheck('viewport-wake')
             return
           }
           scheduleFitRetry()
+          scheduleRendererRecoveryCheck('viewport-retry')
         }
         const handleVisibilityChange = () => {
           if (hostDocument.visibilityState !== 'visible') {
@@ -966,6 +1068,21 @@ function StationXtermTerminalView({
           hostWindow.removeEventListener('resize', handleViewportWake)
           hostWindow.removeEventListener('focus', handleViewportWake)
           hostDocument.removeEventListener('visibilitychange', handleVisibilityChange)
+        }
+        const shellRoot = host.closest('.agent-shell')
+        if (shellRoot) {
+          let wasWorkspaceSwitching = shellRoot.classList.contains('workspace-switching-active')
+          workspaceTransitionObserver = new MutationObserver(() => {
+            const isWorkspaceSwitching = shellRoot.classList.contains('workspace-switching-active')
+            if (wasWorkspaceSwitching && !isWorkspaceSwitching) {
+              handleViewportWake()
+            }
+            wasWorkspaceSwitching = isWorkspaceSwitching
+          })
+          workspaceTransitionObserver.observe(shellRoot, {
+            attributes: true,
+            attributeFilter: ['class'],
+          })
         }
         let replayGeneratedInputSuppressionDepth = 0
         const writeTerminalChunk = (content: string) =>
@@ -1026,6 +1143,9 @@ function StationXtermTerminalView({
         // Sync terminal size with backend PTY
         resizeDisposable = terminal.onResize(({ cols, rows }) => {
           onResizeRef.current(stationId, cols, rows)
+        })
+        renderDisposable = terminal.onRender(() => {
+          lastRenderEventSeqRef.current += 1
         })
         // Delay first fit/resize sync until host has real dimensions.
         ensureFitWhenVisible()
@@ -1138,11 +1258,14 @@ function StationXtermTerminalView({
       })
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
+      renderDisposable?.dispose()
       removeViewportWakeListeners?.()
       removeCompositionStartSyncListener?.()
       removeMacOsImeFallbackListeners?.()
       resizeObserver?.disconnect()
       appearanceObserver?.disconnect()
+      workspaceTransitionObserver?.disconnect()
+      cancelScheduledRendererRecovery()
       if (refreshFrameId !== null) {
         window.cancelAnimationFrame(refreshFrameId)
       }
@@ -1173,7 +1296,10 @@ function StationXtermTerminalView({
     performanceDebugEnabled,
     recordFocusDiagnostic,
     runtimeInitAllowed,
+    rendererRecoveryVersion,
     scheduleTerminalAppearanceSync,
+    cancelScheduledRendererRecovery,
+    recycleTerminalRenderer,
     sessionId,
     stationId,
   ])

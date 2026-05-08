@@ -31,6 +31,7 @@ import {
   resolveDroppedStationSessionCleanup,
   resolveStationRuntimeRegistrationCleanup,
   shouldPreferSessionOwnedRestoreState,
+  selectStationTerminalReplaySource,
   shouldApplyRecoveredStationOutput,
   shouldApplyStationSessionLaunchFailure,
   shouldApplyStationSessionResult,
@@ -893,19 +894,23 @@ export function useShellTerminalController({
       )
         ? restoreState
         : null
+      const replaySource = selectStationTerminalReplaySource({
+        cachedContent,
+        restoreState: restoreStateToReplay?.state ?? null,
+      })
       const replayVersion = (stationTerminalPendingReplayRef.current[stationId]?.version ?? 0) + 1
       stationTerminalPendingReplayRef.current[stationId] = {
         version: replayVersion,
         ops: [],
       }
-      if (restoreStateToReplay) {
+      if (replaySource.kind === 'restore') {
         pushStationTerminalDebugRecord(stationId, {
           sessionId: stationTerminalsRef.current[stationId]?.sessionId ?? null,
           lane: 'xterm',
           kind: 'restore',
           source: 'session_restore',
-          summary: formatTerminalDebugPreview(restoreStateToReplay.state.content, 84),
-          body: restoreStateToReplay.state.content,
+          summary: formatTerminalDebugPreview(replaySource.state.content, 84),
+          body: replaySource.state.content,
         })
       } else {
         delete stationTerminalRestoreStateRef.current[stationId]
@@ -922,9 +927,10 @@ export function useShellTerminalController({
             ) {
               return
             }
-            const replay = restoreStateToReplay
-              ? sink.restore(restoreStateToReplay.state.content, restoreStateToReplay.state.cols, restoreStateToReplay.state.rows)
-              : sink.reset(cachedContent)
+            const replay =
+              replaySource.kind === 'restore'
+                ? sink.restore(replaySource.state.content, replaySource.state.cols, replaySource.state.rows)
+                : sink.reset(replaySource.content)
             await replay
             const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
             if (
