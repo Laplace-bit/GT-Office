@@ -494,18 +494,39 @@ where
             "ls-files".to_string(),
             "--others".to_string(),
             "--exclude-standard".to_string(),
+            "-z".to_string(),
             "--".to_string(),
         ];
         owned_args.extend(paths.iter().cloned());
         let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
         let output = self.run_git(root, &args, error_code)?;
 
-        Ok(output
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(ToOwned::to_owned)
-            .collect())
+        Ok(Self::parse_nul_delimited_output(&output))
+    }
+
+    fn list_index_new_paths(
+        &self,
+        root: &Path,
+        paths: &[String],
+        error_code: &str,
+    ) -> AbstractionResult<std::collections::HashSet<String>> {
+        if paths.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let mut owned_args = vec![
+            "diff".to_string(),
+            "--cached".to_string(),
+            "--name-only".to_string(),
+            "--diff-filter=A".to_string(),
+            "-z".to_string(),
+            "--".to_string(),
+        ];
+        owned_args.extend(paths.iter().cloned());
+        let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = self.run_git(root, &args, error_code)?;
+
+        Ok(Self::parse_nul_delimited_output(&output))
     }
 
     fn status_with_system_git(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
@@ -594,6 +615,15 @@ where
                 Some(fields)
             })
             .collect::<Vec<_>>()
+    }
+
+    fn parse_nul_delimited_output(output: &str) -> std::collections::HashSet<String> {
+        output
+            .split('\0')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(ToOwned::to_owned)
+            .collect()
     }
 
     fn is_not_git_repository_message(message: &str) -> bool {
@@ -1485,9 +1515,10 @@ where
         } else {
             std::collections::HashSet::new()
         };
+        let index_new_paths = self.list_index_new_paths(&root, paths, "GIT_DISCARD_FAILED")?;
         let tracked_paths = paths
             .iter()
-            .filter(|path| !untracked_paths.contains(*path))
+            .filter(|path| !untracked_paths.contains(*path) && !index_new_paths.contains(*path))
             .cloned()
             .collect::<Vec<_>>();
 
@@ -1500,6 +1531,13 @@ where
             restore_args.extend(tracked_paths);
             let restore_refs = restore_args.iter().map(String::as_str).collect::<Vec<_>>();
             self.run_git(&root, &restore_refs, "GIT_DISCARD_FAILED")?;
+        }
+
+        if !index_new_paths.is_empty() {
+            let mut remove_args = vec!["rm".to_string(), "--force".to_string(), "--".to_string()];
+            remove_args.extend(index_new_paths.iter().cloned());
+            let remove_refs = remove_args.iter().map(String::as_str).collect::<Vec<_>>();
+            self.run_git(&root, &remove_refs, "GIT_DISCARD_FAILED")?;
         }
 
         if include_untracked && !untracked_paths.is_empty() {
@@ -1535,7 +1573,11 @@ where
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
-    pub fn commit_amend(&self, workspace_id: &WorkspaceId, message: &str) -> AbstractionResult<String> {
+    pub fn commit_amend(
+        &self,
+        workspace_id: &WorkspaceId,
+        message: &str,
+    ) -> AbstractionResult<String> {
         let trimmed = message.trim();
         if trimmed.is_empty() {
             return Err(AbstractionError::InvalidArgument {
@@ -2084,8 +2126,16 @@ where
                 name: fields[0].clone(),
                 oid: fields[1].clone(),
                 target: fields[2].clone(),
-                tagger: if fields[3].is_empty() { None } else { Some(fields[3].clone()) },
-                message: if fields[4].is_empty() { None } else { Some(fields[4].clone()) },
+                tagger: if fields[3].is_empty() {
+                    None
+                } else {
+                    Some(fields[3].clone())
+                },
+                message: if fields[4].is_empty() {
+                    None
+                } else {
+                    Some(fields[4].clone())
+                },
             });
         }
         Ok(entries)
@@ -2141,7 +2191,11 @@ where
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("origin");
-        self.run_git(&root, &["push", remote, "tag", tag_name], "GIT_TAG_PUSH_FAILED")?;
+        self.run_git(
+            &root,
+            &["push", remote, "tag", tag_name],
+            "GIT_TAG_PUSH_FAILED",
+        )?;
         Ok(())
     }
 
@@ -2152,16 +2206,16 @@ where
         commit_oid: &str,
     ) -> AbstractionResult<()> {
         let root = self.workspace_root(workspace_id)?;
-        self.run_git(&root, &["cherry-pick", commit_oid], "GIT_CHERRY_PICK_FAILED")?;
+        self.run_git(
+            &root,
+            &["cherry-pick", commit_oid],
+            "GIT_CHERRY_PICK_FAILED",
+        )?;
         Ok(())
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id, commit_oid = commit_oid))]
-    pub fn revert(
-        &self,
-        workspace_id: &WorkspaceId,
-        commit_oid: &str,
-    ) -> AbstractionResult<()> {
+    pub fn revert(&self, workspace_id: &WorkspaceId, commit_oid: &str) -> AbstractionResult<()> {
         let root = self.workspace_root(workspace_id)?;
         self.run_git(
             &root,
@@ -2211,8 +2265,7 @@ where
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
         match self.run_git(&root, &arg_refs, "GIT_MERGE_FAILED") {
             Ok(_) => {
-                let head = self
-                    .run_git(&root, &["rev-parse", "HEAD"], "GIT_MERGE_FAILED")?;
+                let head = self.run_git(&root, &["rev-parse", "HEAD"], "GIT_MERGE_FAILED")?;
                 let head_sha = head.trim().to_string();
                 Ok(MergeResult {
                     success: true,
@@ -2242,8 +2295,11 @@ where
         workspace_id: &WorkspaceId,
     ) -> AbstractionResult<Vec<ConflictFile>> {
         let root = self.workspace_root(workspace_id)?;
-        let output =
-            self.run_git(&root, &["diff", "--name-only", "--diff-filter=U"], "GIT_CONFLICT_LIST_FAILED")?;
+        let output = self.run_git(
+            &root,
+            &["diff", "--name-only", "--diff-filter=U"],
+            "GIT_CONFLICT_LIST_FAILED",
+        )?;
 
         let conflicts: Vec<ConflictFile> = output
             .lines()
@@ -2297,10 +2353,8 @@ where
         let root = self.workspace_root(workspace_id)?;
 
         let patch_path = root.join(".git").join("gto-patch.tmp");
-        std::fs::write(&patch_path, patch).map_err(|e| {
-            AbstractionError::Internal {
-                message: format!("GIT_STAGE_HUNK_FAILED: {e}"),
-            }
+        std::fs::write(&patch_path, patch).map_err(|e| AbstractionError::Internal {
+            message: format!("GIT_STAGE_HUNK_FAILED: {e}"),
         })?;
 
         let result = self.run_git(
@@ -2325,15 +2379,18 @@ where
         let root = self.workspace_root(workspace_id)?;
 
         let patch_path = root.join(".git").join("gto-patch.tmp");
-        std::fs::write(&patch_path, patch).map_err(|e| {
-            AbstractionError::Internal {
-                message: format!("GIT_UNSTAGE_HUNK_FAILED: {e}"),
-            }
+        std::fs::write(&patch_path, patch).map_err(|e| AbstractionError::Internal {
+            message: format!("GIT_UNSTAGE_HUNK_FAILED: {e}"),
         })?;
 
         let result = self.run_git(
             &root,
-            &["apply", "--cached", "--reverse", patch_path.to_str().unwrap()],
+            &[
+                "apply",
+                "--cached",
+                "--reverse",
+                patch_path.to_str().unwrap(),
+            ],
             "GIT_UNSTAGE_HUNK_FAILED",
         );
 
@@ -2461,6 +2518,30 @@ mod tests {
             "base\n"
         );
         assert!(!root.join("scratch.txt").exists());
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn discard_removes_index_new_files_like_vscode() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(root.join("政策分析.md"), "draft\n").expect("new file should be created");
+        run_git(&root, &["add", "政策分析.md"]);
+
+        service
+            .discard(&workspace_id, &["政策分析.md".to_string()], false)
+            .expect("discard should succeed for index new file");
+
+        assert!(!root.join("政策分析.md").exists());
+
+        let status = service
+            .status(&workspace_id)
+            .expect("status should succeed after discard");
+        assert!(
+            status.files.iter().all(|file| file.path != "政策分析.md"),
+            "discarded index new file should be removed from git status"
+        );
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
     }

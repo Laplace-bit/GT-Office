@@ -6,7 +6,13 @@ import { actualPxToRem } from '../git-font-scale'
 import { GitIconButton } from './GitIconButton'
 import { GitSectionHeader } from './GitSectionHeader'
 import { GitFileRow } from './GitFileRow'
-import { hasStagedChanges, hasUnstagedChanges, resolveDiffScope } from './git-helpers'
+import {
+  hasStagedChanges,
+  hasUnstagedChanges,
+  resolveDiffScope,
+  resolveDiscardKind,
+  type GitDiscardKind,
+} from './git-helpers'
 
 interface ChangesSectionProps {
   controller: GitWorkspaceController
@@ -16,7 +22,7 @@ interface ChangesSectionProps {
   rootFontSizePx: number
   viewportRef: React.RefObject<HTMLDivElement | null>
   fileVirtualizer: Virtualizer<HTMLDivElement, Element>
-  onDiscardConfirm: (path: string, isUntracked: boolean) => void
+  onDiscardConfirm: (path: string, discardKind: GitDiscardKind) => void
 }
 
 export const ChangesSection = memo(function ChangesSection({
@@ -62,10 +68,7 @@ export const ChangesSection = memo(function ChangesSection({
   )
   const handleStagePath = useCallback((path: string) => void stagePath(path), [stagePath])
   const handleUnstagePath = useCallback((path: string) => void unstagePath(path), [unstagePath])
-  const handleDiscardPath = useCallback(
-    (path: string, isUntracked: boolean) => onDiscardConfirm(path, isUntracked),
-    [onDiscardConfirm],
-  )
+  const handleDiscardPath = useCallback((path: string, discardKind: GitDiscardKind) => onDiscardConfirm(path, discardKind), [onDiscardConfirm])
 
   return (
     <section
@@ -136,7 +139,7 @@ export const ChangesSection = memo(function ChangesSection({
                 const isActive = selectedPath === file.path
                 const fileHasStagedChanges = hasStagedChanges(file)
                 const fileHasUnstagedChanges = hasUnstagedChanges(file)
-                const isUntracked = file.status.startsWith('??')
+                const discardKind = resolveDiscardKind(file)
                 const diffScope = resolveDiffScope(file, filter)
                 const actionMode =
                   filter === 'staged'
@@ -160,7 +163,7 @@ export const ChangesSection = memo(function ChangesSection({
                     onPreload={() => handlePreloadDiff(file.path, diffScope)}
                     onStage={() => handleStagePath(file.path)}
                     onUnstage={() => handleUnstagePath(file.path)}
-                    onDiscard={() => handleDiscardPath(file.path, isUntracked)}
+                    onDiscard={() => handleDiscardPath(file.path, discardKind)}
                     style={{ transform: `translateY(${actualPxToRem(virtualItem.start, rootFontSizePx)})` }}
                   />
                 )

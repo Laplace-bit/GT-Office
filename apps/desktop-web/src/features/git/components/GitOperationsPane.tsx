@@ -20,6 +20,7 @@ import { StashSection } from './StashSection'
 import { TagSection } from './TagSection'
 import { GitNoticeBanner } from './GitNoticeBanner'
 import { GitConfirmDialog } from './GitConfirmDialog'
+import type { GitDiscardKind } from './git-helpers'
 
 const MIN_CHANGES_SECTION_BASE_HEIGHT = 180
 
@@ -51,6 +52,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const [discardConfirmState, setDiscardConfirmState] = useState<{
     path: string
     includeUntracked: boolean
+    discardKind: GitDiscardKind
   } | null>(null)
   const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
   const rootFontSizePx = useRootFontSizePx()
@@ -147,14 +149,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     fileVirtualizer.measure()
   }, [fileRowHeight, fileVirtualizer])
 
-  const handleDiscardConfirm = useCallback(
-    (path: string, isUntracked: boolean) =>
-      setDiscardConfirmState({
-        path,
-        includeUntracked: isUntracked,
-      }),
-    [],
-  )
+  const handleDiscardConfirm = useCallback((path: string, discardKind: GitDiscardKind) => {
+    setDiscardConfirmState({
+      path,
+      includeUntracked: discardKind === 'untracked',
+      discardKind,
+    })
+  }, [])
   const closeDiscardConfirm = useCallback(() => {
     if (controller.actionLoading === 'discard') {
       return
@@ -176,6 +177,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     <GitConfirmDialog
       locale={locale}
       path={discardConfirmState.path}
+      discardKind={discardConfirmState.discardKind}
       loading={controller.actionLoading === 'discard'}
       onClose={closeDiscardConfirm}
       onConfirm={() => void confirmDiscardPath()}

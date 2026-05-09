@@ -1220,9 +1220,21 @@ export const messages = {
     'zh-CN': '该文件会恢复到最近一次提交后的状态，当前未提交改动将被移除。',
     'en-US': 'This file will be restored to its last committed state. Current uncommitted changes will be removed.',
   },
+  'git.confirm.discardUntrackedTitle': {
+    'zh-CN': '删除这个未跟踪文件？',
+    'en-US': 'Delete this untracked file?',
+  },
   'git.confirm.discardUntrackedBody': {
     'zh-CN': '这是一个未跟踪文件。确认后会直接从工作区删除。',
     'en-US': 'This is an untracked file. Confirming will remove it from the working tree.',
+  },
+  'git.confirm.discardIndexNewTitle': {
+    'zh-CN': '删除这个新增文件？',
+    'en-US': 'Delete this added file?',
+  },
+  'git.confirm.discardIndexNewBody': {
+    'zh-CN': '该文件已加入 Git 暂存区，但尚未存在于最近一次提交中。确认后会从暂存区和工作区一起删除。',
+    'en-US': 'This file has been added to Git but does not exist in the last commit. Confirming will remove it from both the index and the working tree.',
   },
   'git.confirm.discardPathLabel': { 'zh-CN': '目标文件', 'en-US': 'Target File' },
   'git.confirm.deleteBranch': {

@@ -1,10 +1,11 @@
 import { memo } from 'react'
 import { t } from '@shell/i18n/ui-locale'
-import { getFileName } from './git-helpers'
+import { getFileName, type GitDiscardKind } from './git-helpers'
 
 interface GitConfirmDialogProps {
   locale: 'zh-CN' | 'en-US'
   path: string
+  discardKind: GitDiscardKind
   loading: boolean
   onClose: () => void
   onConfirm: () => void
@@ -13,11 +14,24 @@ interface GitConfirmDialogProps {
 export const GitConfirmDialog = memo(function GitConfirmDialog({
   locale,
   path,
+  discardKind,
   loading,
   onClose,
   onConfirm,
 }: GitConfirmDialogProps) {
   const fileName = getFileName(path)
+  const titleKey =
+    discardKind === 'untracked'
+      ? 'git.confirm.discardUntrackedTitle'
+      : discardKind === 'index-new'
+        ? 'git.confirm.discardIndexNewTitle'
+        : 'git.confirm.discardTitle'
+  const bodyKey =
+    discardKind === 'untracked'
+      ? 'git.confirm.discardUntrackedBody'
+      : discardKind === 'index-new'
+        ? 'git.confirm.discardIndexNewBody'
+        : 'git.confirm.discardTrackedBody'
   return (
     <div className="git-confirm-modal-overlay" onClick={loading ? undefined : onClose}>
       <section
@@ -29,9 +43,10 @@ export const GitConfirmDialog = memo(function GitConfirmDialog({
       >
         <header className="git-confirm-modal__header">
           <span className="git-confirm-modal__eyebrow">{t(locale, 'git.confirm.discardEyebrow')}</span>
-          <h3 id="git-discard-confirm-title">{t(locale, 'git.confirm.discardTitle')}</h3>
+          <h3 id="git-discard-confirm-title">{t(locale, titleKey)}</h3>
         </header>
         <div className="git-confirm-modal__body">
+          <p>{t(locale, bodyKey)}</p>
           <div className="git-confirm-modal__path-card" title={path}>
             <strong className="git-confirm-modal__path-name">{fileName}</strong>
           </div>
