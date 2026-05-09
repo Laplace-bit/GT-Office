@@ -1,3 +1,11 @@
+## v0.4.1 (2026-05-09)
+
+- 28ff64e fix(explorer): improve drag scroll and github seo
+- e5eebf5 fix: 修复文件树拖拽移动链路
+- 658295b Fix TUI menu parsing and rendered reply accumulation
+- 38ba6fd Fix Codex terminal render recovery
+- b53d38e feat(channel): support text-based option selection for terminal navigation prompts
+
 ## v0.4.0 (2026-05-06)
 
 - 41eabeb ci(release): sync version from git tag before build
