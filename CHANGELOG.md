@@ -1,3 +1,7 @@
+## v0.4.2 (2026-05-09)
+
+- 09d4b7e Harden workspace switching crash guards
+
 ## v0.4.1 (2026-05-09)
 
 - 28ff64e fix(explorer): improve drag scroll and github seo
