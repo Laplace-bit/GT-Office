@@ -13,7 +13,10 @@ use std::{
 use tauri::{async_runtime::JoinHandle, AppHandle};
 use tracing::{debug, warn};
 
-use crate::{app_state::AppState, commands::tool_adapter::process_external_inbound_message};
+use crate::{
+    app_state::AppState,
+    commands::tool_adapter::{needed_channel_accounts, process_external_inbound_message},
+};
 
 use super::{
     account_store::list_records,
@@ -147,11 +150,14 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
 }
 
 pub fn reconcile(app: &AppHandle, state: &AppState) {
+    let needed = needed_channel_accounts(state);
     let desired: HashSet<String> = list_records(app)
         .unwrap_or_default()
         .into_iter()
         .filter(|record| {
-            record.enabled && record.connection_mode == FeishuConnectionMode::Websocket
+            record.enabled
+                && record.connection_mode == FeishuConnectionMode::Websocket
+                && needed.contains(&("feishu".to_string(), record.account_id.to_ascii_lowercase()))
         })
         .map(|record| record.account_id.to_ascii_lowercase())
         .collect();

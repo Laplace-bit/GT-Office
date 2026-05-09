@@ -10,7 +10,11 @@ import {
 } from 'react'
 import type { OpenedFile } from '@features/file-explorer'
 import { isPreviewable } from '@features/file-preview'
-import { desktopApi, type FilesystemChangedPayload } from '../integration/desktop-api'
+import {
+  desktopApi,
+  type FilesystemChangedPayload,
+  type FsStatEntry,
+} from '../integration/desktop-api'
 import { t, type Locale } from '../i18n/ui-locale'
 import {
   describeError,
@@ -20,6 +24,16 @@ import {
 } from './ShellRoot.shared'
 
 type FileSearchMode = 'file' | 'content'
+type LoadFileOptions = {
+  activate?: boolean
+  forceReload?: boolean
+  silent?: boolean
+}
+
+function isPathInvalidReadError(error: unknown): boolean {
+  const detail = describeError(error)
+  return detail.includes('FS_PATH_INVALID')
+}
 
 interface UseShellFileControllerInput {
   activeWorkspaceId: string | null
@@ -41,8 +55,8 @@ export interface ShellFileController {
   fileEditorCommandRequest: FileEditorCommandRequest | null
   tabSessionSnapshotEntries: Array<{ path: string; active: boolean }>
   tabSessionSnapshotSignature: string
-  loadFileContent: (filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>
-  loadFileContentRef: MutableRefObject<(filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>>
+  loadFileContent: (filePath: string, mode?: FileReadMode, options?: LoadFileOptions) => Promise<void>
+  loadFileContentRef: MutableRefObject<(filePath: string, mode?: FileReadMode, options?: LoadFileOptions) => Promise<void>>
   saveFileContent: (filePath: string, content: string) => Promise<boolean>
   createFileInWorkspace: (filePath: string) => Promise<boolean>
   closeFile: (filePath: string) => void
@@ -73,14 +87,60 @@ export function useShellFileController({
   const [fileSearchMode, setFileSearchMode] = useState<FileSearchMode>('file')
   const [fileEditorCommandRequest, setFileEditorCommandRequest] =
     useState<FileEditorCommandRequest | null>(null)
-  const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode, options?: { activate?: boolean }) => Promise<void>>(
+  const loadFileContentRef = useRef<(filePath: string, mode?: FileReadMode, options?: LoadFileOptions) => Promise<void>>(
     async () => {},
   )
   const openedFilesRef = useRef<OpenedFile[]>([])
   const activeFilePathRef = useRef<string | null>(null)
   const fileReadModeRef = useRef<FileReadMode>('full')
   const fileReadSeqRef = useRef(0)
+  const fileReadSeqByPathRef = useRef<Map<string, number>>(new Map())
   const recentlySavedPathsRef = useRef<Map<string, number>>(new Map())
+  const pendingExternalStatPathsRef = useRef<Set<string>>(new Set())
+  const pendingExternalStatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearPendingExternalStatTimer = useCallback(() => {
+    if (pendingExternalStatTimerRef.current) {
+      clearTimeout(pendingExternalStatTimerRef.current)
+      pendingExternalStatTimerRef.current = null
+    }
+  }, [])
+
+  const markFilesStale = useCallback((paths: string[], mtimeByPath?: Map<string, number>) => {
+    if (paths.length === 0) {
+      return
+    }
+    const pathSet = new Set(paths)
+    setOpenedFiles((prev) =>
+      prev.map((file) =>
+        pathSet.has(file.path)
+          ? {
+              ...file,
+              isStale: true,
+              mtimeMs: mtimeByPath?.get(file.path) ?? file.mtimeMs,
+            }
+          : file,
+      ),
+    )
+  }, [])
+
+  const removeOpenedFiles = useCallback((paths: string[]) => {
+    if (paths.length === 0) {
+      return
+    }
+    const removedPaths = new Set(paths)
+    setOpenedFiles((prev) => {
+      const nextFiles = prev.filter((file) => !removedPaths.has(file.path))
+      const currentActiveFilePath = activeFilePathRef.current
+      if (currentActiveFilePath && removedPaths.has(currentActiveFilePath)) {
+        const nextFile = nextFiles[0]
+        setActiveFilePath(nextFile?.path ?? null)
+      }
+      return nextFiles
+    })
+  }, [])
+
+  const reconcileOpenedFilesWithStatsRef = useRef<(paths: string[]) => Promise<void>>(async () => {})
 
   useEffect(() => {
     openedFilesRef.current = openedFiles
@@ -95,8 +155,10 @@ export function useShellFileController({
   }, [fileReadMode])
 
   const loadFileContent = useMemo(
-    () => async (filePath: string, mode: FileReadMode = 'full', options?: { activate?: boolean }) => {
+    () => async (filePath: string, mode: FileReadMode = 'full', options?: LoadFileOptions) => {
       const activate = options?.activate !== false
+      const forceReload = options?.forceReload === true
+      const silent = options?.silent === true
       if (!activeWorkspaceId) {
         setFileReadError(t(locale, 'fileContent.bindWorkspace'))
         return
@@ -129,7 +191,7 @@ export function useShellFileController({
       }
 
       const existingFile = openedFilesRef.current.find((file) => file.path === filePath)
-      if (existingFile?.hydrated) {
+      if (existingFile?.hydrated && !forceReload && !existingFile.isStale) {
         if (activate) setActiveFilePath(filePath)
         setFileCanRenderText(true)
         setFilePreviewNotice(null)
@@ -138,35 +200,50 @@ export function useShellFileController({
       }
 
       if (activate) setActiveFilePath(filePath)
-      setFileReadLoading(true)
-      setFileReadError(null)
-      setFilePreviewNotice(null)
+      const affectsVisibleFile = activate || activeFilePathRef.current === filePath
+      if (!silent && affectsVisibleFile) {
+        setFileReadLoading(true)
+        setFileReadError(null)
+        setFilePreviewNotice(null)
+      }
       const currentSeq = fileReadSeqRef.current + 1
       fileReadSeqRef.current = currentSeq
+      fileReadSeqByPathRef.current.set(filePath, currentSeq)
 
       try {
         const response =
           mode === 'full'
             ? await desktopApi.fsReadFileFull(activeWorkspaceId, filePath)
             : await desktopApi.fsReadFile(activeWorkspaceId, filePath)
-        if (fileReadSeqRef.current !== currentSeq) {
+        if (fileReadSeqByPathRef.current.get(filePath) !== currentSeq) {
           return
         }
 
         setFileReadMode(mode)
         if (!response.previewable) {
-          setFileCanRenderText(false)
-          setFilePreviewNotice(
-            t(locale, 'file.previewBinary', {
-              size: response.sizeBytes,
-            }),
-          )
+          if (affectsVisibleFile) {
+            setFileCanRenderText(false)
+            setFilePreviewNotice(
+              t(locale, 'file.previewBinary', {
+                size: response.sizeBytes,
+              }),
+            )
+          }
           return
         }
 
-        setFileCanRenderText(true)
+        if (affectsVisibleFile) {
+          setFileCanRenderText(true)
+        }
         setOpenedFiles((prev) => {
-          const exists = prev.some((file) => file.path === filePath)
+          const existingOpenedFile = prev.find((file) => file.path === filePath)
+          if (!existingOpenedFile && !activate) {
+            return prev
+          }
+          if (existingOpenedFile?.isModified && !activate) {
+            return prev
+          }
+          const exists = Boolean(existingOpenedFile)
           if (exists) {
             return prev.map((file) =>
               file.path === filePath
@@ -195,39 +272,150 @@ export function useShellFileController({
             },
           ]
         })
-        if (response.truncated) {
-          setFilePreviewNotice(
-            t(locale, mode === 'full' ? 'file.previewStillTruncated' : 'file.previewTruncated', {
-              preview: response.previewBytes,
-              size: response.sizeBytes,
-            }),
-          )
-        } else {
-          setFilePreviewNotice(null)
+        if (affectsVisibleFile) {
+          if (response.truncated) {
+            setFilePreviewNotice(
+              t(locale, mode === 'full' ? 'file.previewStillTruncated' : 'file.previewTruncated', {
+                preview: response.previewBytes,
+                size: response.sizeBytes,
+              }),
+            )
+          } else {
+            setFilePreviewNotice(null)
+          }
         }
       } catch (error) {
-        if (fileReadSeqRef.current !== currentSeq) {
+        if (fileReadSeqByPathRef.current.get(filePath) !== currentSeq) {
           return
         }
-        setFilePreviewNotice(null)
-        setFileCanRenderText(false)
-        setFileReadError(
-          t(locale, 'file.readError', {
-            detail: describeError(error),
-          }),
-        )
+        if (forceReload) {
+          if (isPathInvalidReadError(error) && activeWorkspaceId) {
+            try {
+              const statResponse = await desktopApi.fsStatFiles(activeWorkspaceId, [filePath])
+              const statEntry = statResponse.entries.find((entry) => entry.path === filePath)
+              if (!statEntry?.exists) {
+                removeOpenedFiles([filePath])
+                return
+              }
+              markFilesStale([filePath], new Map([[filePath, statEntry.mtimeMs]]))
+              return
+            } catch {
+              markFilesStale([filePath])
+              return
+            }
+          }
+          if (silent) {
+            markFilesStale([filePath])
+            return
+          }
+        }
+        if (affectsVisibleFile) {
+          setFilePreviewNotice(null)
+          setFileCanRenderText(false)
+          setFileReadError(
+            t(locale, 'file.readError', {
+              detail: describeError(error),
+            }),
+          )
+        }
       } finally {
-        if (fileReadSeqRef.current === currentSeq) {
+        if (
+          !silent &&
+          affectsVisibleFile &&
+          fileReadSeqByPathRef.current.get(filePath) === currentSeq
+        ) {
           setFileReadLoading(false)
         }
       }
     },
-    [activeWorkspaceId, locale],
+    [activeWorkspaceId, locale, markFilesStale, removeOpenedFiles],
+  )
+
+  const reconcileOpenedFilesWithStats = useCallback(
+    async (paths: string[]) => {
+      if (!activeWorkspaceId) {
+        return
+      }
+      const candidatePaths = Array.from(
+        new Set(
+          paths.filter((path) => {
+            const file = openedFilesRef.current.find((entry) => entry.path === path)
+            return Boolean(file && file.hydrated && file.viewType === 'editor')
+          }),
+        ),
+      )
+      if (candidatePaths.length === 0) {
+        return
+      }
+
+      let statResponse: { entries: FsStatEntry[] }
+      try {
+        statResponse = await desktopApi.fsStatFiles(activeWorkspaceId, candidatePaths)
+      } catch {
+        return
+      }
+
+      const statByPath = new Map(statResponse.entries.map((entry) => [entry.path, entry]))
+      const filesToReload: string[] = []
+      const filesToRemove: string[] = []
+      const staleFiles: string[] = []
+      const staleMtimeByPath = new Map<string, number>()
+
+      for (const path of candidatePaths) {
+        const file = openedFilesRef.current.find((entry) => entry.path === path)
+        if (!file || !file.hydrated || file.viewType !== 'editor') {
+          continue
+        }
+
+        const statEntry = statByPath.get(path)
+        if (!statEntry?.exists) {
+          filesToRemove.push(path)
+          continue
+        }
+        if (statEntry.mtimeMs === file.mtimeMs) {
+          continue
+        }
+
+        const savedAt = recentlySavedPathsRef.current.get(path)
+        if (savedAt && Date.now() - savedAt < 2000 && statEntry.mtimeMs === file.mtimeMs) {
+          continue
+        }
+
+        if (file.isModified) {
+          staleFiles.push(path)
+          staleMtimeByPath.set(path, statEntry.mtimeMs)
+          continue
+        }
+
+        filesToReload.push(path)
+      }
+
+      if (filesToRemove.length > 0) {
+        removeOpenedFiles(filesToRemove)
+      }
+      if (staleFiles.length > 0) {
+        markFilesStale(staleFiles, staleMtimeByPath)
+      }
+      await Promise.all(
+        filesToReload.map((path) =>
+          loadFileContentRef.current(path, fileReadModeRef.current, {
+            activate: false,
+            forceReload: true,
+            silent: true,
+          }),
+        ),
+      )
+    },
+    [activeWorkspaceId, markFilesStale, removeOpenedFiles],
   )
 
   useEffect(() => {
     loadFileContentRef.current = loadFileContent
   }, [loadFileContent])
+
+  useEffect(() => {
+    reconcileOpenedFilesWithStatsRef.current = reconcileOpenedFilesWithStats
+  }, [reconcileOpenedFilesWithStats])
 
   const saveFileContent = useCallback(
     async (filePath: string, content: string): Promise<boolean> => {
@@ -293,6 +481,9 @@ export function useShellFileController({
 
   const closeFile = useCallback(
     (filePath: string) => {
+      recentlySavedPathsRef.current.delete(filePath)
+      fileReadSeqByPathRef.current.delete(filePath)
+      pendingExternalStatPathsRef.current.delete(filePath)
       setOpenedFiles((prev) => {
         const nextFiles = prev.filter((file) => file.path !== filePath)
         if (activeFilePathRef.current === filePath) {
@@ -316,21 +507,7 @@ export function useShellFileController({
       setActiveFilePath(filePath)
       setFileReadError(null)
       if (existing?.hydrated && existing.mtimeMs > 0 && activeWorkspaceId) {
-        void desktopApi.fsStatFiles(activeWorkspaceId, [filePath]).then((statResponse) => {
-          const statEntry = statResponse.entries.find((e) => e.path === filePath)
-          if (!statEntry || !statEntry.exists) return
-          if (statEntry.mtimeMs !== existing.mtimeMs) {
-            if (!existing.isModified) {
-              void loadFileContent(filePath, fileReadModeRef.current, { activate: false })
-            } else {
-              setOpenedFiles((prev) =>
-                prev.map((file) =>
-                  file.path === filePath ? { ...file, isStale: true } : file,
-                ),
-              )
-            }
-          }
-        }).catch(() => {})
+        void reconcileOpenedFilesWithStatsRef.current([filePath])
       }
     },
     [loadFileContent, activeWorkspaceId],
@@ -339,7 +516,9 @@ export function useShellFileController({
   const handleFileModified = useCallback((filePath: string, isModified: boolean) => {
     setOpenedFiles((prev) =>
       prev.map((file) =>
-        file.path === filePath ? { ...file, isModified, ...(isModified ? {} : { isStale: false }) } : file,
+        file.path === filePath
+          ? { ...file, isModified, ...(isModified ? {} : { isStale: false }) }
+          : file,
       ),
     )
   }, [])
@@ -387,13 +566,17 @@ export function useShellFileController({
 
   const movePathInWorkspace = useMemo(
     () => async (fromPath: string, toPath: string) => {
+      console.log('[movePathInWorkspace] called', { fromPath, toPath, activeWorkspaceId })
       if (!activeWorkspaceId) {
         setFileReadError(t(locale, 'fileContent.bindWorkspace'))
+        console.warn('[movePathInWorkspace] no activeWorkspaceId, aborting')
         return false
       }
 
       try {
+        console.log('[movePathInWorkspace] calling desktopApi.fsMove...')
         const response = await desktopApi.fsMove(activeWorkspaceId, fromPath, toPath)
+        console.log('[movePathInWorkspace] fsMove response:', response)
         if (!response.moved) {
           return true
         }
@@ -409,6 +592,7 @@ export function useShellFileController({
         }
         return true
       } catch (error) {
+        console.error('[movePathInWorkspace] fsMove threw:', error)
         setFileReadError(
           t(locale, 'file.moveFailed', {
             detail: describeError(error),
@@ -427,6 +611,29 @@ export function useShellFileController({
 
     let active = true
     let cleanup: (() => void) | null = null
+    const scheduleStatReconcile = (paths: string[]) => {
+      const candidatePaths = paths.filter((path) => {
+        const file = openedFilesRef.current.find((entry) => entry.path === path)
+        return Boolean(file && file.hydrated && file.viewType === 'editor')
+      })
+      if (candidatePaths.length === 0) {
+        return
+      }
+      for (const path of candidatePaths) {
+        pendingExternalStatPathsRef.current.add(path)
+      }
+      clearPendingExternalStatTimer()
+      pendingExternalStatTimerRef.current = setTimeout(() => {
+        const queuedPaths = Array.from(pendingExternalStatPathsRef.current)
+        pendingExternalStatPathsRef.current.clear()
+        pendingExternalStatTimerRef.current = null
+        if (queuedPaths.length === 0) {
+          return
+        }
+        void reconcileOpenedFilesWithStatsRef.current(queuedPaths)
+      }, 120)
+    }
+
     const handleFilesystemChanged = (payload: FilesystemChangedPayload) => {
       if (!active || payload.workspaceId !== activeWorkspaceId) {
         return
@@ -438,16 +645,7 @@ export function useShellFileController({
       }
 
       if (payload.kind === 'removed') {
-        const removedPaths = new Set(changedPaths)
-        setOpenedFiles((prev) => {
-          const nextFiles = prev.filter((file) => !removedPaths.has(file.path))
-          const currentActiveFilePath = activeFilePathRef.current
-          if (currentActiveFilePath && removedPaths.has(currentActiveFilePath)) {
-            const nextFile = nextFiles[0]
-            setActiveFilePath(nextFile?.path ?? null)
-          }
-          return nextFiles
-        })
+        removeOpenedFiles(changedPaths)
         return
       }
       if (
@@ -456,27 +654,7 @@ export function useShellFileController({
         payload.kind === 'renamed' ||
         payload.kind === 'other'
       ) {
-        for (const file of currentOpenedFiles) {
-          if (
-            changedPaths.includes(file.path) &&
-            file.viewType === 'editor' &&
-            file.hydrated
-          ) {
-            const savedAt = recentlySavedPathsRef.current.get(file.path)
-            if (savedAt && Date.now() - savedAt < 2000) {
-              continue
-            }
-            if (!file.isModified) {
-              void loadFileContent(file.path, fileReadModeRef.current, { activate: false })
-            } else {
-              setOpenedFiles((prev) =>
-                prev.map((f) =>
-                  f.path === file.path ? { ...f, isStale: true } : f,
-                ),
-              )
-            }
-          }
-        }
+        scheduleStatReconcile(changedPaths)
       }
     }
 
@@ -490,11 +668,13 @@ export function useShellFileController({
 
     return () => {
       active = false
+      clearPendingExternalStatTimer()
+      pendingExternalStatPathsRef.current.clear()
       if (cleanup) {
         cleanup()
       }
     }
-  }, [activeWorkspaceId, loadFileContent])
+  }, [activeWorkspaceId, clearPendingExternalStatTimer, removeOpenedFiles])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -512,27 +692,7 @@ export function useShellFileController({
         )
         if (eligibleFiles.length === 0) return
 
-        const paths = eligibleFiles.map((file) => file.path)
-        void desktopApi.fsStatFiles(activeWorkspaceId, paths).then((statResponse) => {
-          const statByPath = new Map(statResponse.entries.map((e) => [e.path, e]))
-          for (const file of eligibleFiles) {
-            const stat = statByPath.get(file.path)
-            if (!stat || !stat.exists) continue
-            if (stat.mtimeMs !== file.mtimeMs) {
-              if (!file.isModified) {
-                void loadFileContentRef.current(file.path, fileReadModeRef.current, {
-                  activate: false,
-                })
-              } else {
-                setOpenedFiles((prev) =>
-                  prev.map((f) =>
-                    f.path === file.path ? { ...f, isStale: true } : f,
-                  ),
-                )
-              }
-            }
-          }
-        }).catch(() => {})
+        void reconcileOpenedFilesWithStatsRef.current(eligibleFiles.map((file) => file.path))
       }, 250)
     }
 
@@ -564,9 +724,13 @@ export function useShellFileController({
 
   const resetFileState = useCallback(() => {
     fileReadSeqRef.current += 1
+    fileReadSeqByPathRef.current.clear()
     openedFilesRef.current = []
     activeFilePathRef.current = null
     fileReadModeRef.current = 'full'
+    recentlySavedPathsRef.current.clear()
+    pendingExternalStatPathsRef.current.clear()
+    clearPendingExternalStatTimer()
     setOpenedFiles([])
     setActiveFilePath(null)
     setFilePreviewNotice(null)
@@ -576,7 +740,7 @@ export function useShellFileController({
     setFileReadError(null)
     setIsFileSearchModalOpen(false)
     setFileEditorCommandRequest(null)
-  }, [])
+  }, [clearPendingExternalStatTimer])
 
   const tabSessionSnapshotEntries = useMemo(
     () =>

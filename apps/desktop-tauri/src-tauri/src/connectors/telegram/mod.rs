@@ -15,7 +15,10 @@ use tauri::{AppHandle, Manager};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
-use crate::{app_state::AppState, commands::tool_adapter::process_external_inbound_message};
+use crate::{
+    app_state::AppState,
+    commands::tool_adapter::{needed_channel_accounts, process_external_inbound_message},
+};
 
 use super::credential_store::{load_secret, store_secret};
 use api::{
@@ -873,14 +876,22 @@ pub async fn answer_callback_query(
     Ok(())
 }
 
-fn polling_accounts(app: &AppHandle) -> Vec<TelegramAccountRecord> {
+fn polling_accounts(app: &AppHandle, state: &AppState) -> Vec<TelegramAccountRecord> {
+    let needed = needed_channel_accounts(state);
     let Ok(store) = load_store(app) else {
         return Vec::new();
     };
     let mut accounts: Vec<TelegramAccountRecord> = store
         .telegram_accounts
         .values()
-        .filter(|record| record.enabled && record.mode.eq_ignore_ascii_case("polling"))
+        .filter(|record| {
+            record.enabled
+                && record.mode.eq_ignore_ascii_case("polling")
+                && needed.contains(&(
+                    "telegram".to_string(),
+                    record.account_id.to_ascii_lowercase(),
+                ))
+        })
         .cloned()
         .collect();
     accounts.sort_by(|a, b| a.account_id.cmp(&b.account_id));
@@ -976,7 +987,7 @@ async fn poll_account_once(
 pub fn spawn_polling_worker(app: AppHandle, state: AppState) {
     tauri::async_runtime::spawn(async move {
         loop {
-            let accounts = polling_accounts(&app);
+            let accounts = polling_accounts(&app, &state);
             for record in accounts {
                 if let Err(error) = poll_account_once(&app, &state, record.clone()).await {
                     warn!(

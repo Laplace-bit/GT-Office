@@ -1187,6 +1187,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     fileTreePaneProps: {
         locale,
         workspaceId: activeWorkspaceId,
+        workspaceRoot: activeWorkspaceRoot,
+        isMacOs: nativeWindowTopMacOs,
         selectedFilePath: activeFilePath,
         onSelectFile: handleFileTreeSelectFile,
         onCreateFile: createFileInWorkspace,
@@ -1240,6 +1242,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         onSaveFile: saveFileContent,
         onFileModified: handleFileModified,
         editorCommandRequest: fileEditorCommandRequest,
+        autoSaveEnabled: uiPreferences.fileEditorAutoSaveEnabled,
+        autoSaveDelayMs: uiPreferences.fileEditorAutoSaveDelayMs,
       },
     gitHistoryPaneProps: {
         controller: gitController,
@@ -1277,6 +1281,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         monoFont: uiPreferences.monoFont,
         uiFontSize: uiPreferences.uiFontSize,
         workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
+        fileEditorAutoSaveEnabled: uiPreferences.fileEditorAutoSaveEnabled,
+        fileEditorAutoSaveDelayMs: uiPreferences.fileEditorAutoSaveDelayMs,
         isMacOs: nativeWindowTopMacOs,
         taskQuickDispatchShortcut: shortcutBindings.taskQuickDispatch,
         defaultTaskQuickDispatchShortcut: platformDefaultShortcutBindings.taskQuickDispatch,
@@ -1308,6 +1314,16 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
           setUiPreferences((prev) => ({
             ...prev,
             workspaceSwitchAnimation: value,
+          })),
+        onFileEditorAutoSaveEnabledChange: (value) =>
+          setUiPreferences((prev) => ({
+            ...prev,
+            fileEditorAutoSaveEnabled: value,
+          })),
+        onFileEditorAutoSaveDelayChange: (value) =>
+          setUiPreferences((prev) => ({
+            ...prev,
+            fileEditorAutoSaveDelayMs: value,
           })),
         onTaskQuickDispatchShortcutChange: handleTaskQuickDispatchShortcutChange,
         onTaskQuickDispatchShortcutReset: handleTaskQuickDispatchShortcutReset,

@@ -6,6 +6,9 @@ export const messages = {
   'displayPreferences.theme': { 'zh-CN': '主题', 'en-US': 'Theme' },
   'displayPreferences.uiFont': { 'zh-CN': '界面字体', 'en-US': 'UI Font' },
   'displayPreferences.monoFont': { 'zh-CN': '代码字体', 'en-US': 'Mono Font' },
+  'displayPreferences.fileEditor': { 'zh-CN': '文件编辑', 'en-US': 'File Editor' },
+  'displayPreferences.fileEditorAutoSave': { 'zh-CN': '自动保存', 'en-US': 'Auto Save' },
+  'displayPreferences.fileEditorAutoSaveDelay': { 'zh-CN': '自动保存延时', 'en-US': 'Auto Save Delay' },
   'themeOption.graphiteLight': { 'zh-CN': '浅色石墨', 'en-US': 'Graphite Light' },
   'themeOption.graphiteDark': { 'zh-CN': '深色石墨', 'en-US': 'Graphite Dark' },
   'themeOption.sakuraNight': { 'zh-CN': '樱花夜', 'en-US': 'Sakura Night' },
@@ -448,6 +451,7 @@ export const messages = {
     'en-US': 'Failed to paste: {detail}',
   },
   'fileTree.copyPath': { 'zh-CN': '复制相对路径', 'en-US': 'Copy Relative Path' },
+  'fileTree.copyFullPath': { 'zh-CN': '复制完整路径', 'en-US': 'Copy Full Path' },
   'fileTree.revealInExplorer': { 'zh-CN': '在资源管理器中显示', 'en-US': 'Reveal in Explorer' },
   'fileTree.revealFailed': {
     'zh-CN': '打开界面失败: {detail}',
@@ -479,6 +483,13 @@ export const messages = {
     'zh-CN': '重命名/移动 {path}\n输入新名称（同级重命名）或目标相对路径',
     'en-US': 'Rename/move {path}\nInput new name (rename in same directory) or target relative path',
   },
+  'fileTab.close': { 'zh-CN': '关闭', 'en-US': 'Close' },
+  'fileTab.closeOthers': { 'zh-CN': '关闭其他标签页', 'en-US': 'Close Others' },
+  'fileTab.closeToRight': { 'zh-CN': '关闭右侧标签页', 'en-US': 'Close Tabs to the Right' },
+  'fileTab.closeAll': { 'zh-CN': '关闭全部标签页', 'en-US': 'Close All' },
+  'fileTab.copyPath': { 'zh-CN': '复制相对路径', 'en-US': 'Copy Relative Path' },
+  'fileTab.copyFullPath': { 'zh-CN': '复制完整路径', 'en-US': 'Copy Full Path' },
+  'fileTab.revealInExplorer': { 'zh-CN': '在资源管理器中显示', 'en-US': 'Reveal in Explorer' },
 
   'nav.stations': { 'zh-CN': '角色管理', 'en-US': 'Roles' },
   'nav.stationsShort': { 'zh-CN': '角色', 'en-US': 'RL' },
@@ -920,6 +931,10 @@ export const messages = {
   'displayPreferences.animationCrossfade': { 'zh-CN': '淡入淡出', 'en-US': 'Fade' },
   'displayPreferences.animationSlide': { 'zh-CN': '向左滑动', 'en-US': 'Slide Left' },
   'displayPreferences.animationNone': { 'zh-CN': '无', 'en-US': 'None' },
+  'displayPreferences.fileEditorAutoSaveDelay1s': { 'zh-CN': '1 秒', 'en-US': '1 second' },
+  'displayPreferences.fileEditorAutoSaveDelay2s': { 'zh-CN': '2 秒', 'en-US': '2 seconds' },
+  'displayPreferences.fileEditorAutoSaveDelay5s': { 'zh-CN': '5 秒', 'en-US': '5 seconds' },
+  'displayPreferences.fileEditorAutoSaveDelay10s': { 'zh-CN': '10 秒', 'en-US': '10 seconds' },
 
 
   'settings.channel.entry.title': { 'zh-CN': 'Channel 管理', 'en-US': 'Channel Management' },

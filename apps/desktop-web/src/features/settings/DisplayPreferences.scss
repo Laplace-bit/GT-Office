@@ -141,6 +141,57 @@
   }
 }
 
+.settings-row .settings-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+
+  input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.settings-switch-track {
+  width: rem(40);
+  height: rem(24);
+  border-radius: rem(999);
+  background: color-mix(in srgb, var(--vb-border-strong) 70%, transparent);
+  padding: rem(2);
+  display: inline-flex;
+  align-items: center;
+  transition: background-color 0.2s ease;
+}
+
+.settings-switch-thumb {
+  width: rem(20);
+  height: rem(20);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 rem(1) rem(3) rgba(0, 0, 0, 0.18);
+  transform: translateX(0);
+  transition: transform 0.2s ease;
+}
+
+.settings-switch input:checked + .settings-switch-track {
+  background: var(--vb-accent);
+}
+
+.settings-switch input:checked + .settings-switch-track .settings-switch-thumb {
+  transform: translateX(rem(16));
+}
+
+.settings-switch input:focus-visible + .settings-switch-track {
+  box-shadow: 0 0 0 rem(3) color-mix(in srgb, var(--vb-accent) 20%, transparent);
+}
+
 /* Dark Mode Overrides */
 [data-theme='graphite-dark'],
 [data-theme='sakura-night'] {

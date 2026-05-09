@@ -8,7 +8,14 @@ import { useAppUpdate } from './useAppUpdate'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { ChannelManagerPane } from '../tool-adapter/ChannelManagerPane'
-import type { MonoFont, ThemeMode, UiFont, UiFontSize, WorkspaceSwitchAnimation } from '@shell/state/ui-preferences'
+import type {
+  FileEditorAutoSaveDelay,
+  MonoFont,
+  ThemeMode,
+  UiFont,
+  UiFontSize,
+  WorkspaceSwitchAnimation,
+} from '@shell/state/ui-preferences'
 import type { ShortcutBinding } from '@features/keybindings'
 import { desktopApi } from '@shell/integration/desktop-api'
 import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
@@ -31,6 +38,8 @@ interface SettingsModalProps {
   monoFont: MonoFont
   uiFontSize: UiFontSize
   workspaceSwitchAnimation: WorkspaceSwitchAnimation
+  fileEditorAutoSaveEnabled: boolean
+  fileEditorAutoSaveDelayMs: FileEditorAutoSaveDelay
   isMacOs: boolean
   taskQuickDispatchShortcut: ShortcutBinding
   defaultTaskQuickDispatchShortcut: ShortcutBinding
@@ -41,6 +50,8 @@ interface SettingsModalProps {
   onMonoFontChange: (value: MonoFont) => void
   onUiFontSizeChange: (value: UiFontSize) => void
   onWorkspaceSwitchAnimationChange: (value: WorkspaceSwitchAnimation) => void
+  onFileEditorAutoSaveEnabledChange: (value: boolean) => void
+  onFileEditorAutoSaveDelayChange: (value: FileEditorAutoSaveDelay) => void
   onTaskQuickDispatchShortcutChange: (binding: ShortcutBinding) => void
   onTaskQuickDispatchShortcutReset: () => void
   onWorkspaceResetSuccess?: () => void
@@ -77,6 +88,8 @@ export function SettingsModal({
   monoFont,
   uiFontSize,
   isMacOs,
+  fileEditorAutoSaveEnabled,
+  fileEditorAutoSaveDelayMs,
   taskQuickDispatchShortcut,
   defaultTaskQuickDispatchShortcut,
   onClose,
@@ -87,6 +100,8 @@ export function SettingsModal({
   onUiFontSizeChange,
   workspaceSwitchAnimation,
   onWorkspaceSwitchAnimationChange,
+  onFileEditorAutoSaveEnabledChange,
+  onFileEditorAutoSaveDelayChange,
   onTaskQuickDispatchShortcutChange,
   onTaskQuickDispatchShortcutReset,
   onWorkspaceResetSuccess,
@@ -162,12 +177,16 @@ export function SettingsModal({
               monoFont={monoFont}
               uiFontSize={uiFontSize}
               workspaceSwitchAnimation={workspaceSwitchAnimation}
+              fileEditorAutoSaveEnabled={fileEditorAutoSaveEnabled}
+              fileEditorAutoSaveDelayMs={fileEditorAutoSaveDelayMs}
               onLocaleChange={onLocaleChange}
               onThemeModeChange={onThemeModeChange}
               onUiFontChange={onUiFontChange}
               onMonoFontChange={onMonoFontChange}
               onUiFontSizeChange={onUiFontSizeChange}
               onWorkspaceSwitchAnimationChange={onWorkspaceSwitchAnimationChange}
+              onFileEditorAutoSaveEnabledChange={onFileEditorAutoSaveEnabledChange}
+              onFileEditorAutoSaveDelayChange={onFileEditorAutoSaveDelayChange}
             />
             <WorkspaceResetSection locale={locale} workspaceId={workspaceId} onResetSuccess={onWorkspaceResetSuccess} />
           </div>

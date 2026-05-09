@@ -24,6 +24,7 @@ export type ExternalChannelEventItem = {
   targetAgentId?: string
   endpointKey?: string
   conversationKey?: string
+  workspaceId?: string | null
 }
 
 type ConversationGroup = {

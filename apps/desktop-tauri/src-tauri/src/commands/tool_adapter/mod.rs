@@ -2335,6 +2335,39 @@ fn active_workspace_id(state: &AppState) -> Option<String> {
         .map(|workspace| workspace.workspace_id.to_string())
 }
 
+pub(crate) fn needed_channel_accounts(state: &AppState) -> HashSet<(String, String)> {
+    let workspaces = match state.workspace_service.list() {
+        Ok(workspaces) => workspaces,
+        Err(_) => return HashSet::new(),
+    };
+    if workspaces.is_empty() {
+        return HashSet::new();
+    }
+    let mut needed = HashSet::new();
+    for workspace in &workspaces {
+        let bindings = state
+            .task_service
+            .list_route_bindings(Some(workspace.workspace_id.as_str()));
+        for binding in bindings {
+            if !binding.enabled {
+                continue;
+            }
+            let channel = binding.channel.trim().to_ascii_lowercase();
+            let account_id = binding
+                .account_id
+                .as_deref()
+                .map(|s| s.trim().to_ascii_lowercase())
+                .unwrap_or_else(|| "default".to_string());
+            if account_id.is_empty() {
+                needed.insert((channel, "default".to_string()));
+            } else {
+                needed.insert((channel, account_id));
+            }
+        }
+    }
+    needed
+}
+
 fn align_route_with_resolved_workspace(
     state: &AppState,
     message: &ExternalInboundMessage,

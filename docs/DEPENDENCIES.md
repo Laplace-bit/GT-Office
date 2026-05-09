@@ -60,6 +60,7 @@ Scope note:
 | | `@dnd-kit/core` | `apps/desktop-web/package.json` `^6.3.1` | ✅ Used | Drag-and-drop core |
 | | `@dnd-kit/sortable` | `apps/desktop-web/package.json` `^10.0.0` | ✅ Used | Sortable drag-and-drop |
 | | `@dnd-kit/utilities` | `apps/desktop-web/package.json` `^3.2.2` | ✅ Used | DnD utility helpers and transforms |
+| File tree | `react-arborist` | `apps/desktop-web/package.json` `^3.5.0` | ✅ Used | Mature virtualized tree with built-in drag/drop for VS Code style file explorer interactions; chosen over extending the custom tree or repurposing `@dnd-kit` for nested tree behavior; scoped to `apps/desktop-web` file explorer |
 | State | `@tanstack/react-query` | not in manifest | ❌ Unused | No current install |
 | | `zustand` | not in manifest | ❌ Unused | No current install |
 | Security | `dompurify` | not in manifest | ❌ Unused | No direct install; lockfile-only transitive presence does not count |
@@ -201,3 +202,4 @@ When a dependency is no longer used:
 | 2026-04-15 | Replaced | codemirror + language packages | Replaced by monaco-editor for VS Code parity |
 | 2026-04-15 | Added | monaco-editor, @monaco-editor/react | VS Code editor core for in-app editing |
 | 2026-04-18 | Reconciled | frontend and Rust allowlists | Added status markers, aligned tables with current manifests, and recorded missing direct dependencies |
+| 2026-05-08 | Added | react-arborist | Replaced bespoke file tree drag/drop behavior with a mature virtualized tree for explorer parity |

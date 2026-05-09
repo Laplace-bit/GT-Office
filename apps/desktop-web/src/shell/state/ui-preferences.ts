@@ -17,6 +17,7 @@ export type UiFont = 'sf-pro' | 'ibm-plex' | 'system-ui'
 export type MonoFont = 'jetbrains-mono' | 'cascadia-code' | 'fira-code'
 export type UiFontSize = 'small' | 'medium' | 'large' | 'xlarge'
 export type WorkspaceSwitchAnimation = 'crossfade' | 'slide' | 'none'
+export type FileEditorAutoSaveDelay = 1000 | 2000 | 5000 | 10000
 
 export function isDarkTheme(theme: ThemeMode): boolean {
   return theme !== 'graphite-light'
@@ -58,6 +59,8 @@ export interface UiPreferences {
   monoFont: MonoFont
   uiFontSize: UiFontSize
   workspaceSwitchAnimation: WorkspaceSwitchAnimation
+  fileEditorAutoSaveEnabled: boolean
+  fileEditorAutoSaveDelayMs: FileEditorAutoSaveDelay
   autoCheckAppUpdates: boolean
   skippedAppUpdateVersion: string | null
   showWorkspaceActionsInRail: boolean
@@ -300,6 +303,8 @@ export const defaultUiPreferences: UiPreferences = {
   monoFont: 'jetbrains-mono',
   uiFontSize: 'medium',
   workspaceSwitchAnimation: 'crossfade',
+  fileEditorAutoSaveEnabled: false,
+  fileEditorAutoSaveDelayMs: 2000,
   autoCheckAppUpdates: true,
   skippedAppUpdateVersion: null,
   showWorkspaceActionsInRail: true,
@@ -338,6 +343,16 @@ export const workspaceSwitchAnimationOptions: Array<{ value: WorkspaceSwitchAnim
   { value: 'crossfade', labelKey: 'displayPreferences.animationCrossfade' },
   { value: 'slide', labelKey: 'displayPreferences.animationSlide' },
   { value: 'none', labelKey: 'displayPreferences.animationNone' },
+]
+
+export const fileEditorAutoSaveDelayOptions: Array<{
+  value: FileEditorAutoSaveDelay
+  labelKey: TranslationKey
+}> = [
+  { value: 1000, labelKey: 'displayPreferences.fileEditorAutoSaveDelay1s' },
+  { value: 2000, labelKey: 'displayPreferences.fileEditorAutoSaveDelay2s' },
+  { value: 5000, labelKey: 'displayPreferences.fileEditorAutoSaveDelay5s' },
+  { value: 10000, labelKey: 'displayPreferences.fileEditorAutoSaveDelay10s' },
 ]
 
 const uiFontSizeCssMap: Record<UiFontSize, string> = {
@@ -643,6 +658,17 @@ export function loadUiPreferences(): UiPreferences {
         parsed.workspaceSwitchAnimation === 'crossfade' || parsed.workspaceSwitchAnimation === 'slide' || parsed.workspaceSwitchAnimation === 'none'
           ? parsed.workspaceSwitchAnimation
           : defaultUiPreferences.workspaceSwitchAnimation,
+      fileEditorAutoSaveEnabled:
+        typeof parsed.fileEditorAutoSaveEnabled === 'boolean'
+          ? parsed.fileEditorAutoSaveEnabled
+          : defaultUiPreferences.fileEditorAutoSaveEnabled,
+      fileEditorAutoSaveDelayMs:
+        parsed.fileEditorAutoSaveDelayMs === 1000 ||
+        parsed.fileEditorAutoSaveDelayMs === 2000 ||
+        parsed.fileEditorAutoSaveDelayMs === 5000 ||
+        parsed.fileEditorAutoSaveDelayMs === 10000
+          ? parsed.fileEditorAutoSaveDelayMs
+          : defaultUiPreferences.fileEditorAutoSaveDelayMs,
       autoCheckAppUpdates:
         typeof parsed.autoCheckAppUpdates === 'boolean'
           ? parsed.autoCheckAppUpdates

@@ -7,9 +7,17 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent,
 } from 'react'
-import { defaultRangeExtractor, type Range, useVirtualizer } from '@tanstack/react-virtual'
+import { Folder, FolderOpen } from 'lucide-react'
+import {
+  Tree,
+  type DragPreviewProps,
+  type MoveHandler,
+  type NodeRendererProps,
+  type RowRendererProps,
+  type TreeApi,
+} from 'react-arborist'
+import { formatShortcutBinding, type ShortcutBinding } from '@features/keybindings'
 import {
   desktopApi,
   type FilesystemChangedPayload,
@@ -29,6 +37,8 @@ import './FileTreePane.scss'
 interface FileTreePaneProps {
   locale: Locale
   workspaceId: string | null
+  workspaceRoot?: string | null
+  isMacOs?: boolean
   selectedFilePath: string | null
   onSelectFile: (filePath: string, line?: number) => void
   onCreateFile: (filePath: string) => Promise<boolean>
@@ -37,36 +47,91 @@ interface FileTreePaneProps {
   onOpenSearch?: (mode?: 'file' | 'content') => void
 }
 
-interface TreeRow {
-  path: string
-  name: string
-  kind: 'dir' | 'file'
-  visual: FileVisual
-  depth: number
-  expanded: boolean
-  loading: boolean
-}
-
 interface TreeContextMenuState {
   x: number
   y: number
   path: string
+  kind: 'dir' | 'file' | 'blank'
+}
+
+interface TreeNodeData {
+  id: string
+  path: string
+  name: string
   kind: 'dir' | 'file'
+  visual: FileVisual
+  gitStatus: GitStatusVisual | null
+  loading: boolean
+  children: TreeNodeData[] | null
 }
 
 const ROOT_DIR = '.'
 const ROW_HEIGHT = 34
-const OVERSCAN_ROWS = 80
-const PRE_RENDER_AHEAD_ROWS = 200
-const PRE_RENDER_BEHIND_ROWS = 40
-const INITIAL_PRELOAD_ROWS = 400
-const SPEED_TIER_SAMPLE_MS = 32
-const SPEED_MEDIUM_PX_PER_SEC = 900
-const SPEED_FAST_PX_PER_SEC = 1800
-const SPEED_MEDIUM_EXTRA_ROWS = 400
-const SPEED_FAST_EXTRA_ROWS = 800
-const INITIAL_EXPANDED: Record<string, boolean> = {
-  [ROOT_DIR]: true,
+const OVERSCAN_COUNT = 16
+const INDENT = 14
+const SHORTCUT_CREATE_FILE: ShortcutBinding = {
+  key: 'a',
+  mod: false,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+const SHORTCUT_CREATE_FOLDER: ShortcutBinding = {
+  key: 'a',
+  mod: false,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: true,
+}
+const SHORTCUT_RENAME: ShortcutBinding = {
+  key: 'f2',
+  mod: false,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+const SHORTCUT_DELETE: ShortcutBinding = {
+  key: 'delete',
+  mod: false,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+const SHORTCUT_MAC_DELETE: ShortcutBinding = {
+  key: 'backspace',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+const SHORTCUT_CUT: ShortcutBinding = {
+  key: 'x',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+const SHORTCUT_COPY: ShortcutBinding = {
+  key: 'c',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
+}
+const SHORTCUT_PASTE: ShortcutBinding = {
+  key: 'v',
+  mod: true,
+  ctrl: false,
+  meta: false,
+  alt: false,
+  shift: false,
 }
 
 function normalizeDirectoryPath(path: string): string {
@@ -101,22 +166,87 @@ function leafName(path: string): string {
   return normalized.slice(index + 1)
 }
 
+function normalizeRelativePath(path: string): string {
+  const normalized = path
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/\/\?\//, '')
+    .replace(/^\/\/\.\//, '')
+    .replace(/^\/+/, '')
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '')
+  if (/^[A-Za-z]:/.test(normalized)) {
+    return ''
+  }
+  if (!normalized || normalized === '.') {
+    return ''
+  }
+  if (normalized.split('/').some((segment) => segment === '..' || segment.includes(':'))) {
+    return ''
+  }
+  const segments = normalized.split('/').filter((segment) => segment && segment !== '.')
+  return segments.join('/')
+}
+
+function normalizeRootForJoin(workspaceRoot: string): { root: string; separator: '\\' | '/' } {
+  const raw = workspaceRoot.trim()
+  const separator: '\\' | '/' = raw.includes('\\') ? '\\' : '/'
+  if (!raw) {
+    return { root: '', separator }
+  }
+  if (raw === '/' || raw === '\\') {
+    return { root: separator, separator }
+  }
+  const stripped = raw.replace(/[\\/]+$/, '')
+  if (!stripped) {
+    return { root: separator, separator }
+  }
+  if (/^[A-Za-z]:$/.test(stripped)) {
+    return { root: `${stripped}${separator}`, separator }
+  }
+  if (/^\\\\\?\\[A-Za-z]:$/.test(stripped)) {
+    return { root: `${stripped}\\`, separator: '\\' }
+  }
+  return { root: stripped, separator }
+}
+
+function resolveAbsolutePath(workspaceRoot: string, targetPath: string): string {
+  const { root, separator } = normalizeRootForJoin(workspaceRoot)
+  const normalizedRel = normalizeRelativePath(targetPath)
+  if (!normalizedRel) {
+    return root
+  }
+  const osPath = normalizedRel.split('/').join(separator)
+  if (!root) {
+    return `${separator}${osPath}`
+  }
+  if (root.endsWith(separator)) {
+    return `${root}${osPath}`
+  }
+  return `${root}${separator}${osPath}`
+}
+
 function collectAncestorDirectories(path: string): string[] {
   const normalized = normalizeDirectoryPath(path)
   if (normalized === ROOT_DIR) {
-    return [ROOT_DIR]
+    return []
   }
-
   const directories: string[] = []
   let current = parentDirectory(normalized)
-  while (true) {
+  while (current !== ROOT_DIR) {
     directories.unshift(current)
-    if (current === ROOT_DIR) {
-      break
-    }
     current = parentDirectory(current)
   }
   return directories
+}
+
+function sortEntries(entries: FsEntry[]): FsEntry[] {
+  return [...entries].sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === 'dir' ? -1 : 1
+    }
+    return left.name.localeCompare(right.name, 'zh-Hans-CN')
+  })
 }
 
 function describeUnknownError(error: unknown): string {
@@ -129,43 +259,6 @@ function describeUnknownError(error: unknown): string {
   return 'unknown'
 }
 
-function sortEntries(entries: FsEntry[]): FsEntry[] {
-  return [...entries].sort((left, right) => {
-    if (left.kind !== right.kind) {
-      return left.kind === 'dir' ? -1 : 1
-    }
-    return left.name.localeCompare(right.name, 'zh-Hans-CN')
-  })
-}
-
-function buildRows(
-  byDirectory: Record<string, FsEntry[]>,
-  expanded: Record<string, boolean>,
-  loading: Record<string, boolean>,
-  directory: string,
-  depth: number,
-): TreeRow[] {
-  const children = byDirectory[directory] ?? []
-  const rows: TreeRow[] = []
-  for (const entry of children) {
-    const normalizedPath = normalizeDirectoryPath(entry.path)
-    const row: TreeRow = {
-      path: normalizedPath,
-      name: entry.name,
-      kind: entry.kind,
-      visual: resolveFileVisual(entry.name, entry.kind, Boolean(expanded[normalizedPath])),
-      depth,
-      expanded: Boolean(expanded[normalizedPath]),
-      loading: Boolean(loading[normalizedPath]),
-    }
-    rows.push(row)
-    if (entry.kind === 'dir' && row.expanded) {
-      rows.push(...buildRows(byDirectory, expanded, loading, normalizedPath, depth + 1))
-    }
-  }
-  return rows
-}
-
 function isPathUnder(path: string, ancestor: string): boolean {
   const normalizedPath = normalizeDirectoryPath(path)
   const normalizedAncestor = normalizeDirectoryPath(ancestor)
@@ -175,24 +268,6 @@ function isPathUnder(path: string, ancestor: string): boolean {
   return (
     normalizedPath === normalizedAncestor || normalizedPath.startsWith(`${normalizedAncestor}/`)
   )
-}
-
-function resolveFocusedTreeItem(): { path: string; kind: 'dir' | 'file' } | null {
-  const activeElement = document.activeElement
-  if (!(activeElement instanceof HTMLElement)) {
-    return null
-  }
-  const elementWithPath = activeElement.closest<HTMLElement>('[data-path]')
-  const path = elementWithPath?.dataset.path
-  if (!path) {
-    return null
-  }
-  const elementWithKind = activeElement.closest<HTMLElement>('[data-kind]')
-  const kind = elementWithKind?.dataset.kind
-  if (kind === 'dir' || kind === 'file') {
-    return { path, kind }
-  }
-  return { path, kind: 'file' }
 }
 
 type GitTone = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
@@ -262,12 +337,8 @@ function buildGitStatusesByPath(files: GitStatusFile[]): Record<string, GitStatu
       continue
     }
     next[normalizedPath] = pickDominantGitStatus(next[normalizedPath], normalizedStatus)
-
     let currentParent = parentDirectory(normalizedPath)
-    while (true) {
-      if (!currentParent || currentParent === ROOT_DIR) {
-        break
-      }
+    while (currentParent !== ROOT_DIR) {
       next[currentParent] = pickDominantGitStatus(next[currentParent], normalizedStatus)
       currentParent = parentDirectory(currentParent)
     }
@@ -275,131 +346,121 @@ function buildGitStatusesByPath(files: GitStatusFile[]): Record<string, GitStatu
   return next
 }
 
-interface TreeRowItemProps {
-  row: TreeRow
-  virtualStart: number
-  virtualSize: number
-  isSelected: boolean
-  isCut: boolean
-  gitStatus: GitStatusVisual | null
-  animateFromExpansion: boolean
-  animationDelayMs: number
-  loadingText: string
-  onToggleDirectory: (event: MouseEvent<HTMLButtonElement>) => void
-  onSelectFile: (event: MouseEvent<HTMLButtonElement>) => void
-  onContextMenu: (event: MouseEvent<HTMLDivElement>) => void
+function buildTreeNodes(
+  byDirectory: Record<string, FsEntry[]>,
+  loading: Record<string, boolean>,
+  gitStatusesByPath: Record<string, GitStatusVisual>,
+  directory: string,
+): TreeNodeData[] {
+  const entries = byDirectory[directory] ?? []
+  return entries.map((entry) => {
+    const path = normalizeDirectoryPath(entry.path)
+    const children =
+      entry.kind === 'dir'
+        ? buildTreeNodes(byDirectory, loading, gitStatusesByPath, path)
+        : null
+    return {
+      id: path,
+      path,
+      name: entry.name,
+      kind: entry.kind,
+      visual: resolveFileVisual(entry.name, entry.kind, children != null && children.length > 0),
+      gitStatus: gitStatusesByPath[path] ?? null,
+      loading: entry.kind === 'dir' ? Boolean(loading[path]) : false,
+      children,
+    }
+  })
 }
 
-const TreeRowItem = memo(function TreeRowItem({
-  row,
-  virtualStart,
-  virtualSize,
-  isSelected,
-  isCut,
-  gitStatus,
-  animateFromExpansion,
-  animationDelayMs,
-  loadingText,
-  onToggleDirectory,
-  onSelectFile,
-  onContextMenu,
-}: TreeRowItemProps) {
-  const NodeIcon = row.visual.icon
+function collectNodeKinds(nodes: TreeNodeData[], output: Record<string, 'dir' | 'file'>) {
+  for (const node of nodes) {
+    output[node.path] = node.kind
+    if (node.children && node.children.length > 0) {
+      collectNodeKinds(node.children, output)
+    }
+  }
+}
 
-  const gitToneClass = gitStatus ? `tree-name-git--${gitStatus.tone}` : ''
+function TreeNodeRenderer({
+  node,
+  style,
+  dragHandle,
+  loadingLabel,
+}: NodeRendererProps<TreeNodeData> & { loadingLabel: string }) {
+  const data = node.data
+  const NodeIcon = data.kind === 'dir'
+    ? (node.isOpen ? FolderOpen : Folder)
+    : data.visual.icon
+  const gitToneClass = data.gitStatus ? `tree-name-git--${data.gitStatus.tone}` : ''
 
   return (
     <div
-      className={`tree-row tree-row-${row.kind} ${
-        row.kind === 'file' && isSelected ? 'tree-row-selected' : ''
-      } tree-row-visual-${row.visual.kind} ${isCut ? 'tree-row-cut' : ''} ${
-        animateFromExpansion ? 'tree-row-expand-enter' : ''
-      }`}
-      data-path={row.path}
-      data-kind={row.kind}
-      style={{
-        transform: `translate3d(0, ${virtualStart}px, 0)`,
-        height: `${virtualSize}px`,
-        paddingLeft: `${8 + row.depth * 14}px`,
-        animationDelay: animateFromExpansion ? `${animationDelayMs}ms` : undefined,
-      }}
-      onContextMenu={onContextMenu}
+      ref={dragHandle}
+      style={style}
+      className={`tree-node-shell tree-node-shell-${data.kind}`}
     >
-      {row.kind === 'dir' ? (
-        <button
-          type="button"
-          className="tree-toggle"
-          data-path={row.path}
-          onClick={onToggleDirectory}
-        >
-          <span className="tree-chevron">
+      {data.kind === 'dir' ? (
+        <div className="tree-toggle">
+          <span className="tree-chevron" onClick={(event) => {
+            event.stopPropagation()
+            node.toggle()
+          }}>
             <AppIcon
-              name={row.expanded ? 'chevron-down' : 'chevron-right'}
+              name={node.isOpen ? 'chevron-down' : 'chevron-right'}
               className="vb-icon vb-icon-tree-chevron"
               aria-hidden="true"
             />
           </span>
-          <span className={`tree-node-icon tree-node-icon--${row.visual.kind}`} aria-hidden="true">
+          <span className={`tree-node-icon tree-node-icon--${data.visual.kind}`} aria-hidden="true">
             <NodeIcon className="vb-icon vb-icon-tree-node" />
           </span>
-          <span className={`tree-toggle-label ${gitToneClass}`}>{row.name}</span>
-          {row.loading ? (
-            <span className="tree-loading">{loadingText}</span>
-          ) : null}
-        </button>
+          <span className={`tree-toggle-label ${gitToneClass}`}>{data.name}</span>
+          {data.loading ? <span className="tree-loading">{loadingLabel}</span> : null}
+        </div>
       ) : (
-        <button
-          type="button"
-          className="tree-file-button"
-          data-path={row.path}
-          onClick={onSelectFile}
-          title={row.path}
-        >
+        <div className="tree-file-button" title={data.path}>
           <span className="tree-file">
-            <span className={`tree-node-icon tree-node-icon--${row.visual.kind}`} aria-hidden="true">
+            <span className={`tree-node-icon tree-node-icon--${data.visual.kind}`} aria-hidden="true">
               <NodeIcon className="vb-icon vb-icon-tree-node" />
             </span>
-            <span className={`tree-file-name ${gitToneClass}`}>{row.name}</span>
-            {(row.visual.badge || gitStatus) ? (
+            <span className={`tree-file-name ${gitToneClass}`}>{data.name}</span>
+            {(data.visual.badge || data.gitStatus) ? (
               <span className="tree-file-meta">
-                {row.visual.badge ? <span className="tree-file-badge">{row.visual.badge}</span> : null}
-                {gitStatus ? (
-                  <span className={`tree-git-status tree-git-status--${gitStatus.tone}`}>
-                    {gitStatus.label}
+                {data.visual.badge ? <span className="tree-file-badge">{data.visual.badge}</span> : null}
+                {data.gitStatus ? (
+                  <span className={`tree-git-status tree-git-status--${data.gitStatus.tone}`}>
+                    {data.gitStatus.label}
                   </span>
                 ) : null}
               </span>
             ) : null}
           </span>
-        </button>
+        </div>
       )}
     </div>
   )
-}, (prev, next) => {
+}
+
+const MemoTreeNodeRenderer = memo(TreeNodeRenderer)
+
+function TreeDragPreview({ dragIds }: DragPreviewProps) {
   return (
-    prev.row.path === next.row.path &&
-    prev.row.expanded === next.row.expanded &&
-    prev.row.loading === next.row.loading &&
-    prev.row.name === next.row.name &&
-    prev.row.kind === next.row.kind &&
-    prev.row.visual.kind === next.row.visual.kind &&
-    prev.row.visual.badge === next.row.visual.badge &&
-    prev.row.visual.icon === next.row.visual.icon &&
-    prev.row.depth === next.row.depth &&
-    prev.isSelected === next.isSelected &&
-    prev.isCut === next.isCut &&
-    prev.gitStatus?.label === next.gitStatus?.label &&
-    prev.gitStatus?.tone === next.gitStatus?.tone &&
-    prev.virtualStart === next.virtualStart &&
-    prev.virtualSize === next.virtualSize &&
-    prev.animateFromExpansion === next.animateFromExpansion &&
-    prev.animationDelayMs === next.animationDelayMs
+    <div className="tree-row tree-row-drag-overlay">
+        <div className="tree-file">
+          <span className="tree-node-icon tree-node-icon--folder" aria-hidden="true">
+            <Folder className="vb-icon vb-icon-tree-node" />
+          </span>
+          <span className="tree-file-name">{dragIds.length > 1 ? `${dragIds.length} items` : dragIds[0]}</span>
+        </div>
+    </div>
   )
-})
+}
 
 export function FileTreePane({
   locale,
   workspaceId,
+  workspaceRoot: workspaceRootProp = null,
+  isMacOs = false,
   selectedFilePath,
   onSelectFile,
   onCreateFile,
@@ -408,14 +469,15 @@ export function FileTreePane({
   onOpenSearch,
 }: FileTreePaneProps) {
   const [entriesByDirectory, setEntriesByDirectory] = useState<Record<string, FsEntry[]>>({})
-  const [expandedDirectories, setExpandedDirectories] =
-    useState<Record<string, boolean>>(INITIAL_EXPANDED)
   const [loadedDirectories, setLoadedDirectories] = useState<Record<string, boolean>>({})
   const [loadingDirectories, setLoadingDirectories] = useState<Record<string, boolean>>({})
   const [contextMenu, setContextMenu] = useState<TreeContextMenuState | null>(null)
   const [clipboard, setClipboard] = useState<{ action: 'cut' | 'copy'; path: string } | null>(null)
+  const [workspaceRoot, setWorkspaceRoot] = useState(workspaceRootProp ?? '')
+  const [selectedTreePath, setSelectedTreePath] = useState<string | null>(selectedFilePath)
+  const [treeSize, setTreeSize] = useState({ width: 0, height: 0 })
+  const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
 
-  // Modal States
   const [promptModal, setPromptModal] = useState<{
     open: boolean
     title: string
@@ -429,7 +491,6 @@ export function FileTreePane({
     placeholder: '',
     onSubmit: () => {},
   })
-
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean
     title: string
@@ -442,25 +503,15 @@ export function FileTreePane({
     onConfirm: () => {},
   })
 
-  const [recentExpandedPath, setRecentExpandedPath] = useState<string | null>(null)
-  const [expandAnimationNonce, setExpandAnimationNonce] = useState(0)
-  const [hasInteractedScroll, setHasInteractedScroll] = useState(false)
-  const [scrollSpeedTier, setScrollSpeedTier] = useState<'idle' | 'medium' | 'fast'>('idle')
-  const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const workspaceIdRef = useRef<string | null>(workspaceId)
   const loadedDirectoriesRef = useRef<Record<string, boolean>>({})
   const inFlightDirectoryLoadsRef = useRef<Record<string, Promise<void>>>({})
   const pendingRefreshDirectoriesRef = useRef<Set<string>>(new Set())
   const refreshTimerRef = useRef<number | null>(null)
-  const lastScrollTopRef = useRef(0)
-  const lastScrollTsRef = useRef(0)
-  const scrollDirectionRef = useRef<'forward' | 'backward'>('forward')
-  const speedTierRafRef = useRef<number | null>(null)
-  const lastAutoRevealPathRef = useRef<string | null>(null)
-
-
-
+  const treeRef = useRef<TreeApi<TreeNodeData> | null>(null)
+  const resizeFrameRef = useRef<number | null>(null)
+  const pendingDropDirectoryRef = useRef<string | null>(null)
 
   const loadDirectory = useCallback(
     async (rawDirectoryPath: string) => {
@@ -474,7 +525,6 @@ export function FileTreePane({
         return
       }
       const requestWorkspaceId = workspaceId
-
       const task = (async () => {
         setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: true }))
         try {
@@ -498,7 +548,7 @@ export function FileTreePane({
             type: 'error',
             message: t(locale, 'fileTree.directoryLoadFailed', {
               detail: error instanceof Error ? error.message : describeUnknownError(error),
-            })
+            }),
           })
         } finally {
           delete inFlightDirectoryLoadsRef.current[directoryPath]
@@ -507,7 +557,6 @@ export function FileTreePane({
           }
         }
       })()
-
       inFlightDirectoryLoadsRef.current[directoryPath] = task
       await task
     },
@@ -538,14 +587,8 @@ export function FileTreePane({
       return
     }
     setEntriesByDirectory({})
-    setExpandedDirectories(INITIAL_EXPANDED)
     setLoadedDirectories({})
     setLoadingDirectories({})
-    setHasInteractedScroll(false)
-    setScrollSpeedTier('idle')
-    lastScrollTopRef.current = 0
-    lastScrollTsRef.current = 0
-    scrollDirectionRef.current = 'forward'
     await loadDirectory(ROOT_DIR)
     await refreshGitStatuses()
   }, [loadDirectory, refreshGitStatuses, workspaceId])
@@ -555,278 +598,143 @@ export function FileTreePane({
     inFlightDirectoryLoadsRef.current = {}
     if (!workspaceId) {
       setEntriesByDirectory({})
-      setExpandedDirectories(INITIAL_EXPANDED)
       setLoadedDirectories({})
       setLoadingDirectories({})
-      setHasInteractedScroll(false)
-      setScrollSpeedTier('idle')
-      lastScrollTopRef.current = 0
-      lastScrollTsRef.current = 0
-      scrollDirectionRef.current = 'forward'
-      setContextMenu(null)
       setGitStatusesByPath({})
+      setWorkspaceRoot('')
+      setSelectedTreePath(null)
       return
+    }
+    if (workspaceRootProp) {
+      setWorkspaceRoot(workspaceRootProp)
+    } else {
+      void desktopApi
+        .workspaceGetContext(workspaceId)
+        .then((context) => {
+          if (workspaceIdRef.current === workspaceId) {
+            setWorkspaceRoot(context.root)
+          }
+        })
+        .catch(() => {
+          if (workspaceIdRef.current === workspaceId) {
+            setWorkspaceRoot('')
+          }
+        })
     }
     void refreshRoot()
-  }, [refreshRoot, workspaceId])
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
-
-    const closeMenu = () => setContextMenu(null)
-    window.addEventListener('click', closeMenu)
-    window.addEventListener('scroll', closeMenu, true)
-
-    return () => {
-      window.removeEventListener('click', closeMenu)
-      window.removeEventListener('scroll', closeMenu, true)
-    }
-  }, [contextMenu])
+  }, [refreshRoot, workspaceId, workspaceRootProp])
 
   useEffect(() => {
     loadedDirectoriesRef.current = loadedDirectories
   }, [loadedDirectories])
 
   useEffect(() => {
+    if (!selectedFilePath) {
+      return
+    }
+    setSelectedTreePath(normalizeDirectoryPath(selectedFilePath))
+  }, [selectedFilePath])
+
+  const measureTreeViewport = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) {
+      return
+    }
+    const rect = viewport.getBoundingClientRect()
+    const nextWidth = Math.max(0, Math.round(rect.width))
+    const nextHeight = Math.max(0, Math.round(rect.height))
+    setTreeSize((current) => (
+      current.width === nextWidth && current.height === nextHeight
+        ? current
+        : { width: nextWidth, height: nextHeight }
+    ))
+  }, [])
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) {
+      return
+    }
+
+    measureTreeViewport()
+
+    const observer = new ResizeObserver(() => {
+      measureTreeViewport()
+    })
+    observer.observe(viewport)
+
+    const scheduleReflowMeasurements = (attemptsLeft: number) => {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current)
+      }
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        measureTreeViewport()
+        if (attemptsLeft > 1) {
+          scheduleReflowMeasurements(attemptsLeft - 1)
+        } else {
+          resizeFrameRef.current = null
+        }
+      })
+    }
+
+    scheduleReflowMeasurements(6)
+    window.addEventListener('resize', measureTreeViewport)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measureTreeViewport)
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current)
+        resizeFrameRef.current = null
+      }
+    }
+  }, [measureTreeViewport, workspaceId])
+
+  useEffect(() => {
     if (!workspaceId || !selectedFilePath) {
-      lastAutoRevealPathRef.current = null
       return
     }
-
     const normalizedPath = normalizeDirectoryPath(selectedFilePath)
-    if (!normalizedPath || normalizedPath === ROOT_DIR) {
-      return
-    }
-
+    const ancestors = collectAncestorDirectories(normalizedPath)
     let cancelled = false
-    const ancestorDirectories = collectAncestorDirectories(normalizedPath)
-
     void (async () => {
-      for (const directory of ancestorDirectories) {
+      for (const directory of ancestors) {
         if (cancelled) {
           return
         }
-        setExpandedDirectories((prev) =>
-          prev[directory] ? prev : { ...prev, [directory]: true },
-        )
         if (!loadedDirectoriesRef.current[directory]) {
           await loadDirectory(directory)
         }
       }
+      if (cancelled) {
+        return
+      }
+      treeRef.current?.openParents(normalizedPath)
+      void treeRef.current?.scrollTo(normalizedPath)
     })()
-
     return () => {
       cancelled = true
     }
   }, [loadDirectory, selectedFilePath, workspaceId])
 
   useEffect(() => {
-    if (!recentExpandedPath) {
+    if (!contextMenu) {
       return
     }
-    const timerId = window.setTimeout(() => {
-      setRecentExpandedPath(null)
-    }, 240)
-    return () => window.clearTimeout(timerId)
-  }, [expandAnimationNonce, recentExpandedPath])
-
-  const toggleDirectory = useCallback(
-    (directoryPath: string) => {
-      const normalizedPath = normalizeDirectoryPath(directoryPath)
-      const isExpanded = Boolean(expandedDirectories[normalizedPath])
-      setExpandedDirectories((prev) => {
-        return {
-          ...prev,
-          [normalizedPath]: !isExpanded,
-        }
-      })
-      if (!isExpanded) {
-        setRecentExpandedPath(normalizedPath)
-        setExpandAnimationNonce((prev) => prev + 1)
-      }
-      if (!loadedDirectories[normalizedPath] && !loadingDirectories[normalizedPath]) {
-        void loadDirectory(normalizedPath)
-      }
-    },
-    [expandedDirectories, loadDirectory, loadedDirectories, loadingDirectories],
-  )
-
-  const rows = useMemo(
-    () => buildRows(entriesByDirectory, expandedDirectories, loadingDirectories, ROOT_DIR, 0),
-    [entriesByDirectory, expandedDirectories, loadingDirectories],
-  )
-
-  const rowRangeExtractor = useCallback(
-    (range: Range) => {
-      const base = defaultRangeExtractor(range)
-      const total = rows.length
-      if (total <= 0) {
-        return base
-      }
-      const first = base[0] ?? 0
-      const last = base[base.length - 1] ?? 0
-      const speedExtra =
-        scrollSpeedTier === 'fast'
-          ? SPEED_FAST_EXTRA_ROWS
-          : scrollSpeedTier === 'medium'
-            ? SPEED_MEDIUM_EXTRA_ROWS
-            : 0
-      const preloadExtra = hasInteractedScroll ? 0 : INITIAL_PRELOAD_ROWS
-      const forwardExtra =
-        scrollDirectionRef.current === 'forward' ? speedExtra : Math.floor(speedExtra * 0.4)
-      const backwardExtra =
-        scrollDirectionRef.current === 'backward' ? speedExtra : Math.floor(speedExtra * 0.4)
-      const start = Math.max(0, first - PRE_RENDER_BEHIND_ROWS - backwardExtra)
-      const end = Math.min(total - 1, last + PRE_RENDER_AHEAD_ROWS + preloadExtra + forwardExtra)
-      const expanded: number[] = []
-      for (let index = start; index <= end; index += 1) {
-        expanded.push(index)
-      }
-      return expanded
-    },
-    [hasInteractedScroll, rows.length, scrollSpeedTier],
-  )
-
-  const rowVirtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => viewportRef.current,
-    getItemKey: (index) => rows[index]?.path ?? index,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: OVERSCAN_ROWS,
-    rangeExtractor: rowRangeExtractor,
-    initialRect: { width: 1, height: 760 },
-    isScrollingResetDelay: 120,
-    useScrollendEvent: true,
-    useAnimationFrameWithResizeObserver: true,
-    useFlushSync: false,
-  })
-
-  const recentExpandedDepth = useMemo(() => {
-    if (!recentExpandedPath) {
-      return -1
+    const closeMenu = () => setContextMenu(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
     }
-    const expandedRow = rows.find((row) => row.path === recentExpandedPath && row.kind === 'dir')
-    return expandedRow?.depth ?? -1
-  }, [recentExpandedPath, rows])
-
-  // Estimate max content width from row data (covers all rows, including non-visible)
-  const estimatedMaxWidth = useMemo(() => {
-    if (rows.length === 0) return 0
-
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return 0
-
-    const viewport = viewportRef.current
-    if (!viewport) return 0
-
-    ctx.font = getComputedStyle(viewport).font
-
-    const INDENT_BASE = 8
-    const INDENT_PER_DEPTH = 14
-    const CHEVRON = 16 + 8
-    const ICON = 19 + 8
-    const RIGHT_PAD = 12
-    const META_RESERVE = 52
-
-    let maxW = 0
-    for (const row of rows) {
-      const indent = INDENT_BASE + row.depth * INDENT_PER_DEPTH
-      const chevron = row.kind === 'dir' ? CHEVRON : 0
-      const nameW = ctx.measureText(row.name).width
-      const meta = row.kind === 'file' ? META_RESERVE : 0
-      maxW = Math.max(maxW, indent + chevron + ICON + nameW + meta + RIGHT_PAD)
-    }
-    return maxW
-  }, [rows])
-
-  const estimatedMaxWidthRef = useRef(0)
-
-  // Set virtual list width based on estimated content + DOM measurement for accuracy
-  useLayoutEffect(() => {
-    estimatedMaxWidthRef.current = estimatedMaxWidth
-
-    const viewport = viewportRef.current
-    if (!viewport) return
-
-    const virtualList = viewport.querySelector('.file-tree-virtual-list') as HTMLElement | null
-    if (!virtualList) return
-
-    const rowEls = viewport.querySelectorAll('.tree-row')
-    let domMaxWidth = 0
-    for (const row of rowEls) {
-      const el = row as HTMLElement
-      domMaxWidth = Math.max(domMaxWidth, el.scrollWidth)
-    }
-
-    const viewportWidth = viewport.clientWidth
-    const targetWidth = Math.max(viewportWidth, estimatedMaxWidth, domMaxWidth)
-    virtualList.style.width = targetWidth > viewportWidth ? `${targetWidth}px` : ''
-  }, [estimatedMaxWidth])
-
-  // Re-calculate virtual list width on viewport resize
-  useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport) return
-
-    const observer = new ResizeObserver(() => {
-      const virtualList = viewport.querySelector('.file-tree-virtual-list') as HTMLElement | null
-      if (!virtualList) return
-
-      const viewportWidth = viewport.clientWidth
-      const targetWidth = Math.max(viewportWidth, estimatedMaxWidthRef.current)
-      virtualList.style.width = targetWidth > viewportWidth ? `${targetWidth}px` : ''
-    })
-    observer.observe(viewport)
-    return () => observer.disconnect()
-  }, [])
-
-  // Auto-scroll horizontally when expanding a deeply nested directory
-  useEffect(() => {
-    if (!recentExpandedPath || recentExpandedDepth < 0) return
-
-    const viewport = viewportRef.current
-    if (!viewport) return
-
-    const indent = 8 + recentExpandedDepth * 14
-    const visibleWidth = viewport.clientWidth
-    const currentScrollLeft = viewport.scrollLeft
-
-    // If the expanded content is scrolled out of view, scroll to reveal it
-    const targetLeft = indent - Math.floor(visibleWidth * 0.3)
-    if (targetLeft > currentScrollLeft) {
-      viewport.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' })
-    }
-  }, [recentExpandedPath, recentExpandedDepth])
-
-  useEffect(() => {
-    if (!workspaceId || !selectedFilePath) {
-      lastAutoRevealPathRef.current = null
-      return
-    }
-
-    const normalizedPath = normalizeDirectoryPath(selectedFilePath)
-    const rowIndex = rows.findIndex((row) => row.kind === 'file' && row.path === normalizedPath)
-    if (rowIndex < 0) {
-      return
-    }
-
-    const revealKey = `${workspaceId}:${normalizedPath}`
-    if (lastAutoRevealPathRef.current === revealKey) {
-      return
-    }
-    lastAutoRevealPathRef.current = revealKey
-    rowVirtualizer.scrollToIndex(rowIndex, { align: 'center' })
-  }, [rowVirtualizer, rows, selectedFilePath, workspaceId])
+  }, [contextMenu])
 
   const pruneDirectoryCache = useCallback((path: string) => {
     const normalized = normalizeDirectoryPath(path)
     if (normalized === ROOT_DIR) {
       return
     }
-
     setEntriesByDirectory((prev) => {
       const next: Record<string, FsEntry[]> = {}
       for (const [dir, entries] of Object.entries(prev)) {
@@ -837,8 +745,7 @@ export function FileTreePane({
       }
       return next
     })
-
-    const stripMap = (prev: Record<string, boolean>) => {
+    setLoadedDirectories((prev) => {
       const next: Record<string, boolean> = {}
       for (const [key, value] of Object.entries(prev)) {
         if (!isPathUnder(key, normalized)) {
@@ -846,12 +753,61 @@ export function FileTreePane({
         }
       }
       return next
+    })
+    setLoadingDirectories((prev) => {
+      const next: Record<string, boolean> = {}
+      for (const [key, value] of Object.entries(prev)) {
+        if (!isPathUnder(key, normalized)) {
+          next[key] = value
+        }
+      }
+      return next
+    })
+  }, [])
+
+  const applyOptimisticTreeMove = useCallback((
+    fromPath: string,
+    toPath: string,
+    kind: 'dir' | 'file',
+  ) => {
+    const normalizedFrom = normalizeDirectoryPath(fromPath)
+    const normalizedTo = normalizeDirectoryPath(toPath)
+    if (!normalizedFrom || !normalizedTo || normalizedFrom === normalizedTo) {
+      return
     }
-    setLoadedDirectories(stripMap)
-    setLoadingDirectories(stripMap)
-    setExpandedDirectories((prev) => {
-      const next = stripMap(prev)
-      next[ROOT_DIR] = true
+
+    setEntriesByDirectory((prev) => {
+      const sourceParent = parentDirectory(normalizedFrom)
+      const targetParent = parentDirectory(normalizedTo)
+      const sourceEntries = prev[sourceParent]
+      if (!sourceEntries) {
+        return prev
+      }
+
+      const sourceEntry = sourceEntries.find((entry) => normalizeDirectoryPath(entry.path) === normalizedFrom)
+      if (!sourceEntry) {
+        return prev
+      }
+
+      const next: Record<string, FsEntry[]> = { ...prev }
+      next[sourceParent] = sourceEntries.filter(
+        (entry) => normalizeDirectoryPath(entry.path) !== normalizedFrom,
+      )
+
+      const targetEntries = next[targetParent]
+      if (targetEntries) {
+        const movedEntry: FsEntry = {
+          ...sourceEntry,
+          path: normalizedTo,
+          name: leafName(normalizedTo),
+          kind,
+        }
+        next[targetParent] = sortEntries([
+          ...targetEntries.filter((entry) => normalizeDirectoryPath(entry.path) !== normalizedTo),
+          movedEntry,
+        ])
+      }
+
       return next
     })
   }, [])
@@ -862,102 +818,73 @@ export function FileTreePane({
       refreshTimerRef.current = null
       return
     }
-
     const directories = Array.from(pendingRefreshDirectoriesRef.current)
     pendingRefreshDirectoriesRef.current.clear()
     refreshTimerRef.current = null
-
     const directoriesToReload = directories.filter(
       (directory) => directory === ROOT_DIR || loadedDirectoriesRef.current[directory],
     )
     if (directoriesToReload.length === 0) {
       return
     }
-
-    setExpandedDirectories((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const directory of directoriesToReload) {
-        if (!next[directory]) {
-          next[directory] = true
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-
     await Promise.allSettled(directoriesToReload.map((directory) => loadDirectory(directory)))
   }, [loadDirectory, workspaceId])
 
-  const scheduleDirectoryReload = useCallback(
-    (paths: string[]) => {
-      for (const path of paths) {
-        const normalized = normalizeDirectoryPath(path)
-        pendingRefreshDirectoriesRef.current.add(normalized)
-      }
-      if (refreshTimerRef.current !== null) {
-        return
-      }
-      refreshTimerRef.current = window.setTimeout(() => {
-        void flushQueuedDirectoryReloads()
-      }, 120)
-    },
-    [flushQueuedDirectoryReloads],
-  )
+  const scheduleDirectoryReload = useCallback((paths: string[]) => {
+    for (const path of paths) {
+      pendingRefreshDirectoriesRef.current.add(normalizeDirectoryPath(path))
+    }
+    if (refreshTimerRef.current !== null) {
+      return
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      void flushQueuedDirectoryReloads()
+    }, 120)
+  }, [flushQueuedDirectoryReloads])
 
-  const reloadParentsAfterMutation = useCallback(
-    async (paths: string[]) => {
-      if (!workspaceId) {
-        return
-      }
-      scheduleDirectoryReload(paths.map((path) => parentDirectory(path)))
-    },
-    [scheduleDirectoryReload, workspaceId],
-  )
+  const reloadParentsAfterMutation = useCallback(async (paths: string[]) => {
+    if (!workspaceId) {
+      return
+    }
+    scheduleDirectoryReload(paths.map((path) => parentDirectory(path)))
+  }, [scheduleDirectoryReload, workspaceId])
 
-  const handleFilesystemChanged = useCallback(
-    (payload: FilesystemChangedPayload) => {
-      if (!workspaceId || payload.workspaceId !== workspaceId) {
-        return
+  const handleFilesystemChanged = useCallback((payload: FilesystemChangedPayload) => {
+    if (!workspaceId || payload.workspaceId !== workspaceId) {
+      return
+    }
+    const normalizedPaths = payload.paths
+      .map((path) => normalizeDirectoryPath(path))
+      .filter((path) => path.length > 0)
+    if (normalizedPaths.length === 0) {
+      return
+    }
+    if (payload.kind === 'removed' || payload.kind === 'renamed') {
+      for (const path of normalizedPaths) {
+        pruneDirectoryCache(path)
       }
-
-      const normalizedPaths = payload.paths
-        .map((path) => normalizeDirectoryPath(path))
-        .filter((path) => path.length > 0)
-      if (normalizedPaths.length === 0) {
-        return
-      }
-
-      if (payload.kind === 'removed' || payload.kind === 'renamed') {
-        for (const path of normalizedPaths) {
-          pruneDirectoryCache(path)
-        }
-      }
-
-      const parentPaths = normalizedPaths.map((path) => parentDirectory(path))
-      if (normalizedPaths.includes(ROOT_DIR)) {
-        parentPaths.push(ROOT_DIR)
-      }
-      scheduleDirectoryReload(parentPaths)
-    },
-    [pruneDirectoryCache, scheduleDirectoryReload, workspaceId],
-  )
+    }
+    const parentPaths = normalizedPaths.map((path) => parentDirectory(path))
+    if (normalizedPaths.includes(ROOT_DIR)) {
+      parentPaths.push(ROOT_DIR)
+    }
+    scheduleDirectoryReload(parentPaths)
+  }, [pruneDirectoryCache, scheduleDirectoryReload, workspaceId])
 
   useEffect(() => {
     if (!workspaceId || !desktopApi.isTauriRuntime()) {
       return
     }
-
     let active = true
     let cleanupChanged: (() => void) | null = null
     let cleanupWatchError: (() => void) | null = null
     let cleanupGitUpdated: (() => void) | null = null
+
     void desktopApi
       .subscribeFilesystemEvents((payload: FilesystemChangedPayload) => {
-        if (!active) {
-          return
+        if (active) {
+          handleFilesystemChanged(payload)
         }
-        handleFilesystemChanged(payload)
       })
       .then((unlisten) => {
         if (!active) {
@@ -971,7 +898,7 @@ export function FileTreePane({
           type: 'error',
           message: t(locale, 'fileTree.watchSubscribeFailed', {
             detail: error instanceof Error ? error.message : 'unknown',
-          })
+          }),
         })
       })
 
@@ -982,7 +909,7 @@ export function FileTreePane({
         }
         addNotification({
           type: 'error',
-          message: t(locale, 'fileTree.watchRuntimeError', { detail: payload.detail })
+          message: t(locale, 'fileTree.watchRuntimeError', { detail: payload.detail }),
         })
       })
       .then((unlisten) => {
@@ -991,14 +918,6 @@ export function FileTreePane({
           return
         }
         cleanupWatchError = unlisten
-      })
-      .catch((error) => {
-        addNotification({
-          type: 'error',
-          message: t(locale, 'fileTree.watchSubscribeFailed', {
-            detail: error instanceof Error ? error.message : 'unknown',
-          })
-        })
       })
 
     void desktopApi
@@ -1022,15 +941,9 @@ export function FileTreePane({
 
     return () => {
       active = false
-      if (cleanupChanged) {
-        cleanupChanged()
-      }
-      if (cleanupWatchError) {
-        cleanupWatchError()
-      }
-      if (cleanupGitUpdated) {
-        cleanupGitUpdated()
-      }
+      cleanupChanged?.()
+      cleanupWatchError?.()
+      cleanupGitUpdated?.()
     }
   }, [handleFilesystemChanged, locale, workspaceId])
 
@@ -1039,238 +952,208 @@ export function FileTreePane({
       if (refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current)
       }
-      if (speedTierRafRef.current !== null) {
-        window.cancelAnimationFrame(speedTierRafRef.current)
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current)
       }
-      refreshTimerRef.current = null
-      speedTierRafRef.current = null
     }
   }, [])
 
-  useEffect(() => {
-    if (refreshTimerRef.current !== null) {
-      window.clearTimeout(refreshTimerRef.current)
-      refreshTimerRef.current = null
+  const treeData = useMemo(
+    () => buildTreeNodes(entriesByDirectory, loadingDirectories, gitStatusesByPath, ROOT_DIR),
+    [entriesByDirectory, gitStatusesByPath, loadingDirectories],
+  )
+
+  const nodeKindsByPath = useMemo(() => {
+    const next: Record<string, 'dir' | 'file'> = {}
+    collectNodeKinds(treeData, next)
+    return next
+  }, [treeData])
+
+  const selectedTreeKind = selectedTreePath ? nodeKindsByPath[selectedTreePath] ?? null : null
+
+  const createFileAtBase = useCallback(async (basePath: string) => {
+    if (!workspaceId) {
+      return
     }
-    pendingRefreshDirectoriesRef.current.clear()
-  }, [workspaceId])
+    setPromptModal({
+      open: true,
+      title: t(locale, 'fileTree.createFile'),
+      defaultValue: 'new-file.md',
+      placeholder: t(locale, 'fileTree.promptCreateUnder', { base: basePath }),
+      onSubmit: async (fileName) => {
+        const trimmedName = fileName.trim()
+        if (!trimmedName) {
+          return
+        }
+        const normalizedBase = normalizeDirectoryPath(basePath)
+        const normalizedName = trimmedName.replace(/^\/+/, '').replace(/\\/g, '/')
+        const targetPath =
+          normalizedBase === ROOT_DIR ? normalizedName : `${normalizedBase}/${normalizedName}`
+        const created = await onCreateFile(targetPath)
+        if (created) {
+          await loadDirectory(normalizedBase)
+          treeRef.current?.open(normalizedBase)
+          onSelectFile(targetPath)
+          setSelectedTreePath(targetPath)
+        }
+        setPromptModal((prev) => ({ ...prev, open: false }))
+      },
+    })
+    setContextMenu(null)
+  }, [loadDirectory, locale, onCreateFile, onSelectFile, workspaceId])
 
-  const createFileAtBase = useCallback(
-    async (basePath: string) => {
-      if (!workspaceId) {
-        return
-      }
-      setPromptModal({
-        open: true,
-        title: t(locale, 'fileTree.createFile'),
-        defaultValue: 'new-file.md',
-        placeholder: t(locale, 'fileTree.promptCreateUnder', { base: basePath }),
-        onSubmit: async (fileName) => {
-          const trimmedName = fileName.trim()
-          if (!trimmedName) return
-          
-          const normalizedBase = normalizeDirectoryPath(basePath)
-          const normalizedName = trimmedName.replace(/^\/+/, '').replace(/\\/g, '/')
-          const targetPath =
-            normalizedBase === ROOT_DIR ? normalizedName : `${normalizedBase}/${normalizedName}`
+  const createFolderAtBase = useCallback(async (basePath: string) => {
+    if (!workspaceId) {
+      return
+    }
+    setPromptModal({
+      open: true,
+      title: t(locale, 'fileTree.createFolder'),
+      defaultValue: 'new-folder',
+      placeholder: t(locale, 'fileTree.promptCreateFolderUnder', { base: basePath }),
+      onSubmit: async (folderName) => {
+        const trimmedName = folderName.trim()
+        if (!trimmedName) {
+          return
+        }
+        const normalizedBase = normalizeDirectoryPath(basePath)
+        const normalizedName = trimmedName.replace(/^\/+/, '').replace(/\\/g, '/')
+        const targetPath =
+          normalizedBase === ROOT_DIR ? normalizedName : `${normalizedBase}/${normalizedName}`
+        try {
+          await desktopApi.fsCreateDir(workspaceId, targetPath)
+          await loadDirectory(normalizedBase)
+          treeRef.current?.open(normalizedBase)
+          setSelectedTreePath(targetPath)
+        } catch (error) {
+          addNotification({
+            type: 'error',
+            message: t(locale, 'fileTree.createFolderFailed', {
+              detail: error instanceof Error ? error.message : describeUnknownError(error),
+            }),
+          })
+        }
+        setPromptModal((prev) => ({ ...prev, open: false }))
+      },
+    })
+    setContextMenu(null)
+  }, [loadDirectory, locale, workspaceId])
 
-          const created = await onCreateFile(targetPath)
-          if (created) {
-            setExpandedDirectories((prev) => ({ ...prev, [normalizedBase]: true }))
-            await loadDirectory(normalizedBase)
+  const deletePath = useCallback(async (path: string) => {
+    if (!workspaceId) {
+      return
+    }
+    setConfirmModal({
+      open: true,
+      title: t(locale, 'fileTree.delete'),
+      message: t(locale, 'fileTree.confirmDelete', { path }),
+      onConfirm: async () => {
+        const deleted = await onDeletePath(path)
+        if (deleted) {
+          pruneDirectoryCache(path)
+          await reloadParentsAfterMutation([path])
+          setSelectedTreePath(parentDirectory(path))
+        }
+        setConfirmModal((prev) => ({ ...prev, open: false }))
+      },
+    })
+    setContextMenu(null)
+  }, [locale, onDeletePath, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId])
+
+  const movePath = useCallback(async (path: string, kind: 'dir' | 'file') => {
+    if (!workspaceId) {
+      return
+    }
+    const currentName = leafName(path)
+    setPromptModal({
+      open: true,
+      title: t(locale, 'fileTree.renameMove'),
+      defaultValue: currentName,
+      placeholder: t(locale, 'fileTree.promptRenameMove', { path }),
+      onSubmit: async (targetInput) => {
+        const trimmedTarget = targetInput.trim()
+        if (!trimmedTarget || trimmedTarget === '.') {
+          return
+        }
+        const normalizedTarget = trimmedTarget
+          .replace(/^\/+/, '')
+          .replace(/\\/g, '/')
+          .replace(/\/+$/, '')
+        const targetPath = normalizedTarget.includes('/')
+          ? normalizedTarget
+          : (() => {
+              const parent = parentDirectory(path)
+              return parent === ROOT_DIR ? normalizedTarget : `${parent}/${normalizedTarget}`
+            })()
+        const moved = await onMovePath(path, targetPath)
+        if (moved) {
+          pruneDirectoryCache(path)
+          await reloadParentsAfterMutation([path, targetPath])
+          setSelectedTreePath(targetPath)
+          if (kind === 'file') {
             onSelectFile(targetPath)
           }
-          setPromptModal((prev) => ({ ...prev, open: false }))
-        },
-      })
-      setContextMenu(null)
-    },
-    [loadDirectory, locale, onCreateFile, onSelectFile, workspaceId],
-  )
-
-  const createFolderAtBase = useCallback(
-    async (basePath: string) => {
-      if (!workspaceId) {
-        return
-      }
-      setPromptModal({
-        open: true,
-        title: t(locale, 'fileTree.createFolder'),
-        defaultValue: 'new-folder',
-        placeholder: t(locale, 'fileTree.promptCreateFolderUnder', { base: basePath }),
-        onSubmit: async (folderName) => {
-          const trimmedName = folderName.trim()
-          if (!trimmedName) return
-
-          const normalizedBase = normalizeDirectoryPath(basePath)
-          const normalizedName = trimmedName.replace(/^\/+/, '').replace(/\\/g, '/')
-          const targetPath =
-            normalizedBase === ROOT_DIR ? normalizedName : `${normalizedBase}/${normalizedName}`
-
-          try {
-            await desktopApi.fsCreateDir(workspaceId, targetPath)
-            setExpandedDirectories((prev) => ({ ...prev, [normalizedBase]: true }))
-            await loadDirectory(normalizedBase)
-          } catch (error) {
-            addNotification({
-              type: 'error',
-              message: t(locale, 'fileTree.createFolderFailed', {
-                detail: error instanceof Error ? error.message : describeUnknownError(error),
-              })
-            })
-          }
-          setPromptModal((prev) => ({ ...prev, open: false }))
-        },
-      })
-      setContextMenu(null)
-    },
-    [loadDirectory, locale, workspaceId],
-  )
-
-  const deletePath = useCallback(
-    async (path: string) => {
-      if (!workspaceId) {
-        return
-      }
-      setConfirmModal({
-        open: true,
-        title: t(locale, 'fileTree.delete'),
-        message: t(locale, 'fileTree.confirmDelete', { path }),
-        onConfirm: async () => {
-          const deleted = await onDeletePath(path)
-          if (deleted) {
-            pruneDirectoryCache(path)
-            await reloadParentsAfterMutation([path])
-          }
-          setConfirmModal((prev) => ({ ...prev, open: false }))
-        },
-      })
-      setContextMenu(null)
-    },
-    [locale, onDeletePath, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId],
-  )
-
-  const movePath = useCallback(
-    async (path: string, kind: 'dir' | 'file') => {
-      if (!workspaceId) {
-        return
-      }
-      const currentName = leafName(path)
-      setPromptModal({
-        open: true,
-        title: t(locale, 'fileTree.renameMove'),
-        defaultValue: currentName,
-        placeholder: t(locale, 'fileTree.promptRenameMove', { path }),
-        onSubmit: async (targetInput) => {
-          const trimmedTarget = targetInput.trim()
-          if (!trimmedTarget || trimmedTarget === '.') return
-
-          const normalizedTarget = trimmedTarget.replace(/^\/+/, '').replace(/\\/g, '/').replace(/\/+$/, '')
-          const targetPath = normalizedTarget.includes('/')
-            ? normalizedTarget
-            : (() => {
-                const parent = parentDirectory(path)
-                return parent === ROOT_DIR ? normalizedTarget : `${parent}/${normalizedTarget}`
-              })()
-
-          const moved = await onMovePath(path, targetPath)
-          if (moved) {
-            pruneDirectoryCache(path)
-            await reloadParentsAfterMutation([path, targetPath])
-            if (kind === 'file') {
-              onSelectFile(targetPath)
-            }
-          }
-          setPromptModal((prev) => ({ ...prev, open: false }))
-        },
-      })
-      setContextMenu(null)
-    },
-    [locale, onMovePath, onSelectFile, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId],
-  )
-
-  const handleDirectoryToggleClick = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      const path = event.currentTarget.dataset.path
-      if (!path) {
-        return
-      }
-      toggleDirectory(path)
-    },
-    [toggleDirectory],
-  )
-
-  const handleFileButtonClick = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
-      const path = event.currentTarget.dataset.path
-      if (!path) {
-        return
-      }
-      onSelectFile(path)
-    },
-    [onSelectFile],
-  )
-
-  const pastePath = useCallback(
-    async (targetBasePath: string) => {
-      if (!workspaceId || !clipboard) {
-        return
-      }
-
-      if (clipboard.path === targetBasePath || isPathUnder(targetBasePath, clipboard.path)) {
-        addNotification({ type: 'error', message: t(locale, 'fileTree.pasteInvalid') })
-        return
-      }
-
-      const sourceName = leafName(clipboard.path)
-      const normalizedBase = normalizeDirectoryPath(targetBasePath)
-      
-      // Resolve name conflicts
-      let targetName = sourceName
-      let attempt = 0
-      const existingEntries = entriesByDirectory[normalizedBase] || []
-
-      while (existingEntries.some((entry) => entry.name === targetName)) {
-        attempt++
-        const dotIndex = sourceName.lastIndexOf('.')
-        if (dotIndex > 0) {
-          const name = sourceName.substring(0, dotIndex)
-          const ext = sourceName.substring(dotIndex)
-          targetName = attempt === 1 ? `${name} copy${ext}` : `${name} copy ${attempt}${ext}`
-        } else {
-          targetName = attempt === 1 ? `${sourceName} copy` : `${sourceName} copy ${attempt}`
         }
+        setPromptModal((prev) => ({ ...prev, open: false }))
+      },
+    })
+    setContextMenu(null)
+  }, [locale, onMovePath, onSelectFile, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId])
+
+  const pastePath = useCallback(async (targetBasePath: string) => {
+    if (!workspaceId || !clipboard) {
+      return
+    }
+    if (clipboard.path === targetBasePath || isPathUnder(targetBasePath, clipboard.path)) {
+      addNotification({ type: 'error', message: t(locale, 'fileTree.pasteInvalid') })
+      return
+    }
+    const sourceName = leafName(clipboard.path)
+    const normalizedBase = normalizeDirectoryPath(targetBasePath)
+    const existingEntries = entriesByDirectory[normalizedBase] || []
+    let targetName = sourceName
+    let attempt = 0
+    while (existingEntries.some((entry) => entry.name === targetName)) {
+      attempt += 1
+      const dotIndex = sourceName.lastIndexOf('.')
+      if (dotIndex > 0) {
+        const name = sourceName.substring(0, dotIndex)
+        const ext = sourceName.substring(dotIndex)
+        targetName = attempt === 1 ? `${name} copy${ext}` : `${name} copy ${attempt}${ext}`
+      } else {
+        targetName = attempt === 1 ? `${sourceName} copy` : `${sourceName} copy ${attempt}`
       }
-
-      const targetPath = normalizedBase === ROOT_DIR ? targetName : `${normalizedBase}/${targetName}`
-
-      try {
-        if (clipboard.action === 'cut') {
-          const moved = await onMovePath(clipboard.path, targetPath)
-          if (moved) {
-            pruneDirectoryCache(clipboard.path)
-            await reloadParentsAfterMutation([clipboard.path, targetPath])
-            setClipboard(null)
-          }
-        } else {
-          await desktopApi.fsCopy(workspaceId, clipboard.path, targetPath)
-          await reloadParentsAfterMutation([targetPath])
+    }
+    const targetPath = normalizedBase === ROOT_DIR ? targetName : `${normalizedBase}/${targetName}`
+    try {
+      if (clipboard.action === 'cut') {
+        const moved = await onMovePath(clipboard.path, targetPath)
+        if (moved) {
+          pruneDirectoryCache(clipboard.path)
+          await reloadParentsAfterMutation([clipboard.path, targetPath])
+          setClipboard(null)
+          setSelectedTreePath(targetPath)
         }
-      } catch (error) {
-        addNotification({
-          type: 'error',
-          message: t(locale, 'fileTree.pasteFailed', {
-            detail: error instanceof Error ? error.message : describeUnknownError(error),
-          })
-        })
+      } else {
+        await desktopApi.fsCopy(workspaceId, clipboard.path, targetPath)
+        await reloadParentsAfterMutation([targetPath])
+        setSelectedTreePath(targetPath)
       }
-      setContextMenu(null)
-    },
-    [clipboard, entriesByDirectory, locale, onMovePath, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId],
-  )
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        message: t(locale, 'fileTree.pasteFailed', {
+          detail: error instanceof Error ? error.message : describeUnknownError(error),
+        }),
+      })
+    }
+    setContextMenu(null)
+  }, [clipboard, entriesByDirectory, locale, onMovePath, pruneDirectoryCache, reloadParentsAfterMutation, workspaceId])
 
   const revealInExplorer = useCallback(async (path: string) => {
-    if (!workspaceId) return
+    if (!workspaceId) {
+      return
+    }
     try {
       await desktopApi.fsShowInFolder(workspaceId, path)
     } catch (error) {
@@ -1278,7 +1161,7 @@ export function FileTreePane({
         type: 'error',
         message: t(locale, 'fileTree.revealFailed', {
           detail: error instanceof Error ? error.message : describeUnknownError(error),
-        })
+        }),
       })
     }
     setContextMenu(null)
@@ -1293,73 +1176,240 @@ export function FileTreePane({
     setContextMenu(null)
   }, [])
 
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const focusedItem = resolveFocusedTreeItem()
-      if (!focusedItem) {
-        return
-      }
-      const { path, kind } = focusedItem
+  const copyFullPathText = useCallback(async (path: string) => {
+    const absolutePath = resolveAbsolutePath(workspaceRoot, path)
+    try {
+      await navigator.clipboard.writeText(absolutePath || path)
+    } catch {
+      // ignore clipboard error
+    }
+    setContextMenu(null)
+  }, [workspaceRoot])
 
-      const isMac = navigator.userAgent.includes('Mac OS')
-      const isMod = isMac ? event.metaKey : event.ctrlKey
-
-      if (event.key === 'F2' || (event.key === 'Enter' && isMac)) {
-        event.preventDefault()
-        event.stopPropagation()
-        void movePath(path, kind)
-        return
-      }
-
-      if (event.key === 'Delete' || (event.key === 'Backspace' && isMac && isMod)) {
-        event.preventDefault()
-        event.stopPropagation()
-        void deletePath(path)
-        return
-      }
-
-      if (isMod && event.key.toLowerCase() === 'c') {
-        event.preventDefault()
-        event.stopPropagation()
-        setClipboard({ action: 'copy', path })
-        return
-      }
-
-      if (isMod && event.key.toLowerCase() === 'x') {
-        event.preventDefault()
-        event.stopPropagation()
-        setClipboard({ action: 'cut', path })
-        return
-      }
-
-      if (isMod && event.key.toLowerCase() === 'v') {
-        event.preventDefault()
-        event.stopPropagation()
-        const targetBasePath = kind === 'dir' ? path : parentDirectory(path)
-        void pastePath(targetBasePath)
-        return
-      }
-    },
-    [deletePath, movePath, pastePath],
+  const shortcutLabels = useMemo(
+    () => ({
+      createFile: formatShortcutBinding(SHORTCUT_CREATE_FILE, isMacOs),
+      createFolder: formatShortcutBinding(SHORTCUT_CREATE_FOLDER, isMacOs),
+      rename: formatShortcutBinding(SHORTCUT_RENAME, isMacOs),
+      delete: formatShortcutBinding(isMacOs ? SHORTCUT_MAC_DELETE : SHORTCUT_DELETE, isMacOs),
+      cut: formatShortcutBinding(SHORTCUT_CUT, isMacOs),
+      copy: formatShortcutBinding(SHORTCUT_COPY, isMacOs),
+      paste: formatShortcutBinding(SHORTCUT_PASTE, isMacOs),
+    }),
+    [isMacOs],
   )
+  const loadingLabel = t(locale, 'fileTree.loading')
 
-  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const rowElement = event.currentTarget
-    const path = rowElement.dataset.path
-    const kind = rowElement.dataset.kind
-    if (!path || (kind !== 'dir' && kind !== 'file')) {
+  const handleMove: MoveHandler<TreeNodeData> = useCallback(async ({
+    dragIds,
+    parentId,
+    parentNode,
+  }) => {
+    console.log('[DnD] handleMove called', {
+      dragIds,
+      parentId,
+      parentNodeId: parentNode?.id,
+      parentNodeKind: (parentNode?.data as TreeNodeData | undefined)?.kind,
+    })
+    const sourcePath = dragIds[0]
+    if (!sourcePath) {
+      console.warn('[DnD] handleMove: no sourcePath, aborting')
       return
     }
-    setContextMenu({
-      x: event.clientX,
-      y: event.clientY,
-      path,
-      kind,
-    })
-  }, [])
+    const sourceName = leafName(sourcePath)
+    const explicitDropDirectory = pendingDropDirectoryRef.current
+    pendingDropDirectoryRef.current = null
 
-  const loadingText = useMemo(() => t(locale, 'fileTree.loading'), [locale])
+    let targetBase: string
+    if (explicitDropDirectory) {
+      targetBase = normalizeDirectoryPath(explicitDropDirectory)
+      console.log('[DnD] targetBase from explicitDropDirectory:', targetBase)
+    } else if (parentNode && (parentNode.data as TreeNodeData | undefined)?.kind === 'dir') {
+      targetBase = normalizeDirectoryPath((parentNode.data as TreeNodeData).path)
+      console.log('[DnD] targetBase from parentNode.data.path:', targetBase)
+    } else if (parentId) {
+      targetBase = normalizeDirectoryPath(parentId)
+      console.log('[DnD] targetBase from parentId:', targetBase)
+    } else {
+      targetBase = ROOT_DIR
+      console.log('[DnD] targetBase defaulted to ROOT_DIR')
+    }
+
+    const targetPath = targetBase === ROOT_DIR ? sourceName : `${targetBase}/${sourceName}`
+    console.log('[DnD] sourcePath:', sourcePath, '-> targetPath:', targetPath)
+    if (targetPath === sourcePath) {
+      console.log('[DnD] same path, no-op')
+      return
+    }
+    console.log('[DnD] calling onMovePath...')
+    const moved = await onMovePath(sourcePath, targetPath)
+    console.log('[DnD] onMovePath returned:', moved)
+    if (!moved) {
+      console.warn('[DnD] onMovePath returned false, aborting')
+      return
+    }
+
+    console.log('[DnD] opening targetBase and refreshing...')
+    if (targetBase !== ROOT_DIR) {
+      treeRef.current?.open(targetBase)
+    }
+
+    pruneDirectoryCache(sourcePath)
+    applyOptimisticTreeMove(sourcePath, targetPath, nodeKindsByPath[sourcePath] ?? 'file')
+    await loadDirectory(targetBase)
+    await reloadParentsAfterMutation([sourcePath, targetPath])
+    setSelectedTreePath(targetPath)
+    if (nodeKindsByPath[sourcePath] === 'file') {
+      onSelectFile(targetPath)
+    }
+    console.log('[DnD] handleMove complete')
+  }, [
+    applyOptimisticTreeMove,
+    loadDirectory,
+    nodeKindsByPath,
+    onMovePath,
+    onSelectFile,
+    pruneDirectoryCache,
+    reloadParentsAfterMutation,
+  ])
+
+  const renderRow = useCallback((props: RowRendererProps<TreeNodeData>) => {
+    const { node, attrs, innerRef, children } = props
+    return (
+      <div
+        {...attrs}
+        ref={innerRef}
+        className={[
+          attrs.className,
+          'tree-row',
+          `tree-row-${node.data.kind}`,
+          node.isSelected ? 'tree-row-selected' : '',
+          node.isFocused ? 'tree-row-focused' : '',
+          node.isDragging ? 'tree-row-dragging-source' : '',
+          node.willReceiveDrop ? 'tree-row-drop-target' : '',
+          clipboard?.action === 'cut' && clipboard.path === node.data.path ? 'tree-row-cut' : '',
+        ].filter(Boolean).join(' ')}
+        onFocus={(event) => {
+          event.stopPropagation()
+        }}
+        onClick={(event) => {
+          node.handleClick(event)
+          setSelectedTreePath(node.data.path)
+          if (node.data.kind === 'file') {
+            onSelectFile(node.data.path)
+          }
+        }}
+        onDoubleClick={(event) => {
+          event.stopPropagation()
+          if (node.data.kind === 'dir') {
+            node.toggle()
+          } else {
+            onSelectFile(node.data.path)
+          }
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          node.select()
+          setSelectedTreePath(node.data.path)
+          setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            path: node.data.path,
+            kind: node.data.kind,
+          })
+        }}
+        onDragOverCapture={() => {
+          pendingDropDirectoryRef.current = node.data.kind === 'dir' ? node.data.path : null
+        }}
+        onDropCapture={() => {
+          pendingDropDirectoryRef.current = node.data.kind === 'dir' ? node.data.path : null
+        }}
+      >
+        {children}
+      </div>
+    )
+  }, [clipboard, onSelectFile])
+  const renderNode = useCallback(
+    (props: NodeRendererProps<TreeNodeData>) => (
+      <MemoTreeNodeRenderer {...props} loadingLabel={loadingLabel} />
+    ),
+    [loadingLabel],
+  )
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!selectedTreePath || !selectedTreeKind) {
+      return
+    }
+    const isMod = isMacOs ? event.metaKey : event.ctrlKey
+
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a') {
+      event.preventDefault()
+      void createFileAtBase(selectedTreeKind === 'dir' ? selectedTreePath : parentDirectory(selectedTreePath))
+      return
+    }
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && event.shiftKey && event.key.toLowerCase() === 'a') {
+      event.preventDefault()
+      void createFolderAtBase(selectedTreeKind === 'dir' ? selectedTreePath : parentDirectory(selectedTreePath))
+      return
+    }
+    if (event.key === 'F2') {
+      event.preventDefault()
+      void movePath(selectedTreePath, selectedTreeKind)
+      return
+    }
+    if (event.key === 'Delete' || (event.key === 'Backspace' && isMacOs && isMod)) {
+      event.preventDefault()
+      void deletePath(selectedTreePath)
+      return
+    }
+    if (isMod && event.key.toLowerCase() === 'c') {
+      event.preventDefault()
+      setClipboard({ action: 'copy', path: selectedTreePath })
+      return
+    }
+    if (isMod && event.key.toLowerCase() === 'x') {
+      event.preventDefault()
+      setClipboard({ action: 'cut', path: selectedTreePath })
+      return
+    }
+    if (isMod && event.key.toLowerCase() === 'v') {
+      event.preventDefault()
+      void pastePath(selectedTreeKind === 'dir' ? selectedTreePath : parentDirectory(selectedTreePath))
+      return
+    }
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault()
+      const activeElement = document.activeElement
+      if (!(activeElement instanceof HTMLElement)) {
+        return
+      }
+      const rect = activeElement.getBoundingClientRect()
+      setContextMenu({
+        x: rect.left + Math.min(24, rect.width / 2),
+        y: rect.top + Math.min(20, rect.height / 2),
+        path: selectedTreePath,
+        kind: selectedTreeKind,
+      })
+    }
+  }, [
+    createFileAtBase,
+    createFolderAtBase,
+    deletePath,
+    isMacOs,
+    movePath,
+    pastePath,
+    selectedTreeKind,
+    selectedTreePath,
+  ])
+
+  const rootContextLabel = locale === 'zh-CN' ? '工作区根目录' : 'Workspace Root'
+  const targetBaseForContext =
+    contextMenu?.kind === 'dir'
+      ? contextMenu.path
+      : contextMenu?.kind === 'file'
+        ? parentDirectory(contextMenu.path)
+        : ROOT_DIR
 
   return (
     <aside className="panel left-pane file-tree-pane">
@@ -1370,9 +1420,7 @@ export function FileTreePane({
             className="tree-search-btn"
             aria-label={t(locale, 'fileTree.openSearch')}
             title={t(locale, 'fileTree.openSearch')}
-            onClick={() => {
-              onOpenSearch?.('file')
-            }}
+            onClick={() => onOpenSearch?.('file')}
             disabled={!workspaceId}
           >
             <AppIcon name="search" className="vb-icon vb-icon-tree-search" aria-hidden="true" />
@@ -1382,107 +1430,99 @@ export function FileTreePane({
             className="tree-refresh-btn"
             aria-label={t(locale, 'fileTree.refresh')}
             title={t(locale, 'fileTree.refresh')}
-            onClick={() => {
-              void refreshRoot()
-            }}
+            onClick={() => { void refreshRoot() }}
             disabled={!workspaceId}
           >
             <AppIcon name="refresh" className="vb-icon vb-icon-tree-search" aria-hidden="true" />
           </button>
         </div>
       </div>
-      {!workspaceId ? (
-        <p className="tree-empty">{t(locale, 'fileTree.noWorkspace')}</p>
-      ) : null}
-
+      {!workspaceId ? <p className="tree-empty">{t(locale, 'fileTree.noWorkspace')}</p> : null}
       <div className="file-tree-stage">
         <div
           ref={viewportRef}
           className="file-tree-viewport"
           tabIndex={0}
           onKeyDown={handleKeyDown}
-          data-scrolling={rowVirtualizer.isScrolling ? 'true' : 'false'}
-          onScroll={(event) => {
-            const nextTop = event.currentTarget.scrollTop
-            if (!hasInteractedScroll && nextTop > 0) {
-              setHasInteractedScroll(true)
-            }
-            const now = performance.now()
-            const lastTop = lastScrollTopRef.current
-            const lastTs = lastScrollTsRef.current
-            const delta = nextTop - lastTop
-            if (delta > 0) {
-              scrollDirectionRef.current = 'forward'
-            } else if (delta < 0) {
-              scrollDirectionRef.current = 'backward'
-            }
-            lastScrollTopRef.current = nextTop
-            lastScrollTsRef.current = now
-            if (!lastTs) {
+          onContextMenu={(event) => {
+            const target = event.target
+            if (target instanceof HTMLElement && target.closest('.tree-row')) {
               return
             }
-            const elapsedMs = now - lastTs
-            if (elapsedMs < SPEED_TIER_SAMPLE_MS) {
-              return
-            }
-            const pxPerSec = (Math.abs(nextTop - lastTop) * 1000) / Math.max(1, elapsedMs)
-            const nextTier: 'idle' | 'medium' | 'fast' =
-              pxPerSec >= SPEED_FAST_PX_PER_SEC
-                ? 'fast'
-                : pxPerSec >= SPEED_MEDIUM_PX_PER_SEC
-                  ? 'medium'
-                  : 'idle'
-            if (speedTierRafRef.current !== null) {
-              window.cancelAnimationFrame(speedTierRafRef.current)
-            }
-            speedTierRafRef.current = window.requestAnimationFrame(() => {
-              speedTierRafRef.current = null
-              setScrollSpeedTier((prev) => (prev === nextTier ? prev : nextTier))
+            event.preventDefault()
+            setContextMenu({
+              x: event.clientX,
+              y: event.clientY,
+              path: ROOT_DIR,
+              kind: 'blank',
             })
           }}
         >
-          {rows.length === 0 ? (
-            <p className="tree-empty">{t(locale, 'fileTree.directoryEmpty')}</p>
-          ) : (
-            <div
-              className="file-tree-virtual-list"
-              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-            >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const row = rows[virtualRow.index]
-                if (!row) {
-                  return null
+          {treeSize.width > 0 && treeSize.height > 0 ? (
+            <Tree<TreeNodeData>
+              ref={treeRef}
+              data={treeData}
+              width={treeSize.width}
+              height={treeSize.height}
+              rowHeight={ROW_HEIGHT}
+              indent={INDENT}
+              overscanCount={OVERSCAN_COUNT}
+              selection={selectedTreePath ?? undefined}
+              selectionFollowsFocus
+              openByDefault={false}
+              disableMultiSelection
+              onSelect={(nodes) => {
+                const next = nodes[0]?.data.path ?? null
+                setSelectedTreePath(next)
+              }}
+              onFocus={(node) => {
+                setSelectedTreePath(node.data.path)
+              }}
+              onActivate={(node) => {
+                setSelectedTreePath(node.data.path)
+                if (node.data.kind === 'dir') {
+                  node.toggle()
+                  if (!loadedDirectoriesRef.current[node.data.path]) {
+                    void loadDirectory(node.data.path)
+                  }
+                } else {
+                  onSelectFile(node.data.path)
                 }
-                const animateFromExpansion =
-                  recentExpandedPath !== null &&
-                  recentExpandedDepth >= 0 &&
-                  row.depth > recentExpandedDepth &&
-                  isPathUnder(row.path, recentExpandedPath)
-                const animationDelayMs = animateFromExpansion
-                  ? Math.min(60, (row.depth - recentExpandedDepth - 1) * 18)
-                  : 0
-                const gitStatus = gitStatusesByPath[row.path] ?? null
-
-                return (
-                  <TreeRowItem
-                    key={row.path}
-                    row={row}
-                    virtualStart={virtualRow.start}
-                    virtualSize={virtualRow.size}
-                    isSelected={row.kind === 'file' && selectedFilePath === row.path}
-                    isCut={clipboard?.action === 'cut' && clipboard.path === row.path}
-                    gitStatus={gitStatus}
-                    animateFromExpansion={animateFromExpansion}
-                    animationDelayMs={animationDelayMs}
-                    loadingText={loadingText}
-                    onToggleDirectory={handleDirectoryToggleClick}
-                    onSelectFile={handleFileButtonClick}
-                    onContextMenu={handleRowContextMenu}
-                  />
-                )
-              })}
-            </div>
-          )}
+              }}
+              onToggle={(id) => {
+                const path = normalizeDirectoryPath(id)
+                if (!loadedDirectoriesRef.current[path]) {
+                  void loadDirectory(path)
+                }
+              }}
+              disableDrop={({ parentNode, dragNodes }) => {
+                // parentNode may be react-arborist's synthetic root node (which
+                // has no data.kind). Allow drops on the root and on directories;
+                // only reject drops directly onto file nodes.
+                if (parentNode && 'kind' in parentNode.data && parentNode.data.kind !== 'dir') {
+                  console.log('[DnD] disableDrop=true (file node)', parentNode.id)
+                  return true
+                }
+                const selfOrAncestor = dragNodes.some((dragNode) => {
+                  if (!parentNode) {
+                    return false
+                  }
+                  return dragNode.id === parentNode.id || dragNode.isAncestorOf(parentNode)
+                })
+                if (selfOrAncestor) {
+                  console.log('[DnD] disableDrop=true (self/ancestor)', parentNode?.id)
+                }
+                return selfOrAncestor
+              }}
+              onMove={handleMove}
+              renderRow={renderRow}
+              renderDragPreview={TreeDragPreview}
+            >
+              {renderNode}
+            </Tree>
+          ) : workspaceId ? (
+            <p className="tree-empty">{t(locale, 'fileTree.loading')}</p>
+          ) : null}
         </div>
       </div>
       {contextMenu ? createPortal(
@@ -1493,104 +1533,91 @@ export function FileTreePane({
             top: `${contextMenu.y + 350 > window.innerHeight ? contextMenu.y - 350 : contextMenu.y}px`,
           }}
         >
-          <button
-            type="button"
-            onClick={() => {
-              const basePath =
-                contextMenu.kind === 'dir' ? contextMenu.path : parentDirectory(contextMenu.path)
-              void createFileAtBase(basePath)
-            }}
-          >
+          {contextMenu.kind === 'blank' ? (
+            <>
+              <div className="tree-context-caption">{rootContextLabel}</div>
+              <div className="tree-context-separator" />
+            </>
+          ) : null}
+          <button type="button" onClick={() => { void createFileAtBase(targetBaseForContext) }}>
             <AppIcon name="file-plus" className="context-menu-icon" />
             <span>{t(locale, 'fileTree.createFile')}</span>
+            <span className="tree-context-shortcut">{shortcutLabels.createFile}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              const basePath =
-                contextMenu.kind === 'dir' ? contextMenu.path : parentDirectory(contextMenu.path)
-              void createFolderAtBase(basePath)
-            }}
-          >
+          <button type="button" onClick={() => { void createFolderAtBase(targetBaseForContext) }}>
             <AppIcon name="folder-plus" className="context-menu-icon" />
             <span>{t(locale, 'fileTree.createFolder')}</span>
+            <span className="tree-context-shortcut">{shortcutLabels.createFolder}</span>
           </button>
           <div className="tree-context-separator" />
-          <button
-            type="button"
-            onClick={() => {
-              setClipboard({ action: 'cut', path: contextMenu.path })
-              setContextMenu(null)
-            }}
-          >
-            <AppIcon name="scissors" className="context-menu-icon" />
-            <span>{t(locale, 'fileTree.cut')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setClipboard({ action: 'copy', path: contextMenu.path })
-              setContextMenu(null)
-            }}
-          >
-            <AppIcon name="copy" className="context-menu-icon" />
-            <span>{t(locale, 'fileTree.copy')}</span>
-          </button>
+          {contextMenu.kind !== 'blank' ? (
+            <>
+              <button type="button" onClick={() => { setClipboard({ action: 'cut', path: contextMenu.path }); setContextMenu(null) }}>
+                <AppIcon name="scissors" className="context-menu-icon" />
+                <span>{t(locale, 'fileTree.cut')}</span>
+                <span className="tree-context-shortcut">{shortcutLabels.cut}</span>
+              </button>
+              <button type="button" onClick={() => { setClipboard({ action: 'copy', path: contextMenu.path }); setContextMenu(null) }}>
+                <AppIcon name="copy" className="context-menu-icon" />
+                <span>{t(locale, 'fileTree.copy')}</span>
+                <span className="tree-context-shortcut">{shortcutLabels.copy}</span>
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             disabled={!clipboard}
             className={!clipboard ? 'disabled' : ''}
-            onClick={() => {
-              const basePath =
-                contextMenu.kind === 'dir' ? contextMenu.path : parentDirectory(contextMenu.path)
-              void pastePath(basePath)
-            }}
+            onClick={() => { void pastePath(targetBaseForContext) }}
           >
             <AppIcon name="clipboard-paste" className="context-menu-icon" />
             <span>{t(locale, 'fileTree.paste')}</span>
+            <span className="tree-context-shortcut">{shortcutLabels.paste}</span>
           </button>
           <div className="tree-context-separator" />
-          <button
-            type="button"
-            onClick={() => {
-              void copyPathText(contextMenu.path)
-            }}
-          >
+          <button type="button" onClick={() => { void copyPathText(contextMenu.kind === 'blank' ? ROOT_DIR : contextMenu.path) }}>
             <AppIcon name="link" className="context-menu-icon" />
             <span>{t(locale, 'fileTree.copyPath')}</span>
           </button>
-          <div className="tree-context-separator" />
-          <button
-            type="button"
-            onClick={() => {
-              void movePath(contextMenu.path, contextMenu.kind)
-            }}
-          >
-            <AppIcon name="pencil" className="context-menu-icon" />
-            <span>{t(locale, 'fileTree.renameMove')}</span>
-          </button>
-          <button
-            type="button"
-            className="danger"
-            onClick={() => {
-              void deletePath(contextMenu.path)
-            }}
-          >
-            <AppIcon name="trash" className="context-menu-icon" />
-            <span>{t(locale, 'fileTree.delete')}</span>
+          <button type="button" onClick={() => { void copyFullPathText(contextMenu.kind === 'blank' ? ROOT_DIR : contextMenu.path) }}>
+            <AppIcon name="copy" className="context-menu-icon" />
+            <span>{t(locale, 'fileTree.copyFullPath')}</span>
           </button>
           <div className="tree-context-separator" />
-          <button
-            type="button"
-            onClick={() => {
-              void revealInExplorer(contextMenu.path)
-            }}
-          >
+          {contextMenu.kind !== 'blank' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (contextMenu.kind === 'dir' || contextMenu.kind === 'file') {
+                    void movePath(contextMenu.path, contextMenu.kind)
+                  }
+                }}
+              >
+                <AppIcon name="pencil" className="context-menu-icon" />
+                <span>{t(locale, 'fileTree.renameMove')}</span>
+                <span className="tree-context-shortcut">{shortcutLabels.rename}</span>
+              </button>
+              <button type="button" className="danger" onClick={() => { void deletePath(contextMenu.path) }}>
+                <AppIcon name="trash" className="context-menu-icon" />
+                <span>{t(locale, 'fileTree.delete')}</span>
+                <span className="tree-context-shortcut">{shortcutLabels.delete}</span>
+              </button>
+              <div className="tree-context-separator" />
+            </>
+          ) : null}
+          <button type="button" onClick={() => { void revealInExplorer(contextMenu.kind === 'blank' ? ROOT_DIR : contextMenu.path) }}>
             <AppIcon name="external" className="context-menu-icon" />
             <span>{t(locale, 'fileTree.revealInExplorer')}</span>
           </button>
-        </div>
-        , document.body
+          {contextMenu.kind === 'blank' ? (
+            <button type="button" onClick={() => { void refreshRoot(); setContextMenu(null) }}>
+              <AppIcon name="refresh" className="context-menu-icon" />
+              <span>{t(locale, 'fileTree.refresh')}</span>
+            </button>
+          ) : null}
+        </div>,
+        document.body,
       ) : null}
       <FileTreePromptModal
         key={buildFileTreeModalKey('prompt', promptModal.open, promptModal.title, promptModal.defaultValue)}
@@ -1598,7 +1625,7 @@ export function FileTreePane({
         title={promptModal.title}
         defaultValue={promptModal.defaultValue}
         placeholder={promptModal.placeholder}
-        onClose={() => setPromptModal(prev => ({ ...prev, open: false }))}
+        onClose={() => setPromptModal((prev) => ({ ...prev, open: false }))}
         onSubmit={promptModal.onSubmit}
       />
       <FileTreeConfirmModal
@@ -1606,7 +1633,7 @@ export function FileTreePane({
         open={confirmModal.open}
         title={confirmModal.title}
         message={confirmModal.message}
-        onClose={() => setConfirmModal(prev => ({ ...prev, open: false }))}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, open: false }))}
         onConfirm={confirmModal.onConfirm}
       />
     </aside>

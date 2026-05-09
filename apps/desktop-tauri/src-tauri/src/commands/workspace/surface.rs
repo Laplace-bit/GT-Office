@@ -184,7 +184,8 @@ pub fn workspace_open_in_new_window(
             .resizable(true)
             .decorations(true)
             .shadow(true)
-            .accept_first_mouse(true);
+            .accept_first_mouse(true)
+            .disable_drag_drop_handler();
 
     if let Some((x, y)) = position {
         workspace_window_builder = workspace_window_builder.position(x, y);
@@ -291,6 +292,7 @@ pub fn surface_open_detached_window(
     .decorations(true)
     .shadow(true)
     .accept_first_mouse(true)
+    .disable_drag_drop_handler()
     .always_on_top(topmost);
 
     #[cfg(target_os = "macos")]

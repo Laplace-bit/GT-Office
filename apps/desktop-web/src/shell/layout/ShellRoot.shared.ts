@@ -52,6 +52,7 @@ export type ExternalChannelEventItem = {
   targetAgentId?: string
   endpointKey?: string
   conversationKey?: string
+  workspaceId?: string | null
 }
 
 export type ExternalTraceContext = {
@@ -62,6 +63,7 @@ export type ExternalTraceContext = {
   senderId: string
   endpointKey: string
   targetAgentId?: string
+  workspaceId?: string
 }
 
 export type TelegramInboundDebugToast = {

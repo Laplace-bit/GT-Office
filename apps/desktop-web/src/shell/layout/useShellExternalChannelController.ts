@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import {
   type ChannelMessagePayload,
   type ExternalChannelDispatchProgressPayload,
@@ -154,7 +154,7 @@ export function useShellExternalChannelController({
     [scheduleStationTaskSignalDismiss],
   )
 
-  const bindExternalTraceTarget = useCallback((traceId: string, targetAgentId: string) => {
+  const bindExternalTraceTarget = useCallback((traceId: string, targetAgentId: string, workspaceId?: string) => {
     const normalizedTraceId = traceId.trim()
     const normalizedTargetAgentId = targetAgentId.trim()
     if (!normalizedTraceId || !normalizedTargetAgentId) {
@@ -163,6 +163,9 @@ export function useShellExternalChannelController({
     const context = externalTraceContextRef.current[normalizedTraceId]
     if (context) {
       context.targetAgentId = normalizedTargetAgentId
+      if (workspaceId) {
+        context.workspaceId = workspaceId
+      }
     }
     setExternalChannelEvents((prev) =>
       prev.map((event) => {
@@ -182,6 +185,7 @@ export function useShellExternalChannelController({
           ...event,
           targetAgentId: normalizedTargetAgentId,
           conversationKey: buildExternalConversationKey(endpointKey, normalizedTargetAgentId),
+          ...(workspaceId ? { workspaceId } : {}),
         }
       }),
     )
@@ -208,6 +212,7 @@ export function useShellExternalChannelController({
         targetAgentId: input.targetAgentId,
         endpointKey: input.endpointKey,
         conversationKey: input.conversationKey,
+        workspaceId: input.workspaceId,
       }
       setExternalChannelEvents((prev) => {
         if (!nextEvent.mergeKey) {
@@ -236,6 +241,7 @@ export function useShellExternalChannelController({
           targetAgentId: nextEvent.targetAgentId,
           endpointKey: nextEvent.endpointKey,
           conversationKey: nextEvent.conversationKey,
+          workspaceId: nextEvent.workspaceId ?? updated[existingIndex].workspaceId,
         }
         return updated
       })
@@ -500,10 +506,10 @@ export function useShellExternalChannelController({
           const resolvedTarget =
             payload.resolvedTargets?.find((value) => typeof value === 'string' && value.trim().length > 0) ??
             payload.targetAgentId
-          bindExternalTraceTarget(payload.traceId, resolvedTarget)
+          bindExternalTraceTarget(payload.traceId, resolvedTarget, payload.workspaceId)
         },
         onExternalDispatchProgress: (payload: ExternalChannelDispatchProgressPayload) => {
-          bindExternalTraceTarget(payload.traceId, payload.targetAgentId)
+          bindExternalTraceTarget(payload.traceId, payload.targetAgentId, payload.workspaceId)
           if (payload.status !== 'failed') {
             return
           }
@@ -531,6 +537,7 @@ export function useShellExternalChannelController({
             targetAgentId: payload.targetAgentId,
             endpointKey,
             conversationKey: buildExternalConversationKey(endpointKey, payload.targetAgentId),
+            workspaceId: payload.workspaceId,
           })
         },
         onExternalReply: () => {
@@ -548,6 +555,9 @@ export function useShellExternalChannelController({
               : undefined
           if (payload.traceId && traceContext) {
             traceContext.targetAgentId = payload.targetAgentId
+            if (payload.workspaceId) {
+              traceContext.workspaceId = payload.workspaceId
+            }
           }
           const endpointKey =
             traceContext?.endpointKey ??
@@ -579,6 +589,7 @@ export function useShellExternalChannelController({
             targetAgentId: targetAgentId ?? undefined,
             endpointKey,
             conversationKey: buildExternalConversationKey(endpointKey, targetAgentId),
+            workspaceId: payload.workspaceId || traceContext?.workspaceId,
           })
         },
         onExternalError: () => {},
@@ -664,9 +675,21 @@ export function useShellExternalChannelController({
     [externalChannelStatus.bindings],
   )
 
+  const visibleExternalChannelEvents = useMemo(() => {
+    if (!activeWorkspaceId) {
+      return externalChannelEvents
+    }
+    return externalChannelEvents.filter((event) => {
+      if (!event.workspaceId) {
+        return true
+      }
+      return event.workspaceId === activeWorkspaceId
+    })
+  }, [activeWorkspaceId, externalChannelEvents])
+
   return {
     externalChannelStatus,
-    externalChannelEvents,
+    externalChannelEvents: visibleExternalChannelEvents,
     telegramDebugToast,
     stationTaskSignals,
     refreshExternalChannelStatus,

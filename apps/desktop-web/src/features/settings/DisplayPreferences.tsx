@@ -5,6 +5,8 @@ import {
   uiFontOptions,
   uiFontSizeOptions,
   workspaceSwitchAnimationOptions,
+  fileEditorAutoSaveDelayOptions,
+  type FileEditorAutoSaveDelay,
   type MonoFont,
   type ThemeMode,
   type UiFont,
@@ -20,12 +22,16 @@ interface DisplayPreferencesProps {
   monoFont: MonoFont
   uiFontSize: UiFontSize
   workspaceSwitchAnimation: WorkspaceSwitchAnimation
+  fileEditorAutoSaveEnabled: boolean
+  fileEditorAutoSaveDelayMs: FileEditorAutoSaveDelay
   onLocaleChange: (value: Locale) => void
   onThemeModeChange: (value: ThemeMode) => void
   onUiFontChange: (value: UiFont) => void
   onMonoFontChange: (value: MonoFont) => void
   onUiFontSizeChange: (value: UiFontSize) => void
   onWorkspaceSwitchAnimationChange: (value: WorkspaceSwitchAnimation) => void
+  onFileEditorAutoSaveEnabledChange: (value: boolean) => void
+  onFileEditorAutoSaveDelayChange: (value: FileEditorAutoSaveDelay) => void
 }
 
 export function DisplayPreferences({
@@ -35,12 +41,16 @@ export function DisplayPreferences({
   monoFont,
   uiFontSize,
   workspaceSwitchAnimation,
+  fileEditorAutoSaveEnabled,
+  fileEditorAutoSaveDelayMs,
   onLocaleChange,
   onThemeModeChange,
   onUiFontChange,
   onMonoFontChange,
   onUiFontSizeChange,
   onWorkspaceSwitchAnimationChange,
+  onFileEditorAutoSaveEnabledChange,
+  onFileEditorAutoSaveDelayChange,
 }: DisplayPreferencesProps) {
   return (
     <div className="display-preferences" aria-label={t(locale, 'displayPreferences.title')}>
@@ -157,6 +167,48 @@ export function DisplayPreferences({
               onChange={(event) => onWorkspaceSwitchAnimationChange(event.target.value as WorkspaceSwitchAnimation)}
             >
               {workspaceSwitchAnimationOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(locale, option.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group-title">{t(locale, 'displayPreferences.fileEditor')}</div>
+      <div className="settings-group">
+        <div className="settings-row">
+          <div className="settings-row-label">
+            <strong>{t(locale, 'displayPreferences.fileEditorAutoSave')}</strong>
+            <span>{t(locale, '编辑文件时自动保存草稿到磁盘。', 'Automatically save file edits to disk.')}</span>
+          </div>
+          <div className="settings-row-control">
+            <label className="settings-switch">
+              <input
+                type="checkbox"
+                checked={fileEditorAutoSaveEnabled}
+                onChange={(event) => onFileEditorAutoSaveEnabledChange(event.target.checked)}
+              />
+              <span className="settings-switch-track" aria-hidden="true">
+                <span className="settings-switch-thumb" />
+              </span>
+            </label>
+          </div>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-label">
+            <strong>{t(locale, 'displayPreferences.fileEditorAutoSaveDelay')}</strong>
+            <span>{t(locale, '停止输入多久后触发自动保存。', 'How long to wait after typing stops before saving automatically.')}</span>
+          </div>
+          <div className="settings-row-control">
+            <select
+              className="settings-select"
+              value={fileEditorAutoSaveDelayMs}
+              disabled={!fileEditorAutoSaveEnabled}
+              onChange={(event) => onFileEditorAutoSaveDelayChange(Number(event.target.value) as FileEditorAutoSaveDelay)}
+            >
+              {fileEditorAutoSaveDelayOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {t(locale, option.labelKey)}
                 </option>

@@ -19,7 +19,7 @@ use tracing::{debug, warn};
 
 use crate::{
     app_state::AppState,
-    commands::tool_adapter::process_external_inbound_message,
+    commands::tool_adapter::{needed_channel_accounts, process_external_inbound_message},
     connectors::credential_store::{load_secret, store_secret},
 };
 
@@ -482,14 +482,18 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
     mark_connected(&account_id, false);
 }
 
-fn desired_accounts(app: &AppHandle) -> Vec<String> {
+fn desired_accounts(app: &AppHandle, state: &AppState) -> Vec<String> {
+    let needed = needed_channel_accounts(state);
     let Ok(store) = load_store(app) else {
         return Vec::new();
     };
     let mut items: Vec<String> = store
         .wechat_accounts
         .values()
-        .filter(|record| record.enabled)
+        .filter(|record| {
+            record.enabled
+                && needed.contains(&("wechat".to_string(), record.account_id.to_ascii_lowercase()))
+        })
         .map(|record| record.account_id.clone())
         .collect();
     items.sort();
@@ -497,7 +501,7 @@ fn desired_accounts(app: &AppHandle) -> Vec<String> {
 }
 
 pub fn reconcile(app: &AppHandle, state: &AppState) {
-    let desired: HashSet<String> = desired_accounts(app).into_iter().collect();
+    let desired: HashSet<String> = desired_accounts(app, state).into_iter().collect();
     if let Ok(mut guard) = workers().write() {
         let existing: Vec<String> = guard.keys().cloned().collect();
         for account_id in existing {

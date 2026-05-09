@@ -228,6 +228,10 @@
   color: color-mix(in srgb, var(--vb-text) 78%, transparent);
 }
 
+.file-editor-tab-context-menu {
+  min-width: #{rem(228)};
+}
+
 /* === Info Bar (Minimal & Static) === */
 .file-editor-info-bar {
   height: #{rem(26)};
