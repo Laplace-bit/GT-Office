@@ -23,6 +23,8 @@
     "src/components/modal/standard-modal-close.ts",
     "src/features/file-preview/previewers/media-preview-path.ts",
     "src/features/file-preview/previewers/image-load-state.ts",
+    "src/features/file-explorer/file-tree-data.ts",
+    "src/features/file-explorer/file-tree-selection.ts",
     "src/shell/layout/window-performance-policy.ts",
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
     "src/features/terminal/station-terminal-input-buffer.ts",
@@ -40,6 +42,7 @@
     "src/features/workspace-hub/station-mutation-error.ts",
     "src/features/settings/update-preferences-model.ts",
     "src/shell/i18n/messages.ts",
-    "src/shell/i18n/ui-locale.ts"
+    "src/shell/i18n/ui-locale.ts",
+    "src/shell/state/workspace-tab-normalization.ts"
   ]
 }

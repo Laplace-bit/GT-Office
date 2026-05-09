@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopApi } from '../integration/desktop-api'
 import type { WorkspaceTabInfo } from './workspace-tab-model'
+import { normalizeWorkspaceTabsResponse } from './workspace-tab-normalization'
 import { logPerformanceDebug } from './performance-debug'
 import { useShellWorkspaceController } from '../layout/useShellWorkspaceController'
 
@@ -138,6 +139,9 @@ export function useWorkspaceTabController(
       setWorkspaceTabs((prev) => {
         const next = [...prev]
         const [moved] = next.splice(fromIndex, 1)
+        if (!moved) {
+          return prev
+        }
         next.splice(toIndex, 0, moved)
         return next
       })
@@ -153,13 +157,7 @@ export function useWorkspaceTabController(
     let cancelled = false
     void desktopApi.workspaceList().then((response) => {
       if (cancelled) return
-      const tabs: WorkspaceTabInfo[] = response.workspaces.map((w) => ({
-        workspaceId: w.workspaceId,
-        name: w.name,
-        root: w.root,
-        active: w.active,
-      }))
-      setWorkspaceTabs(tabs)
+      setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
     })
 
     return () => {
@@ -179,24 +177,12 @@ export function useWorkspaceTabController(
       .subscribeWorkspaceEvents({
         onUpdated: () => {
           void desktopApi.workspaceList().then((response) => {
-            const tabs: WorkspaceTabInfo[] = response.workspaces.map((w) => ({
-              workspaceId: w.workspaceId,
-              name: w.name,
-              root: w.root,
-              active: w.active,
-            }))
-            setWorkspaceTabs(tabs)
+            setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
           })
         },
         onActiveChanged: () => {
           void desktopApi.workspaceList().then((response) => {
-            const tabs: WorkspaceTabInfo[] = response.workspaces.map((w) => ({
-              workspaceId: w.workspaceId,
-              name: w.name,
-              root: w.root,
-              active: w.active,
-            }))
-            setWorkspaceTabs(tabs)
+            setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
           })
         },
       })

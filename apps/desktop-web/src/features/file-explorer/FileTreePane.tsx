@@ -29,7 +29,9 @@ import {
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
+import { sanitizeDirectoryEntries } from './file-tree-data'
 import { buildFileTreeModalKey } from './file-tree-modal-key'
+import { resolveExistingTreeSelectionPath } from './file-tree-selection'
 import { resolveFileVisual, type FileVisual } from './file-visuals'
 import { addNotification } from '../../stores/notification'
 import './FileTreePane.scss'
@@ -542,12 +544,9 @@ export function FileTreePane({
           if (workspaceIdRef.current !== requestWorkspaceId) {
             return
           }
-          const filtered = response.entries.filter(
-            (entry) => parentDirectory(entry.path) === directoryPath,
-          )
           setEntriesByDirectory((prev) => ({
             ...prev,
-            [directoryPath]: sortEntries(filtered),
+            [directoryPath]: sortEntries(sanitizeDirectoryEntries(response.entries, directoryPath)),
           }))
           setLoadedDirectories((prev) => ({ ...prev, [directoryPath]: true }))
         } catch (error) {
@@ -639,10 +638,7 @@ export function FileTreePane({
   }, [loadedDirectories])
 
   useEffect(() => {
-    if (!selectedFilePath) {
-      return
-    }
-    setSelectedTreePath(normalizeDirectoryPath(selectedFilePath))
+    setSelectedTreePath(selectedFilePath ? normalizeDirectoryPath(selectedFilePath) : null)
   }, [selectedFilePath])
 
   const measureTreeViewport = useCallback(() => {
@@ -1106,6 +1102,11 @@ export function FileTreePane({
     collectNodeKinds(treeData, next)
     return next
   }, [treeData])
+
+  const effectiveSelectionPath = useMemo(
+    () => resolveExistingTreeSelectionPath(selectedTreePath, nodeKindsByPath),
+    [nodeKindsByPath, selectedTreePath],
+  )
 
   const selectedTreeKind = selectedTreePath ? nodeKindsByPath[selectedTreePath] ?? null : null
 
@@ -1644,7 +1645,7 @@ export function FileTreePane({
               rowHeight={ROW_HEIGHT}
               indent={INDENT}
               overscanCount={OVERSCAN_COUNT}
-              selection={selectedTreePath ?? undefined}
+              selection={effectiveSelectionPath}
               selectionFollowsFocus
               openByDefault={false}
               disableMultiSelection
