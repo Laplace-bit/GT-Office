@@ -69,6 +69,10 @@ const ROOT_DIR = '.'
 const ROW_HEIGHT = 34
 const OVERSCAN_COUNT = 16
 const INDENT = 14
+const DRAG_EXPAND_DELAY_MS = 550
+const DRAG_COLLAPSE_DELAY_MS = 180
+const DRAG_SCROLL_EDGE_PX = 36
+const DRAG_SCROLL_STEP_PX = 18
 const SHORTCUT_CREATE_FILE: ShortcutBinding = {
   key: 'a',
   mod: false,
@@ -512,6 +516,12 @@ export function FileTreePane({
   const treeRef = useRef<TreeApi<TreeNodeData> | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const pendingDropDirectoryRef = useRef<string | null>(null)
+  const dragExpandTimerRef = useRef<number | null>(null)
+  const dragExpandPathRef = useRef<string | null>(null)
+  const dragCollapseTimersRef = useRef<Map<string, number>>(new Map())
+  const autoExpandedDirectoriesRef = useRef<Set<string>>(new Set())
+  const dragScrollFrameRef = useRef<number | null>(null)
+  const dragScrollDeltaRef = useRef(0)
 
   const loadDirectory = useCallback(
     async (rawDirectoryPath: string) => {
@@ -830,6 +840,129 @@ export function FileTreePane({
     await Promise.allSettled(directoriesToReload.map((directory) => loadDirectory(directory)))
   }, [loadDirectory, workspaceId])
 
+  const clearPendingDragExpand = useCallback(() => {
+    if (dragExpandTimerRef.current !== null) {
+      window.clearTimeout(dragExpandTimerRef.current)
+      dragExpandTimerRef.current = null
+    }
+    dragExpandPathRef.current = null
+  }, [])
+
+  const clearPendingDragCollapse = useCallback((path?: string) => {
+    if (path) {
+      const timer = dragCollapseTimersRef.current.get(path)
+      if (timer !== undefined) {
+        window.clearTimeout(timer)
+        dragCollapseTimersRef.current.delete(path)
+      }
+      return
+    }
+    for (const timer of dragCollapseTimersRef.current.values()) {
+      window.clearTimeout(timer)
+    }
+    dragCollapseTimersRef.current.clear()
+  }, [])
+
+  const collapseAutoExpandedDirectory = useCallback((path: string) => {
+    const normalizedPath = normalizeDirectoryPath(path)
+    if (!autoExpandedDirectoriesRef.current.has(normalizedPath)) {
+      return
+    }
+    autoExpandedDirectoriesRef.current.delete(normalizedPath)
+    clearPendingDragCollapse(normalizedPath)
+    treeRef.current?.close(normalizedPath)
+  }, [clearPendingDragCollapse])
+
+  const scheduleDragCollapse = useCallback((path: string) => {
+    const normalizedPath = normalizeDirectoryPath(path)
+    if (!autoExpandedDirectoriesRef.current.has(normalizedPath)) {
+      return
+    }
+    clearPendingDragCollapse(normalizedPath)
+    const timer = window.setTimeout(() => {
+      dragCollapseTimersRef.current.delete(normalizedPath)
+      collapseAutoExpandedDirectory(normalizedPath)
+    }, DRAG_COLLAPSE_DELAY_MS)
+    dragCollapseTimersRef.current.set(normalizedPath, timer)
+  }, [clearPendingDragCollapse, collapseAutoExpandedDirectory])
+
+  const restoreAutoExpandedDirectories = useCallback((keepPath?: string | null) => {
+    const keepNormalized = keepPath ? normalizeDirectoryPath(keepPath) : null
+    clearPendingDragCollapse()
+    const expandedPaths = Array.from(autoExpandedDirectoriesRef.current)
+    autoExpandedDirectoriesRef.current.clear()
+    for (const path of expandedPaths) {
+      if (keepNormalized && path === keepNormalized) {
+        autoExpandedDirectoriesRef.current.add(path)
+        continue
+      }
+      treeRef.current?.close(path)
+    }
+  }, [clearPendingDragCollapse])
+
+  const stopDragAutoScroll = useCallback(() => {
+    dragScrollDeltaRef.current = 0
+    if (dragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragScrollFrameRef.current)
+      dragScrollFrameRef.current = null
+    }
+  }, [])
+
+  const getDragScrollElement = useCallback(() => {
+    return treeRef.current?.listEl.current ?? viewportRef.current
+  }, [])
+
+  const startDragAutoScroll = useCallback((delta: number) => {
+    dragScrollDeltaRef.current = delta
+    if (dragScrollFrameRef.current !== null) {
+      return
+    }
+    const tick = () => {
+      const scrollElement = getDragScrollElement()
+      if (!scrollElement || dragScrollDeltaRef.current === 0) {
+        dragScrollFrameRef.current = null
+        return
+      }
+      const nextScrollTop = Math.max(
+        0,
+        Math.min(
+          scrollElement.scrollTop + dragScrollDeltaRef.current,
+          scrollElement.scrollHeight - scrollElement.clientHeight,
+        ),
+      )
+      if (nextScrollTop === scrollElement.scrollTop) {
+        stopDragAutoScroll()
+        return
+      }
+      scrollElement.scrollTop = nextScrollTop
+      dragScrollFrameRef.current = window.requestAnimationFrame(tick)
+    }
+    dragScrollFrameRef.current = window.requestAnimationFrame(tick)
+  }, [getDragScrollElement, stopDragAutoScroll])
+
+  const scheduleDragExpand = useCallback((path: string) => {
+    const normalizedPath = normalizeDirectoryPath(path)
+    if (!normalizedPath || normalizedPath === ROOT_DIR) {
+      clearPendingDragExpand()
+      return
+    }
+    if (dragExpandPathRef.current === normalizedPath) {
+      return
+    }
+    clearPendingDragExpand()
+    clearPendingDragCollapse(normalizedPath)
+    dragExpandPathRef.current = normalizedPath
+    dragExpandTimerRef.current = window.setTimeout(() => {
+      dragExpandTimerRef.current = null
+      dragExpandPathRef.current = null
+      if (!treeRef.current?.isOpen(normalizedPath)) {
+        treeRef.current?.open(normalizedPath)
+        autoExpandedDirectoriesRef.current.add(normalizedPath)
+      }
+      void loadDirectory(normalizedPath)
+    }, DRAG_EXPAND_DELAY_MS)
+  }, [clearPendingDragCollapse, clearPendingDragExpand, loadDirectory])
+
   const scheduleDirectoryReload = useCallback((paths: string[]) => {
     for (const path of paths) {
       pendingRefreshDirectoriesRef.current.add(normalizeDirectoryPath(path))
@@ -952,11 +1085,16 @@ export function FileTreePane({
       if (refreshTimerRef.current !== null) {
         window.clearTimeout(refreshTimerRef.current)
       }
+      if (dragExpandTimerRef.current !== null) {
+        window.clearTimeout(dragExpandTimerRef.current)
+      }
+      clearPendingDragCollapse()
+      stopDragAutoScroll()
       if (resizeFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeFrameRef.current)
       }
     }
-  }, [])
+  }, [clearPendingDragCollapse, stopDragAutoScroll])
 
   const treeData = useMemo(
     () => buildTreeNodes(entriesByDirectory, loadingDirectories, gitStatusesByPath, ROOT_DIR),
@@ -1205,15 +1343,8 @@ export function FileTreePane({
     parentId,
     parentNode,
   }) => {
-    console.log('[DnD] handleMove called', {
-      dragIds,
-      parentId,
-      parentNodeId: parentNode?.id,
-      parentNodeKind: (parentNode?.data as TreeNodeData | undefined)?.kind,
-    })
     const sourcePath = dragIds[0]
     if (!sourcePath) {
-      console.warn('[DnD] handleMove: no sourcePath, aborting')
       return
     }
     const sourceName = leafName(sourcePath)
@@ -1223,33 +1354,24 @@ export function FileTreePane({
     let targetBase: string
     if (explicitDropDirectory) {
       targetBase = normalizeDirectoryPath(explicitDropDirectory)
-      console.log('[DnD] targetBase from explicitDropDirectory:', targetBase)
     } else if (parentNode && (parentNode.data as TreeNodeData | undefined)?.kind === 'dir') {
       targetBase = normalizeDirectoryPath((parentNode.data as TreeNodeData).path)
-      console.log('[DnD] targetBase from parentNode.data.path:', targetBase)
     } else if (parentId) {
       targetBase = normalizeDirectoryPath(parentId)
-      console.log('[DnD] targetBase from parentId:', targetBase)
     } else {
       targetBase = ROOT_DIR
-      console.log('[DnD] targetBase defaulted to ROOT_DIR')
     }
 
     const targetPath = targetBase === ROOT_DIR ? sourceName : `${targetBase}/${sourceName}`
-    console.log('[DnD] sourcePath:', sourcePath, '-> targetPath:', targetPath)
     if (targetPath === sourcePath) {
-      console.log('[DnD] same path, no-op')
       return
     }
-    console.log('[DnD] calling onMovePath...')
     const moved = await onMovePath(sourcePath, targetPath)
-    console.log('[DnD] onMovePath returned:', moved)
     if (!moved) {
-      console.warn('[DnD] onMovePath returned false, aborting')
+      restoreAutoExpandedDirectories()
       return
     }
 
-    console.log('[DnD] opening targetBase and refreshing...')
     if (targetBase !== ROOT_DIR) {
       treeRef.current?.open(targetBase)
     }
@@ -1262,7 +1384,7 @@ export function FileTreePane({
     if (nodeKindsByPath[sourcePath] === 'file') {
       onSelectFile(targetPath)
     }
-    console.log('[DnD] handleMove complete')
+    restoreAutoExpandedDirectories(targetBase !== ROOT_DIR ? targetBase : null)
   }, [
     applyOptimisticTreeMove,
     loadDirectory,
@@ -1271,6 +1393,7 @@ export function FileTreePane({
     onSelectFile,
     pruneDirectoryCache,
     reloadParentsAfterMutation,
+    restoreAutoExpandedDirectories,
   ])
 
   const renderRow = useCallback((props: RowRendererProps<TreeNodeData>) => {
@@ -1320,16 +1443,53 @@ export function FileTreePane({
           })
         }}
         onDragOverCapture={() => {
-          pendingDropDirectoryRef.current = node.data.kind === 'dir' ? node.data.path : null
+          if (node.data.kind === 'dir') {
+            pendingDropDirectoryRef.current = node.data.path
+            if (!node.isOpen) {
+              scheduleDragExpand(node.data.path)
+            } else {
+              clearPendingDragExpand()
+              clearPendingDragCollapse(node.data.path)
+            }
+          } else {
+            pendingDropDirectoryRef.current = null
+            clearPendingDragExpand()
+          }
         }}
         onDropCapture={() => {
+          clearPendingDragExpand()
+          clearPendingDragCollapse()
           pendingDropDirectoryRef.current = node.data.kind === 'dir' ? node.data.path : null
+        }}
+        onDragLeaveCapture={() => {
+          if (dragExpandPathRef.current === node.data.path) {
+            clearPendingDragExpand()
+          }
+          if (node.data.kind === 'dir') {
+            scheduleDragCollapse(node.data.path)
+          }
+        }}
+        onDragEndCapture={() => {
+          clearPendingDragExpand()
+          clearPendingDragCollapse()
+          stopDragAutoScroll()
+          restoreAutoExpandedDirectories()
+          pendingDropDirectoryRef.current = null
         }}
       >
         {children}
       </div>
     )
-  }, [clipboard, onSelectFile])
+  }, [
+    clearPendingDragCollapse,
+    clearPendingDragExpand,
+    clipboard,
+    onSelectFile,
+    restoreAutoExpandedDirectories,
+    scheduleDragCollapse,
+    scheduleDragExpand,
+    stopDragAutoScroll,
+  ])
   const renderNode = useCallback(
     (props: NodeRendererProps<TreeNodeData>) => (
       <MemoTreeNodeRenderer {...props} loadingLabel={loadingLabel} />
@@ -1444,6 +1604,23 @@ export function FileTreePane({
           className="file-tree-viewport"
           tabIndex={0}
           onKeyDown={handleKeyDown}
+          onDragOver={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            const offsetY = event.clientY - rect.top
+            if (offsetY <= DRAG_SCROLL_EDGE_PX) {
+              startDragAutoScroll(-DRAG_SCROLL_STEP_PX)
+            } else if (offsetY >= rect.height - DRAG_SCROLL_EDGE_PX) {
+              startDragAutoScroll(DRAG_SCROLL_STEP_PX)
+            } else {
+              stopDragAutoScroll()
+            }
+          }}
+          onDragLeave={() => {
+            stopDragAutoScroll()
+          }}
+          onDrop={() => {
+            stopDragAutoScroll()
+          }}
           onContextMenu={(event) => {
             const target = event.target
             if (target instanceof HTMLElement && target.closest('.tree-row')) {
@@ -1500,7 +1677,6 @@ export function FileTreePane({
                 // has no data.kind). Allow drops on the root and on directories;
                 // only reject drops directly onto file nodes.
                 if (parentNode && 'kind' in parentNode.data && parentNode.data.kind !== 'dir') {
-                  console.log('[DnD] disableDrop=true (file node)', parentNode.id)
                   return true
                 }
                 const selfOrAncestor = dragNodes.some((dragNode) => {
@@ -1509,9 +1685,6 @@ export function FileTreePane({
                   }
                   return dragNode.id === parentNode.id || dragNode.isAncestorOf(parentNode)
                 })
-                if (selfOrAncestor) {
-                  console.log('[DnD] disableDrop=true (self/ancestor)', parentNode?.id)
-                }
                 return selfOrAncestor
               }}
               onMove={handleMove}

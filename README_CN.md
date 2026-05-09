@@ -2,7 +2,7 @@
 
 # 🏢 GT Office
 
-### 面向开发者的原生多智能体协同工作台
+### 面向 Claude Code、Codex CLI、Gemini CLI 的 AI Agent 桌面应用
 
 **告别终端 Tab 乱战，一个桌面 App 统一调度所有 AI Agent。**
 
@@ -15,6 +15,12 @@
 </div>
 
 ---
+
+## GT Office 是什么？
+
+GT Office 是一个**跨平台 AI Agent 桌面应用**，也是一个面向开发者的**多智能体协同工作台**。它把 **Claude Code**、**Codex CLI**、**Gemini CLI**、终端、文件、Git、任务和消息通道整合进一个原生 **Tauri + React + Rust** 应用里。
+
+如果你在找 **AI 编程 Agent IDE**、**AI Agent 桌面客户端**、**Claude Code 图形界面**、**Codex CLI 桌面工作台** 或 **多 Agent 编排工作区**，GT Office 面向的就是这类使用场景。
 
 ## 为什么需要 GT Office？
 
@@ -58,6 +64,13 @@
 - 📡 **外部通道代理** — 手机上的 Telegram、微信、飞书即可监控和指挥 Agent
 - ⚔️ **对抗推理架构** — 预设 生成者-评审者 角色，交付前自动内部审核
 - ⚙️ **可视化模型切换** — 随时切换 LLM 后端，零配置文件修改
+
+## 适合谁使用
+
+- 同时运行多个 AI 编程 Agent 的开发者
+- 使用 Claude Code、Codex CLI、Gemini CLI 或其他终端型 Agent 工具的团队
+- 希望把终端、文件、Git、任务和 Agent 交接放在同一个原生桌面工作区里的用户
+- 需要持久化多 Agent 会话，而不是一次性 terminal tab 的构建者
 
 ---
 

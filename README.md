@@ -2,7 +2,7 @@
 
 # 🏢 GT Office
 
-### Native Multi-Agent Collaborative Workspace
+### AI Agent Desktop App for Claude Code, Codex CLI, and Gemini CLI
 
 **Stop juggling terminal tabs. Orchestrate all your AI agents in one desktop app.**
 
@@ -15,6 +15,12 @@
 </div>
 
 ---
+
+## What Is GT Office?
+
+GT Office is a **cross-platform AI agent desktop app** and **multi-agent workspace** for developers. It brings **Claude Code**, **Codex CLI**, **Gemini CLI**, terminal sessions, files, Git, tasks, and channel notifications into one native **Tauri + React + Rust** application.
+
+If you are searching for an **AI coding agent IDE**, **desktop app for AI agents**, **Claude Code GUI**, **Codex CLI desktop client**, or a **multi-agent orchestration workspace**, this repository is built for that workflow.
 
 ## Why GT Office?
 
@@ -58,6 +64,13 @@ If you use **Claude Code, Codex CLI, or Gemini CLI**, you know the pain:
 - 📡 **External Channel Proxy** — Monitor and instruct agents from Telegram, WeChat, or Feishu on your phone.
 - ⚔️ **Adversarial Reasoning** — Pre-configured Generator-Evaluator roles for auto-review before delivery.
 - ⚙️ **Visual Model Switching** — Change backing LLMs on the fly, zero config file editing.
+
+## Who GT Office Is For
+
+- Developers running multiple AI coding agents in parallel
+- Teams using Claude Code, Codex CLI, Gemini CLI, or other terminal-first agent tools
+- Users who want a native desktop workspace for terminals, files, Git, tasks, and agent handoffs
+- Builders who need persistent multi-agent sessions instead of disposable terminal tabs
 
 ---
 
