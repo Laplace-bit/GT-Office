@@ -113,8 +113,7 @@ export function ChannelConfigurationModal({
           <section className="provider-workspace__panel">
             <div className="provider-workspace__toolbar">
               <div>
-                <h4>{t(locale, '已配置机器人', 'Configured Bots')}</h4>
-                <p>{t(locale, '在这里集中管理当前通道下的机器人与路由绑定。', 'Manage your bots and bindings for this channel here.')}</p>
+                <h4>{t(locale, '已绑定 Agent', 'Bound Agents')}</h4>
               </div>
               <div className="provider-workspace__toolbar-actions">
                 <button

@@ -954,15 +954,11 @@
   gap: 1rem;
 }
 
-.feishu-wizard-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 0.95fr);
-  gap: 1.25rem;
-}
-
 .feishu-wizard-main {
   display: grid;
   gap: 1.125rem;
+  max-width: rem(42rem);
+  margin: 0 auto;
 }
 
 .feishu-onboarding-shell {
@@ -1239,6 +1235,38 @@
   margin-top: 0.15rem;
 }
 
+.feishu-minimal-header {
+  display: grid;
+  gap: 0.35rem;
+
+  p:last-child {
+    margin: 0;
+    color: var(--vb-text-muted);
+    line-height: 1.55;
+  }
+}
+
+.feishu-platform-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.95rem;
+  border: rem(1) solid color-mix(in srgb, var(--vb-border) 80%, transparent);
+  background: color-mix(in srgb, var(--vb-surface-muted) 48%, transparent);
+
+  span {
+    min-width: 0;
+    color: var(--vb-text);
+    font-weight: 600;
+  }
+}
+
+.feishu-form-grid.is-minimal {
+  grid-template-columns: minmax(0, 1.2fr) minmax(10rem, 0.8fr);
+}
+
 .feishu-guide-card,
 .feishu-inline-panel,
 .feishu-health-card {
@@ -1451,7 +1479,6 @@
   .channel-wizard-two-column,
   .feishu-form-grid,
   .feishu-health-grid,
-  .feishu-wizard-layout,
   .wechat-wizard-layout,
   .wechat-health-grid {
     grid-template-columns: 1fr;
@@ -1478,6 +1505,11 @@
   }
 
   .feishu-platform-url-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .feishu-platform-compact {
     flex-direction: column;
     align-items: stretch;
   }

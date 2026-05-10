@@ -13,7 +13,6 @@ import { WechatConnectorWizard } from './wechat/WechatConnectorWizard'
 import { normalizeChannelAccountId, parseChannelBindingTarget } from './channel-bot-binding-model'
 
 type ConnectorChannel = 'feishu' | 'telegram' | 'wechat'
-type TelegramTargetBindingType = 'role' | 'agent'
 
 interface ChannelWizardProps {
   locale: Locale
@@ -34,8 +33,6 @@ interface TelegramWizardForm {
   accountId: string
   peerKind: 'direct' | 'group'
   peerPattern: string
-  targetBindingType: TelegramTargetBindingType
-  targetRoleKey: string
   targetAgentId: string
   telegramBotToken: string
   priority: number
@@ -44,14 +41,6 @@ interface TelegramWizardForm {
 }
 
 const TELEGRAM_STEP_COUNT = 2
-const ROLE_TARGET_PREFIX = 'role:'
-
-function normalizeRoleTarget(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  return trimmed.startsWith(ROLE_TARGET_PREFIX) ? trimmed : `${ROLE_TARGET_PREFIX}${trimmed}`
-}
-
 function normalizeAgentTarget(value: string): string {
   return value.trim()
 }
@@ -136,22 +125,12 @@ function TelegramChannelWizard({
   workspaceId,
   onSuccess,
   editingBinding,
-  roles,
   agents,
   connectorAccounts,
   telegramWebhook,
   onBack,
 }: Omit<ChannelWizardProps, 'addedChannels' | 'feishuWebhook'> & { onBack?: () => void }) {
-  const activeRoles = useMemo(() => roles.filter((role) => role.status !== 'disabled'), [roles])
   const activeAgents = useMemo(() => agents.filter((agent) => agent.state !== 'terminated'), [agents])
-  const roleLabelByKey = useMemo(() => {
-    const map = new Map<string, string>()
-    activeRoles.forEach((role) => {
-      map.set(role.roleKey, role.roleName)
-      map.set(role.id, role.roleName)
-    })
-    return map
-  }, [activeRoles])
   const agentLabelById = useMemo(() => {
     const map = new Map<string, string>()
     activeAgents.forEach((agent) => map.set(agent.id, agent.name))
@@ -165,9 +144,7 @@ function TelegramChannelWizard({
         accountId: editingBinding.accountId ?? 'default',
         peerKind: editingBinding.peerKind === 'group' ? 'group' : 'direct',
         peerPattern: editingBinding.peerPattern ?? '',
-        targetBindingType: target.type as TelegramTargetBindingType,
-        targetRoleKey: target.type === 'role' ? target.value : '',
-        targetAgentId: target.type === 'agent' ? target.value : '',
+        targetAgentId: target.type === 'agent' ? target.value : activeAgents[0]?.id ?? '',
         telegramBotToken: '',
         priority: editingBinding.priority ?? 100,
         policyMode: 'open',
@@ -178,15 +155,13 @@ function TelegramChannelWizard({
       accountId: 'default',
       peerKind: 'direct',
       peerPattern: '',
-      targetBindingType: 'role',
-      targetRoleKey: activeRoles[0]?.roleKey ?? '',
       targetAgentId: activeAgents[0]?.id ?? '',
       telegramBotToken: '',
       priority: 100,
       policyMode: 'open',
       approveIdentities: '',
     }
-  }, [activeAgents, activeRoles, editingBinding])
+  }, [activeAgents, editingBinding])
 
   const [form, setForm] = useState<TelegramWizardForm>(defaultForm)
   const [wizardStep, setWizardStep] = useState(0)
@@ -198,19 +173,14 @@ function TelegramChannelWizard({
     (account) => account.channel === 'telegram' && account.accountId === normalizedAccountId && account.hasBotToken,
   )
 
-  const reviewTargetLabel =
-    form.targetBindingType === 'role'
-      ? roleLabelByKey.get(form.targetRoleKey) ?? form.targetRoleKey
-      : agentLabelById.get(form.targetAgentId) ?? form.targetAgentId
+  const reviewTargetLabel = agentLabelById.get(form.targetAgentId) ?? form.targetAgentId
 
   const canGoNext = useMemo(() => {
     if (wizardStep === 0) {
-      return form.targetBindingType === 'role'
-        ? Boolean(form.targetRoleKey.trim())
-        : Boolean(form.targetAgentId.trim())
+      return Boolean(form.targetAgentId.trim())
     }
     return true
-  }, [form.targetAgentId, form.targetBindingType, form.targetRoleKey, wizardStep])
+  }, [form.targetAgentId, wizardStep])
 
   const updateField = <K extends keyof TelegramWizardForm>(key: K, value: TelegramWizardForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -222,12 +192,9 @@ function TelegramChannelWizard({
       return
     }
 
-    const targetSelector =
-      form.targetBindingType === 'role'
-        ? normalizeRoleTarget(form.targetRoleKey)
-        : normalizeAgentTarget(form.targetAgentId)
+    const targetSelector = normalizeAgentTarget(form.targetAgentId)
     if (!targetSelector) {
-      setErrorMessage(t(locale, '请先选择 route 目标。', 'Select a route target first.'))
+      setErrorMessage(t(locale, '请选择目标 Agent。', 'Select a target Agent first.'))
       return
     }
 
@@ -341,25 +308,6 @@ function TelegramChannelWizard({
                 </div>
               </div>
 
-              <div className="segmented-control" style={{ marginBottom: '1rem' }}>
-                <button
-                  type="button"
-                  className={form.targetBindingType === 'role' ? 'active' : ''}
-                  disabled={saving}
-                  onClick={() => updateField('targetBindingType', 'role')}
-                >
-                  {t(locale, '绑定 Role', 'Bind Role')}
-                </button>
-                <button
-                  type="button"
-                  className={form.targetBindingType === 'agent' ? 'active' : ''}
-                  disabled={saving}
-                  onClick={() => updateField('targetBindingType', 'agent')}
-                >
-                  {t(locale, '绑定 Agent', 'Bind Agent')}
-                </button>
-              </div>
-
               <div className="channel-wizard-two-column">
                 <div className="settings-form-group">
                   <label>{t(locale, '消息类型', 'Peer Kind')}</label>
@@ -374,39 +322,19 @@ function TelegramChannelWizard({
                   </select>
                 </div>
                 <div className="settings-form-group">
-                  {form.targetBindingType === 'role' ? (
-                    <>
-                      <label>{t(locale, '目标 Role', 'Target Role')}</label>
-                      <select
-                        className="settings-select"
-                        value={form.targetRoleKey}
-                        disabled={saving || activeRoles.length === 0}
-                        onChange={(event) => updateField('targetRoleKey', event.target.value)}
-                      >
-                        {activeRoles.map((role) => (
-                          <option key={role.id} value={role.roleKey}>
-                            {role.roleName}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  ) : (
-                    <>
-                      <label>{t(locale, '目标 Agent', 'Target Agent')}</label>
-                      <select
-                        className="settings-select"
-                        value={form.targetAgentId}
-                        disabled={saving || activeAgents.length === 0}
-                        onChange={(event) => updateField('targetAgentId', event.target.value)}
-                      >
-                        {activeAgents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>
-                            {agent.name}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  )}
+                  <label>{t(locale, '目标 Agent', 'Target Agent')}</label>
+                  <select
+                    className="settings-select"
+                    value={form.targetAgentId}
+                    disabled={saving || activeAgents.length === 0}
+                    onChange={(event) => updateField('targetAgentId', event.target.value)}
+                  >
+                    {activeAgents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -536,7 +464,6 @@ export function ChannelWizard(props: ChannelWizardProps) {
         onClose={props.onClose}
         onSuccess={props.onSuccess}
         editingBinding={props.editingBinding}
-        roles={props.roles}
         agents={props.agents}
         connectorAccounts={props.connectorAccounts}
         onBack={onBack}
@@ -552,7 +479,6 @@ export function ChannelWizard(props: ChannelWizardProps) {
         onClose={props.onClose}
         onSuccess={props.onSuccess}
         editingBinding={props.editingBinding}
-        roles={props.roles}
         agents={props.agents}
         connectorAccounts={props.connectorAccounts}
         onBack={onBack}

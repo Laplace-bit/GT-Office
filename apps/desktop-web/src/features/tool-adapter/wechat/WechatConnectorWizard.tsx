@@ -3,11 +3,9 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   desktopApi,
   type AgentProfile,
-  type AgentRole,
   type ChannelConnectorAccount,
   type ChannelRouteBinding,
   type ChannelConnectorHealthResponse,
-  type ExternalAccessPolicyMode,
   type WechatAuthSession,
 } from '@shell/integration/desktop-api'
 import { normalizeChannelAccountId, parseChannelBindingTarget } from '../channel-bot-binding-model'
@@ -19,37 +17,18 @@ interface WechatConnectorWizardProps {
   onClose: () => void
   onSuccess: (message: string) => void
   editingBinding: ChannelRouteBinding | null
-  roles: AgentRole[]
   agents: AgentProfile[]
   connectorAccounts: ChannelConnectorAccount[]
   onBack?: () => void
 }
 
-type TargetBindingType = 'role' | 'agent'
-
 interface WechatWizardForm {
   accountId: string
-  targetBindingType: TargetBindingType
-  targetRoleKey: string
   targetAgentId: string
   peerPattern: string
-  priority: number
-  policyMode: ExternalAccessPolicyMode
-  approveIdentities: string
 }
 
-const ROLE_TARGET_PREFIX = 'role:'
-const STEP_COUNT = 4
-
-function normalizeRoleTarget(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  return trimmed.startsWith(ROLE_TARGET_PREFIX) ? trimmed : `${ROLE_TARGET_PREFIX}${trimmed}`
-}
-
-function parseIdentities(value: string): string[] {
-  return Array.from(new Set(value.split(/[\n,;]/g).map((item) => item.trim()).filter(Boolean)))
-}
+const STEP_COUNT = 3
 
 function describeError(value: unknown): string {
   if (value instanceof Error) return value.message
@@ -57,31 +36,15 @@ function describeError(value: unknown): string {
   return 'unknown'
 }
 
-function healthPillClass(health: ChannelConnectorHealthResponse['health'] | null): string {
-  if (!health) return 'idle'
-  if (health.ok) return 'ok'
-  if (health.status === 'scanned' || health.status === 'awaiting_scan') return 'pending'
-  return 'error'
-}
-
-function statusPillClass(status: string | null, ok: boolean): string {
-  if (ok || status === 'confirmed') return 'ok'
-  if (!status || status === 'unbound') return 'idle'
-  if (status === 'scanned' || status === 'awaiting_scan') return 'pending'
-  return 'error'
-}
-
 export function WechatConnectorWizard({
   locale,
   workspaceId,
   onSuccess,
   editingBinding,
-  roles,
   agents,
   connectorAccounts,
   onBack,
 }: WechatConnectorWizardProps) {
-  const activeRoles = useMemo(() => roles.filter((role) => role.status !== 'disabled'), [roles])
   const activeAgents = useMemo(() => agents.filter((agent) => agent.state !== 'terminated'), [agents])
   const [wizardStep, setWizardStep] = useState(0)
   const [saving, setSaving] = useState(false)
@@ -95,26 +58,16 @@ export function WechatConnectorWizard({
       const target = parseChannelBindingTarget(editingBinding.targetAgentId)
       return {
         accountId: editingBinding.accountId ?? 'default',
-        targetBindingType: target.type as TargetBindingType,
-        targetRoleKey: target.type === 'role' ? target.value : activeRoles[0]?.roleKey ?? '',
         targetAgentId: target.type === 'agent' ? target.value : activeAgents[0]?.id ?? '',
         peerPattern: editingBinding.peerPattern ?? '',
-        priority: editingBinding.priority ?? 100,
-        policyMode: 'open',
-        approveIdentities: '',
       }
     }
     return {
       accountId: 'default',
-      targetBindingType: 'role',
-      targetRoleKey: activeRoles[0]?.roleKey ?? '',
       targetAgentId: activeAgents[0]?.id ?? '',
       peerPattern: '',
-      priority: 100,
-      policyMode: 'open',
-      approveIdentities: '',
     }
-  }, [activeAgents, activeRoles, editingBinding])
+  }, [activeAgents, editingBinding])
 
   const [form, setForm] = useState<WechatWizardForm>(defaultForm)
   const normalizedAccountId = normalizeChannelAccountId(form.accountId)
@@ -160,34 +113,13 @@ export function WechatConnectorWizard({
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
-  const roleLabelByKey = useMemo(() => {
-    const map = new Map<string, string>()
-    activeRoles.forEach((role) => {
-      map.set(role.id, role.roleName)
-      map.set(role.roleKey, role.roleName)
-    })
-    return map
-  }, [activeRoles])
-
   const agentLabelById = useMemo(() => {
     const map = new Map<string, string>()
     activeAgents.forEach((agent) => map.set(agent.id, agent.name))
     return map
   }, [activeAgents])
 
-  const reviewTargetLabel =
-    form.targetBindingType === 'role'
-      ? roleLabelByKey.get(form.targetRoleKey) ?? form.targetRoleKey
-      : agentLabelById.get(form.targetAgentId) ?? form.targetAgentId
-  const isScanStep = wizardStep === 0
-  const currentStatus = healthSnapshot?.status ?? authSession?.status ?? t(locale, '未绑定', 'Unbound')
-  const currentStatusPillClass = statusPillClass(
-    healthSnapshot?.status ?? authSession?.status ?? null,
-    Boolean(healthSnapshot?.ok),
-  )
-  const currentStatusDetail =
-    authSession?.detail ??
-    t(locale, '在手机上确认登录后继续下一步。', 'Confirm login on your phone, then continue to the next step.')
+  const reviewTargetLabel = agentLabelById.get(form.targetAgentId) ?? form.targetAgentId
 
   const canGoNext = useMemo(() => {
     if (wizardStep === 0) {
@@ -197,12 +129,10 @@ export function WechatConnectorWizard({
       return Boolean(healthSnapshot?.ok)
     }
     if (wizardStep === 2) {
-      return form.targetBindingType === 'role'
-        ? Boolean(form.targetRoleKey.trim())
-        : Boolean(form.targetAgentId.trim())
+      return Boolean(form.targetAgentId.trim())
     }
     return true
-  }, [form.targetAgentId, form.targetBindingType, form.targetRoleKey, hasBoundToken, healthSnapshot?.ok, wizardStep])
+  }, [form.targetAgentId, hasBoundToken, healthSnapshot?.ok, wizardStep])
 
   const startBind = async () => {
     setSaving(true)
@@ -248,10 +178,9 @@ export function WechatConnectorWizard({
       setErrorMessage(t(locale, '请先绑定工作区。', 'Bind a workspace first.'))
       return
     }
-    const targetSelector =
-      form.targetBindingType === 'role' ? normalizeRoleTarget(form.targetRoleKey) : form.targetAgentId.trim()
+    const targetSelector = form.targetAgentId.trim()
     if (!targetSelector) {
-      setErrorMessage(t(locale, '请选择目标 Agent 或 Role。', 'Choose a target Agent or Role.'))
+      setErrorMessage(t(locale, '请选择目标 Agent。', 'Choose a target Agent.'))
       return
     }
 
@@ -265,12 +194,9 @@ export function WechatConnectorWizard({
         peerKind: 'direct',
         peerPattern: form.peerPattern.trim() || null,
         targetAgentId: targetSelector,
-        priority: Number.isFinite(form.priority) ? Math.floor(form.priority) : 100,
+        priority: editingBinding?.priority ?? 100,
       })
-      await desktopApi.channelAccessPolicySet('wechat', form.policyMode, normalizedAccountId)
-      for (const identity of parseIdentities(form.approveIdentities)) {
-        await desktopApi.channelAccessApprove('wechat', identity, normalizedAccountId)
-      }
+      await desktopApi.channelAccessPolicySet('wechat', 'open', normalizedAccountId)
       onSuccess(t(locale, '微信通道已配置完成。', 'WeChat channel setup completed.'))
     } catch (error) {
       setErrorMessage(
@@ -305,51 +231,18 @@ export function WechatConnectorWizard({
 
       <WizardStepBar total={STEP_COUNT} current={wizardStep} />
 
-      <div className="channel-wizard-body wechat-wizard-layout">
-        <aside className="wechat-wizard-sidebar">
-          <div className="wechat-hero-card">
-            <span className="wechat-guide-eyebrow">WeChat</span>
-            <h5>{t(locale, '个人会话接入', 'Personal chat onboarding')}</h5>
-            <p>{t(locale, '桌面端扫码绑定后，再把私聊消息路由到目标 Agent。', 'Bind on desktop with a QR flow, then route direct messages into the target Agent.')}</p>
-            {isScanStep ? (
-              <div className="wechat-guide-status">
-                <span className={`wechat-health-pill ${currentStatusPillClass}`}>{currentStatus}</span>
-                <p>{currentStatusDetail}</p>
-              </div>
-            ) : null}
-          </div>
-          {!isScanStep ? (
-            <div className="wechat-health-card">
-              <div className="wechat-health-header">
-                <h5>{t(locale, '当前状态', 'Current status')}</h5>
-                <span className={`wechat-health-pill ${healthPillClass(healthSnapshot)}`}>
-                  {healthSnapshot?.status ?? authSession?.status ?? t(locale, '未绑定', 'Unbound')}
-                </span>
-              </div>
-              <dl className="wechat-health-grid">
-                <dt>Account</dt>
-                <dd>{normalizedAccountId}</dd>
-                <dt>{t(locale, '已绑定 Token', 'Token bound')}</dt>
-                <dd>{hasBoundToken ? t(locale, '是', 'Yes') : t(locale, '否', 'No')}</dd>
-                <dt>{t(locale, '最后同步', 'Last sync')}</dt>
-                <dd>
-                  {healthSnapshot?.lastSyncAtMs
-                    ? new Date(healthSnapshot.lastSyncAtMs).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')
-                    : '-'}
-                </dd>
-              </dl>
-              {healthSnapshot?.detail ? <p className="wechat-side-note">{healthSnapshot.detail}</p> : null}
-            </div>
-          ) : null}
-        </aside>
-
-        <section className="wechat-wizard-main">
-          {statusMessage && !isScanStep && <div className="settings-channel-message">{statusMessage}</div>}
+      <div className="channel-wizard-body">
+        <section className="wechat-wizard-main wechat-wizard-main--minimal">
+          {statusMessage && <div className="settings-channel-message">{statusMessage}</div>}
           {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
 
           <div className="channel-wizard-step-animate" key={wizardStep}>
           {wizardStep === 0 && (
             <div className="settings-pane-section wechat-step-section">
+              <div className="feishu-minimal-header">
+                <p className="channel-wizard-step-label">{t(locale, 'Step 1 — 扫码绑定', 'Step 1 — Scan to bind')}</p>
+                <p>{t(locale, '生成二维码后，用微信完成绑定。', 'Generate a QR code, then complete binding in WeChat.')}</p>
+              </div>
               <div className="wechat-qr-stage">
                 {authSession?.qrCodeSvgDataUrl ? (
                   <img
@@ -403,10 +296,22 @@ export function WechatConnectorWizard({
 
           {wizardStep === 1 && (
             <div className="settings-pane-section wechat-step-section">
-              <p className="channel-wizard-step-label">{t(locale, 'Step 2 — 验证连接', 'Step 2 — Verify connection')}</p>
-              <p className="wechat-side-note">
-                {t(locale, '绑定成功后做一次 token 探活；如果失效，这里直接给出“重新绑定”恢复动作。', 'Run one token probe after binding; if it has expired, recover here with a direct rebind action.')}
-              </p>
+              <div className="feishu-minimal-header">
+                <p className="channel-wizard-step-label">{t(locale, 'Step 2 — 验证连接', 'Step 2 — Verify connection')}</p>
+                <p>{t(locale, '做一次连接探活，确认账号可用。', 'Run a health check to confirm the account is available.')}</p>
+              </div>
+              <div className="feishu-inline-panel">
+                <ul className="feishu-review-list">
+                  <li>
+                    <span>{t(locale, 'Account ID', 'Account ID')}</span>
+                    <strong>{normalizedAccountId}</strong>
+                  </li>
+                  <li>
+                    <span>{t(locale, '当前状态', 'Current status')}</span>
+                    <strong>{healthSnapshot?.status ?? authSession?.status ?? t(locale, '未绑定', 'Unbound')}</strong>
+                  </li>
+                </ul>
+              </div>
               <div className="feishu-step-actions">
                 <button type="button" className="settings-btn settings-btn-primary" onClick={verifyHealth} disabled={saving || !hasBoundToken}>
                   {t(locale, '执行连接验证', 'Run verification')}
@@ -420,117 +325,35 @@ export function WechatConnectorWizard({
 
           {wizardStep === 2 && (
             <div className="settings-pane-section wechat-step-section">
-              <p className="channel-wizard-step-label">{t(locale, 'Step 3 — 选择消息投递目标', 'Step 3 — Choose delivery target')}</p>
-              <div className="segmented-control">
-                <button
-                  type="button"
-                  className={form.targetBindingType === 'role' ? 'active' : ''}
-                  onClick={() => updateField('targetBindingType', 'role')}
-                  disabled={saving}
-                >
-                  {t(locale, '绑定 Role', 'Bind Role')}
-                </button>
-                <button
-                  type="button"
-                  className={form.targetBindingType === 'agent' ? 'active' : ''}
-                  onClick={() => updateField('targetBindingType', 'agent')}
-                  disabled={saving}
-                >
-                  {t(locale, '绑定 Agent', 'Bind Agent')}
-                </button>
+              <div className="feishu-minimal-header">
+                <p className="channel-wizard-step-label">{t(locale, 'Step 3 — 绑定 Agent', 'Step 3 — Bind Agent')}</p>
+                <p>{t(locale, '选择接收微信消息的 Agent。', 'Choose the Agent that receives WeChat messages.')}</p>
               </div>
-              <div className="channel-wizard-two-column">
-                <div className="settings-form-group">
-                  <label>{t(locale, 'Peer Pattern（可选）', 'Peer Pattern (optional)')}</label>
-                  <input
-                    className="settings-input"
-                    value={form.peerPattern}
-                    disabled={saving}
-                    onChange={(event) => updateField('peerPattern', event.target.value)}
-                  />
-                </div>
-                <div className="settings-form-group">
-                  <label>{t(locale, '优先级', 'Priority')}</label>
-                  <input
-                    type="number"
-                    className="settings-input"
-                    value={form.priority}
-                    disabled={saving}
-                    onChange={(event) => updateField('priority', Number(event.target.value))}
-                  />
-                </div>
-              </div>
-              {form.targetBindingType === 'role' ? (
-                <div className="settings-form-group">
-                  <label>{t(locale, '目标 Role', 'Target Role')}</label>
-                  <select
-                    className="settings-select"
-                    value={form.targetRoleKey}
-                    disabled={saving || activeRoles.length === 0}
-                    onChange={(event) => updateField('targetRoleKey', event.target.value)}
-                  >
-                    {activeRoles.map((role) => (
-                      <option key={role.id} value={role.roleKey}>
-                        {role.roleName} ({role.roleKey})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="settings-form-group">
-                  <label>{t(locale, '目标 Agent', 'Target Agent')}</label>
-                  <select
-                    className="settings-select"
-                    value={form.targetAgentId}
-                    disabled={saving || activeAgents.length === 0}
-                    onChange={(event) => updateField('targetAgentId', event.target.value)}
-                  >
-                    {activeAgents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <div className="settings-form-group">
-                <label>{t(locale, '策略模式', 'Policy Mode')}</label>
+                <label>{t(locale, '目标 Agent', 'Target Agent')}</label>
                 <select
                   className="settings-select"
-                  value={form.policyMode}
-                  disabled={saving}
-                  onChange={(event) => updateField('policyMode', event.target.value as ExternalAccessPolicyMode)}
+                  value={form.targetAgentId}
+                  disabled={saving || activeAgents.length === 0}
+                  onChange={(event) => updateField('targetAgentId', event.target.value)}
                 >
-                  <option value="open">open</option>
-                  <option value="pairing">pairing</option>
-                  <option value="allowlist">allowlist</option>
-                  <option value="disabled">disabled</option>
+                  {activeAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
                 </select>
-                <span className="hint">
-                  {t(
-                    locale,
-                    '个人微信建议使用 open；pairing 和 allowlist 会先拦截首条消息，直到 identity 被批准。',
-                    'Use open for personal WeChat. Pairing and allowlist will block the first inbound message until the identity is approved.',
-                  )}
-                </span>
               </div>
               <div className="settings-form-group">
-                <label>{t(locale, '预授权 identities（可选）', 'Pre-approve identities (optional)')}</label>
-                <textarea
+                <label>{t(locale, 'Peer Pattern（可选）', 'Peer Pattern (optional)')}</label>
+                <input
                   className="settings-input"
-                  rows={4}
-                  value={form.approveIdentities}
+                  value={form.peerPattern}
                   disabled={saving}
-                  placeholder={t(locale, '每行一个，或逗号分隔', 'One per line, or comma-separated')}
-                  onChange={(event) => updateField('approveIdentities', event.target.value)}
+                  placeholder={t(locale, '默认匹配全部私聊', 'Match all direct messages by default')}
+                  onChange={(event) => updateField('peerPattern', event.target.value)}
                 />
               </div>
-            </div>
-          )}
-
-          {wizardStep === 3 && (
-            <div className="settings-pane-section wechat-step-section">
-              <p className="channel-wizard-step-label">{t(locale, 'Step 4 — 确认并应用', 'Step 4 — Review & apply')}</p>
               <div className="feishu-inline-panel">
                 <ul className="feishu-review-list">
                   <li>
@@ -538,15 +361,11 @@ export function WechatConnectorWizard({
                     <strong>WeChat</strong>
                   </li>
                   <li>
-                    <span>Account ID</span>
-                    <strong>{normalizedAccountId}</strong>
-                  </li>
-                  <li>
                     <span>{t(locale, 'Target', 'Target')}</span>
-                    <strong>{reviewTargetLabel}</strong>
+                    <strong>{reviewTargetLabel || '-'}</strong>
                   </li>
                   <li>
-                    <span>{t(locale, 'Peer Match', 'Peer Match')}</span>
+                    <span>{t(locale, '匹配', 'Match')}</span>
                     <strong>direct / {form.peerPattern || '*'}</strong>
                   </li>
                 </ul>
@@ -576,7 +395,7 @@ export function WechatConnectorWizard({
             {t(locale, '下一步', 'Next')}
           </button>
         ) : (
-          <button type="button" className="settings-btn settings-btn-primary" onClick={applyWizard} disabled={saving}>
+          <button type="button" className="settings-btn settings-btn-primary" onClick={applyWizard} disabled={saving || !canGoNext}>
             {saving ? t(locale, '应用中...', 'Applying...') : t(locale, '应用配置', 'Apply Configuration')}
           </button>
         )}
