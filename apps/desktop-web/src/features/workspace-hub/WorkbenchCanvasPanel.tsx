@@ -126,6 +126,7 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
 const ROLE_FILTER_EXIT_MS = 160
 const ROLE_FILTER_ENTER_MS = 180
 const STATION_RESTORE_DOCK_EXIT_MS = 240
+const STATION_RESTORE_CARD_ANIMATION_MS = 320
 
 interface ExitingStationSnapshot {
   stationId: string
@@ -135,8 +136,15 @@ interface ExitingStationSnapshot {
   height: number
 }
 
-function buildStationSharedLayoutId(stationId: string): string {
-  return `station-window-${stationId}`
+interface StationRestoreAnimationState {
+  stationId: string
+  token: number
+  fromRect: {
+    top: number
+    left: number
+    width: number
+    height: number
+  }
 }
 
 export function resolveFocusStageStationVisibility(
@@ -271,7 +279,7 @@ const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
   runtime: WorkbenchStationRuntime | undefined
   restoring: boolean
   locale: Locale
-  onRestore: (stationId: string) => void
+  onRestore: (stationId: string, sourceRect: DOMRect) => void
 }) {
   const isLive = Boolean(runtime?.sessionId)
   const unreadCount = runtime?.unreadCount ?? 0
@@ -280,10 +288,8 @@ const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
   return (
     <motion.button
       type="button"
-      layout
-      layoutId={buildStationSharedLayoutId(station.id)}
       className={['station-minimized-dock-item', restoring ? 'is-restoring' : ''].join(' ')}
-      onClick={() => onRestore(station.id)}
+      onClick={(event) => onRestore(station.id, event.currentTarget.getBoundingClientRect())}
       aria-label={label}
       title={label}
       whileHover={{ y: -8, scale: 1.06 }}
@@ -312,7 +318,7 @@ function StationCardSlot({
   snapshot,
   inert = false,
   transitionSuspended = false,
-  suppressLayout = false,
+  layoutSuspended = false,
   children,
 }: {
   stationId: string
@@ -320,13 +326,14 @@ function StationCardSlot({
   snapshot?: ExitingStationSnapshot | null
   inert?: boolean
   transitionSuspended?: boolean
-  suppressLayout?: boolean
+  layoutSuspended?: boolean
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
   const isParked = mode === 'parked'
   const isExiting = mode === 'exiting'
-  const motionDisabled = reducedMotion || transitionSuspended
+  const transitionDisabled = reducedMotion || transitionSuspended
+  const layoutDisabled = transitionDisabled || layoutSuspended
 
   return (
     <motion.div
@@ -340,18 +347,18 @@ function StationCardSlot({
       ]
         .filter(Boolean)
         .join(' ')}
-      layout={!motionDisabled && !isParked && !isExiting && !suppressLayout}
+      layout={!layoutDisabled && !isParked && !isExiting}
       initial={false}
       animate={isParked || mode === 'exiting' ? { opacity: 0 } : { opacity: 1 }}
       transition={{
         opacity: {
-          duration: motionDisabled
+          duration: transitionDisabled
             ? 0
             : (mode === 'entering' ? ROLE_FILTER_ENTER_MS : ROLE_FILTER_EXIT_MS) / 1000,
           ease: [0.32, 0.72, 0, 1],
           delay: 0,
         },
-        layout: motionDisabled
+        layout: layoutDisabled
           ? { duration: 0 }
           : { type: 'spring', stiffness: 320, damping: 30, mass: 0.88 },
       }}
@@ -426,9 +433,11 @@ function WorkbenchCanvasPanelView({
   const roleFilterExitTimerRef = useRef<number | null>(null)
   const roleFilterEnterTimerRef = useRef<number | null>(null)
   const restoreDockTimerRef = useRef<number | null>(null)
+  const restoreCardAnimationTimerRef = useRef<number | null>(null)
   const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
   const [minimizedStationIds, setMinimizedStationIds] = useState<string[]>([])
   const [restoringStationId, setRestoringStationId] = useState<string | null>(null)
+  const [restoreAnimation, setRestoreAnimation] = useState<StationRestoreAnimationState | null>(null)
   const normalizedCustomLayout = useMemo(
     () => normalizeWorkbenchCustomLayout(container.customLayout),
     [container.customLayout],
@@ -550,6 +559,9 @@ function WorkbenchCanvasPanelView({
       if (restoreDockTimerRef.current !== null) {
         window.clearTimeout(restoreDockTimerRef.current)
       }
+      if (restoreCardAnimationTimerRef.current !== null) {
+        window.clearTimeout(restoreCardAnimationTimerRef.current)
+      }
     }
   }, [])
 
@@ -659,11 +671,24 @@ function WorkbenchCanvasPanelView({
   const canDetach = !detachedReadonly && stations.length > 0
   const canDeleteContainer = !detachedReadonly && stations.length === 0 && typeof onDeleteContainer === 'function'
   const handleRestoreStation = useCallback(
-    (stationId: string) => {
+    (stationId: string, sourceRect: DOMRect) => {
       if (restoreDockTimerRef.current !== null) {
         window.clearTimeout(restoreDockTimerRef.current)
       }
+      if (restoreCardAnimationTimerRef.current !== null) {
+        window.clearTimeout(restoreCardAnimationTimerRef.current)
+      }
       setRestoringStationId(stationId)
+      setRestoreAnimation({
+        stationId,
+        token: Date.now(),
+        fromRect: {
+          top: sourceRect.top,
+          left: sourceRect.left,
+          width: sourceRect.width,
+          height: sourceRect.height,
+        },
+      })
       const nextDisplayedStationIds = orderStationIds([...displayedStationIdsRef.current, stationId])
       displayedStationIdsRef.current = nextDisplayedStationIds
       setDisplayedStationIds(nextDisplayedStationIds)
@@ -672,6 +697,10 @@ function WorkbenchCanvasPanelView({
         setRestoringStationId((current) => (current === stationId ? null : current))
         restoreDockTimerRef.current = null
       }, STATION_RESTORE_DOCK_EXIT_MS)
+      restoreCardAnimationTimerRef.current = window.setTimeout(() => {
+        setRestoreAnimation((current) => (current?.stationId === stationId ? null : current))
+        restoreCardAnimationTimerRef.current = null
+      }, STATION_RESTORE_CARD_ANIMATION_MS)
       onSelectStation(container.id, stationId)
     },
     [container.id, onSelectStation, orderStationIds],
@@ -683,7 +712,12 @@ function WorkbenchCanvasPanelView({
           window.clearTimeout(restoreDockTimerRef.current)
           restoreDockTimerRef.current = null
         }
+        if (restoreCardAnimationTimerRef.current !== null) {
+          window.clearTimeout(restoreCardAnimationTimerRef.current)
+          restoreCardAnimationTimerRef.current = null
+        }
         setRestoringStationId(null)
+        setRestoreAnimation(null)
       }
       const nextDisplayedStationIds = displayedStationIdsRef.current.filter((currentId) => currentId !== stationId)
       displayedStationIdsRef.current = nextDisplayedStationIds
@@ -1054,7 +1088,7 @@ function WorkbenchCanvasPanelView({
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
           inert={Boolean(options?.inert)}
           transitionSuspended={workspaceTransitioning}
-          suppressLayout={restoringStationId === station.id}
+          layoutSuspended={Boolean(restoreAnimation)}
         >
           <StationCard
             locale={locale}
@@ -1069,7 +1103,7 @@ function WorkbenchCanvasPanelView({
             isFullscreen={Boolean(options?.fullscreen)}
             isFullscreenMode={Boolean(options?.fullscreenMode)}
             isFocusHidden={Boolean(options?.focusHidden)}
-            sharedLayoutId={buildStationSharedLayoutId(station.id)}
+            restoreAnimation={restoreAnimation?.stationId === station.id ? restoreAnimation : null}
             draggable={!detachedReadonly}
             onStationDragStart={
               onStationDragStart
