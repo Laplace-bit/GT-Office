@@ -125,6 +125,7 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
 
 const ROLE_FILTER_EXIT_MS = 160
 const ROLE_FILTER_ENTER_MS = 180
+const STATION_RESTORE_DOCK_EXIT_MS = 240
 
 interface ExitingStationSnapshot {
   stationId: string
@@ -132,6 +133,10 @@ interface ExitingStationSnapshot {
   left: number
   width: number
   height: number
+}
+
+function buildStationSharedLayoutId(stationId: string): string {
+  return `station-window-${stationId}`
 }
 
 export function resolveFocusStageStationVisibility(
@@ -255,12 +260,59 @@ function FocusRailItem({
   )
 }
 
+const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
+  station,
+  runtime,
+  restoring,
+  locale,
+  onRestore,
+}: {
+  station: AgentStation
+  runtime: WorkbenchStationRuntime | undefined
+  restoring: boolean
+  locale: Locale
+  onRestore: (stationId: string) => void
+}) {
+  const isLive = Boolean(runtime?.sessionId)
+  const unreadCount = runtime?.unreadCount ?? 0
+  const label = t(locale, 'workbench.restoreStationNamed', { name: station.name })
+
+  return (
+    <motion.button
+      type="button"
+      layout
+      layoutId={buildStationSharedLayoutId(station.id)}
+      className={['station-minimized-dock-item', restoring ? 'is-restoring' : ''].join(' ')}
+      onClick={() => onRestore(station.id)}
+      aria-label={label}
+      title={label}
+      whileHover={{ y: -8, scale: 1.06 }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 360, damping: 28, mass: 0.82 }}
+    >
+      <span className="station-minimized-dock-icon" aria-hidden="true">
+        <span className="station-minimized-dock-monogram">{station.name.slice(0, 1).toUpperCase()}</span>
+        {unreadCount > 0 ? <span className="station-minimized-dock-badge">{unreadCount > 9 ? '9+' : unreadCount}</span> : null}
+      </span>
+      <span className="station-minimized-dock-label">
+        <strong>{station.name}</strong>
+        <span>{station.tool}</span>
+      </span>
+      <span
+        className={['station-minimized-dock-indicator', isLive ? 'is-live' : ''].join(' ')}
+        aria-hidden="true"
+      />
+    </motion.button>
+  )
+})
+
 function StationCardSlot({
   stationId,
   mode,
   snapshot,
   inert = false,
   transitionSuspended = false,
+  sharedLayoutId,
   children,
 }: {
   stationId: string
@@ -268,6 +320,7 @@ function StationCardSlot({
   snapshot?: ExitingStationSnapshot | null
   inert?: boolean
   transitionSuspended?: boolean
+  sharedLayoutId?: string
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
@@ -278,6 +331,7 @@ function StationCardSlot({
   return (
     <motion.div
       data-station-slot-id={stationId}
+      layoutId={sharedLayoutId}
       className={[
         'station-card-slot',
         isParked ? 'station-card-slot--parked' : '',
@@ -372,19 +426,46 @@ function WorkbenchCanvasPanelView({
   const gridRef = useRef<HTMLDivElement | null>(null)
   const roleFilterExitTimerRef = useRef<number | null>(null)
   const roleFilterEnterTimerRef = useRef<number | null>(null)
+  const restoreDockTimerRef = useRef<number | null>(null)
   const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
+  const [minimizedStationIds, setMinimizedStationIds] = useState<string[]>([])
+  const [restoringStationId, setRestoringStationId] = useState<string | null>(null)
   const normalizedCustomLayout = useMemo(
     () => normalizeWorkbenchCustomLayout(container.customLayout),
     [container.customLayout],
   )
-  const targetVisibleStations = useMemo(
-    () => stations.filter((station) => roleFilter === 'all' || station.role === roleFilter),
-    [roleFilter, stations],
-  )
-  const targetVisibleStationIds = useMemo(
-    () => targetVisibleStations.map((station) => station.id),
-    [targetVisibleStations],
-  )
+  const minimizedStationIdSet = useMemo(() => new Set(minimizedStationIds), [minimizedStationIds])
+  const dockStationIds = useMemo(() => {
+    if (!restoringStationId || minimizedStationIdSet.has(restoringStationId)) {
+      return minimizedStationIds
+    }
+    return [...minimizedStationIds, restoringStationId]
+  }, [minimizedStationIdSet, minimizedStationIds, restoringStationId])
+  const dockStationIdSet = useMemo(() => new Set(dockStationIds), [dockStationIds])
+  const { targetVisibleStations, targetVisibleStationIds, dockStations } = useMemo(() => {
+    const nextTargetVisibleStations: AgentStation[] = []
+    const nextTargetVisibleStationIds: string[] = []
+    const nextDockStations: AgentStation[] = []
+
+    for (const station of stations) {
+      if (roleFilter !== 'all' && station.role !== roleFilter) {
+        continue
+      }
+      nextTargetVisibleStations.push(station)
+      if (!minimizedStationIdSet.has(station.id)) {
+        nextTargetVisibleStationIds.push(station.id)
+      }
+      if (dockStationIdSet.has(station.id)) {
+        nextDockStations.push(station)
+      }
+    }
+
+    return {
+      targetVisibleStations: nextTargetVisibleStations,
+      targetVisibleStationIds: nextTargetVisibleStationIds,
+      dockStations: nextDockStations,
+    }
+  }, [dockStationIdSet, minimizedStationIdSet, roleFilter, stations])
   const [displayedStationIds, setDisplayedStationIds] = useState<string[]>(() =>
     targetVisibleStationIds,
   )
@@ -405,6 +486,13 @@ function WorkbenchCanvasPanelView({
   const displayedStationIdSet = useMemo(
     () => new Set(displayedStationIds),
     [displayedStationIds],
+  )
+  const orderStationIds = useCallback(
+    (stationIds: string[]) => {
+      const stationIdSet = new Set(stationIds)
+      return stations.map((station) => station.id).filter((stationId) => stationIdSet.has(stationId))
+    },
+    [stations],
   )
   const exitingStationSnapshotById = useMemo(
     () => new Map(exitingStationSnapshots.map((snapshot) => [snapshot.stationId, snapshot])),
@@ -452,6 +540,20 @@ function WorkbenchCanvasPanelView({
     displayedStationIdsRef.current = displayedStationIds
   }, [displayedStationIds])
 
+  useEffect(() => {
+    const stationIdSet = new Set(stations.map((station) => station.id))
+    setMinimizedStationIds((current) => current.filter((stationId) => stationIdSet.has(stationId)))
+    setRestoringStationId((current) => (current && stationIdSet.has(current) ? current : null))
+  }, [stations])
+
+  useEffect(() => {
+    return () => {
+      if (restoreDockTimerRef.current !== null) {
+        window.clearTimeout(restoreDockTimerRef.current)
+      }
+    }
+  }, [])
+
   useLayoutEffect(() => {
     clearRoleFilterTimers()
 
@@ -474,12 +576,10 @@ function WorkbenchCanvasPanelView({
       return
     }
 
-    const exitingIds = currentDisplayedStationIds.filter(
-      (stationId) => !nextDisplayedStationIds.includes(stationId),
-    )
-    const enteringIds = nextDisplayedStationIds.filter(
-      (stationId) => !currentDisplayedStationIds.includes(stationId),
-    )
+    const currentDisplayedStationIdSet = new Set(currentDisplayedStationIds)
+    const nextDisplayedStationIdSet = new Set(nextDisplayedStationIds)
+    const exitingIds = currentDisplayedStationIds.filter((stationId) => !nextDisplayedStationIdSet.has(stationId))
+    const enteringIds = nextDisplayedStationIds.filter((stationId) => !currentDisplayedStationIdSet.has(stationId))
 
     displayedStationIdsRef.current = nextDisplayedStationIds
     setDisplayedStationIds(nextDisplayedStationIds)
@@ -512,22 +612,19 @@ function WorkbenchCanvasPanelView({
 
   const selectedStationId = useMemo(
     () => {
-      if (
-        container.activeStationId &&
-        displayedStations.some((station) => station.id === container.activeStationId)
-      ) {
+      if (container.activeStationId && displayedStationIdSet.has(container.activeStationId)) {
         return container.activeStationId
       }
       return displayedStations[0]?.id ?? null
     },
-    [container.activeStationId, displayedStations],
+    [container.activeStationId, displayedStationIdSet, displayedStations],
   )
   const effectiveActiveStationId = useMemo(() => {
-    if (displayedStations.some((station) => station.id === activeGlobalStationId)) {
+    if (displayedStationIdSet.has(activeGlobalStationId)) {
       return activeGlobalStationId
     }
     return selectedStationId ?? activeGlobalStationId
-  }, [activeGlobalStationId, displayedStations, selectedStationId])
+  }, [activeGlobalStationId, displayedStationIdSet, selectedStationId])
   const renderedActiveStationId = useMemo(
     () =>
       resolveRenderedActiveStationId(
@@ -562,6 +659,49 @@ function WorkbenchCanvasPanelView({
   }, [container.mode, locale])
   const canDetach = !detachedReadonly && stations.length > 0
   const canDeleteContainer = !detachedReadonly && stations.length === 0 && typeof onDeleteContainer === 'function'
+  const handleRestoreStation = useCallback(
+    (stationId: string) => {
+      if (restoreDockTimerRef.current !== null) {
+        window.clearTimeout(restoreDockTimerRef.current)
+      }
+      setRestoringStationId(stationId)
+      const nextDisplayedStationIds = orderStationIds([...displayedStationIdsRef.current, stationId])
+      displayedStationIdsRef.current = nextDisplayedStationIds
+      setDisplayedStationIds(nextDisplayedStationIds)
+      setMinimizedStationIds((current) => current.filter((currentId) => currentId !== stationId))
+      restoreDockTimerRef.current = window.setTimeout(() => {
+        setRestoringStationId((current) => (current === stationId ? null : current))
+        restoreDockTimerRef.current = null
+      }, STATION_RESTORE_DOCK_EXIT_MS)
+      onSelectStation(container.id, stationId)
+    },
+    [container.id, onSelectStation, orderStationIds],
+  )
+  const handleMinimizeStation = useCallback(
+    (stationId: string) => {
+      if (restoringStationId === stationId) {
+        if (restoreDockTimerRef.current !== null) {
+          window.clearTimeout(restoreDockTimerRef.current)
+          restoreDockTimerRef.current = null
+        }
+        setRestoringStationId(null)
+      }
+      const nextDisplayedStationIds = displayedStationIdsRef.current.filter((currentId) => currentId !== stationId)
+      displayedStationIdsRef.current = nextDisplayedStationIds
+      setDisplayedStationIds(nextDisplayedStationIds)
+      setMinimizedStationIds((current) => (current.includes(stationId) ? current : [...current, stationId]))
+      if (fullscreenStationIdRaw === stationId) {
+        setFullscreenStationIdRaw(null)
+      }
+      const nextVisibleStation = targetVisibleStations.find(
+        (station) => station.id !== stationId && !minimizedStationIdSet.has(station.id),
+      )
+      if (nextVisibleStation) {
+        onSelectStation(container.id, nextVisibleStation.id)
+      }
+    },
+    [container.id, fullscreenStationIdRaw, minimizedStationIdSet, onSelectStation, restoringStationId, targetVisibleStations],
+  )
   const orderedPrimaryHeaderActions = useMemo(() => {
     const actions: Array<{ id: WorkbenchHeaderActionId; element: ReactNode }> = []
 
@@ -915,6 +1055,7 @@ function WorkbenchCanvasPanelView({
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
           inert={Boolean(options?.inert)}
           transitionSuspended={workspaceTransitioning}
+          sharedLayoutId={buildStationSharedLayoutId(station.id)}
         >
           <StationCard
             locale={locale}
@@ -959,6 +1100,7 @@ function WorkbenchCanvasPanelView({
             onRemoveStation={onRemoveStation}
             onEnterFullscreen={handleEnterFullscreen}
             onExitFullscreen={handleExitFullscreen}
+            onMinimizeStation={detachedReadonly ? undefined : handleMinimizeStation}
           />
         </StationCardSlot>
       )
@@ -975,6 +1117,7 @@ function WorkbenchCanvasPanelView({
       exitingStationSnapshotById,
       handleEnterFullscreen,
       handleExitFullscreen,
+      handleMinimizeStation,
       handleSelectStation,
       locale,
       onBindTerminalSink,
@@ -1002,6 +1145,7 @@ function WorkbenchCanvasPanelView({
         'panel',
         'workbench-canvas',
         `mode-${container.mode}`,
+        dockStations.length > 0 ? 'has-minimized-dock' : '',
         displayedStations.some((station) => station.id === effectiveActiveStationId) ? 'is-active-container' : '',
         dropActive ? 'is-drop-target' : '',
         detachedReadonly ? 'detached-readonly' : '',
@@ -1144,6 +1288,13 @@ function WorkbenchCanvasPanelView({
               slotMode: resolveStationSlotMode(fullscreenStation.id),
             })}
           </div>
+        ) : targetVisibleStations.length > 0 && displayedStations.length === 0 ? (
+          <div className="station-grid-empty is-minimized-state">
+            <div className="station-grid-empty-copy">
+              <strong>{t(locale, 'workbench.allStationsMinimizedTitle')}</strong>
+              <p>{t(locale, 'workbench.allStationsMinimizedDetail')}</p>
+            </div>
+          </div>
         ) : displayedStations.length === 0 ? (
           <div className="station-grid-empty">
             <div className="station-grid-empty-copy">
@@ -1226,6 +1377,25 @@ function WorkbenchCanvasPanelView({
           ) : null}
         </div>
       )}
+      {dockStations.length > 0 ? (
+        <div className="station-minimized-dock-wrap">
+          <div className="station-minimized-dock" role="toolbar" aria-label={t(locale, 'workbench.minimizedDock')}>
+            {dockStations.map((station) => {
+              const restoring = restoringStationId === station.id && !minimizedStationIdSet.has(station.id)
+              return (
+                <StationMinimizedDockItem
+                  key={station.id}
+                  station={station}
+                  runtime={terminalByStation[station.id]}
+                  restoring={restoring}
+                  locale={locale}
+                  onRestore={handleRestoreStation}
+                />
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

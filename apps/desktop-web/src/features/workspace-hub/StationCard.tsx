@@ -137,6 +137,7 @@ interface StationCardProps {
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
+  onMinimizeStation?: (stationId: string) => void
   onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
   commands?: ToolCommandSummary[]
   draggable?: boolean
@@ -169,6 +170,7 @@ function StationCardView({
   onRestoreStateCaptured,
   onEnterFullscreen,
   onExitFullscreen,
+  onMinimizeStation,
   onRunAction,
   commands = [],
   draggable = false,
@@ -464,100 +466,115 @@ function StationCardView({
           />
         ) : null}
         <div className="station-window-header-actions">
-          {draggable ? (
+          <div className="station-window-action-group">
             <StationIconButton
-              className="station-drag-handle"
-              tooltip={t(locale, 'workbench.dragStation')}
-              ariaLabel={t(locale, 'workbench.dragStation')}
-              draggable={draggable}
-              onDragStart={
-                onStationDragStart
-                  ? (event) => {
-                      event.stopPropagation()
-                      onStationDragStart(event, station.id)
-                    }
-                  : undefined
-              }
-              onDragEnd={
-                onStationDragEnd
-                  ? (event) => {
-                      event.stopPropagation()
-                      onStationDragEnd()
-                    }
-                  : undefined
-              }
-              onPointerDown={
-                onStationDragPointerStart
-                  ? (event) => {
-                      event.stopPropagation()
-                      onStationDragPointerStart(event, station.id)
-                    }
-                  : undefined
-              }
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-            >
-              <GripHorizontal className="vb-icon vb-icon-station-button" aria-hidden="true" strokeWidth={1.75} />
-            </StationIconButton>
-          ) : null}
-          <StationIconButton
-            className={['station-primary-launch-btn', launchState].join(' ')}
-            tooltip={primaryLaunchButtonLabel}
-            ariaLabel={primaryLaunchButtonLabel}
-            ariaPressed={launchState === 'live'}
-            onClick={(event) => {
-              event.stopPropagation()
-              handlePrimaryLaunch()
-            }}
-          >
-            {launchIcon === 'circle' ? (
-              <Circle
-                className="vb-icon vb-icon-station-button station-live-icon"
-                aria-hidden="true"
-                strokeWidth={1.9}
-              />
-            ) : (
-              <Play
-                className="vb-icon vb-icon-station-button station-play-icon"
-                aria-hidden="true"
-                strokeWidth={1.9}
-              />
-            )}
-          </StationIconButton>
-          {runtime?.sessionId && onForceCloseTerminal ? (
-            <StationIconButton
-              className="station-force-close-btn"
-              tooltip={t(locale, 'terminal.forceClose.button')}
-              ariaLabel={t(locale, 'terminal.forceClose.button')}
+              className={['station-primary-launch-btn', launchState].join(' ')}
+              tooltip={primaryLaunchButtonLabel}
+              ariaLabel={primaryLaunchButtonLabel}
+              ariaPressed={launchState === 'live'}
               onClick={(event) => {
                 event.stopPropagation()
-                onForceCloseTerminal(station.id)
+                handlePrimaryLaunch()
               }}
             >
-              <AppIcon name="close" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              {launchIcon === 'circle' ? (
+                <Circle
+                  className="vb-icon vb-icon-station-button station-live-icon"
+                  aria-hidden="true"
+                  strokeWidth={1.9}
+                />
+              ) : (
+                <Play
+                  className="vb-icon vb-icon-station-button station-play-icon"
+                  aria-hidden="true"
+                  strokeWidth={1.9}
+                />
+              )}
             </StationIconButton>
-          ) : null}
-          <StationIconButton
-            className="station-fullscreen-btn"
-            tooltip={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
-            ariaLabel={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
-            onClick={(event) => {
-              event.stopPropagation()
-              if (isFullscreen) {
-                onExitFullscreen()
-                return
-              }
-              onEnterFullscreen(station.id)
-            }}
-          >
-            <AppIcon
-              name={isFullscreen ? 'fullscreen-exit' : 'fullscreen-enter'}
-              className="vb-icon vb-icon-station-button"
-              aria-hidden="true"
-            />
-          </StationIconButton>
+            {draggable ? (
+              <StationIconButton
+                className="station-drag-handle"
+                tooltip={t(locale, 'workbench.dragStation')}
+                ariaLabel={t(locale, 'workbench.dragStation')}
+                draggable={draggable}
+                onDragStart={
+                  onStationDragStart
+                    ? (event) => {
+                        event.stopPropagation()
+                        onStationDragStart(event, station.id)
+                      }
+                    : undefined
+                }
+                onDragEnd={
+                  onStationDragEnd
+                    ? (event) => {
+                        event.stopPropagation()
+                        onStationDragEnd()
+                      }
+                    : undefined
+                }
+                onPointerDown={
+                  onStationDragPointerStart
+                    ? (event) => {
+                        event.stopPropagation()
+                        onStationDragPointerStart(event, station.id)
+                      }
+                    : undefined
+                }
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                }}
+              >
+                <GripHorizontal className="vb-icon vb-icon-station-button" aria-hidden="true" strokeWidth={1.75} />
+              </StationIconButton>
+            ) : null}
+          </div>
+          <div className="station-window-action-group station-window-controls">
+            <StationIconButton
+              className="station-minimize-btn"
+              tooltip={t(locale, 'workbench.minimizeStation')}
+              ariaLabel={t(locale, 'workbench.minimizeStation')}
+              onClick={(event) => {
+                event.stopPropagation()
+                onMinimizeStation?.(station.id)
+              }}
+            >
+              <AppIcon name="minus" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+            </StationIconButton>
+            <StationIconButton
+              className="station-fullscreen-btn"
+              tooltip={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
+              ariaLabel={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (isFullscreen) {
+                  onExitFullscreen()
+                  return
+                }
+                onEnterFullscreen(station.id)
+              }}
+            >
+              <AppIcon
+                name={isFullscreen ? 'fullscreen-exit' : 'fullscreen-enter'}
+                className="vb-icon vb-icon-station-button"
+                aria-hidden="true"
+              />
+            </StationIconButton>
+            {runtime?.sessionId && onForceCloseTerminal ? (
+              <StationIconButton
+                className="station-force-close-btn"
+                tooltip={t(locale, 'terminal.forceClose.button')}
+                ariaLabel={t(locale, 'terminal.forceClose.button')}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onForceCloseTerminal(station.id)
+                }}
+              >
+                <AppIcon name="close" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              </StationIconButton>
+            ) : null}
+          </div>
         </div>
       </header>
       {shouldRenderTerminal ? (
@@ -672,6 +689,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onRemoveStation === next.onRemoveStation &&
     prev.onEnterFullscreen === next.onEnterFullscreen &&
     prev.onExitFullscreen === next.onExitFullscreen &&
+    prev.onMinimizeStation === next.onMinimizeStation &&
     prev.onRunAction === next.onRunAction &&
     prev.commands === next.commands &&
     prev.onStationDragStart === next.onStationDragStart &&

@@ -210,12 +210,29 @@
 .station-window-header-actions {
   display: flex;
   align-items: center;
-  gap: rem(2);
+  gap: rem(5);
   position: relative;
   z-index: 5;
   flex: 0 0 auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   max-width: 100%;
+}
+
+.station-window-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(2);
+  min-width: 0;
+  padding: rem(2);
+  border-radius: rem(10);
+  background: color-mix(in srgb, var(--vb-glass-lighter) 58%, transparent);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 72%, transparent);
+  backdrop-filter: blur(rem(12)) saturate(160%);
+  -webkit-backdrop-filter: blur(rem(12)) saturate(160%);
+}
+
+.station-window-controls {
+  background: color-mix(in srgb, var(--vb-surface) 74%, transparent);
 }
 
 .station-icon-button {
@@ -339,6 +356,13 @@
     box-shadow:
       0 0 0 rem(1) color-mix(in srgb, var(--vb-danger) 44%, transparent),
       0 0 0 rem(4) color-mix(in srgb, var(--vb-danger) 14%, transparent);
+  }
+}
+
+.station-minimize-btn {
+  &:hover {
+    background: color-mix(in srgb, var(--vb-accent) 10%, transparent);
+    color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
   }
 }
 
@@ -474,6 +498,7 @@
 
   .station-window-header-actions {
     margin-left: auto;
+    gap: rem(4);
   }
 
   .station-window-activity-comet {
@@ -521,12 +546,16 @@
   .station-window-header-actions {
     width: 100%;
     justify-content: flex-end;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .station-window-title-row,
   .station-window-header-actions {
     flex-wrap: wrap;
+  }
+
+  .station-window-action-group {
+    flex-shrink: 0;
   }
 
   .station-terminal-idle-actions {
