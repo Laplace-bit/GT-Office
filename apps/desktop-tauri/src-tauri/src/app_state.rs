@@ -1143,7 +1143,12 @@ impl AppState {
             {
                 continue;
             }
-            let Some(prompt) = session.active_interaction_prompt.as_ref() else {
+            let fallback_prompt = external_reply_vt_prompt(session);
+            let Some(prompt) = session
+                .active_interaction_prompt
+                .as_ref()
+                .or(fallback_prompt.as_ref())
+            else {
                 continue;
             };
             if !prompt.allows_action(action) {
@@ -1177,7 +1182,12 @@ impl AppState {
             {
                 continue;
             }
-            let Some(prompt) = session.active_interaction_prompt.as_ref() else {
+            let fallback_prompt = external_reply_vt_prompt(session);
+            let Some(prompt) = session
+                .active_interaction_prompt
+                .as_ref()
+                .or(fallback_prompt.as_ref())
+            else {
                 continue;
             };
             let Some(action) = prompt.action_for_text_input(input) else {
@@ -1215,7 +1225,12 @@ impl AppState {
             if session.target.is_task_wait() {
                 continue;
             }
-            if let Some(prompt) = session.active_interaction_prompt.as_ref() {
+            let fallback_prompt = external_reply_vt_prompt(session);
+            if let Some(prompt) = session
+                .active_interaction_prompt
+                .clone()
+                .or(fallback_prompt)
+            {
                 let signature = prompt.signature();
                 let already_sent = session.last_interaction_signature.as_deref()
                     == Some(signature.as_str())
@@ -1226,7 +1241,7 @@ impl AppState {
                 candidates.push(ExternalInteractionDispatchCandidate {
                     session_id: session_id.clone(),
                     target: session.target.clone(),
-                    prompt: Some(prompt.clone()),
+                    prompt: Some(prompt),
                     message_id: session.interaction_message_id.clone(),
                     phase: ExternalInteractionDispatchPhase::Show,
                 });
@@ -1265,7 +1280,12 @@ impl AppState {
             if session.target.task_id.as_deref() != Some(task_id) {
                 continue;
             }
-            let Some(prompt) = session.active_interaction_prompt.as_ref() else {
+            let fallback_prompt = external_reply_vt_prompt(session);
+            let Some(prompt) = session
+                .active_interaction_prompt
+                .as_ref()
+                .or(fallback_prompt.as_ref())
+            else {
                 continue;
             };
             return Ok(Some(TaskWaitStateSnapshot {
@@ -1333,8 +1353,9 @@ impl AppState {
                             ToolScreenProfile::from_tool_kind(session.tool_kind),
                         )
                     });
-            let interaction_blocked =
-                session.active_interaction_prompt.is_some() || session.permission_prompt_active;
+            let interaction_blocked = session.active_interaction_prompt.is_some()
+                || external_reply_vt_prompt(session).is_some()
+                || session.permission_prompt_active;
             let promptless_rendered_finalize = has_text
                 && rendered_has_text
                 && session.last_rendered_snapshot.is_some()
@@ -1409,6 +1430,9 @@ impl AppState {
                     phase: ExternalReplyDispatchPhase::Finalize,
                     body_source,
                 });
+                continue;
+            }
+            if interaction_blocked {
                 continue;
             }
             if preview_text.is_empty() {
@@ -1524,8 +1548,9 @@ impl AppState {
                             ToolScreenProfile::from_tool_kind(session.tool_kind),
                         )
                     });
-            let interaction_blocked =
-                session.active_interaction_prompt.is_some() || session.permission_prompt_active;
+            let interaction_blocked = session.active_interaction_prompt.is_some()
+                || external_reply_vt_prompt(session).is_some()
+                || session.permission_prompt_active;
             let promptless_rendered_finalize = has_text
                 && rendered_has_text
                 && session.last_rendered_snapshot.is_some()
@@ -1647,6 +1672,23 @@ fn session_log_finalize_delta(final_text: &str, preview_text: &str) -> Option<St
 }
 
 fn external_reply_vt_text(session: &ExternalReplyRelaySession) -> Option<String> {
+    let snapshot = rendered_snapshot_from_vt_parser(&session.vt_parser, &session.target);
+    let profile = ToolScreenProfile::from_tool_kind(session.tool_kind);
+    let interaction_prompt = extract_rendered_interaction_prompt_for_tool(
+        &snapshot,
+        session.target.injected_input.as_deref(),
+        profile,
+    );
+    let extracted = extract_rendered_reply_text_for_tool(
+        &snapshot,
+        session.target.injected_input.as_deref(),
+        interaction_prompt.as_ref(),
+        profile,
+    );
+    if !extracted.trim().is_empty() {
+        return Some(extracted);
+    }
+
     let screen_text = session.vt_parser.screen().contents();
     let stripped = strip_ansi_escapes::strip_str(&screen_text);
     let normalized = normalize_reply_text(&stripped, session.target.injected_input.as_deref());
@@ -1654,6 +1696,53 @@ fn external_reply_vt_text(session: &ExternalReplyRelaySession) -> Option<String>
         None
     } else {
         Some(normalized)
+    }
+}
+
+fn external_reply_vt_prompt(
+    session: &ExternalReplyRelaySession,
+) -> Option<ExternalInteractionPrompt> {
+    let snapshot = rendered_snapshot_from_vt_parser(&session.vt_parser, &session.target);
+    extract_rendered_interaction_prompt_for_tool(
+        &snapshot,
+        session.target.injected_input.as_deref(),
+        ToolScreenProfile::from_tool_kind(session.tool_kind),
+    )
+}
+
+fn rendered_snapshot_from_vt_parser(
+    parser: &vt100::Parser,
+    target: &ExternalReplyRelayTarget,
+) -> RenderedScreenSnapshot {
+    let screen = parser.screen();
+    let (screen_rows, cols) = screen.size();
+    let (cursor_row, cursor_col) = screen.cursor_position();
+    let rows: Vec<RenderedScreenSnapshotRow> = screen
+        .rows(0, cols)
+        .enumerate()
+        .map(|(row_index, text)| {
+            let trimmed_text = text.trim().to_string();
+            RenderedScreenSnapshotRow {
+                row_index: row_index as u32,
+                is_blank: trimmed_text.is_empty(),
+                text,
+                trimmed_text,
+            }
+        })
+        .collect();
+    let base_y = rows.len().saturating_sub(screen_rows as usize) as u32;
+    let absolute_cursor_row = base_y.saturating_add(cursor_row as u32);
+
+    RenderedScreenSnapshot {
+        session_id: format!("{}::vt", target.trace_id),
+        screen_revision: 0,
+        captured_at_ms: 0,
+        viewport_top: base_y,
+        viewport_height: screen_rows as u32,
+        base_y,
+        cursor_row: Some(absolute_cursor_row),
+        cursor_col: Some(cursor_col as u32),
+        rows,
     }
 }
 
@@ -1869,8 +1958,8 @@ fn extract_rendered_menu_prompt_from_rows(
         .iter()
         .filter_map(|option| option.submit_text.as_deref())
         .any(|submit_text| submit_text.trim_start().starts_with('/'));
-    let semantic_menu = !has_scroll_window_markers
-        && options.iter().all(|option| option.submit_text.is_some());
+    let semantic_menu =
+        !has_scroll_window_markers && options.iter().all(|option| option.submit_text.is_some());
     let selected_index = selected_raw_idx.or_else(|| {
         snapshot
             .cursor_row
@@ -1914,6 +2003,29 @@ fn extract_rendered_menu_prompt_from_rows(
         end_row = end_row.max(*hint_row);
     }
     let hint_text = hint.map(|(_, hint)| hint);
+    let has_cursor_marked_option = menu_rows
+        .iter()
+        .any(|row| row_has_selected_option_marker(&row.text));
+    let menu_has_live_navigation_signal = has_cursor_marked_option || hint_text.is_some();
+    if menu_has_live_navigation_signal {
+        let Some(cursor_row) = snapshot.cursor_row else {
+            return None;
+        };
+        if cursor_row < option_start_row {
+            return None;
+        }
+        if cursor_row > end_row {
+            for row in snapshot
+                .rows
+                .iter()
+                .filter(|row| row.row_index > end_row && row.row_index <= cursor_row)
+            {
+                if !row_can_extend_active_menu_tail(&row.text, profile) {
+                    return None;
+                }
+            }
+        }
+    }
     let (controls, control_mode) =
         if semantic_menu {
             (
@@ -1999,7 +2111,7 @@ fn find_menu_title_before_row(
             || is_horizontal_rule_line(trimmed)
             || is_ready_prompt_line_for_tool(trimmed, profile)
         {
-            continue;
+            break;
         }
         if is_interaction_menu_option_row(trimmed)
             || is_permission_prompt_line(trimmed)
@@ -2014,12 +2126,13 @@ fn find_menu_title_before_row(
         if normalized.is_empty() {
             continue;
         }
-        if trimmed.starts_with("• ") || trimmed.starts_with("● ") {
+        if starts_with_prose_bullet(trimmed) {
             continue;
         }
         if is_probable_interaction_menu_title(normalized) {
             return Some((row.row_index, normalized.to_string()));
         }
+        break;
     }
     None
 }
@@ -2096,14 +2209,22 @@ fn build_menu_options_from_rows(
             .or_else(|| parse_slash_command_option_line(&row.text))
             .is_some()
     });
+    let first_strong_option_idx = rows
+        .iter()
+        .position(|row| is_strong_menu_option_row(&row.text));
 
     let mut options = Vec::new();
     let mut selected_index = None;
     let mut last_submit_text_idx: Option<usize> = None;
 
-    for row in rows {
+    for (row_idx, row) in rows.iter().enumerate() {
         let trimmed = row.text.trim();
         if is_horizontal_rule_line(trimmed) || trimmed.is_empty() {
+            continue;
+        }
+        if has_submit_text_option
+            && first_strong_option_idx.is_some_and(|first_idx| row_idx < first_idx)
+        {
             continue;
         }
         if let Some(opt) = parse_interaction_menu_option(&row.text) {
@@ -2237,6 +2358,9 @@ fn parse_directional_option_label(line: &str) -> Option<String> {
     if without_cursor.is_empty() {
         return None;
     }
+    if starts_with_prose_bullet(without_cursor) {
+        return None;
+    }
     let collapsed = collapse_whitespace(without_cursor);
     let lower = collapsed.to_ascii_lowercase();
     if collapsed.is_empty()
@@ -2260,6 +2384,28 @@ fn parse_directional_option_label(line: &str) -> Option<String> {
         return None;
     }
     Some(collapsed)
+}
+
+fn starts_with_prose_bullet(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("• ")
+        || trimmed.starts_with("● ")
+        || trimmed.starts_with("◦ ")
+}
+
+fn row_can_extend_active_menu_tail(text: &str, profile: ToolScreenProfile) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty()
+        || is_horizontal_rule_line(trimmed)
+        || is_menu_hint_line(trimmed)
+        || is_ready_prompt_line_for_tool(trimmed, profile)
+        || is_editor_mode_line(trimmed)
+    {
+        return true;
+    }
+    matches!(trimmed, "›" | "❯")
 }
 
 fn row_has_selected_option_marker(line: &str) -> bool {

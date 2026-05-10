@@ -529,6 +529,24 @@ where
         Ok(Self::parse_nul_delimited_output(&output))
     }
 
+    fn list_tracked_paths(
+        &self,
+        root: &Path,
+        paths: &[String],
+        error_code: &str,
+    ) -> AbstractionResult<std::collections::HashSet<String>> {
+        if paths.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let mut owned_args = vec!["ls-files".to_string(), "-z".to_string(), "--".to_string()];
+        owned_args.extend(paths.iter().cloned());
+        let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = self.run_git(root, &args, error_code)?;
+
+        Ok(Self::parse_nul_delimited_output(&output))
+    }
+
     fn status_with_system_git(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
         let output = self.run_git(
             root,
@@ -1516,11 +1534,12 @@ where
             std::collections::HashSet::new()
         };
         let index_new_paths = self.list_index_new_paths(&root, paths, "GIT_DISCARD_FAILED")?;
-        let tracked_paths = paths
-            .iter()
-            .filter(|path| !untracked_paths.contains(*path) && !index_new_paths.contains(*path))
-            .cloned()
+        let tracked_paths = self
+            .list_tracked_paths(&root, paths, "GIT_DISCARD_FAILED")?
+            .into_iter()
+            .filter(|path| !untracked_paths.contains(path) && !index_new_paths.contains(path))
             .collect::<Vec<_>>();
+        let discarded = tracked_paths.len() + index_new_paths.len() + untracked_paths.len();
 
         if !tracked_paths.is_empty() {
             let mut restore_args = vec![
@@ -1528,7 +1547,7 @@ where
                 "--worktree".to_string(),
                 "--".to_string(),
             ];
-            restore_args.extend(tracked_paths);
+            restore_args.extend(tracked_paths.iter().cloned());
             let restore_refs = restore_args.iter().map(String::as_str).collect::<Vec<_>>();
             self.run_git(&root, &restore_refs, "GIT_DISCARD_FAILED")?;
         }
@@ -1547,7 +1566,7 @@ where
             self.run_git(&root, &clean_refs, "GIT_DISCARD_FAILED")?;
         }
 
-        Ok(paths.len())
+        Ok(discarded)
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
@@ -2541,6 +2560,42 @@ mod tests {
         assert!(
             status.files.iter().all(|file| file.path != "政策分析.md"),
             "discarded index new file should be removed from git status"
+        );
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn discard_ignores_stale_unknown_paths_instead_of_failing() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        let discarded = service
+            .discard(&workspace_id, &["政策分析.md".to_string()], false)
+            .expect("discard should ignore stale unknown paths");
+
+        assert_eq!(discarded, 0);
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn discard_reports_actual_processed_path_count() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(root.join("tracked.txt"), "changed\n").expect("tracked file should be updated");
+
+        let discarded = service
+            .discard(
+                &workspace_id,
+                &["tracked.txt".to_string(), "政策分析.md".to_string()],
+                false,
+            )
+            .expect("discard should succeed with mixed valid and stale paths");
+
+        assert_eq!(discarded, 1);
+        assert_eq!(
+            fs::read_to_string(root.join("tracked.txt")).expect("tracked file should exist"),
+            "base\n"
         );
 
         fs::remove_dir_all(root).expect("temp repo should be removed");

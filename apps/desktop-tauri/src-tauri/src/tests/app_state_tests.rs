@@ -4,9 +4,10 @@ use super::{
     normalize_reply_text, normalize_terminal_text, sanitize_terminal_chunk,
     should_skip_cli_prompt_line, should_skip_external_reply_line, should_skip_log_prefix_line,
     should_skip_runtime_noise_line, should_skip_startup_banner_line, snapshot_has_ready_prompt,
-    AppState, ExternalInteractionAction, ExternalInteractionControlMode, ExternalReplyBodySource,
-    ExternalReplyDispatchPhase, ExternalReplyRelaySession, ExternalReplyRelayTarget,
-    ExternalTerminalKey, RenderedScreenSnapshot, RenderedScreenSnapshotRow,
+    AppState, ExternalInteractionAction, ExternalInteractionControlMode,
+    ExternalInteractionPromptKind, ExternalReplyBodySource, ExternalReplyDispatchPhase,
+    ExternalReplyRelaySession, ExternalReplyRelayTarget, ExternalTerminalKey,
+    RenderedScreenSnapshot, RenderedScreenSnapshotRow,
 };
 use gt_task::{
     AgentToolKind, ChannelDescriptor, ChannelKind, ChannelMessageType, ChannelPublishRequest,
@@ -2824,6 +2825,308 @@ fn text_input_can_control_terminal_navigation_prompt_across_channels() {
 }
 
 #[test]
+fn vt_fallback_extracts_terminal_navigation_prompt_across_channels() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt_nav_text_1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-vt-nav-1".to_string(),
+        inbound_message_id: "msg-vt-nav-original".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-vt-nav-1".to_string(),
+        injected_input: Some("/model".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
+    };
+    state
+        .bind_external_reply_session("s_vt_nav_text_1", target, now_ms_for_test(1_000))
+        .expect("bind vt target");
+    state
+        .append_external_reply_chunk(
+            "s_vt_nav_text_1",
+            b"\x1b[2K\r\xE2\x80\xBA /model\r\nSelect model\r\n  GPT-5.4\r\n\xE2\x80\xBA Claude Sonnet 4\r\n  Gemini 2.5 Pro\r\nUse \xe2\x86\x91/\xe2\x86\x93 to select \xc2\xb7 Enter to confirm \xc2\xb7 Esc to cancel\r\n",
+            now_ms_for_test(1_100),
+        )
+        .expect("append vt menu");
+
+    let interaction_candidates = state
+        .take_external_interaction_dispatch_candidates()
+        .expect("take vt interaction candidates");
+    assert_eq!(interaction_candidates.len(), 1);
+    let prompt = interaction_candidates[0]
+        .prompt
+        .as_ref()
+        .expect("vt interaction prompt");
+    assert_eq!(prompt.options.len(), 3);
+    assert_eq!(prompt.selected_index, Some(1));
+    assert_eq!(
+        prompt.control_mode,
+        ExternalInteractionControlMode::TerminalNavigation
+    );
+
+    let select_match = state
+        .find_external_interaction_session_for_text("feishu", "default", "peer-vt-nav-1", "3")
+        .expect("find vt select control")
+        .expect("matched vt select control");
+    assert_eq!(
+        select_match.action,
+        ExternalInteractionAction::SelectOption(2)
+    );
+    assert_eq!(select_match.terminal_input.as_deref(), Some("\u{1b}[B\r"));
+
+    let down_match = state
+        .find_external_interaction_session_for_text("feishu", "default", "peer-vt-nav-1", "down")
+        .expect("find vt down control")
+        .expect("matched vt down control");
+    assert_eq!(
+        down_match.action,
+        ExternalInteractionAction::TerminalKey(ExternalTerminalKey::Down)
+    );
+    assert_eq!(down_match.terminal_input.as_deref(), Some("\u{1b}[B"));
+
+    let reply_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 20_000, 200, 10)
+        .expect("take vt reply candidates");
+    assert!(
+        reply_candidates.is_empty(),
+        "terminal navigation prompt should block fallback reply dispatch"
+    );
+}
+
+#[test]
+fn vt_fallback_extracts_permission_prompt_across_channels() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt_perm_text_1".to_string(),
+        channel: "telegram".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "peer-vt-perm-1".to_string(),
+        inbound_message_id: "msg-vt-perm-original".to_string(),
+        workspace_id: "ws-1".to_string(),
+        target_agent_id: "agent-vt-perm-1".to_string(),
+        injected_input: Some("继续".to_string()),
+        task_id: None,
+        reply_to_agent_id: None,
+    };
+    state
+        .bind_external_reply_session("s_vt_perm_text_1", target, now_ms_for_test(1_000))
+        .expect("bind vt permission target");
+    state
+        .append_external_reply_chunk(
+            "s_vt_perm_text_1",
+            b"2. Yes, allow reading from ARGlasses/ from this project\r\n3. No\r\nEsc to cancel \xc2\xb7 Tab to amend \xc2\xb7 ctrl+e to explain\r\n",
+            now_ms_for_test(1_100),
+        )
+        .expect("append vt permission prompt");
+
+    let interaction_candidates = state
+        .take_external_interaction_dispatch_candidates()
+        .expect("take vt permission candidates");
+    assert_eq!(interaction_candidates.len(), 1);
+    let prompt = interaction_candidates[0]
+        .prompt
+        .as_ref()
+        .expect("vt permission prompt");
+    assert_eq!(prompt.kind, ExternalInteractionPromptKind::Permission);
+    assert_eq!(
+        prompt.control_mode,
+        ExternalInteractionControlMode::SemanticButtons
+    );
+    assert_eq!(prompt.options.len(), 2);
+
+    let allow_match = state
+        .find_external_interaction_session_for_text("telegram", "default", "peer-vt-perm-1", "2")
+        .expect("find vt permission control")
+        .expect("matched vt permission control");
+    assert_eq!(
+        allow_match.action,
+        ExternalInteractionAction::SubmitText("2".to_string())
+    );
+    assert_eq!(allow_match.terminal_input, None);
+
+    let reply_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 20_000, 200, 10)
+        .expect("take vt permission reply candidates");
+    assert!(
+        reply_candidates.is_empty(),
+        "permission prompt should block fallback reply dispatch: {reply_candidates:?}"
+    );
+}
+
+#[test]
+fn vt_fallback_extracts_full_numbered_agent_choice_menu() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_vt_full_numbered_choice_menu_1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "chat_vt_1".to_string(),
+        inbound_message_id: "msg_vt_1".to_string(),
+        target_agent_id: "agent_vt_1".to_string(),
+        workspace_id: "workspace_1".to_string(),
+        task_id: None,
+        injected_input: Some("出一道 Rust 选择题".to_string()),
+        reply_to_agent_id: None,
+    };
+    state
+        .bind_external_reply_session(
+            "s_vt_full_numbered_choice_menu_1",
+            target,
+            now_ms_for_test(1_000),
+        )
+        .expect("start vt reply relay session");
+    state
+        .append_external_reply_chunk(
+            "s_vt_full_numbered_choice_menu_1",
+            "☐ Rust\r\nRust 中，Option<T> 的 unwrap() 方法在值为 None 时会？\r\n\r\n❯\u{a0}1. 返回默认值\r\n     返回 T 类型的默认值\r\n  2. 触发 panic\r\n     程序直接 panic 终止\r\n  3. 返回 Err\r\n     返回一个 Err 类型的值\r\n  4. 编译报错\r\n     编译阶段就会报错\r\n  5. Type something.\r\n──────────────────────────────────────────────────────────────────────────────────────\r\n──────────────────────────────\r\n  6. Chat about this\r\n\r\nEnter to select · ↑/↓ to navigate · Esc to cancel\r\n"
+                .as_bytes(),
+            now_ms_for_test(1_100),
+        )
+        .expect("append vt full numbered menu");
+
+    let interaction_candidates = state
+        .take_external_interaction_dispatch_candidates()
+        .expect("take vt full numbered interaction candidates");
+    assert_eq!(interaction_candidates.len(), 1);
+    let prompt = interaction_candidates[0]
+        .prompt
+        .as_ref()
+        .expect("vt full numbered prompt");
+    assert_eq!(prompt.options.len(), 6);
+    assert_eq!(prompt.options[0].submit_text.as_deref(), Some("1"));
+    assert_eq!(prompt.options[0].label, "返回默认值 返回 T 类型的默认值");
+    assert_eq!(prompt.options[1].submit_text.as_deref(), Some("2"));
+    assert_eq!(prompt.options[1].label, "触发 panic 程序直接 panic 终止");
+    assert_eq!(prompt.options[5].submit_text.as_deref(), Some("6"));
+    assert_eq!(prompt.options[5].label, "Chat about this");
+    assert_eq!(
+        prompt.hint.as_deref(),
+        Some("Enter to select · ↑/↓ to navigate · Esc to cancel")
+    );
+
+    let select_match = state
+        .find_external_interaction_session_for_text("feishu", "default", "chat_vt_1", "6")
+        .expect("find vt numbered control")
+        .expect("matched vt numbered control");
+    assert_eq!(
+        select_match.action,
+        ExternalInteractionAction::SubmitText("6".to_string())
+    );
+    assert_eq!(select_match.terminal_input, None);
+
+    let reply_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_000), 500, 20_000, 200, 10)
+        .expect("take vt full numbered reply candidates");
+    assert!(
+        reply_candidates.is_empty(),
+        "numbered choice menu should be sent as interaction prompt, not fallback reply text: {reply_candidates:?}"
+    );
+}
+
+#[test]
+fn rendered_screen_does_not_treat_leading_bullet_reply_as_menu_options() {
+    let snapshot = RenderedScreenSnapshot {
+        session_id: "s_reply_not_menu_1".to_string(),
+        screen_revision: 1,
+        captured_at_ms: now_ms_for_test(1_100),
+        viewport_top: 0,
+        viewport_height: 20,
+        base_y: 0,
+        cursor_row: Some(9),
+        cursor_col: Some(0),
+        rows: vec![
+            RenderedScreenSnapshotRow {
+                row_index: 0,
+                text: "• 会。".to_string(),
+                trimmed_text: "• 会。".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 1,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 2,
+                text: "我可以直接操作这台机器上的工具和界面，包括：".to_string(),
+                trimmed_text: "我可以直接操作这台机器上的工具和界面，包括：".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 3,
+                text: "- 读写当前工作区里的代码和文件".to_string(),
+                trimmed_text: "- 读写当前工作区里的代码和文件".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 4,
+                text: "- 运行终端命令、查测试结果、改代码".to_string(),
+                trimmed_text: "- 运行终端命令、查测试结果、改代码".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 5,
+                text: "- 打开和操作浏览器或桌面应用".to_string(),
+                trimmed_text: "- 打开和操作浏览器或桌面应用".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 6,
+                text: "- 截图、点按钮、输入文字、滚动页面".to_string(),
+                trimmed_text: "- 截图、点按钮、输入文字、滚动页面".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 7,
+                text: "- 帮你检查本地项目、定位问题、做修改并验证".to_string(),
+                trimmed_text: "- 帮你检查本地项目、定位问题、做修改并验证".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 8,
+                text: "".to_string(),
+                trimmed_text: "".to_string(),
+                is_blank: true,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 9,
+                text: "你现在要我具体操作什么？".to_string(),
+                trimmed_text: "你现在要我具体操作什么？".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 10,
+                text: "› 1. Find and fix a bug in @filename".to_string(),
+                trimmed_text: "› 1. Find and fix a bug in @filename".to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 11,
+                text: "  2. gpt-5.5 xhigh · ~/work/niii/equip-manager/.gtoffice/terminal"
+                    .to_string(),
+                trimmed_text: "2. gpt-5.5 xhigh · ~/work/niii/equip-manager/.gtoffice/terminal"
+                    .to_string(),
+                is_blank: false,
+            },
+            RenderedScreenSnapshotRow {
+                row_index: 12,
+                text: "回复编号直接选择，或发送 up/down/enter/esc 控制终端。".to_string(),
+                trimmed_text: "回复编号直接选择，或发送 up/down/enter/esc 控制终端。".to_string(),
+                is_blank: false,
+            },
+        ],
+    };
+
+    let prompt = extract_rendered_interaction_prompt(&snapshot, None);
+    assert!(
+        prompt.is_none(),
+        "stale menu should be ignored once cursor focus leaves the menu: {prompt:?}"
+    );
+}
+
+#[test]
 fn rendered_screen_gemini_reply_ignores_footer_and_placeholder() {
     let snapshot = RenderedScreenSnapshot {
         session_id: "s_rendered_gemini_1".to_string(),
@@ -3509,8 +3812,7 @@ fn external_reply_rendered_text_snapshot_accumulates_tui_tail_across_snapshots()
             .external_reply_rendered_text_snapshot("s_rendered_tui_tail_1")
             .expect("read rendered text"),
         Some(
-            "第一段的第一句。\n第一段的第二句。\n\n第二段的第一句。\n第二段的第二句。"
-                .to_string(),
+            "第一段的第一句。\n第一段的第二句。\n\n第二段的第一句。\n第二段的第二句。".to_string(),
         )
     );
 }

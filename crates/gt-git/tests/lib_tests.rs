@@ -195,7 +195,8 @@ fn tag_list_returns_empty_for_no_tags() {
 
     // Create an initial commit so HEAD exists
     std::fs::write(repo.path.join("file.txt"), "content").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
     let tags = git.tag_list(&workspace.workspace_id).unwrap();
@@ -210,10 +211,12 @@ fn tag_create_lightweight_and_list() {
     let git = GitService::new(service);
 
     std::fs::write(repo.path.join("file.txt"), "content").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
-    git.tag_create(&workspace.workspace_id, "v1.0", "HEAD", false, None).unwrap();
+    git.tag_create(&workspace.workspace_id, "v1.0", "HEAD", false, None)
+        .unwrap();
 
     let tags = git.tag_list(&workspace.workspace_id).unwrap();
     assert_eq!(tags.len(), 1);
@@ -229,9 +232,11 @@ fn tag_delete_removes_tag() {
     let git = GitService::new(service);
 
     std::fs::write(repo.path.join("file.txt"), "content").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
-    git.tag_create(&workspace.workspace_id, "v1.0", "HEAD", false, None).unwrap();
+    git.tag_create(&workspace.workspace_id, "v1.0", "HEAD", false, None)
+        .unwrap();
 
     git.tag_delete(&workspace.workspace_id, "v1.0").unwrap();
 
@@ -247,10 +252,18 @@ fn tag_create_annotated_with_message() {
     let git = GitService::new(service);
 
     std::fs::write(repo.path.join("file.txt"), "content").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
-    git.tag_create(&workspace.workspace_id, "v2.0", "HEAD", true, Some("Release 2.0")).unwrap();
+    git.tag_create(
+        &workspace.workspace_id,
+        "v2.0",
+        "HEAD",
+        true,
+        Some("Release 2.0"),
+    )
+    .unwrap();
 
     let tags = git.tag_list(&workspace.workspace_id).unwrap();
     assert_eq!(tags.len(), 1);
@@ -267,21 +280,27 @@ fn cherry_pick_applies_commit_on_branch() {
 
     // Initial commit on main
     std::fs::write(repo.path.join("file.txt"), "base").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     let _base_sha = git.commit(&workspace.workspace_id, "base").unwrap();
 
     // Create feature branch with a commit
-    git.create_branch(&workspace.workspace_id, "feature", None).unwrap();
-    git.checkout(&workspace.workspace_id, "feature", false, None).unwrap();
+    git.create_branch(&workspace.workspace_id, "feature", None)
+        .unwrap();
+    git.checkout(&workspace.workspace_id, "feature", false, None)
+        .unwrap();
     std::fs::write(repo.path.join("feature.txt"), "feature").unwrap();
-    git.stage(&workspace.workspace_id, &["feature.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["feature.txt".into()])
+        .unwrap();
     let feature_sha = git.commit(&workspace.workspace_id, "add feature").unwrap();
 
     // Go back to main
-    git.checkout(&workspace.workspace_id, "main", false, None).unwrap();
+    git.checkout(&workspace.workspace_id, "main", false, None)
+        .unwrap();
 
     // Cherry-pick the feature commit
-    git.cherry_pick(&workspace.workspace_id, &feature_sha).unwrap();
+    git.cherry_pick(&workspace.workspace_id, &feature_sha)
+        .unwrap();
 
     // Verify the file exists on main
     assert!(repo.path.join("feature.txt").exists());
@@ -297,11 +316,13 @@ fn revert_undoes_commit() {
     let git = GitService::new(service);
 
     std::fs::write(repo.path.join("file.txt"), "original").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
     std::fs::write(repo.path.join("file.txt"), "modified").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     let sha = git.commit(&workspace.workspace_id, "modify file").unwrap();
 
     git.revert(&workspace.workspace_id, &sha).unwrap();
@@ -319,21 +340,28 @@ fn merge_fast_forward_combines_branches() {
 
     // Initial commit
     std::fs::write(repo.path.join("base.txt"), "base").unwrap();
-    git.stage(&workspace.workspace_id, &["base.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["base.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
     // Create feature branch
-    git.create_branch(&workspace.workspace_id, "feature", None).unwrap();
-    git.checkout(&workspace.workspace_id, "feature", false, None).unwrap();
+    git.create_branch(&workspace.workspace_id, "feature", None)
+        .unwrap();
+    git.checkout(&workspace.workspace_id, "feature", false, None)
+        .unwrap();
     std::fs::write(repo.path.join("feature.txt"), "feature").unwrap();
-    git.stage(&workspace.workspace_id, &["feature.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["feature.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "feature work").unwrap();
 
     // Back to main
-    git.checkout(&workspace.workspace_id, "main", false, None).unwrap();
+    git.checkout(&workspace.workspace_id, "main", false, None)
+        .unwrap();
 
     // Merge feature
-    let result = git.merge(&workspace.workspace_id, "feature", false).unwrap();
+    let result = git
+        .merge(&workspace.workspace_id, "feature", false)
+        .unwrap();
     assert!(result.success);
     assert!(result.conflicts.is_empty());
     assert!(result.merged_commit.is_some());
@@ -349,24 +377,33 @@ fn merge_conflict_returns_conflict_files() {
 
     // Initial commit
     std::fs::write(repo.path.join("shared.txt"), "original").unwrap();
-    git.stage(&workspace.workspace_id, &["shared.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["shared.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
     // Feature branch modifies shared.txt
-    git.create_branch(&workspace.workspace_id, "feature", None).unwrap();
-    git.checkout(&workspace.workspace_id, "feature", false, None).unwrap();
+    git.create_branch(&workspace.workspace_id, "feature", None)
+        .unwrap();
+    git.checkout(&workspace.workspace_id, "feature", false, None)
+        .unwrap();
     std::fs::write(repo.path.join("shared.txt"), "feature version").unwrap();
-    git.stage(&workspace.workspace_id, &["shared.txt".into()]).unwrap();
-    git.commit(&workspace.workspace_id, "feature change").unwrap();
+    git.stage(&workspace.workspace_id, &["shared.txt".into()])
+        .unwrap();
+    git.commit(&workspace.workspace_id, "feature change")
+        .unwrap();
 
     // Main also modifies shared.txt
-    git.checkout(&workspace.workspace_id, "main", false, None).unwrap();
+    git.checkout(&workspace.workspace_id, "main", false, None)
+        .unwrap();
     std::fs::write(repo.path.join("shared.txt"), "main version").unwrap();
-    git.stage(&workspace.workspace_id, &["shared.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["shared.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "main change").unwrap();
 
     // Merge should conflict
-    let result = git.merge(&workspace.workspace_id, "feature", false).unwrap();
+    let result = git
+        .merge(&workspace.workspace_id, "feature", false)
+        .unwrap();
     assert!(!result.success);
     assert!(!result.conflicts.is_empty());
     assert!(result.conflicts.iter().any(|c| c.path == "shared.txt"));
@@ -380,11 +417,13 @@ fn reset_soft_moves_head_without_changing_files() {
     let git = GitService::new(service);
 
     std::fs::write(repo.path.join("file.txt"), "v1").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     let sha1 = git.commit(&workspace.workspace_id, "first").unwrap();
 
     std::fs::write(repo.path.join("file.txt"), "v2").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "second").unwrap();
 
     git.reset(&workspace.workspace_id, &sha1, "soft").unwrap();
@@ -423,7 +462,8 @@ fn stage_hunk_applies_partial_patch() {
 
     // Create initial file with multiple lines
     std::fs::write(repo.path.join("multi.txt"), "line1\nline2\nline3\n").unwrap();
-    git.stage(&workspace.workspace_id, &["multi.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["multi.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
     // Modify the first line
@@ -433,12 +473,21 @@ fn stage_hunk_applies_partial_patch() {
     let patch = "--- a/multi.txt\n+++ b/multi.txt\n@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
 
     // Stage the hunk
-    git.stage_hunk(&workspace.workspace_id, "multi.txt", patch).unwrap();
+    git.stage_hunk(&workspace.workspace_id, "multi.txt", patch)
+        .unwrap();
 
     // Verify the change is staged
-    let diff = git.diff_file(&workspace.workspace_id, "multi.txt", true).unwrap();
-    assert!(diff.contains("-line1"), "staged diff should contain deletion: {diff}");
-    assert!(diff.contains("+line1 changed"), "staged diff should contain addition: {diff}");
+    let diff = git
+        .diff_file(&workspace.workspace_id, "multi.txt", true)
+        .unwrap();
+    assert!(
+        diff.contains("-line1"),
+        "staged diff should contain deletion: {diff}"
+    );
+    assert!(
+        diff.contains("+line1 changed"),
+        "staged diff should contain addition: {diff}"
+    );
 }
 
 #[test]
@@ -450,24 +499,37 @@ fn unstage_hunk_reverses_staged_patch() {
 
     // Create initial file with multiple lines
     std::fs::write(repo.path.join("multi.txt"), "line1\nline2\nline3\n").unwrap();
-    git.stage(&workspace.workspace_id, &["multi.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["multi.txt".into()])
+        .unwrap();
     git.commit(&workspace.workspace_id, "initial").unwrap();
 
     // Modify the first line and stage it
     std::fs::write(repo.path.join("multi.txt"), "line1 changed\nline2\nline3\n").unwrap();
-    git.stage(&workspace.workspace_id, &["multi.txt".into()]).unwrap();
+    git.stage(&workspace.workspace_id, &["multi.txt".into()])
+        .unwrap();
 
     // Verify it is staged
-    let staged_diff = git.diff_file(&workspace.workspace_id, "multi.txt", true).unwrap();
-    assert!(staged_diff.contains("+line1 changed"), "should be staged before unstage");
+    let staged_diff = git
+        .diff_file(&workspace.workspace_id, "multi.txt", true)
+        .unwrap();
+    assert!(
+        staged_diff.contains("+line1 changed"),
+        "should be staged before unstage"
+    );
 
     // Unstage via patch
     let patch = "--- a/multi.txt\n+++ b/multi.txt\n@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
-    git.unstage_hunk(&workspace.workspace_id, "multi.txt", patch).unwrap();
+    git.unstage_hunk(&workspace.workspace_id, "multi.txt", patch)
+        .unwrap();
 
     // Verify nothing is staged now
-    let after_diff = git.diff_file(&workspace.workspace_id, "multi.txt", true).unwrap();
-    assert!(after_diff.trim().is_empty(), "nothing should be staged after unstage: {after_diff}");
+    let after_diff = git
+        .diff_file(&workspace.workspace_id, "multi.txt", true)
+        .unwrap();
+    assert!(
+        after_diff.trim().is_empty(),
+        "nothing should be staged after unstage: {after_diff}"
+    );
 }
 
 #[test]
@@ -478,11 +540,14 @@ fn commit_amend_updates_message() {
     let git = GitService::new(service);
 
     std::fs::write(repo.path.join("file.txt"), "content").unwrap();
-    git.stage(&workspace.workspace_id, &["file.txt".into()]).unwrap();
-    git.commit(&workspace.workspace_id, "original message").unwrap();
+    git.stage(&workspace.workspace_id, &["file.txt".into()])
+        .unwrap();
+    git.commit(&workspace.workspace_id, "original message")
+        .unwrap();
 
     // Amend the message
-    git.commit_amend(&workspace.workspace_id, "amended message").unwrap();
+    git.commit_amend(&workspace.workspace_id, "amended message")
+        .unwrap();
 
     let log = git.log(&workspace.workspace_id, 1, 0).unwrap();
     assert_eq!(log[0].summary, "amended message");
