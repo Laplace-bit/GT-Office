@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Circle, GripHorizontal, Play } from 'lucide-react'
+import { motion } from 'motion/react'
 import type { AgentStation } from './station-model'
 import {
   buildStationCardIdentityMeta,
@@ -120,6 +121,7 @@ interface StationCardProps {
   isFullscreenMode?: boolean
   isMiniature?: boolean
   isFocusHidden?: boolean
+  sharedLayoutId?: string
   onSelectStation: (stationId: string) => void
 
   onLaunchStationTerminal: (stationId: string) => void
@@ -159,6 +161,7 @@ function StationCardView({
   isFullscreenMode,
   isMiniature,
   isFocusHidden,
+  sharedLayoutId,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -401,8 +404,9 @@ function StationCardView({
   }, [onEnterFullscreen, onExitFullscreen, station.id])
 
   return (
-    <article
+    <motion.article
       ref={rootRef}
+      layoutId={sharedLayoutId}
       data-station-id={station.id}
       className={[
         'station-window',
@@ -637,7 +641,7 @@ function StationCardView({
       )}
       <StationActionDock actions={stationActions} compact={dockCompact} onAction={handleRunAction} />
 
-    </article>
+    </motion.article>
   )
 }
 
@@ -676,6 +680,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&
     prev.isFocusHidden === next.isFocusHidden &&
+    prev.sharedLayoutId === next.sharedLayoutId &&
     prev.draggable === next.draggable &&
     prev.onSelectStation === next.onSelectStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&

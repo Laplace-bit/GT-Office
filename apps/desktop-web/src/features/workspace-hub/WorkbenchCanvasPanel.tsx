@@ -312,7 +312,7 @@ function StationCardSlot({
   snapshot,
   inert = false,
   transitionSuspended = false,
-  sharedLayoutId,
+  suppressLayout = false,
   children,
 }: {
   stationId: string
@@ -320,7 +320,7 @@ function StationCardSlot({
   snapshot?: ExitingStationSnapshot | null
   inert?: boolean
   transitionSuspended?: boolean
-  sharedLayoutId?: string
+  suppressLayout?: boolean
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
@@ -331,7 +331,6 @@ function StationCardSlot({
   return (
     <motion.div
       data-station-slot-id={stationId}
-      layoutId={sharedLayoutId}
       className={[
         'station-card-slot',
         isParked ? 'station-card-slot--parked' : '',
@@ -341,7 +340,7 @@ function StationCardSlot({
       ]
         .filter(Boolean)
         .join(' ')}
-      layout={!motionDisabled && !isParked && !isExiting}
+      layout={!motionDisabled && !isParked && !isExiting && !suppressLayout}
       initial={false}
       animate={isParked || mode === 'exiting' ? { opacity: 0 } : { opacity: 1 }}
       transition={{
@@ -1055,7 +1054,7 @@ function WorkbenchCanvasPanelView({
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
           inert={Boolean(options?.inert)}
           transitionSuspended={workspaceTransitioning}
-          sharedLayoutId={buildStationSharedLayoutId(station.id)}
+          suppressLayout={restoringStationId === station.id}
         >
           <StationCard
             locale={locale}
@@ -1070,6 +1069,7 @@ function WorkbenchCanvasPanelView({
             isFullscreen={Boolean(options?.fullscreen)}
             isFullscreenMode={Boolean(options?.fullscreenMode)}
             isFocusHidden={Boolean(options?.focusHidden)}
+            sharedLayoutId={buildStationSharedLayoutId(station.id)}
             draggable={!detachedReadonly}
             onStationDragStart={
               onStationDragStart
