@@ -186,11 +186,15 @@ function ShellLeftPaneContent({
   })()
 
   return (
-    <div key={activeNavId} className="shell-left-pane-transition">
+    <div className="shell-left-pane-content">
       <div className={fileTreeSlotClassName} aria-hidden={!showFileTree}>
         <FileTreePane {...fileTreePaneProps} />
       </div>
-      {showFileTree ? null : <div className="shell-left-pane-slot">{secondaryPane}</div>}
+      {showFileTree ? null : (
+        <div key={activeNavId} className="shell-left-pane-slot shell-left-pane-transition">
+          {secondaryPane}
+        </div>
+      )}
     </div>
   )
 }
