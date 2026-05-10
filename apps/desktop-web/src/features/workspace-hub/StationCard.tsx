@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Circle, GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation } from './station-model'
@@ -106,16 +106,6 @@ interface StationTerminalRuntime {
   stateRaw?: string | null
 }
 
-interface StationRestoreAnimation {
-  token: number
-  fromRect: {
-    top: number
-    left: number
-    width: number
-    height: number
-  }
-}
-
 interface StationCardProps {
   locale: Locale
   appearanceVersion: string
@@ -130,7 +120,6 @@ interface StationCardProps {
   isFullscreenMode?: boolean
   isMiniature?: boolean
   isFocusHidden?: boolean
-  restoreAnimation?: StationRestoreAnimation | null
   onSelectStation: (stationId: string) => void
 
   onLaunchStationTerminal: (stationId: string) => void
@@ -170,7 +159,6 @@ function StationCardView({
   isFullscreenMode,
   isMiniature,
   isFocusHidden,
-  restoreAnimation,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
@@ -196,7 +184,6 @@ function StationCardView({
   const terminalFocusFrameRef = useRef<number | null>(null)
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
-  const restoreAnimationTokenRef = useRef<number | null>(null)
   const [compactLayout, setCompactLayout] = useState(false)
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
 
@@ -298,50 +285,6 @@ function StationCardView({
       observer.disconnect()
     }
   }, [])
-
-  useLayoutEffect(() => {
-    if (!restoreAnimation) {
-      return
-    }
-    if (restoreAnimationTokenRef.current === restoreAnimation.token) {
-      return
-    }
-    const element = rootRef.current
-    if (!element || typeof element.animate !== 'function') {
-      return
-    }
-    const targetRect = element.getBoundingClientRect()
-    if (targetRect.width <= 0 || targetRect.height <= 0) {
-      return
-    }
-    restoreAnimationTokenRef.current = restoreAnimation.token
-    const translateX = restoreAnimation.fromRect.left - targetRect.left
-    const translateY = restoreAnimation.fromRect.top - targetRect.top
-    const scaleX = restoreAnimation.fromRect.width / Math.max(1, targetRect.width)
-    const scaleY = restoreAnimation.fromRect.height / Math.max(1, targetRect.height)
-    const animation = element.animate(
-      [
-        {
-          transformOrigin: 'top left',
-          transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
-          opacity: 0.86,
-        },
-        {
-          transformOrigin: 'top left',
-          transform: 'translate(0px, 0px) scale(1, 1)',
-          opacity: 1,
-        },
-      ],
-      {
-        duration: 260,
-        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-        fill: 'both',
-      },
-    )
-    return () => {
-      animation.cancel()
-    }
-  }, [restoreAnimation])
 
   const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
@@ -733,7 +676,6 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&
     prev.isFocusHidden === next.isFocusHidden &&
-    (prev.restoreAnimation?.token ?? null) === (next.restoreAnimation?.token ?? null) &&
     prev.draggable === next.draggable &&
     prev.onSelectStation === next.onSelectStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&

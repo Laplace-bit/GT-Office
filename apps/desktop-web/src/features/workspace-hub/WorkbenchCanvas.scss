@@ -483,6 +483,146 @@
   }
 }
 
+.station-restore-ghost {
+  position: fixed;
+  z-index: 18;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: rem(12);
+  border: rem(1) solid color-mix(in srgb, white 18%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 14%, transparent), transparent 28%),
+    color-mix(in srgb, var(--vb-glass-light) 94%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 rem(18) rem(36) color-mix(in srgb, black 20%, transparent),
+    inset 0 rem(1) 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(rem(24)) saturate(180%);
+  -webkit-backdrop-filter: blur(rem(24)) saturate(180%);
+  transform-origin: top left;
+  will-change: transform, opacity;
+}
+
+.station-restore-ghost-chrome {
+  display: flex;
+  align-items: center;
+  gap: rem(4);
+  padding: rem(7) rem(9);
+  border-bottom: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 10%, transparent), transparent),
+    color-mix(in srgb, var(--vb-surface) 58%, transparent);
+}
+
+.station-restore-ghost-dot {
+  width: rem(6);
+  height: rem(6);
+  border-radius: rem(999);
+  background: color-mix(in srgb, var(--vb-text-muted) 32%, transparent);
+
+  &.is-danger {
+    background: color-mix(in srgb, #ff5f57 88%, white 12%);
+  }
+
+  &.is-warn {
+    background: color-mix(in srgb, #febc2e 88%, white 12%);
+  }
+
+  &.is-safe {
+    background: color-mix(in srgb, #28c840 88%, white 12%);
+  }
+}
+
+.station-restore-ghost-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: rem(10);
+  padding: rem(10);
+}
+
+.station-restore-ghost-identity {
+  display: flex;
+  align-items: center;
+  gap: rem(8);
+  min-width: 0;
+}
+
+.station-restore-ghost-monogram {
+  flex: 0 0 auto;
+  width: rem(24);
+  height: rem(24);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: rem(8);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 80%, transparent);
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.24), transparent 46%),
+    color-mix(in srgb, var(--vb-surface) 86%, transparent);
+  color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
+  font-size: rem(11);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.station-restore-ghost-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: rem(2);
+  flex: 1;
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    font-size: rem(11);
+    font-weight: 650;
+    color: var(--vb-text);
+  }
+
+  span {
+    font-size: rem(9);
+    color: var(--vb-text-muted);
+  }
+}
+
+.station-restore-ghost-status {
+  width: rem(7);
+  height: rem(7);
+  border-radius: rem(999);
+  background: color-mix(in srgb, var(--vb-text-muted) 26%, transparent);
+  box-shadow: 0 0 0 rem(1.5) transparent;
+
+  &.is-live {
+    background: color-mix(in srgb, var(--vb-success) 82%, white 18%);
+    box-shadow: 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-success) 16%, transparent);
+  }
+}
+
+.station-restore-ghost-terminal {
+  flex: 1;
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: rem(6);
+  min-height: 0;
+
+  span {
+    border-radius: rem(6);
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--vb-text-muted) 18%, transparent) 0%,
+        color-mix(in srgb, var(--vb-text-muted) 10%, transparent) 42%,
+        transparent 100%);
+  }
+}
+
 .workbench-canvas.has-minimized-dock {
   .station-grid-empty {
     padding-bottom: rem(32);
@@ -807,6 +947,14 @@
     position: absolute !important;
     inset: auto;
     z-index: 1;
+  }
+
+  .station-card-slot--concealed {
+    pointer-events: none;
+
+    > .station-window {
+      visibility: hidden;
+    }
   }
 
   .station-window {

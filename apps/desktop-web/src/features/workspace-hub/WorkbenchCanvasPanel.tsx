@@ -147,6 +147,15 @@ interface StationRestoreAnimationState {
   }
 }
 
+interface StationRestoreGhostState extends StationRestoreAnimationState {
+  toRect: {
+    top: number
+    left: number
+    width: number
+    height: number
+  }
+}
+
 export function resolveFocusStageStationVisibility(
   stationId: string,
   selectedStationId: string | null,
@@ -318,7 +327,7 @@ function StationCardSlot({
   snapshot,
   inert = false,
   transitionSuspended = false,
-  layoutSuspended = false,
+  concealed = false,
   children,
 }: {
   stationId: string
@@ -326,14 +335,13 @@ function StationCardSlot({
   snapshot?: ExitingStationSnapshot | null
   inert?: boolean
   transitionSuspended?: boolean
-  layoutSuspended?: boolean
+  concealed?: boolean
   children: ReactNode
 }) {
   const reducedMotion = usePrefersReducedMotion()
   const isParked = mode === 'parked'
   const isExiting = mode === 'exiting'
   const transitionDisabled = reducedMotion || transitionSuspended
-  const layoutDisabled = transitionDisabled || layoutSuspended
 
   return (
     <motion.div
@@ -343,11 +351,12 @@ function StationCardSlot({
         isParked ? 'station-card-slot--parked' : '',
         mode === 'entering' ? 'station-card-slot--entering' : '',
         mode === 'exiting' ? 'station-card-slot--exiting' : '',
+        concealed ? 'station-card-slot--concealed' : '',
         inert ? 'station-card-slot--inert' : '',
       ]
         .filter(Boolean)
         .join(' ')}
-      layout={!layoutDisabled && !isParked && !isExiting}
+      layout={!transitionDisabled && !isParked && !isExiting}
       initial={false}
       animate={isParked || mode === 'exiting' ? { opacity: 0 } : { opacity: 1 }}
       transition={{
@@ -358,7 +367,7 @@ function StationCardSlot({
           ease: [0.32, 0.72, 0, 1],
           delay: 0,
         },
-        layout: layoutDisabled
+        layout: transitionDisabled
           ? { duration: 0 }
           : { type: 'spring', stiffness: 320, damping: 30, mass: 0.88 },
       }}
@@ -430,6 +439,7 @@ function WorkbenchCanvasPanelView({
   onTogglePinnedWorkbenchContainer,
 }: WorkbenchCanvasPanelProps) {
   const gridRef = useRef<HTMLDivElement | null>(null)
+  const restoreGhostRef = useRef<HTMLDivElement | null>(null)
   const roleFilterExitTimerRef = useRef<number | null>(null)
   const roleFilterEnterTimerRef = useRef<number | null>(null)
   const restoreDockTimerRef = useRef<number | null>(null)
@@ -437,7 +447,9 @@ function WorkbenchCanvasPanelView({
   const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
   const [minimizedStationIds, setMinimizedStationIds] = useState<string[]>([])
   const [restoringStationId, setRestoringStationId] = useState<string | null>(null)
-  const [restoreAnimation, setRestoreAnimation] = useState<StationRestoreAnimationState | null>(null)
+  const [pendingRestoreAnimation, setPendingRestoreAnimation] = useState<StationRestoreAnimationState | null>(null)
+  const [restoreGhost, setRestoreGhost] = useState<StationRestoreGhostState | null>(null)
+  const prefersReducedMotion = usePrefersReducedMotion()
   const normalizedCustomLayout = useMemo(
     () => normalizeWorkbenchCustomLayout(container.customLayout),
     [container.customLayout],
@@ -552,6 +564,8 @@ function WorkbenchCanvasPanelView({
     const stationIdSet = new Set(stations.map((station) => station.id))
     setMinimizedStationIds((current) => current.filter((stationId) => stationIdSet.has(stationId)))
     setRestoringStationId((current) => (current && stationIdSet.has(current) ? current : null))
+    setPendingRestoreAnimation((current) => (current && stationIdSet.has(current.stationId) ? current : null))
+    setRestoreGhost((current) => (current && stationIdSet.has(current.stationId) ? current : null))
   }, [stations])
 
   useEffect(() => {
@@ -564,6 +578,96 @@ function WorkbenchCanvasPanelView({
       }
     }
   }, [])
+
+  useLayoutEffect(() => {
+    if (!pendingRestoreAnimation) {
+      return
+    }
+    let cancelled = false
+    const frameId = window.requestAnimationFrame(() => {
+      if (cancelled) {
+        return
+      }
+      const gridElement = gridRef.current
+      if (!gridElement) {
+        return
+      }
+      const stationWindow = Array.from(
+        gridElement.querySelectorAll<HTMLElement>('.station-window[data-station-id]'),
+      ).find((element) => element.dataset.stationId === pendingRestoreAnimation.stationId)
+      if (!stationWindow) {
+        return
+      }
+      const targetRect = stationWindow.getBoundingClientRect()
+      if (targetRect.width <= 0 || targetRect.height <= 0) {
+        return
+      }
+      setRestoreGhost({
+        ...pendingRestoreAnimation,
+        toRect: {
+          top: targetRect.top,
+          left: targetRect.left,
+          width: targetRect.width,
+          height: targetRect.height,
+        },
+      })
+      setPendingRestoreAnimation((current) =>
+        current?.token === pendingRestoreAnimation.token ? null : current,
+      )
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [pendingRestoreAnimation])
+
+  useLayoutEffect(() => {
+    if (!restoreGhost) {
+      return
+    }
+    if (prefersReducedMotion) {
+      setRestoreGhost(null)
+      return
+    }
+    const ghostElement = restoreGhostRef.current
+    if (!ghostElement || typeof ghostElement.animate !== 'function') {
+      setRestoreGhost(null)
+      return
+    }
+    const translateX = restoreGhost.toRect.left - restoreGhost.fromRect.left
+    const translateY = restoreGhost.toRect.top - restoreGhost.fromRect.top
+    const scaleX = restoreGhost.toRect.width / Math.max(1, restoreGhost.fromRect.width)
+    const scaleY = restoreGhost.toRect.height / Math.max(1, restoreGhost.fromRect.height)
+    const animation = ghostElement.animate(
+      [
+        {
+          transform: 'translate3d(0px, 0px, 0px) scale(1, 1)',
+          opacity: 0.94,
+          filter: 'saturate(1.12)',
+        },
+        {
+          transform: `translate3d(${translateX}px, ${translateY}px, 0px) scale(${scaleX}, ${scaleY})`,
+          opacity: 0,
+          filter: 'saturate(1)',
+        },
+      ],
+      {
+        duration: STATION_RESTORE_CARD_ANIMATION_MS,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        fill: 'both',
+      },
+    )
+    if (restoreCardAnimationTimerRef.current !== null) {
+      window.clearTimeout(restoreCardAnimationTimerRef.current)
+    }
+    restoreCardAnimationTimerRef.current = window.setTimeout(() => {
+      setRestoreGhost((current) => (current?.token === restoreGhost.token ? null : current))
+      restoreCardAnimationTimerRef.current = null
+    }, STATION_RESTORE_CARD_ANIMATION_MS)
+    return () => {
+      animation.cancel()
+    }
+  }, [prefersReducedMotion, restoreGhost])
 
   useLayoutEffect(() => {
     clearRoleFilterTimers()
@@ -679,16 +783,22 @@ function WorkbenchCanvasPanelView({
         window.clearTimeout(restoreCardAnimationTimerRef.current)
       }
       setRestoringStationId(stationId)
-      setRestoreAnimation({
-        stationId,
-        token: Date.now(),
-        fromRect: {
-          top: sourceRect.top,
-          left: sourceRect.left,
-          width: sourceRect.width,
-          height: sourceRect.height,
-        },
-      })
+      const token = Date.now()
+      setPendingRestoreAnimation(
+        prefersReducedMotion
+          ? null
+          : {
+              stationId,
+              token,
+              fromRect: {
+                top: sourceRect.top,
+                left: sourceRect.left,
+                width: sourceRect.width,
+                height: sourceRect.height,
+              },
+            },
+      )
+      setRestoreGhost(null)
       const nextDisplayedStationIds = orderStationIds([...displayedStationIdsRef.current, stationId])
       displayedStationIdsRef.current = nextDisplayedStationIds
       setDisplayedStationIds(nextDisplayedStationIds)
@@ -697,13 +807,9 @@ function WorkbenchCanvasPanelView({
         setRestoringStationId((current) => (current === stationId ? null : current))
         restoreDockTimerRef.current = null
       }, STATION_RESTORE_DOCK_EXIT_MS)
-      restoreCardAnimationTimerRef.current = window.setTimeout(() => {
-        setRestoreAnimation((current) => (current?.stationId === stationId ? null : current))
-        restoreCardAnimationTimerRef.current = null
-      }, STATION_RESTORE_CARD_ANIMATION_MS)
       onSelectStation(container.id, stationId)
     },
-    [container.id, onSelectStation, orderStationIds],
+    [container.id, onSelectStation, orderStationIds, prefersReducedMotion],
   )
   const handleMinimizeStation = useCallback(
     (stationId: string) => {
@@ -717,7 +823,8 @@ function WorkbenchCanvasPanelView({
           restoreCardAnimationTimerRef.current = null
         }
         setRestoringStationId(null)
-        setRestoreAnimation(null)
+        setPendingRestoreAnimation(null)
+        setRestoreGhost(null)
       }
       const nextDisplayedStationIds = displayedStationIdsRef.current.filter((currentId) => currentId !== stationId)
       displayedStationIdsRef.current = nextDisplayedStationIds
@@ -1088,7 +1195,7 @@ function WorkbenchCanvasPanelView({
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
           inert={Boolean(options?.inert)}
           transitionSuspended={workspaceTransitioning}
-          layoutSuspended={Boolean(restoreAnimation)}
+          concealed={restoreGhost?.stationId === station.id}
         >
           <StationCard
             locale={locale}
@@ -1103,7 +1210,6 @@ function WorkbenchCanvasPanelView({
             isFullscreen={Boolean(options?.fullscreen)}
             isFullscreenMode={Boolean(options?.fullscreenMode)}
             isFocusHidden={Boolean(options?.focusHidden)}
-            restoreAnimation={restoreAnimation?.stationId === station.id ? restoreAnimation : null}
             draggable={!detachedReadonly}
             onStationDragStart={
               onStationDragStart
@@ -1411,6 +1517,49 @@ function WorkbenchCanvasPanelView({
           ) : null}
         </div>
       )}
+      {restoreGhost ? (
+        <div
+          ref={restoreGhostRef}
+          className="station-restore-ghost"
+          style={{
+            top: `${restoreGhost.fromRect.top}px`,
+            left: `${restoreGhost.fromRect.left}px`,
+            width: `${restoreGhost.fromRect.width}px`,
+            height: `${restoreGhost.fromRect.height}px`,
+          }}
+          aria-hidden="true"
+        >
+          <div className="station-restore-ghost-chrome">
+            <span className="station-restore-ghost-dot is-danger" />
+            <span className="station-restore-ghost-dot is-warn" />
+            <span className="station-restore-ghost-dot is-safe" />
+          </div>
+          <div className="station-restore-ghost-body">
+            <div className="station-restore-ghost-identity">
+              <span className="station-restore-ghost-monogram">
+                {(stationById.get(restoreGhost.stationId)?.name ?? '?').slice(0, 1).toUpperCase()}
+              </span>
+              <div className="station-restore-ghost-copy">
+                <strong>{stationById.get(restoreGhost.stationId)?.name ?? ''}</strong>
+                <span>{stationById.get(restoreGhost.stationId)?.tool ?? ''}</span>
+              </div>
+              <span
+                className={[
+                  'station-restore-ghost-status',
+                  terminalByStation[restoreGhost.stationId]?.sessionId ? 'is-live' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              />
+            </div>
+            <div className="station-restore-ghost-terminal">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        </div>
+      ) : null}
       {dockStations.length > 0 ? (
         <div className="station-minimized-dock-wrap">
           <div className="station-minimized-dock" role="toolbar" aria-label={t(locale, 'workbench.minimizedDock')}>
