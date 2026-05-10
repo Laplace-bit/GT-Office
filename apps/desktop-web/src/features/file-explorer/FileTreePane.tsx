@@ -28,6 +28,11 @@ import {
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import {
+  buildTerminalFileDropPayload,
+  readTerminalFileDropPayload,
+  writeTerminalFileDropPayload,
+} from '@shell/utils/terminal-file-drop'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
 import { sanitizeDirectoryEntries } from './file-tree-data'
 import { buildFileTreeModalKey } from './file-tree-modal-key'
@@ -401,7 +406,7 @@ function TreeNodeRenderer({
 
   return (
     <div
-      ref={dragHandle}
+      ref={data.kind === 'dir' ? dragHandle : undefined}
       style={style}
       className={`tree-node-shell tree-node-shell-${data.kind}`}
     >
@@ -424,7 +429,7 @@ function TreeNodeRenderer({
           {data.loading ? <span className="tree-loading">{loadingLabel}</span> : null}
         </div>
       ) : (
-        <div className="tree-file-button" title={data.path}>
+        <div className="tree-file-button" title={data.path} draggable>
           <span className="tree-file">
             <span className={`tree-node-icon tree-node-icon--${data.visual.kind}`} aria-hidden="true">
               <NodeIcon className="vb-icon vb-icon-tree-node" />
@@ -483,6 +488,7 @@ export function FileTreePane({
   const [selectedTreePath, setSelectedTreePath] = useState<string | null>(selectedFilePath)
   const [treeSize, setTreeSize] = useState({ width: 0, height: 0 })
   const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
+  const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null)
 
   const [promptModal, setPromptModal] = useState<{
     open: boolean
@@ -524,6 +530,7 @@ export function FileTreePane({
   const autoExpandedDirectoriesRef = useRef<Set<string>>(new Set())
   const dragScrollFrameRef = useRef<number | null>(null)
   const dragScrollDeltaRef = useRef(0)
+  const nativeFileDragPathRef = useRef<string | null>(null)
 
   const loadDirectory = useCallback(
     async (rawDirectoryPath: string) => {
@@ -1397,6 +1404,49 @@ export function FileTreePane({
     restoreAutoExpandedDirectories,
   ])
 
+  const handleNativeFileMove = useCallback(async (sourcePath: string, targetDirectory: string) => {
+    const normalizedSourcePath = normalizeDirectoryPath(sourcePath)
+    const normalizedTargetDirectory = normalizeDirectoryPath(targetDirectory)
+    if (!normalizedSourcePath || !normalizedTargetDirectory) {
+      return
+    }
+
+    const targetPath =
+      normalizedTargetDirectory === ROOT_DIR
+        ? leafName(normalizedSourcePath)
+        : `${normalizedTargetDirectory}/${leafName(normalizedSourcePath)}`
+
+    if (targetPath === normalizedSourcePath) {
+      return
+    }
+
+    const moved = await onMovePath(normalizedSourcePath, targetPath)
+    if (!moved) {
+      restoreAutoExpandedDirectories()
+      return
+    }
+
+    if (normalizedTargetDirectory !== ROOT_DIR) {
+      treeRef.current?.open(normalizedTargetDirectory)
+    }
+
+    pruneDirectoryCache(normalizedSourcePath)
+    applyOptimisticTreeMove(normalizedSourcePath, targetPath, 'file')
+    await loadDirectory(normalizedTargetDirectory)
+    await reloadParentsAfterMutation([normalizedSourcePath, targetPath])
+    setSelectedTreePath(targetPath)
+    onSelectFile(targetPath)
+    restoreAutoExpandedDirectories(normalizedTargetDirectory !== ROOT_DIR ? normalizedTargetDirectory : null)
+  }, [
+    applyOptimisticTreeMove,
+    loadDirectory,
+    onMovePath,
+    onSelectFile,
+    pruneDirectoryCache,
+    reloadParentsAfterMutation,
+    restoreAutoExpandedDirectories,
+  ])
+
   const renderRow = useCallback((props: RowRendererProps<TreeNodeData>) => {
     const { node, attrs, innerRef, children } = props
     return (
@@ -1411,6 +1461,7 @@ export function FileTreePane({
           node.isFocused ? 'tree-row-focused' : '',
           node.isDragging ? 'tree-row-dragging-source' : '',
           node.willReceiveDrop ? 'tree-row-drop-target' : '',
+          draggingFilePath === node.data.path ? 'tree-row-file-drop-source' : '',
           clipboard?.action === 'cut' && clipboard.path === node.data.path ? 'tree-row-cut' : '',
         ].filter(Boolean).join(' ')}
         onFocus={(event) => {
@@ -1443,7 +1494,11 @@ export function FileTreePane({
             kind: node.data.kind,
           })
         }}
-        onDragOverCapture={() => {
+        onDragOverCapture={(event) => {
+          if (nativeFileDragPathRef.current && node.data.kind === 'dir') {
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+          }
           if (node.data.kind === 'dir') {
             pendingDropDirectoryRef.current = node.data.path
             if (!node.isOpen) {
@@ -1457,10 +1512,27 @@ export function FileTreePane({
             clearPendingDragExpand()
           }
         }}
-        onDropCapture={() => {
+        onDragStartCapture={(event) => {
+          if (node.data.kind !== 'file') {
+            return
+          }
+          const payload = buildTerminalFileDropPayload(workspaceRoot, node.data.path)
+          event.dataTransfer.effectAllowed = 'copyMove'
+          writeTerminalFileDropPayload(event.dataTransfer, payload)
+          nativeFileDragPathRef.current = node.data.path
+          setDraggingFilePath(node.data.path)
+        }}
+        onDropCapture={(event) => {
           clearPendingDragExpand()
           clearPendingDragCollapse()
           pendingDropDirectoryRef.current = node.data.kind === 'dir' ? node.data.path : null
+          const payload = readTerminalFileDropPayload(event.dataTransfer)
+          if (node.data.kind !== 'dir' || !payload || nativeFileDragPathRef.current !== payload.relativePath) {
+            return
+          }
+          event.preventDefault()
+          event.stopPropagation()
+          void handleNativeFileMove(payload.relativePath, node.data.path)
         }}
         onDragLeaveCapture={() => {
           if (dragExpandPathRef.current === node.data.path) {
@@ -1471,6 +1543,8 @@ export function FileTreePane({
           }
         }}
         onDragEndCapture={() => {
+          nativeFileDragPathRef.current = null
+          setDraggingFilePath(null)
           clearPendingDragExpand()
           clearPendingDragCollapse()
           stopDragAutoScroll()
@@ -1485,6 +1559,7 @@ export function FileTreePane({
     clearPendingDragCollapse,
     clearPendingDragExpand,
     clipboard,
+    draggingFilePath,
     onSelectFile,
     restoreAutoExpandedDirectories,
     scheduleDragCollapse,
@@ -1606,6 +1681,9 @@ export function FileTreePane({
           tabIndex={0}
           onKeyDown={handleKeyDown}
           onDragOver={(event) => {
+            if (nativeFileDragPathRef.current) {
+              event.preventDefault()
+            }
             const rect = event.currentTarget.getBoundingClientRect()
             const offsetY = event.clientY - rect.top
             if (offsetY <= DRAG_SCROLL_EDGE_PX) {

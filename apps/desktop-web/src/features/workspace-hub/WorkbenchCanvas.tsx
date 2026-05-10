@@ -23,6 +23,7 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import type { StationTerminalSinkBindingHandler } from '@features/terminal'
 import type { RenderedScreenSnapshot, ToolCommandSummary } from '@shell/integration/desktop-api'
+import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
@@ -92,6 +93,7 @@ interface WorkbenchCanvasProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onDropFilePath?: (stationId: string, payload: TerminalFileDropPayload) => Promise<void> | void
   onRunStationAction: (station: AgentStation, action: StationActionDescriptor) => void
   toolCommandsByStationId?: Record<string, ToolCommandSummary[]>
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
@@ -282,6 +284,7 @@ function WorkbenchCanvasView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onDropFilePath,
   onRunStationAction,
   toolCommandsByStationId = {},
   onLayoutModeChange,
@@ -596,9 +599,10 @@ function WorkbenchCanvasView({
                     onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
-            onBindTerminalSink={onBindTerminalSink}
-            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-            onRunStationAction={onRunStationAction}
+                    onBindTerminalSink={onBindTerminalSink}
+                    onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                    onDropFilePath={onDropFilePath}
+                    onRunStationAction={onRunStationAction}
             toolCommandsByStationId={toolCommandsByStationId}
                     onRemoveStation={onRemoveStation}
                     onLayoutModeChange={onLayoutModeChange}
@@ -674,9 +678,10 @@ function WorkbenchCanvasView({
                     onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
-            onBindTerminalSink={onBindTerminalSink}
-            onRenderedScreenSnapshot={onRenderedScreenSnapshot}
-            onRunStationAction={onRunStationAction}
+                    onBindTerminalSink={onBindTerminalSink}
+                    onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+                    onDropFilePath={onDropFilePath}
+                    onRunStationAction={onRunStationAction}
             toolCommandsByStationId={toolCommandsByStationId}
                     onRemoveStation={onRemoveStation}
                     onLayoutModeChange={onLayoutModeChange}

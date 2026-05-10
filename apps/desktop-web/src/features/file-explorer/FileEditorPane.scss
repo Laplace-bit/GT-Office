@@ -47,6 +47,7 @@
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   white-space: nowrap;
   position: relative;
+  will-change: transform, opacity;
   
   &:hover {
     background: color-mix(in srgb, var(--vb-surface-muted) 30%, transparent);
@@ -71,6 +72,14 @@
       background: var(--vb-surface);
       z-index: 2;
     }
+  }
+
+  &.file-editor-tab--dragging {
+    opacity: 0.72;
+    transform: translateY(#{rem(-2)}) scale(0.985);
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
+    border-color: color-mix(in srgb, var(--vb-accent) 18%, transparent);
+    box-shadow: 0 #{rem(10)} #{rem(20)} color-mix(in srgb, var(--vb-shadow) 12%, transparent);
   }
 }
 

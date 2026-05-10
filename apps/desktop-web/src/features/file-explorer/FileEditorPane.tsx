@@ -17,6 +17,10 @@ import { FilePreviewPane } from '@features/file-preview'
 import { resolveWorkspaceAbsolutePath } from './file-paths'
 import { resolveFileVisual } from './file-visuals'
 import { MarkdownModeToggle } from './MarkdownModeToggle'
+import {
+  buildTerminalFileDropPayload,
+  writeTerminalFileDropPayload,
+} from '@shell/utils/terminal-file-drop'
 import './FileEditorPane.scss'
 
 // Import code highlighting styles for markdown preview
@@ -108,17 +112,23 @@ function getFileName(path: string): string {
 const FileTab = memo(function FileTab({
   file,
   isActive,
+  isDragging,
   tabRef,
   onSelect,
   onClose,
   onContextMenu,
+  onDragStart,
+  onDragEnd,
 }: {
   file: OpenedFile
   isActive: boolean
+  isDragging: boolean
   tabRef?: (node: HTMLDivElement | null) => void
   onSelect: () => void
   onClose: (e: React.MouseEvent) => void
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void
+  onDragStart: (event: React.DragEvent<HTMLDivElement>) => void
+  onDragEnd: () => void
 }) {
   const visual = resolveFileVisual(file.path, 'file')
   const TabIcon = visual.icon
@@ -126,10 +136,18 @@ const FileTab = memo(function FileTab({
   return (
     <div
       ref={tabRef}
-      className={`file-editor-tab ${isActive ? 'active' : ''} ${file.isStale ? 'file-editor-tab--stale' : ''}`}
+      className={[
+        'file-editor-tab',
+        isActive ? 'active' : '',
+        file.isStale ? 'file-editor-tab--stale' : '',
+        isDragging ? 'file-editor-tab--dragging' : '',
+      ].filter(Boolean).join(' ')}
       onClick={onSelect}
       onContextMenu={onContextMenu}
       title={file.path}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
       <span className="file-editor-tab-name">
         <span className={`file-editor-tab-icon file-editor-tab-icon--${visual.kind}`}>
@@ -185,6 +203,7 @@ export function FileEditorPane({
   })
   const [draftContentByPath, setDraftContentByPath] = useState<Record<string, string>>({})
   const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(null)
+  const [draggingTabPath, setDraggingTabPath] = useState<string | null>(null)
   const tabsContainerRef = useRef<HTMLDivElement | null>(null)
   const tabRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const onFileModifiedRef = useRef(onFileModified)
@@ -489,6 +508,17 @@ export function FileEditorPane({
     })
   }, [onSelectFile])
 
+  const handleTabDragStart = useCallback((event: React.DragEvent<HTMLDivElement>, path: string) => {
+    const payload = buildTerminalFileDropPayload(workspaceRoot, path)
+    event.dataTransfer.effectAllowed = 'copyMove'
+    writeTerminalFileDropPayload(event.dataTransfer, payload)
+    setDraggingTabPath(path)
+  }, [workspaceRoot])
+
+  const handleTabDragEnd = useCallback(() => {
+    setDraggingTabPath(null)
+  }, [])
+
   // 处理鼠标滚轮水平滚动
   const handleTabsWheel = useCallback((e: React.WheelEvent) => {
     if (tabsContainerRef.current && e.deltaY !== 0) {
@@ -675,17 +705,20 @@ export function FileEditorPane({
             onWheel={handleTabsWheel}
           >
             {openedFiles.map((file) => (
-              <FileTab
-                key={file.path}
-                file={file}
-                isActive={file.path === activeFilePath}
-                tabRef={(node) => setTabRef(file.path, node)}
-                onSelect={() => onSelectFile(file.path)}
-                onClose={(e) => handleCloseTab(e, file.path)}
-                onContextMenu={(event) => handleTabContextMenu(event, file.path)}
-              />
-            ))}
-          </div>
+                <FileTab
+                  key={file.path}
+                  file={file}
+                  isActive={file.path === activeFilePath}
+                  isDragging={draggingTabPath === file.path}
+                  tabRef={(node) => setTabRef(file.path, node)}
+                  onSelect={() => onSelectFile(file.path)}
+                  onClose={(e) => handleCloseTab(e, file.path)}
+                  onContextMenu={(event) => handleTabContextMenu(event, file.path)}
+                  onDragStart={(event) => handleTabDragStart(event, file.path)}
+                  onDragEnd={handleTabDragEnd}
+                />
+              ))}
+            </div>
         </div>
       )}
 

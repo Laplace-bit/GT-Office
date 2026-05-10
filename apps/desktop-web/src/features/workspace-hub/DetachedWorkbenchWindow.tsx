@@ -69,6 +69,7 @@ import {
   type StationTerminalSinkBindingMeta,
   type TerminalDebugRecordInput,
 } from '@features/terminal'
+import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import './DetachedWorkbenchWindow.scss'
 
 export interface DetachedWorkbenchWindowPayload {
@@ -1058,6 +1059,16 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     }
   }, [pendingStationActionSheet, requestHydrate, sendInput, sendInputWithSubmit])
 
+  const handleDropFilePath = useCallback(
+    async (stationId: string, payload: TerminalFileDropPayload) => {
+      await ensureStationTerminalSession(stationId)
+      sendInput(stationId, payload.shellText)
+      pendingFocusStationRef.current[stationId] = true
+      flushPendingStationFocus(stationId)
+    },
+    [ensureStationTerminalSession, flushPendingStationFocus, sendInput],
+  )
+
   return (
     <div className="detached-workbench-window">
       <div className="detached-workbench-window-frame">
@@ -1087,6 +1098,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           onResizeTerminal={handleResize}
           onBindTerminalSink={bindSink}
           onRenderedScreenSnapshot={handleRenderedScreenSnapshot}
+          onDropFilePath={handleDropFilePath}
           onRunStationAction={(station: AgentStation, action: StationActionDescriptor) => {
             switch (action.execution.type) {
               case 'insert_text':

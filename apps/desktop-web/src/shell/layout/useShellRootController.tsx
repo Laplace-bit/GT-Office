@@ -37,6 +37,7 @@ import {
   desktopApi,
 } from '../integration/desktop-api'
 import { t } from '../i18n/ui-locale'
+import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import {
   loadPerformanceDebugState,
 } from '../state/performance-debug'
@@ -1029,6 +1030,15 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     setPendingScrollStationId((prev) => (prev === stationId ? null : prev))
   }, [])
 
+  const handleTerminalFilePathDrop = useCallback(
+    async (stationId: string, payload: TerminalFileDropPayload) => {
+      setActiveStationId(stationId)
+      await launchStationTerminal(stationId)
+      handleStationTerminalInput(stationId, payload.shellText)
+    },
+    [handleStationTerminalInput, launchStationTerminal],
+  )
+
   const workbenchCanvasBaseProps = {
     locale,
     appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`,
@@ -1051,6 +1061,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onResizeTerminal: resizeStationTerminal,
     onBindTerminalSink: bindStationTerminalSink,
     onRenderedScreenSnapshot: reportRenderedScreenSnapshot,
+    onDropFilePath: handleTerminalFilePathDrop,
     onLayoutModeChange: handleCanvasLayoutModeChange,
     onCustomLayoutChange: handleCanvasCustomLayoutChange,
     onFloatContainer: floatWorkbenchContainer,

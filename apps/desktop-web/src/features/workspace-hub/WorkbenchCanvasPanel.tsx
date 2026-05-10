@@ -44,6 +44,7 @@ import type {
   StationTerminalRestoreStatePayload,
   ToolCommandSummary,
 } from '@shell/integration/desktop-api'
+import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
@@ -86,6 +87,7 @@ interface WorkbenchCanvasPanelProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onDropFilePath?: (stationId: string, payload: TerminalFileDropPayload) => Promise<void> | void
   onRunStationAction: (station: AgentStation, action: StationActionDescriptor) => void
   toolCommandsByStationId?: Record<string, ToolCommandSummary[]>
   onRestoreStateCaptured?: (
@@ -403,6 +405,7 @@ function WorkbenchCanvasPanelView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onDropFilePath,
   onRunStationAction,
   toolCommandsByStationId = {},
   onRestoreStateCaptured,
@@ -1128,6 +1131,7 @@ function WorkbenchCanvasPanelView({
             onResizeTerminal={onResizeTerminal}
             onBindTerminalSink={onBindTerminalSink}
             onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+            onDropFilePath={onDropFilePath}
             onRunAction={onRunStationAction}
             commands={toolCommandsByStationId[station.id]}
             onRestoreStateCaptured={onRestoreStateCaptured}
@@ -1158,6 +1162,7 @@ function WorkbenchCanvasPanelView({
       onForceCloseTerminal,
       onLaunchCliAgent,
       onLaunchStationTerminal,
+      onDropFilePath,
       onRemoveStation,
       onRenderedScreenSnapshot,
       onRestoreStateCaptured,

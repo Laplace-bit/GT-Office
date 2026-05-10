@@ -35,6 +35,7 @@ import type {
   StationTerminalRestoreStatePayload,
   ToolCommandSummary,
 } from '@shell/integration/desktop-api'
+import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
@@ -140,6 +141,7 @@ interface StationCardProps {
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
   onBindTerminalSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onDropFilePath?: (stationId: string, payload: TerminalFileDropPayload) => Promise<void> | void
   onRestoreStateCaptured?: (
     stationId: string,
     state: StationTerminalRestoreStatePayload,
@@ -179,6 +181,7 @@ function StationCardView({
   onResizeTerminal,
   onBindTerminalSink,
   onRenderedScreenSnapshot,
+  onDropFilePath,
   onRestoreStateCaptured,
   onEnterFullscreen,
   onExitFullscreen,
@@ -647,6 +650,7 @@ function StationCardView({
             onResize={onResizeTerminal}
             onBindSink={handleBindSink}
             onRenderedScreenSnapshot={onRenderedScreenSnapshot}
+            onDropFilePath={onDropFilePath}
             onRestoreStateCaptured={onRestoreStateCaptured}
           />
         </>
@@ -743,6 +747,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onResizeTerminal === next.onResizeTerminal &&
     prev.onBindTerminalSink === next.onBindTerminalSink &&
     prev.onRenderedScreenSnapshot === next.onRenderedScreenSnapshot &&
+    prev.onDropFilePath === next.onDropFilePath &&
     prev.onRestoreStateCaptured === next.onRestoreStateCaptured &&
     prev.onRemoveStation === next.onRemoveStation &&
     prev.onEnterFullscreen === next.onEnterFullscreen &&

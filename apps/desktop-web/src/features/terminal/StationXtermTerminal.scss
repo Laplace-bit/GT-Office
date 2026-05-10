@@ -5,6 +5,15 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.station-terminal-shell[data-file-drop-active='true'] {
+  box-shadow:
+    inset 0 0 0 0.0714rem color-mix(in srgb, var(--vb-accent) 34%, transparent),
+    0 0 0 0.2143rem color-mix(in srgb, var(--vb-accent) 10%, transparent);
 }
 
 .station-terminal-shell .station-terminal-host {
@@ -15,6 +24,100 @@
   overflow: hidden;
   position: relative;
   z-index: 1;
+}
+
+.station-terminal-drop-overlay,
+.station-terminal-drop-pulse {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.station-terminal-drop-overlay {
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.7143rem;
+  opacity: 0;
+  transform: translateY(-0.1429rem);
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease;
+}
+
+.station-terminal-shell[data-file-drop-active='true'] .station-terminal-drop-overlay {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.station-terminal-drop-pill,
+.station-terminal-drop-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4286rem;
+  max-width: min(18rem, calc(100% - 1.4286rem));
+  padding: 0.3571rem 0.5714rem;
+  border-radius: 0.5rem;
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-accent) 18%, transparent);
+  background: color-mix(in srgb, var(--vb-terminal-bg) 92%, var(--vb-accent) 8%);
+  color: var(--vb-terminal-text);
+  box-shadow: 0 0.7143rem 1.4286rem color-mix(in srgb, var(--vb-shadow) 14%, transparent);
+  backdrop-filter: blur(0.5714rem);
+  -webkit-backdrop-filter: blur(0.5714rem);
+}
+
+.station-terminal-drop-pulse {
+  top: 0.7143rem;
+  right: 0.7143rem;
+  animation: station-terminal-drop-pulse 820ms cubic-bezier(0.22, 0.8, 0.2, 1) forwards;
+}
+
+.station-terminal-drop-marker {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: 999rem;
+  background: color-mix(in srgb, var(--vb-accent) 78%, white);
+  box-shadow: 0 0 0.5714rem color-mix(in srgb, var(--vb-accent) 42%, transparent);
+}
+
+.station-terminal-drop-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7857rem;
+  font-weight: 600;
+}
+
+@keyframes station-terminal-drop-pulse {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -0.2857rem, 0) scale(0.96);
+  }
+
+  18%,
+  72% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -0.2143rem, 0) scale(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-terminal-shell,
+  .station-terminal-drop-overlay {
+    transition: none;
+  }
+
+  .station-terminal-drop-pulse {
+    animation-duration: 1ms;
+  }
 }
 
 .station-terminal-shell.is-runtime-pending .station-terminal-host {

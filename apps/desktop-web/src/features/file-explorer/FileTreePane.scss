@@ -154,6 +154,12 @@
   opacity: 0.28;
 }
 
+.tree-row-file-drop-source {
+  opacity: 0.74;
+  transform: translateY(#{rem(-1)});
+  box-shadow: 0 #{rem(8)} #{rem(18)} color-mix(in srgb, var(--vb-shadow) 10%, transparent);
+}
+
 .tree-row-cut {
   opacity: 0.5;
 }

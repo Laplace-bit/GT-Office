@@ -23,6 +23,11 @@ import {
   shouldFlushPendingStationTerminalFocus,
 } from './station-terminal-focus-runtime'
 import { shouldRecycleStationTerminalRenderer } from './station-terminal-render-recovery'
+import {
+  hasTerminalFileDropPayload,
+  readTerminalFileDropPayload,
+  type TerminalFileDropPayload,
+} from '@shell/utils/terminal-file-drop'
 
 export interface StationTerminalSink {
   write: (chunk: string) => Promise<void>
@@ -58,6 +63,7 @@ interface StationXtermTerminalProps {
   onResize: (stationId: string, cols: number, rows: number) => void
   onBindSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
+  onDropFilePath?: (stationId: string, payload: TerminalFileDropPayload) => Promise<void> | void
   onRestoreStateCaptured?: (
     stationId: string,
     state: { content: string; cols: number; rows: number },
@@ -364,6 +370,7 @@ function StationXtermTerminalView({
   onResize,
   onBindSink,
   onRenderedScreenSnapshot,
+  onDropFilePath,
   onRestoreStateCaptured,
 }: StationXtermTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -372,6 +379,9 @@ function StationXtermTerminalView({
   const boundSinkRef = useRef<StationTerminalSink | null>(null)
   const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(isActive)
   const [rendererRecoveryVersion, setRendererRecoveryVersion] = useState(0)
+  const [fileDropActive, setFileDropActive] = useState(false)
+  const [fileDropLabel, setFileDropLabel] = useState<string | null>(null)
+  const [fileDropPulse, setFileDropPulse] = useState<{ token: number; label: string } | null>(null)
   const isActiveRef = useRef(isActive)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
@@ -388,6 +398,8 @@ function StationXtermTerminalView({
   const rendererRecoveryFrameRef = useRef<number | null>(null)
   const rendererRecoveryTokenRef = useRef(0)
   const rendererRecoveryInFlightRef = useRef(false)
+  const fileDropDepthRef = useRef(0)
+  const fileDropPulseTimerRef = useRef<number | null>(null)
   const isMacOsWebKitEnvironmentRef = useRef(
     typeof window !== 'undefined'
       ? isMacOsWebKitTextInputEnvironment({
@@ -573,6 +585,32 @@ function StationXtermTerminalView({
       rendererRecoveryInFlightRef.current = false
     }
   }, [cancelScheduledRendererRecovery])
+
+  const resetFileDropState = useCallback(() => {
+    fileDropDepthRef.current = 0
+    setFileDropActive(false)
+    setFileDropLabel(null)
+  }, [])
+
+  const triggerFileDropPulse = useCallback((label: string) => {
+    if (fileDropPulseTimerRef.current !== null) {
+      window.clearTimeout(fileDropPulseTimerRef.current)
+    }
+    setFileDropPulse({ token: Date.now(), label })
+    fileDropPulseTimerRef.current = window.setTimeout(() => {
+      fileDropPulseTimerRef.current = null
+      setFileDropPulse(null)
+    }, 820)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (fileDropPulseTimerRef.current !== null) {
+        window.clearTimeout(fileDropPulseTimerRef.current)
+        fileDropPulseTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const host = hostRef.current
@@ -1311,6 +1349,7 @@ function StationXtermTerminalView({
   return (
     <div
       className={`station-terminal-shell${runtimeInitAllowed ? '' : ' is-runtime-pending'}`}
+      data-file-drop-active={fileDropActive ? 'true' : 'false'}
       onPointerDownCapture={(event) => {
         if (event.button !== 0) {
           return
@@ -1337,6 +1376,60 @@ function StationXtermTerminalView({
       onClick={(event) => {
         // Stop bubbling so card body click does not override terminal-first interaction.
         event.stopPropagation()
+      }}
+      onDragEnterCapture={(event) => {
+        if (!hasTerminalFileDropPayload(event.dataTransfer.types)) {
+          return
+        }
+        fileDropDepthRef.current += 1
+        const payload = readTerminalFileDropPayload(event.dataTransfer)
+        setFileDropLabel(payload?.label ?? null)
+        setFileDropActive(true)
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      onDragOverCapture={(event) => {
+        if (!hasTerminalFileDropPayload(event.dataTransfer.types)) {
+          return
+        }
+        const payload = readTerminalFileDropPayload(event.dataTransfer)
+        if (payload?.label && payload.label !== fileDropLabel) {
+          setFileDropLabel(payload.label)
+        }
+        if (!fileDropActive) {
+          setFileDropActive(true)
+        }
+        event.dataTransfer.dropEffect = 'copy'
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      onDragLeaveCapture={(event) => {
+        if (!hasTerminalFileDropPayload(event.dataTransfer.types)) {
+          return
+        }
+        fileDropDepthRef.current = Math.max(0, fileDropDepthRef.current - 1)
+        if (fileDropDepthRef.current === 0) {
+          setFileDropActive(false)
+          setFileDropLabel(null)
+        }
+        event.stopPropagation()
+      }}
+      onDropCapture={(event) => {
+        const payload = readTerminalFileDropPayload(event.dataTransfer)
+        if (!payload) {
+          return
+        }
+        resetFileDropState()
+        onActivateStation()
+        focusTerminalRequestRef.current?.()
+        triggerFileDropPulse(payload.label)
+        event.preventDefault()
+        event.stopPropagation()
+        if (onDropFilePath) {
+          void Promise.resolve(onDropFilePath(stationId, payload))
+          return
+        }
+        onData(stationId, payload.shellText)
       }}
       onWheelCapture={(event) => {
         const target = event.target
@@ -1398,6 +1491,18 @@ function StationXtermTerminalView({
         forwardDeltaToGrid()
       }}
     >
+      <div className="station-terminal-drop-overlay" aria-hidden={!fileDropActive}>
+        <div className="station-terminal-drop-pill">
+          <span className="station-terminal-drop-marker" />
+          <span className="station-terminal-drop-label">{fileDropLabel ?? '…'}</span>
+        </div>
+      </div>
+      {fileDropPulse ? (
+        <div key={fileDropPulse.token} className="station-terminal-drop-pulse" aria-hidden="true">
+          <span className="station-terminal-drop-marker" />
+          <span className="station-terminal-drop-label">{fileDropPulse.label}</span>
+        </div>
+      ) : null}
       <div ref={hostRef} className="station-terminal-host" aria-hidden={!runtimeInitAllowed || undefined} />
     </div>
   )
