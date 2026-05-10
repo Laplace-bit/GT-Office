@@ -2008,9 +2008,7 @@ fn extract_rendered_menu_prompt_from_rows(
         .any(|row| row_has_selected_option_marker(&row.text));
     let menu_has_live_navigation_signal = has_cursor_marked_option || hint_text.is_some();
     if menu_has_live_navigation_signal {
-        let Some(cursor_row) = snapshot.cursor_row else {
-            return None;
-        };
+        let cursor_row = snapshot.cursor_row?;
         if cursor_row < option_start_row {
             return None;
         }
