@@ -155,12 +155,16 @@ pub async fn begin_app_registration(
     domain: FeishuDomain,
 ) -> Result<FeishuQrLoginBeginResult, String> {
     let client = Client::new();
-    let res: RawBeginResponse = post_registration(&client, domain, &[
-        ("action", "begin"),
-        ("archetype", "PersonalAgent"),
-        ("auth_method", "client_secret"),
-        ("request_user_info", "open_id"),
-    ])
+    let res: RawBeginResponse = post_registration(
+        &client,
+        domain,
+        &[
+            ("action", "begin"),
+            ("archetype", "PersonalAgent"),
+            ("auth_method", "client_secret"),
+            ("request_user_info", "open_id"),
+        ],
+    )
     .await?;
 
     let mut qr_url = res.verification_uri_complete;
@@ -205,11 +209,15 @@ pub async fn poll_app_registration(
             serde_json::json!({ "attempt": attempt }),
         );
 
-        let poll_res: PollResponse = match post_registration(&client, current_domain, &[
-            ("action", "poll"),
-            ("device_code", &device_code),
-            ("tp", "ob_app"),
-        ])
+        let poll_res: PollResponse = match post_registration(
+            &client,
+            current_domain,
+            &[
+                ("action", "poll"),
+                ("device_code", &device_code),
+                ("tp", "ob_app"),
+            ],
+        )
         .await
         {
             Ok(res) => res,

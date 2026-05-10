@@ -379,13 +379,24 @@ pub async fn git_commit(
 
     let sha = run_git_blocking(&state, "GIT_COMMIT_FAILED", move |app_state| {
         if is_amend {
-            app_state.git_service.commit_amend(&ws_id, &message).map_err(to_command_error)
+            app_state
+                .git_service
+                .commit_amend(&ws_id, &message)
+                .map_err(to_command_error)
         } else {
-            app_state.git_service.commit(&ws_id, &message).map_err(to_command_error)
+            app_state
+                .git_service
+                .commit(&ws_id, &message)
+                .map_err(to_command_error)
         }
-    }).await?;
+    })
+    .await?;
 
-    state.inner().git_status_coordinator.refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    state.inner().git_status_coordinator.refresh_now(
+        &app,
+        state.inner(),
+        &WorkspaceId::new(workspace_id),
+    );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str(), "commitSha": sha }))
 }
 
@@ -825,10 +836,11 @@ pub async fn git_cherry_pick(
             .map_err(to_command_error)
     })
     .await?;
-    state
-        .inner()
-        .git_status_coordinator
-        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    state.inner().git_status_coordinator.refresh_now(
+        &app,
+        state.inner(),
+        &WorkspaceId::new(workspace_id),
+    );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
 }
 
@@ -848,10 +860,11 @@ pub async fn git_revert(
             .map_err(to_command_error)
     })
     .await?;
-    state
-        .inner()
-        .git_status_coordinator
-        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    state.inner().git_status_coordinator.refresh_now(
+        &app,
+        state.inner(),
+        &WorkspaceId::new(workspace_id),
+    );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
 }
 
@@ -872,10 +885,11 @@ pub async fn git_reset(
             .map_err(to_command_error)
     })
     .await?;
-    state
-        .inner()
-        .git_status_coordinator
-        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    state.inner().git_status_coordinator.refresh_now(
+        &app,
+        state.inner(),
+        &WorkspaceId::new(workspace_id),
+    );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
 }
 
@@ -893,11 +907,7 @@ pub async fn git_tag_push(
     run_git_blocking(&state, "GIT_TAG_PUSH_FAILED", move |app_state| {
         app_state
             .git_service
-            .tag_push(
-                &workspace_id_owned,
-                remote_for_task.as_deref(),
-                &name_owned,
-            )
+            .tag_push(&workspace_id_owned, remote_for_task.as_deref(), &name_owned)
             .map_err(to_command_error)
     })
     .await?;
@@ -1028,10 +1038,11 @@ pub async fn git_stage_hunk(
             .map_err(to_command_error)
     })
     .await?;
-    state
-        .inner()
-        .git_status_coordinator
-        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    state.inner().git_status_coordinator.refresh_now(
+        &app,
+        state.inner(),
+        &WorkspaceId::new(workspace_id),
+    );
     Ok(json!({ "ok": true }))
 }
 
@@ -1053,10 +1064,11 @@ pub async fn git_unstage_hunk(
             .map_err(to_command_error)
     })
     .await?;
-    state
-        .inner()
-        .git_status_coordinator
-        .refresh_now(&app, state.inner(), &WorkspaceId::new(workspace_id));
+    state.inner().git_status_coordinator.refresh_now(
+        &app,
+        state.inner(),
+        &WorkspaceId::new(workspace_id),
+    );
     Ok(json!({ "ok": true }))
 }
 

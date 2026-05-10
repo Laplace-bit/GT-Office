@@ -1,10 +1,10 @@
 mod account_store;
 mod api;
+mod app_registration;
 pub mod inbound;
 mod probe;
 pub mod webhook;
 pub mod websocket;
-mod app_registration;
 
 pub mod types;
 
@@ -16,8 +16,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
-use crate::app_state::AppState;
 use super::credential_store::{load_secret, store_secret};
+use crate::app_state::AppState;
 use account_store::{list_records, upsert_record};
 use types::{
     FeishuAccountUpsertInput, FeishuConnectionMode, FeishuConnectorAccountRecord,

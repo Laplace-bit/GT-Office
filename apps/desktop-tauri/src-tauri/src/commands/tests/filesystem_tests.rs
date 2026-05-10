@@ -90,8 +90,17 @@ fn fs_list_dir_payload_keeps_contract_fields() {
 
 #[test]
 fn fs_read_file_payload_keeps_contract_fields() {
-    let payload =
-        build_fs_read_file_response("ws-1", "README.md", "hello", "utf-8", 5, 5, true, false, 1000);
+    let payload = build_fs_read_file_response(
+        "ws-1",
+        "README.md",
+        "hello",
+        "utf-8",
+        5,
+        5,
+        true,
+        false,
+        1000,
+    );
     assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["path"], "README.md");
     assert_eq!(payload["content"], "hello");
