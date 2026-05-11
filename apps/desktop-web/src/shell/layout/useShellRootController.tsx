@@ -103,6 +103,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     handleWindowMinimize,
     handleWindowToggleMaximize,
     handleWindowClose,
+    handleWindowStartDragging,
   } = useShellWindowController({
     nativeWindowTop,
     nativeWindowTopWindows,
@@ -1173,6 +1174,11 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
           : (request) => {
               void handleTearOffWorkspaceTab(request)
             },
+        onReceiveMergedTab: isSingleWorkspaceMode
+          ? undefined
+          : (workspaceId: string) => {
+              attachWorkspaceTab(workspaceId)
+            },
         onMergeTabIntoWindow: isSingleWorkspaceMode
           ? (workspaceId: string, targetWindowLabel: string) => {
               void handleMergeWorkspaceTab(workspaceId, targetWindowLabel)
@@ -1186,6 +1192,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         onWindowMinimize: handleWindowMinimize,
         onWindowToggleMaximize: handleWindowToggleMaximize,
         onWindowClose: handleWindowClose,
+        onBeginWindowDrag: handleWindowStartDragging,
         pinnedWorkbenchContainerId,
         dockedContainerOptions,
         onTogglePinnedWorkbenchContainer: togglePinnedWorkbenchContainer,

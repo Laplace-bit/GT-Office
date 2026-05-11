@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
@@ -40,11 +40,13 @@ interface TopControlBarProps {
   onReorderTabs?: (fromIndex: number, toIndex: number) => void
   onTearOffTab?: (request: WorkspaceTearOffRequest) => void
   onMergeTabIntoWindow?: (workspaceId: string, targetWindowLabel: string) => void
+  onReceiveMergedTab?: (workspaceId: string) => void
   // TODO: 性能调试按钮暂时隐藏
   // onTogglePerformanceDebug: () => void
   onWindowMinimize: () => void
   onWindowToggleMaximize: () => void
   onWindowClose: () => void
+  onBeginWindowDrag?: (event: ReactPointerEvent<HTMLElement>) => void
   pinnedWorkbenchContainerId: string | null
   dockedContainerOptions: DockedContainerOption[]
   onTogglePinnedWorkbenchContainer: (containerId: string) => void
@@ -128,10 +130,12 @@ export function TopControlBar({
   onReorderTabs,
   onTearOffTab,
   onMergeTabIntoWindow,
+  onReceiveMergedTab,
   // onTogglePerformanceDebug,
   onWindowMinimize,
   onWindowToggleMaximize,
   onWindowClose,
+  onBeginWindowDrag,
   pinnedWorkbenchContainerId,
   dockedContainerOptions,
   onTogglePinnedWorkbenchContainer,
@@ -292,6 +296,7 @@ export function TopControlBar({
   return (
     <header
       className={topClassNames}
+      onPointerDownCapture={onBeginWindowDrag}
     >
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
@@ -362,6 +367,7 @@ export function TopControlBar({
                 onReorderTabs={onReorderTabs as (fromIndex: number, toIndex: number) => void}
                 onTearOffTab={onTearOffTab}
                 onMergeTabIntoWindow={onMergeTabIntoWindow}
+                onReceiveMergedTab={onReceiveMergedTab}
               />
             </div>
           </>
@@ -371,7 +377,7 @@ export function TopControlBar({
           </div>
         )}
       </div>
-      {nativeWindowTop ? <div className="titlebar-drag-region" data-tauri-drag-region="" aria-hidden="true" /> : null}
+      {nativeWindowTop ? <div className="titlebar-drag-region" data-window-drag-region="" aria-hidden="true" /> : null}
       {nativeWindowTop && windowPlatform !== 'macos' ? renderWindowControls() : null}
     </header>
   )

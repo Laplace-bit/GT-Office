@@ -1,5 +1,5 @@
 <div align="center">
-
+{"workspaceId":"ws:cb758592b27b5aa8","sourceWindowLabel":"main"\}$0
 # 🏢 GT Office
 
 ### AI Agent Desktop App for Claude Code, Codex CLI, and Gemini CLI

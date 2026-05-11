@@ -1,22 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragCancelEvent,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  arrayMove,
-  horizontalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+} from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import type { WorkspaceTabInfo } from '../state/workspace-tab-model'
@@ -26,6 +15,8 @@ import './WorkspaceTabBar.scss'
 
 const TAB_BAR_CHANNEL = 'gto-workspace-tab-bar'
 const TEAR_OFF_GUTTER_PX = 24
+const WORKSPACE_TAB_DRAG_MIME = 'application/x-gto-workspace-tab'
+const WORKSPACE_TAB_DROP_ACTIVE_CLASS = 'workspace-tab-drop-active'
 
 export interface WorkspaceTearOffRequest {
   workspaceId: string
@@ -58,6 +49,19 @@ type WorkspaceTabChannelMessage =
       targetWindowLabel: string
       workspaceId: string
     }
+  | {
+      type: 'merge-complete'
+      sourceWindowLabel: string
+      targetWindowLabel: string
+      workspaceId: string
+    }
+  | {
+      type: 'drag-start'
+      payload: WorkspaceTabDragPayload
+    }
+  | {
+      type: 'drag-end'
+    }
 
 interface WorkspaceTabBarProps {
   locale: Locale
@@ -73,16 +77,12 @@ interface WorkspaceTabBarProps {
   onReorderTabs: (fromIndex: number, toIndex: number) => void
   onTearOffTab?: (request: WorkspaceTearOffRequest) => void
   onMergeTabIntoWindow?: (workspaceId: string, targetWindowLabel: string) => void
+  onReceiveMergedTab?: (workspaceId: string) => void
 }
 
-interface SortableWorkspaceTabProps {
-  locale: Locale
-  tab: WorkspaceTabInfo
-  active: boolean
-  pending: boolean
-  closing: boolean
-  onSwitchTab: (workspaceId: string) => void
-  onCloseTab: (workspaceId: string) => void
+interface WorkspaceTabDragPayload {
+  workspaceId: string
+  sourceWindowLabel: string | null
 }
 
 function isPointInsideRect(
@@ -109,83 +109,38 @@ function isTearOffDrop(
   )
 }
 
-function SortableWorkspaceTab({
-  locale,
-  tab,
-  active,
-  pending,
-  closing,
-  onSwitchTab,
-  onCloseTab,
-}: SortableWorkspaceTabProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: tab.workspaceId,
-    disabled: closing,
-  })
-  const tabName = tab.name || tab.root.split('/').pop() || tab.workspaceId
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`vb-workspace-tab${active ? ' active' : ''}${pending ? ' pending' : ''}${
-        closing ? ' closing' : ''
-      }${isDragging ? ' dragging' : ''}`}
-      onClick={() => onSwitchTab(tab.workspaceId)}
-      onAuxClick={(event) => {
-        if (event.button === 1) {
-          event.preventDefault()
-          onCloseTab(tab.workspaceId)
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSwitchTab(tab.workspaceId)
-        } else if (event.key === 'Delete' || event.key === 'Backspace') {
-          event.preventDefault()
-          onCloseTab(tab.workspaceId)
-        }
-      }}
-      aria-selected={active}
-      aria-busy={pending || undefined}
-      title={tab.root}
-      {...attributes}
-      {...listeners}
-    >
-      <AppIcon name="folder-open" className="vb-workspace-tab-icon" aria-hidden="true" />
-      <span className="vb-workspace-tab-label">{tabName}</span>
-      <button
-        className="vb-workspace-tab-close"
-        onClick={(event) => {
-          event.stopPropagation()
-          onCloseTab(tab.workspaceId)
-        }}
-        title={t(locale, 'topControlBar.closeWorkspaceTab')}
-        type="button"
-        aria-label={t(locale, 'topControlBar.closeWorkspaceTab')}
-      >
-        <AppIcon name="close" />
-      </button>
-    </div>
-  )
-}
-
-function WorkspaceTabGhost({ tab }: { tab: WorkspaceTabInfo | null }) {
-  if (!tab) {
+function parseWorkspaceTabDragPayload(dataTransfer: DataTransfer | null): WorkspaceTabDragPayload | null {
+  if (!dataTransfer) {
     return null
   }
-  const tabName = tab.name || tab.root.split('/').pop() || tab.workspaceId
-  return (
-    <div className="vb-workspace-tab vb-workspace-tab-ghost active" aria-hidden="true">
-      <AppIcon name="folder-open" className="vb-workspace-tab-icon" aria-hidden="true" />
-      <span className="vb-workspace-tab-label">{tabName}</span>
-    </div>
-  )
+  const raw =
+    dataTransfer.getData(WORKSPACE_TAB_DRAG_MIME) ||
+    dataTransfer.getData('text/plain') ||
+    ''
+  if (!raw) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<WorkspaceTabDragPayload>
+    const workspaceId = parsed.workspaceId?.trim() ?? ''
+    if (!workspaceId) {
+      return null
+    }
+    return {
+      workspaceId,
+      sourceWindowLabel: parsed.sourceWindowLabel?.trim() || null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function hasWorkspaceTabDragPayload(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) {
+    return false
+  }
+  const types = Array.from(dataTransfer.types ?? [])
+  return types.includes(WORKSPACE_TAB_DRAG_MIME) || types.includes('text/plain')
 }
 
 export function WorkspaceTabBar({
@@ -202,27 +157,24 @@ export function WorkspaceTabBar({
   onReorderTabs,
   onTearOffTab,
   onMergeTabIntoWindow,
+  onReceiveMergedTab,
 }: WorkspaceTabBarProps) {
   const tabBarRef = useRef<HTMLDivElement | null>(null)
+  const tabNodeMapRef = useRef<Record<string, HTMLDivElement | null>>({})
+  const topControlBarRef = useRef<HTMLElement | null>(null)
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null)
   const mergeTargetsRef = useRef<Map<string, WorkspaceTabDropTarget>>(new Map())
-  const pointerRef = useRef<{ screenX: number; screenY: number } | null>(null)
+  const dragSourceIndexRef = useRef<number | null>(null)
+  const sameWindowDropHandledRef = useRef(false)
+  const sameWindowHoverActiveRef = useRef(false)
+  const lastKnownScreenPointRef = useRef<{ screenX: number; screenY: number } | null>(null)
+  const externalMergeCompletedRef = useRef(false)
+  const externalDragPayloadRef = useRef<WorkspaceTabDragPayload | null>(null)
   const [currentWindowLabel, setCurrentWindowLabel] = useState<string | null>(null)
-  const [activeDragId, setActiveDragId] = useState<string | null>(null)
-  const activeDragIdRef = useRef<string | null>(null)
+  const [draggingWorkspaceId, setDraggingWorkspaceId] = useState<string | null>(null)
+  const [externalDropActive, setExternalDropActive] = useState(false)
 
   const acceptsExternalTabs = !onMergeTabIntoWindow
-  const activeTab = useMemo(
-    () => tabs.find((tab) => tab.workspaceId === activeDragId) ?? null,
-    [activeDragId, tabs],
-  )
-
-  const sensor = useSensor(PointerSensor, {
-    activationConstraint: {
-      distance: 4,
-    },
-  })
-  const sensors = useSensors(sensor)
 
   useEffect(() => {
     let cancelled = false
@@ -235,6 +187,26 @@ export function WorkspaceTabBar({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    topControlBarRef.current =
+      tabBarRef.current?.closest('.vb-top-control-bar') instanceof HTMLElement
+        ? (tabBarRef.current.closest('.vb-top-control-bar') as HTMLElement)
+        : null
+  }, [tabs.length])
+
+  useEffect(() => {
+    const topBar = topControlBarRef.current
+    if (!topBar) {
+      return
+    }
+    topBar.classList.toggle(WORKSPACE_TAB_DROP_ACTIVE_CLASS, externalDropActive)
+    tabBarRef.current?.classList.toggle(WORKSPACE_TAB_DROP_ACTIVE_CLASS, externalDropActive)
+    return () => {
+      topBar.classList.remove(WORKSPACE_TAB_DROP_ACTIVE_CLASS)
+      tabBarRef.current?.classList.remove(WORKSPACE_TAB_DROP_ACTIVE_CLASS)
+    }
+  }, [externalDropActive])
 
   const postChannelMessage = useCallback((message: WorkspaceTabChannelMessage) => {
     broadcastChannelRef.current?.postMessage(message)
@@ -259,17 +231,35 @@ export function WorkspaceTabBar({
         mergeTargetsRef.current.delete(payload.windowLabel)
         return
       }
+      if (payload.type === 'drag-start') {
+        if (currentWindowLabel && payload.payload.sourceWindowLabel !== currentWindowLabel) {
+          externalDragPayloadRef.current = payload.payload
+        }
+        return
+      }
+      if (payload.type === 'drag-end') {
+        externalDragPayloadRef.current = null
+        return
+      }
       if (
         payload.type === 'merge-request' &&
         currentWindowLabel &&
         payload.targetWindowLabel === currentWindowLabel
       ) {
         onSwitchTab(payload.workspaceId)
+        return
+      }
+      if (
+        payload.type === 'merge-complete' &&
+        currentWindowLabel &&
+        payload.sourceWindowLabel === currentWindowLabel
+      ) {
+        externalMergeCompletedRef.current = true
       }
     }
     return () => {
-      channel.close()
       broadcastChannelRef.current = null
+      channel.close()
     }
   }, [currentWindowLabel, onSwitchTab])
 
@@ -322,156 +312,413 @@ export function WorkspaceTabBar({
     }
   }, [currentWindowLabel, postChannelMessage, publishDropTarget, tabs.length])
 
+  const registerTabNode = useCallback((workspaceId: string, node: HTMLDivElement | null) => {
+    tabNodeMapRef.current[workspaceId] = node
+  }, [])
+
   useEffect(() => {
-    if (!activeDragId) {
+    const topBar = topControlBarRef.current
+    if (!topBar) {
       return
     }
-    const handlePointerMove = (event: PointerEvent) => {
-      pointerRef.current = {
+
+    const handleTopBarDragOver = (event: DragEvent) => {
+      const payload = parseWorkspaceTabDragPayload(event.dataTransfer)
+      const hasWorkspacePayload = hasWorkspaceTabDragPayload(event.dataTransfer)
+      const isLocalDrag = Boolean(draggingWorkspaceId)
+
+      if (!hasWorkspacePayload && !isLocalDrag) {
+        return
+      }
+      lastKnownScreenPointRef.current = {
         screenX: event.screenX,
         screenY: event.screenY,
       }
-    }
-    window.addEventListener('pointermove', handlePointerMove)
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-    }
-  }, [activeDragId])
 
-  const resetDragState = useCallback(() => {
-    pointerRef.current = null
-    activeDragIdRef.current = null
-    setActiveDragId(null)
-  }, [])
+      if (isLocalDrag || payload?.sourceWindowLabel === currentWindowLabel) {
+        event.preventDefault()
+        sameWindowHoverActiveRef.current = true
+        setExternalDropActive(false)
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move'
+        }
+        return
+      }
 
-  const finalizeDetachedDrop = useCallback(() => {
-    const workspaceId = activeDragIdRef.current
-    const point = pointerRef.current
-    const currentRect = currentWindowLabel
-      ? mergeTargetsRef.current.get(currentWindowLabel)?.rect ?? null
-      : null
-    if (!workspaceId || !point) {
-      resetDragState()
-      return
-    }
+      if (!acceptsExternalTabs || !hasWorkspacePayload) {
+        setExternalDropActive(false)
+        return
+      }
 
-    const mergeTarget = [...mergeTargetsRef.current.values()].find(
-      (target) =>
-        target.acceptsExternalTabs &&
-        target.windowLabel !== currentWindowLabel &&
-        isPointInsideRect(point, target.rect),
-    )
-
-    if (mergeTarget && onMergeTabIntoWindow) {
-      postChannelMessage({
-        type: 'merge-request',
-        targetWindowLabel: mergeTarget.windowLabel,
-        workspaceId,
-      })
-      onMergeTabIntoWindow(workspaceId, mergeTarget.windowLabel)
-      resetDragState()
-      return
-    }
-
-    if (onTearOffTab && currentRect && isTearOffDrop(point, currentRect)) {
-      onTearOffTab({
-        workspaceId,
-        screenX: point.screenX,
-        screenY: point.screenY,
-      })
-    }
-
-    resetDragState()
-  }, [currentWindowLabel, onMergeTabIntoWindow, onTearOffTab, postChannelMessage, resetDragState])
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    const workspaceId = String(event.active.id)
-    activeDragIdRef.current = workspaceId
-    setActiveDragId(workspaceId)
-    const activator = event.activatorEvent
-    if (activator instanceof PointerEvent || activator instanceof MouseEvent) {
-      pointerRef.current = {
-        screenX: activator.screenX,
-        screenY: activator.screenY,
+      event.preventDefault()
+      setExternalDropActive(true)
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
       }
     }
-  }, [])
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
-      if (over && active.id !== over.id) {
-        const currentIds = tabs.map((tab) => tab.workspaceId)
-        const oldIndex = currentIds.indexOf(String(active.id))
-        const newIndex = currentIds.indexOf(String(over.id))
-        if (oldIndex >= 0 && newIndex >= 0) {
-          const reorderedIds = arrayMove(currentIds, oldIndex, newIndex)
-          reorderedIds.forEach((workspaceId, index) => {
-            if (workspaceId === String(active.id) && index !== oldIndex) {
-              onReorderTabs(oldIndex, index)
-            }
-          })
+    const handleTopBarDragLeave = (event: DragEvent) => {
+      const relatedTarget = event.relatedTarget
+      if (relatedTarget instanceof Node && topBar.contains(relatedTarget)) {
+        return
+      }
+      sameWindowHoverActiveRef.current = false
+      setExternalDropActive(false)
+    }
+
+    const handleTopBarDrop = (event: DragEvent) => {
+      let payload = parseWorkspaceTabDragPayload(event.dataTransfer)
+      if (!payload) {
+        payload = externalDragPayloadRef.current
+      }
+      sameWindowHoverActiveRef.current = false
+      setExternalDropActive(false)
+      if (!payload) {
+        return
+      }
+
+      const droppedOnTabBar = event.target instanceof Node && tabBarRef.current?.contains(event.target)
+      if (droppedOnTabBar) {
+        if (payload.sourceWindowLabel === currentWindowLabel) {
+          sameWindowDropHandledRef.current = true
+        }
+        return
+      }
+
+      event.preventDefault()
+      if (payload.sourceWindowLabel === currentWindowLabel) {
+        sameWindowDropHandledRef.current = true
+        return
+      }
+
+      if (
+        payload.sourceWindowLabel &&
+        payload.sourceWindowLabel !== currentWindowLabel &&
+        currentWindowLabel &&
+        acceptsExternalTabs
+      ) {
+        externalDragPayloadRef.current = null
+        onReceiveMergedTab?.(payload.workspaceId)
+        postChannelMessage({
+          type: 'merge-complete',
+          sourceWindowLabel: payload.sourceWindowLabel,
+          targetWindowLabel: currentWindowLabel,
+          workspaceId: payload.workspaceId,
+        })
+        onSwitchTab(payload.workspaceId)
+        void desktopApi.surfaceCloseWindow(payload.sourceWindowLabel).catch(() => {})
+      }
+    }
+
+    topBar.addEventListener('dragover', handleTopBarDragOver)
+    topBar.addEventListener('dragleave', handleTopBarDragLeave)
+    topBar.addEventListener('drop', handleTopBarDrop)
+    return () => {
+      topBar.removeEventListener('dragover', handleTopBarDragOver)
+      topBar.removeEventListener('dragleave', handleTopBarDragLeave)
+      topBar.removeEventListener('drop', handleTopBarDrop)
+    }
+  }, [acceptsExternalTabs, currentWindowLabel, draggingWorkspaceId, onReceiveMergedTab, onSwitchTab, postChannelMessage])
+
+  const resolveInsertionIndex = useCallback(
+    (clientX: number) => {
+      const orderedTabs = tabs.filter((tab) => tab.workspaceId !== draggingWorkspaceId)
+      if (orderedTabs.length === 0) {
+        return 0
+      }
+      for (let index = 0; index < orderedTabs.length; index += 1) {
+        const node = tabNodeMapRef.current[orderedTabs[index].workspaceId]
+        if (!node) {
+          continue
+        }
+        const rect = node.getBoundingClientRect()
+        if (clientX < rect.left + rect.width / 2) {
+          return index
         }
       }
-      finalizeDetachedDrop()
+      return orderedTabs.length
     },
-    [finalizeDetachedDrop, onReorderTabs, tabs],
+    [draggingWorkspaceId, tabs],
   )
 
-  const handleDragCancel = useCallback(
-    (_event: DragCancelEvent) => {
-      finalizeDetachedDrop()
+  const finalizeCrossWindowDrop = useCallback(
+    (workspaceId: string, point: { screenX: number; screenY: number }) => {
+      const currentRect = currentWindowLabel
+        ? mergeTargetsRef.current.get(currentWindowLabel)?.rect ?? null
+        : null
+
+      if (currentRect && isPointInsideRect(point, currentRect)) {
+        return
+      }
+
+      const mergeTarget = [...mergeTargetsRef.current.values()].find(
+        (target) =>
+          target.acceptsExternalTabs &&
+          target.windowLabel !== currentWindowLabel &&
+          isPointInsideRect(point, target.rect),
+      )
+
+      if (mergeTarget && onMergeTabIntoWindow) {
+        postChannelMessage({
+          type: 'merge-request',
+          targetWindowLabel: mergeTarget.windowLabel,
+          workspaceId,
+        })
+        onMergeTabIntoWindow(workspaceId, mergeTarget.windowLabel)
+        return
+      }
+
+      if (onTearOffTab && currentRect && isTearOffDrop(point, currentRect)) {
+        onTearOffTab({
+          workspaceId,
+          screenX: point.screenX,
+          screenY: point.screenY,
+        })
+      }
     },
-    [finalizeDetachedDrop],
+    [currentWindowLabel, onMergeTabIntoWindow, onTearOffTab, postChannelMessage],
   )
 
-  const switchingClass =
-    workspaceSwitching && workspaceSwitchAnimation !== 'none'
-      ? ` workspace-switching workspace-switching--${workspaceSwitchAnimation}`
-      : ''
+  const handleTabDragStart = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>, workspaceId: string) => {
+      if (!event.dataTransfer) {
+        return
+      }
+      const payload: WorkspaceTabDragPayload = {
+        workspaceId,
+        sourceWindowLabel: currentWindowLabel,
+      }
+      dragSourceIndexRef.current = tabs.findIndex((tab) => tab.workspaceId === workspaceId)
+      sameWindowDropHandledRef.current = false
+      sameWindowHoverActiveRef.current = false
+      lastKnownScreenPointRef.current = null
+      externalMergeCompletedRef.current = false
+      setDraggingWorkspaceId(workspaceId)
+      const serialized = JSON.stringify(payload)
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData(WORKSPACE_TAB_DRAG_MIME, serialized)
+      event.dataTransfer.setData('text/plain', serialized)
+      postChannelMessage({ type: 'drag-start', payload })
+    },
+    [currentWindowLabel, postChannelMessage, tabs],
+  )
+
+  const handleTabDragEnd = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>, workspaceId: string) => {
+      const point = lastKnownScreenPointRef.current ?? {
+        screenX: event.screenX,
+        screenY: event.screenY,
+      }
+      const sourceIndex = dragSourceIndexRef.current
+      dragSourceIndexRef.current = null
+      setDraggingWorkspaceId(null)
+      setExternalDropActive(false)
+
+      if (
+        !sameWindowDropHandledRef.current &&
+        !sameWindowHoverActiveRef.current &&
+        !externalMergeCompletedRef.current
+      ) {
+        finalizeCrossWindowDrop(workspaceId, point)
+      }
+      sameWindowDropHandledRef.current = false
+      sameWindowHoverActiveRef.current = false
+      lastKnownScreenPointRef.current = null
+      externalMergeCompletedRef.current = false
+      externalDragPayloadRef.current = null
+      postChannelMessage({ type: 'drag-end' })
+
+      if (sourceIndex === null) {
+        return
+      }
+    },
+    [finalizeCrossWindowDrop, postChannelMessage],
+  )
+
+  const handleBarDragOver = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      const payload = parseWorkspaceTabDragPayload(event.dataTransfer)
+      const hasWorkspacePayload = hasWorkspaceTabDragPayload(event.dataTransfer)
+      const isLocalDrag = Boolean(draggingWorkspaceId)
+
+      if (!hasWorkspacePayload && !isLocalDrag) {
+        return
+      }
+
+      if (isLocalDrag || payload?.sourceWindowLabel === currentWindowLabel) {
+        event.preventDefault()
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move'
+        }
+        sameWindowHoverActiveRef.current = true
+        lastKnownScreenPointRef.current = {
+          screenX: event.screenX,
+          screenY: event.screenY,
+        }
+        setExternalDropActive(false)
+        return
+      }
+
+      if (!acceptsExternalTabs || !hasWorkspacePayload) {
+        setExternalDropActive(false)
+        return
+      }
+
+      event.preventDefault()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+      }
+      lastKnownScreenPointRef.current = {
+        screenX: event.screenX,
+        screenY: event.screenY,
+      }
+      setExternalDropActive(true)
+    },
+    [acceptsExternalTabs, currentWindowLabel, draggingWorkspaceId],
+  )
+
+  const handleBarDragLeave = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return
+    }
+    sameWindowHoverActiveRef.current = false
+    setExternalDropActive(false)
+  }, [])
+
+  const handleBarDrop = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>) => {
+      let payload = parseWorkspaceTabDragPayload(event.dataTransfer)
+      if (!payload) {
+        payload = externalDragPayloadRef.current
+      }
+      externalDragPayloadRef.current = null
+      setExternalDropActive(false)
+      if (!payload) {
+        return
+      }
+
+      event.preventDefault()
+      if (
+        payload.sourceWindowLabel &&
+        payload.sourceWindowLabel !== currentWindowLabel &&
+        currentWindowLabel &&
+        acceptsExternalTabs
+      ) {
+        onReceiveMergedTab?.(payload.workspaceId)
+        postChannelMessage({
+          type: 'merge-complete',
+          sourceWindowLabel: payload.sourceWindowLabel,
+          targetWindowLabel: currentWindowLabel,
+          workspaceId: payload.workspaceId,
+        })
+        onSwitchTab(payload.workspaceId)
+        void desktopApi.surfaceCloseWindow(payload.sourceWindowLabel).catch(() => {})
+        return
+      }
+
+      if (payload.sourceWindowLabel !== currentWindowLabel) {
+        return
+      }
+
+      sameWindowDropHandledRef.current = true
+      sameWindowHoverActiveRef.current = false
+      const fromIndex = tabs.findIndex((tab) => tab.workspaceId === payload.workspaceId)
+      const toIndex = resolveInsertionIndex(event.clientX)
+      if (fromIndex < 0 || toIndex < 0) {
+        return
+      }
+      const normalizedToIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
+      if (normalizedToIndex !== fromIndex) {
+        onReorderTabs(fromIndex, normalizedToIndex)
+      }
+    },
+    [acceptsExternalTabs, currentWindowLabel, onReceiveMergedTab, onReorderTabs, onSwitchTab, postChannelMessage, resolveInsertionIndex, tabs],
+  )
+
+  const switchingClass = useMemo(
+    () =>
+      workspaceSwitching && workspaceSwitchAnimation !== 'none'
+        ? ` workspace-switching workspace-switching--${workspaceSwitchAnimation}`
+        : '',
+    [workspaceSwitchAnimation, workspaceSwitching],
+  )
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
+    <div
+      className={`vb-workspace-tab-bar${switchingClass}`}
+      data-switch-anim={workspaceSwitchAnimation !== 'none' ? workspaceSwitchAnimation : undefined}
+      ref={tabBarRef}
+      onDragOver={handleBarDragOver}
+      onDragLeave={handleBarDragLeave}
+      onDrop={handleBarDrop}
     >
-      <SortableContext items={tabs.map((tab) => tab.workspaceId)} strategy={horizontalListSortingStrategy}>
-        <div
-          className={`vb-workspace-tab-bar${switchingClass}`}
-          data-switch-anim={workspaceSwitchAnimation !== 'none' ? workspaceSwitchAnimation : undefined}
-          ref={tabBarRef}
-        >
-          {tabs.map((tab) => (
-            <SortableWorkspaceTab
-              key={tab.workspaceId}
-              locale={locale}
-              tab={tab}
-              active={tab.workspaceId === activeTabId}
-              pending={tab.workspaceId === pendingTabId && tab.workspaceId !== activeTabId}
-              closing={tab.workspaceId === closingTabId}
-              onSwitchTab={onSwitchTab}
-              onCloseTab={onCloseTab}
-            />
-          ))}
-          {onAddTab ? (
+      {tabs.map((tab) => {
+        const tabName = tab.name || tab.root.split('/').pop() || tab.workspaceId
+        return (
+          <div
+            key={tab.workspaceId}
+            ref={(node) => {
+              registerTabNode(tab.workspaceId, node)
+            }}
+            className={`vb-workspace-tab${tab.workspaceId === activeTabId ? ' active' : ''}${
+              tab.workspaceId === pendingTabId && tab.workspaceId !== activeTabId ? ' pending' : ''
+            }${tab.workspaceId === closingTabId ? ' closing' : ''}${
+              tab.workspaceId === draggingWorkspaceId ? ' dragging' : ''
+            }`}
+            onClick={() => onSwitchTab(tab.workspaceId)}
+            onAuxClick={(event) => {
+              if (event.button === 1) {
+                event.preventDefault()
+                onCloseTab(tab.workspaceId)
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onSwitchTab(tab.workspaceId)
+              } else if (event.key === 'Delete' || event.key === 'Backspace') {
+                event.preventDefault()
+                onCloseTab(tab.workspaceId)
+              }
+            }}
+            draggable={!tab.workspaceId.startsWith('pending:') && tab.workspaceId !== closingTabId}
+            onDragStart={(event) => handleTabDragStart(event, tab.workspaceId)}
+            onDragEnd={(event) => handleTabDragEnd(event, tab.workspaceId)}
+            role="tab"
+            tabIndex={tab.workspaceId === activeTabId ? 0 : -1}
+            aria-selected={tab.workspaceId === activeTabId}
+            aria-busy={tab.workspaceId === pendingTabId || undefined}
+            title={tab.root}
+          >
+            <AppIcon name="folder-open" className="vb-workspace-tab-icon" aria-hidden="true" />
+            <span className="vb-workspace-tab-label">{tabName}</span>
             <button
-              className="vb-workspace-tab-add"
-              onClick={onAddTab}
-              title={t(locale, 'topControlBar.addWorkspaceTab')}
+              className="vb-workspace-tab-close"
+              onClick={(event) => {
+                event.stopPropagation()
+                onCloseTab(tab.workspaceId)
+              }}
+              title={t(locale, 'topControlBar.closeWorkspaceTab')}
               type="button"
-              aria-label={t(locale, 'topControlBar.addWorkspaceTab')}
+              aria-label={t(locale, 'topControlBar.closeWorkspaceTab')}
             >
-              <AppIcon name="plus" />
+              <AppIcon name="close" />
             </button>
-          ) : null}
-        </div>
-      </SortableContext>
-      <DragOverlay dropAnimation={null}>
-        <WorkspaceTabGhost tab={activeTab} />
-      </DragOverlay>
-    </DndContext>
+          </div>
+        )
+      })}
+      {onAddTab ? (
+        <button
+          className="vb-workspace-tab-add"
+          onClick={onAddTab}
+          title={t(locale, 'topControlBar.addWorkspaceTab')}
+          type="button"
+          aria-label={t(locale, 'topControlBar.addWorkspaceTab')}
+        >
+          <AppIcon name="plus" />
+        </button>
+      ) : null}
+    </div>
   )
 }

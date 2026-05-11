@@ -52,6 +52,28 @@
       opacity var(--workspace-switch-slide-exit-duration, 260ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
       transform var(--workspace-switch-slide-exit-duration, 260ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
   }
+
+  &.workspace-tab-drop-active {
+    background: color-mix(in srgb, var(--vb-accent) 8%, transparent);
+    box-shadow:
+      inset 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 16%, transparent),
+      inset 0 rem(1) 0 color-mix(in srgb, rgba(255, 255, 255, 0.16), transparent);
+    border-radius: rem(10);
+    position: relative;
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: rem(6);
+      right: rem(6);
+      top: 0;
+      height: rem(2);
+      border-radius: rem(999);
+      background: color-mix(in srgb, var(--vb-accent) 88%, white 12%);
+      box-shadow: 0 0 rem(10) color-mix(in srgb, var(--vb-accent) 30%, transparent);
+      pointer-events: none;
+    }
+  }
 }
 
 // ── Individual Tab ──

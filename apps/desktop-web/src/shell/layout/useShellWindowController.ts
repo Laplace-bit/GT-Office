@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { desktopApi } from '../integration/desktop-api'
 import type { WindowPerformancePolicy } from './window-performance-policy'
 
@@ -14,6 +14,7 @@ export interface ShellWindowController {
   handleWindowMinimize: () => void
   handleWindowToggleMaximize: () => void
   handleWindowClose: () => void
+  handleWindowStartDragging: (event: ReactPointerEvent<HTMLElement>) => void
 }
 
 export function useShellWindowController({
@@ -91,7 +92,7 @@ export function useShellWindowController({
       return
     }
 
-    const dragRegionSelector = '[data-tauri-drag-region]'
+    const dragRegionSelector = '[data-window-drag-region]'
     const interactiveSelector =
       "button,input,textarea,select,a,[role='button'],[contenteditable='true'],label"
 
@@ -169,10 +170,28 @@ export function useShellWindowController({
     void desktopApi.windowClose()
   }, [])
 
+  const handleWindowStartDragging = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !event.isPrimary || !desktopApi.isTauriRuntime()) {
+      return
+    }
+    const target = event.target
+    if (!(target instanceof Element)) {
+      return
+    }
+    const interactiveSelector =
+      "button,input,textarea,select,a,[role='button'],[contenteditable='true'],label,.vb-workspace-tab,.vb-workspace-tab-add,.vb-pin-container-dropdown,.vb-pin-container-dropdown-item"
+    if (target.closest(interactiveSelector)) {
+      return
+    }
+    event.preventDefault()
+    void desktopApi.surfaceStartWindowDragging(null).catch(() => {})
+  }, [])
+
   return {
     windowMaximized,
     handleWindowMinimize,
     handleWindowToggleMaximize,
     handleWindowClose,
+    handleWindowStartDragging,
   }
 }
