@@ -4,6 +4,7 @@ import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
 import type { WindowPlatform } from './window-performance-policy'
 import { WorkspaceTabBar } from './WorkspaceTabBar'
+import type { WorkspaceTearOffRequest } from './WorkspaceTabBar'
 import type { WorkspaceTabInfo } from '../state/workspace-tab-model'
 import type { WorkspaceSwitchAnimation } from '../state/ui-preferences'
 import './TopControlBar.scss'
@@ -37,6 +38,8 @@ interface TopControlBarProps {
   onCloseTab?: (workspaceId: string) => void
   onAddTab?: () => void
   onReorderTabs?: (fromIndex: number, toIndex: number) => void
+  onTearOffTab?: (request: WorkspaceTearOffRequest) => void
+  onMergeTabIntoWindow?: (workspaceId: string, targetWindowLabel: string) => void
   // TODO: 性能调试按钮暂时隐藏
   // onTogglePerformanceDebug: () => void
   onWindowMinimize: () => void
@@ -123,6 +126,8 @@ export function TopControlBar({
   onCloseTab,
   onAddTab,
   onReorderTabs,
+  onTearOffTab,
+  onMergeTabIntoWindow,
   // onTogglePerformanceDebug,
   onWindowMinimize,
   onWindowToggleMaximize,
@@ -267,9 +272,6 @@ export function TopControlBar({
     .filter(Boolean)
     .join(' ')
 
-  const headerDragRegion =
-    nativeWindowTop && windowPlatform !== 'macos' ? '' : undefined
-
   const renderWindowControls = () => (
     <div className="vb-window-controls" role="toolbar" aria-label={t(locale, 'topControlBar.windowControls')}>
       {orderedWindowActionButtons.map((btn) => (
@@ -290,7 +292,6 @@ export function TopControlBar({
   return (
     <header
       className={topClassNames}
-      data-tauri-drag-region={headerDragRegion}
     >
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>
@@ -357,8 +358,10 @@ export function TopControlBar({
                 workspaceSwitchAnimation={workspaceSwitchAnimation}
                 onSwitchTab={onSwitchTab as (workspaceId: string) => void}
                 onCloseTab={onCloseTab as (workspaceId: string) => void}
-                onAddTab={onAddTab ?? onPickWorkspaceDirectory}
+                onAddTab={onAddTab}
                 onReorderTabs={onReorderTabs as (fromIndex: number, toIndex: number) => void}
+                onTearOffTab={onTearOffTab}
+                onMergeTabIntoWindow={onMergeTabIntoWindow}
               />
             </div>
           </>

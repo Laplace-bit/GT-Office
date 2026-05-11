@@ -338,6 +338,7 @@ export function useShellTerminalController({
   const stationUnreadDeltaRef = useRef<Record<string, number>>({})
   const stationUnreadFlushTimerRef = useRef<number | null>(null)
   const presentedWorkspaceIdRef = useRef<string | null>(null)
+  const scheduledStationOutputRecoveryRef = useRef<Record<string, number>>({})
 
   // ── Ref sync effects ──────────────────────────────────────────────────
   useEffect(() => {
@@ -1119,6 +1120,24 @@ export function useShellTerminalController({
     [cleanupMissingWorkspaceTerminalSession, recoverStationTerminalOutput],
   )
 
+  const scheduleStationTerminalOutputRecovery = useCallback(
+    (workspaceId: string | null, stationId: string, sessionId: string | null, delayMs = 28) => {
+      if (!desktopApi.isTauriRuntime() || !workspaceId || !stationId || !sessionId) {
+        return
+      }
+      const recoveryKey = `${workspaceId}:${stationId}:${sessionId}`
+      const existingTimer = scheduledStationOutputRecoveryRef.current[recoveryKey]
+      if (typeof existingTimer === 'number') {
+        window.clearTimeout(existingTimer)
+      }
+      scheduledStationOutputRecoveryRef.current[recoveryKey] = window.setTimeout(() => {
+        delete scheduledStationOutputRecoveryRef.current[recoveryKey]
+        void recoverStationTerminalOutput(workspaceId, stationId, sessionId)
+      }, delayMs)
+    },
+    [recoverStationTerminalOutput],
+  )
+
   const cacheBackgroundLaunchedTerminalSession = useCallback(
     (input: {
       workspaceId: string
@@ -1663,9 +1682,6 @@ export function useShellTerminalController({
       if (!visible) {
         return
       }
-      if (terminalSessionVisibilityRef.current[sessionId] === false) {
-        return
-      }
       if (terminalSessionVisibilityRef.current[sessionId]) {
         return
       }
@@ -1909,7 +1925,13 @@ export function useShellTerminalController({
               if (!sessionId || !shouldForwardStationTerminalInput(sessionId)) {
                 return
               }
+              ensureTerminalSessionVisible(sessionId)
               await desktopApi.terminalWrite(sessionId, queuedInput)
+              scheduleStationTerminalOutputRecovery(
+                activeWorkspaceIdRef.current,
+                targetStationId,
+                sessionId,
+              )
             } catch (error) {
               appendStationTerminalOutput(
                 targetStationId,
@@ -1923,7 +1945,13 @@ export function useShellTerminalController({
       }
       stationTerminalInputControllerRef.current.enqueue(stationId, input)
     },
-    [appendStationTerminalOutput, ensureStationTerminalSession],
+    [
+      appendStationTerminalOutput,
+      ensureStationTerminalSession,
+      ensureTerminalSessionVisible,
+      locale,
+      scheduleStationTerminalOutputRecovery,
+    ],
   )
 
   // ── Submit station terminal ────────────────────────────────────────────
@@ -1963,11 +1991,13 @@ export function useShellTerminalController({
             return false
           }
         }
+        ensureTerminalSessionVisible(sessionId)
         await desktopApi.terminalWriteWithSubmit(
           sessionId,
           input,
           stationSubmitSequenceRef.current[stationId] ?? '\r',
         )
+        scheduleStationTerminalOutputRecovery(activeWorkspaceIdRef.current, stationId, sessionId)
         return true
       } catch (error) {
         appendStationTerminalOutput(
@@ -1979,7 +2009,14 @@ export function useShellTerminalController({
         return false
       }
     },
-    [appendStationTerminalOutput, ensureStationTerminalSession, locale, submitStationTerminal],
+    [
+      appendStationTerminalOutput,
+      ensureStationTerminalSession,
+      ensureTerminalSessionVisible,
+      locale,
+      scheduleStationTerminalOutputRecovery,
+      submitStationTerminal,
+    ],
   )
 
   // ── Reset station terminal to agent workdir ────────────────────────────
@@ -2005,11 +2042,13 @@ export function useShellTerminalController({
       const resetCommand = `cd "${agentWorkspaceCwd.replace(/"/g, '\\"')}"`
 
       try {
+        ensureTerminalSessionVisible(sessionId)
         await desktopApi.terminalWriteWithSubmit(
           sessionId,
           resetCommand,
           stationSubmitSequenceRef.current[stationId] ?? '\r',
         )
+        scheduleStationTerminalOutputRecovery(activeWorkspaceIdRef.current, stationId, sessionId)
         return true
       } catch (error) {
         appendStationTerminalOutput(
@@ -2021,7 +2060,13 @@ export function useShellTerminalController({
         return false
       }
     },
-    [appendStationTerminalOutput, locale, resolveWorkspaceRoot],
+    [
+      appendStationTerminalOutput,
+      ensureTerminalSessionVisible,
+      locale,
+      resolveWorkspaceRoot,
+      scheduleStationTerminalOutputRecovery,
+    ],
   )
 
   // ── Reconcile station runtime registration ──────────────────────────────

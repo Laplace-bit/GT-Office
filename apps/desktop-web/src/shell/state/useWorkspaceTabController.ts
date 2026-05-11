@@ -24,6 +24,7 @@ export interface UseWorkspaceTabControllerResult {
   completeWorkspaceSwitch: (workspaceId?: string | null) => void
   closeWorkspaceTab: (workspaceId: string) => Promise<void>
   detachWorkspaceTab: (workspaceId: string, windowLabel: string) => void
+  attachWorkspaceTab: (workspaceId: string) => void
   reorderWorkspaceTab: (fromIndex: number, toIndex: number) => void
 }
 
@@ -41,7 +42,7 @@ export function useWorkspaceTabController(
     gitSummary,
     refreshGit,
     openWorkspaceAtPath,
-  } = useShellWorkspaceController()
+  } = useShellWorkspaceController(workspaceWindowId)
 
   const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceTabInfo[]>([])
   const [workspaceSwitching, setWorkspaceSwitching] = useState(false)
@@ -132,6 +133,14 @@ export function useWorkspaceTabController(
     [],
   )
 
+  const attachWorkspaceTab = useCallback((workspaceId: string) => {
+    setWorkspaceTabs((prev) =>
+      prev.map((t) =>
+        t.workspaceId === workspaceId ? { ...t, detached: false, windowLabel: null } : t,
+      ),
+    )
+  }, [])
+
   // --- Tab reorder ---
 
   const reorderWorkspaceTab = useCallback(
@@ -191,8 +200,10 @@ export function useWorkspaceTabController(
       })
 
     void desktopApi
-      .subscribeWorkspaceWindowClosed((payload) => {
-        setWorkspaceTabs((prev) => prev.filter((t) => t.windowLabel !== payload.windowLabel))
+      .subscribeWorkspaceWindowClosed(() => {
+        void desktopApi.workspaceList().then((response) => {
+          setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
+        })
       })
       .then((fn) => {
         unlistenWindowClosed = fn
@@ -210,7 +221,7 @@ export function useWorkspaceTabController(
     () =>
       isSingleWorkspaceMode
         ? workspaceTabs.filter((t) => t.workspaceId === workspaceWindowId)
-        : workspaceTabs,
+        : workspaceTabs.filter((t) => !t.windowLabel),
     [isSingleWorkspaceMode, workspaceWindowId, workspaceTabs],
   )
 
@@ -233,6 +244,7 @@ export function useWorkspaceTabController(
     completeWorkspaceSwitch,
     closeWorkspaceTab,
     detachWorkspaceTab,
+    attachWorkspaceTab,
     reorderWorkspaceTab,
   }
 }

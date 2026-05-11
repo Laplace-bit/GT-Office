@@ -58,6 +58,16 @@ fn build_workspace_reset_response(workspace_id: &str) -> Value {
     })
 }
 
+fn detached_workspace_window_label(
+    workspace_id: &str,
+    bindings: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    bindings.iter().find_map(|(window_label, bound_workspace_id)| {
+        (bound_workspace_id == workspace_id && window_label.starts_with("workspace-"))
+            .then(|| window_label.clone())
+    })
+}
+
 fn allow_workspace_asset_scope<R: tauri::Runtime, M: Manager<R>>(
     manager: &M,
     root: &Path,
@@ -247,7 +257,21 @@ fn emit_active_changed<R: tauri::Runtime>(
 #[tauri::command]
 pub fn workspace_list(state: State<'_, AppState>) -> Result<Value, String> {
     let workspaces = state.workspace_service.list().map_err(to_command_error)?;
-    Ok(json!({ "workspaces": workspaces }))
+    let bindings = state.window_workspace_bindings_snapshot()?;
+    let items = workspaces
+        .into_iter()
+        .map(|workspace| {
+            let workspace_id = workspace.workspace_id.to_string();
+            json!({
+                "workspaceId": workspace_id,
+                "name": workspace.name,
+                "root": workspace.root,
+                "active": workspace.active,
+                "windowLabel": detached_workspace_window_label(&workspace_id, &bindings),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({ "workspaces": items }))
 }
 
 #[tauri::command]

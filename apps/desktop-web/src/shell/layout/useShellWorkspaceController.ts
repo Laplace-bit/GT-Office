@@ -44,7 +44,10 @@ export interface ShellWorkspaceController {
   ) => Promise<void>
 }
 
-export function useShellWorkspaceController(): ShellWorkspaceController {
+export function useShellWorkspaceController(
+  workspaceWindowId?: string,
+): ShellWorkspaceController {
+  const lockedWorkspaceId = workspaceWindowId?.trim() || null
   const [workspacePathInput, setWorkspacePathInput] = useState(
     () => loadRememberedWorkspacePath() ?? '',
   )
@@ -169,6 +172,16 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
 
     const bootstrapWorkspace = async () => {
       setConnectionState({ code: 'tauri-connected' })
+      if (lockedWorkspaceId) {
+        const context = await desktopApi.workspaceGetContext(lockedWorkspaceId)
+        setActiveWorkspaceId(lockedWorkspaceId)
+        setActiveWorkspaceName(lockedWorkspaceId)
+        setActiveWorkspaceRoot(context.root)
+        setWorkspacePathInput(context.root)
+        setConnectionState({ code: 'bound', detail: context.root })
+        void refreshGit(lockedWorkspaceId)
+        return
+      }
       const response = await desktopApi.workspaceGetWindowActive()
       if (response.workspaceId) {
         let workspaceRoot: string | null = null
@@ -210,7 +223,7 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
         detail: describeError(error),
       })
     })
-  }, [openWorkspaceAtPath, refreshGit])
+  }, [lockedWorkspaceId, openWorkspaceAtPath, refreshGit])
 
   const openWorkspaceAtPathRef = useRef(openWorkspaceAtPath)
   useEffect(() => {
@@ -218,6 +231,9 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
   }, [openWorkspaceAtPath])
 
   useEffect(() => {
+    if (lockedWorkspaceId) {
+      return
+    }
     if (!desktopApi.isTauriRuntime()) {
       return
     }
@@ -244,7 +260,7 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
       }
       workspaceAutoOpenTimerRef.current = null
     }
-  }, [workspacePathInput])
+  }, [lockedWorkspaceId, workspacePathInput])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
@@ -285,6 +301,9 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
         onActiveChanged: (payload) => {
           if (disposed) return
           if (!payload.workspaceId) return
+          if (lockedWorkspaceId) {
+            return
+          }
           if (payload.workspaceId === activeWorkspaceIdRef.current) return
           setActiveWorkspaceId(payload.workspaceId)
           void desktopApi.workspaceGetContext(payload.workspaceId).then((context) => {
@@ -335,7 +354,7 @@ export function useShellWorkspaceController(): ShellWorkspaceController {
       }
       gitRefreshTimerRef.current = null
     }
-  }, [])
+  }, [lockedWorkspaceId])
 
   return {
     workspacePathInput,

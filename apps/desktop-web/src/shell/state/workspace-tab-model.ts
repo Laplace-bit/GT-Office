@@ -3,6 +3,6 @@ export interface WorkspaceTabInfo {
   name: string
   root: string
   active: boolean
-  windowLabel?: string
+  windowLabel?: string | null
   detached?: boolean
 }

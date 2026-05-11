@@ -61,11 +61,12 @@ interface UseShellWorkspaceSessionControllerInput {
   activeWorkspaceIdRef: MutableRefObject<string | null>
   activeWorkspaceRoot: string | null
   setActiveWorkspaceRoot: React.Dispatch<React.SetStateAction<string | null>>
-  workspaceTabs: Array<{ workspaceId: string; name: string; root: string }>
+  workspaceTabs: Array<{ workspaceId: string; name: string; root: string; windowLabel?: string | null }>
   beginWorkspaceSwitchAnimation: (workspaceId?: string | null) => boolean
   completeWorkspaceSwitch: (workspaceId?: string | null) => void
   closeWorkspaceTab: (workspaceId: string) => Promise<void>
   detachWorkspaceTab: (workspaceId: string, windowLabel: string) => void
+  attachWorkspaceTab: (workspaceId: string) => void
   openWorkspaceAtPath: (
     path: string,
     reason?: 'manual' | 'restore' | 'picker' | 'debounce',
@@ -181,6 +182,7 @@ export interface ShellWorkspaceSessionController {
   confirmCloseWorkspace: () => Promise<void>
   dismissCloseConfirm: () => void
   handleTearOffWorkspaceTab: (request: WorkspaceTearOffRequest) => Promise<void>
+  handleMergeWorkspaceTab: (workspaceId: string, targetWindowLabel: string) => Promise<void>
   handlePickWorkspaceDirectory: () => Promise<void>
 }
 
@@ -195,6 +197,7 @@ export function useShellWorkspaceSessionController({
   completeWorkspaceSwitch,
   closeWorkspaceTab,
   detachWorkspaceTab,
+  attachWorkspaceTab,
   openWorkspaceAtPath,
   terminalController,
   loadFileContentRef,
@@ -252,6 +255,7 @@ export function useShellWorkspaceSessionController({
     departingWorkspaceId: string | null
     targetWorkspaceId: string | null
   } | null>(null)
+  const clearVisibleStateOnNextPresentationSwitchRef = useRef(false)
   const previousActiveWorkspaceIdRef = useRef<string | null>(null)
   const pendingWorkbenchContainerSnapshotsRef = useRef<WorkbenchContainerSnapshot[] | null>(null)
   const tabSessionSnapshotRef = useRef<Array<{ path: string; active: boolean }>>([])
@@ -296,6 +300,7 @@ export function useShellWorkspaceSessionController({
         }
         acc.push({
           stationId: station.id,
+          sessionId: runtime.sessionId,
           shell: runtime.shell,
           cwdMode: runtime.cwdMode,
           resolvedCwd: runtime.resolvedCwd,
@@ -311,12 +316,42 @@ export function useShellWorkspaceSessionController({
       terminalSessionSnapshotEntries
         .map(
           (entry) =>
-            `${entry.stationId}:${entry.shell ?? ''}:${entry.cwdMode}:${entry.resolvedCwd ?? ''}:${
+            `${entry.stationId}:${entry.sessionId ?? ''}:${entry.shell ?? ''}:${entry.cwdMode}:${entry.resolvedCwd ?? ''}:${
               entry.active ? '1' : '0'
             }`,
         )
         .join('|'),
     [terminalSessionSnapshotEntries],
+  )
+
+  const buildTerminalSnapshotsForWorkspace = useCallback(
+    (workspaceId: string): WorkspaceSessionTerminalSnapshot[] => {
+      if (workspaceId === presentedWorkspaceIdRef.current) {
+        return terminalSessionSnapshotRef.current
+      }
+      const cachedDocument = workspaceTerminalCacheRef.current[workspaceId]
+      if (!cachedDocument) {
+        return []
+      }
+      return Object.entries(cachedDocument.stationTerminals).reduce<WorkspaceSessionTerminalSnapshot[]>(
+        (acc, [stationId, runtime]) => {
+          if (!runtime?.sessionId) {
+            return acc
+          }
+          acc.push({
+            stationId,
+            sessionId: runtime.sessionId,
+            shell: runtime.shell,
+            cwdMode: runtime.cwdMode,
+            resolvedCwd: runtime.resolvedCwd,
+            active: false,
+          })
+          return acc
+        },
+        [],
+      )
+    },
+    [presentedWorkspaceIdRef, workspaceTerminalCacheRef],
   )
 
   // ----- Ref syncs -----
@@ -501,11 +536,35 @@ export function useShellWorkspaceSessionController({
     }) => {
       const startedAt = performance.now()
       try {
+        if (desktopApi.isTauriRuntime()) {
+          const snapshot = buildWorkspaceSessionSnapshot({
+            updatedAtMs: Date.now(),
+            windows: [{ activeNavId, pinnedWorkbenchContainerId }],
+            tabs: tabSessionSnapshotRef.current,
+            terminals: buildTerminalSnapshotsForWorkspace(workspaceId),
+            workbenchContainers: workbenchContainerSnapshotRef.current,
+          })
+          await desktopApi.fsWriteFile(
+            workspaceId,
+            workspaceSessionFilePath,
+            serializeWorkspaceSessionSnapshot(snapshot),
+          )
+        }
         const openResponse = await desktopApi.workspaceOpenInNewWindow(workspaceId, {
           x: Math.max(0, screenX - 220),
           y: Math.max(0, screenY - 18),
         })
         detachWorkspaceTab(workspaceId, openResponse.windowLabel)
+        const fallbackTab =
+          workspaceId === activeWorkspaceId
+            ? workspaceTabs.find((tab) => tab.workspaceId !== workspaceId && !tab.windowLabel) ?? null
+            : null
+        if (fallbackTab) {
+          clearVisibleStateOnNextPresentationSwitchRef.current = true
+          await openWorkspaceAtPath(fallbackTab.root, 'restore')
+        } else if (workspaceId === activeWorkspaceId) {
+          clearVisibleStateOnNextPresentationSwitchRef.current = true
+        }
         logPerformanceDebug('workspace-tabs', 'tore off workspace tab into new window', {
           workspaceId,
           durationMs: Math.round(performance.now() - startedAt),
@@ -520,7 +579,31 @@ export function useShellWorkspaceSessionController({
         })
       }
     },
-    [detachWorkspaceTab],
+    [
+      activeNavId,
+      activeWorkspaceId,
+      buildTerminalSnapshotsForWorkspace,
+      detachWorkspaceTab,
+      openWorkspaceAtPath,
+      pinnedWorkbenchContainerId,
+      workspaceTabs,
+      workspaceSessionFilePath,
+    ],
+  )
+
+  const handleMergeWorkspaceTab = useCallback(
+    async (workspaceId: string, _targetWindowLabel: string) => {
+      attachWorkspaceTab(workspaceId)
+      try {
+        await desktopApi.windowClose()
+      } catch (error) {
+        logPerformanceDebug('workspace-tabs', 'failed to close detached workspace window during merge', {
+          workspaceId,
+          error: describeError(error),
+        })
+      }
+    },
+    [attachWorkspaceTab],
   )
 
   const handlePickWorkspaceDirectory = useMemo(
@@ -768,16 +851,44 @@ export function useShellWorkspaceSessionController({
         }
         const pendingPresentationSwitch = pendingWorkspacePresentationSwitchRef.current
         if (pendingPresentationSwitch?.targetWorkspaceId === workspaceId) {
+          const clearVisibleState = clearVisibleStateOnNextPresentationSwitchRef.current
+          clearVisibleStateOnNextPresentationSwitchRef.current = false
           applyWorkspacePresentationSwitch({
             activeWorkspaceId: workspaceId,
             departingWorkspaceId: pendingPresentationSwitch.departingWorkspaceId,
-            clearVisibleState: false,
+            clearVisibleState,
           })
           pendingWorkspacePresentationSwitchRef.current = null
         }
         if (!restored) {
           completeWorkspaceSwitch(workspaceId)
           return
+        }
+
+        if (restored.terminals.length > 0 && stationsRef.current.length > 0) {
+          const terminalDocument = resolveWorkspaceTerminalDocument(workspaceId, stationsRef.current)
+          restored.terminals.forEach((terminal) => {
+            const sessionId = terminal.sessionId?.trim() ?? ''
+            if (!sessionId) {
+              return
+            }
+            const currentRuntime = terminalDocument.stationTerminals[terminal.stationId]
+            if (!currentRuntime) {
+              return
+            }
+            terminalDocument.stationTerminals[terminal.stationId] = {
+              ...currentRuntime,
+              sessionId,
+              stateRaw: 'running',
+              shell: terminal.shell,
+              cwdMode: terminal.cwdMode,
+              resolvedCwd: terminal.resolvedCwd,
+            }
+            terminalDocument.sessionStation[sessionId] = terminal.stationId
+            terminalDocument.sessionSeq[sessionId] = terminalDocument.sessionSeq[sessionId] ?? 0
+            terminalDocument.sessionVisibility[sessionId] = false
+          })
+          workspaceTerminalCacheRef.current[workspaceId] = terminalDocument
         }
 
         pendingWorkbenchContainerSnapshotsRef.current = restored.workbenchContainers
@@ -866,6 +977,7 @@ export function useShellWorkspaceSessionController({
     void restoreWorkspaceSession().catch((error) => {
       const pendingPresentationSwitch = pendingWorkspacePresentationSwitchRef.current
       if (pendingPresentationSwitch?.targetWorkspaceId === workspaceId) {
+        clearVisibleStateOnNextPresentationSwitchRef.current = false
         applyWorkspacePresentationSwitch({
           activeWorkspaceId: workspaceId,
           departingWorkspaceId: pendingPresentationSwitch.departingWorkspaceId,
@@ -1000,6 +1112,7 @@ export function useShellWorkspaceSessionController({
     confirmCloseWorkspace,
     dismissCloseConfirm,
     handleTearOffWorkspaceTab,
+    handleMergeWorkspaceTab,
     handlePickWorkspaceDirectory,
   }
 }

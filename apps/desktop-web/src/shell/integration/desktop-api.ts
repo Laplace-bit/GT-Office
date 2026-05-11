@@ -14,6 +14,7 @@ export interface WorkspaceListItem {
   name: string
   root: string
   active: boolean
+  windowLabel?: string | null
 }
 
 export interface WorkspaceListResponse {
@@ -2178,6 +2179,17 @@ export const desktopApi = {
         identifier,
         tauriVersion,
       }
+    } catch {
+      return null
+    }
+  },
+  async getCurrentWindowLabel(): Promise<string | null> {
+    if (!isTauriRuntime()) {
+      return null
+    }
+    try {
+      const webviewWindowApi = await import('@tauri-apps/api/webviewWindow')
+      return webviewWindowApi.getCurrentWebviewWindow().label
     } catch {
       return null
     }

@@ -3,6 +3,7 @@
 .vb-top-control-bar {
   --vb-top-control-button-size: #{rem(26)};
   --vb-top-control-edge-inset: var(--vb-space-2xs);
+  position: relative;
   width: 100%;
   min-width: 0;
   min-height: calc(var(--vb-top-control-button-size) + var(--vb-space-sm));
@@ -33,6 +34,8 @@
 }
 
 .vb-top-control-leading {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--vb-space-sm);
@@ -207,6 +210,8 @@
 }
 
 .vb-window-controls {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--vb-space-2xs);
@@ -250,6 +255,8 @@
 }
 
 .titlebar-drag-region {
+  position: relative;
+  z-index: 0;
   flex: 1 1 auto;
   min-width: var(--vb-space-lg);
   min-height: var(--vb-top-control-button-size);

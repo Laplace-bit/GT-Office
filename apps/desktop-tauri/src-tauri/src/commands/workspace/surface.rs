@@ -108,6 +108,16 @@ fn build_workspace_window_url(workspace_id: &str) -> WebviewUrl {
     WebviewUrl::App(format!("index.html?workspace={workspace_id}").into())
 }
 
+fn clone_main_window_config(app: &tauri::AppHandle) -> Result<tauri::utils::config::WindowConfig, String> {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .cloned()
+        .ok_or_else(|| "WINDOW_CONFIG_NOT_FOUND: missing main window config".to_string())
+}
+
 fn resolve_window(
     window_label: Option<String>,
     window: &Window,
@@ -146,7 +156,7 @@ fn emit_surface_window_updated(
 }
 
 #[tauri::command]
-pub fn workspace_open_in_new_window(
+pub async fn workspace_open_in_new_window(
     workspace_id: String,
     position: Option<(f64, f64)>,
     size: Option<(f64, f64)>,
@@ -173,30 +183,30 @@ pub fn workspace_open_in_new_window(
 
     let app = window.app_handle();
     let window_title = workspace_window_title(&workspace_root, workspace_id);
-    let mut workspace_window_builder =
-        WebviewWindowBuilder::new(app, &window_label, build_workspace_window_url(workspace_id))
-            .title(&window_title)
-            .inner_size(
-                size.map(|(width, _)| width).unwrap_or(1280.0),
-                size.map(|(_, height)| height).unwrap_or(840.0),
-            )
-            .min_inner_size(960.0, 640.0)
-            .resizable(true)
-            .decorations(true)
-            .shadow(true)
-            .accept_first_mouse(true)
-            .disable_drag_drop_handler();
-
+    let mut window_config = clone_main_window_config(app)?;
+    window_config.label = window_label.clone();
+    window_config.url = build_workspace_window_url(workspace_id);
+    window_config.title = window_title.clone();
+    window_config.width = size.map(|(width, _)| width).unwrap_or(1280.0);
+    window_config.height = size.map(|(_, height)| height).unwrap_or(840.0);
+    window_config.min_width = Some(960.0);
+    window_config.min_height = Some(640.0);
+    window_config.resizable = true;
+    window_config.decorations = true;
+    window_config.shadow = true;
+    window_config.accept_first_mouse = true;
+    window_config.drag_drop_enabled = false;
     if let Some((x, y)) = position {
-        workspace_window_builder = workspace_window_builder.position(x, y);
+        window_config.center = false;
+        window_config.x = Some(x);
+        window_config.y = Some(y);
     } else {
-        workspace_window_builder = workspace_window_builder.center();
+        window_config.center = true;
+        window_config.x = None;
+        window_config.y = None;
     }
-
-    #[cfg(target_os = "macos")]
-    let workspace_window_builder = workspace_window_builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
+    let workspace_window_builder = WebviewWindowBuilder::from_config(app, &window_config)
+        .map_err(|error| format!("WORKSPACE_WINDOW_CONFIG_BUILD_FAILED: {error}"))?;
 
     state.bind_window_workspace(&window_label, workspace_id)?;
     let workspace_window = match workspace_window_builder.build() {
@@ -232,7 +242,7 @@ pub fn workspace_open_in_new_window(
 }
 
 #[tauri::command]
-pub fn surface_open_detached_window(
+pub async fn surface_open_detached_window(
     payload: SurfaceOpenDetachedWindowPayload,
     state: State<'_, AppState>,
     window: Window,
@@ -276,29 +286,26 @@ pub fn surface_open_detached_window(
         stations: payload.stations,
     };
 
-    let surface_window_builder = WebviewWindowBuilder::new(
-        app,
-        &window_label,
-        build_detached_window_url(&query_payload)?,
-    )
-    .title(if query_payload.title.trim().is_empty() {
-        "GT Office Surface"
+    let mut window_config = clone_main_window_config(app)?;
+    window_config.label = window_label.clone();
+    window_config.url = build_detached_window_url(&query_payload)?;
+    window_config.title = if query_payload.title.trim().is_empty() {
+        "GT Office Surface".to_string()
     } else {
-        query_payload.title.as_str()
-    })
-    .inner_size(1180.0, 780.0)
-    .min_inner_size(720.0, 520.0)
-    .resizable(true)
-    .decorations(true)
-    .shadow(true)
-    .accept_first_mouse(true)
-    .disable_drag_drop_handler()
-    .always_on_top(topmost);
-
-    #[cfg(target_os = "macos")]
-    let surface_window_builder = surface_window_builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true);
+        query_payload.title.clone()
+    };
+    window_config.width = 1180.0;
+    window_config.height = 780.0;
+    window_config.min_width = Some(720.0);
+    window_config.min_height = Some(520.0);
+    window_config.resizable = true;
+    window_config.decorations = true;
+    window_config.shadow = true;
+    window_config.accept_first_mouse = true;
+    window_config.drag_drop_enabled = false;
+    window_config.always_on_top = topmost;
+    let surface_window_builder = WebviewWindowBuilder::from_config(app, &window_config)
+        .map_err(|error| format!("SURFACE_WINDOW_CONFIG_BUILD_FAILED: {error}"))?;
 
     let surface_window = surface_window_builder
         .build()

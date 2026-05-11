@@ -211,6 +211,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     completeWorkspaceSwitch,
     closeWorkspaceTab,
     detachWorkspaceTab,
+    attachWorkspaceTab,
     reorderWorkspaceTab,
   } = useWorkspaceTabController(workspaceWindowId)
 
@@ -441,6 +442,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     completeWorkspaceSwitch,
     closeWorkspaceTab,
     detachWorkspaceTab,
+    attachWorkspaceTab,
     openWorkspaceAtPath,
     terminalController,
     loadFileContentRef,
@@ -484,6 +486,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     requestCloseWorkspace,
     confirmCloseWorkspace,
     dismissCloseConfirm,
+    handleTearOffWorkspaceTab,
+    handleMergeWorkspaceTab,
     handlePickWorkspaceDirectory,
   } = workspaceSessionController
 
@@ -1142,26 +1146,38 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         onPickWorkspaceDirectory: () => {
           void handlePickWorkspaceDirectory()
         },
-        ...(isSingleWorkspaceMode
-          ? {}
-          : {
-              workspaceTabs,
-              activeTabId: activeWorkspaceId,
-              closingTabId,
-              workspaceSwitching,
-              pendingWorkspaceSwitchId,
-              workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
-              onSwitchTab: (workspaceId: string) => {
-                void switchWorkspaceTab(workspaceId)
-              },
-              onCloseTab: (workspaceId: string) => {
-                requestCloseWorkspace(workspaceId)
-              },
-              onAddTab: () => {
-                void handlePickWorkspaceDirectory()
-              },
-              onReorderTabs: reorderWorkspaceTab,
-            }),
+        workspaceTabs,
+        activeTabId: activeWorkspaceId,
+        closingTabId,
+        workspaceSwitching,
+        pendingWorkspaceSwitchId,
+        workspaceSwitchAnimation: uiPreferences.workspaceSwitchAnimation,
+        onSwitchTab: (workspaceId: string) => {
+          void switchWorkspaceTab(workspaceId)
+        },
+        onCloseTab: (workspaceId: string) => {
+          if (isSingleWorkspaceMode) {
+            void handleWindowClose()
+            return
+          }
+          requestCloseWorkspace(workspaceId)
+        },
+        onAddTab: isSingleWorkspaceMode
+          ? undefined
+          : () => {
+              void handlePickWorkspaceDirectory()
+            },
+        onReorderTabs: reorderWorkspaceTab,
+        onTearOffTab: isSingleWorkspaceMode
+          ? undefined
+          : (request) => {
+              void handleTearOffWorkspaceTab(request)
+            },
+        onMergeTabIntoWindow: isSingleWorkspaceMode
+          ? (workspaceId: string, targetWindowLabel: string) => {
+              void handleMergeWorkspaceTab(workspaceId, targetWindowLabel)
+            }
+          : undefined,
         onBatchLaunchAgents: () => {
           void handleBatchLaunchAgents()
         },

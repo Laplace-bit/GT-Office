@@ -5,7 +5,7 @@ import { normalizeWorkspaceTabsResponse } from '../src/shell/state/workspace-tab
 test('normalizeWorkspaceTabsResponse drops invalid and duplicate workspace items', () => {
   const result = normalizeWorkspaceTabsResponse({
     workspaces: [
-      { workspaceId: 'ws-1', name: 'One', root: '/tmp/one', active: true },
+      { workspaceId: 'ws-1', name: 'One', root: '/tmp/one', active: true, windowLabel: 'workspace-ws-1' },
       { workspaceId: 'ws-1', name: 'Duplicate', root: '/tmp/dup', active: false },
       { workspaceId: '', name: 'Missing id', root: '/tmp/missing', active: false },
       { workspaceId: 'ws-2', name: 'Two', root: '/tmp/two', active: false },
@@ -13,7 +13,14 @@ test('normalizeWorkspaceTabsResponse drops invalid and duplicate workspace items
   })
 
   assert.deepEqual(result, [
-    { workspaceId: 'ws-1', name: 'One', root: '/tmp/one', active: true },
-    { workspaceId: 'ws-2', name: 'Two', root: '/tmp/two', active: false },
+    {
+      workspaceId: 'ws-1',
+      name: 'One',
+      root: '/tmp/one',
+      active: true,
+      windowLabel: 'workspace-ws-1',
+      detached: true,
+    },
+    { workspaceId: 'ws-2', name: 'Two', root: '/tmp/two', active: false, windowLabel: null, detached: false },
   ])
 })

@@ -556,6 +556,13 @@ impl AppState {
         Ok(bindings.get(window_label).cloned())
     }
 
+    pub fn window_workspace_bindings_snapshot(&self) -> Result<HashMap<String, String>, String> {
+        let bindings = self.window_workspace_bindings.lock().map_err(|_| {
+            "WORKSPACE_STATE_LOCK_POISONED: window bindings lock poisoned".to_string()
+        })?;
+        Ok(bindings.clone())
+    }
+
     pub fn ensure_workspace_watcher(
         &self,
         app: &tauri::AppHandle,

@@ -598,11 +598,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   }
 }
 
-.vb-window-dragging .shell-native-window-top-windows * {
-  pointer-events: none !important;
-  user-select: none !important;
-}
-
 .agent-shell.workspace-switching-active {
   :where(
     .shell-left-pane-transition,

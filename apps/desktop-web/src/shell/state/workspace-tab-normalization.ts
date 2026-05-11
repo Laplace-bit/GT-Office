@@ -9,7 +9,8 @@ function isWorkspaceListItem(value: WorkspaceListItem | null | undefined): value
       typeof value.root === 'string' &&
       value.root.trim() &&
       typeof value.name === 'string' &&
-      typeof value.active === 'boolean',
+      typeof value.active === 'boolean' &&
+      (value.windowLabel == null || typeof value.windowLabel === 'string'),
   )
 }
 
@@ -30,6 +31,8 @@ export function normalizeWorkspaceTabsResponse(response: WorkspaceListResponse):
       name: item.name.trim(),
       root: item.root.trim(),
       active: item.active,
+      windowLabel: item.windowLabel?.trim() || null,
+      detached: Boolean(item.windowLabel?.trim()),
     })
   }
   return tabs

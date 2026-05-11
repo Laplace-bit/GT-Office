@@ -238,6 +238,14 @@
     z-index: 1;
   }
 
+  &.vb-workspace-tab-ghost {
+    box-shadow:
+      0 rem(10) rem(28) color-mix(in srgb, rgba(0, 0, 0, 0.22), transparent),
+      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 24%, transparent);
+    backdrop-filter: blur(rem(16));
+    pointer-events: none;
+  }
+
   // ── Pressed ──
 
   &:active:not(.closing) {

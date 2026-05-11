@@ -22,6 +22,7 @@ export interface WorkspaceSessionTabSnapshot {
 
 export interface WorkspaceSessionTerminalSnapshot {
   stationId: string
+  sessionId: string | null
   shell: string | null
   cwdMode: TerminalCwdMode
   resolvedCwd: string | null
@@ -72,6 +73,7 @@ export function buildWorkspaceSessionSnapshot(input: {
     })),
     terminals: input.terminals.map((item) => ({
       stationId: item.stationId.trim(),
+      sessionId: typeof item.sessionId === 'string' && item.sessionId.trim() ? item.sessionId.trim() : null,
       shell: typeof item.shell === 'string' && item.shell.trim() ? item.shell.trim() : null,
       cwdMode: normalizeTerminalCwdMode(item.cwdMode),
       resolvedCwd:
@@ -180,6 +182,8 @@ export function parseWorkspaceSessionSnapshot(raw: string): WorkspaceSessionSnap
         seenStation.add(stationId)
         return {
           stationId,
+          sessionId:
+            typeof value.sessionId === 'string' && value.sessionId.trim() ? value.sessionId.trim() : null,
           shell: typeof value.shell === 'string' && value.shell.trim() ? value.shell.trim() : null,
           cwdMode: normalizeTerminalCwdMode(value.cwdMode),
           resolvedCwd:
