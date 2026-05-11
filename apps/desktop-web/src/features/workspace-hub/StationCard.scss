@@ -203,8 +203,12 @@
   }
 }
 
-.station-window-header>.station-window-activity-comet {
-  flex: 0 0 auto;
+.station-window-header > .station-window-activity-comet {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .station-window-header-actions {
@@ -502,8 +506,12 @@
   }
 
   .station-window-activity-comet {
+    position: static;
+    top: auto;
+    left: auto;
+    transform: none;
     order: 2;
-    margin-left: 0;
+    margin-inline: auto;
   }
 
   .station-terminal-idle-state {
@@ -552,6 +560,14 @@
   .station-window-title-row,
   .station-window-header-actions {
     flex-wrap: wrap;
+  }
+
+  .station-window-activity-comet {
+    position: static;
+    top: auto;
+    left: auto;
+    transform: none;
+    margin-inline: auto;
   }
 
   .station-window-action-group {
