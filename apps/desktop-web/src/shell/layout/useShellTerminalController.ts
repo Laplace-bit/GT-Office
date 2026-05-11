@@ -1138,6 +1138,13 @@ export function useShellTerminalController({
     [recoverStationTerminalOutput],
   )
 
+  const clearScheduledStationTerminalOutputRecoveries = useCallback(() => {
+    Object.values(scheduledStationOutputRecoveryRef.current).forEach((timerId) => {
+      window.clearTimeout(timerId)
+    })
+    scheduledStationOutputRecoveryRef.current = {}
+  }, [])
+
   const cacheBackgroundLaunchedTerminalSession = useCallback(
     (input: {
       workspaceId: string
@@ -3128,6 +3135,7 @@ export function useShellTerminalController({
 
   // ── Terminal state reset for workspace switch ──────────────────────────
   const resetTerminalStateOnWorkspaceSwitch = useCallback(() => {
+    clearScheduledStationTerminalOutputRecoveries()
     cancelScheduledTerminalReplayDrain()
     scheduledTerminalReplayQueueRef.current = []
     scheduledTerminalReplayRunningRef.current = false
@@ -3142,7 +3150,7 @@ export function useShellTerminalController({
     stationTerminalInputControllerRef.current?.dispose()
     stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
-  }, [cancelScheduledTerminalReplayDrain])
+  }, [cancelScheduledTerminalReplayDrain, clearScheduledStationTerminalOutputRecoveries])
 
   // ── Cleanup effect ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -3153,6 +3161,7 @@ export function useShellTerminalController({
       }
       stationUnreadFlushTimerRef.current = null
       stationUnreadDeltaRef.current = {}
+      clearScheduledStationTerminalOutputRecoveries()
       cancelScheduledTerminalReplayDrain()
       scheduledTerminalReplayQueueRef.current = []
       scheduledTerminalReplayRunningRef.current = false
@@ -3174,7 +3183,7 @@ export function useShellTerminalController({
       }
       registeredAgentRuntimeRef.current = {}
     }
-  }, [cancelScheduledTerminalReplayDrain])
+  }, [cancelScheduledTerminalReplayDrain, clearScheduledStationTerminalOutputRecoveries])
 
   // ── Tool commands loading ──────────────────────────────────────────────
   useEffect(() => {
