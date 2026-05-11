@@ -376,6 +376,7 @@ export function WorkspaceTabBar({
       if (!payload) {
         return
       }
+      setDraggingWorkspaceId(null)
 
       const droppedOnTabBar = event.target instanceof Node && tabBarRef.current?.contains(event.target)
       if (droppedOnTabBar) {
@@ -597,6 +598,7 @@ export function WorkspaceTabBar({
       if (!payload) {
         return
       }
+      setDraggingWorkspaceId(null)
 
       event.preventDefault()
       if (
