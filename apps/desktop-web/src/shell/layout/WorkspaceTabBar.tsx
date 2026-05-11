@@ -12,6 +12,7 @@ import {
 } from '@dnd-kit/core'
 import {
   SortableContext,
+  arrayMove,
   horizontalListSortingStrategy,
   useSortable,
 } from '@dnd-kit/sortable'
@@ -404,7 +405,12 @@ export function WorkspaceTabBar({
         const oldIndex = currentIds.indexOf(String(active.id))
         const newIndex = currentIds.indexOf(String(over.id))
         if (oldIndex >= 0 && newIndex >= 0) {
-          onReorderTabs(oldIndex, newIndex)
+          const reorderedIds = arrayMove(currentIds, oldIndex, newIndex)
+          reorderedIds.forEach((workspaceId, index) => {
+            if (workspaceId === String(active.id) && index !== oldIndex) {
+              onReorderTabs(oldIndex, index)
+            }
+          })
         }
       }
       finalizeDetachedDrop()
