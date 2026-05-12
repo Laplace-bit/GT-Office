@@ -29,6 +29,7 @@ fn preset_key(prefix: &str, suffix: &str) -> String {
     format!("aiConfig.preset.{prefix}.{suffix}")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_preset(
     prefix: &str,
     provider_id: &str,
@@ -65,6 +66,7 @@ fn build_preset(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_literal_claude_preset(
     prefix: &str,
     display_name: &str,
@@ -95,6 +97,7 @@ fn build_literal_claude_preset(
     preset
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_codex_preset(
     prefix: &str,
     provider_id: &str,
@@ -127,6 +130,7 @@ fn build_codex_preset(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_literal_codex_preset(
     prefix: &str,
     display_name: &str,
@@ -176,6 +180,7 @@ fn build_codex_china_preset(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_gemini_preset(
     prefix: &str,
     provider_id: &str,
