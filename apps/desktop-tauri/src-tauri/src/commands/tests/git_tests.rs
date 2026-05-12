@@ -53,6 +53,14 @@ fn git_stage_payload_keeps_contract_fields() {
 }
 
 #[test]
+fn git_stage_payload_supports_zero_staged_files() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_stage_payload(&workspace_id, 0);
+    assert_eq!(payload["workspaceId"], "ws-1");
+    assert_eq!(payload["staged"], 0);
+}
+
+#[test]
 fn git_unstage_and_discard_payload_keep_contract_fields() {
     let workspace_id = WorkspaceId::new("ws-1");
     let unstage_payload = build_git_unstage_payload(&workspace_id, 2);

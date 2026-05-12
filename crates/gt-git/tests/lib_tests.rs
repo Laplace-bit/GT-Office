@@ -96,6 +96,62 @@ fn stage_rejects_parent_traversal() {
 }
 
 #[test]
+fn stage_skips_ignored_paths_without_failing() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git_service = GitService::new(service);
+
+    fs::write(repo.path.join(".gitignore"), ".gtoffice/\n").expect("write gitignore");
+    fs::create_dir_all(repo.path.join(".gtoffice")).expect("create ignored dir");
+    fs::write(repo.path.join(".gtoffice/config.json"), "{}\n").expect("write ignored file");
+
+    let staged = git_service
+        .stage(&workspace.workspace_id, &[String::from(".gtoffice")])
+        .expect("stage ignored path should not fail");
+
+    assert_eq!(staged, 0);
+
+    let status = git_service
+        .status(&workspace.workspace_id)
+        .expect("read status after ignored stage");
+    assert!(status.files.iter().all(|file| file.path != ".gtoffice"));
+}
+
+#[test]
+fn stage_mixed_paths_skips_ignored_and_stages_remaining_files() {
+    let repo = TempRepo::create();
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git_service = GitService::new(service);
+
+    fs::write(repo.path.join(".gitignore"), ".gtoffice/\n").expect("write gitignore");
+    fs::write(repo.path.join("tracked.txt"), "tracked\n").expect("write tracked file");
+    fs::create_dir_all(repo.path.join(".gtoffice")).expect("create ignored dir");
+    fs::write(repo.path.join(".gtoffice/config.json"), "{}\n").expect("write ignored file");
+
+    let staged = git_service
+        .stage(
+            &workspace.workspace_id,
+            &[String::from("tracked.txt"), String::from(".gtoffice")],
+        )
+        .expect("mixed stage should succeed");
+
+    assert_eq!(staged, 1);
+
+    let status = git_service
+        .status(&workspace.workspace_id)
+        .expect("read status after mixed stage");
+    let tracked = status
+        .files
+        .iter()
+        .find(|file| file.path == "tracked.txt")
+        .expect("tracked file should be present");
+    assert!(tracked.staged);
+    assert!(status.files.iter().all(|file| file.path != ".gtoffice"));
+}
+
+#[test]
 fn branch_checkout_and_log_work() {
     let repo = TempRepo::create();
     let service = InMemoryWorkspaceService::new();

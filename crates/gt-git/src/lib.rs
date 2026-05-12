@@ -586,6 +586,35 @@ where
         Ok(())
     }
 
+    fn filter_ignored_paths(
+        &self,
+        root: &Path,
+        paths: &[String],
+    ) -> AbstractionResult<Vec<String>> {
+        let repo = Repository::open(root).map_err(|err| AbstractionError::Internal {
+            message: format!(
+                "GIT_STAGE_FAILED: failed to open repository '{}' for ignore checks: {err}",
+                root.display()
+            ),
+        })?;
+        let mut stageable = Vec::with_capacity(paths.len());
+
+        for path in paths {
+            let ignored = repo.status_should_ignore(Path::new(path)).map_err(|err| {
+                AbstractionError::Internal {
+                    message: format!(
+                        "GIT_STAGE_FAILED: failed to inspect ignore rules for '{path}': {err}"
+                    ),
+                }
+            })?;
+            if !ignored {
+                stageable.push(path.clone());
+            }
+        }
+
+        Ok(stageable)
+    }
+
     fn validate_branch_name(&self, root: &Path, branch: &str) -> AbstractionResult<()> {
         let trimmed = branch.trim();
         if trimmed.is_empty() {
@@ -1485,11 +1514,15 @@ where
         }
 
         let root = self.workspace_root(workspace_id)?;
+        let stageable_paths = self.filter_ignored_paths(&root, paths)?;
+        if stageable_paths.is_empty() {
+            return Ok(0);
+        }
         let mut owned_args = vec!["add".to_string(), "--".to_string()];
-        owned_args.extend(paths.iter().cloned());
+        owned_args.extend(stageable_paths.iter().cloned());
         let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
         self.run_git(&root, &args, "GIT_STAGE_FAILED")?;
-        Ok(paths.len())
+        Ok(stageable_paths.len())
     }
 
     #[instrument(skip(self, paths), fields(workspace_id = %workspace_id, path_count = paths.len()))]
