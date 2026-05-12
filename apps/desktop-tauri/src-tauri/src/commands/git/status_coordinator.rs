@@ -72,14 +72,37 @@ impl GitStatusCoordinator {
         });
     }
 
+    #[allow(dead_code)]
     pub fn refresh_now(&self, app: &AppHandle, state: &AppState, workspace_id: &WorkspaceId) {
+        self.schedule_refresh(app, state, workspace_id.as_str());
+    }
+
+    /// Skip the debounce and refresh immediately. Use this for user-initiated
+    /// mutations (stage, unstage, commit, etc.) where perceived latency matters.
+    /// If a debounced refresh is already scheduled or inflight, it is marked dirty
+    /// so it will reconcile any file-watcher changes when it completes.
+    pub fn refresh_immediate(&self, app: &AppHandle, state: &AppState, workspace_id: &str) {
+        {
+            let mut workspaces = match self.inner.lock() {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+            let refresh_state = workspaces.entry(workspace_id.to_string()).or_default();
+            if refresh_state.scheduled || refresh_state.inflight {
+                refresh_state.dirty = true;
+            }
+        }
+
         let coordinator = self.clone();
         let app = app.clone();
         let state = state.clone();
-        let workspace_id = workspace_id.as_str().to_string();
+        let workspace_id = workspace_id.to_string();
         tauri::async_runtime::spawn(async move {
-            if let Err(error) = coordinator.refresh_once(&app, &state, &workspace_id).await {
-                warn!(workspace_id, error = %error, "git status refresh failed");
+            if let Err(error) = coordinator
+                .refresh_once(&app, &state, &workspace_id)
+                .await
+            {
+                warn!(workspace_id, error = %error, "immediate git status refresh failed");
             }
         });
     }

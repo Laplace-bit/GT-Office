@@ -162,7 +162,46 @@ export function useGitController({
   useEffect(() => {
     refreshMetaRef.current = refreshMeta
   }, [refreshMeta])
-  const onRefreshMeta = useCallback(() => refreshMetaRef.current(), [])
+
+  // Scoped refresh callbacks — only refresh what changed
+  const onRefreshBranches = useCallback(async () => {
+    if (!workspaceId) {
+      setBranches([])
+      return
+    }
+    try {
+      const response = await desktopApi.gitListBranches(workspaceId, false)
+      setBranches(response.branches)
+      const currentBranch =
+        response.branches.find((item) => item.current)?.name ??
+        response.branches[0]?.name ??
+        ''
+      setCheckoutTarget((prev) => prev || currentBranch)
+      setIsGitRepository(true)
+      setRepositoryNotice(null)
+    } catch (error) {
+      if (isNotGitRepositoryError(error)) {
+        setBranches([])
+        setIsGitRepository(false)
+        setRepositoryNotice(t(locale, 'git.info.notRepository'))
+      } else {
+        setErrorMessage(t(locale, 'git.error.metaLoad', { detail: describeUnknownError(error) }))
+      }
+    }
+  }, [workspaceId, locale, setIsGitRepository, setRepositoryNotice, setErrorMessage])
+
+  const onRefreshStashes = useCallback(async () => {
+    if (!workspaceId) {
+      setStashEntries([])
+      return
+    }
+    try {
+      const response = await desktopApi.gitStashList(workspaceId, STASH_LIMIT)
+      setStashEntries(response.entries)
+    } catch {
+      setStashEntries([])
+    }
+  }, [workspaceId])
 
   // Stable callbacks for refreshSummary and refreshHistoryLatest
   const refreshSummaryOnly = useCallback(async () => {
@@ -172,6 +211,14 @@ export function useGitController({
   const refreshHistoryLatest = useCallback(async () => {
     await fetchHistoryPage(0, 'replace')
   }, [fetchHistoryPage])
+
+  // refreshAll — defined before sub-controllers so it can be passed as a prop
+  const refreshAll = useCallback(async () => {
+    await Promise.all([onRefreshSummary(workspaceId), refreshMeta()])
+  }, [onRefreshSummary, refreshMeta, workspaceId])
+
+  // Alias for sub-controllers that need full refresh
+  const onRefreshAll = useCallback(() => refreshAll(), [refreshAll])
 
   // Sub-controllers
   const status = useGitStatus({
@@ -188,9 +235,8 @@ export function useGitController({
     isGitRepository,
     runAction,
     invalidateDiffCache,
-    onRefreshSummary: refreshSummaryOnly,
     onRefreshHistory: refreshHistoryLatest,
-    onRefreshMeta,
+    onRefreshBranches,
   })
 
   const branch = useGitBranch({
@@ -202,9 +248,8 @@ export function useGitController({
     setCheckoutTarget,
     runAction,
     invalidateDiffCache,
-    onRefreshMeta,
-    onRefreshSummary: refreshSummaryOnly,
-    onRefreshHistory: refreshHistoryLatest,
+    onRefreshBranches,
+    onRefreshAll,
   })
 
   const remote = useGitRemote({
@@ -212,9 +257,8 @@ export function useGitController({
     isGitRepository,
     runAction,
     invalidateDiffCache,
-    onRefreshSummary: refreshSummaryOnly,
-    onRefreshMeta,
-    onRefreshHistory: refreshHistoryLatest,
+    onRefreshBranches,
+    onRefreshAll,
   })
 
   const stash = useGitStash({
@@ -222,8 +266,7 @@ export function useGitController({
     isGitRepository,
     runAction,
     invalidateDiffCache,
-    onRefreshSummary: refreshSummaryOnly,
-    onRefreshMeta,
+    onRefreshStashes,
   })
 
   const diff = useGitDiff({
@@ -240,8 +283,7 @@ export function useGitController({
     workspaceId,
     isGitRepository,
     runAction,
-    onRefreshSummary: refreshSummaryOnly,
-    onRefreshMeta,
+    onRefreshAll,
   })
 
   // Commit actions sub-controller (cherry-pick, revert, reset, create branch from commit)
@@ -250,9 +292,9 @@ export function useGitController({
     isGitRepository,
     runAction,
     invalidateDiffCache,
-    onRefreshSummary: refreshSummaryOnly,
-    onRefreshMeta,
+    onRefreshBranches,
     onRefreshHistory: refreshHistoryLatest,
+    onRefreshAll,
   })
 
   // Derived
@@ -265,12 +307,6 @@ export function useGitController({
     () => branches.find((item) => item.name === checkoutTarget) ?? null,
     [branches, checkoutTarget],
   )
-
-  // refreshAll
-  const refreshAll = useCallback(async () => {
-    await onRefreshSummary(workspaceId)
-    await refreshMeta()
-  }, [onRefreshSummary, refreshMeta, workspaceId])
 
   // History pagination
   const loadOlderHistory = useCallback(async () => {
@@ -350,6 +386,7 @@ export function useGitController({
     graphCommits,
     refreshAll,
     refreshSummary: refreshSummaryOnly,
+    invalidateDiffCache,
     stagePath: status.stagePath,
     unstagePath: status.unstagePath,
     stageAll: status.stageAll,

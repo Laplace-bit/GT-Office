@@ -6,9 +6,8 @@ interface UseGitCommitInput {
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
-  onRefreshSummary: () => Promise<void>
   onRefreshHistory: () => Promise<void>
-  onRefreshMeta: () => Promise<void>
+  onRefreshBranches: () => Promise<void>
 }
 
 interface UseGitCommitResult {
@@ -24,9 +23,8 @@ export function useGitCommit({
   isGitRepository,
   runAction,
   invalidateDiffCache,
-  onRefreshSummary,
   onRefreshHistory,
-  onRefreshMeta,
+  onRefreshBranches,
 }: UseGitCommitInput): UseGitCommitResult {
   const [commitMessage, setCommitMessage] = useState('')
   const [amendMode, setAmendMode] = useState(false)
@@ -41,11 +39,7 @@ export function useGitCommit({
       setCommitMessage('')
       setAmendMode(false)
       invalidateDiffCache()
-      await Promise.all([
-        onRefreshSummary(),
-        onRefreshHistory(),
-        onRefreshMeta(),
-      ])
+      await Promise.all([onRefreshHistory(), onRefreshBranches()])
     })
   }, [
     amendMode,
@@ -53,8 +47,7 @@ export function useGitCommit({
     invalidateDiffCache,
     isGitRepository,
     onRefreshHistory,
-    onRefreshMeta,
-    onRefreshSummary,
+    onRefreshBranches,
     runAction,
     workspaceId,
   ])

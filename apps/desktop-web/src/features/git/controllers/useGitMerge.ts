@@ -5,8 +5,7 @@ interface UseGitMergeInput {
   workspaceId: string | null
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
-  onRefreshSummary: () => Promise<void>
-  onRefreshMeta: () => Promise<void>
+  onRefreshAll: () => Promise<void>
 }
 
 interface UseGitMergeResult {
@@ -21,8 +20,7 @@ export function useGitMerge({
   workspaceId,
   isGitRepository,
   runAction,
-  onRefreshSummary,
-  onRefreshMeta,
+  onRefreshAll,
 }: UseGitMergeInput): UseGitMergeResult {
   const [mergeConflicts, setMergeConflicts] = useState<string[]>([])
   const [isMerging, setIsMerging] = useState(false)
@@ -36,10 +34,10 @@ export function useGitMerge({
         setIsMerging(true)
         await desktopApi.gitMerge(workspaceId, source.trim())
         setMergeConflicts([])
-        await Promise.all([onRefreshSummary(), onRefreshMeta()])
+        await onRefreshAll()
       })
     },
-    [isGitRepository, onRefreshMeta, onRefreshSummary, runAction, workspaceId],
+    [isGitRepository, onRefreshAll, runAction, workspaceId],
   )
 
   const continueMerge = useCallback(async () => {
@@ -50,9 +48,9 @@ export function useGitMerge({
       await desktopApi.gitMergeContinue(workspaceId)
       setIsMerging(false)
       setMergeConflicts([])
-      await Promise.all([onRefreshSummary(), onRefreshMeta()])
+      await onRefreshAll()
     })
-  }, [isGitRepository, onRefreshMeta, onRefreshSummary, runAction, workspaceId])
+  }, [isGitRepository, onRefreshAll, runAction, workspaceId])
 
   const abortMerge = useCallback(async () => {
     if (!workspaceId || !isGitRepository) {
@@ -62,9 +60,9 @@ export function useGitMerge({
       await desktopApi.gitMergeAbort(workspaceId)
       setIsMerging(false)
       setMergeConflicts([])
-      await Promise.all([onRefreshSummary(), onRefreshMeta()])
+      await onRefreshAll()
     })
-  }, [isGitRepository, onRefreshMeta, onRefreshSummary, runAction, workspaceId])
+  }, [isGitRepository, onRefreshAll, runAction, workspaceId])
 
   return {
     mergeConflicts,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   desktopApi,
   type GitStatusFile,
@@ -6,6 +6,12 @@ import {
 } from '@shell/integration/desktop-api'
 import type { GitDiffScope, GitFileFilter } from './types'
 import { hasStagedChanges, hasUnstagedChanges, resolveDiffScope } from './helpers'
+
+interface OptimisticAction {
+  type: 'stage' | 'unstage'
+  paths: string[]
+  seq: number
+}
 
 interface UseGitStatusInput {
   workspaceId: string | null
@@ -49,14 +55,55 @@ export function useGitStatus({
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [selectedDiffScope, setSelectedDiffScope] = useState<GitDiffScope>('unstaged')
 
+  // Optimistic overlay for stage/unstage
+  const [pendingActions, setPendingActions] = useState<OptimisticAction[]>([])
+  const optimisticSeqRef = useRef(0)
+
+  // When summary changes (real state arrives from git/updated event),
+  // discard all optimistic overlays — the server state is authoritative.
+  useEffect(() => {
+    if (pendingActions.length > 0) {
+      setPendingActions([])
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary?.files])
+
+  // Apply optimistic overlays to derive effective file list
+  const effectiveFiles = useMemo(() => {
+    const base = summary?.files ?? []
+    if (pendingActions.length === 0) return base
+    return base.map((file) => {
+      for (let i = pendingActions.length - 1; i >= 0; i--) {
+        const action = pendingActions[i]
+        if (!action.paths.includes(file.path)) continue
+        if (action.type === 'stage') {
+          if (file.status.startsWith('??')) {
+            // Untracked -> staged: show as added in index
+            return { ...file, staged: true, status: `A ${file.status.slice(2) || ''}`.trimEnd() || 'A ' }
+          }
+          // Modified file staged: index column gets the current worktree status
+          const worktreeChar = file.status.length >= 2 ? file.status[1] : ' '
+          return { ...file, staged: true, status: `${worktreeChar}${worktreeChar}` }
+        }
+        if (action.type === 'unstage') {
+          if (file.staged) {
+            const indexChar = file.status.length >= 1 ? file.status[0] : ' '
+            return { ...file, staged: false, status: ` ${indexChar}` }
+          }
+        }
+      }
+      return file
+    })
+  }, [summary?.files, pendingActions])
+
   // Derived
   const stagedFiles = useMemo(
-    () => (summary?.files ?? []).filter((item) => hasStagedChanges(item)),
-    [summary?.files],
+    () => effectiveFiles.filter((item) => hasStagedChanges(item)),
+    [effectiveFiles],
   )
   const unstagedFiles = useMemo(
-    () => (summary?.files ?? []).filter((item) => hasUnstagedChanges(item)),
-    [summary?.files],
+    () => effectiveFiles.filter((item) => hasUnstagedChanges(item)),
+    [effectiveFiles],
   )
   const visibleFiles = useMemo(() => {
     if (!summary) {
@@ -68,8 +115,8 @@ export function useGitStatus({
     if (filter === 'unstaged') {
       return unstagedFiles
     }
-    return summary.files
-  }, [filter, stagedFiles, summary, unstagedFiles])
+    return effectiveFiles
+  }, [filter, stagedFiles, summary, unstagedFiles, effectiveFiles])
 
   const hasStagedFiles = stagedFiles.length > 0
   const hasUnstagedFiles = unstagedFiles.length > 0
@@ -84,13 +131,18 @@ export function useGitStatus({
       if (!workspaceId || !isGitRepository || !path) {
         return
       }
-      await runAction('stage', async () => {
-        await desktopApi.gitStage(workspaceId, [path])
-        invalidateDiffCache()
-        await refreshSummaryOnly()
-      })
+      const seq = ++optimisticSeqRef.current
+      setPendingActions((prev) => [...prev, { type: 'stage', paths: [path], seq }])
+      try {
+        await runAction('stage', async () => {
+          await desktopApi.gitStage(workspaceId, [path])
+          invalidateDiffCache()
+        })
+      } finally {
+        setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
+      }
     },
-    [invalidateDiffCache, isGitRepository, refreshSummaryOnly, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, runAction, workspaceId],
   )
 
   const unstagePath = useCallback(
@@ -98,42 +150,53 @@ export function useGitStatus({
       if (!workspaceId || !isGitRepository || !path) {
         return
       }
-      await runAction('unstage', async () => {
-        await desktopApi.gitUnstage(workspaceId, [path])
-        invalidateDiffCache()
-        await refreshSummaryOnly()
-      })
+      const seq = ++optimisticSeqRef.current
+      setPendingActions((prev) => [...prev, { type: 'unstage', paths: [path], seq }])
+      try {
+        await runAction('unstage', async () => {
+          await desktopApi.gitUnstage(workspaceId, [path])
+          invalidateDiffCache()
+        })
+      } finally {
+        setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
+      }
     },
-    [invalidateDiffCache, isGitRepository, refreshSummaryOnly, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, runAction, workspaceId],
   )
 
   const stageAll = useCallback(async () => {
     if (!workspaceId || !isGitRepository || unstagedFiles.length === 0) {
       return
     }
-    await runAction('stage-all', async () => {
-      await desktopApi.gitStage(
-        workspaceId,
-        unstagedFiles.map((item) => item.path),
-      )
-      invalidateDiffCache()
-      await refreshSummaryOnly()
-    })
-  }, [invalidateDiffCache, isGitRepository, refreshSummaryOnly, runAction, unstagedFiles, workspaceId])
+    const paths = unstagedFiles.map((item) => item.path)
+    const seq = ++optimisticSeqRef.current
+    setPendingActions((prev) => [...prev, { type: 'stage', paths, seq }])
+    try {
+      await runAction('stage-all', async () => {
+        await desktopApi.gitStage(workspaceId, paths)
+        invalidateDiffCache()
+      })
+    } finally {
+      setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
+    }
+  }, [invalidateDiffCache, isGitRepository, runAction, unstagedFiles, workspaceId])
 
   const unstageAll = useCallback(async () => {
     if (!workspaceId || !isGitRepository || stagedFiles.length === 0) {
       return
     }
-    await runAction('unstage-all', async () => {
-      await desktopApi.gitUnstage(
-        workspaceId,
-        stagedFiles.map((item) => item.path),
-      )
-      invalidateDiffCache()
-      await refreshSummaryOnly()
-    })
-  }, [invalidateDiffCache, isGitRepository, refreshSummaryOnly, runAction, stagedFiles, workspaceId])
+    const paths = stagedFiles.map((item) => item.path)
+    const seq = ++optimisticSeqRef.current
+    setPendingActions((prev) => [...prev, { type: 'unstage', paths, seq }])
+    try {
+      await runAction('unstage-all', async () => {
+        await desktopApi.gitUnstage(workspaceId, paths)
+        invalidateDiffCache()
+      })
+    } finally {
+      setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
+    }
+  }, [invalidateDiffCache, isGitRepository, runAction, stagedFiles, workspaceId])
 
   const discardPath = useCallback(
     async (path: string, includeUntracked = false) => {
@@ -143,10 +206,9 @@ export function useGitStatus({
       await runAction('discard', async () => {
         await desktopApi.gitDiscard(workspaceId, [path], includeUntracked)
         invalidateDiffCache()
-        await refreshSummaryOnly()
       })
     },
-    [invalidateDiffCache, isGitRepository, refreshSummaryOnly, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, runAction, workspaceId],
   )
 
   const selectPath = useCallback(

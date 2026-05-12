@@ -177,7 +177,7 @@ pub async fn git_init(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "branch": branch,
@@ -313,7 +313,7 @@ pub async fn git_stage(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(build_git_stage_payload(&workspace_id, staged))
 }
 
@@ -336,7 +336,7 @@ pub async fn git_unstage(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(build_git_unstage_payload(&workspace_id, unstaged))
 }
 
@@ -361,7 +361,7 @@ pub async fn git_discard(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(build_git_discard_payload(&workspace_id, discarded))
 }
 
@@ -392,10 +392,10 @@ pub async fn git_commit(
     })
     .await?;
 
-    state.inner().git_status_coordinator.refresh_now(
+    state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &WorkspaceId::new(workspace_id),
+        &workspace_id,
     );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str(), "commitSha": sha }))
 }
@@ -488,7 +488,7 @@ pub async fn git_checkout(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "target": target,
@@ -583,7 +583,7 @@ pub async fn git_fetch(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(build_git_fetch_payload(&workspace_id, result))
 }
 
@@ -616,7 +616,7 @@ pub async fn git_pull(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(build_git_pull_payload(&workspace_id, result))
 }
 
@@ -652,7 +652,7 @@ pub async fn git_push(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(build_git_push_payload(&workspace_id, result))
 }
 
@@ -685,7 +685,7 @@ pub async fn git_stash_push(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "message": message,
@@ -715,7 +715,7 @@ pub async fn git_stash_pop(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "stash": stash,
@@ -836,10 +836,10 @@ pub async fn git_cherry_pick(
             .map_err(to_command_error)
     })
     .await?;
-    state.inner().git_status_coordinator.refresh_now(
+    state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &WorkspaceId::new(workspace_id),
+        &workspace_id,
     );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
 }
@@ -860,10 +860,10 @@ pub async fn git_revert(
             .map_err(to_command_error)
     })
     .await?;
-    state.inner().git_status_coordinator.refresh_now(
+    state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &WorkspaceId::new(workspace_id),
+        &workspace_id,
     );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
 }
@@ -885,10 +885,10 @@ pub async fn git_reset(
             .map_err(to_command_error)
     })
     .await?;
-    state.inner().git_status_coordinator.refresh_now(
+    state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &WorkspaceId::new(workspace_id),
+        &workspace_id,
     );
     Ok(json!({ "workspaceId": workspace_id_owned.as_str() }))
 }
@@ -941,7 +941,7 @@ pub async fn git_merge(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "success": result.success,
@@ -968,7 +968,7 @@ pub async fn git_merge_continue(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "commit": commit,
@@ -993,7 +993,7 @@ pub async fn git_merge_abort(
     state
         .inner()
         .git_status_coordinator
-        .refresh_now(&app, state.inner(), &workspace_id);
+        .refresh_immediate(&app, state.inner(), &workspace_id.as_str());
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
         "aborted": true,
@@ -1038,10 +1038,10 @@ pub async fn git_stage_hunk(
             .map_err(to_command_error)
     })
     .await?;
-    state.inner().git_status_coordinator.refresh_now(
+    state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &WorkspaceId::new(workspace_id),
+        &workspace_id,
     );
     Ok(json!({ "ok": true }))
 }
@@ -1064,10 +1064,10 @@ pub async fn git_unstage_hunk(
             .map_err(to_command_error)
     })
     .await?;
-    state.inner().git_status_coordinator.refresh_now(
+    state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &WorkspaceId::new(workspace_id),
+        &workspace_id,
     );
     Ok(json!({ "ok": true }))
 }

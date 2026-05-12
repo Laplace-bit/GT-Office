@@ -6,9 +6,8 @@ interface UseGitRemoteInput {
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
-  onRefreshSummary: () => Promise<void>
-  onRefreshMeta: () => Promise<void>
-  onRefreshHistory: () => Promise<void>
+  onRefreshBranches: () => Promise<void>
+  onRefreshAll: () => Promise<void>
 }
 
 interface UseGitRemoteResult {
@@ -22,9 +21,8 @@ export function useGitRemote({
   isGitRepository,
   runAction,
   invalidateDiffCache,
-  onRefreshSummary,
-  onRefreshMeta,
-  onRefreshHistory,
+  onRefreshBranches,
+  onRefreshAll,
 }: UseGitRemoteInput): UseGitRemoteResult {
   const fetch = useCallback(async () => {
     if (!workspaceId || !isGitRepository) {
@@ -32,9 +30,9 @@ export function useGitRemote({
     }
     await runAction('fetch', async () => {
       await desktopApi.gitFetch(workspaceId)
-      await Promise.all([onRefreshSummary(), onRefreshMeta()])
+      await onRefreshBranches()
     })
-  }, [isGitRepository, onRefreshMeta, onRefreshSummary, runAction, workspaceId])
+  }, [isGitRepository, onRefreshBranches, runAction, workspaceId])
 
   const pull = useCallback(async () => {
     if (!workspaceId || !isGitRepository) {
@@ -43,14 +41,12 @@ export function useGitRemote({
     await runAction('pull', async () => {
       await desktopApi.gitPull(workspaceId)
       invalidateDiffCache()
-      await Promise.all([onRefreshSummary(), onRefreshMeta(), onRefreshHistory()])
+      await onRefreshAll()
     })
   }, [
     invalidateDiffCache,
     isGitRepository,
-    onRefreshHistory,
-    onRefreshMeta,
-    onRefreshSummary,
+    onRefreshAll,
     runAction,
     workspaceId,
   ])
@@ -61,9 +57,8 @@ export function useGitRemote({
     }
     await runAction('push', async () => {
       await desktopApi.gitPush(workspaceId)
-      await onRefreshSummary()
     })
-  }, [isGitRepository, onRefreshSummary, runAction, workspaceId])
+  }, [isGitRepository, runAction, workspaceId])
 
   return { fetch, pull, push }
 }

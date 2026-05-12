@@ -6,9 +6,9 @@ interface UseGitCommitActionsInput {
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
-  onRefreshSummary: () => Promise<void>
-  onRefreshMeta: () => Promise<void>
+  onRefreshBranches: () => Promise<void>
   onRefreshHistory: () => Promise<void>
+  onRefreshAll: () => Promise<void>
 }
 
 interface UseGitCommitActionsResult {
@@ -23,9 +23,9 @@ export function useGitCommitActions({
   isGitRepository,
   runAction,
   invalidateDiffCache,
-  onRefreshSummary,
-  onRefreshMeta,
+  onRefreshBranches,
   onRefreshHistory,
+  onRefreshAll,
 }: UseGitCommitActionsInput): UseGitCommitActionsResult {
   const cherryPick = useCallback(
     async (commit: string) => {
@@ -35,10 +35,10 @@ export function useGitCommitActions({
       await runAction('cherry-pick', async () => {
         await desktopApi.gitCherryPick(workspaceId, commit)
         invalidateDiffCache()
-        await Promise.all([onRefreshSummary(), onRefreshMeta(), onRefreshHistory()])
+        await Promise.all([onRefreshHistory(), onRefreshBranches()])
       })
     },
-    [invalidateDiffCache, isGitRepository, onRefreshHistory, onRefreshMeta, onRefreshSummary, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshBranches, onRefreshHistory, runAction, workspaceId],
   )
 
   const revert = useCallback(
@@ -49,10 +49,10 @@ export function useGitCommitActions({
       await runAction('revert', async () => {
         await desktopApi.gitRevert(workspaceId, commit)
         invalidateDiffCache()
-        await Promise.all([onRefreshSummary(), onRefreshMeta(), onRefreshHistory()])
+        await Promise.all([onRefreshHistory(), onRefreshBranches()])
       })
     },
-    [invalidateDiffCache, isGitRepository, onRefreshHistory, onRefreshMeta, onRefreshSummary, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshBranches, onRefreshHistory, runAction, workspaceId],
   )
 
   const reset = useCallback(
@@ -63,10 +63,10 @@ export function useGitCommitActions({
       await runAction('reset', async () => {
         await desktopApi.gitReset(workspaceId, commit, mode)
         invalidateDiffCache()
-        await Promise.all([onRefreshSummary(), onRefreshMeta(), onRefreshHistory()])
+        await onRefreshAll()
       })
     },
-    [invalidateDiffCache, isGitRepository, onRefreshHistory, onRefreshMeta, onRefreshSummary, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshAll, runAction, workspaceId],
   )
 
   const createBranchFromCommit = useCallback(
@@ -80,10 +80,10 @@ export function useGitCommitActions({
           return
         }
         await desktopApi.gitCreateBranch(workspaceId, branchName.trim(), commit)
-        await Promise.all([onRefreshSummary(), onRefreshMeta(), onRefreshHistory()])
+        await Promise.all([onRefreshBranches(), onRefreshHistory()])
       })
     },
-    [isGitRepository, onRefreshHistory, onRefreshMeta, onRefreshSummary, runAction, workspaceId],
+    [isGitRepository, onRefreshBranches, onRefreshHistory, runAction, workspaceId],
   )
 
   return { cherryPick, revert, reset, createBranchFromCommit }

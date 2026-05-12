@@ -15,9 +15,8 @@ interface UseGitBranchInput {
   setCheckoutTarget: (target: string | ((prev: string) => string)) => void
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
-  onRefreshMeta: () => Promise<void>
-  onRefreshSummary: () => Promise<void>
-  onRefreshHistory: () => Promise<void>
+  onRefreshBranches: () => Promise<void>
+  onRefreshAll: () => Promise<void>
 }
 
 interface UseGitBranchResult {
@@ -39,9 +38,8 @@ export function useGitBranch({
   setCheckoutTarget,
   runAction,
   invalidateDiffCache,
-  onRefreshMeta,
-  onRefreshSummary,
-  onRefreshHistory,
+  onRefreshBranches,
+  onRefreshAll,
 }: UseGitBranchInput): UseGitBranchResult {
   // Only newBranchName is local state
   const [newBranchName, setNewBranchName] = useState('')
@@ -60,14 +58,12 @@ export function useGitBranch({
     await runAction('checkout', async () => {
       await desktopApi.gitCheckout(workspaceId, nextTarget, { create: false })
       invalidateDiffCache()
-      await Promise.all([onRefreshSummary(), onRefreshMeta(), onRefreshHistory()])
+      await onRefreshAll()
     })
   }, [
     invalidateDiffCache,
     isGitRepository,
-    onRefreshHistory,
-    onRefreshMeta,
-    onRefreshSummary,
+    onRefreshAll,
     runAction,
     setCheckoutTarget,
     workspaceId,
@@ -86,9 +82,9 @@ export function useGitBranch({
       await desktopApi.gitCreateBranch(workspaceId, branch, null)
       setNewBranchName('')
       setCheckoutTarget(branch)
-      await onRefreshMeta()
+      await onRefreshBranches()
     })
-  }, [isGitRepository, newBranchName, onRefreshMeta, runAction, setCheckoutTarget, workspaceId])
+  }, [isGitRepository, newBranchName, onRefreshBranches, runAction, setCheckoutTarget, workspaceId])
 
   const deleteBranch = useCallback(async () => {
     if (!workspaceId || !isGitRepository || !checkoutTarget.trim()) {
@@ -102,13 +98,13 @@ export function useGitBranch({
     }
     await runAction('delete-branch', async () => {
       await desktopApi.gitDeleteBranch(workspaceId, checkoutTarget, false)
-      await onRefreshMeta()
+      await onRefreshBranches()
     })
   }, [
     checkoutTarget,
     isGitRepository,
     locale,
-    onRefreshMeta,
+    onRefreshBranches,
     runAction,
     selectedBranchEntry?.current,
     workspaceId,
