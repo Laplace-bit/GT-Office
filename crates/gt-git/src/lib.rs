@@ -7,6 +7,8 @@ use gt_abstractions::{WorkspaceId, WorkspaceService};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::{
+    env,
+    ffi::OsString,
     path::{Component, Path, PathBuf},
     process::Command,
 };
@@ -446,6 +448,9 @@ where
         debug!(root = %root.display(), args = ?args, "running git command");
         let mut command = Command::new("git");
         configure_background_command(&mut command);
+        if let Some(path) = build_git_command_path() {
+            command.env("PATH", path);
+        }
         let output = command
             .arg("-C")
             .arg(root)
@@ -700,7 +705,11 @@ where
         }
 
         let summary = self.status(workspace_id)?;
-        Ok(summary.branch)
+        if summary.branch == "HEAD" {
+            Ok(branch.to_string())
+        } else {
+            Ok(summary.branch)
+        }
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id, path = path))]
@@ -2433,6 +2442,65 @@ fn configure_background_command(command: &mut Command) {
     }
 }
 
+fn build_git_command_path() -> Option<OsString> {
+    let current_path = env::var_os("PATH")
+        .map(|value| env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let mut paths = Vec::with_capacity(current_path.len() + 8);
+
+    for dir in common_binary_dirs() {
+        if !paths.iter().any(|existing| existing == &dir) {
+            paths.push(dir);
+        }
+    }
+
+    for dir in current_path {
+        if !paths.iter().any(|existing| existing == &dir) {
+            paths.push(dir);
+        }
+    }
+
+    env::join_paths(paths).ok()
+}
+
+fn common_binary_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let home = env::var_os("HOME").map(PathBuf::from);
+
+    if let Some(home) = home.as_ref() {
+        dirs.push(home.join(".local").join("bin"));
+        dirs.push(home.join(".npm-global").join("bin"));
+        dirs.push(home.join(".yarn").join("bin"));
+        dirs.push(home.join(".volta").join("bin"));
+        dirs.push(home.join(".cargo").join("bin"));
+        dirs.push(home.join(".asdf").join("shims"));
+        dirs.push(home.join(".fnm").join("current").join("bin"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(appdata) = env::var_os("APPDATA") {
+            dirs.push(PathBuf::from(appdata).join("npm"));
+        }
+        if let Some(localappdata) = env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(localappdata).join("Programs").join("nodejs"));
+        }
+        if let Some(programfiles) = env::var_os("ProgramFiles") {
+            dirs.push(PathBuf::from(programfiles).join("nodejs"));
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+        dirs.push(PathBuf::from("/usr/local/bin"));
+        dirs.push(PathBuf::from("/usr/bin"));
+        dirs.push(PathBuf::from("/bin"));
+    }
+
+    dirs
+}
+
 #[cfg(test)]
 mod tests {
     use super::GitService;
@@ -2444,8 +2512,11 @@ mod tests {
         fs,
         path::{Path, PathBuf},
         process::Command,
+        sync::Mutex,
     };
     use uuid::Uuid;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[derive(Clone)]
     struct TestWorkspaceService {
@@ -2515,6 +2586,81 @@ mod tests {
         let workspace_service = TestWorkspaceService { root: root.clone() };
         let service = GitService::new(workspace_service);
         (workspace_id, root, service)
+    }
+
+    fn restore_env_var(key: &str, value: Option<std::ffi::OsString>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+
+    #[cfg(unix)]
+    fn make_executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("chmod");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn commit_succeeds_when_hook_needs_node_outside_inherited_path() {
+        use std::os::unix::fs::symlink;
+
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let (workspace_id, root, service) = create_temp_repo();
+        let test_home = std::env::temp_dir().join(format!("gt-git-home-{}", Uuid::new_v4()));
+        let git_bin_dir = root.join("git-bin");
+        let node_bin_dir = test_home.join(".local").join("bin");
+        fs::create_dir_all(&git_bin_dir).expect("create git-only path");
+        fs::create_dir_all(&node_bin_dir).expect("create node bin path");
+
+        let git_path_output = Command::new("which")
+            .arg("git")
+            .output()
+            .expect("which git should run");
+        assert!(git_path_output.status.success(), "which git should succeed");
+        let git_path = String::from_utf8_lossy(&git_path_output.stdout)
+            .trim()
+            .to_string();
+        assert!(!git_path.is_empty(), "git path should not be empty");
+        symlink(&git_path, git_bin_dir.join("git")).expect("symlink git");
+
+        let node_script = node_bin_dir.join("node");
+        fs::write(
+            &node_script,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"v20.0.0\"\n  exit 0\nfi\nexit 0\n",
+        )
+        .expect("write fake node");
+        make_executable(&node_script);
+
+        let hooks_dir = root.join(".git").join("hooks");
+        fs::create_dir_all(&hooks_dir).expect("create hooks dir");
+        let pre_commit = hooks_dir.join("pre-commit");
+        fs::write(&pre_commit, "#!/bin/sh\nnode --version >/dev/null\n").expect("write hook");
+        make_executable(&pre_commit);
+
+        fs::write(root.join("hook.txt"), "hook\n").expect("write file");
+        service
+            .stage(&workspace_id, &[String::from("hook.txt")])
+            .expect("stage");
+
+        let previous_home = std::env::var_os("HOME");
+        let previous_path = std::env::var_os("PATH");
+        std::env::set_var("HOME", &test_home);
+        std::env::set_var("PATH", &git_bin_dir);
+
+        let result = service.commit(&workspace_id, "feat: hook commit");
+
+        restore_env_var("HOME", previous_home);
+        restore_env_var("PATH", previous_path);
+        fs::remove_dir_all(&test_home).expect("remove test home");
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+
+        let commit_id = result.expect("commit should succeed with augmented path");
+        assert_eq!(commit_id.len(), 40);
     }
 
     #[test]
