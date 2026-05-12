@@ -28,6 +28,7 @@ import {
   readTerminalFileDropPayload,
   type TerminalFileDropPayload,
 } from '@shell/utils/terminal-file-drop'
+import { resolveTerminalSerializeDelayMs } from './station-terminal-capture-policy'
 
 export interface StationTerminalSink {
   write: (chunk: string) => Promise<void>
@@ -78,6 +79,7 @@ const TERMINAL_OVERVIEW_RULER_WIDTH = 0
 const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
 const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
+const TERMINAL_SERIALIZE_MIN_INTERVAL_MS = 1000
 const BACKGROUND_TERMINAL_INIT_TIMEOUT_MS = 1200
 const BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS = 96
 const TERMINAL_RENDERER_RECOVERY_DELAY_MS = 180
@@ -628,6 +630,7 @@ function StationXtermTerminalView({
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
     let serializeFrameId: number | null = null
+    let serializeTimeoutId: number | null = null
     let renderDisposable: { dispose: () => void } | null = null
     let workspaceTransitionObserver: MutationObserver | null = null
     let captureLatestRestoreState: (() => void) | null = null
@@ -637,6 +640,7 @@ function StationXtermTerminalView({
     let pendingNativeTextInputRef: { current: boolean } | null = null
     let pendingNativeTextInputXtermDataRef: { current: string | null } | null = null
     let lastReportAtMs = 0
+    let lastSerializedAtMs = 0
     let serializedRestoreState: string | null = null
     let serializedRestoreCols = 0
     let serializedRestoreRows = 0
@@ -862,12 +866,13 @@ function StationXtermTerminalView({
               },
               sessionId ?? null,
             )
+            lastSerializedAtMs = Date.now()
           } catch {
             // No-op: serialization should not break terminal lifecycle.
           }
         }
         captureLatestRestoreState = captureSerializedRestoreState
-        const scheduleSerializedRestoreStateCapture = () => {
+        const queueSerializedRestoreStateCapture = () => {
           if (performanceDebugEnabled) {
             return
           }
@@ -878,6 +883,35 @@ function StationXtermTerminalView({
             serializeFrameId = null
             captureSerializedRestoreState()
           })
+        }
+        const scheduleSerializedRestoreStateCapture = (priority: 'urgent' | 'throttled' = 'throttled') => {
+          if (performanceDebugEnabled) {
+            return
+          }
+          if (priority === 'urgent') {
+            if (serializeTimeoutId !== null) {
+              window.clearTimeout(serializeTimeoutId)
+              serializeTimeoutId = null
+            }
+            queueSerializedRestoreStateCapture()
+            return
+          }
+          const delay = resolveTerminalSerializeDelayMs(
+            lastSerializedAtMs,
+            Date.now(),
+            TERMINAL_SERIALIZE_MIN_INTERVAL_MS,
+          )
+          if (delay === 0) {
+            queueSerializedRestoreStateCapture()
+            return
+          }
+          if (serializeTimeoutId !== null) {
+            return
+          }
+          serializeTimeoutId = window.setTimeout(() => {
+            serializeTimeoutId = null
+            queueSerializedRestoreStateCapture()
+          }, delay)
         }
         const captureRenderedScreenSnapshot = (): RenderedScreenSnapshot | null => {
           const activeSessionId = sessionId?.trim()
@@ -1233,7 +1267,7 @@ function StationXtermTerminalView({
             }
             await writeTerminalChunk(chunk)
             scheduleRefresh()
-            scheduleSerializedRestoreStateCapture()
+            scheduleSerializedRestoreStateCapture('throttled')
             scheduleRenderedScreenSnapshot()
           },
           reset: async (content?: string) => {
@@ -1244,7 +1278,7 @@ function StationXtermTerminalView({
               }
               await writeReplayContent(content)
               scheduleRefresh()
-              scheduleSerializedRestoreStateCapture()
+              scheduleSerializedRestoreStateCapture('urgent')
             }
             scheduleRefresh()
           },
@@ -1255,7 +1289,7 @@ function StationXtermTerminalView({
             terminal.reset()
             await writeReplayContent(content)
             scheduleRefresh()
-            scheduleSerializedRestoreStateCapture()
+            scheduleSerializedRestoreStateCapture('urgent')
             if (fitAndRefresh()) {
               onResizeRef.current(stationId, terminal.cols, terminal.rows)
               return
@@ -1318,6 +1352,9 @@ function StationXtermTerminalView({
       }
       if (serializeFrameId !== null) {
         window.cancelAnimationFrame(serializeFrameId)
+      }
+      if (serializeTimeoutId !== null) {
+        window.clearTimeout(serializeTimeoutId)
       }
       if (focusRetryFrameRef.current !== null) {
         window.cancelAnimationFrame(focusRetryFrameRef.current)
