@@ -1,3 +1,28 @@
+## v0.5.0 (2026-05-12)
+
+- 4865530 Fix git hook PATH handling in background commands
+- c5f443b Fix workspace switch editor tab desync
+- 3f97afd Implement AI provider workspace
+- ce56621 Persist tab reorder across backend refreshes
+- bf3872f Clear dragging state in drop handlers to prevent stuck tab
+- 5dada0f Fix cross-window workspace tab drag-and-drop merge
+- d4e11f3 Fix workspace tab reorder drop index
+- e741714 Center StationCard activity comet
+- 240ca33 Clean terminal recovery timers and tab reorder path
+- 8d066d3 Fix detached workspace window terminal handoff
+- a0b4e14 Keep file tree mounted across pane switches
+- 9619e5d Add terminal file path drag from tree and tabs
+- 8602c77 Fix clippy question_mark lint in app state
+- 139bc62 Format tauri git and feishu command modules
+- 143710b Simplify channel connector agent binding flows
+- 5f86e1c Revert "Refine station dock restore ghost animation"
+- d57ba15 Refine station dock restore ghost animation
+- f826253 Optimize station dock restore animation
+- 5aed00b Fix station dock restore layout flicker
+- 2f73d5d Refine station minimize dock interactions
+- 3ffb5d7 Fix terminal menu parsing and stale git discard paths
+- 5755e17 Fix git discard for added files
+
 ## v0.4.2 (2026-05-09)
 
 - 09d4b7e Harden workspace switching crash guards
