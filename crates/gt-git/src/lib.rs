@@ -234,6 +234,7 @@ where
     W: WorkspaceService + Clone,
 {
     workspace_service: W,
+    git_path: Option<OsString>,
 }
 
 impl<W> GitService<W>
@@ -241,7 +242,8 @@ where
     W: WorkspaceService + Clone,
 {
     pub fn new(workspace_service: W) -> Self {
-        Self { workspace_service }
+        let git_path = build_git_command_path();
+        Self { workspace_service, git_path }
     }
 
     fn workspace_root(&self, workspace_id: &WorkspaceId) -> AbstractionResult<PathBuf> {
@@ -444,11 +446,25 @@ where
         Ok(summary)
     }
 
+    /// Resolve the HEAD commit OID using git2 (in-process, no fork).
+    fn resolve_head_oid(&self, root: &Path) -> AbstractionResult<String> {
+        let repo = Repository::discover(root).map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_REV_PARSE_FAILED: repository discovery failed: {err}"),
+        })?;
+        let head = repo.head().map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_REV_PARSE_FAILED: failed to read HEAD: {err}"),
+        })?;
+        let oid = head.target().ok_or_else(|| AbstractionError::Internal {
+            message: "GIT_REV_PARSE_FAILED: HEAD has no target".to_string(),
+        })?;
+        Ok(oid.to_string())
+    }
+
     fn run_git(&self, root: &Path, args: &[&str], error_code: &str) -> AbstractionResult<String> {
         debug!(root = %root.display(), args = ?args, "running git command");
         let mut command = Command::new("git");
         configure_background_command(&mut command);
-        if let Some(path) = build_git_command_path() {
+        if let Some(path) = &self.git_path {
             command.env("PATH", path);
         }
         let output = command
@@ -509,6 +525,7 @@ where
         Ok(Self::parse_nul_delimited_output(&output))
     }
 
+    #[allow(dead_code)]
     fn list_index_new_paths(
         &self,
         root: &Path,
@@ -534,6 +551,7 @@ where
         Ok(Self::parse_nul_delimited_output(&output))
     }
 
+    #[allow(dead_code)]
     fn list_tracked_paths(
         &self,
         root: &Path,
@@ -550,6 +568,86 @@ where
         let output = self.run_git(root, &args, error_code)?;
 
         Ok(Self::parse_nul_delimited_output(&output))
+    }
+
+    fn filter_ignored_paths(
+        &self,
+        root: &Path,
+        paths: &[String],
+    ) -> AbstractionResult<Vec<String>> {
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        debug!(
+            root = %root.display(),
+            path_count = paths.len(),
+            "batch filtering ignored git paths"
+        );
+        let mut command = Command::new("git");
+        configure_background_command(&mut command);
+        if let Some(path) = &self.git_path {
+            command.env("PATH", path);
+        }
+        let mut child = command
+            .arg("-C")
+            .arg(root)
+            .env("LC_ALL", "C.UTF-8")
+            .env("LANG", "C.UTF-8")
+            .args(["check-ignore", "--stdin", "-z"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_STAGE_FAILED: failed to run git check-ignore: {err}"),
+            })?;
+
+        {
+            use std::io::Write;
+            let mut stdin = child.stdin.take().ok_or_else(|| AbstractionError::Internal {
+                message: "GIT_STAGE_FAILED: unable to open stdin for git check-ignore"
+                    .to_string(),
+            })?;
+            for path in paths {
+                stdin.write_all(path.as_bytes()).map_err(|err| {
+                    AbstractionError::Internal {
+                        message: format!(
+                            "GIT_STAGE_FAILED: failed to write path '{path}' to git check-ignore: {err}"
+                        ),
+                    }
+                })?;
+                stdin.write_all(b"\0").map_err(|err| AbstractionError::Internal {
+                    message: format!(
+                        "GIT_STAGE_FAILED: failed to terminate path '{path}' for git check-ignore: {err}"
+                    ),
+                })?;
+            }
+        }
+
+        let output = child.wait_with_output().map_err(|err| AbstractionError::Internal {
+            message: format!("GIT_STAGE_FAILED: git check-ignore failed to complete: {err}"),
+        })?;
+
+        if !output.status.success() && output.status.code() != Some(1) {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(AbstractionError::Internal {
+                message: format!("GIT_STAGE_FAILED: git check-ignore failed: {stderr}"),
+            });
+        }
+
+        let ignored_paths = output
+            .stdout
+            .split(|byte| *byte == b'\0')
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| String::from_utf8_lossy(segment).to_string())
+            .collect::<std::collections::HashSet<_>>();
+
+        Ok(paths
+            .iter()
+            .filter(|path| !ignored_paths.contains(path.as_str()))
+            .cloned()
+            .collect())
     }
 
     fn status_with_system_git(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
@@ -584,35 +682,6 @@ where
             });
         }
         Ok(())
-    }
-
-    fn filter_ignored_paths(
-        &self,
-        root: &Path,
-        paths: &[String],
-    ) -> AbstractionResult<Vec<String>> {
-        let repo = Repository::open(root).map_err(|err| AbstractionError::Internal {
-            message: format!(
-                "GIT_STAGE_FAILED: failed to open repository '{}' for ignore checks: {err}",
-                root.display()
-            ),
-        })?;
-        let mut stageable = Vec::with_capacity(paths.len());
-
-        for path in paths {
-            let ignored = repo.status_should_ignore(Path::new(path)).map_err(|err| {
-                AbstractionError::Internal {
-                    message: format!(
-                        "GIT_STAGE_FAILED: failed to inspect ignore rules for '{path}': {err}"
-                    ),
-                }
-            })?;
-            if !ignored {
-                stageable.push(path.clone());
-            }
-        }
-
-        Ok(stageable)
     }
 
     fn validate_branch_name(&self, root: &Path, branch: &str) -> AbstractionResult<()> {
@@ -1514,15 +1583,27 @@ where
         }
 
         let root = self.workspace_root(workspace_id)?;
-        let stageable_paths = self.filter_ignored_paths(&root, paths)?;
-        if stageable_paths.is_empty() {
-            return Ok(0);
-        }
         let mut owned_args = vec!["add".to_string(), "--".to_string()];
-        owned_args.extend(stageable_paths.iter().cloned());
+        owned_args.extend(paths.iter().cloned());
         let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &args, "GIT_STAGE_FAILED")?;
-        Ok(stageable_paths.len())
+
+        // Try staging all paths at once. If some are ignored, git add fails.
+        // In that case, filter out ignored paths and retry with only stageable ones.
+        match self.run_git(&root, &args, "GIT_STAGE_FAILED") {
+            Ok(_) => Ok(paths.len()),
+            Err(AbstractionError::Internal { message }) if message.contains("ignored by one of your .gitignore files") => {
+                let stageable_paths = self.filter_ignored_paths(&root, paths)?;
+                if stageable_paths.is_empty() {
+                    return Ok(0);
+                }
+                let mut retry_args = vec!["add".to_string(), "--".to_string()];
+                retry_args.extend(stageable_paths.iter().cloned());
+                let retry_refs = retry_args.iter().map(String::as_str).collect::<Vec<_>>();
+                self.run_git(&root, &retry_refs, "GIT_STAGE_FAILED")?;
+                Ok(stageable_paths.len())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     #[instrument(skip(self, paths), fields(workspace_id = %workspace_id, path_count = paths.len()))]
@@ -1570,17 +1651,71 @@ where
 
         let root = self.workspace_root(workspace_id)?;
 
-        let untracked_paths = if include_untracked {
-            self.list_untracked_paths(&root, paths, "GIT_DISCARD_FAILED")?
-        } else {
-            std::collections::HashSet::new()
-        };
-        let index_new_paths = self.list_index_new_paths(&root, paths, "GIT_DISCARD_FAILED")?;
-        let tracked_paths = self
-            .list_tracked_paths(&root, paths, "GIT_DISCARD_FAILED")?
-            .into_iter()
-            .filter(|path| !untracked_paths.contains(path) && !index_new_paths.contains(path))
-            .collect::<Vec<_>>();
+        // Classify paths using a single git status --porcelain -z call instead of
+        // three separate git invocations (ls-files, diff --cached, ls-files).
+        let mut status_args = vec![
+            "status".to_string(),
+            "--porcelain".to_string(),
+            "-z".to_string(),
+            "--".to_string(),
+        ];
+        status_args.extend(paths.iter().cloned());
+        let status_refs = status_args.iter().map(String::as_str).collect::<Vec<_>>();
+        let status_output = self.run_git(&root, &status_refs, "GIT_DISCARD_FAILED")?;
+
+        let path_set: std::collections::HashSet<&str> =
+            paths.iter().map(String::as_str).collect();
+        let mut untracked_paths = std::collections::HashSet::new();
+        let mut index_new_paths = std::collections::HashSet::new();
+        let mut tracked_paths = Vec::new();
+
+        // Porcelain -z format: "XY PATH\0" for ordinary entries,
+        // "XY OLD_PATH\0NEW_PATH\0" for renames/copies,
+        // "?? PATH\0" for untracked.
+        // XY is 2 chars, followed by a space, then the path.
+        // Split on \0 but preserve order for multi-segment entries.
+        let segments: Vec<&str> = status_output.split('\0').collect();
+        let mut i = 0;
+        while i < segments.len() {
+            let segment = segments[i];
+            if segment.is_empty() {
+                i += 1;
+                continue;
+            }
+            if segment.len() >= 4 {
+                let xy = &segment[..2];
+                let rest = &segment[3..]; // skip "XY " (2 status chars + 1 space)
+                if xy == "??" {
+                    if path_set.contains(rest) {
+                        untracked_paths.insert(rest.to_string());
+                    }
+                    i += 1;
+                } else if xy.starts_with('R') || xy.starts_with('C') {
+                    // Rename/copy: rest is new_path, next segment is old_path
+                    if path_set.contains(rest) {
+                        tracked_paths.push(rest.to_string());
+                    }
+                    i += 2; // consume both new_path and old_path segments
+                } else {
+                    // Ordinary status: rest is the path
+                    if path_set.contains(rest) {
+                        let index_status = xy.chars().next().unwrap_or(' ');
+                        if index_status == 'A' {
+                            index_new_paths.insert(rest.to_string());
+                        } else if !untracked_paths.contains(rest) && !index_new_paths.contains(rest) {
+                            tracked_paths.push(rest.to_string());
+                        }
+                    }
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+
+        // Filter tracked_paths to exclude untracked and index-new
+        tracked_paths.retain(|p| !untracked_paths.contains(p) && !index_new_paths.contains(p));
+
         let discarded = tracked_paths.len() + index_new_paths.len() + untracked_paths.len();
 
         if !tracked_paths.is_empty() {
@@ -1627,9 +1762,7 @@ where
             "GIT_COMMIT_FAILED",
         )?;
 
-        let commit_id = self
-            .run_git(&root, &["rev-parse", "HEAD"], "GIT_COMMIT_FAILED")
-            .map(|stdout| stdout.trim().to_string())?;
+        let commit_id = self.resolve_head_oid(&root)?;
         Ok(commit_id)
     }
 
@@ -1653,9 +1786,7 @@ where
             "GIT_COMMIT_FAILED",
         )?;
 
-        let commit_id = self
-            .run_git(&root, &["rev-parse", "HEAD"], "GIT_COMMIT_FAILED")
-            .map(|stdout| stdout.trim().to_string())?;
+        let commit_id = self.resolve_head_oid(&root)?;
         Ok(commit_id)
     }
 
@@ -1723,20 +1854,28 @@ where
         let commit_id = Self::validate_commit_id(commit)?;
         let root = self.workspace_root(workspace_id)?;
 
-        let meta_output = self.run_git(
+        // Merge metadata + body into a single git show call.
+        // %x1e separates the structured metadata from the body text.
+        let pretty_format = format!("--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e%b");
+        let combined_output = self.run_git(
             &root,
             &[
                 "show",
                 "--no-patch",
                 "--date=iso-strict",
                 "--decorate=short",
-                "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s",
+                &pretty_format,
                 &commit_id,
             ],
             "GIT_COMMIT_DETAIL_FAILED",
         )?;
 
-        let meta_fields = meta_output
+        let (meta_part, body_part) = combined_output
+            .split_once(LOG_RECORD_SEP)
+            .unwrap_or((&combined_output, ""));
+        let body = body_part.trim_end().to_string();
+
+        let meta_fields = meta_part
             .trim()
             .split(LOG_FIELD_SEP)
             .map(ToString::to_string)
@@ -1746,15 +1885,6 @@ where
                 message: "GIT_COMMIT_DETAIL_FAILED: failed to parse commit metadata".to_string(),
             });
         }
-
-        let body = self
-            .run_git(
-                &root,
-                &["show", "--no-patch", "--pretty=format:%b", &commit_id],
-                "GIT_COMMIT_DETAIL_FAILED",
-            )?
-            .trim_end()
-            .to_string();
 
         let files_output = self.run_git(
             &root,
@@ -2392,8 +2522,8 @@ where
         let root = self.workspace_root(workspace_id)?;
         self.run_git(&root, &["commit", "--no-edit"], "GIT_MERGE_CONTINUE_FAILED")?;
 
-        let head = self.run_git(&root, &["rev-parse", "HEAD"], "GIT_MERGE_CONTINUE_FAILED")?;
-        Ok(head.trim().to_string())
+        let head = self.resolve_head_oid(&root)?;
+        Ok(head)
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
