@@ -628,6 +628,9 @@ export function useShellWorkspaceSessionController({
     if (departingWorkspaceId === activeWorkspaceId) {
       return
     }
+    if (departingWorkspaceId !== null) {
+      resetFileState()
+    }
     previousActiveWorkspaceIdRef.current = activeWorkspaceId
     pendingWorkspacePresentationSwitchRef.current = {
       departingWorkspaceId,

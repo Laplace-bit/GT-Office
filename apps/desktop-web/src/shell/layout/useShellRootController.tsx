@@ -482,6 +482,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   })
 
   const {
+    presentedWorkspaceId,
     closeConfirmState,
     closeSubmitting,
     requestCloseWorkspace,
@@ -491,6 +492,16 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     handleMergeWorkspaceTab,
     handlePickWorkspaceDirectory,
   } = workspaceSessionController
+
+  const presentedWorkspaceRoot = useMemo(() => {
+    if (!presentedWorkspaceId) {
+      return null
+    }
+    if (presentedWorkspaceId === activeWorkspaceId) {
+      return activeWorkspaceRoot
+    }
+    return workspaceTabs.find((tab) => tab.workspaceId === presentedWorkspaceId)?.root ?? null
+  }, [activeWorkspaceId, activeWorkspaceRoot, presentedWorkspaceId, workspaceTabs])
 
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
@@ -1220,8 +1231,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onRightPaneResizeKeyDown: handleRightPaneResizeKeyDown,
     fileTreePaneProps: {
         locale,
-        workspaceId: activeWorkspaceId,
-        workspaceRoot: activeWorkspaceRoot,
+        workspaceId: presentedWorkspaceId,
+        workspaceRoot: presentedWorkspaceRoot,
         isMacOs: nativeWindowTopMacOs,
         selectedFilePath: activeFilePath,
         onSelectFile: handleFileTreeSelectFile,
@@ -1263,8 +1274,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     pinnedWorkbenchCanvasProps,
     fileEditorPaneProps: {
         locale,
-        workspaceId: activeWorkspaceId,
-        workspaceRoot: activeWorkspaceRoot,
+        workspaceId: presentedWorkspaceId,
+        workspaceRoot: presentedWorkspaceRoot,
         openedFiles,
         activeFilePath,
         loading: fileReadLoading,

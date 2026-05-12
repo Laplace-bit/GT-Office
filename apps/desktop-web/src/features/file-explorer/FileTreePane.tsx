@@ -934,6 +934,25 @@ export function FileTreePane({
     }
   }, [clearPendingDragCollapse])
 
+  useEffect(() => {
+    pendingRefreshDirectoriesRef.current.clear()
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = null
+    }
+    clearPendingDragExpand()
+    clearPendingDragCollapse()
+    restoreAutoExpandedDirectories()
+    pendingDropDirectoryRef.current = null
+    nativeFileDragPathRef.current = null
+    setContextMenu(null)
+  }, [
+    clearPendingDragCollapse,
+    clearPendingDragExpand,
+    restoreAutoExpandedDirectories,
+    workspaceId,
+  ])
+
   const stopDragAutoScroll = useCallback(() => {
     dragScrollDeltaRef.current = 0
     if (dragScrollFrameRef.current !== null) {
