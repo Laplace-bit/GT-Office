@@ -2,6 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopApi } from '../integration/desktop-api'
 import type { WorkspaceTabInfo } from './workspace-tab-model'
 import { normalizeWorkspaceTabsResponse } from './workspace-tab-normalization'
+
+function applyTabOrder(tabs: WorkspaceTabInfo[], order: string[]): WorkspaceTabInfo[] {
+  if (order.length === 0) {
+    return tabs
+  }
+  const tabMap = new Map(tabs.map((t) => [t.workspaceId, t]))
+  const ordered: WorkspaceTabInfo[] = []
+  const addedIds = new Set<string>()
+  for (const id of order) {
+    const tab = tabMap.get(id)
+    if (tab) {
+      ordered.push(tab)
+      addedIds.add(id)
+    }
+  }
+  for (const tab of tabs) {
+    if (!addedIds.has(tab.workspaceId)) {
+      ordered.push(tab)
+    }
+  }
+  return ordered
+}
 import { logPerformanceDebug } from './performance-debug'
 import { useShellWorkspaceController } from '../layout/useShellWorkspaceController'
 
@@ -49,6 +71,7 @@ export function useWorkspaceTabController(
   const [pendingWorkspaceSwitchId, setPendingWorkspaceSwitchId] = useState<string | null>(null)
   const [closingTabId, setClosingTabId] = useState<string | null>(null)
   const pendingWorkspaceSwitchIdRef = useRef<string | null>(null)
+  const tabOrderRef = useRef<string[]>([])
 
   const beginWorkspaceSwitchAnimation = useCallback((workspaceId?: string | null) => {
     if (workspaceId && pendingWorkspaceSwitchIdRef.current !== workspaceId) {
@@ -152,6 +175,7 @@ export function useWorkspaceTabController(
           return prev
         }
         next.splice(toIndex, 0, moved)
+        tabOrderRef.current = next.map((t) => t.workspaceId)
         return next
       })
     },
@@ -166,7 +190,10 @@ export function useWorkspaceTabController(
     let cancelled = false
     void desktopApi.workspaceList().then((response) => {
       if (cancelled) return
-      setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
+      const tabs = normalizeWorkspaceTabsResponse(response)
+      const ordered = applyTabOrder(tabs, tabOrderRef.current)
+      tabOrderRef.current = ordered.map((t) => t.workspaceId)
+      setWorkspaceTabs(ordered)
     })
 
     return () => {
@@ -182,29 +209,26 @@ export function useWorkspaceTabController(
     let unlisten: (() => void) | null = null
     let unlistenWindowClosed: (() => void) | null = null
 
+    const refreshTabs = () => {
+      void desktopApi.workspaceList().then((response) => {
+        const tabs = normalizeWorkspaceTabsResponse(response)
+        const ordered = applyTabOrder(tabs, tabOrderRef.current)
+        tabOrderRef.current = ordered.map((t) => t.workspaceId)
+        setWorkspaceTabs(ordered)
+      })
+    }
+
     void desktopApi
       .subscribeWorkspaceEvents({
-        onUpdated: () => {
-          void desktopApi.workspaceList().then((response) => {
-            setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
-          })
-        },
-        onActiveChanged: () => {
-          void desktopApi.workspaceList().then((response) => {
-            setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
-          })
-        },
+        onUpdated: refreshTabs,
+        onActiveChanged: refreshTabs,
       })
       .then((fn) => {
         unlisten = fn
       })
 
     void desktopApi
-      .subscribeWorkspaceWindowClosed(() => {
-        void desktopApi.workspaceList().then((response) => {
-          setWorkspaceTabs(normalizeWorkspaceTabsResponse(response))
-        })
-      })
+      .subscribeWorkspaceWindowClosed(refreshTabs)
       .then((fn) => {
         unlistenWindowClosed = fn
       })
