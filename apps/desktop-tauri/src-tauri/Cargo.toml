@@ -31,6 +31,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 rfd = "0.14"
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = "0.8"
 open = "5.3"
 strip-ansi-escapes = "0.2"
 tauri = { version = "2", features = ["protocol-asset"] }

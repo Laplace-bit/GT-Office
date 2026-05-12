@@ -1,4 +1,5 @@
 pub mod ai_config;
+pub mod ai_config_import;
 pub mod update;
 
 use gt_abstractions::SettingsScope;

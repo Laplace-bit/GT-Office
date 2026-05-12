@@ -1,0 +1,78 @@
+use std::collections::BTreeMap;
+
+use crate::models::{GeminiAuthMode, GeminiProviderPreset};
+
+use super::{build_gemini_china_preset, build_gemini_preset, env_map};
+
+pub fn gemini_provider_presets() -> Vec<GeminiProviderPreset> {
+    vec![
+        build_gemini_preset(
+            "geminiOfficial",
+            "google-official",
+            "aiConfig.category.global",
+            "https://ai.google.dev/",
+            "https://aistudio.google.com/app/apikey",
+            "https://aistudio.google.com/",
+            "gemini-2.5-pro",
+            Some("https://generativelanguage.googleapis.com"),
+            GeminiAuthMode::OAuth,
+            GeminiAuthMode::OAuth.selected_type(),
+            false,
+            BTreeMap::new(),
+        ),
+        build_gemini_preset(
+            "geminiApiKey",
+            "google-api-key",
+            "aiConfig.category.global",
+            "https://ai.google.dev/",
+            "https://aistudio.google.com/app/apikey",
+            "https://aistudio.google.com/",
+            "gemini-2.5-pro",
+            Some("https://generativelanguage.googleapis.com"),
+            GeminiAuthMode::ApiKey,
+            GeminiAuthMode::ApiKey.selected_type(),
+            true,
+            BTreeMap::new(),
+        ),
+        build_gemini_preset(
+            "geminiOpenRouter",
+            "openrouter",
+            "aiConfig.category.global",
+            "https://openrouter.ai/",
+            "https://openrouter.ai/keys",
+            "https://openrouter.ai/",
+            "google/gemini-2.5-pro",
+            Some("https://openrouter.ai/api/v1"),
+            GeminiAuthMode::ApiKey,
+            GeminiAuthMode::ApiKey.selected_type(),
+            true,
+            env_map(&[("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")]),
+        ),
+        build_gemini_china_preset("geminiDeepseek", "deepseek", "https://platform.deepseek.com/", "https://platform.deepseek.com/api_keys", "deepseek-chat", "https://api.deepseek.com/v1"),
+        build_gemini_china_preset("geminiZhipuGlm", "zhipu-glm", "https://open.bigmodel.cn/", "https://www.bigmodel.cn/claude-code?ic=RRVJPB5SII", "glm-5", "https://open.bigmodel.cn/api/paas/v4"),
+        build_gemini_china_preset("geminiQwenCoder", "qwen-coder", "https://bailian.console.aliyun.com/", "https://bailian.console.aliyun.com/#/api-key", "qwen3.5-plus", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        build_gemini_china_preset("geminiKimiK2", "kimi-k2", "https://platform.moonshot.cn/console", "https://platform.moonshot.cn/console/api-keys", "kimi-k2.5", "https://api.moonshot.cn/v1"),
+        build_gemini_china_preset("geminiKimiForCoding", "kimi-for-coding", "https://www.kimi.com/coding/docs/", "https://platform.moonshot.cn/console/api-keys", "kimi-for-coding", "https://api.kimi.com/v1"),
+        build_gemini_china_preset("geminiMinimax", "minimax", "https://platform.minimaxi.com/", "https://platform.minimaxi.com/subscribe/coding-plan", "MiniMax-M2.7", "https://api.minimaxi.com/v1"),
+        build_gemini_china_preset("geminiDoubaoSeed", "doubaoseed", "https://www.volcengine.com/product/doubao", "https://www.volcengine.com/product/doubao", "doubao-seed-2-0-code-preview-latest", "https://ark.cn-beijing.volces.com/api/v3"),
+        build_gemini_china_preset("geminiXiaomiMimo", "xiaomi-mimo", "https://platform.xiaomimimo.com/", "https://platform.xiaomimimo.com/#/console/api-keys", "mimo-v2-pro", "https://api.xiaomimimo.com/v1"),
+        build_gemini_china_preset("geminiModelScope", "modelscope", "https://modelscope.cn/", "https://modelscope.cn/my/myaccesstoken", "ZhipuAI/GLM-5", "https://api-inference.modelscope.cn/v1"),
+        build_gemini_china_preset("geminiKatCoder", "kat-coder", "https://console.streamlake.ai/", "https://console.streamlake.ai/console/api-key", "KAT-Coder-Pro", "https://vanchin.streamlake.ai/api/gateway/v1/endpoints/YOUR_ENDPOINT_ID/openai"),
+        build_gemini_china_preset("geminiLongcat", "longcat", "https://longcat.chat/platform", "https://longcat.chat/platform/api_keys", "LongCat-Flash-Chat", "https://api.longcat.chat/v1"),
+        build_gemini_china_preset("geminiBaiLing", "bailing", "https://alipaytbox.yuque.com/sxs0ba/ling/get_started", "https://alipaytbox.yuque.com/sxs0ba/ling/get_started", "Ling-2.5-1T", "https://api.tbox.cn/v1"),
+        build_gemini_preset(
+            "geminiCustom",
+            "custom-gateway",
+            "aiConfig.mode.custom",
+            "https://github.com/google-gemini/gemini-cli",
+            "https://aistudio.google.com/app/apikey",
+            "https://aistudio.google.com/",
+            "gemini-2.5-pro",
+            Some("https://api.example.com/gemini"),
+            GeminiAuthMode::ApiKey,
+            GeminiAuthMode::ApiKey.selected_type(),
+            true,
+            BTreeMap::new(),
+        ),
+    ]
+}

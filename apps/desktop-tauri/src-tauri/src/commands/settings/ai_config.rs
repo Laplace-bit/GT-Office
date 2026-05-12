@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
+use futures_util::future::join_all;
 use gt_ai_config::{
     AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
     CodexDraftInput, GeminiDraftInput, StoredAiConfigPreview,
@@ -9,11 +11,13 @@ use gt_ai_config::{
 use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
 use gt_task::AgentToolKind;
 use gt_tools::agent_installer::{AgentInstaller, AgentType};
+use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::app_state::AppState;
-const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
+pub(super) const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
 
 fn resolve_ai_config_repository(app: &AppHandle) -> Result<SqliteAiConfigRepository, String> {
     let base_dir = app
@@ -27,14 +31,17 @@ fn resolve_ai_config_repository(app: &AppHandle) -> Result<SqliteAiConfigReposit
     Ok(SqliteAiConfigRepository::new(storage))
 }
 
-fn resolve_ai_config_service(app: &AppHandle, state: &AppState) -> Result<AiConfigService, String> {
+pub(super) fn resolve_ai_config_service(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<AiConfigService, String> {
     Ok(AiConfigService::new(
         state.settings_service.clone(),
         resolve_ai_config_repository(app)?,
     ))
 }
 
-fn resolve_ai_workspace_root(
+pub(super) fn resolve_ai_workspace_root(
     state: &AppState,
     workspace_id: Option<&str>,
 ) -> Result<Option<PathBuf>, String> {
@@ -393,6 +400,239 @@ pub fn ai_config_delete_saved_provider(
         }),
     );
     Ok(response)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConfigFetchedModel {
+    pub id: String,
+    pub owned_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConfigEndpointTestResult {
+    pub url: String,
+    pub latency_ms: Option<u128>,
+    pub status_code: Option<u16>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiModelsResponse {
+    data: Option<Vec<OpenAiModelEntry>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiModelEntry {
+    id: String,
+    owned_by: Option<String>,
+}
+
+const AI_CONFIG_FETCH_TIMEOUT_SECS: u64 = 15;
+const AI_CONFIG_ENDPOINT_DEFAULT_TIMEOUT_SECS: u64 = 8;
+const AI_CONFIG_MAX_ERROR_BODY_CHARS: usize = 512;
+const KNOWN_COMPAT_SUFFIXES: &[&str] = &[
+    "/api/claudecode",
+    "/api/anthropic",
+    "/apps/anthropic",
+    "/api/coding",
+    "/claudecode",
+    "/anthropic",
+    "/step_plan",
+    "/coding",
+    "/claude",
+];
+
+#[tauri::command]
+pub async fn ai_config_fetch_models(
+    base_url: String,
+    api_key: String,
+    is_full_url: Option<bool>,
+    models_url_override: Option<String>,
+) -> Result<Vec<AiConfigFetchedModel>, String> {
+    if api_key.trim().is_empty() {
+        return Err("AI_CONFIG_FETCH_MODELS_FAILED: api key is required".to_string());
+    }
+
+    let candidates = build_models_url_candidates(
+        &base_url,
+        is_full_url.unwrap_or(false),
+        models_url_override.as_deref(),
+    )?;
+    let client = reqwest::Client::new();
+    let mut last_err: Option<String> = None;
+
+    for url in candidates {
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", api_key.trim()))
+            .timeout(Duration::from_secs(AI_CONFIG_FETCH_TIMEOUT_SECS))
+            .send()
+            .await
+            .map_err(|error| format!("AI_CONFIG_FETCH_MODELS_FAILED: request failed: {error}"))?;
+        let status = response.status();
+
+        if status.is_success() {
+            let payload: OpenAiModelsResponse = response.json().await.map_err(|error| {
+                format!("AI_CONFIG_FETCH_MODELS_FAILED: invalid response payload: {error}")
+            })?;
+            let mut models = payload
+                .data
+                .unwrap_or_default()
+                .into_iter()
+                .map(|entry| AiConfigFetchedModel {
+                    id: entry.id,
+                    owned_by: entry.owned_by,
+                })
+                .collect::<Vec<_>>();
+            models.sort_by(|left, right| left.id.cmp(&right.id));
+            return Ok(models);
+        }
+
+        let body = truncate_error_body(response.text().await.unwrap_or_default());
+        if status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED {
+            last_err = Some(format!("HTTP {status}: {body}"));
+            continue;
+        }
+        return Err(format!("AI_CONFIG_FETCH_MODELS_FAILED: HTTP {status}: {body}"));
+    }
+
+    Err(format!(
+        "AI_CONFIG_FETCH_MODELS_FAILED: {}",
+        last_err.unwrap_or_else(|| "all candidate endpoints failed".to_string())
+    ))
+}
+
+#[tauri::command]
+pub async fn ai_config_test_endpoints(
+    urls: Vec<String>,
+    timeout_secs: Option<u64>,
+) -> Result<Vec<AiConfigEndpointTestResult>, String> {
+    let timeout = Duration::from_secs(timeout_secs.unwrap_or(AI_CONFIG_ENDPOINT_DEFAULT_TIMEOUT_SECS));
+    let client = reqwest::Client::new();
+    let tasks = urls
+        .into_iter()
+        .map(|raw_url| {
+            let client = client.clone();
+            async move {
+                let url = normalize_endpoint_url(&raw_url);
+                if url.is_empty() {
+                    return AiConfigEndpointTestResult {
+                        url: raw_url,
+                        latency_ms: None,
+                        status_code: None,
+                        error: Some("Empty URL".to_string()),
+                    };
+                }
+                if let Err(error) = reqwest::Url::parse(&url) {
+                    return AiConfigEndpointTestResult {
+                        url,
+                        latency_ms: None,
+                        status_code: None,
+                        error: Some(format!("Invalid URL: {error}")),
+                    };
+                }
+                let started_at = Instant::now();
+                match client.get(&url).timeout(timeout).send().await {
+                    Ok(response) => AiConfigEndpointTestResult {
+                        url,
+                        latency_ms: Some(started_at.elapsed().as_millis()),
+                        status_code: Some(response.status().as_u16()),
+                        error: None,
+                    },
+                    Err(error) => AiConfigEndpointTestResult {
+                        url,
+                        latency_ms: None,
+                        status_code: None,
+                        error: Some(error.to_string()),
+                    },
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(join_all(tasks).await)
+}
+
+fn build_models_url_candidates(
+    base_url: &str,
+    is_full_url: bool,
+    models_url_override: Option<&str>,
+) -> Result<Vec<String>, String> {
+    if let Some(override_url) = models_url_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(vec![override_url.to_string()]);
+    }
+
+    let trimmed = normalize_endpoint_url(base_url);
+    if trimmed.is_empty() {
+        return Err("AI_CONFIG_FETCH_MODELS_FAILED: base url is empty".to_string());
+    }
+
+    if is_full_url {
+        if let Some(index) = trimmed.find("/v1/") {
+            return Ok(vec![format!("{}/v1/models", &trimmed[..index])]);
+        }
+        if let Some(index) = trimmed.rfind('/') {
+            let root = &trimmed[..index];
+            if root.contains("://") {
+                return Ok(vec![format!("{root}/v1/models")]);
+            }
+        }
+        return Err(
+            "AI_CONFIG_FETCH_MODELS_FAILED: cannot derive models endpoint from full url"
+                .to_string(),
+        );
+    }
+
+    let mut candidates = Vec::new();
+    if trimmed.ends_with("/v1") {
+        candidates.push(format!("{trimmed}/models"));
+    } else {
+        candidates.push(format!("{trimmed}/v1/models"));
+    }
+
+    if let Some(root) = strip_compat_suffix(&trimmed) {
+        let root = root.trim_end_matches('/');
+        if !root.is_empty() && root.contains("://") {
+            candidates.push(format!("{root}/v1/models"));
+            candidates.push(format!("{root}/models"));
+        }
+    }
+
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if !unique.iter().any(|existing: &String| existing == &candidate) {
+            unique.push(candidate);
+        }
+    }
+    Ok(unique)
+}
+
+fn normalize_endpoint_url(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_string()
+}
+
+fn strip_compat_suffix(base_url: &str) -> Option<&str> {
+    KNOWN_COMPAT_SUFFIXES
+        .iter()
+        .find(|suffix| base_url.ends_with(**suffix))
+        .map(|suffix| &base_url[..base_url.len() - suffix.len()])
+}
+
+fn truncate_error_body(body: String) -> String {
+    if body.chars().count() <= AI_CONFIG_MAX_ERROR_BODY_CHARS {
+        return body;
+    }
+    let mut truncated = body
+        .chars()
+        .take(AI_CONFIG_MAX_ERROR_BODY_CHARS)
+        .collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {

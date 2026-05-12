@@ -129,11 +129,13 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
     }
 
     try {
-      const data = await desktopApi.aiConfigReadSnapshot(workspaceId)
-      const cliStatus = await desktopApi.systemGtoCliStatus().catch(() => null)
-      const skillStatus = serviceAgentId
-        ? await desktopApi.systemGtoSkillStatus(serviceAgentId).catch(() => null)
-        : null
+      const [data, cliStatus, skillStatus] = await Promise.all([
+        desktopApi.aiConfigReadSnapshot(workspaceId),
+        desktopApi.systemGtoCliStatus().catch(() => null),
+        serviceAgentId
+          ? desktopApi.systemGtoSkillStatus(serviceAgentId).catch(() => null)
+          : Promise.resolve(null),
+      ])
       if (reloadTokenRef.current !== token) {
         return
       }

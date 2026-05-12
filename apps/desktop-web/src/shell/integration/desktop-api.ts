@@ -1223,6 +1223,18 @@ export interface GeminiNormalizedDraft {
 
 export type AiConfigDraftInput = ClaudeDraftInput | CodexDraftInput | GeminiDraftInput
 
+export interface AiConfigFetchedModel {
+  id: string
+  ownedBy?: string | null
+}
+
+export interface AiConfigEndpointTestResult {
+  url: string
+  latencyMs?: number | null
+  statusCode?: number | null
+  error?: string | null
+}
+
 export type AiConfigNormalizedDraft =
   | { claude: ClaudeNormalizedDraft }
   | { codex: CodexNormalizedDraft }
@@ -2655,6 +2667,38 @@ export const desktopApi = {
     return invokeCommand<AiConfigApplyResponse>('ai_config_apply_patch', {
       workspaceId: workspaceId ?? null,
       previewId,
+      confirmedBy,
+    })
+  },
+  aiConfigFetchModels(
+    baseUrl: string,
+    apiKey: string,
+    options?: {
+      isFullUrl?: boolean
+      modelsUrlOverride?: string | null
+    },
+  ) {
+    return invokeCommand<AiConfigFetchedModel[]>('ai_config_fetch_models', {
+      baseUrl,
+      apiKey,
+      isFullUrl: options?.isFullUrl ?? null,
+      modelsUrlOverride: options?.modelsUrlOverride ?? null,
+    })
+  },
+  aiConfigTestEndpoints(urls: string[], timeoutSecs?: number | null) {
+    return invokeCommand<AiConfigEndpointTestResult[]>('ai_config_test_endpoints', {
+      urls,
+      timeoutSecs: timeoutSecs ?? null,
+    })
+  },
+  aiConfigImportCurrent(
+    workspaceId: string | null | undefined,
+    agent: AiConfigAgent,
+    confirmedBy: string,
+  ) {
+    return invokeCommand<AiConfigApplyResponse>('ai_config_import_current', {
+      workspaceId: workspaceId ?? null,
+      agent,
       confirmedBy,
     })
   },
