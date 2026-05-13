@@ -819,10 +819,12 @@ export function gitSummaryFromUpdatedPayload(payload: GitUpdatedPayload): GitSta
   }
   return {
     workspaceId: payload.workspaceId,
+    primaryRepositoryPath: payload.primaryRepositoryPath,
     branch: payload.branch,
     ahead: payload.ahead,
     behind: payload.behind,
     files: payload.files,
+    repositories: payload.repositories,
   }
 }
 

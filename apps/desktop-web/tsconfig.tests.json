@@ -27,6 +27,7 @@
     "src/features/file-explorer/file-tree-selection.ts",
     "src/shell/layout/window-performance-policy.ts",
     "src/features/workspace-hub/station-action-command-sheet-focus.ts",
+    "src/features/git/components/git-helpers.ts",
     "src/features/terminal/station-terminal-input-buffer.ts",
     "src/features/terminal/station-terminal-runtime-state.ts",
     "src/features/terminal/station-terminal-restore-state.ts",
@@ -43,6 +44,7 @@
     "src/features/settings/update-preferences-model.ts",
     "src/shell/i18n/messages.ts",
     "src/shell/i18n/ui-locale.ts",
-    "src/shell/state/workspace-tab-normalization.ts"
+    "src/shell/state/workspace-tab-normalization.ts",
+    "src/shell/layout/workspace-git-summary-model.ts"
   ]
 }

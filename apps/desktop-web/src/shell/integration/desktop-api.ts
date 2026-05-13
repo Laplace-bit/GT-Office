@@ -134,14 +134,27 @@ export interface GitStatusFile {
   path: string
   staged: boolean
   status: string
+  repositoryPath: string
+  repoRelativePath: string
 }
 
-export interface GitStatusResponse {
-  workspaceId: string
+export interface GitRepositorySummary {
+  repositoryPath: string
+  root: boolean
   branch: string
   ahead: number
   behind: number
   files: GitStatusFile[]
+}
+
+export interface GitStatusResponse {
+  workspaceId: string
+  primaryRepositoryPath: string
+  branch: string
+  ahead: number
+  behind: number
+  files: GitStatusFile[]
+  repositories: GitRepositorySummary[]
 }
 
 export interface GitInitResponse {
@@ -314,7 +327,7 @@ export interface GitFetchResponse {
   remote: string
   prune: boolean
   includeTags: boolean
-  fetched: boolean
+  queued: boolean
 }
 
 export interface GitPullResponse {
@@ -322,7 +335,7 @@ export interface GitPullResponse {
   remote: string
   branch?: string | null
   rebase: boolean
-  pulled: boolean
+  queued: boolean
 }
 
 export interface GitPushResponse {
@@ -331,7 +344,24 @@ export interface GitPushResponse {
   branch?: string | null
   setUpstream: boolean
   forceWithLease: boolean
-  pushed: boolean
+  queued: boolean
+}
+
+export interface GitTagPushResponse {
+  workspaceId: string
+  remote?: string | null
+  name: string
+  queued: boolean
+}
+
+export interface GitRemoteOperationPayload {
+  workspaceId: string
+  repositoryPath?: string | null
+  operation: 'fetch' | 'pull' | 'push' | 'tagPush'
+  status: 'started' | 'finished' | 'error'
+  remote?: string | null
+  branch?: string | null
+  error?: string | null
 }
 
 export interface GitStashEntry {
@@ -1322,11 +1352,13 @@ export interface GtoSkillStatus {
 export interface GitUpdatedPayload {
   workspaceId: string
   available: boolean
+  primaryRepositoryPath: string
   branch: string
   dirty: boolean
   ahead: number
   behind: number
   files: GitStatusFile[]
+  repositories: GitRepositorySummary[]
   revision: number
 }
 
@@ -2275,103 +2307,133 @@ export const desktopApi = {
       confirmationText,
     })
   },
-  gitStatus(workspaceId: string) {
-    return invokeCommand<GitStatusResponse>('git_status', { workspaceId })
+  gitStatus(workspaceId: string, repositoryPath?: string | null) {
+    return invokeCommand<GitStatusResponse>('git_status', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+    })
   },
-  gitInit(workspaceId: string, initialBranch?: string | null) {
+  gitInit(workspaceId: string, initialBranch?: string | null, repositoryPath?: string | null) {
     return invokeCommand<GitInitResponse>('git_init', {
       workspaceId,
       initialBranch: initialBranch ?? null,
+      repositoryPath: repositoryPath ?? null,
     })
   },
-  gitDiffFile(workspaceId: string, path: string, staged?: boolean) {
-    return invokeCommand<GitDiffResponse>('git_diff_file', { workspaceId, path, staged: staged ?? false })
-  },
-  /** High-performance structured diff with parsed hunks */
-  gitDiffFileStructured(workspaceId: string, path: string, staged?: boolean) {
-    return invokeCommand<GitDiffStructuredResponse>('git_diff_file_structured', {
+  gitDiffFile(workspaceId: string, path: string, staged?: boolean, repositoryPath?: string | null) {
+    return invokeCommand<GitDiffResponse>('git_diff_file', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       path,
       staged: staged ?? false,
     })
   },
-  gitDiffFileExpansion(workspaceId: string, path: string, oldPath?: string | null, staged?: boolean) {
+  /** High-performance structured diff with parsed hunks */
+  gitDiffFileStructured(workspaceId: string, path: string, staged?: boolean, repositoryPath?: string | null) {
+    return invokeCommand<GitDiffStructuredResponse>('git_diff_file_structured', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      path,
+      staged: staged ?? false,
+    })
+  },
+  gitDiffFileExpansion(workspaceId: string, path: string, oldPath?: string | null, staged?: boolean, repositoryPath?: string | null) {
     return invokeCommand<GitDiffExpansionResponse>('git_diff_file_expansion', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       path,
       oldPath: oldPath ?? null,
       staged: staged ?? false,
     })
   },
-  gitStage(workspaceId: string, paths: string[]) {
-    return invokeCommand<GitCountResponse>('git_stage', { workspaceId, paths })
+  gitStage(workspaceId: string, paths: string[], repositoryPath?: string | null) {
+    return invokeCommand<GitCountResponse>('git_stage', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      paths,
+    })
   },
-  gitUnstage(workspaceId: string, paths: string[]) {
-    return invokeCommand<GitCountResponse>('git_unstage', { workspaceId, paths })
+  gitUnstage(workspaceId: string, paths: string[], repositoryPath?: string | null) {
+    return invokeCommand<GitCountResponse>('git_unstage', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      paths,
+    })
   },
-  gitDiscard(workspaceId: string, paths: string[], includeUntracked?: boolean) {
+  gitDiscard(workspaceId: string, paths: string[], includeUntracked?: boolean, repositoryPath?: string | null) {
     return invokeCommand<GitCountResponse>('git_discard', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       paths,
       includeUntracked: includeUntracked ?? false,
     })
   },
-  gitCommit(workspaceId: string, message: string, options?: { amend?: boolean }) {
+  gitCommit(workspaceId: string, message: string, options?: { amend?: boolean; repositoryPath?: string | null }) {
     return invokeCommand<GitCommitResponse>('git_commit', {
-      workspaceId, message, amend: options?.amend ?? false,
+      workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
+      message,
+      amend: options?.amend ?? false,
     })
   },
-  gitLog(workspaceId: string, options?: { limit?: number; skip?: number }) {
+  gitLog(workspaceId: string, options?: { limit?: number; skip?: number; repositoryPath?: string | null }) {
     return invokeCommand<GitLogResponse>('git_log', {
       workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
       limit: options?.limit ?? null,
       skip: options?.skip ?? null,
     })
   },
-  gitCommitDetail(workspaceId: string, commit: string) {
+  gitCommitDetail(workspaceId: string, commit: string, repositoryPath?: string | null) {
     return invokeCommand<GitCommitDetailResponse>('git_commit_detail', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       commit,
     })
   },
-  gitListBranches(workspaceId: string, includeRemote?: boolean) {
+  gitListBranches(workspaceId: string, includeRemote?: boolean, repositoryPath?: string | null) {
     return invokeCommand<GitBranchesResponse>('git_list_branches', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       includeRemote: includeRemote ?? false,
     })
   },
   gitCheckout(
     workspaceId: string,
     target: string,
-    options?: { create?: boolean; startPoint?: string | null },
+    options?: { create?: boolean; startPoint?: string | null; repositoryPath?: string | null },
   ) {
     return invokeCommand<GitCheckoutResponse>('git_checkout', {
       workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
       target,
       create: options?.create ?? false,
       startPoint: options?.startPoint ?? null,
     })
   },
-  gitCreateBranch(workspaceId: string, branch: string, startPoint?: string | null) {
+  gitCreateBranch(workspaceId: string, branch: string, startPoint?: string | null, repositoryPath?: string | null) {
     return invokeCommand<GitBranchMutationResponse>('git_create_branch', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       branch,
       startPoint: startPoint ?? null,
     })
   },
-  gitDeleteBranch(workspaceId: string, branch: string, force?: boolean) {
+  gitDeleteBranch(workspaceId: string, branch: string, force?: boolean, repositoryPath?: string | null) {
     return invokeCommand<GitBranchMutationResponse>('git_delete_branch', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       branch,
       force: force ?? false,
     })
   },
   gitFetch(
     workspaceId: string,
-    options?: { remote?: string | null; prune?: boolean; includeTags?: boolean },
+    options?: { remote?: string | null; prune?: boolean; includeTags?: boolean; repositoryPath?: string | null },
   ) {
     return invokeCommand<GitFetchResponse>('git_fetch', {
       workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
       remote: options?.remote ?? null,
       prune: options?.prune ?? true,
       includeTags: options?.includeTags ?? true,
@@ -2379,10 +2441,11 @@ export const desktopApi = {
   },
   gitPull(
     workspaceId: string,
-    options?: { remote?: string | null; branch?: string | null; rebase?: boolean },
+    options?: { remote?: string | null; branch?: string | null; rebase?: boolean; repositoryPath?: string | null },
   ) {
     return invokeCommand<GitPullResponse>('git_pull', {
       workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
       remote: options?.remote ?? null,
       branch: options?.branch ?? null,
       rebase: options?.rebase ?? false,
@@ -2395,10 +2458,12 @@ export const desktopApi = {
       branch?: string | null
       setUpstream?: boolean
       forceWithLease?: boolean
+      repositoryPath?: string | null
     },
   ) {
     return invokeCommand<GitPushResponse>('git_push', {
       workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
       remote: options?.remote ?? null,
       branch: options?.branch ?? null,
       setUpstream: options?.setUpstream ?? false,
@@ -2407,77 +2472,142 @@ export const desktopApi = {
   },
   gitStashPush(
     workspaceId: string,
-    options?: { message?: string | null; includeUntracked?: boolean; keepIndex?: boolean },
+    options?: { message?: string | null; includeUntracked?: boolean; keepIndex?: boolean; repositoryPath?: string | null },
   ) {
     return invokeCommand<GitStashPushResponse>('git_stash_push', {
       workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
       message: options?.message ?? null,
       includeUntracked: options?.includeUntracked ?? false,
       keepIndex: options?.keepIndex ?? false,
     })
   },
-  gitStashPop(workspaceId: string, stash?: string | null) {
+  gitStashPop(workspaceId: string, stash?: string | null, repositoryPath?: string | null) {
     return invokeCommand<GitStashPopResponse>('git_stash_pop', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       stash: stash ?? null,
     })
   },
-  gitStashList(workspaceId: string, limit?: number) {
+  gitStashList(workspaceId: string, limit?: number, repositoryPath?: string | null) {
     return invokeCommand<GitStashListResponse>('git_stash_list', {
       workspaceId,
+      repositoryPath: repositoryPath ?? null,
       limit: limit ?? null,
     })
   },
   // Tags
-  gitTagList(workspaceId: string) {
-    return invokeCommand<GitTagListResponse>('git_tag_list', { workspaceId })
+  gitTagList(workspaceId: string, repositoryPath?: string | null) {
+    return invokeCommand<GitTagListResponse>('git_tag_list', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+    })
   },
-  gitTagCreate(workspaceId: string, name: string, target: string, options?: { annotated?: boolean; message?: string }) {
+  gitTagCreate(workspaceId: string, name: string, target: string, options?: { annotated?: boolean; message?: string; repositoryPath?: string | null }) {
     return invokeCommand<{ workspaceId: string; name: string }>('git_tag_create', {
-      workspaceId, name, target,
+      workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
+      name,
+      target,
       annotated: options?.annotated ?? false,
       message: options?.message ?? null,
     })
   },
-  gitTagDelete(workspaceId: string, name: string) {
-    return invokeCommand<{ workspaceId: string; name: string }>('git_tag_delete', { workspaceId, name })
+  gitTagDelete(workspaceId: string, name: string, repositoryPath?: string | null) {
+    return invokeCommand<{ workspaceId: string; name: string }>('git_tag_delete', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      name,
+    })
   },
-  gitTagPush(workspaceId: string, name: string, remote?: string) {
-    return invokeCommand<{ workspaceId: string; name: string }>('git_tag_push', {
-      workspaceId, name, remote: remote ?? null,
+  gitTagPush(workspaceId: string, name: string, remote?: string, repositoryPath?: string | null) {
+    return invokeCommand<GitTagPushResponse>('git_tag_push', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      name,
+      remote: remote ?? null,
     })
   },
   // Cherry-pick / Revert / Reset
-  gitCherryPick(workspaceId: string, commit: string) {
-    return invokeCommand<{ workspaceId: string }>('git_cherry_pick', { workspaceId, commit })
-  },
-  gitRevert(workspaceId: string, commit: string) {
-    return invokeCommand<{ workspaceId: string }>('git_revert', { workspaceId, commit })
-  },
-  gitReset(workspaceId: string, target: string, mode: 'soft' | 'mixed' | 'hard') {
-    return invokeCommand<{ workspaceId: string }>('git_reset', { workspaceId, target, mode })
-  },
-  // Merge
-  gitMerge(workspaceId: string, target: string, options?: { noFf?: boolean }) {
-    return invokeCommand<GitMergeResult>('git_merge', {
-      workspaceId, target, noFf: options?.noFf ?? false,
+  gitCherryPick(workspaceId: string, commit: string, repositoryPath?: string | null) {
+    return invokeCommand<{ workspaceId: string }>('git_cherry_pick', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      commit,
     })
   },
-  gitMergeContinue(workspaceId: string) {
-    return invokeCommand<{ workspaceId: string; mergedCommit: string }>('git_merge_continue', { workspaceId })
+  gitRevert(workspaceId: string, commit: string, repositoryPath?: string | null) {
+    return invokeCommand<{ workspaceId: string }>('git_revert', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      commit,
+    })
   },
-  gitMergeAbort(workspaceId: string) {
-    return invokeCommand<{ workspaceId: string }>('git_merge_abort', { workspaceId })
+  gitReset(
+    workspaceId: string,
+    target: string,
+    mode: 'soft' | 'mixed' | 'hard',
+    repositoryPath?: string | null,
+  ) {
+    return invokeCommand<{ workspaceId: string }>('git_reset', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      target,
+      mode,
+    })
   },
-  gitConflictList(workspaceId: string) {
-    return invokeCommand<{ workspaceId: string; conflicts: GitConflictFile[] }>('git_conflict_list', { workspaceId })
+  // Merge
+  gitMerge(
+    workspaceId: string,
+    target: string,
+    options?: { noFf?: boolean; repositoryPath?: string | null },
+  ) {
+    return invokeCommand<GitMergeResult>('git_merge', {
+      workspaceId,
+      repositoryPath: options?.repositoryPath ?? null,
+      target,
+      noFf: options?.noFf ?? false,
+    })
+  },
+  gitMergeContinue(workspaceId: string, repositoryPath?: string | null) {
+    return invokeCommand<{ workspaceId: string; mergedCommit: string }>('git_merge_continue', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+    })
+  },
+  gitMergeAbort(workspaceId: string, repositoryPath?: string | null) {
+    return invokeCommand<{ workspaceId: string }>('git_merge_abort', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+    })
+  },
+  gitConflictList(workspaceId: string, repositoryPath?: string | null) {
+    return invokeCommand<{ workspaceId: string; conflicts: GitConflictFile[] }>('git_conflict_list', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+    })
   },
   // Hunk staging
-  gitStageHunk(workspaceId: string, path: string, patch: string) {
-    return invokeCommand<{ ok: boolean }>('git_stage_hunk', { workspaceId, path, patch })
+  gitStageHunk(workspaceId: string, path: string, patch: string, repositoryPath?: string | null) {
+    return invokeCommand<{ ok: boolean }>('git_stage_hunk', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      path,
+      patch,
+    })
   },
-  gitUnstageHunk(workspaceId: string, path: string, patch: string) {
-    return invokeCommand<{ ok: boolean }>('git_unstage_hunk', { workspaceId, path, patch })
+  gitUnstageHunk(
+    workspaceId: string,
+    path: string,
+    patch: string,
+    repositoryPath?: string | null,
+  ) {
+    return invokeCommand<{ ok: boolean }>('git_unstage_hunk', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      path,
+      patch,
+    })
   },
   fsListDir(workspaceId: string, path: string, depth = 2) {
     return invokeCommand<FsListDirResponse>('fs_list_dir', { workspaceId, path, depth })
@@ -3496,6 +3626,22 @@ export const desktopApi = {
     const eventApi = await import('@tauri-apps/api/event')
     const unlisten = await eventApi.listen<GitUpdatedPayload>('git/updated', (event) =>
       onUpdated(event.payload),
+    )
+    return () => {
+      unlisten()
+    }
+  },
+  async subscribeGitRemoteOperation(
+    onUpdated: (payload: GitRemoteOperationPayload) => void,
+  ): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlisten = await eventApi.listen<GitRemoteOperationPayload>(
+      'git/remote_operation',
+      (event) => onUpdated(event.payload),
     )
     return () => {
       unlisten()

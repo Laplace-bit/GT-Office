@@ -11,9 +11,10 @@ interface TagSectionProps {
   locale: Locale
   isGitRepository: boolean
   actionLoading: string | null
+  remoteActionLoading: 'fetch' | 'pull' | 'push' | 'tagPush' | null
   onCreateTag: (name: string, target: string, annotated: boolean, message?: string) => Promise<void>
   onDeleteTag: (name: string) => Promise<void>
-  onPushTag: (name: string) => Promise<void>
+  onPushTag: (name: string, remote?: string) => Promise<void>
   collapsed: boolean
   onToggle: () => void
 }
@@ -24,6 +25,7 @@ export const TagSection = memo(function TagSection({
   locale,
   isGitRepository,
   actionLoading,
+  remoteActionLoading,
   onCreateTag,
   onDeleteTag,
   onPushTag,
@@ -67,7 +69,8 @@ export const TagSection = memo(function TagSection({
     void onPushTag(name)
   }, [onPushTag])
 
-  const disabled = !isGitRepository || Boolean(actionLoading) || submitting
+  const disabled =
+    !isGitRepository || Boolean(actionLoading) || Boolean(remoteActionLoading) || submitting
 
   return (
     <section className={`git-section ${!collapsed ? 'git-section--expanded' : ''}`}>

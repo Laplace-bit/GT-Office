@@ -9,6 +9,7 @@ import type { DiffCacheRefs } from './useGitShared'
 
 interface UseGitDiffInput {
   workspaceId: string | null
+  repositoryPath: string | null
   isGitRepository: boolean
   selectedPath: string | null
   selectedDiffScope: GitDiffScope
@@ -29,6 +30,7 @@ interface UseGitDiffResult {
 
 export function useGitDiff({
   workspaceId,
+  repositoryPath,
   isGitRepository,
   selectedPath,
   selectedDiffScope,
@@ -50,7 +52,7 @@ export function useGitDiff({
     }
 
     // Check cache first for instant loading
-    const cacheKey = `${workspaceId}:${selectedPath}:${selectedDiffScope}`
+    const cacheKey = `${workspaceId}:${repositoryPath ?? ''}:${selectedPath}:${selectedDiffScope}`
     const cached = diffCacheRef.current.get(cacheKey)
     if (cached) {
       // Move to end of map for LRU behavior
@@ -68,7 +70,12 @@ export function useGitDiff({
 
     // Use high-performance structured diff API
     void desktopApi
-      .gitDiffFileStructured(workspaceId, selectedPath, selectedDiffScope === 'staged')
+      .gitDiffFileStructured(
+        workspaceId,
+        selectedPath,
+        selectedDiffScope === 'staged',
+        repositoryPath,
+      )
       .then((response) => {
         if (diffSeqRef.current !== seq) {
           return
@@ -99,14 +106,14 @@ export function useGitDiff({
       })
 
     return undefined
-  }, [isGitRepository, selectedDiffScope, selectedPath, summaryFiles, workspaceId, diffCacheRef, diffSeqRef])
+  }, [diffCacheRef, diffSeqRef, isGitRepository, repositoryPath, selectedDiffScope, selectedPath, summaryFiles, workspaceId])
 
   // Preload diff for hover preview with debounce to avoid flooding background workers.
   const preloadDiff = useCallback(
     (path: string, scope: GitDiffScope = 'unstaged') => {
       if (!workspaceId || !isGitRepository || !path) return
 
-      const cacheKey = `${workspaceId}:${path}:${scope}`
+      const cacheKey = `${workspaceId}:${repositoryPath ?? ''}:${path}:${scope}`
       // Skip if already cached or pending
       if (diffCacheRef.current.has(cacheKey) || pendingPreloadsRef.current.has(cacheKey)) return
 
@@ -117,7 +124,7 @@ export function useGitDiff({
       preloadTimerRef.current = window.setTimeout(() => {
         pendingPreloadsRef.current.add(cacheKey)
         void desktopApi
-          .gitDiffFileStructured(workspaceId, path, scope === 'staged')
+          .gitDiffFileStructured(workspaceId, path, scope === 'staged', repositoryPath)
           .then((response) => {
             const cache = diffCacheRef.current
             if (cache.size >= DIFF_CACHE_SIZE) {
@@ -134,7 +141,7 @@ export function useGitDiff({
           })
       }, DIFF_PRELOAD_DELAY_MS)
     },
-    [isGitRepository, workspaceId, diffCacheRef, pendingPreloadsRef, preloadTimerRef],
+    [diffCacheRef, isGitRepository, pendingPreloadsRef, preloadTimerRef, repositoryPath, workspaceId],
   )
 
   // Cleanup preload timer on unmount

@@ -13,6 +13,7 @@ import {
   useRootFontSizePx,
 } from '../git-font-scale'
 import { GitToolbar } from './GitToolbar'
+import { RepositorySection } from './RepositorySection'
 import { ChangesSection } from './ChangesSection'
 import { CommitForm } from './CommitForm'
 import { BranchSection } from './BranchSection'
@@ -46,14 +47,16 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   } = controller
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    repositories: false,
     commit: true,
     branches: true,
     stash: true,
     tags: true,
   })
   const tagsExpanded = !(collapsedSections.tags ?? true)
-  const { tags, loading: tagsLoading, createTag, deleteTag, pushTag } = useGitTags(
+  const { tags, loading: tagsLoading, createTag, deleteTag } = useGitTags(
     workspaceId,
+    controller.currentRepositoryPath,
     controller.isGitRepository,
     tagsExpanded,
   )
@@ -227,6 +230,12 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
 
         {/* Scrollable content area */}
         <div ref={contentRef} className="git-pane__content">
+          <RepositorySection
+            controller={controller}
+            collapsed={collapsedSections.repositories ?? false}
+            onToggle={() => toggleSection('repositories')}
+          />
+
           <ChangesSection
             controller={controller}
             collapsed={collapsedSections.changes ?? false}
@@ -262,9 +271,10 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
             locale={locale}
             isGitRepository={controller.isGitRepository}
             actionLoading={controller.actionLoading}
+            remoteActionLoading={controller.remoteActionLoading}
             onCreateTag={createTag}
             onDeleteTag={deleteTag}
-            onPushTag={pushTag}
+            onPushTag={controller.pushTag}
             collapsed={collapsedSections.tags ?? true}
             onToggle={() => toggleSection('tags')}
           />

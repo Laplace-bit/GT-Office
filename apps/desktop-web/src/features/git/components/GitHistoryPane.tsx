@@ -10,7 +10,7 @@ import type { GitWorkspaceController } from '../useGitWorkspaceController'
 import { DiffViewer } from '../DiffViewer'
 import { GitGraphView } from '../GitGraphView'
 import { MergeConflictPanel } from './MergeConflictPanel'
-import { describeUnknownError } from './git-helpers'
+import { describeUnknownError, getCompactRepoLabel } from './git-helpers'
 
 interface GitHistoryPaneProps {
   controller: GitWorkspaceController
@@ -23,6 +23,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     workspaceId,
     isGitRepository,
     summary,
+    currentRepositoryPath,
     diffLoading,
     structuredDiff,
     diffViewMode,
@@ -97,7 +98,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     expandedDiffFileCacheRef.current.clear()
     commitDetailSeqRef.current += 1
     expandedDiffFileSeqRef.current += 1
-  }, [workspaceId])
+  }, [currentRepositoryPath, workspaceId])
 
   useEffect(() => {
     if (!workspaceId || !selectedPath || !showDiffView || !fullFileExpanded) {
@@ -109,7 +110,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       return
     }
 
-    const cacheKey = `${workspaceId}:${selectedPath}:${selectedDiffScope}:${selectedOldPath ?? ''}`
+    const cacheKey = `${workspaceId}:${currentRepositoryPath ?? ''}:${selectedPath}:${selectedDiffScope}:${selectedOldPath ?? ''}`
     const cached = expandedDiffFileCacheRef.current.get(cacheKey)
     if (cached) {
       setExpandedDiffFile(cached)
@@ -125,7 +126,13 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     setExpandedDiffFileError(null)
 
     void desktopApi
-      .gitDiffFileExpansion(workspaceId, selectedPath, selectedOldPath, selectedDiffScope === 'staged')
+      .gitDiffFileExpansion(
+        workspaceId,
+        selectedPath,
+        selectedOldPath,
+        selectedDiffScope === 'staged',
+        currentRepositoryPath,
+      )
       .then((response) => {
         if (expandedDiffFileSeqRef.current !== seq) {
           return
@@ -153,6 +160,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     fullFileExpanded,
     locale,
     selectedDiffScope,
+    currentRepositoryPath,
     selectedOldPath,
     selectedPath,
     showDiffView,
@@ -179,7 +187,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       commitDetailSeqRef.current += 1
       const seq = commitDetailSeqRef.current
 
-      const cacheKey = `${workspaceId}:${hash}`
+      const cacheKey = `${workspaceId}:${currentRepositoryPath ?? ''}:${hash}`
       const cached = commitDetailCacheRef.current.get(cacheKey)
       if (cached) {
         setSelectedCommitDetail(cached)
@@ -191,7 +199,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       setCommitDetailLoading(true)
 
       void desktopApi
-        .gitCommitDetail(workspaceId, hash)
+        .gitCommitDetail(workspaceId, hash, currentRepositoryPath)
         .then((detail) => {
           if (commitDetailSeqRef.current !== seq) {
             return
@@ -216,7 +224,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
           }
         })
     },
-    [locale, selectedCommit, workspaceId],
+    [currentRepositoryPath, locale, selectedCommit, workspaceId],
   )
 
   if (!workspaceId) {
@@ -253,6 +261,11 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
           <span className="git-pane__commit-count">
             {t(locale, 'git.history.count', { count: logEntries.length })}
           </span>
+          {currentRepositoryPath ? (
+            <span className="git-pane__repo-chip" title={currentRepositoryPath}>
+              {getCompactRepoLabel(currentRepositoryPath)}
+            </span>
+          ) : null}
         </div>
         <div className="git-pane__header-actions">
           <button
@@ -313,13 +326,13 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
             scope={selectedDiffScope}
             onStageHunk={async (filePath, patch) => {
               if (workspaceId) {
-                await desktopApi.gitStageHunk(workspaceId, filePath, patch)
+                await desktopApi.gitStageHunk(workspaceId, filePath, patch, currentRepositoryPath)
                 controller.invalidateDiffCache()
               }
             }}
             onUnstageHunk={async (filePath, patch) => {
               if (workspaceId) {
-                await desktopApi.gitUnstageHunk(workspaceId, filePath, patch)
+                await desktopApi.gitUnstageHunk(workspaceId, filePath, patch, currentRepositoryPath)
                 controller.invalidateDiffCache()
               }
             }}

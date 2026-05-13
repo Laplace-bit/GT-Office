@@ -1,20 +1,24 @@
 use git2::{BranchType, Repository, Status, StatusOptions};
 use gt_abstractions::{
-    AbstractionError, AbstractionResult, ConflictFile, ConflictStatus, GitStatusFile,
-    GitStatusSummary, MergeResult,
+    AbstractionError, AbstractionResult, ConflictFile, ConflictStatus, GitRepositorySummary,
+    GitStatusFile, GitStatusSummary, MergeResult,
 };
 use gt_abstractions::{WorkspaceId, WorkspaceService};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::{
+    collections::HashMap,
     env,
     ffi::OsString,
     path::{Component, Path, PathBuf},
     process::Command,
+    sync::{Arc, Mutex},
+    time::Instant,
 };
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 const MAX_STATUS_FILES: usize = 2000;
+const GIT_STATUS_TARGET_BUDGET_MS: u128 = 500;
 const LOG_FIELD_SEP: char = '\u{001f}';
 const LOG_RECORD_SEP: char = '\u{001e}';
 #[cfg(target_os = "windows")]
@@ -228,6 +232,18 @@ enum GitSnapshotContent {
     Binary,
 }
 
+#[derive(Debug, Clone)]
+struct GitRepoContext {
+    workspace_root: PathBuf,
+    repo_root: PathBuf,
+    repository_path: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RepositoryDiscoveryCache {
+    entries: Arc<Mutex<HashMap<PathBuf, Vec<GitRepoContext>>>>,
+}
+
 #[derive(Clone)]
 pub struct GitService<W>
 where
@@ -235,6 +251,7 @@ where
 {
     workspace_service: W,
     git_path: Option<OsString>,
+    repository_cache: RepositoryDiscoveryCache,
 }
 
 impl<W> GitService<W>
@@ -243,7 +260,19 @@ where
 {
     pub fn new(workspace_service: W) -> Self {
         let git_path = build_git_command_path();
-        Self { workspace_service, git_path }
+        Self {
+            workspace_service,
+            git_path,
+            repository_cache: RepositoryDiscoveryCache::default(),
+        }
+    }
+
+    pub fn invalidate_repository_cache(&self, workspace_id: &WorkspaceId) -> AbstractionResult<()> {
+        let workspace_root = self.workspace_root(workspace_id)?;
+        if let Ok(mut entries) = self.repository_cache.entries.lock() {
+            entries.remove(&workspace_root);
+        }
+        Ok(())
     }
 
     fn workspace_root(&self, workspace_id: &WorkspaceId) -> AbstractionResult<PathBuf> {
@@ -260,8 +289,130 @@ where
         Ok(root)
     }
 
-    fn parse_porcelain_status(stdout: &str) -> GitStatusSummary {
+    fn workspace_context(&self, workspace_id: &WorkspaceId) -> AbstractionResult<GitRepoContext> {
+        let workspace_root = self.workspace_root(workspace_id)?;
+        Ok(GitRepoContext {
+            repo_root: workspace_root.clone(),
+            workspace_root,
+            repository_path: String::new(),
+        })
+    }
+
+    fn resolve_repo_context(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+    ) -> AbstractionResult<GitRepoContext> {
+        let workspace_root = self.workspace_root(workspace_id)?;
+        let normalized = repository_path.unwrap_or("").trim();
+        if normalized.is_empty() {
+            let repo_root = Repository::discover(&workspace_root)
+                .map_err(|_| AbstractionError::InvalidArgument {
+                    message: "GIT_REPO_INVALID: not a git repository".to_string(),
+                })?
+                .workdir()
+                .map(Path::to_path_buf)
+                .ok_or_else(|| AbstractionError::InvalidArgument {
+                    message: "GIT_REPO_INVALID: bare repositories are not supported".to_string(),
+                })?;
+            let repository_path =
+                Self::path_to_workspace_relative(repo_root.as_path(), workspace_root.as_path())?;
+            return Ok(GitRepoContext {
+                workspace_root,
+                repo_root,
+                repository_path,
+            });
+        }
+
+        let relative = Path::new(normalized);
+        if relative.is_absolute() {
+            return Err(AbstractionError::InvalidArgument {
+                message: format!(
+                    "GIT_REPOSITORY_PATH_INVALID: repository path must be workspace-relative '{}'",
+                    normalized
+                ),
+            });
+        }
+        for component in relative.components() {
+            if !matches!(component, Component::Normal(_)) {
+                return Err(AbstractionError::InvalidArgument {
+                    message: format!(
+                        "GIT_REPOSITORY_PATH_INVALID: repository path escapes workspace '{}'",
+                        normalized
+                    ),
+                });
+            }
+        }
+        let repo_root = workspace_root.join(relative);
+        if !repo_root.exists() || !repo_root.is_dir() {
+            return Err(AbstractionError::InvalidArgument {
+                message: format!(
+                    "GIT_REPOSITORY_PATH_INVALID: repository root does not exist '{}'",
+                    normalized
+                ),
+            });
+        }
+        if !repo_root.join(".git").exists() {
+            return Err(AbstractionError::InvalidArgument {
+                message: format!(
+                    "GIT_REPOSITORY_PATH_INVALID: no git repository at '{}'",
+                    normalized
+                ),
+            });
+        }
+        Ok(GitRepoContext {
+            workspace_root,
+            repo_root,
+            repository_path: normalized.replace('\\', "/"),
+        })
+    }
+
+    fn path_to_workspace_relative(path: &Path, workspace_root: &Path) -> AbstractionResult<String> {
+        let relative = match path.strip_prefix(workspace_root) {
+            Ok(relative) => relative.to_path_buf(),
+            Err(_) => {
+                let canonical_path =
+                    std::fs::canonicalize(path).map_err(|_| AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_REPOSITORY_PATH_INVALID: repository is outside workspace '{}'",
+                            path.display()
+                        ),
+                    })?;
+                let canonical_root = std::fs::canonicalize(workspace_root).map_err(|_| {
+                    AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_REPOSITORY_PATH_INVALID: repository is outside workspace '{}'",
+                            path.display()
+                        ),
+                    }
+                })?;
+                canonical_path
+                    .strip_prefix(&canonical_root)
+                    .map(Path::to_path_buf)
+                    .map_err(|_| AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_REPOSITORY_PATH_INVALID: repository is outside workspace '{}'",
+                            path.display()
+                        ),
+                    })?
+            }
+        };
+        if relative.as_os_str().is_empty() {
+            return Ok(String::new());
+        }
+        Ok(relative.to_string_lossy().replace('\\', "/"))
+    }
+
+    fn join_workspace_relative_path(repository_path: &str, repo_relative_path: &str) -> String {
+        if repository_path.is_empty() {
+            return repo_relative_path.to_string();
+        }
+        format!("{repository_path}/{repo_relative_path}")
+    }
+
+    fn parse_porcelain_status(stdout: &str, repository_path: &str) -> GitStatusSummary {
         let mut summary = GitStatusSummary::default();
+        summary.primary_repository_path = repository_path.to_string();
 
         for line in stdout.lines() {
             if let Some(rest) = line.strip_prefix("## ") {
@@ -318,10 +469,13 @@ where
                 continue;
             }
 
+            let repo_relative_path = path.to_string();
             summary.files.push(GitStatusFile {
-                path: path.to_string(),
+                path: Self::join_workspace_relative_path(repository_path, &repo_relative_path),
                 staged: index != ' ' && index != '?',
                 status: format!("{index}{worktree}").trim().to_string(),
+                repository_path: repository_path.to_string(),
+                repo_relative_path,
             });
         }
 
@@ -368,12 +522,17 @@ where
         compact.trim().to_string()
     }
 
-    fn status_with_git2(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
+    fn status_with_git2(
+        &self,
+        root: &Path,
+        repository_path: &str,
+    ) -> AbstractionResult<GitStatusSummary> {
         let repo = Repository::discover(root).map_err(|err| AbstractionError::Internal {
             message: format!("GIT_STATUS_GIT2_FAILED: repository discovery failed: {err}"),
         })?;
 
         let mut summary = GitStatusSummary {
+            primary_repository_path: repository_path.to_string(),
             branch: "HEAD".to_string(),
             ..GitStatusSummary::default()
         };
@@ -430,8 +589,9 @@ where
                 continue;
             };
 
+            let repo_relative_path = path.to_string();
             summary.files.push(GitStatusFile {
-                path: path.to_string(),
+                path: Self::join_workspace_relative_path(repository_path, &repo_relative_path),
                 staged: status.intersects(
                     Status::INDEX_NEW
                         | Status::INDEX_MODIFIED
@@ -440,6 +600,8 @@ where
                         | Status::INDEX_TYPECHANGE,
                 ),
                 status: Self::resolve_status_string(status),
+                repository_path: repository_path.to_string(),
+                repo_relative_path,
             });
         }
 
@@ -605,10 +767,13 @@ where
 
         {
             use std::io::Write;
-            let mut stdin = child.stdin.take().ok_or_else(|| AbstractionError::Internal {
-                message: "GIT_STAGE_FAILED: unable to open stdin for git check-ignore"
-                    .to_string(),
-            })?;
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| AbstractionError::Internal {
+                    message: "GIT_STAGE_FAILED: unable to open stdin for git check-ignore"
+                        .to_string(),
+                })?;
             for path in paths {
                 stdin.write_all(path.as_bytes()).map_err(|err| {
                     AbstractionError::Internal {
@@ -625,9 +790,11 @@ where
             }
         }
 
-        let output = child.wait_with_output().map_err(|err| AbstractionError::Internal {
-            message: format!("GIT_STAGE_FAILED: git check-ignore failed to complete: {err}"),
-        })?;
+        let output = child
+            .wait_with_output()
+            .map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_STAGE_FAILED: git check-ignore failed to complete: {err}"),
+            })?;
 
         if !output.status.success() && output.status.code() != Some(1) {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -650,13 +817,125 @@ where
             .collect())
     }
 
-    fn status_with_system_git(&self, root: &Path) -> AbstractionResult<GitStatusSummary> {
+    fn status_with_system_git(
+        &self,
+        root: &Path,
+        repository_path: &str,
+    ) -> AbstractionResult<GitStatusSummary> {
         let output = self.run_git(
             root,
             &["status", "--porcelain", "--branch"],
             "GIT_STATUS_FAILED",
         )?;
-        Ok(Self::parse_porcelain_status(&output))
+        Ok(Self::parse_porcelain_status(&output, repository_path))
+    }
+
+    fn discover_workspace_repositories(
+        &self,
+        workspace_root: &Path,
+    ) -> AbstractionResult<Vec<GitRepoContext>> {
+        if let Ok(entries) = self.repository_cache.entries.lock() {
+            if let Some(repositories) = entries.get(workspace_root) {
+                return Ok(repositories.clone());
+            }
+        }
+
+        let mut repositories = Vec::new();
+        if workspace_root.join(".git").exists() {
+            repositories.push(GitRepoContext {
+                workspace_root: workspace_root.to_path_buf(),
+                repo_root: workspace_root.to_path_buf(),
+                repository_path: String::new(),
+            });
+        }
+
+        self.collect_nested_repositories(
+            workspace_root,
+            workspace_root,
+            &mut repositories,
+            workspace_root.join(".git").exists(),
+        )?;
+        repositories.sort_by(|left, right| left.repository_path.cmp(&right.repository_path));
+        if let Ok(mut entries) = self.repository_cache.entries.lock() {
+            entries.insert(workspace_root.to_path_buf(), repositories.clone());
+        }
+        Ok(repositories)
+    }
+
+    fn collect_nested_repositories(
+        &self,
+        workspace_root: &Path,
+        current_dir: &Path,
+        repositories: &mut Vec<GitRepoContext>,
+        skip_current_git_dir: bool,
+    ) -> AbstractionResult<()> {
+        let entries =
+            std::fs::read_dir(current_dir).map_err(|error| AbstractionError::Internal {
+                message: format!(
+                    "GIT_REPOSITORY_DISCOVERY_FAILED: unable to read '{}': {error}",
+                    current_dir.display()
+                ),
+            })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|error| AbstractionError::Internal {
+                message: format!(
+                    "GIT_REPOSITORY_DISCOVERY_FAILED: unable to inspect '{}': {error}",
+                    current_dir.display()
+                ),
+            })?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            if name == ".git" || name == "node_modules" || name == "target" {
+                continue;
+            }
+            if path.join(".git").exists() {
+                let repository_path =
+                    Self::path_to_workspace_relative(path.as_path(), workspace_root)?;
+                if !(skip_current_git_dir && repository_path.is_empty()) {
+                    repositories.push(GitRepoContext {
+                        workspace_root: workspace_root.to_path_buf(),
+                        repo_root: path.clone(),
+                        repository_path,
+                    });
+                }
+            }
+            self.collect_nested_repositories(workspace_root, path.as_path(), repositories, false)?;
+        }
+        Ok(())
+    }
+
+    fn normalize_workspace_paths_for_repo(
+        &self,
+        context: &GitRepoContext,
+        paths: &[String],
+    ) -> AbstractionResult<Vec<String>> {
+        let mut normalized = Vec::with_capacity(paths.len());
+        let repository_relative_root = if context.repository_path.is_empty() {
+            None
+        } else {
+            Some(Path::new(context.repository_path.as_str()))
+        };
+        for path in paths {
+            Self::validate_relative_repo_path(path)?;
+            let workspace_relative = Path::new(path.trim());
+            let repo_relative = match repository_relative_root {
+                Some(repo_root) => workspace_relative.strip_prefix(repo_root).map_err(|_| {
+                    AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_PATH_INVALID: path '{}' is outside repository '{}'",
+                            path, context.repository_path
+                        ),
+                    }
+                })?,
+                None => workspace_relative,
+            };
+            normalized.push(repo_relative.to_string_lossy().replace('\\', "/"));
+        }
+        Ok(normalized)
     }
 
     fn validate_relative_repo_path(path: &str) -> AbstractionResult<()> {
@@ -755,12 +1034,18 @@ where
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
-    pub fn status(&self, workspace_id: &WorkspaceId) -> AbstractionResult<GitStatusSummary> {
-        let root = self.workspace_root(workspace_id)?;
-        match self.status_with_git2(&root) {
+    pub fn status_repo(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+    ) -> AbstractionResult<GitStatusSummary> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        match self.status_with_git2(&context.repo_root, &context.repository_path) {
             Ok(mut summary) => {
                 if summary.branch == "HEAD" {
-                    if let Ok(fallback) = self.status_with_system_git(&root) {
+                    if let Ok(fallback) =
+                        self.status_with_system_git(&context.repo_root, &context.repository_path)
+                    {
                         if fallback.branch != "HEAD" {
                             summary.branch = fallback.branch;
                             summary.ahead = fallback.ahead;
@@ -770,39 +1055,150 @@ where
                 }
                 Ok(summary)
             }
-            Err(_) => match self.status_with_system_git(&root) {
-                Ok(summary) => Ok(summary),
-                Err(error) => {
-                    let message = error.to_string();
-                    if Self::is_not_git_repository_message(&message) {
-                        return Err(AbstractionError::InvalidArgument {
-                            message: "GIT_REPO_INVALID: not a git repository".to_string(),
-                        });
+            Err(_) => {
+                match self.status_with_system_git(&context.repo_root, &context.repository_path) {
+                    Ok(summary) => Ok(summary),
+                    Err(error) => {
+                        let message = error.to_string();
+                        if Self::is_not_git_repository_message(&message) {
+                            return Err(AbstractionError::InvalidArgument {
+                                message: "GIT_REPO_INVALID: not a git repository".to_string(),
+                            });
+                        }
+                        Err(error)
                     }
-                    Err(error)
                 }
-            },
+            }
         }
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id))]
+    pub fn status(&self, workspace_id: &WorkspaceId) -> AbstractionResult<GitStatusSummary> {
+        let started_at = Instant::now();
+        let workspace_context = self.workspace_context(workspace_id)?;
+        let repositories =
+            self.discover_workspace_repositories(&workspace_context.workspace_root)?;
+        if repositories.is_empty() {
+            return Err(AbstractionError::InvalidArgument {
+                message: "GIT_REPO_INVALID: not a git repository".to_string(),
+            });
+        }
+
+        let mut aggregated = GitStatusSummary::default();
+        let repo_count = repositories.len();
+        let mut repo_summaries = Vec::with_capacity(repo_count);
+        let repo_statuses = std::thread::scope(|scope| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            for (index, repo) in repositories.iter().cloned().enumerate() {
+                let tx = tx.clone();
+                let service = self.clone();
+                let workspace_id = workspace_id.clone();
+                scope.spawn(move || {
+                    let result =
+                        service.status_repo(&workspace_id, Some(repo.repository_path.as_str()));
+                    let _ = tx.send((index, result));
+                });
+            }
+            drop(tx);
+
+            let mut statuses = vec![None; repo_count];
+            for _ in 0..repo_count {
+                let (index, result) = rx.recv().map_err(|error| AbstractionError::Internal {
+                    message: format!(
+                        "GIT_STATUS_FAILED: unable to collect repository status result: {error}"
+                    ),
+                })?;
+                statuses[index] = Some(result);
+            }
+            statuses
+                .into_iter()
+                .map(|entry| {
+                    entry.ok_or_else(|| AbstractionError::Internal {
+                        message: "GIT_STATUS_FAILED: missing repository status result".to_string(),
+                    })?
+                })
+                .collect::<AbstractionResult<Vec<_>>>()
+        })?;
+
+        for summary in repo_statuses {
+            if aggregated.primary_repository_path.is_empty() {
+                aggregated.primary_repository_path = summary.primary_repository_path.clone();
+                aggregated.branch = summary.branch.clone();
+                aggregated.ahead = summary.ahead;
+                aggregated.behind = summary.behind;
+            }
+            aggregated.files.extend(summary.files.iter().cloned());
+            repo_summaries.push(GitRepositorySummary {
+                repository_path: summary.primary_repository_path.clone(),
+                root: summary.primary_repository_path.is_empty(),
+                branch: summary.branch.clone(),
+                ahead: summary.ahead,
+                behind: summary.behind,
+                files: summary.files,
+            });
+        }
+        aggregated.repositories = repo_summaries;
+        let elapsed_ms = started_at.elapsed().as_millis();
+        if elapsed_ms > GIT_STATUS_TARGET_BUDGET_MS {
+            warn!(
+                workspace_id = %workspace_id,
+                repo_count,
+                file_count = aggregated.files.len(),
+                elapsed_ms,
+                target_budget_ms = GIT_STATUS_TARGET_BUDGET_MS,
+                "aggregated multi-repository git status exceeded target budget"
+            );
+        }
+        debug!(
+            workspace_id = %workspace_id,
+            repo_count,
+            file_count = aggregated.files.len(),
+            elapsed_ms,
+            "aggregated multi-repository git status"
+        );
+        Ok(aggregated)
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
     pub fn init_repo(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         initial_branch: Option<&str>,
     ) -> AbstractionResult<String> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = if repository_path.is_some() {
+            let workspace_root = self.workspace_root(workspace_id)?;
+            let requested = repository_path.unwrap_or("").trim();
+            let repo_root = if requested.is_empty() {
+                workspace_root.clone()
+            } else {
+                workspace_root.join(requested)
+            };
+            let repository_path =
+                Self::path_to_workspace_relative(repo_root.as_path(), workspace_root.as_path())?;
+            GitRepoContext {
+                workspace_root,
+                repo_root,
+                repository_path,
+            }
+        } else {
+            self.workspace_context(workspace_id)?
+        };
         let branch = initial_branch
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("main");
-        self.validate_branch_name(&root, branch)?;
+        self.validate_branch_name(&context.repo_root, branch)?;
 
-        if Repository::discover(&root).is_err() {
-            self.run_git(&root, &["init", "-b", branch], "GIT_INIT_FAILED")?;
+        if Repository::discover(&context.repo_root).is_err() {
+            self.run_git(
+                &context.repo_root,
+                &["init", "-b", branch],
+                "GIT_INIT_FAILED",
+            )?;
         }
 
-        let summary = self.status(workspace_id)?;
+        let summary = self.status_repo(workspace_id, Some(context.repository_path.as_str()))?;
         if summary.branch == "HEAD" {
             Ok(branch.to_string())
         } else {
@@ -814,12 +1210,21 @@ where
     pub fn diff_file(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         path: &str,
         staged: bool,
     ) -> AbstractionResult<String> {
-        Self::validate_relative_repo_path(path)?;
-        let root = self.workspace_root(workspace_id)?;
-        self.run_git_diff(&root, path, GitDiffMode::from_staged(staged))
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let normalized_path = self
+            .normalize_workspace_paths_for_repo(&context, &[path.to_string()])?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        self.run_git_diff(
+            &context.repo_root,
+            &normalized_path,
+            GitDiffMode::from_staged(staged),
+        )
     }
 
     /// High-performance structured diff using git2 library
@@ -828,20 +1233,25 @@ where
     pub fn diff_file_structured(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         path: &str,
         staged: bool,
     ) -> AbstractionResult<GitDiffStructured> {
-        Self::validate_relative_repo_path(path)?;
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let normalized_path = self
+            .normalize_workspace_paths_for_repo(&context, &[path.to_string()])?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
         let diff_mode = GitDiffMode::from_staged(staged);
 
         // Try git2 first for performance, fallback to git command
-        match self.diff_file_with_git2(&root, path, diff_mode) {
+        match self.diff_file_with_git2(&context.repo_root, &normalized_path, diff_mode) {
             Ok(result) => Ok(result),
             Err(_) => {
                 // Fallback to git command and parse the output
-                let patch = self.run_git_diff(&root, path, diff_mode)?;
-                Ok(self.parse_diff_patch(&patch, path))
+                let patch = self.run_git_diff(&context.repo_root, &normalized_path, diff_mode)?;
+                Ok(self.parse_diff_patch(&patch, &normalized_path))
             }
         }
     }
@@ -850,30 +1260,42 @@ where
     pub fn diff_file_expansion(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         path: &str,
         old_path: Option<&str>,
         staged: bool,
     ) -> AbstractionResult<GitExpandedCompare> {
-        Self::validate_relative_repo_path(path)?;
-        if let Some(previous_path) = old_path {
-            Self::validate_relative_repo_path(previous_path)?;
-        }
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let normalized_path = self
+            .normalize_workspace_paths_for_repo(&context, &[path.to_string()])?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        let normalized_previous_path = if let Some(previous_path) = old_path {
+            self.normalize_workspace_paths_for_repo(&context, &[previous_path.to_string()])?
+                .into_iter()
+                .next()
+        } else {
+            None
+        };
 
-        let root = self.workspace_root(workspace_id)?;
-        let repo = Repository::discover(&root).map_err(|err| AbstractionError::Internal {
-            message: format!("GIT_DIFF_EXPANSION_FAILED: repository discovery failed: {err}"),
-        })?;
+        let repo =
+            Repository::discover(&context.repo_root).map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_DIFF_EXPANSION_FAILED: repository discovery failed: {err}"),
+            })?;
 
-        let previous_path = old_path.unwrap_or(path);
+        let previous_path = normalized_previous_path
+            .as_deref()
+            .unwrap_or(&normalized_path);
         let before_snapshot = if staged {
             Self::read_head_snapshot(&repo, previous_path)?
         } else {
             Self::read_index_snapshot(&repo, previous_path)?
         };
         let after_snapshot = if staged {
-            Self::read_index_snapshot(&repo, path)?
+            Self::read_index_snapshot(&repo, &normalized_path)?
         } else {
-            Self::read_worktree_snapshot(&root, path)?
+            Self::read_worktree_snapshot(&context.repo_root, &normalized_path)?
         };
 
         let is_binary = matches!(before_snapshot, GitSnapshotContent::Binary)
@@ -894,8 +1316,8 @@ where
                 GitSnapshotContent::Binary => "",
             };
             Some(Self::build_full_structured_diff(
-                path,
-                old_path.map(|value| value.to_string()),
+                &normalized_path,
+                normalized_previous_path.clone(),
                 before_text,
                 after_text,
                 old_exists,
@@ -904,8 +1326,8 @@ where
         };
 
         Ok(GitExpandedCompare {
-            path: path.to_string(),
-            old_path: old_path.map(ToOwned::to_owned),
+            path: normalized_path,
+            old_path: normalized_previous_path,
             is_binary,
             old_exists,
             new_exists,
@@ -1573,33 +1995,37 @@ where
     }
 
     #[instrument(skip(self, paths), fields(workspace_id = %workspace_id, path_count = paths.len()))]
-    pub fn stage(&self, workspace_id: &WorkspaceId, paths: &[String]) -> AbstractionResult<usize> {
+    pub fn stage(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+        paths: &[String],
+    ) -> AbstractionResult<usize> {
         if paths.is_empty() {
             return Ok(0);
         }
 
-        for path in paths {
-            Self::validate_relative_repo_path(path)?;
-        }
-
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let paths = self.normalize_workspace_paths_for_repo(&context, paths)?;
         let mut owned_args = vec!["add".to_string(), "--".to_string()];
         owned_args.extend(paths.iter().cloned());
         let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
 
         // Try staging all paths at once. If some are ignored, git add fails.
         // In that case, filter out ignored paths and retry with only stageable ones.
-        match self.run_git(&root, &args, "GIT_STAGE_FAILED") {
+        match self.run_git(&context.repo_root, &args, "GIT_STAGE_FAILED") {
             Ok(_) => Ok(paths.len()),
-            Err(AbstractionError::Internal { message }) if message.contains("ignored by one of your .gitignore files") => {
-                let stageable_paths = self.filter_ignored_paths(&root, paths)?;
+            Err(AbstractionError::Internal { message })
+                if message.contains("ignored by one of your .gitignore files") =>
+            {
+                let stageable_paths = self.filter_ignored_paths(&context.repo_root, &paths)?;
                 if stageable_paths.is_empty() {
                     return Ok(0);
                 }
                 let mut retry_args = vec!["add".to_string(), "--".to_string()];
                 retry_args.extend(stageable_paths.iter().cloned());
                 let retry_refs = retry_args.iter().map(String::as_str).collect::<Vec<_>>();
-                self.run_git(&root, &retry_refs, "GIT_STAGE_FAILED")?;
+                self.run_git(&context.repo_root, &retry_refs, "GIT_STAGE_FAILED")?;
                 Ok(stageable_paths.len())
             }
             Err(e) => Err(e),
@@ -1610,17 +2036,15 @@ where
     pub fn unstage(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         paths: &[String],
     ) -> AbstractionResult<usize> {
         if paths.is_empty() {
             return Ok(0);
         }
 
-        for path in paths {
-            Self::validate_relative_repo_path(path)?;
-        }
-
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let paths = self.normalize_workspace_paths_for_repo(&context, paths)?;
         let mut owned_args = vec![
             "restore".to_string(),
             "--staged".to_string(),
@@ -1628,7 +2052,7 @@ where
         ];
         owned_args.extend(paths.iter().cloned());
         let args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &args, "GIT_UNSTAGE_FAILED")?;
+        self.run_git(&context.repo_root, &args, "GIT_UNSTAGE_FAILED")?;
         Ok(paths.len())
     }
 
@@ -1636,6 +2060,7 @@ where
     pub fn discard(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         paths: &[String],
         include_untracked: bool,
     ) -> AbstractionResult<usize> {
@@ -1645,11 +2070,8 @@ where
             });
         }
 
-        for path in paths {
-            Self::validate_relative_repo_path(path)?;
-        }
-
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let paths = self.normalize_workspace_paths_for_repo(&context, paths)?;
 
         // Classify paths using a single git status --porcelain -z call instead of
         // three separate git invocations (ls-files, diff --cached, ls-files).
@@ -1661,10 +2083,9 @@ where
         ];
         status_args.extend(paths.iter().cloned());
         let status_refs = status_args.iter().map(String::as_str).collect::<Vec<_>>();
-        let status_output = self.run_git(&root, &status_refs, "GIT_DISCARD_FAILED")?;
+        let status_output = self.run_git(&context.repo_root, &status_refs, "GIT_DISCARD_FAILED")?;
 
-        let path_set: std::collections::HashSet<&str> =
-            paths.iter().map(String::as_str).collect();
+        let path_set: std::collections::HashSet<&str> = paths.iter().map(String::as_str).collect();
         let mut untracked_paths = std::collections::HashSet::new();
         let mut index_new_paths = std::collections::HashSet::new();
         let mut tracked_paths = Vec::new();
@@ -1702,7 +2123,8 @@ where
                         let index_status = xy.chars().next().unwrap_or(' ');
                         if index_status == 'A' {
                             index_new_paths.insert(rest.to_string());
-                        } else if !untracked_paths.contains(rest) && !index_new_paths.contains(rest) {
+                        } else if !untracked_paths.contains(rest) && !index_new_paths.contains(rest)
+                        {
                             tracked_paths.push(rest.to_string());
                         }
                     }
@@ -1726,28 +2148,33 @@ where
             ];
             restore_args.extend(tracked_paths.iter().cloned());
             let restore_refs = restore_args.iter().map(String::as_str).collect::<Vec<_>>();
-            self.run_git(&root, &restore_refs, "GIT_DISCARD_FAILED")?;
+            self.run_git(&context.repo_root, &restore_refs, "GIT_DISCARD_FAILED")?;
         }
 
         if !index_new_paths.is_empty() {
             let mut remove_args = vec!["rm".to_string(), "--force".to_string(), "--".to_string()];
             remove_args.extend(index_new_paths.iter().cloned());
             let remove_refs = remove_args.iter().map(String::as_str).collect::<Vec<_>>();
-            self.run_git(&root, &remove_refs, "GIT_DISCARD_FAILED")?;
+            self.run_git(&context.repo_root, &remove_refs, "GIT_DISCARD_FAILED")?;
         }
 
         if include_untracked && !untracked_paths.is_empty() {
             let mut clean_args = vec!["clean".to_string(), "-fd".to_string(), "--".to_string()];
             clean_args.extend(untracked_paths.iter().cloned());
             let clean_refs = clean_args.iter().map(String::as_str).collect::<Vec<_>>();
-            self.run_git(&root, &clean_refs, "GIT_DISCARD_FAILED")?;
+            self.run_git(&context.repo_root, &clean_refs, "GIT_DISCARD_FAILED")?;
         }
 
         Ok(discarded)
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
-    pub fn commit(&self, workspace_id: &WorkspaceId, message: &str) -> AbstractionResult<String> {
+    pub fn commit(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+        message: &str,
+    ) -> AbstractionResult<String> {
         let trimmed = message.trim();
         if trimmed.is_empty() {
             return Err(AbstractionError::InvalidArgument {
@@ -1755,14 +2182,14 @@ where
             });
         }
 
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         self.run_git(
-            &root,
+            &context.repo_root,
             &["commit", "-m", trimmed, "--no-gpg-sign"],
             "GIT_COMMIT_FAILED",
         )?;
 
-        let commit_id = self.resolve_head_oid(&root)?;
+        let commit_id = self.resolve_head_oid(&context.repo_root)?;
         Ok(commit_id)
     }
 
@@ -1770,6 +2197,7 @@ where
     pub fn commit_amend(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         message: &str,
     ) -> AbstractionResult<String> {
         let trimmed = message.trim();
@@ -1779,14 +2207,14 @@ where
             });
         }
 
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         self.run_git(
-            &root,
+            &context.repo_root,
             &["commit", "--amend", "-m", trimmed, "--no-gpg-sign"],
             "GIT_COMMIT_FAILED",
         )?;
 
-        let commit_id = self.resolve_head_oid(&root)?;
+        let commit_id = self.resolve_head_oid(&context.repo_root)?;
         Ok(commit_id)
     }
 
@@ -1794,16 +2222,17 @@ where
     pub fn log(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         limit: usize,
         skip: usize,
     ) -> AbstractionResult<Vec<GitCommitEntry>> {
         let effective_limit = limit.clamp(1, 500);
         let effective_skip = skip.min(200_000);
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let max_count = effective_limit.to_string();
         let skip_count = effective_skip.to_string();
         let output = self.run_git(
-            &root,
+            &context.repo_root,
             &[
                 "log",
                 "--date=iso-strict",
@@ -1849,16 +2278,18 @@ where
     pub fn commit_detail(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         commit: &str,
     ) -> AbstractionResult<GitCommitDetail> {
         let commit_id = Self::validate_commit_id(commit)?;
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
 
         // Merge metadata + body into a single git show call.
         // %x1e separates the structured metadata from the body text.
-        let pretty_format = format!("--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e%b");
+        let pretty_format =
+            format!("--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e%b");
         let combined_output = self.run_git(
-            &root,
+            &context.repo_root,
             &[
                 "show",
                 "--no-patch",
@@ -1887,7 +2318,7 @@ where
         }
 
         let files_output = self.run_git(
-            &root,
+            &context.repo_root,
             &[
                 "show",
                 "--format=",
@@ -1980,9 +2411,10 @@ where
     pub fn list_branches(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         include_remote: bool,
     ) -> AbstractionResult<Vec<GitBranchEntry>> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let mut refs = vec!["refs/heads/"];
         if include_remote {
             refs.push("refs/remotes/");
@@ -1994,7 +2426,7 @@ where
         ];
         args.extend(refs.iter().map(|item| item.to_string()));
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        let output = self.run_git(&root, &arg_refs, "GIT_BRANCH_LIST_FAILED")?;
+        let output = self.run_git(&context.repo_root, &arg_refs, "GIT_BRANCH_LIST_FAILED")?;
 
         let mut entries = Vec::new();
         for line in output.lines() {
@@ -2023,12 +2455,13 @@ where
     pub fn checkout(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         target: &str,
         create: bool,
         start_point: Option<&str>,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
-        self.validate_branch_name(&root, target)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        self.validate_branch_name(&context.repo_root, target)?;
 
         let mut args = vec!["checkout".to_string()];
         if create {
@@ -2045,7 +2478,7 @@ where
         }
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_CHECKOUT_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_CHECKOUT_FAILED")?;
         Ok(())
     }
 
@@ -2053,11 +2486,12 @@ where
     pub fn create_branch(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         branch: &str,
         start_point: Option<&str>,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
-        self.validate_branch_name(&root, branch)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        self.validate_branch_name(&context.repo_root, branch)?;
 
         let mut args = vec!["branch".to_string(), branch.trim().to_string()];
         if let Some(start_point) = start_point {
@@ -2068,7 +2502,7 @@ where
         }
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_BRANCH_CREATE_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_BRANCH_CREATE_FAILED")?;
         Ok(())
     }
 
@@ -2076,15 +2510,16 @@ where
     pub fn delete_branch(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         branch: &str,
         force: bool,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
-        self.validate_branch_name(&root, branch)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        self.validate_branch_name(&context.repo_root, branch)?;
 
         let flag = if force { "-D" } else { "-d" };
         self.run_git(
-            &root,
+            &context.repo_root,
             &["branch", flag, branch.trim()],
             "GIT_BRANCH_DELETE_FAILED",
         )?;
@@ -2095,11 +2530,12 @@ where
     pub fn fetch(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         remote: Option<&str>,
         prune: bool,
         include_tags: bool,
     ) -> AbstractionResult<GitFetchResult> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let remote = remote
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2117,7 +2553,7 @@ where
         }
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_FETCH_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_FETCH_FAILED")?;
 
         Ok(GitFetchResult {
             remote,
@@ -2130,11 +2566,12 @@ where
     pub fn pull(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         remote: Option<&str>,
         branch: Option<&str>,
         rebase: bool,
     ) -> AbstractionResult<GitPullResult> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let remote = remote
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2160,7 +2597,7 @@ where
             .map(ToString::to_string);
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_PULL_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_PULL_FAILED")?;
 
         Ok(GitPullResult {
             remote,
@@ -2173,12 +2610,13 @@ where
     pub fn push(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         remote: Option<&str>,
         branch: Option<&str>,
         set_upstream: bool,
         force_with_lease: bool,
     ) -> AbstractionResult<GitPushResult> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let remote = remote
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2202,7 +2640,7 @@ where
         }
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_PUSH_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_PUSH_FAILED")?;
 
         Ok(GitPushResult {
             remote,
@@ -2216,11 +2654,12 @@ where
     pub fn stash_push(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         message: Option<&str>,
         include_untracked: bool,
         keep_index: bool,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let mut args = vec!["stash".to_string(), "push".to_string()];
         if include_untracked {
             args.push("--include-untracked".to_string());
@@ -2237,7 +2676,7 @@ where
         }
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_STASH_PUSH_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_STASH_PUSH_FAILED")?;
         Ok(())
     }
 
@@ -2245,9 +2684,10 @@ where
     pub fn stash_pop(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         stash: Option<&str>,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let mut args = vec!["stash".to_string(), "pop".to_string()];
         if let Some(stash) = stash {
             let trimmed = stash.trim();
@@ -2257,7 +2697,7 @@ where
         }
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_STASH_POP_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_STASH_POP_FAILED")?;
         Ok(())
     }
 
@@ -2265,13 +2705,14 @@ where
     pub fn stash_list(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         limit: usize,
     ) -> AbstractionResult<Vec<GitStashEntry>> {
         let effective_limit = limit.clamp(1, 200);
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let max_count = effective_limit.to_string();
         let output = self.run_git(
-            &root,
+            &context.repo_root,
             &[
                 "stash",
                 "list",
@@ -2297,15 +2738,19 @@ where
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
-    pub fn tag_list(&self, workspace_id: &WorkspaceId) -> AbstractionResult<Vec<GitTagEntry>> {
-        let root = self.workspace_root(workspace_id)?;
+    pub fn tag_list(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+    ) -> AbstractionResult<Vec<GitTagEntry>> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let format = format!(
             "%(refname:short){fs}%(objectname){fs}%(objectname:short){fs}%(taggername){fs}%(subject){rs}",
             fs = LOG_FIELD_SEP,
             rs = LOG_RECORD_SEP,
         );
         let output = self.run_git(
-            &root,
+            &context.repo_root,
             &["for-each-ref", "--format", &format, "refs/tags/"],
             "GIT_TAG_LIST_FAILED",
         )?;
@@ -2336,6 +2781,7 @@ where
     pub fn tag_create(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         name: &str,
         target: &str,
         annotated: bool,
@@ -2346,7 +2792,7 @@ where
                 message: "annotated tag requires a message".into(),
             });
         }
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let mut args = vec!["tag".to_string()];
         if annotated {
             args.push("-a".to_string());
@@ -2359,14 +2805,23 @@ where
         args.push(target.to_string());
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.run_git(&root, &arg_refs, "GIT_TAG_CREATE_FAILED")?;
+        self.run_git(&context.repo_root, &arg_refs, "GIT_TAG_CREATE_FAILED")?;
         Ok(())
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id, name = name))]
-    pub fn tag_delete(&self, workspace_id: &WorkspaceId, name: &str) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
-        self.run_git(&root, &["tag", "-d", name], "GIT_TAG_DELETE_FAILED")?;
+    pub fn tag_delete(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+        name: &str,
+    ) -> AbstractionResult<()> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        self.run_git(
+            &context.repo_root,
+            &["tag", "-d", name],
+            "GIT_TAG_DELETE_FAILED",
+        )?;
         Ok(())
     }
 
@@ -2374,16 +2829,17 @@ where
     pub fn tag_push(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         remote: Option<&str>,
         tag_name: &str,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let remote = remote
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("origin");
         self.run_git(
-            &root,
+            &context.repo_root,
             &["push", remote, "tag", tag_name],
             "GIT_TAG_PUSH_FAILED",
         )?;
@@ -2394,11 +2850,12 @@ where
     pub fn cherry_pick(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         commit_oid: &str,
     ) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         self.run_git(
-            &root,
+            &context.repo_root,
             &["cherry-pick", commit_oid],
             "GIT_CHERRY_PICK_FAILED",
         )?;
@@ -2406,10 +2863,15 @@ where
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id, commit_oid = commit_oid))]
-    pub fn revert(&self, workspace_id: &WorkspaceId, commit_oid: &str) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
+    pub fn revert(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+        commit_oid: &str,
+    ) -> AbstractionResult<()> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         self.run_git(
-            &root,
+            &context.repo_root,
             &["revert", "--no-edit", commit_oid],
             "GIT_REVERT_FAILED",
         )?;
@@ -2420,6 +2882,7 @@ where
     pub fn reset(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         target: &str,
         mode: &str,
     ) -> AbstractionResult<()> {
@@ -2434,8 +2897,12 @@ where
                 });
             }
         };
-        let root = self.workspace_root(workspace_id)?;
-        self.run_git(&root, &["reset", reset_flag, target], "GIT_RESET_FAILED")?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        self.run_git(
+            &context.repo_root,
+            &["reset", reset_flag, target],
+            "GIT_RESET_FAILED",
+        )?;
         Ok(())
     }
 
@@ -2443,10 +2910,11 @@ where
     pub fn merge(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         target: &str,
         no_ff: bool,
     ) -> AbstractionResult<MergeResult> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let mut args = vec!["merge".to_string(), "--no-edit".to_string()];
         if no_ff {
             args.push("--no-ff".to_string());
@@ -2454,9 +2922,13 @@ where
         args.push(target.to_string());
 
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-        match self.run_git(&root, &arg_refs, "GIT_MERGE_FAILED") {
+        match self.run_git(&context.repo_root, &arg_refs, "GIT_MERGE_FAILED") {
             Ok(_) => {
-                let head = self.run_git(&root, &["rev-parse", "HEAD"], "GIT_MERGE_FAILED")?;
+                let head = self.run_git(
+                    &context.repo_root,
+                    &["rev-parse", "HEAD"],
+                    "GIT_MERGE_FAILED",
+                )?;
                 let head_sha = head.trim().to_string();
                 Ok(MergeResult {
                     success: true,
@@ -2466,8 +2938,9 @@ where
             }
             Err(e) => {
                 // Check if the failure is due to a merge conflict by looking for MERGE_HEAD
-                if root.join(".git").join("MERGE_HEAD").exists() {
-                    let conflicts = self.conflict_list(workspace_id)?;
+                if context.repo_root.join(".git").join("MERGE_HEAD").exists() {
+                    let conflicts =
+                        self.conflict_list(workspace_id, Some(context.repository_path.as_str()))?;
                     Ok(MergeResult {
                         success: false,
                         conflicts,
@@ -2484,10 +2957,11 @@ where
     pub fn conflict_list(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
     ) -> AbstractionResult<Vec<ConflictFile>> {
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let output = self.run_git(
-            &root,
+            &context.repo_root,
             &["diff", "--name-only", "--diff-filter=U"],
             "GIT_CONFLICT_LIST_FAILED",
         )?;
@@ -2496,7 +2970,7 @@ where
             .lines()
             .filter(|l| !l.is_empty())
             .map(|path| ConflictFile {
-                path: path.to_string(),
+                path: Self::join_workspace_relative_path(&context.repository_path, path),
                 status: ConflictStatus::BothModified,
             })
             .collect();
@@ -2505,9 +2979,14 @@ where
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
-    pub fn merge_continue(&self, workspace_id: &WorkspaceId) -> AbstractionResult<String> {
+    pub fn merge_continue(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+    ) -> AbstractionResult<String> {
         // Check if all conflicts are resolved
-        let status = self.status(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let status = self.status_repo(workspace_id, Some(context.repository_path.as_str()))?;
         let has_conflicts = status
             .files
             .iter()
@@ -2519,17 +2998,28 @@ where
             });
         }
 
-        let root = self.workspace_root(workspace_id)?;
-        self.run_git(&root, &["commit", "--no-edit"], "GIT_MERGE_CONTINUE_FAILED")?;
+        self.run_git(
+            &context.repo_root,
+            &["commit", "--no-edit"],
+            "GIT_MERGE_CONTINUE_FAILED",
+        )?;
 
-        let head = self.resolve_head_oid(&root)?;
+        let head = self.resolve_head_oid(&context.repo_root)?;
         Ok(head)
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
-    pub fn merge_abort(&self, workspace_id: &WorkspaceId) -> AbstractionResult<()> {
-        let root = self.workspace_root(workspace_id)?;
-        self.run_git(&root, &["merge", "--abort"], "GIT_MERGE_ABORT_FAILED")?;
+    pub fn merge_abort(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+    ) -> AbstractionResult<()> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        self.run_git(
+            &context.repo_root,
+            &["merge", "--abort"],
+            "GIT_MERGE_ABORT_FAILED",
+        )?;
         Ok(())
     }
 
@@ -2537,19 +3027,19 @@ where
     pub fn stage_hunk(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         path: &str,
         patch: &str,
     ) -> AbstractionResult<()> {
-        Self::validate_relative_repo_path(path)?;
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
 
-        let patch_path = root.join(".git").join("gto-patch.tmp");
+        let patch_path = context.repo_root.join(".git").join("gto-patch.tmp");
         std::fs::write(&patch_path, patch).map_err(|e| AbstractionError::Internal {
             message: format!("GIT_STAGE_HUNK_FAILED: {e}"),
         })?;
 
         let result = self.run_git(
-            &root,
+            &context.repo_root,
             &["apply", "--cached", patch_path.to_str().unwrap()],
             "GIT_STAGE_HUNK_FAILED",
         );
@@ -2563,19 +3053,19 @@ where
     pub fn unstage_hunk(
         &self,
         workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
         path: &str,
         patch: &str,
     ) -> AbstractionResult<()> {
-        Self::validate_relative_repo_path(path)?;
-        let root = self.workspace_root(workspace_id)?;
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
 
-        let patch_path = root.join(".git").join("gto-patch.tmp");
+        let patch_path = context.repo_root.join(".git").join("gto-patch.tmp");
         std::fs::write(&patch_path, patch).map_err(|e| AbstractionError::Internal {
             message: format!("GIT_UNSTAGE_HUNK_FAILED: {e}"),
         })?;
 
         let result = self.run_git(
-            &root,
+            &context.repo_root,
             &[
                 "apply",
                 "--cached",
@@ -2666,7 +3156,7 @@ fn common_binary_dirs() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::GitService;
+    use super::{GitService, GIT_STATUS_TARGET_BUDGET_MS};
     use gt_abstractions::{
         AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
         WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
@@ -2676,6 +3166,7 @@ mod tests {
         path::{Path, PathBuf},
         process::Command,
         sync::Mutex,
+        time::Instant,
     };
     use uuid::Uuid;
 
@@ -2751,6 +3242,23 @@ mod tests {
         (workspace_id, root, service)
     }
 
+    fn init_repo(root: &Path) {
+        run_git(root, &["init"]);
+        run_git(root, &["config", "user.name", "GT Office Test"]);
+        run_git(root, &["config", "user.email", "test@example.com"]);
+    }
+
+    fn create_nested_repo(parent: &Path, relative_path: &str, tracked_file_name: &str) -> PathBuf {
+        let repo_root = parent.join(relative_path);
+        fs::create_dir_all(&repo_root).expect("nested repo dir should be created");
+        init_repo(&repo_root);
+        fs::write(repo_root.join(tracked_file_name), "nested base\n")
+            .expect("nested tracked file should be written");
+        run_git(&repo_root, &["add", tracked_file_name]);
+        run_git(&repo_root, &["commit", "-m", "init nested"]);
+        repo_root
+    }
+
     fn restore_env_var(key: &str, value: Option<std::ffi::OsString>) {
         match value {
             Some(value) => std::env::set_var(key, value),
@@ -2807,7 +3315,7 @@ mod tests {
 
         fs::write(root.join("hook.txt"), "hook\n").expect("write file");
         service
-            .stage(&workspace_id, &[String::from("hook.txt")])
+            .stage(&workspace_id, None, &[String::from("hook.txt")])
             .expect("stage");
 
         let previous_home = std::env::var_os("HOME");
@@ -2815,7 +3323,7 @@ mod tests {
         std::env::set_var("HOME", &test_home);
         std::env::set_var("PATH", &git_bin_dir);
 
-        let result = service.commit(&workspace_id, "feat: hook commit");
+        let result = service.commit(&workspace_id, None, "feat: hook commit");
 
         restore_env_var("HOME", previous_home);
         restore_env_var("PATH", previous_path);
@@ -2836,6 +3344,7 @@ mod tests {
         service
             .discard(
                 &workspace_id,
+                None,
                 &["tracked.txt".to_string(), "scratch.txt".to_string()],
                 true,
             )
@@ -2858,7 +3367,7 @@ mod tests {
         run_git(&root, &["add", "政策分析.md"]);
 
         service
-            .discard(&workspace_id, &["政策分析.md".to_string()], false)
+            .discard(&workspace_id, None, &["政策分析.md".to_string()], false)
             .expect("discard should succeed for index new file");
 
         assert!(!root.join("政策分析.md").exists());
@@ -2879,7 +3388,7 @@ mod tests {
         let (workspace_id, root, service) = create_temp_repo();
 
         let discarded = service
-            .discard(&workspace_id, &["政策分析.md".to_string()], false)
+            .discard(&workspace_id, None, &["政策分析.md".to_string()], false)
             .expect("discard should ignore stale unknown paths");
 
         assert_eq!(discarded, 0);
@@ -2896,6 +3405,7 @@ mod tests {
         let discarded = service
             .discard(
                 &workspace_id,
+                None,
                 &["tracked.txt".to_string(), "政策分析.md".to_string()],
                 false,
             )
@@ -2920,10 +3430,10 @@ mod tests {
             .expect("tracked file should include unstaged change");
 
         let staged = service
-            .diff_file_structured(&workspace_id, "tracked.txt", true)
+            .diff_file_structured(&workspace_id, None, "tracked.txt", true)
             .expect("staged diff should succeed");
         let unstaged = service
-            .diff_file_structured(&workspace_id, "tracked.txt", false)
+            .diff_file_structured(&workspace_id, None, "tracked.txt", false)
             .expect("unstaged diff should succeed");
 
         assert_ne!(staged.patch, unstaged.patch);
@@ -2931,6 +3441,171 @@ mod tests {
         assert!(staged.patch.contains("+staged"));
         assert!(unstaged.patch.contains("+worktree"));
         assert!(!unstaged.patch.contains("-base"));
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn status_aggregates_workspace_root_and_nested_repositories() {
+        let (workspace_id, root, service) = create_temp_repo();
+        let nested_root = create_nested_repo(&root, "packages/alpha", "nested.txt");
+
+        fs::write(root.join("tracked.txt"), "root changed\n").expect("root file should be updated");
+        fs::write(nested_root.join("nested.txt"), "nested changed\n")
+            .expect("nested file should be updated");
+
+        let summary = service
+            .status(&workspace_id)
+            .expect("status should succeed");
+        assert_eq!(summary.repositories.len(), 2);
+        assert_eq!(summary.repositories[0].repository_path, "");
+        assert_eq!(summary.repositories[1].repository_path, "packages/alpha");
+        assert!(
+            summary
+                .files
+                .iter()
+                .any(|file| file.path == "tracked.txt" && file.repository_path.is_empty()),
+            "workspace-root change should stay scoped to the root repository"
+        );
+        assert!(
+            summary
+                .files
+                .iter()
+                .any(|file| file.path == "packages/alpha/nested.txt"
+                    && file.repository_path == "packages/alpha"),
+            "nested repository change should be reported with its repository path"
+        );
+
+        let nested_summary = service
+            .status_repo(&workspace_id, Some("packages/alpha"))
+            .expect("nested repo status should succeed");
+        assert_eq!(nested_summary.primary_repository_path, "packages/alpha");
+        assert_eq!(nested_summary.files.len(), 1);
+        assert_eq!(nested_summary.files[0].path, "packages/alpha/nested.txt");
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn repository_cache_invalidation_discovers_new_nested_repository() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        let initial = service
+            .status(&workspace_id)
+            .expect("initial status should succeed");
+        assert_eq!(initial.repositories.len(), 1);
+
+        let nested_root = create_nested_repo(&root, "packages/beta", "beta.txt");
+
+        let cached = service
+            .status(&workspace_id)
+            .expect("cached status should succeed");
+        assert_eq!(
+            cached.repositories.len(),
+            1,
+            "repository discovery should stay cached until invalidated"
+        );
+
+        service
+            .invalidate_repository_cache(&workspace_id)
+            .expect("cache invalidation should succeed");
+        fs::write(nested_root.join("beta.txt"), "beta changed\n")
+            .expect("nested file should be updated");
+
+        let refreshed = service
+            .status(&workspace_id)
+            .expect("refreshed status should succeed");
+        assert_eq!(refreshed.repositories.len(), 2);
+        assert!(
+            refreshed
+                .repositories
+                .iter()
+                .any(|repository| repository.repository_path == "packages/beta"),
+            "new nested repository should be visible after invalidation"
+        );
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn status_discovers_repositories_nested_under_other_repositories() {
+        let (workspace_id, root, service) = create_temp_repo();
+        let nested_root = create_nested_repo(&root, "packages/alpha", "alpha.txt");
+        let deep_nested_root = create_nested_repo(&nested_root, "examples/demo", "demo.txt");
+
+        fs::write(deep_nested_root.join("demo.txt"), "demo changed\n")
+            .expect("deep nested file should be updated");
+
+        service
+            .invalidate_repository_cache(&workspace_id)
+            .expect("cache invalidation should succeed");
+
+        let summary = service
+            .status(&workspace_id)
+            .expect("status should succeed");
+        assert_eq!(summary.repositories.len(), 3);
+        assert!(
+            summary
+                .repositories
+                .iter()
+                .any(|repository| repository.repository_path == "packages/alpha"),
+            "first nested repository should be included",
+        );
+        assert!(
+            summary
+                .repositories
+                .iter()
+                .any(|repository| repository.repository_path == "packages/alpha/examples/demo"),
+            "deep nested repository should be included",
+        );
+        assert!(
+            summary.files.iter().any(|file| {
+                file.path == "packages/alpha/examples/demo/demo.txt"
+                    && file.repository_path == "packages/alpha/examples/demo"
+            }),
+            "deep nested repository change should stay scoped to the deepest repository",
+        );
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn cached_multi_repository_status_stays_within_interactive_budget() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        fs::write(root.join("tracked.txt"), "root changed\n").expect("root file should be updated");
+
+        for index in 0..8 {
+            let relative_path = format!("packages/pkg-{index:02}");
+            let tracked_file_name = format!("file-{index:02}.txt");
+            let nested_root = create_nested_repo(&root, &relative_path, &tracked_file_name);
+            fs::write(
+                nested_root.join(&tracked_file_name),
+                format!("nested change {index}\n"),
+            )
+            .expect("nested file should be updated");
+        }
+
+        service
+            .invalidate_repository_cache(&workspace_id)
+            .expect("cache invalidation should succeed");
+
+        let warmed = service
+            .status(&workspace_id)
+            .expect("warm status should succeed");
+        assert_eq!(warmed.repositories.len(), 9);
+
+        let started_at = Instant::now();
+        let refreshed = service
+            .status(&workspace_id)
+            .expect("cached status should succeed");
+        let elapsed_ms = started_at.elapsed().as_millis();
+
+        assert_eq!(refreshed.repositories.len(), 9);
+        assert!(
+            elapsed_ms < GIT_STATUS_TARGET_BUDGET_MS,
+            "cached multi-repository status exceeded budget: {elapsed_ms}ms >= {GIT_STATUS_TARGET_BUDGET_MS}ms",
+        );
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
     }
@@ -2945,10 +3620,10 @@ mod tests {
             .expect("tracked file should include unstaged change");
 
         let staged = service
-            .diff_file_expansion(&workspace_id, "tracked.txt", None, true)
+            .diff_file_expansion(&workspace_id, None, "tracked.txt", None, true)
             .expect("staged compare should succeed");
         let unstaged = service
-            .diff_file_expansion(&workspace_id, "tracked.txt", None, false)
+            .diff_file_expansion(&workspace_id, None, "tracked.txt", None, false)
             .expect("unstaged compare should succeed");
 
         let staged_lines = &staged
@@ -2991,10 +3666,10 @@ mod tests {
         .expect("jsx file should be written");
 
         let raw_patch = service
-            .diff_file(&workspace_id, "Widget.jsx", false)
+            .diff_file(&workspace_id, None, "Widget.jsx", false)
             .expect("unstaged raw diff should succeed");
         let structured = service
-            .diff_file_structured(&workspace_id, "Widget.jsx", false)
+            .diff_file_structured(&workspace_id, None, "Widget.jsx", false)
             .expect("unstaged structured diff should succeed");
 
         assert!(raw_patch.contains("new file mode 100644"));

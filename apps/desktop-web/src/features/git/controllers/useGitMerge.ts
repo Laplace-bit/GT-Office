@@ -3,6 +3,7 @@ import { desktopApi } from '@shell/integration/desktop-api'
 
 interface UseGitMergeInput {
   workspaceId: string | null
+  repositoryPath: string | null
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   onRefreshAll: () => Promise<void>
@@ -18,6 +19,7 @@ interface UseGitMergeResult {
 
 export function useGitMerge({
   workspaceId,
+  repositoryPath,
   isGitRepository,
   runAction,
   onRefreshAll,
@@ -31,13 +33,13 @@ export function useGitMerge({
         return
       }
       await runAction('merge', async () => {
-        setIsMerging(true)
-        await desktopApi.gitMerge(workspaceId, source.trim())
-        setMergeConflicts([])
+        const result = await desktopApi.gitMerge(workspaceId, source.trim(), { repositoryPath })
+        setIsMerging(!result.success)
+        setMergeConflicts(result.conflicts.map((item) => item.path))
         await onRefreshAll()
       })
     },
-    [isGitRepository, onRefreshAll, runAction, workspaceId],
+    [isGitRepository, onRefreshAll, repositoryPath, runAction, workspaceId],
   )
 
   const continueMerge = useCallback(async () => {
@@ -45,24 +47,24 @@ export function useGitMerge({
       return
     }
     await runAction('merge-continue', async () => {
-      await desktopApi.gitMergeContinue(workspaceId)
+      await desktopApi.gitMergeContinue(workspaceId, repositoryPath)
       setIsMerging(false)
       setMergeConflicts([])
       await onRefreshAll()
     })
-  }, [isGitRepository, onRefreshAll, runAction, workspaceId])
+  }, [isGitRepository, onRefreshAll, repositoryPath, runAction, workspaceId])
 
   const abortMerge = useCallback(async () => {
     if (!workspaceId || !isGitRepository) {
       return
     }
     await runAction('merge-abort', async () => {
-      await desktopApi.gitMergeAbort(workspaceId)
+      await desktopApi.gitMergeAbort(workspaceId, repositoryPath)
       setIsMerging(false)
       setMergeConflicts([])
       await onRefreshAll()
     })
-  }, [isGitRepository, onRefreshAll, runAction, workspaceId])
+  }, [isGitRepository, onRefreshAll, repositoryPath, runAction, workspaceId])
 
   return {
     mergeConflicts,

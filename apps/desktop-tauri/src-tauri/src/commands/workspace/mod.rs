@@ -62,10 +62,12 @@ fn detached_workspace_window_label(
     workspace_id: &str,
     bindings: &std::collections::HashMap<String, String>,
 ) -> Option<String> {
-    bindings.iter().find_map(|(window_label, bound_workspace_id)| {
-        (bound_workspace_id == workspace_id && window_label.starts_with("workspace-"))
-            .then(|| window_label.clone())
-    })
+    bindings
+        .iter()
+        .find_map(|(window_label, bound_workspace_id)| {
+            (bound_workspace_id == workspace_id && window_label.starts_with("workspace-"))
+                .then(|| window_label.clone())
+        })
 }
 
 fn allow_workspace_asset_scope<R: tauri::Runtime, M: Manager<R>>(

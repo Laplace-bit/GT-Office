@@ -108,7 +108,9 @@ fn build_workspace_window_url(workspace_id: &str) -> WebviewUrl {
     WebviewUrl::App(format!("index.html?workspace={workspace_id}").into())
 }
 
-fn clone_main_window_config(app: &tauri::AppHandle) -> Result<tauri::utils::config::WindowConfig, String> {
+fn clone_main_window_config(
+    app: &tauri::AppHandle,
+) -> Result<tauri::utils::config::WindowConfig, String> {
     app.config()
         .app
         .windows

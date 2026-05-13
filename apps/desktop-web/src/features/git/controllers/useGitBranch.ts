@@ -8,6 +8,7 @@ import { t } from '@shell/i18n/ui-locale'
 
 interface UseGitBranchInput {
   workspaceId: string | null
+  repositoryPath: string | null
   isGitRepository: boolean
   locale: Locale
   branches: GitBranchEntry[]
@@ -31,6 +32,7 @@ interface UseGitBranchResult {
 
 export function useGitBranch({
   workspaceId,
+  repositoryPath,
   isGitRepository,
   locale,
   branches,
@@ -56,7 +58,10 @@ export function useGitBranch({
     }
     setCheckoutTarget(nextTarget)
     await runAction('checkout', async () => {
-      await desktopApi.gitCheckout(workspaceId, nextTarget, { create: false })
+      await desktopApi.gitCheckout(workspaceId, nextTarget, {
+        create: false,
+        repositoryPath,
+      })
       invalidateDiffCache()
       await onRefreshAll()
     })
@@ -79,12 +84,12 @@ export function useGitBranch({
       return
     }
     await runAction('create-branch', async () => {
-      await desktopApi.gitCreateBranch(workspaceId, branch, null)
+      await desktopApi.gitCreateBranch(workspaceId, branch, null, repositoryPath)
       setNewBranchName('')
       setCheckoutTarget(branch)
       await onRefreshBranches()
     })
-  }, [isGitRepository, newBranchName, onRefreshBranches, runAction, setCheckoutTarget, workspaceId])
+  }, [isGitRepository, newBranchName, onRefreshBranches, repositoryPath, runAction, setCheckoutTarget, workspaceId])
 
   const deleteBranch = useCallback(async () => {
     if (!workspaceId || !isGitRepository || !checkoutTarget.trim()) {
@@ -97,7 +102,7 @@ export function useGitBranch({
       return
     }
     await runAction('delete-branch', async () => {
-      await desktopApi.gitDeleteBranch(workspaceId, checkoutTarget, false)
+      await desktopApi.gitDeleteBranch(workspaceId, checkoutTarget, false, repositoryPath)
       await onRefreshBranches()
     })
   }, [
@@ -105,6 +110,7 @@ export function useGitBranch({
     isGitRepository,
     locale,
     onRefreshBranches,
+    repositoryPath,
     runAction,
     selectedBranchEntry?.current,
     workspaceId,

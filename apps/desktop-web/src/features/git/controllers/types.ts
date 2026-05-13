@@ -2,6 +2,7 @@ import type {
   GitBranchEntry,
   GitCommitEntry,
   GitDiffStructuredResponse,
+  GitRepositorySummary,
   GitStashEntry,
   GitStatusFile,
   GitStatusResponse,
@@ -33,6 +34,9 @@ export interface GitWorkspaceController {
   workspaceId: string | null
   isGitRepository: boolean
   summary: GitStatusResponse | null
+  repositories: GitRepositorySummary[]
+  currentRepositoryPath: string | null
+  setCurrentRepositoryPath: (repositoryPath: string | null) => void
   stagedFiles: GitStatusFile[]
   unstagedFiles: GitStatusFile[]
   visibleFiles: GitStatusFile[]
@@ -56,6 +60,7 @@ export interface GitWorkspaceController {
   preloadDiff: (path: string, scope?: GitDiffScope) => void
   metaLoading: boolean
   actionLoading: string | null
+  remoteActionLoading: 'fetch' | 'pull' | 'push' | 'tagPush' | null
   errorMessage: string | null
   repositoryNotice: string | null
   dismissRepositoryNotice: () => void
@@ -88,6 +93,7 @@ export interface GitWorkspaceController {
   fetch: () => Promise<void>
   pull: () => Promise<void>
   push: () => Promise<void>
+  pushTag: (name: string, remote?: string) => Promise<void>
   checkout: () => Promise<void>
   checkoutTo: (target: string) => Promise<void>
   createBranch: () => Promise<void>
@@ -114,13 +120,16 @@ export interface UseGitWorkspaceControllerInput {
   locale: Locale
   workspaceId: string | null
   summary: GitStatusResponse | null
-  onRefreshSummary: (workspaceId: string | null) => Promise<void>
+  onRefreshSummary: (
+    workspaceId: string | null,
+    repositoryPath?: string | null,
+  ) => Promise<void>
 }
 
 // ============================================
 // Constants
 // ============================================
-export const ROW_HEIGHT = 30
+export const ROW_HEIGHT = 40
 export const OVERSCAN_ROWS = 25
 export const HISTORY_PAGE_SIZE = 80
 export const STASH_LIMIT = 30

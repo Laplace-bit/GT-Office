@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { t } from '@shell/i18n/ui-locale'
 import type { GitStatusFile } from '@shell/integration/desktop-api'
 import { GitIconButton } from './GitIconButton'
-import { getFileName } from './git-helpers'
+import { getCompactPathTail, getDirectoryLabel, getFileName } from './git-helpers'
 
 interface GitFileRowProps {
   file: GitStatusFile
@@ -15,7 +15,7 @@ interface GitFileRowProps {
   onStage: () => void
   onUnstage: () => void
   onDiscard: () => void
-  style: React.CSSProperties
+  style?: React.CSSProperties
 }
 
 export const GitFileRow = memo(function GitFileRow({
@@ -32,9 +32,15 @@ export const GitFileRow = memo(function GitFileRow({
   style,
 }: GitFileRowProps) {
   const fileName = getFileName(file.path)
+  const relativeDirectory =
+    file.repoRelativePath && file.repoRelativePath !== fileName
+      ? getDirectoryLabel(file.repoRelativePath)
+      : '.'
+  const compactRelativeDirectory = getCompactPathTail(relativeDirectory)
+  const locationLabel = relativeDirectory || '.'
   return (
     <div
-      className={`git-file-row ${isActive ? 'git-file-row--active' : ''}`}
+      className={`git-file-row ${!style ? 'git-file-row--static' : ''} ${isActive ? 'git-file-row--active' : ''}`}
       style={style}
     >
       <button
@@ -50,7 +56,12 @@ export const GitFileRow = memo(function GitFileRow({
         >
           {file.status || '—'}
         </span>
-        <span className="git-file-row__path">{fileName}</span>
+        <span className="git-file-row__path-wrap">
+          <span className="git-file-row__path">{fileName}</span>
+          <span className="git-file-row__meta" title={locationLabel}>
+            <span className="git-file-row__dir">{compactRelativeDirectory}</span>
+          </span>
+        </span>
       </button>
       <div className="git-file-row__actions">
         {actionMode === 'staged' ? (

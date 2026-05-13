@@ -1,3 +1,4 @@
+use gt_abstractions::WorkspaceId;
 use gt_settings::FilesystemWatcherSettings;
 use notify::{
     event::ModifyKind, Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -50,6 +51,7 @@ struct PendingWatchEvents {
     paths_by_kind: HashMap<&'static str, HashSet<String>>,
     errors: Vec<String>,
     git_refresh_required: bool,
+    repository_cache_invalidation_required: bool,
 }
 
 impl WorkspaceWatcherRegistry {
@@ -191,6 +193,10 @@ fn accumulate_watch_batch_message(
             if should_schedule_git_refresh(root, &event.paths, settings) {
                 pending.git_refresh_required = true;
             }
+            if should_invalidate_repository_cache(root, &event) {
+                pending.git_refresh_required = true;
+                pending.repository_cache_invalidation_required = true;
+            }
             let Some(kind) = map_event_kind(&event.kind) else {
                 return;
             };
@@ -214,6 +220,7 @@ fn flush_pending_watch_events(
     if pending.paths_by_kind.is_empty()
         && pending.errors.is_empty()
         && !pending.git_refresh_required
+        && !pending.repository_cache_invalidation_required
     {
         return;
     }
@@ -248,10 +255,17 @@ fn flush_pending_watch_events(
 
     if pending.git_refresh_required {
         let state = app.state::<crate::app_state::AppState>();
+        let workspace_id_value = WorkspaceId::new(workspace_id.to_string());
+        if pending.repository_cache_invalidation_required {
+            let _ = state
+                .git_service
+                .invalidate_repository_cache(&workspace_id_value);
+        }
         state
             .git_status_coordinator
             .schedule_refresh(app, state.inner(), workspace_id);
         pending.git_refresh_required = false;
+        pending.repository_cache_invalidation_required = false;
     }
 }
 
@@ -356,14 +370,49 @@ fn should_schedule_git_refresh(
     })
 }
 
+fn should_invalidate_repository_cache(root: &Path, event: &Event) -> bool {
+    if !matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+    ) {
+        return false;
+    }
+
+    event.paths.iter().any(|path| {
+        let Some(relative) = normalize_path(root, path.as_path()) else {
+            return false;
+        };
+        if relative == ".git" || relative.ends_with("/.git") {
+            return true;
+        }
+
+        if path.file_name().is_some_and(|name| name == ".git") {
+            return true;
+        }
+
+        path.join(".git").exists()
+    })
+}
+
 fn is_git_metadata_path_of_interest(path: &str) -> bool {
     let normalized = path.trim_start_matches("./");
-    matches!(
-        normalized,
-        ".git/HEAD" | ".git/index" | ".git/packed-refs" | ".git/MERGE_HEAD"
-    ) || normalized.starts_with(".git/refs/heads/")
-        || normalized.starts_with(".git/rebase-apply/")
-        || normalized.starts_with(".git/rebase-merge/")
+    let components = normalized.split('/').collect::<Vec<_>>();
+    for index in 0..components.len() {
+        if components[index] != ".git" {
+            continue;
+        }
+        let suffix = components[index + 1..].join("/");
+        if matches!(
+            suffix.as_str(),
+            "HEAD" | "index" | "packed-refs" | "MERGE_HEAD"
+        ) || suffix.starts_with("refs/heads/")
+            || suffix.starts_with("rebase-apply/")
+            || suffix.starts_with("rebase-merge/")
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

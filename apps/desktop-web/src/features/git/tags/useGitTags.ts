@@ -4,6 +4,7 @@ import type { GitTagEntry } from '@shell/integration/desktop-api'
 
 export function useGitTags(
   workspaceId: string | null,
+  repositoryPath: string | null,
   isGitRepository: boolean,
   enabled = true,
 ) {
@@ -14,12 +15,12 @@ export function useGitTags(
     if (!enabled || !workspaceId || !isGitRepository) return
     setLoading(true)
     try {
-      const result = await desktopApi.gitTagList(workspaceId)
+      const result = await desktopApi.gitTagList(workspaceId, repositoryPath)
       setTags(result.entries)
     } finally {
       setLoading(false)
     }
-  }, [enabled, workspaceId, isGitRepository])
+  }, [enabled, isGitRepository, repositoryPath, workspaceId])
 
   useEffect(() => {
     if (!enabled) {
@@ -33,24 +34,23 @@ export function useGitTags(
       return
     }
     setTags([])
-  }, [enabled, isGitRepository, workspaceId])
+  }, [enabled, isGitRepository, repositoryPath, workspaceId])
 
   const createTag = useCallback(async (name: string, target: string, annotated: boolean, message?: string) => {
     if (!workspaceId) return
-    await desktopApi.gitTagCreate(workspaceId, name, target, { annotated, message })
+    await desktopApi.gitTagCreate(workspaceId, name, target, {
+      annotated,
+      message,
+      repositoryPath,
+    })
     await refresh()
-  }, [workspaceId, refresh])
+  }, [repositoryPath, workspaceId, refresh])
 
   const deleteTag = useCallback(async (name: string) => {
     if (!workspaceId) return
-    await desktopApi.gitTagDelete(workspaceId, name)
+    await desktopApi.gitTagDelete(workspaceId, name, repositoryPath)
     await refresh()
-  }, [workspaceId, refresh])
+  }, [repositoryPath, workspaceId, refresh])
 
-  const pushTag = useCallback(async (name: string, remote?: string) => {
-    if (!workspaceId) return
-    await desktopApi.gitTagPush(workspaceId, name, remote)
-  }, [workspaceId])
-
-  return { tags, loading, refresh, createTag, deleteTag, pushTag }
+  return { tags, loading, refresh, createTag, deleteTag }
 }

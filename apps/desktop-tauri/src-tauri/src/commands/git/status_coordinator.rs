@@ -18,11 +18,13 @@ const DEFAULT_GIT_STATUS_DEBOUNCE_MS: u64 = 180;
 pub struct GitUpdatedPayload {
     pub workspace_id: String,
     pub available: bool,
+    pub primary_repository_path: String,
     pub branch: String,
     pub dirty: bool,
     pub ahead: u32,
     pub behind: u32,
     pub files: Vec<gt_abstractions::GitStatusFile>,
+    pub repositories: Vec<gt_abstractions::GitRepositorySummary>,
     pub revision: u64,
 }
 
@@ -98,10 +100,7 @@ impl GitStatusCoordinator {
         let state = state.clone();
         let workspace_id = workspace_id.to_string();
         tauri::async_runtime::spawn(async move {
-            if let Err(error) = coordinator
-                .refresh_once(&app, &state, &workspace_id)
-                .await
-            {
+            if let Err(error) = coordinator.refresh_once(&app, &state, &workspace_id).await {
                 warn!(workspace_id, error = %error, "immediate git status refresh failed");
             }
         });
@@ -214,21 +213,25 @@ impl GitStatusSnapshot {
             Self::Available(summary) => GitUpdatedPayload {
                 workspace_id,
                 available: true,
+                primary_repository_path: summary.primary_repository_path,
                 branch: summary.branch,
                 dirty: !summary.files.is_empty(),
                 ahead: summary.ahead,
                 behind: summary.behind,
                 files: summary.files,
+                repositories: summary.repositories,
                 revision,
             },
             Self::Unavailable => GitUpdatedPayload {
                 workspace_id,
                 available: false,
+                primary_repository_path: String::new(),
                 branch: String::new(),
                 dirty: false,
                 ahead: 0,
                 behind: 0,
                 files: Vec::new(),
+                repositories: Vec::new(),
                 revision,
             },
         }

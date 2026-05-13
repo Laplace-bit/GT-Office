@@ -3,7 +3,7 @@ use super::{
     build_git_discard_payload, build_git_fetch_payload, build_git_log_payload,
     build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
     build_git_stash_list_payload, build_git_status_payload, build_git_tag_list_payload,
-    build_git_unstage_payload,
+    build_git_tag_push_payload, build_git_unstage_payload,
 };
 use gt_abstractions::{GitStatusFile, GitStatusSummary, WorkspaceId};
 use gt_git::{
@@ -15,6 +15,7 @@ use gt_git::{
 fn git_status_payload_keeps_contract_fields() {
     let workspace_id = WorkspaceId::new("ws-1");
     let summary = GitStatusSummary {
+        primary_repository_path: String::new(),
         branch: "main".to_string(),
         ahead: 2,
         behind: 1,
@@ -22,7 +23,10 @@ fn git_status_payload_keeps_contract_fields() {
             path: "src/main.rs".to_string(),
             staged: false,
             status: "M".to_string(),
+            repository_path: String::new(),
+            repo_relative_path: "src/main.rs".to_string(),
         }],
+        repositories: Vec::new(),
     };
 
     let payload = build_git_status_payload(&workspace_id, &summary);
@@ -152,7 +156,7 @@ fn git_fetch_pull_push_payloads_keep_contract_fields() {
             include_tags: true,
         },
     );
-    assert_eq!(fetch_payload["fetched"], true);
+    assert_eq!(fetch_payload["queued"], true);
     assert_eq!(fetch_payload["includeTags"], true);
 
     let pull_payload = build_git_pull_payload(
@@ -163,7 +167,7 @@ fn git_fetch_pull_push_payloads_keep_contract_fields() {
             rebase: false,
         },
     );
-    assert_eq!(pull_payload["pulled"], true);
+    assert_eq!(pull_payload["queued"], true);
     assert_eq!(pull_payload["branch"], "main");
 
     let push_payload = build_git_push_payload(
@@ -175,8 +179,23 @@ fn git_fetch_pull_push_payloads_keep_contract_fields() {
             force_with_lease: false,
         },
     );
-    assert_eq!(push_payload["pushed"], true);
+    assert_eq!(push_payload["queued"], true);
     assert_eq!(push_payload["setUpstream"], true);
+}
+
+#[test]
+fn git_tag_push_payload_keeps_contract_fields() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_tag_push_payload(
+        &workspace_id,
+        Some("origin".to_string()),
+        "v1.2.3".to_string(),
+    );
+
+    assert_eq!(payload["workspaceId"], "ws-1");
+    assert_eq!(payload["remote"], "origin");
+    assert_eq!(payload["name"], "v1.2.3");
+    assert_eq!(payload["queued"], true);
 }
 
 #[test]

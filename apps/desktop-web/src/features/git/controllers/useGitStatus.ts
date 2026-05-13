@@ -15,9 +15,13 @@ interface OptimisticAction {
 
 interface UseGitStatusInput {
   workspaceId: string | null
+  repositoryPath: string | null
   isGitRepository: boolean
   summary: GitStatusResponse | null
-  onRefreshSummary: (workspaceId: string | null) => Promise<void>
+  onRefreshSummary: (
+    workspaceId: string | null,
+    repositoryPath?: string | null,
+  ) => Promise<void>
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
 }
@@ -45,6 +49,7 @@ interface UseGitStatusResult {
 
 export function useGitStatus({
   workspaceId,
+  repositoryPath,
   isGitRepository,
   summary,
   onRefreshSummary,
@@ -123,8 +128,8 @@ export function useGitStatus({
 
   // Actions
   const refreshSummaryOnly = useCallback(async () => {
-    await onRefreshSummary(workspaceId)
-  }, [onRefreshSummary, workspaceId])
+    await onRefreshSummary(workspaceId, repositoryPath)
+  }, [onRefreshSummary, repositoryPath, workspaceId])
 
   const stagePath = useCallback(
     async (path: string) => {
@@ -135,14 +140,14 @@ export function useGitStatus({
       setPendingActions((prev) => [...prev, { type: 'stage', paths: [path], seq }])
       try {
         await runAction('stage', async () => {
-          await desktopApi.gitStage(workspaceId, [path])
+          await desktopApi.gitStage(workspaceId, [path], repositoryPath)
           invalidateDiffCache()
         })
       } finally {
         setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
       }
     },
-    [invalidateDiffCache, isGitRepository, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
   )
 
   const unstagePath = useCallback(
@@ -154,14 +159,14 @@ export function useGitStatus({
       setPendingActions((prev) => [...prev, { type: 'unstage', paths: [path], seq }])
       try {
         await runAction('unstage', async () => {
-          await desktopApi.gitUnstage(workspaceId, [path])
+          await desktopApi.gitUnstage(workspaceId, [path], repositoryPath)
           invalidateDiffCache()
         })
       } finally {
         setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
       }
     },
-    [invalidateDiffCache, isGitRepository, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
   )
 
   const stageAll = useCallback(async () => {
@@ -173,13 +178,13 @@ export function useGitStatus({
     setPendingActions((prev) => [...prev, { type: 'stage', paths, seq }])
     try {
       await runAction('stage-all', async () => {
-        await desktopApi.gitStage(workspaceId, paths)
+        await desktopApi.gitStage(workspaceId, paths, repositoryPath)
         invalidateDiffCache()
       })
     } finally {
       setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
     }
-  }, [invalidateDiffCache, isGitRepository, runAction, unstagedFiles, workspaceId])
+  }, [invalidateDiffCache, isGitRepository, repositoryPath, runAction, unstagedFiles, workspaceId])
 
   const unstageAll = useCallback(async () => {
     if (!workspaceId || !isGitRepository || stagedFiles.length === 0) {
@@ -190,13 +195,13 @@ export function useGitStatus({
     setPendingActions((prev) => [...prev, { type: 'unstage', paths, seq }])
     try {
       await runAction('unstage-all', async () => {
-        await desktopApi.gitUnstage(workspaceId, paths)
+        await desktopApi.gitUnstage(workspaceId, paths, repositoryPath)
         invalidateDiffCache()
       })
     } finally {
       setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
     }
-  }, [invalidateDiffCache, isGitRepository, runAction, stagedFiles, workspaceId])
+  }, [invalidateDiffCache, isGitRepository, repositoryPath, runAction, stagedFiles, workspaceId])
 
   const discardPath = useCallback(
     async (path: string, includeUntracked = false) => {
@@ -204,11 +209,11 @@ export function useGitStatus({
         return
       }
       await runAction('discard', async () => {
-        await desktopApi.gitDiscard(workspaceId, [path], includeUntracked)
+        await desktopApi.gitDiscard(workspaceId, [path], includeUntracked, repositoryPath)
         invalidateDiffCache()
       })
     },
-    [invalidateDiffCache, isGitRepository, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
   )
 
   const selectPath = useCallback(
@@ -234,7 +239,7 @@ export function useGitStatus({
     if (!workspaceId) {
       return
     }
-  }, [workspaceId])
+  }, [repositoryPath, workspaceId])
 
   useEffect(() => {
     if (!summary || summary.files.length === 0) {

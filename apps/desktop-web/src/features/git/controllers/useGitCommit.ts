@@ -3,6 +3,7 @@ import { desktopApi } from '@shell/integration/desktop-api'
 
 interface UseGitCommitInput {
   workspaceId: string | null
+  repositoryPath: string | null
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
@@ -20,6 +21,7 @@ interface UseGitCommitResult {
 
 export function useGitCommit({
   workspaceId,
+  repositoryPath,
   isGitRepository,
   runAction,
   invalidateDiffCache,
@@ -35,7 +37,10 @@ export function useGitCommit({
       return
     }
     await runAction('commit', async () => {
-      await desktopApi.gitCommit(workspaceId, trimmed, amendMode ? { amend: true } : undefined)
+      await desktopApi.gitCommit(workspaceId, trimmed, {
+        amend: amendMode,
+        repositoryPath,
+      })
       setCommitMessage('')
       setAmendMode(false)
       invalidateDiffCache()
@@ -48,6 +53,7 @@ export function useGitCommit({
     isGitRepository,
     onRefreshHistory,
     onRefreshBranches,
+    repositoryPath,
     runAction,
     workspaceId,
   ])

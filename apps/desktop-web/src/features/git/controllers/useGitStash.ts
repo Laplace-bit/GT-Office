@@ -5,6 +5,7 @@ import {
 
 interface UseGitStashInput {
   workspaceId: string | null
+  repositoryPath: string | null
   isGitRepository: boolean
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
@@ -20,6 +21,7 @@ interface UseGitStashResult {
 
 export function useGitStash({
   workspaceId,
+  repositoryPath,
   isGitRepository,
   runAction,
   invalidateDiffCache,
@@ -34,12 +36,13 @@ export function useGitStash({
     await runAction('stash-push', async () => {
       await desktopApi.gitStashPush(workspaceId, {
         message: stashMessage.trim() || null,
+        repositoryPath,
       })
       setStashMessage('')
       invalidateDiffCache()
       await onRefreshStashes()
     })
-  }, [invalidateDiffCache, isGitRepository, onRefreshStashes, runAction, stashMessage, workspaceId])
+  }, [invalidateDiffCache, isGitRepository, onRefreshStashes, repositoryPath, runAction, stashMessage, workspaceId])
 
   const stashPop = useCallback(
     async (stash: string | null) => {
@@ -47,12 +50,12 @@ export function useGitStash({
         return
       }
       await runAction('stash-pop', async () => {
-        await desktopApi.gitStashPop(workspaceId, stash)
+        await desktopApi.gitStashPop(workspaceId, stash, repositoryPath)
         invalidateDiffCache()
         await onRefreshStashes()
       })
     },
-    [invalidateDiffCache, isGitRepository, onRefreshStashes, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshStashes, repositoryPath, runAction, workspaceId],
   )
 
   return {

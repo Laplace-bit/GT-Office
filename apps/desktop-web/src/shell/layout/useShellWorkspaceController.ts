@@ -17,6 +17,10 @@ import {
   normalizeFsPath,
   rememberWorkspacePath,
 } from './ShellRoot.shared'
+import {
+  resolveCachedWorkspaceGitSummary,
+  shouldApplyWorkspaceGitSummaryRefreshResult,
+} from './workspace-git-summary-model'
 
 type ConnectionState =
   | { code: 'checking'; detail?: string }
@@ -59,6 +63,8 @@ export function useShellWorkspaceController(
   )
   const [gitSummary, setGitSummary] = useState<GitStatusResponse | null>(null)
   const gitRefreshTimerRef = useRef<number | null>(null)
+  const gitSummaryCacheRef = useRef<Map<string, GitStatusResponse | null>>(new Map())
+  const gitRefreshSeqRef = useRef(0)
   const workspaceOpenInFlightRef = useRef(false)
   const workspaceAutoOpenTimerRef = useRef<number | null>(null)
   const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
@@ -85,18 +91,50 @@ export function useShellWorkspaceController(
         return
       }
 
+      const requestId = gitRefreshSeqRef.current + 1
+      gitRefreshSeqRef.current = requestId
+
       try {
         const summary = await desktopApi.gitStatus(workspaceId)
-        setGitSummary(summary)
+        gitSummaryCacheRef.current.set(workspaceId, summary)
+        if (
+          shouldApplyWorkspaceGitSummaryRefreshResult({
+            workspaceId,
+            activeWorkspaceId: activeWorkspaceIdRef.current,
+            requestId,
+            latestRequestId: gitRefreshSeqRef.current,
+          })
+        ) {
+          setGitSummary(summary)
+        }
       } catch (error) {
-        setGitSummary(null)
+        gitSummaryCacheRef.current.set(workspaceId, null)
+        if (
+          shouldApplyWorkspaceGitSummaryRefreshResult({
+            workspaceId,
+            activeWorkspaceId: activeWorkspaceIdRef.current,
+            requestId,
+            latestRequestId: gitRefreshSeqRef.current,
+          })
+        ) {
+          setGitSummary(null)
+        }
         if (isNotGitRepositoryError(error)) {
           return
         }
-        setConnectionState({
-          code: 'git-read-failed',
-          detail: describeError(error),
-        })
+        if (
+          shouldApplyWorkspaceGitSummaryRefreshResult({
+            workspaceId,
+            activeWorkspaceId: activeWorkspaceIdRef.current,
+            requestId,
+            latestRequestId: gitRefreshSeqRef.current,
+          })
+        ) {
+          setConnectionState({
+            code: 'git-read-failed',
+            detail: describeError(error),
+          })
+        }
       }
     },
     [],
@@ -136,10 +174,14 @@ export function useShellWorkspaceController(
 
       try {
         const opened = await desktopApi.workspaceOpen(normalized)
+        activeWorkspaceIdRef.current = opened.workspaceId
         setActiveWorkspaceId(opened.workspaceId)
         setActiveWorkspaceName(opened.name)
         setActiveWorkspaceRoot(opened.root)
         setWorkspacePathInput(opened.root)
+        setGitSummary(
+          resolveCachedWorkspaceGitSummary(gitSummaryCacheRef.current, opened.workspaceId),
+        )
         rememberWorkspacePath({
           path: opened.root,
           workspaceId: opened.workspaceId,
@@ -174,10 +216,14 @@ export function useShellWorkspaceController(
       setConnectionState({ code: 'tauri-connected' })
       if (lockedWorkspaceId) {
         const context = await desktopApi.workspaceGetContext(lockedWorkspaceId)
+        activeWorkspaceIdRef.current = lockedWorkspaceId
         setActiveWorkspaceId(lockedWorkspaceId)
         setActiveWorkspaceName(lockedWorkspaceId)
         setActiveWorkspaceRoot(context.root)
         setWorkspacePathInput(context.root)
+        setGitSummary(
+          resolveCachedWorkspaceGitSummary(gitSummaryCacheRef.current, lockedWorkspaceId),
+        )
         setConnectionState({ code: 'bound', detail: context.root })
         void refreshGit(lockedWorkspaceId)
         return
@@ -191,9 +237,13 @@ export function useShellWorkspaceController(
         } catch {
           workspaceRoot = null
         }
+        activeWorkspaceIdRef.current = response.workspaceId
         setActiveWorkspaceId(response.workspaceId)
         setActiveWorkspaceName(response.workspaceId)
         setActiveWorkspaceRoot(workspaceRoot)
+        setGitSummary(
+          resolveCachedWorkspaceGitSummary(gitSummaryCacheRef.current, response.workspaceId),
+        )
         if (workspaceRoot) {
           setWorkspacePathInput(workspaceRoot)
           rememberWorkspacePath({
@@ -305,12 +355,26 @@ export function useShellWorkspaceController(
             return
           }
           if (payload.workspaceId === activeWorkspaceIdRef.current) return
+          activeWorkspaceIdRef.current = payload.workspaceId
           setActiveWorkspaceId(payload.workspaceId)
-          void desktopApi.workspaceGetContext(payload.workspaceId).then((context) => {
-            if (disposed) return
-            setActiveWorkspaceRoot(context.root)
-            setWorkspacePathInput(context.root)
-          }).catch(() => {})
+          setActiveWorkspaceName(payload.workspaceId)
+          setGitSummary(
+            resolveCachedWorkspaceGitSummary(gitSummaryCacheRef.current, payload.workspaceId),
+          )
+          void desktopApi
+            .workspaceGetContext(payload.workspaceId)
+            .then((context) => {
+              if (disposed) return
+              setActiveWorkspaceRoot(context.root)
+              setWorkspacePathInput(context.root)
+              rememberWorkspacePath({
+                path: context.root,
+                workspaceId: payload.workspaceId,
+                name: payload.workspaceId,
+              })
+            })
+            .catch(() => {})
+          void refreshGit(payload.workspaceId)
         },
       })
       .then((unlisten) => {
@@ -331,10 +395,13 @@ export function useShellWorkspaceController(
           return
         }
         if (!payload.available) {
+          gitSummaryCacheRef.current.set(payload.workspaceId, null)
           setGitSummary(null)
           return
         }
-        setGitSummary(gitSummaryFromUpdatedPayload(payload))
+        const summary = gitSummaryFromUpdatedPayload(payload)
+        gitSummaryCacheRef.current.set(payload.workspaceId, summary)
+        setGitSummary(summary)
       })
       .then((unlisten) => {
         if (disposed) {
@@ -354,7 +421,7 @@ export function useShellWorkspaceController(
       }
       gitRefreshTimerRef.current = null
     }
-  }, [lockedWorkspaceId])
+  }, [lockedWorkspaceId, refreshGit])
 
   return {
     workspacePathInput,

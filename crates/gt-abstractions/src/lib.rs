@@ -130,10 +130,14 @@ pub struct TerminalSession {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusSummary {
+    #[serde(default)]
+    pub primary_repository_path: String,
     pub branch: String,
     pub ahead: u32,
     pub behind: u32,
     pub files: Vec<GitStatusFile>,
+    #[serde(default)]
+    pub repositories: Vec<GitRepositorySummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +146,21 @@ pub struct GitStatusFile {
     pub path: String,
     pub staged: bool,
     pub status: String,
+    #[serde(default)]
+    pub repository_path: String,
+    #[serde(default)]
+    pub repo_relative_path: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRepositorySummary {
+    pub repository_path: String,
+    pub root: bool,
+    pub branch: String,
+    pub ahead: u32,
+    pub behind: u32,
+    pub files: Vec<GitStatusFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,6 +3,7 @@ import {
   desktopApi,
   type GitBranchEntry,
   type GitCommitEntry,
+  type GitRepositorySummary,
   type GitStashEntry,
 } from '@shell/integration/desktop-api'
 import { t } from '@shell/i18n/ui-locale'
@@ -14,6 +15,11 @@ import type {
 import { HISTORY_PAGE_SIZE, STASH_LIMIT } from './types'
 import { buildGraphCommits, describeUnknownError } from './helpers'
 import { useGitShared, useDiffCacheRefs } from './useGitShared'
+import {
+  resolveActiveRepositoryPath,
+  restoreScopedRepositorySelection,
+  shouldAdoptResolvedRepositorySelection,
+} from './repository-selection-model'
 import { useGitStatus } from './useGitStatus'
 import { useGitCommit } from './useGitCommit'
 import { useGitBranch } from './useGitBranch'
@@ -22,6 +28,19 @@ import { useGitStash } from './useGitStash'
 import { useGitDiff } from './useGitDiff'
 import { useGitMerge } from './useGitMerge'
 import { useGitCommitActions } from './useGitCommitActions'
+
+interface GitMetaCacheEntry {
+  branches: GitBranchEntry[]
+  stashEntries: GitStashEntry[]
+  logEntries: GitCommitEntry[]
+  hasMoreHistory: boolean
+  historySkip: number
+  checkoutTarget: string
+}
+
+function buildRepositoryScopeKey(workspaceId: string | null, repositoryPath: string | null): string {
+  return `${workspaceId ?? ''}:${repositoryPath ?? ''}`
+}
 
 export function useGitController({
   locale,
@@ -44,6 +63,56 @@ export function useGitController({
   const [branches, setBranches] = useState<GitBranchEntry[]>([])
   const [stashEntries, setStashEntries] = useState<GitStashEntry[]>([])
   const [checkoutTarget, setCheckoutTarget] = useState<string>('')
+  const [currentRepositoryPath, setCurrentRepositoryPath] = useState<string | null>(null)
+  const metaCacheRef = useRef<Map<string, GitMetaCacheEntry>>(new Map())
+  const metaRefreshSeqRef = useRef(0)
+  const repositorySelectionRef = useRef<Map<string, string | null>>(new Map())
+
+  const repositories = useMemo<GitRepositorySummary[]>(
+    () => summary?.repositories ?? [],
+    [summary],
+  )
+
+  const activeRepositoryPath = useMemo(() => {
+    return resolveActiveRepositoryPath(
+      currentRepositoryPath,
+      repositories,
+      summary?.primaryRepositoryPath,
+    )
+  }, [currentRepositoryPath, repositories, summary?.primaryRepositoryPath])
+
+  const setScopedCurrentRepositoryPath = useCallback(
+    (repositoryPath: string | null) => {
+      setCurrentRepositoryPath(repositoryPath)
+      repositorySelectionRef.current.set(
+        workspaceId ?? '',
+        repositoryPath,
+      )
+    },
+    [workspaceId],
+  )
+
+  const activeSummary = useMemo(() => {
+    if (!summary) {
+      return null
+    }
+    const repository =
+      repositories.find((item) => item.repositoryPath === activeRepositoryPath) ??
+      repositories[0] ??
+      null
+    if (!repository) {
+      return summary
+    }
+    return {
+      workspaceId: summary.workspaceId,
+      primaryRepositoryPath: repository.repositoryPath,
+      branch: repository.branch,
+      ahead: repository.ahead,
+      behind: repository.behind,
+      files: repository.files,
+      repositories,
+    }
+  }, [activeRepositoryPath, repositories, summary])
 
   // Diff cache refs (shared infrastructure)
   const cacheRefs = useDiffCacheRefs()
@@ -89,26 +158,40 @@ export function useGitController({
         return
       }
       setHistoryLoading(true)
+      const scopeKey = buildRepositoryScopeKey(workspaceId, activeRepositoryPath)
       try {
         const response = await desktopApi.gitLog(workspaceId, {
           limit: HISTORY_PAGE_SIZE,
           skip,
+          repositoryPath: activeRepositoryPath,
         })
-        setLogEntries((prev) =>
-          mode === 'append' ? [...prev, ...response.entries] : response.entries,
-        )
+        setLogEntries((prev) => {
+          const nextEntries =
+            mode === 'append' ? [...prev, ...response.entries] : response.entries
+          const cached = metaCacheRef.current.get(scopeKey)
+          metaCacheRef.current.set(scopeKey, {
+            branches: cached?.branches ?? [],
+            stashEntries: cached?.stashEntries ?? [],
+            logEntries: nextEntries,
+            hasMoreHistory: response.entries.length === HISTORY_PAGE_SIZE,
+            historySkip: skip,
+            checkoutTarget: cached?.checkoutTarget ?? '',
+          })
+          return nextEntries
+        })
         setHasMoreHistory(response.entries.length === HISTORY_PAGE_SIZE)
         setHistorySkip(skip)
       } finally {
         setHistoryLoading(false)
       }
     },
-    [workspaceId],
+    [activeRepositoryPath, workspaceId],
   )
 
   // refreshMeta — defined here because it spans branch/stash/history state.
   // Uses composition-layer state directly (no circular dep).
   const refreshMeta = useCallback(async () => {
+    const scopeKey = buildRepositoryScopeKey(workspaceId, activeRepositoryPath)
     if (!workspaceId) {
       setLogEntries([])
       setBranches([])
@@ -119,24 +202,65 @@ export function useGitController({
       setRepositoryNotice(null)
       return
     }
+
+    const cached = metaCacheRef.current.get(scopeKey)
+    if (cached) {
+      setBranches(cached.branches)
+      setStashEntries(cached.stashEntries)
+      setLogEntries(cached.logEntries)
+      setHasMoreHistory(cached.hasMoreHistory)
+      setHistorySkip(cached.historySkip)
+      setCheckoutTarget(cached.checkoutTarget)
+    } else {
+      setBranches([])
+      setStashEntries([])
+      setLogEntries([])
+      setHasMoreHistory(false)
+      setHistorySkip(0)
+      setCheckoutTarget('')
+    }
+
+    const seq = metaRefreshSeqRef.current + 1
+    metaRefreshSeqRef.current = seq
     setMetaLoading(true)
     try {
-      const [branchResponse, stashResponse] = await Promise.all([
-        desktopApi.gitListBranches(workspaceId, false),
-        desktopApi.gitStashList(workspaceId, STASH_LIMIT),
+      const [branchResponse, stashResponse, historyResponse] = await Promise.all([
+        desktopApi.gitListBranches(workspaceId, false, activeRepositoryPath),
+        desktopApi.gitStashList(workspaceId, STASH_LIMIT, activeRepositoryPath),
+        desktopApi.gitLog(workspaceId, {
+          limit: HISTORY_PAGE_SIZE,
+          skip: 0,
+          repositoryPath: activeRepositoryPath,
+        }),
       ])
+      if (metaRefreshSeqRef.current !== seq) {
+        return
+      }
       setBranches(branchResponse.branches)
       setStashEntries(stashResponse.entries)
+      setLogEntries(historyResponse.entries)
+      setHasMoreHistory(historyResponse.entries.length === HISTORY_PAGE_SIZE)
+      setHistorySkip(0)
       const currentBranch =
         branchResponse.branches.find((item) => item.current)?.name ??
         branchResponse.branches[0]?.name ??
         ''
-      setCheckoutTarget((prev) => prev || currentBranch)
-      await fetchHistoryPage(0, 'replace')
+      setCheckoutTarget(currentBranch)
+      metaCacheRef.current.set(scopeKey, {
+        branches: branchResponse.branches,
+        stashEntries: stashResponse.entries,
+        logEntries: historyResponse.entries,
+        hasMoreHistory: historyResponse.entries.length === HISTORY_PAGE_SIZE,
+        historySkip: 0,
+        checkoutTarget: currentBranch,
+      })
       setIsGitRepository(true)
       setRepositoryNotice(null)
       setErrorMessage(null)
     } catch (error) {
+      if (metaRefreshSeqRef.current !== seq) {
+        return
+      }
       if (isNotGitRepositoryError(error)) {
         setLogEntries([])
         setBranches([])
@@ -153,9 +277,11 @@ export function useGitController({
       setRepositoryNotice(null)
       setErrorMessage(t(locale, 'git.error.metaLoad', { detail: describeUnknownError(error) }))
     } finally {
-      setMetaLoading(false)
+      if (metaRefreshSeqRef.current === seq) {
+        setMetaLoading(false)
+      }
     }
-  }, [workspaceId, fetchHistoryPage, locale, setIsGitRepository, setRepositoryNotice, setErrorMessage])
+  }, [activeRepositoryPath, locale, setErrorMessage, setIsGitRepository, setRepositoryNotice, workspaceId])
 
   // Stable callback that delegates to latest refreshMeta via ref (breaks circular dep)
   const refreshMetaRef = useRef(refreshMeta)
@@ -170,13 +296,23 @@ export function useGitController({
       return
     }
     try {
-      const response = await desktopApi.gitListBranches(workspaceId, false)
+      const response = await desktopApi.gitListBranches(workspaceId, false, activeRepositoryPath)
       setBranches(response.branches)
       const currentBranch =
         response.branches.find((item) => item.current)?.name ??
         response.branches[0]?.name ??
         ''
-      setCheckoutTarget((prev) => prev || currentBranch)
+      setCheckoutTarget(currentBranch)
+      const scopeKey = buildRepositoryScopeKey(workspaceId, activeRepositoryPath)
+      const cached = metaCacheRef.current.get(scopeKey)
+      metaCacheRef.current.set(scopeKey, {
+        branches: response.branches,
+        stashEntries: cached?.stashEntries ?? [],
+        logEntries: cached?.logEntries ?? [],
+        hasMoreHistory: cached?.hasMoreHistory ?? false,
+        historySkip: cached?.historySkip ?? 0,
+        checkoutTarget: currentBranch,
+      })
       setIsGitRepository(true)
       setRepositoryNotice(null)
     } catch (error) {
@@ -188,7 +324,7 @@ export function useGitController({
         setErrorMessage(t(locale, 'git.error.metaLoad', { detail: describeUnknownError(error) }))
       }
     }
-  }, [workspaceId, locale, setIsGitRepository, setRepositoryNotice, setErrorMessage])
+  }, [activeRepositoryPath, locale, setErrorMessage, setIsGitRepository, setRepositoryNotice, workspaceId])
 
   const onRefreshStashes = useCallback(async () => {
     if (!workspaceId) {
@@ -196,17 +332,27 @@ export function useGitController({
       return
     }
     try {
-      const response = await desktopApi.gitStashList(workspaceId, STASH_LIMIT)
+      const response = await desktopApi.gitStashList(workspaceId, STASH_LIMIT, activeRepositoryPath)
       setStashEntries(response.entries)
+      const scopeKey = buildRepositoryScopeKey(workspaceId, activeRepositoryPath)
+      const cached = metaCacheRef.current.get(scopeKey)
+      metaCacheRef.current.set(scopeKey, {
+        branches: cached?.branches ?? [],
+        stashEntries: response.entries,
+        logEntries: cached?.logEntries ?? [],
+        hasMoreHistory: cached?.hasMoreHistory ?? false,
+        historySkip: cached?.historySkip ?? 0,
+        checkoutTarget: cached?.checkoutTarget ?? '',
+      })
     } catch {
       setStashEntries([])
     }
-  }, [workspaceId])
+  }, [activeRepositoryPath, workspaceId])
 
   // Stable callbacks for refreshSummary and refreshHistoryLatest
   const refreshSummaryOnly = useCallback(async () => {
-    await onRefreshSummary(workspaceId)
-  }, [onRefreshSummary, workspaceId])
+    await onRefreshSummary(workspaceId, activeRepositoryPath)
+  }, [activeRepositoryPath, onRefreshSummary, workspaceId])
 
   const refreshHistoryLatest = useCallback(async () => {
     await fetchHistoryPage(0, 'replace')
@@ -214,8 +360,8 @@ export function useGitController({
 
   // refreshAll — defined before sub-controllers so it can be passed as a prop
   const refreshAll = useCallback(async () => {
-    await Promise.all([onRefreshSummary(workspaceId), refreshMeta()])
-  }, [onRefreshSummary, refreshMeta, workspaceId])
+    await Promise.all([onRefreshSummary(workspaceId, activeRepositoryPath), refreshMeta()])
+  }, [activeRepositoryPath, onRefreshSummary, refreshMeta, workspaceId])
 
   // Alias for sub-controllers that need full refresh
   const onRefreshAll = useCallback(() => refreshAll(), [refreshAll])
@@ -223,8 +369,9 @@ export function useGitController({
   // Sub-controllers
   const status = useGitStatus({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
-    summary,
+    summary: activeSummary,
     onRefreshSummary,
     runAction,
     invalidateDiffCache,
@@ -232,6 +379,7 @@ export function useGitController({
 
   const commit = useGitCommit({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
     runAction,
     invalidateDiffCache,
@@ -241,6 +389,7 @@ export function useGitController({
 
   const branch = useGitBranch({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
     locale,
     branches,
@@ -253,16 +402,20 @@ export function useGitController({
   })
 
   const remote = useGitRemote({
+    locale,
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
-    runAction,
     invalidateDiffCache,
+    setRepositoryNotice,
+    setErrorMessage,
     onRefreshBranches,
     onRefreshAll,
   })
 
   const stash = useGitStash({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
     runAction,
     invalidateDiffCache,
@@ -271,16 +424,18 @@ export function useGitController({
 
   const diff = useGitDiff({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
     selectedPath: status.selectedPath,
     selectedDiffScope: status.selectedDiffScope,
-    summaryFiles: summary?.files,
+    summaryFiles: activeSummary?.files,
     cacheRefs,
   })
 
   // Merge sub-controller
   const merge = useGitMerge({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
     runAction,
     onRefreshAll,
@@ -289,6 +444,7 @@ export function useGitController({
   // Commit actions sub-controller (cherry-pick, revert, reset, create branch from commit)
   const commitActions = useGitCommitActions({
     workspaceId,
+    repositoryPath: activeRepositoryPath,
     isGitRepository,
     runAction,
     invalidateDiffCache,
@@ -299,8 +455,8 @@ export function useGitController({
 
   // Derived
   const graphCommits = useMemo(
-    () => buildGraphCommits(logEntries, summary?.branch ?? 'main'),
-    [logEntries, summary?.branch],
+    () => buildGraphCommits(logEntries, activeSummary?.branch ?? 'main'),
+    [activeSummary?.branch, logEntries],
   )
 
   const selectedBranchEntry = useMemo(
@@ -322,6 +478,14 @@ export function useGitController({
 
   // Workspace change — meta refresh + repo state reset
   useEffect(() => {
+    if (!workspaceId) {
+      setCurrentRepositoryPath(null)
+      return
+    }
+    setCurrentRepositoryPath(restoreScopedRepositorySelection(workspaceId, repositorySelectionRef.current))
+  }, [workspaceId])
+
+  useEffect(() => {
     setIsGitRepository(true)
     setRepositoryNotice(null)
     invalidateDiffCache()
@@ -333,7 +497,25 @@ export function useGitController({
     }
     void refreshMeta()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId])
+  }, [activeRepositoryPath, workspaceId])
+
+  useEffect(() => {
+    if (!shouldAdoptResolvedRepositorySelection({
+      activeRepositoryPath,
+      currentRepositoryPath,
+      repositories,
+    })) {
+      return
+    }
+
+    if (!repositories.length) {
+      setCurrentRepositoryPath(null)
+      return
+    }
+
+    setCurrentRepositoryPath(activeRepositoryPath)
+    repositorySelectionRef.current.set(workspaceId ?? '', activeRepositoryPath)
+  }, [activeRepositoryPath, currentRepositoryPath, repositories, workspaceId])
 
   // dismissRepositoryNotice — delegates to composition-layer state
   const dismissRepositoryNotice = useCallback(() => {
@@ -344,7 +526,10 @@ export function useGitController({
     locale,
     workspaceId,
     isGitRepository,
-    summary,
+    summary: activeSummary,
+    repositories,
+    currentRepositoryPath: activeRepositoryPath,
+    setCurrentRepositoryPath: setScopedCurrentRepositoryPath,
     stagedFiles: status.stagedFiles,
     unstagedFiles: status.unstagedFiles,
     visibleFiles: status.visibleFiles,
@@ -364,6 +549,7 @@ export function useGitController({
     preloadDiff: diff.preloadDiff,
     metaLoading,
     actionLoading,
+    remoteActionLoading: remote.remoteActionLoading,
     errorMessage,
     repositoryNotice,
     dismissRepositoryNotice,
@@ -396,6 +582,7 @@ export function useGitController({
     fetch: remote.fetch,
     pull: remote.pull,
     push: remote.push,
+    pushTag: remote.pushTag,
     checkout: branch.checkout,
     checkoutTo: branch.checkoutTo,
     createBranch: branch.createBranch,
