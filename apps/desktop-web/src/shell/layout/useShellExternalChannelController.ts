@@ -362,7 +362,12 @@ export function useShellExternalChannelController({
     if (activeNavId !== 'channels' && !isChannelStudioOpen) {
       return
     }
-    void refreshExternalChannelStatus()
+    const timerId = window.setTimeout(() => {
+      void refreshExternalChannelStatus()
+    }, 0)
+    return () => {
+      window.clearTimeout(timerId)
+    }
   }, [activeNavId, isChannelStudioOpen, refreshExternalChannelStatus, tauriRuntime])
 
   // Task signal dismiss timer cleanup effect
