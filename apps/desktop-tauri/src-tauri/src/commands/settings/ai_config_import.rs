@@ -5,9 +5,9 @@ use std::{
 
 use gt_ai_config::{
     claude_provider_presets, codex_provider_presets, gemini_provider_presets, AiConfigAgent,
-    AiConfigApplyResponse, AiConfigDraftInput, AiConfigService, ClaudeAuthScheme,
-    ClaudeDraftInput, ClaudeProviderMode, CodexDraftInput, CodexProviderMode, GeminiAuthMode,
-    GeminiDraftInput, GeminiProviderMode,
+    AiConfigApplyResponse, AiConfigDraftInput, AiConfigService, ClaudeAuthScheme, ClaudeDraftInput,
+    ClaudeProviderMode, CodexDraftInput, CodexProviderMode, GeminiAuthMode, GeminiDraftInput,
+    GeminiProviderMode,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
@@ -42,7 +42,9 @@ pub fn ai_config_import_current(
                 .preview_claude_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, "global", draft)
                 .map_err(|error: gt_ai_config::AiConfigError| error.to_string())?;
             let gt_ai_config::StoredAiConfigPreview::Claude(stored) = stored else {
-                return Err("AI_CONFIG_IMPORT_FAILED: unexpected Claude preview payload".to_string());
+                return Err(
+                    "AI_CONFIG_IMPORT_FAILED: unexpected Claude preview payload".to_string()
+                );
             };
             service
                 .apply_claude_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, &stored)
@@ -64,7 +66,9 @@ pub fn ai_config_import_current(
                 .preview_gemini_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, draft)
                 .map_err(|error: gt_ai_config::AiConfigError| error.to_string())?;
             let gt_ai_config::StoredAiConfigPreview::Gemini(stored) = stored else {
-                return Err("AI_CONFIG_IMPORT_FAILED: unexpected Gemini preview payload".to_string());
+                return Err(
+                    "AI_CONFIG_IMPORT_FAILED: unexpected Gemini preview payload".to_string()
+                );
             };
             service
                 .apply_gemini_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, &stored)
@@ -88,7 +92,9 @@ fn import_current_draft(
     agent: AiConfigAgent,
     _service: &AiConfigService,
 ) -> Result<AiConfigDraftInput, String> {
-    let home = user_home_dir().ok_or_else(|| "AI_CONFIG_IMPORT_FAILED: unable to resolve user home directory".to_string())?;
+    let home = user_home_dir().ok_or_else(|| {
+        "AI_CONFIG_IMPORT_FAILED: unable to resolve user home directory".to_string()
+    })?;
     match agent {
         AiConfigAgent::Claude => read_live_claude_draft(&home).map(AiConfigDraftInput::Claude),
         AiConfigAgent::Codex => read_live_codex_draft(&home).map(AiConfigDraftInput::Codex),
@@ -98,14 +104,18 @@ fn import_current_draft(
 
 fn read_live_claude_draft(home: &Path) -> Result<ClaudeDraftInput, String> {
     let settings_path = home.join(".claude").join("settings.json");
-    let raw = std::fs::read_to_string(&settings_path)
-        .map_err(|error| format!("AI_CONFIG_IMPORT_FAILED: failed to read {}: {error}", settings_path.display()))?;
-    let root: Value = serde_json::from_str(&raw)
-        .map_err(|error| format!("AI_CONFIG_IMPORT_FAILED: invalid Claude settings.json: {error}"))?;
-    let env = root
-        .get("env")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "AI_CONFIG_IMPORT_FAILED: Claude settings.json is missing env".to_string())?;
+    let raw = std::fs::read_to_string(&settings_path).map_err(|error| {
+        format!(
+            "AI_CONFIG_IMPORT_FAILED: failed to read {}: {error}",
+            settings_path.display()
+        )
+    })?;
+    let root: Value = serde_json::from_str(&raw).map_err(|error| {
+        format!("AI_CONFIG_IMPORT_FAILED: invalid Claude settings.json: {error}")
+    })?;
+    let env = root.get("env").and_then(Value::as_object).ok_or_else(|| {
+        "AI_CONFIG_IMPORT_FAILED: Claude settings.json is missing env".to_string()
+    })?;
 
     let auth_token = read_env_string(env, "ANTHROPIC_AUTH_TOKEN");
     let api_key = read_env_string(env, "ANTHROPIC_API_KEY");
@@ -123,9 +133,10 @@ fn read_live_claude_draft(home: &Path) -> Result<ClaudeDraftInput, String> {
     let model = read_env_string(env, "ANTHROPIC_MODEL");
 
     if let Some(base_url) = base_url {
-        if let Some(preset) = claude_provider_presets().into_iter().find(|preset| {
-            normalize_endpoint(&preset.endpoint) == base_url
-        }) {
+        if let Some(preset) = claude_provider_presets()
+            .into_iter()
+            .find(|preset| normalize_endpoint(&preset.endpoint) == base_url)
+        {
             return Ok(ClaudeDraftInput {
                 mode: ClaudeProviderMode::Preset,
                 saved_provider_id: None,
@@ -191,8 +202,9 @@ fn read_live_codex_draft(home: &Path) -> Result<CodexDraftInput, String> {
         None
     } else {
         Some(
-            toml::from_str::<toml::Table>(&config_text)
-                .map_err(|error| format!("AI_CONFIG_IMPORT_FAILED: invalid Codex config.toml: {error}"))?,
+            toml::from_str::<toml::Table>(&config_text).map_err(|error| {
+                format!("AI_CONFIG_IMPORT_FAILED: invalid Codex config.toml: {error}")
+            })?,
         )
     };
     let provider_key = config_table
@@ -225,7 +237,12 @@ fn read_live_codex_draft(home: &Path) -> Result<CodexDraftInput, String> {
 
     if let Some(base_url) = base_url {
         if let Some(preset) = codex_provider_presets().into_iter().find(|preset| {
-            preset.endpoint.as_deref().map(normalize_endpoint).as_deref() == Some(base_url.as_str())
+            preset
+                .endpoint
+                .as_deref()
+                .map(normalize_endpoint)
+                .as_deref()
+                == Some(base_url.as_str())
         }) {
             return Ok(CodexDraftInput {
                 mode: CodexProviderMode::Preset,
@@ -258,7 +275,10 @@ fn read_live_codex_draft(home: &Path) -> Result<CodexDraftInput, String> {
     }
 
     if api_key.is_none() && model.is_none() {
-        return Err("AI_CONFIG_IMPORT_FAILED: no Codex provider configuration found in ~/.codex".to_string());
+        return Err(
+            "AI_CONFIG_IMPORT_FAILED: no Codex provider configuration found in ~/.codex"
+                .to_string(),
+        );
     }
 
     Ok(CodexDraftInput {
@@ -316,7 +336,12 @@ fn read_live_gemini_draft(home: &Path) -> Result<GeminiDraftInput, String> {
 
     if let Some(base_url) = base_url {
         if let Some(preset) = gemini_provider_presets().into_iter().find(|preset| {
-            preset.endpoint.as_deref().map(normalize_endpoint).as_deref() == Some(base_url.as_str())
+            preset
+                .endpoint
+                .as_deref()
+                .map(normalize_endpoint)
+                .as_deref()
+                == Some(base_url.as_str())
                 && (selected_type.as_deref() == Some(preset.selected_type.as_str())
                     || auth_mode == preset.auth_mode)
         }) {
@@ -347,7 +372,10 @@ fn read_live_gemini_draft(home: &Path) -> Result<GeminiDraftInput, String> {
     }
 
     if api_key.is_none() && model.is_none() {
-        return Err("AI_CONFIG_IMPORT_FAILED: no Gemini provider configuration found in ~/.gemini".to_string());
+        return Err(
+            "AI_CONFIG_IMPORT_FAILED: no Gemini provider configuration found in ~/.gemini"
+                .to_string(),
+        );
     }
 
     Ok(GeminiDraftInput {
@@ -367,13 +395,14 @@ fn user_home_dir() -> Option<PathBuf> {
     env::var_os("HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .or_else(|| env::var_os("USERPROFILE").filter(|value| !value.is_empty()).map(PathBuf::from))
+        .or_else(|| {
+            env::var_os("USERPROFILE")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
 }
 
-fn read_env_string(
-    env: &serde_json::Map<String, Value>,
-    key: &str,
-) -> Option<String> {
+fn read_env_string(env: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
     env.get(key)
         .and_then(Value::as_str)
         .map(str::trim)

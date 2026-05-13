@@ -284,9 +284,10 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
         .describe_session_processes(&session.session_id)
         .expect("describe session processes");
     let sleep_visible = (0..20).any(|_| {
-        let found = snapshot.processes.iter().any(|process| {
-            process.args.contains("sleep 2") || process.executable == "sleep"
-        });
+        let found = snapshot
+            .processes
+            .iter()
+            .any(|process| process.args.contains("sleep 2") || process.executable == "sleep");
         if found {
             return true;
         }

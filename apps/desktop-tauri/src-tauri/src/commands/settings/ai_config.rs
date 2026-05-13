@@ -495,7 +495,9 @@ pub async fn ai_config_fetch_models(
             last_err = Some(format!("HTTP {status}: {body}"));
             continue;
         }
-        return Err(format!("AI_CONFIG_FETCH_MODELS_FAILED: HTTP {status}: {body}"));
+        return Err(format!(
+            "AI_CONFIG_FETCH_MODELS_FAILED: HTTP {status}: {body}"
+        ));
     }
 
     Err(format!(
@@ -509,7 +511,8 @@ pub async fn ai_config_test_endpoints(
     urls: Vec<String>,
     timeout_secs: Option<u64>,
 ) -> Result<Vec<AiConfigEndpointTestResult>, String> {
-    let timeout = Duration::from_secs(timeout_secs.unwrap_or(AI_CONFIG_ENDPOINT_DEFAULT_TIMEOUT_SECS));
+    let timeout =
+        Duration::from_secs(timeout_secs.unwrap_or(AI_CONFIG_ENDPOINT_DEFAULT_TIMEOUT_SECS));
     let client = reqwest::Client::new();
     let tasks = urls
         .into_iter()
@@ -605,7 +608,10 @@ fn build_models_url_candidates(
 
     let mut unique = Vec::new();
     for candidate in candidates {
-        if !unique.iter().any(|existing: &String| existing == &candidate) {
+        if !unique
+            .iter()
+            .any(|existing: &String| existing == &candidate)
+        {
             unique.push(candidate);
         }
     }
