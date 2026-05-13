@@ -314,13 +314,13 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
             onStageHunk={async (filePath, patch) => {
               if (workspaceId) {
                 await desktopApi.gitStageHunk(workspaceId, filePath, patch)
-                await controller.refreshSummary()
+                controller.invalidateDiffCache()
               }
             }}
             onUnstageHunk={async (filePath, patch) => {
               if (workspaceId) {
                 await desktopApi.gitUnstageHunk(workspaceId, filePath, patch)
-                await controller.refreshSummary()
+                controller.invalidateDiffCache()
               }
             }}
           />

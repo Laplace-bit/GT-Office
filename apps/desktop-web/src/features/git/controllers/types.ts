@@ -78,6 +78,7 @@ export interface GitWorkspaceController {
   graphCommits: GitGraphCommitView[]
   refreshAll: () => Promise<void>
   refreshSummary: () => Promise<void>
+  invalidateDiffCache: () => void
   stagePath: (path: string) => Promise<void>
   unstagePath: (path: string) => Promise<void>
   stageAll: () => Promise<void>

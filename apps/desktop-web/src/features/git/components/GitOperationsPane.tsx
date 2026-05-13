@@ -33,13 +33,16 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     locale,
     workspaceId,
     visibleFiles,
-    filter,
+    metaLoading,
     errorMessage,
     repositoryNotice,
     dismissRepositoryNotice,
     discardPath,
     refreshAll,
-    refreshSummary,
+    summary,
+    branches,
+    stashEntries,
+    logEntries,
   } = controller
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
@@ -48,7 +51,12 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     stash: true,
     tags: true,
   })
-  const { tags, loading: tagsLoading, createTag, deleteTag, pushTag } = useGitTags(workspaceId, controller.isGitRepository)
+  const tagsExpanded = !(collapsedSections.tags ?? true)
+  const { tags, loading: tagsLoading, createTag, deleteTag, pushTag } = useGitTags(
+    workspaceId,
+    controller.isGitRepository,
+    tagsExpanded,
+  )
   const [discardConfirmState, setDiscardConfirmState] = useState<{
     path: string
     includeUntracked: boolean
@@ -57,11 +65,6 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
   const rootFontSizePx = useRootFontSizePx()
   const contentRef = useRef<HTMLDivElement | null>(null)
-  const filterRefreshInitializedRef = useRef(false)
-
-  useEffect(() => {
-    filterRefreshInitializedRef.current = false
-  }, [workspaceId])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -79,19 +82,28 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     if (!workspaceId) {
       return
     }
-    void refreshAll()
-  }, [refreshAll, workspaceId])
+    if (metaLoading) {
+      return
+    }
+    const hasLoadedMeta = branches.length > 0 || stashEntries.length > 0 || logEntries.length > 0
+    if (summary || hasLoadedMeta || repositoryNotice) {
+      return
+    }
 
-  useEffect(() => {
-    if (!workspaceId) {
-      return
-    }
-    if (!filterRefreshInitializedRef.current) {
-      filterRefreshInitializedRef.current = true
-      return
-    }
-    void refreshSummary()
-  }, [filter, refreshSummary, workspaceId])
+    const timerId = window.setTimeout(() => {
+      void refreshAll()
+    }, 0)
+    return () => window.clearTimeout(timerId)
+  }, [
+    branches.length,
+    logEntries.length,
+    metaLoading,
+    refreshAll,
+    repositoryNotice,
+    stashEntries.length,
+    summary,
+    workspaceId,
+  ])
 
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const fileRowHeight = scaleDesignPxToActualPx(ROW_HEIGHT, rootFontSizePx)
