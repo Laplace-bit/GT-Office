@@ -17,8 +17,6 @@ import {
   type RowRendererProps,
   type TreeApi,
 } from 'react-arborist'
-import { createDragDropManager, type DragDropManager } from 'dnd-core'
-import { HTML5Backend } from 'react-dnd-html5-backend'
 import { formatShortcutBinding, type ShortcutBinding } from '@features/keybindings'
 import {
   desktopApi,
@@ -40,6 +38,7 @@ import { sanitizeDirectoryEntries } from './file-tree-data'
 import { buildFileTreeModalKey } from './file-tree-modal-key'
 import { resolveExistingTreeSelectionPath } from './file-tree-selection'
 import { resolveFileVisual, type FileVisual } from './file-visuals'
+import { getSharedTreeDndManager } from './shared-dnd-manager'
 import { addNotification } from '../../stores/notification'
 import './FileTreePane.scss'
 
@@ -145,34 +144,6 @@ const SHORTCUT_PASTE: ShortcutBinding = {
   meta: false,
   alt: false,
   shift: false,
-}
-
-const REACT_DND_INSTANCE_SYMBOL = Symbol.for('__REACT_DND_CONTEXT_INSTANCE__')
-
-function getSharedTreeDndManager(): DragDropManager {
-  if (typeof window !== 'undefined') {
-    const host = window as unknown as Record<string | symbol, unknown>
-    const existingContext = host[REACT_DND_INSTANCE_SYMBOL] as
-      | { dragDropManager?: DragDropManager | null }
-      | null
-      | undefined
-    if (existingContext?.dragDropManager) {
-      window.__GTO_FILE_TREE_DND_MANAGER__ = existingContext.dragDropManager
-      return existingContext.dragDropManager
-    }
-
-    const existingManager = window.__GTO_FILE_TREE_DND_MANAGER__
-    if (existingManager) {
-      host[REACT_DND_INSTANCE_SYMBOL] = { dragDropManager: existingManager }
-      return existingManager
-    }
-
-    const manager = createDragDropManager(HTML5Backend, window)
-    window.__GTO_FILE_TREE_DND_MANAGER__ = manager
-    host[REACT_DND_INSTANCE_SYMBOL] = { dragDropManager: manager }
-    return manager
-  }
-  return createDragDropManager(HTML5Backend, globalThis)
 }
 
 function normalizeDirectoryPath(path: string): string {

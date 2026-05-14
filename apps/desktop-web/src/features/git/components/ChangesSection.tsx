@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useLayoutEffect, useState } from 'react'
 import type { Virtualizer } from '@tanstack/react-virtual'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
@@ -7,12 +7,8 @@ import { actualPxToRem } from '../git-font-scale'
 import { GitIconButton } from './GitIconButton'
 import { GitSectionHeader } from './GitSectionHeader'
 import { GitFileRow } from './GitFileRow'
+import { GitDirectoryTree } from './GitDirectoryTree'
 import {
-  getCompactPathTail,
-  getCompactRepoLabel,
-  getDirectoryLabel,
-  hasStagedChanges,
-  hasUnstagedChanges,
   resolveDiffScope,
   resolveDiscardKind,
   type GitDiscardKind,
@@ -22,7 +18,6 @@ interface ChangesSectionProps {
   controller: GitWorkspaceController
   collapsed: boolean
   onToggle: () => void
-  changesSectionHeight: number | null
   rootFontSizePx: number
   viewportRef: React.RefObject<HTMLDivElement | null>
   fileVirtualizer: Virtualizer<HTMLDivElement, Element>
@@ -33,7 +28,6 @@ export const ChangesSection = memo(function ChangesSection({
   controller,
   collapsed,
   onToggle,
-  changesSectionHeight,
   rootFontSizePx,
   viewportRef,
   fileVirtualizer,
@@ -60,41 +54,8 @@ export const ChangesSection = memo(function ChangesSection({
   } = controller
 
   const totalFiles = summary?.files.length ?? 0
-  const showStageAllAction = filter !== 'staged'
-  const showUnstageAllAction = filter !== 'unstaged'
-  const directoryGroups = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        key: string
-        repoLabel: string | null
-        directoryLabel: string
-        files: typeof visibleFiles
-      }
-    >()
-
-    for (const file of visibleFiles) {
-      const repoLabel = file.repositoryPath
-        ? getCompactRepoLabel(file.repositoryPath)
-        : null
-      const directorySource = file.repoRelativePath || file.path
-      const directoryLabel = getDirectoryLabel(directorySource)
-      const key = `${repoLabel ?? ''}::${directoryLabel}`
-      const existing = groups.get(key)
-      if (existing) {
-        existing.files.push(file)
-        continue
-      }
-      groups.set(key, {
-        key,
-        repoLabel,
-        directoryLabel,
-        files: [file],
-      })
-    }
-
-    return Array.from(groups.values()).sort((left, right) => left.key.localeCompare(right.key))
-  }, [visibleFiles])
+  const showStageAllAction = filter === 'unstaged'
+  const showUnstageAllAction = filter === 'staged'
 
   const handleSelectPath = useCallback(
     (path: string, scope: GitDiffScope) => selectPath(path, scope),
@@ -111,14 +72,22 @@ export const ChangesSection = memo(function ChangesSection({
     [onDiscardConfirm],
   )
 
+  // Derive repository path from the first visible file (all files in a single-repo context share it)
+  const repositoryPath = visibleFiles.length > 0 ? visibleFiles[0].repositoryPath : undefined
+
+  useLayoutEffect(() => {
+    if (viewMode !== 'list') {
+      return
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      fileVirtualizer.measure()
+    })
+    return () => window.cancelAnimationFrame(frameId)
+  }, [fileVirtualizer, viewMode, visibleFiles.length])
+
   return (
     <section
       className={`git-section git-section--changes ${!collapsed ? 'git-section--expanded' : ''}`}
-      style={
-        !collapsed && changesSectionHeight
-          ? { height: actualPxToRem(changesSectionHeight, rootFontSizePx) }
-          : undefined
-      }
     >
       <GitSectionHeader
         title={t(locale, 'git.files.title')}
@@ -133,7 +102,7 @@ export const ChangesSection = memo(function ChangesSection({
           <div className="git-filter-bar">
             <div className="git-filter-bar__primary">
               <div className="git-filter-chips" role="group">
-                {(['all', 'staged', 'unstaged'] as const).map((f) => (
+                {(['staged', 'unstaged'] as const).map((f) => (
                   <button
                     key={f}
                     type="button"
@@ -200,20 +169,9 @@ export const ChangesSection = memo(function ChangesSection({
                   const file = visibleFiles[virtualItem.index]
                   if (!file) return null
                   const isActive = selectedPath === file.path
-                  const fileHasStagedChanges = hasStagedChanges(file)
-                  const fileHasUnstagedChanges = hasUnstagedChanges(file)
                   const discardKind = resolveDiscardKind(file)
                   const diffScope = resolveDiffScope(file, filter)
-                  const actionMode =
-                    filter === 'staged'
-                      ? 'staged'
-                      : filter === 'unstaged'
-                        ? 'unstaged'
-                        : fileHasStagedChanges && fileHasUnstagedChanges
-                          ? 'mixed'
-                          : fileHasStagedChanges
-                            ? 'staged'
-                            : 'unstaged'
+                  const actionMode = filter
                   return (
                     <GitFileRow
                       key={file.path}
@@ -234,68 +192,19 @@ export const ChangesSection = memo(function ChangesSection({
               </div>
             </div>
           ) : (
-            <div className="git-directory-list">
-              {directoryGroups.map((group) => (
-                <section key={group.key} className="git-directory-group">
-                  <header className="git-directory-group__header">
-                    <div className="git-directory-group__title">
-                      <AppIcon name="folder-open" className="git-directory-group__icon" />
-                      <span
-                        className="git-directory-group__name"
-                        title={
-                          group.directoryLabel === '.'
-                            ? t(locale, 'git.files.view.rootDirectory')
-                            : group.directoryLabel
-                        }
-                      >
-                        {group.directoryLabel === '.'
-                          ? t(locale, 'git.files.view.rootDirectory')
-                          : getCompactPathTail(group.directoryLabel)}
-                      </span>
-                      {group.repoLabel ? (
-                        <span className="git-directory-group__repo">{group.repoLabel}</span>
-                      ) : null}
-                    </div>
-                    <span className="git-directory-group__count">{group.files.length}</span>
-                  </header>
-                  <div className="git-directory-group__files">
-                    {group.files.map((file) => {
-                      const isActive = selectedPath === file.path
-                      const fileHasStagedChanges = hasStagedChanges(file)
-                      const fileHasUnstagedChanges = hasUnstagedChanges(file)
-                      const discardKind = resolveDiscardKind(file)
-                      const diffScope = resolveDiffScope(file, filter)
-                      const actionMode =
-                        filter === 'staged'
-                          ? 'staged'
-                          : filter === 'unstaged'
-                            ? 'unstaged'
-                            : fileHasStagedChanges && fileHasUnstagedChanges
-                              ? 'mixed'
-                              : fileHasStagedChanges
-                                ? 'staged'
-                                : 'unstaged'
-                      return (
-                        <GitFileRow
-                          key={file.path}
-                          file={file}
-                          isActive={isActive}
-                          locale={locale}
-                          actionLoading={actionLoading}
-                          actionMode={actionMode}
-                          onSelect={() => handleSelectPath(file.path, diffScope)}
-                          onPreload={() => handlePreloadDiff(file.path, diffScope)}
-                          onStage={() => handleStagePath(file.path)}
-                          onUnstage={() => handleUnstagePath(file.path)}
-                          onDiscard={() => handleDiscardPath(file.path, discardKind)}
-                          style={undefined}
-                        />
-                      )
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
+            <GitDirectoryTree
+              files={visibleFiles}
+              repositoryPath={repositoryPath}
+              locale={locale}
+              actionLoading={actionLoading}
+              filter={filter}
+              selectedPath={selectedPath}
+              onSelect={handleSelectPath}
+              onPreload={handlePreloadDiff}
+              onStage={handleStagePath}
+              onUnstage={handleUnstagePath}
+              onDiscard={handleDiscardPath}
+            />
           )}
         </div>
       )}

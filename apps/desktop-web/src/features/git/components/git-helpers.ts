@@ -91,14 +91,11 @@ export function hasUnstagedChanges(file: GitStatusFile): boolean {
   return !file.staged && file.status.trim().length > 0
 }
 
-export function resolveDiffScope(file: GitStatusFile, filter: 'all' | 'staged' | 'unstaged'): GitDiffScope {
+export function resolveDiffScope(_file: GitStatusFile, filter: 'staged' | 'unstaged'): GitDiffScope {
   if (filter === 'staged') {
     return 'staged'
   }
-  if (filter === 'unstaged') {
-    return 'unstaged'
-  }
-  return hasUnstagedChanges(file) ? 'unstaged' : 'staged'
+  return 'unstaged'
 }
 
 export function isUntrackedFile(file: GitStatusFile): boolean {

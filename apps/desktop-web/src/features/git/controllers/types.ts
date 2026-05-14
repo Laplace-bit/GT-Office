@@ -12,7 +12,7 @@ import type { Locale } from '@shell/i18n/ui-locale'
 // ============================================
 // Filter & Scope Types
 // ============================================
-export type GitFileFilter = 'all' | 'staged' | 'unstaged'
+export type GitFileFilter = 'staged' | 'unstaged'
 export type GitDiffScope = 'staged' | 'unstaged'
 
 // ============================================

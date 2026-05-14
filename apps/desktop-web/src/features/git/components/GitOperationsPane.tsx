@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { addNotification } from '@/stores/notification'
 import {
   ROW_HEIGHT,
   OVERSCAN_ROWS,
@@ -16,14 +17,14 @@ import { GitToolbar } from './GitToolbar'
 import { RepositorySection } from './RepositorySection'
 import { ChangesSection } from './ChangesSection'
 import { CommitForm } from './CommitForm'
-import { BranchSection } from './BranchSection'
-import { StashSection } from './StashSection'
-import { TagSection } from './TagSection'
-import { GitNoticeBanner } from './GitNoticeBanner'
+import { GitFeatureDialog } from './GitFeatureDialog'
+import { BranchDialog } from './BranchDialog'
+import { StashDialog } from './StashDialog'
+import { TagDialog } from './TagDialog'
 import { GitConfirmDialog } from './GitConfirmDialog'
 import type { GitDiscardKind } from './git-helpers'
 
-const MIN_CHANGES_SECTION_BASE_HEIGHT = 180
+type ActiveDialog = 'branches' | 'stash' | 'tags' | null
 
 interface GitOperationsPaneProps {
   controller: GitWorkspaceController
@@ -48,26 +49,38 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     repositories: false,
+    changes: false,
     commit: true,
-    branches: true,
-    stash: true,
-    tags: true,
   })
-  const tagsExpanded = !(collapsedSections.tags ?? true)
+  const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
+
+  const tagsDialogOpen = activeDialog === 'tags'
   const { tags, loading: tagsLoading, createTag, deleteTag } = useGitTags(
     workspaceId,
     controller.currentRepositoryPath,
     controller.isGitRepository,
-    tagsExpanded,
+    tagsDialogOpen,
   )
   const [discardConfirmState, setDiscardConfirmState] = useState<{
     path: string
     includeUntracked: boolean
     discardKind: GitDiscardKind
   } | null>(null)
-  const [changesSectionHeight, setChangesSectionHeight] = useState<number | null>(null)
   const rootFontSizePx = useRootFontSizePx()
-  const contentRef = useRef<HTMLDivElement | null>(null)
+
+  // Convert repository notices and errors to toast notifications
+  useEffect(() => {
+    if (repositoryNotice) {
+      addNotification({ type: 'warning', message: repositoryNotice })
+      dismissRepositoryNotice()
+    }
+  }, [repositoryNotice, dismissRepositoryNotice])
+
+  useEffect(() => {
+    if (errorMessage) {
+      addNotification({ type: 'error', message: errorMessage })
+    }
+  }, [errorMessage])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -76,10 +89,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
         e.preventDefault()
         refreshAll()
       }
+      if (e.key === 'Escape' && activeDialog) {
+        setActiveDialog(null)
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [refreshAll])
+  }, [refreshAll, activeDialog])
 
   useEffect(() => {
     if (!workspaceId) {
@@ -89,7 +105,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
       return
     }
     const hasLoadedMeta = branches.length > 0 || stashEntries.length > 0 || logEntries.length > 0
-    if (summary || hasLoadedMeta || repositoryNotice) {
+    if (summary || hasLoadedMeta) {
       return
     }
 
@@ -102,7 +118,6 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     logEntries.length,
     metaLoading,
     refreshAll,
-    repositoryNotice,
     stashEntries.length,
     summary,
     workspaceId,
@@ -122,43 +137,16 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
 
-  useEffect(() => {
-    const contentElement = contentRef.current
-    if (!contentElement) {
-      return
-    }
-
-    const updateChangesSectionHeight = () => {
-      if (collapsedSections.changes) {
-        setChangesSectionHeight(null)
-        return
-      }
-      const minHeight = scaleDesignPxToActualPx(MIN_CHANGES_SECTION_BASE_HEIGHT, rootFontSizePx)
-      setChangesSectionHeight(Math.max(minHeight, Math.floor(contentElement.clientHeight * 0.5)))
-    }
-
-    updateChangesSectionHeight()
-    const observer = new ResizeObserver(updateChangesSectionHeight)
-    observer.observe(contentElement)
-    return () => {
-      observer.disconnect()
-    }
-  }, [collapsedSections.changes, rootFontSizePx])
-
-  // Keyboard shortcuts: ⌘R refresh, Esc close dialogs
+  // Keyboard shortcuts: Esc close dialogs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
-        e.preventDefault()
-        controller.refreshAll()
-      }
       if (e.key === 'Escape') {
         setDiscardConfirmState(null)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [controller.refreshAll])
+  }, [])
 
   useEffect(() => {
     fileVirtualizer.measure()
@@ -199,6 +187,11 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     />
   ) : null
 
+  const openBranches = useCallback(() => setActiveDialog('branches'), [])
+  const openStash = useCallback(() => setActiveDialog('stash'), [])
+  const openTags = useCallback(() => setActiveDialog('tags'), [])
+  const closeDialog = useCallback(() => setActiveDialog(null), [])
+
   if (!workspaceId) {
     return (
       <>
@@ -217,34 +210,19 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   return (
     <>
       <section className="git-pane git-ops-pane">
-        <GitToolbar controller={controller} />
-
-        {repositoryNotice ? (
-          <GitNoticeBanner
-            locale={locale}
-            message={repositoryNotice}
-            onDismiss={dismissRepositoryNotice}
-          />
-        ) : null}
-        {errorMessage ? <div className="git-pane__error">{errorMessage}</div> : null}
+        <GitToolbar
+          controller={controller}
+          onOpenBranches={openBranches}
+          onOpenStash={openStash}
+          onOpenTags={openTags}
+        />
 
         {/* Scrollable content area */}
-        <div ref={contentRef} className="git-pane__content">
+        <div className="git-pane__content">
           <RepositorySection
             controller={controller}
             collapsed={collapsedSections.repositories ?? false}
             onToggle={() => toggleSection('repositories')}
-          />
-
-          <ChangesSection
-            controller={controller}
-            collapsed={collapsedSections.changes ?? false}
-            onToggle={() => toggleSection('changes')}
-            changesSectionHeight={changesSectionHeight}
-            rootFontSizePx={rootFontSizePx}
-            viewportRef={viewportRef}
-            fileVirtualizer={fileVirtualizer}
-            onDiscardConfirm={handleDiscardConfirm}
           />
 
           <CommitForm
@@ -253,33 +231,59 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
             onToggle={() => toggleSection('commit')}
           />
 
-          <BranchSection
+          <ChangesSection
             controller={controller}
-            collapsed={collapsedSections.branches ?? true}
-            onToggle={() => toggleSection('branches')}
-          />
-
-          <StashSection
-            controller={controller}
-            collapsed={collapsedSections.stash ?? true}
-            onToggle={() => toggleSection('stash')}
-          />
-
-          <TagSection
-            tags={tags}
-            loading={tagsLoading}
-            locale={locale}
-            isGitRepository={controller.isGitRepository}
-            actionLoading={controller.actionLoading}
-            remoteActionLoading={controller.remoteActionLoading}
-            onCreateTag={createTag}
-            onDeleteTag={deleteTag}
-            onPushTag={controller.pushTag}
-            collapsed={collapsedSections.tags ?? true}
-            onToggle={() => toggleSection('tags')}
+            collapsed={collapsedSections.changes ?? false}
+            onToggle={() => toggleSection('changes')}
+            rootFontSizePx={rootFontSizePx}
+            viewportRef={viewportRef}
+            fileVirtualizer={fileVirtualizer}
+            onDiscardConfirm={handleDiscardConfirm}
           />
         </div>
       </section>
+
+      {/* Feature dialogs */}
+      <GitFeatureDialog
+        open={activeDialog === 'branches'}
+        onClose={closeDialog}
+        title={t(locale, 'git.branch.title')}
+        icon="git-branch"
+        locale={locale}
+      >
+        <BranchDialog controller={controller} />
+      </GitFeatureDialog>
+
+      <GitFeatureDialog
+        open={activeDialog === 'stash'}
+        onClose={closeDialog}
+        title={t(locale, 'git.stash.title')}
+        icon="archive"
+        locale={locale}
+      >
+        <StashDialog controller={controller} />
+      </GitFeatureDialog>
+
+      <GitFeatureDialog
+        open={activeDialog === 'tags'}
+        onClose={closeDialog}
+        title={t(locale, 'git.tag.title')}
+        icon="clock"
+        locale={locale}
+      >
+        <TagDialog
+          tags={tags}
+          loading={tagsLoading}
+          locale={locale}
+          isGitRepository={controller.isGitRepository}
+          actionLoading={controller.actionLoading}
+          remoteActionLoading={controller.remoteActionLoading}
+          onCreateTag={createTag}
+          onDeleteTag={deleteTag}
+          onPushTag={controller.pushTag}
+        />
+      </GitFeatureDialog>
+
       {discardConfirmModal}
     </>
   )

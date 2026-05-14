@@ -38,6 +38,7 @@ import {
   Minimize,
   Minimize2,
   Minus,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCcw,
@@ -115,6 +116,7 @@ export type AppIconName =
   | 'link'
   | 'panel-right-close'
   | 'panel-right-open'
+  | 'ellipsis'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
@@ -174,6 +176,7 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   link: Link,
   'panel-right-close': PanelRightClose,
   'panel-right-open': PanelRightOpen,
+  ellipsis: MoreHorizontal,
 }
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {

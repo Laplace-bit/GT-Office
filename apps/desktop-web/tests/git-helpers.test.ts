@@ -65,11 +65,11 @@ test('git file helpers keep staged and unstaged actions repo-safe', () => {
 
   assert.equal(hasStagedChanges(mixedFile), true)
   assert.equal(hasUnstagedChanges(mixedFile), true)
-  assert.equal(resolveDiffScope(mixedFile, 'all'), 'unstaged')
+  assert.equal(resolveDiffScope(mixedFile, 'unstaged'), 'unstaged')
 
   assert.equal(hasStagedChanges(stagedFile), true)
   assert.equal(hasUnstagedChanges(stagedFile), false)
-  assert.equal(resolveDiffScope(stagedFile, 'all'), 'staged')
+  assert.equal(resolveDiffScope(stagedFile, 'staged'), 'staged')
 
   assert.equal(hasStagedChanges(untrackedFile), false)
   assert.equal(hasUnstagedChanges(untrackedFile), true)

@@ -56,7 +56,7 @@ export function useGitStatus({
   runAction,
   invalidateDiffCache,
 }: UseGitStatusInput): UseGitStatusResult {
-  const [filter, setFilter] = useState<GitFileFilter>('all')
+  const [filter, setFilter] = useState<GitFileFilter>('staged')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [selectedDiffScope, setSelectedDiffScope] = useState<GitDiffScope>('unstaged')
 
@@ -234,7 +234,7 @@ export function useGitStatus({
 
   // Effects
   useEffect(() => {
-    setFilter('all')
+    setFilter('staged')
     setSelectedPath(null)
     if (!workspaceId) {
       return
