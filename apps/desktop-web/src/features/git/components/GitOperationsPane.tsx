@@ -1,18 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useCallback, useEffect, useState } from 'react'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { addNotification } from '@/stores/notification'
-import {
-  ROW_HEIGHT,
-  OVERSCAN_ROWS,
-  type GitWorkspaceController,
-} from '../useGitWorkspaceController'
+import { type GitWorkspaceController } from '../useGitWorkspaceController'
 import { useGitTags } from '../tags/useGitTags'
-import {
-  scaleDesignPxToActualPx,
-  useRootFontSizePx,
-} from '../git-font-scale'
+import { useRootFontSizePx } from '../git-font-scale'
 import { GitToolbar } from './GitToolbar'
 import { RepositorySection } from './RepositorySection'
 import { ChangesSection } from './ChangesSection'
@@ -34,12 +26,12 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const {
     locale,
     workspaceId,
-    visibleFiles,
     metaLoading,
     errorMessage,
     repositoryNotice,
     dismissRepositoryNotice,
     discardPath,
+    discardPaths,
     refreshAll,
     summary,
     branches,
@@ -62,9 +54,12 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     tagsDialogOpen,
   )
   const [discardConfirmState, setDiscardConfirmState] = useState<{
-    path: string
+    mode: 'single' | 'bulk'
+    path?: string
+    paths?: string[]
     includeUntracked: boolean
-    discardKind: GitDiscardKind
+    discardKind?: GitDiscardKind
+    bulkCount?: number
   } | null>(null)
   const rootFontSizePx = useRootFontSizePx()
 
@@ -123,16 +118,6 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     workspaceId,
   ])
 
-  const viewportRef = useRef<HTMLDivElement | null>(null)
-  const fileRowHeight = scaleDesignPxToActualPx(ROW_HEIGHT, rootFontSizePx)
-
-  const fileVirtualizer = useVirtualizer({
-    count: visibleFiles.length,
-    getScrollElement: () => viewportRef.current,
-    estimateSize: () => fileRowHeight,
-    overscan: OVERSCAN_ROWS,
-  })
-
   const toggleSection = useCallback((key: string) => {
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
@@ -148,15 +133,20 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  useEffect(() => {
-    fileVirtualizer.measure()
-  }, [fileRowHeight, fileVirtualizer])
-
   const handleDiscardConfirm = useCallback((path: string, discardKind: GitDiscardKind) => {
     setDiscardConfirmState({
+      mode: 'single',
       path,
       includeUntracked: discardKind === 'untracked',
       discardKind,
+    })
+  }, [])
+  const handleDiscardAllConfirm = useCallback((paths: string[], includeUntracked: boolean) => {
+    setDiscardConfirmState({
+      mode: 'bulk',
+      paths,
+      includeUntracked,
+      bulkCount: paths.length,
     })
   }, [])
   const closeDiscardConfirm = useCallback(() => {
@@ -170,17 +160,22 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
       return
     }
     try {
-      await discardPath(discardConfirmState.path, discardConfirmState.includeUntracked)
+      if (discardConfirmState.mode === 'bulk') {
+        await discardPaths(discardConfirmState.paths ?? [], discardConfirmState.includeUntracked)
+      } else if (discardConfirmState.path) {
+        await discardPath(discardConfirmState.path, discardConfirmState.includeUntracked)
+      }
     } finally {
       setDiscardConfirmState(null)
     }
-  }, [discardConfirmState, discardPath])
+  }, [discardConfirmState, discardPath, discardPaths])
 
   const discardConfirmModal = discardConfirmState ? (
     <GitConfirmDialog
       locale={locale}
       path={discardConfirmState.path}
       discardKind={discardConfirmState.discardKind}
+      bulkCount={discardConfirmState.bulkCount}
       loading={controller.actionLoading === 'discard'}
       onClose={closeDiscardConfirm}
       onConfirm={() => void confirmDiscardPath()}
@@ -236,9 +231,8 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
             collapsed={collapsedSections.changes ?? false}
             onToggle={() => toggleSection('changes')}
             rootFontSizePx={rootFontSizePx}
-            viewportRef={viewportRef}
-            fileVirtualizer={fileVirtualizer}
             onDiscardConfirm={handleDiscardConfirm}
+            onDiscardAllConfirm={handleDiscardAllConfirm}
           />
         </div>
       </section>

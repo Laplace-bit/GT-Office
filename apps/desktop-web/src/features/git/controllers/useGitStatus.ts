@@ -43,6 +43,7 @@ interface UseGitStatusResult {
   stageAll: () => Promise<void>
   unstageAll: () => Promise<void>
   discardPath: (path: string, includeUntracked?: boolean) => Promise<void>
+  discardPaths: (paths: string[], includeUntracked?: boolean) => Promise<void>
   refreshSummary: () => Promise<void>
   dismissRepositoryNotice: () => void
 }
@@ -216,6 +217,19 @@ export function useGitStatus({
     [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
   )
 
+  const discardPaths = useCallback(
+    async (paths: string[], includeUntracked = false) => {
+      if (!workspaceId || !isGitRepository || paths.length === 0) {
+        return
+      }
+      await runAction('discard', async () => {
+        await desktopApi.gitDiscard(workspaceId, paths, includeUntracked, repositoryPath)
+        invalidateDiffCache()
+      })
+    },
+    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
+  )
+
   const selectPath = useCallback(
     (path: string, scope?: GitDiffScope) => {
       setSelectedPath(path)
@@ -282,6 +296,7 @@ export function useGitStatus({
     stageAll,
     unstageAll,
     discardPath,
+    discardPaths,
     refreshSummary: refreshSummaryOnly,
     dismissRepositoryNotice,
   }

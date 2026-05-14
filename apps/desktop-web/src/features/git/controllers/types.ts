@@ -89,6 +89,7 @@ export interface GitWorkspaceController {
   stageAll: () => Promise<void>
   unstageAll: () => Promise<void>
   discardPath: (path: string, includeUntracked?: boolean) => Promise<void>
+  discardPaths: (paths: string[], includeUntracked?: boolean) => Promise<void>
   commit: () => Promise<void>
   fetch: () => Promise<void>
   pull: () => Promise<void>

@@ -1230,6 +1230,7 @@ export const messages = {
   'git.action.deleteBranch': { 'zh-CN': '删除分支', 'en-US': 'Delete Branch' },
   'git.action.stashPush': { 'zh-CN': 'Stash Push', 'en-US': 'Stash Push' },
   'git.action.stashPop': { 'zh-CN': 'Stash Pop', 'en-US': 'Stash Pop' },
+  'git.action.discardAll': { 'zh-CN': '全部丢弃', 'en-US': 'Discard All' },
   'git.confirm.discard': {
     'zh-CN': '确认丢弃文件改动？{path}',
     'en-US': 'Discard changes for {path}?',
@@ -1255,6 +1256,14 @@ export const messages = {
   'git.confirm.discardIndexNewBody': {
     'zh-CN': '该文件已加入 Git 暂存区，但尚未存在于最近一次提交中。确认后会从暂存区和工作区一起删除。',
     'en-US': 'This file has been added to Git but does not exist in the last commit. Confirming will remove it from both the index and the working tree.',
+  },
+  'git.confirm.discardAllTitle': {
+    'zh-CN': '丢弃全部变更？',
+    'en-US': 'Discard all changes?',
+  },
+  'git.confirm.discardAllBody': {
+    'zh-CN': '这会丢弃当前“变更”分组中的 {count} 个文件改动，其中包含未跟踪文件时也会直接删除。这个操作不能撤销。',
+    'en-US': 'This will discard changes for {count} files in the current Changes group. Any untracked files in that group will also be deleted. This cannot be undone.',
   },
   'git.confirm.discardPathLabel': { 'zh-CN': '目标文件', 'en-US': 'Target File' },
   'git.confirm.deleteBranch': {

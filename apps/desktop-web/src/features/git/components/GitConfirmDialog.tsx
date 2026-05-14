@@ -4,8 +4,9 @@ import { getFileName, type GitDiscardKind } from './git-helpers'
 
 interface GitConfirmDialogProps {
   locale: 'zh-CN' | 'en-US'
-  path: string
-  discardKind: GitDiscardKind
+  path?: string
+  discardKind?: GitDiscardKind
+  bulkCount?: number
   loading: boolean
   onClose: () => void
   onConfirm: () => void
@@ -15,19 +16,23 @@ export const GitConfirmDialog = memo(function GitConfirmDialog({
   locale,
   path,
   discardKind,
+  bulkCount,
   loading,
   onClose,
   onConfirm,
 }: GitConfirmDialogProps) {
-  const fileName = getFileName(path)
-  const titleKey =
-    discardKind === 'untracked'
+  const isBulkDiscard = typeof bulkCount === 'number'
+  const fileName = path ? getFileName(path) : ''
+  const titleKey = isBulkDiscard
+    ? 'git.confirm.discardAllTitle'
+    : discardKind === 'untracked'
       ? 'git.confirm.discardUntrackedTitle'
       : discardKind === 'index-new'
         ? 'git.confirm.discardIndexNewTitle'
         : 'git.confirm.discardTitle'
-  const bodyKey =
-    discardKind === 'untracked'
+  const bodyKey = isBulkDiscard
+    ? 'git.confirm.discardAllBody'
+    : discardKind === 'untracked'
       ? 'git.confirm.discardUntrackedBody'
       : discardKind === 'index-new'
         ? 'git.confirm.discardIndexNewBody'
@@ -46,10 +51,16 @@ export const GitConfirmDialog = memo(function GitConfirmDialog({
           <h3 id="git-discard-confirm-title">{t(locale, titleKey)}</h3>
         </header>
         <div className="git-confirm-modal__body">
-          <p>{t(locale, bodyKey)}</p>
-          <div className="git-confirm-modal__path-card" title={path}>
-            <strong className="git-confirm-modal__path-name">{fileName}</strong>
-          </div>
+          <p>{isBulkDiscard ? t(locale, bodyKey, { count: bulkCount }) : t(locale, bodyKey)}</p>
+          {isBulkDiscard ? (
+            <div className="git-confirm-modal__path-card">
+              <strong className="git-confirm-modal__path-name">{t(locale, 'git.files.count', { count: bulkCount })}</strong>
+            </div>
+          ) : path ? (
+            <div className="git-confirm-modal__path-card" title={path}>
+              <strong className="git-confirm-modal__path-name">{fileName}</strong>
+            </div>
+          ) : null}
         </div>
         <footer className="git-confirm-modal__footer">
           <button type="button" className="v-btn v-btn-secondary" onClick={onClose} disabled={loading}>

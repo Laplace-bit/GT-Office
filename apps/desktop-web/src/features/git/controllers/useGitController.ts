@@ -578,6 +578,7 @@ export function useGitController({
     stageAll: status.stageAll,
     unstageAll: status.unstageAll,
     discardPath: status.discardPath,
+    discardPaths: status.discardPaths,
     commit: commit.commit,
     fetch: remote.fetch,
     pull: remote.pull,
