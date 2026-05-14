@@ -1,256 +1,181 @@
 @use '../../../styles/tokens/responsive' as *;
 
-/* ========================================
-   Git Directory Tree - Apple-Style
-   Hierarchical tree view for changed files
-   ======================================== */
-
 .git-directory-tree {
-  flex: 1;
-  min-height: #{rem(100)};
-  overflow: hidden;
-  position: relative;
-  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 86%, transparent);
-  border-radius: var(--vb-radius-md);
-  background: color-mix(in srgb, var(--vb-input-bg) 74%, var(--vb-surface));
-  outline: none;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-
-  /* react-arborist scroll container */
-  & [role='tree'] {
-    padding: #{rem(4)} var(--vb-space-2xs);
-    height: 100%;
-    overflow-y: auto;
-    overflow-x: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  & [role='tree']::-webkit-scrollbar {
-    width: var(--vb-space-xs);
-    height: var(--vb-space-xs);
-  }
-
-  & [role='tree']::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  & [role='tree']::-webkit-scrollbar-thumb {
-    background: var(--vb-border);
-    border-radius: var(--vb-radius-xs);
-  }
-
-  & [role='tree']::-webkit-scrollbar-thumb:hover {
-    background: var(--vb-border-strong);
-  }
-
-  &--empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: #{rem(80)};
-    border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 86%, transparent);
-    border-radius: var(--vb-radius-md);
-    background: color-mix(in srgb, var(--vb-input-bg) 74%, var(--vb-surface));
-  }
-
-  &__empty-text {
-    font-size: var(--vb-git-font-xs);
-    color: var(--vb-text-muted);
-    margin: 0;
-  }
+  min-width: 0;
 }
 
-/* === Directory Node === */
+.git-directory-tree__empty-text {
+  margin: 0;
+  font-size: var(--vb-git-font-2xs);
+  color: var(--vb-text-muted);
+}
+
+.git-directory-tree__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.git-directory-tree__item {
+  min-width: 0;
+}
+
+.git-dir-node,
+.git-file-node {
+  width: 100%;
+  min-width: 0;
+  min-height: #{rem(34)};
+  box-sizing: border-box;
+}
 
 .git-dir-node {
   display: flex;
   align-items: center;
-  height: 100%;
   gap: 0;
   padding-right: var(--vb-space-sm);
+  border: none;
+  background: transparent;
+  color: var(--vb-text);
   cursor: pointer;
   user-select: none;
+  text-align: left;
   white-space: nowrap;
   border-radius: var(--vb-radius-xs);
   transition: background-color 120ms var(--vb-ease-out);
-
-  &:hover {
-    background: color-mix(in srgb, var(--vb-hover-overlay) 60%, transparent);
-  }
-
-  &__toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: #{rem(18)};
-    height: #{rem(18)};
-    flex-shrink: 0;
-    color: var(--vb-text-muted);
-    cursor: pointer;
-    border-radius: var(--vb-radius-xs);
-    transition: background-color 120ms var(--vb-ease-out), color 120ms var(--vb-ease-out);
-
-    &:hover {
-      background: color-mix(in srgb, var(--vb-accent) 10%, transparent);
-      color: var(--vb-accent);
-    }
-  }
-
-  &__chevron {
-    transition: transform 150ms var(--vb-ease-out);
-  }
-
-  &--expanded &__chevron {
-    /* Expanded state - chevron rotated via SVG path change */
-  }
-
-  &__icon-wrap {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: #{rem(18)};
-    height: #{rem(18)};
-    flex-shrink: 0;
-    margin-right: #{rem(4)};
-  }
-
-  &__icon {
-    width: #{rem(14)};
-    height: #{rem(14)};
-    color: var(--vb-accent);
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  &__name {
-    font-size: var(--vb-git-font-xs);
-    font-weight: 600;
-    color: var(--vb-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    flex: 1;
-  }
 }
 
-/* === File Node === */
+.git-dir-node:hover {
+  background: color-mix(in srgb, var(--vb-hover-overlay) 60%, transparent);
+}
+
+.git-dir-node__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: #{rem(18)};
+  height: #{rem(18)};
+  flex-shrink: 0;
+  color: var(--vb-text-muted);
+}
+
+.git-dir-node__chevron {
+  flex: 0 0 auto;
+}
+
+.git-dir-node__icon-wrap,
+.git-file-node__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: #{rem(18)};
+  height: #{rem(18)};
+  flex-shrink: 0;
+  margin-right: #{rem(4)};
+}
+
+.git-dir-node__icon {
+  width: #{rem(14)};
+  height: #{rem(14)};
+  color: var(--vb-accent);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.git-dir-node__name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--vb-git-font-xs);
+  font-weight: 600;
+}
 
 .git-file-node {
   display: flex;
   align-items: center;
-  height: 100%;
   gap: var(--vb-space-2xs);
   padding: 0 var(--vb-space-sm) 0 0;
-  white-space: nowrap;
   border-radius: var(--vb-radius-xs);
   transition: background-color 80ms var(--vb-ease-out);
-
-  &:hover {
-    background: color-mix(in srgb, var(--vb-hover-overlay) 76%, transparent);
-  }
-
-  &--active {
-    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
-    box-shadow: inset #{rem(2)} 0 0 color-mix(in srgb, var(--vb-accent) 74%, transparent);
-
-    &:hover {
-      background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
-    }
-  }
-
-  &__select {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: #{rem(4)};
-    border: none;
-    background: transparent;
-    color: inherit;
-    padding: 0;
-    height: 100%;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  &__icon-wrap {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: #{rem(18)};
-    height: #{rem(18)};
-    flex-shrink: 0;
-  }
-
-  &__icon {
-    width: #{rem(14)};
-    height: #{rem(14)};
-    flex-shrink: 0;
-  }
-
-  &__name {
-    font-size: var(--vb-git-font-xs);
-    font-weight: 500;
-    color: var(--vb-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    flex: 1;
-  }
-
-  &--active &__name {
-    color: color-mix(in srgb, var(--vb-accent) 18%, var(--vb-text));
-    font-weight: 600;
-  }
-
-  &__status {
-    flex-shrink: 0;
-    min-width: #{rem(22)};
-    font-family: var(--vb-font-mono);
-    font-size: var(--vb-git-font-2xs);
-    font-weight: 600;
-    text-align: center;
-    padding: #{rem(2)} #{rem(3)};
-    border-radius: var(--vb-radius-xs);
-  }
-
-  &__status--staged {
-    background: color-mix(in srgb, var(--vb-success) 18%, transparent);
-    color: var(--vb-success);
-  }
-
-  &__status--unstaged {
-    background: color-mix(in srgb, var(--vb-warning) 18%, transparent);
-    color: var(--vb-warning);
-  }
-
-  &__actions {
-    display: flex;
-    gap: var(--vb-border-width);
-    flex-shrink: 0;
-  }
 }
 
-/* === react-arborist row styling for git tree === */
+.git-file-node:hover {
+  background: color-mix(in srgb, var(--vb-hover-overlay) 76%, transparent);
+}
 
-.git-directory-tree {
-  .tree-row {
-    height: #{rem(34)};
-    outline: none;
-  }
+.git-file-node--active {
+  background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
+  box-shadow: inset #{rem(2)} 0 0 color-mix(in srgb, var(--vb-accent) 74%, transparent);
+}
 
-  .tree-row-selected {
-    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
-  }
+.git-file-node--active:hover {
+  background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
+}
 
-  .tree-row-focused {
-    outline: none;
-  }
+.git-file-node__select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: #{rem(4)};
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  height: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
+.git-file-node__icon {
+  width: #{rem(14)};
+  height: #{rem(14)};
+  flex-shrink: 0;
+}
+
+.git-file-node__name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--vb-git-font-xs);
+  font-weight: 500;
+  color: var(--vb-text);
+}
+
+.git-file-node--active .git-file-node__name {
+  color: color-mix(in srgb, var(--vb-accent) 18%, var(--vb-text));
+  font-weight: 600;
+}
+
+.git-file-node__status {
+  flex-shrink: 0;
+  min-width: #{rem(22)};
+  font-family: var(--vb-font-mono);
+  font-size: var(--vb-git-font-2xs);
+  font-weight: 600;
+  text-align: center;
+  padding: #{rem(2)} #{rem(3)};
+  border-radius: var(--vb-radius-xs);
+}
+
+.git-file-node__status--staged {
+  background: color-mix(in srgb, var(--vb-success) 18%, transparent);
+  color: var(--vb-success);
+}
+
+.git-file-node__status--unstaged {
+  background: color-mix(in srgb, var(--vb-warning) 18%, transparent);
+  color: var(--vb-warning);
+}
+
+.git-file-node__actions {
+  display: flex;
+  gap: var(--vb-border-width);
+  flex-shrink: 0;
 }
