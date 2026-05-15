@@ -1289,6 +1289,8 @@ export const messages = {
   'git.merge.conflicts': { 'zh-CN': '检测到合并冲突', 'en-US': 'Merge conflicts detected' },
   'git.merge.continue': { 'zh-CN': '继续合并', 'en-US': 'Continue Merge' },
   'git.merge.abort': { 'zh-CN': '中止合并', 'en-US': 'Abort Merge' },
+  'git.merge.acceptOurs': { 'zh-CN': '采用当前', 'en-US': 'Use ours' },
+  'git.merge.acceptTheirs': { 'zh-CN': '采用传入', 'en-US': 'Use theirs' },
 
   // Commit
   'git.commit.amend': { 'zh-CN': '修改', 'en-US': 'Amend' },

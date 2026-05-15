@@ -415,6 +415,19 @@ export interface GitMergeResult {
   mergedCommit: string | null
 }
 
+export interface GitMergeStateResponse {
+  workspaceId: string
+  inProgress: boolean
+  conflicts: GitConflictFile[]
+}
+
+export interface GitConflictResolveResponse {
+  workspaceId: string
+  path: string
+  side: 'ours' | 'theirs'
+  conflicts: GitConflictFile[]
+}
+
 export interface TerminalCreateResponse {
   sessionId: string
   workspaceId: string
@@ -2583,6 +2596,27 @@ export const desktopApi = {
   },
   gitConflictList(workspaceId: string, repositoryPath?: string | null) {
     return invokeCommand<{ workspaceId: string; conflicts: GitConflictFile[] }>('git_conflict_list', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+    })
+  },
+
+  gitConflictResolve(
+    workspaceId: string,
+    path: string,
+    side: 'ours' | 'theirs',
+    repositoryPath?: string | null,
+  ) {
+    return invokeCommand<GitConflictResolveResponse>('git_conflict_resolve', {
+      workspaceId,
+      repositoryPath: repositoryPath ?? null,
+      path,
+      side,
+    })
+  },
+
+  gitMergeState(workspaceId: string, repositoryPath?: string | null) {
+    return invokeCommand<GitMergeStateResponse>('git_merge_state', {
       workspaceId,
       repositoryPath: repositoryPath ?? null,
     })

@@ -15,8 +15,6 @@ test('uses native decorations and conservative polling on linux', () => {
       platform: 'linux',
       useCustomWindowChrome: false,
       shouldUseNativeDecorations: true,
-      stationProcessPollIntervalMs: 3200,
-      shouldPollAllLiveStationProcesses: false,
     },
   )
 })
@@ -33,8 +31,6 @@ test('preserves custom chrome on macos', () => {
       platform: 'macos',
       useCustomWindowChrome: true,
       shouldUseNativeDecorations: true,
-      stationProcessPollIntervalMs: 1400,
-      shouldPollAllLiveStationProcesses: true,
     },
   )
 })
@@ -51,8 +47,6 @@ test('uses conservative live-station polling when performance debug is enabled o
       platform: 'macos',
       useCustomWindowChrome: true,
       shouldUseNativeDecorations: true,
-      stationProcessPollIntervalMs: 1400,
-      shouldPollAllLiveStationProcesses: false,
     },
   )
 })
@@ -68,8 +62,6 @@ test('preserves custom chrome on windows', () => {
       platform: 'windows',
       useCustomWindowChrome: true,
       shouldUseNativeDecorations: false,
-      stationProcessPollIntervalMs: 1400,
-      shouldPollAllLiveStationProcesses: true,
     },
   )
 })
@@ -85,8 +77,6 @@ test('uses web defaults outside tauri runtime', () => {
       platform: 'web',
       useCustomWindowChrome: false,
       shouldUseNativeDecorations: false,
-      stationProcessPollIntervalMs: 1400,
-      shouldPollAllLiveStationProcesses: true,
     },
   )
 })

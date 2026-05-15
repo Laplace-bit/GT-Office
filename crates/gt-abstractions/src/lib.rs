@@ -173,6 +173,13 @@ pub struct MergeResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MergeState {
+    pub in_progress: bool,
+    pub conflicts: Vec<ConflictFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConflictFile {
     pub path: String,
     pub status: ConflictStatus,
@@ -184,8 +191,10 @@ pub enum ConflictStatus {
     BothModified,
     DeletedByUs,
     DeletedByThem,
-    AddedByBoth,
+    AddedByUs,
+    AddedByThem,
     BothAdded,
+    BothDeleted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

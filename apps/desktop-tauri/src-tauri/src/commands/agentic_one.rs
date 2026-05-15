@@ -1,4 +1,6 @@
 use std::io::{BufRead, BufReader};
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -348,6 +350,8 @@ fn default_install_failure_code(status: &AgentInstallStatus) -> AgentInstallDiag
 fn run_progress_command(attempt: &AgentInstallAttempt) -> Result<CommandExecutionResult, String> {
     let mut command = Command::new(&attempt.program);
     configure_std_command(&mut command);
+    #[cfg(not(target_os = "windows"))]
+    command.process_group(0);
     let mut child = command
         .args(&attempt.args)
         .envs(&attempt.env)
@@ -444,6 +448,7 @@ fn terminate_process_tree(child: &mut std::process::Child) {
 
 #[cfg(not(target_os = "windows"))]
 fn terminate_process_tree_unix(root_pid: u32) {
+    send_unix_signal_to_group(root_pid, "-TERM");
     let mut descendants = collect_descendant_pids(root_pid);
     descendants.sort_unstable();
     descendants.dedup();
@@ -453,6 +458,7 @@ fn terminate_process_tree_unix(root_pid: u32) {
     }
     send_unix_signal(root_pid, "-TERM");
     std::thread::sleep(Duration::from_millis(200));
+    send_unix_signal_to_group(root_pid, "-KILL");
     for pid in descendants.iter().rev() {
         send_unix_signal(*pid, "-KILL");
     }
@@ -507,7 +513,22 @@ fn collect_descendant_pids(root_pid: u32) -> Vec<u32> {
 fn send_unix_signal(pid: u32, signal: &str) {
     let mut command = Command::new("kill");
     configure_std_command(&mut command);
-    let _ = command.args([signal, &pid.to_string()]).status();
+    let _ = command
+        .args([signal, &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(target_os = "windows"))]
+fn send_unix_signal_to_group(root_pid: u32, signal: &str) {
+    let mut command = Command::new("kill");
+    configure_std_command(&mut command);
+    let _ = command
+        .args([signal, "--", &format!("-{root_pid}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 fn remove_paths_with_progress(

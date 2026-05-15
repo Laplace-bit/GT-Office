@@ -1,11 +1,16 @@
 use super::{
-    build_git_branches_payload, build_git_commit_detail_payload, build_git_diff_payload,
-    build_git_discard_payload, build_git_fetch_payload, build_git_log_payload,
+    build_git_branches_payload, build_git_commit_detail_payload, build_git_conflict_list_payload,
+    build_git_conflict_resolve_payload, build_git_diff_payload, build_git_discard_payload,
+    build_git_fetch_payload, build_git_log_payload, build_git_merge_abort_payload,
+    build_git_merge_continue_payload, build_git_merge_payload, build_git_merge_state_payload,
     build_git_pull_payload, build_git_push_payload, build_git_stage_payload,
     build_git_stash_list_payload, build_git_status_payload, build_git_tag_list_payload,
     build_git_tag_push_payload, build_git_unstage_payload,
 };
-use gt_abstractions::{GitStatusFile, GitStatusSummary, WorkspaceId};
+use gt_abstractions::{
+    ConflictFile, ConflictStatus, GitStatusFile, GitStatusSummary, MergeResult, MergeState,
+    WorkspaceId,
+};
 use gt_git::{
     GitBranchEntry, GitCommitDetail, GitCommitEntry, GitFetchResult, GitPullResult, GitPushResult,
     GitStashEntry, GitTagEntry,
@@ -181,6 +186,144 @@ fn git_fetch_pull_push_payloads_keep_contract_fields() {
     );
     assert_eq!(push_payload["queued"], true);
     assert_eq!(push_payload["setUpstream"], true);
+}
+
+#[test]
+fn git_merge_payloads_keep_contract_fields() {
+    let workspace_id = WorkspaceId::new("ws-1");
+
+    let merge_payload = build_git_merge_payload(
+        &workspace_id,
+        MergeResult {
+            success: false,
+            conflicts: vec![ConflictFile {
+                path: "src/conflicted.rs".to_string(),
+                status: ConflictStatus::BothModified,
+            }],
+            merged_commit: None,
+        },
+    );
+    assert_eq!(merge_payload["workspaceId"], "ws-1");
+    assert_eq!(merge_payload["success"], false);
+    assert_eq!(merge_payload["conflicts"][0]["path"], "src/conflicted.rs");
+    assert_eq!(merge_payload["conflicts"][0]["status"], "both_modified");
+    assert!(merge_payload["mergedCommit"].is_null());
+
+    let continue_payload =
+        build_git_merge_continue_payload(&workspace_id, "abc123def456".to_string());
+    assert_eq!(continue_payload["workspaceId"], "ws-1");
+    assert_eq!(continue_payload["mergedCommit"], "abc123def456");
+
+    let abort_payload = build_git_merge_abort_payload(&workspace_id);
+    assert_eq!(abort_payload["workspaceId"], "ws-1");
+    assert_eq!(abort_payload["aborted"], true);
+
+    let conflict_list_payload = build_git_conflict_list_payload(
+        &workspace_id,
+        vec![ConflictFile {
+            path: "src/deleted.txt".to_string(),
+            status: ConflictStatus::DeletedByThem,
+        }],
+    );
+    assert_eq!(conflict_list_payload["workspaceId"], "ws-1");
+    assert_eq!(
+        conflict_list_payload["conflicts"][0]["status"],
+        "deleted_by_them"
+    );
+
+    let merge_state_payload = build_git_merge_state_payload(
+        &workspace_id,
+        MergeState {
+            in_progress: true,
+            conflicts: vec![ConflictFile {
+                path: "src/resolved-later.rs".to_string(),
+                status: ConflictStatus::AddedByUs,
+            }],
+        },
+    );
+    assert_eq!(merge_state_payload["workspaceId"], "ws-1");
+    assert_eq!(merge_state_payload["inProgress"], true);
+    assert_eq!(merge_state_payload["conflicts"][0]["status"], "added_by_us");
+}
+
+#[test]
+fn git_conflict_payload_serializes_all_conflict_statuses() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_conflict_list_payload(
+        &workspace_id,
+        vec![
+            ConflictFile {
+                path: "both-modified.txt".to_string(),
+                status: ConflictStatus::BothModified,
+            },
+            ConflictFile {
+                path: "deleted-by-us.txt".to_string(),
+                status: ConflictStatus::DeletedByUs,
+            },
+            ConflictFile {
+                path: "deleted-by-them.txt".to_string(),
+                status: ConflictStatus::DeletedByThem,
+            },
+            ConflictFile {
+                path: "added-by-us.txt".to_string(),
+                status: ConflictStatus::AddedByUs,
+            },
+            ConflictFile {
+                path: "added-by-them.txt".to_string(),
+                status: ConflictStatus::AddedByThem,
+            },
+            ConflictFile {
+                path: "both-added.txt".to_string(),
+                status: ConflictStatus::BothAdded,
+            },
+            ConflictFile {
+                path: "both-deleted.txt".to_string(),
+                status: ConflictStatus::BothDeleted,
+            },
+        ],
+    );
+
+    let statuses = payload["conflicts"]
+        .as_array()
+        .expect("conflicts should be an array")
+        .iter()
+        .map(|conflict| {
+            conflict["status"]
+                .as_str()
+                .expect("status should be string")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        vec![
+            "both_modified",
+            "deleted_by_us",
+            "deleted_by_them",
+            "added_by_us",
+            "added_by_them",
+            "both_added",
+            "both_deleted",
+        ]
+    );
+}
+
+#[test]
+fn git_conflict_resolve_payload_keeps_remaining_conflicts() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_conflict_resolve_payload(
+        &workspace_id,
+        "src/conflicted.rs".to_string(),
+        "ours".to_string(),
+        vec![ConflictFile {
+            path: "src/other.rs".to_string(),
+            status: ConflictStatus::BothModified,
+        }],
+    );
+
+    assert_eq!(payload["workspaceId"], "ws-1");
+    assert_eq!(payload["path"], "src/conflicted.rs");
+    assert_eq!(payload["side"], "ours");
+    assert_eq!(payload["conflicts"][0]["path"], "src/other.rs");
 }
 
 #[test]

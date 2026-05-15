@@ -218,6 +218,8 @@ pub fn run() {
             git::git_merge_continue,
             git::git_merge_abort,
             git::git_conflict_list,
+            git::git_conflict_resolve,
+            git::git_merge_state,
             git::git_stage_hunk,
             git::git_unstage_hunk,
             tool_adapter::command_catalog::tool_list_commands,

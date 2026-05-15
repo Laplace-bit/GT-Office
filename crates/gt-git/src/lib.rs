@@ -1,7 +1,7 @@
 use git2::{BranchType, Repository, Status, StatusOptions};
 use gt_abstractions::{
     AbstractionError, AbstractionResult, ConflictFile, ConflictStatus, GitRepositorySummary,
-    GitStatusFile, GitStatusSummary, MergeResult,
+    GitStatusFile, GitStatusSummary, MergeResult, MergeState,
 };
 use gt_abstractions::{WorkspaceId, WorkspaceService};
 use serde::{Deserialize, Serialize};
@@ -1199,7 +1199,7 @@ where
         }
 
         let summary = self.status_repo(workspace_id, Some(context.repository_path.as_str()))?;
-        if summary.branch == "HEAD" {
+        if summary.branch == "HEAD" || summary.branch.starts_with("HEAD ") {
             Ok(branch.to_string())
         } else {
             Ok(summary.branch)
@@ -2962,20 +2962,112 @@ where
         let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let output = self.run_git(
             &context.repo_root,
-            &["diff", "--name-only", "--diff-filter=U"],
+            &["status", "--porcelain"],
             "GIT_CONFLICT_LIST_FAILED",
         )?;
 
         let conflicts: Vec<ConflictFile> = output
             .lines()
-            .filter(|l| !l.is_empty())
-            .map(|path| ConflictFile {
-                path: Self::join_workspace_relative_path(&context.repository_path, path),
-                status: ConflictStatus::BothModified,
-            })
+            .filter_map(|line| Self::parse_conflict_file(&context.repository_path, line))
             .collect();
 
         Ok(conflicts)
+    }
+
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, path = path, side = side))]
+    pub fn resolve_conflict(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+        path: &str,
+        side: &str,
+    ) -> AbstractionResult<Vec<ConflictFile>> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        if !context.repo_root.join(".git").join("MERGE_HEAD").exists() {
+            return Err(AbstractionError::InvalidArgument {
+                message: "GIT_MERGE_NOT_IN_PROGRESS: no merge is in progress".to_string(),
+            });
+        }
+
+        let normalized_path = self
+            .normalize_workspace_paths_for_repo(&context, &[path.to_string()])?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        let conflicts = self.conflict_list(workspace_id, Some(context.repository_path.as_str()))?;
+        let conflict = conflicts
+            .iter()
+            .find(|conflict| {
+                self.normalize_workspace_paths_for_repo(&context, &[conflict.path.clone()])
+                    .map(|paths| {
+                        paths
+                            .into_iter()
+                            .any(|candidate| candidate == normalized_path)
+                    })
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| AbstractionError::InvalidArgument {
+                message: format!("GIT_CONFLICT_NOT_FOUND: path '{path}' is not conflicted"),
+            })?;
+
+        let accept_ours = match side {
+            "ours" => true,
+            "theirs" => false,
+            _ => {
+                return Err(AbstractionError::InvalidArgument {
+                    message: "GIT_CONFLICT_SIDE_INVALID: side must be ours or theirs".to_string(),
+                });
+            }
+        };
+        let selected_side_is_deleted = match (&conflict.status, accept_ours) {
+            (ConflictStatus::DeletedByUs, true)
+            | (ConflictStatus::DeletedByThem, false)
+            | (ConflictStatus::AddedByThem, true)
+            | (ConflictStatus::AddedByUs, false)
+            | (ConflictStatus::BothDeleted, _) => true,
+            _ => false,
+        };
+
+        if selected_side_is_deleted {
+            self.run_git(
+                &context.repo_root,
+                &["rm", "-f", "--ignore-unmatch", "--", &normalized_path],
+                "GIT_CONFLICT_RESOLVE_FAILED",
+            )?;
+        } else {
+            let checkout_side = if accept_ours { "--ours" } else { "--theirs" };
+            self.run_git(
+                &context.repo_root,
+                &["checkout", checkout_side, "--", &normalized_path],
+                "GIT_CONFLICT_RESOLVE_FAILED",
+            )?;
+            self.run_git(
+                &context.repo_root,
+                &["add", "--", &normalized_path],
+                "GIT_CONFLICT_RESOLVE_FAILED",
+            )?;
+        }
+
+        self.conflict_list(workspace_id, Some(context.repository_path.as_str()))
+    }
+
+    pub fn merge_state(
+        &self,
+        workspace_id: &WorkspaceId,
+        repository_path: Option<&str>,
+    ) -> AbstractionResult<MergeState> {
+        let context = self.resolve_repo_context(workspace_id, repository_path)?;
+        let in_progress = context.repo_root.join(".git").join("MERGE_HEAD").exists();
+        let conflicts = if in_progress {
+            self.conflict_list(workspace_id, Some(context.repository_path.as_str()))?
+        } else {
+            Vec::new()
+        };
+
+        Ok(MergeState {
+            in_progress,
+            conflicts,
+        })
     }
 
     #[instrument(skip(self), fields(workspace_id = %workspace_id))]
@@ -2984,14 +3076,15 @@ where
         workspace_id: &WorkspaceId,
         repository_path: Option<&str>,
     ) -> AbstractionResult<String> {
-        // Check if all conflicts are resolved
         let context = self.resolve_repo_context(workspace_id, repository_path)?;
-        let status = self.status_repo(workspace_id, Some(context.repository_path.as_str()))?;
-        let has_conflicts = status
-            .files
-            .iter()
-            .any(|f| f.status.contains('U') || f.status == "AA");
-        if has_conflicts {
+        if !context.repo_root.join(".git").join("MERGE_HEAD").exists() {
+            return Err(AbstractionError::InvalidArgument {
+                message: "GIT_MERGE_NOT_IN_PROGRESS: no merge is in progress".to_string(),
+            });
+        }
+
+        let conflicts = self.conflict_list(workspace_id, Some(context.repository_path.as_str()))?;
+        if !conflicts.is_empty() {
             return Err(AbstractionError::InvalidArgument {
                 message: "GIT_MERGE_CONFLICTS_REMAIN: resolve all conflicts before continuing"
                     .to_string(),
@@ -3021,6 +3114,39 @@ where
             "GIT_MERGE_ABORT_FAILED",
         )?;
         Ok(())
+    }
+
+    fn parse_conflict_file(repository_path: &str, line: &str) -> Option<ConflictFile> {
+        if line.len() < 4 {
+            return None;
+        }
+
+        let status = line.get(0..2)?.trim();
+        let conflict_status = match status {
+            "UU" => ConflictStatus::BothModified,
+            "DU" => ConflictStatus::DeletedByUs,
+            "UD" => ConflictStatus::DeletedByThem,
+            "AU" => ConflictStatus::AddedByUs,
+            "UA" => ConflictStatus::AddedByThem,
+            "AA" => ConflictStatus::BothAdded,
+            "DD" => ConflictStatus::BothDeleted,
+            _ => return None,
+        };
+
+        let raw_path = line.get(3..)?.trim();
+        let path = if let Some((_, new_name)) = raw_path.split_once(" -> ") {
+            new_name.trim()
+        } else {
+            raw_path
+        };
+        if path.is_empty() {
+            return None;
+        }
+
+        Some(ConflictFile {
+            path: Self::join_workspace_relative_path(repository_path, path),
+            status: conflict_status,
+        })
     }
 
     #[instrument(skip(self, patch), fields(workspace_id = %workspace_id, path = path))]
@@ -3156,7 +3282,11 @@ fn common_binary_dirs() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GitService, GIT_STATUS_TARGET_BUDGET_MS};
+    use super::{
+        module_name, ConflictStatus, GitDiffHunk, GitDiffLine, GitDiffMode, GitRepoContext,
+        GitService, GitSnapshotContent, GIT_STATUS_TARGET_BUDGET_MS, MAX_STATUS_FILES,
+    };
+    use git2::{Repository, Status};
     use gt_abstractions::{
         AbstractionError, AbstractionResult, TerminalCwdMode, WorkspaceContext, WorkspaceId,
         WorkspacePermissions, WorkspaceService, WorkspaceSessionSnapshot, WorkspaceSummary,
@@ -3223,6 +3353,31 @@ mod tests {
         assert!(status.success(), "git {:?} failed with {status}", args);
     }
 
+    fn run_git_output(root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .expect("git command should start");
+        assert!(
+            output.status.success(),
+            "git {:?} failed with {output:?}",
+            args
+        );
+        String::from_utf8(output.stdout).expect("git output should be utf8")
+    }
+
+    #[cfg(unix)]
+    fn make_test_service_with_git_path(
+        root: PathBuf,
+        git_bin_dir: &Path,
+    ) -> GitService<TestWorkspaceService> {
+        let mut service = GitService::new(TestWorkspaceService { root });
+        service.git_path = Some(git_bin_dir.as_os_str().to_os_string());
+        service
+    }
+
     fn create_temp_repo() -> (WorkspaceId, PathBuf, GitService<TestWorkspaceService>) {
         let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
         let root = std::env::temp_dir().join(format!("gt-git-{}", Uuid::new_v4()));
@@ -3259,11 +3414,2367 @@ mod tests {
         repo_root
     }
 
+    #[test]
+    fn parse_porcelain_status_tracks_branch_ahead_behind_and_renames() {
+        let summary = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## feature...origin/feature [ahead 2, behind 1]\nM  staged.txt\n D removed.txt\nR  old.txt -> renamed.txt\n?? new.txt\n",
+            "packages/app",
+        );
+
+        assert_eq!(summary.branch, "feature");
+        assert_eq!(summary.ahead, 2);
+        assert_eq!(summary.behind, 1);
+        assert_eq!(summary.files.len(), 4);
+        assert_eq!(summary.files[0].path, "packages/app/staged.txt");
+        assert!(summary.files[0].staged);
+        assert_eq!(summary.files[1].status, "D");
+        assert_eq!(summary.files[2].path, "packages/app/renamed.txt");
+        assert_eq!(summary.files[3].status, "??");
+    }
+
+    #[test]
+    fn parse_porcelain_status_defaults_head_when_branch_header_missing() {
+        let summary =
+            GitService::<TestWorkspaceService>::parse_porcelain_status("?? loose.txt\n", "");
+        assert_eq!(summary.branch, "HEAD");
+        assert_eq!(summary.files[0].path, "loose.txt");
+    }
+
+    #[test]
+    fn resolve_status_string_maps_common_git2_statuses() {
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(
+                Status::INDEX_NEW | Status::WT_MODIFIED
+            ),
+            "AM"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(Status::WT_NEW),
+            "?"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(Status::CONFLICTED),
+            "UU"
+        );
+    }
+
+    #[test]
+    fn parse_structured_output_drops_short_records() {
+        let rows = GitService::<TestWorkspaceService>::parse_structured_output(
+            "\u{1e}a\u{1f}b\u{1e}one\u{1f}two\u{1f}three\u{1e}\u{1e}x\u{1f}y\u{1e}",
+            3,
+        );
+        assert_eq!(
+            rows,
+            vec![vec![
+                "one".to_string(),
+                "two".to_string(),
+                "three".to_string()
+            ]]
+        );
+    }
+
+    #[test]
+    fn build_new_file_patch_helpers_cover_text_binary_and_newline_edges() {
+        let no_newline_patch =
+            GitService::<TestWorkspaceService>::build_new_file_text_patch("notes.txt", "a\nb");
+        assert!(no_newline_patch.contains("@@ -0,0 +1,2 @@"));
+        assert!(no_newline_patch.contains("+a\n+b\n"));
+        assert!(no_newline_patch.contains("\\ No newline at end of file"));
+
+        let empty_patch =
+            GitService::<TestWorkspaceService>::build_new_file_text_patch("empty.txt", "");
+        assert!(!empty_patch.contains("@@"));
+
+        let binary_patch =
+            GitService::<TestWorkspaceService>::build_new_file_binary_patch("image.bin");
+        assert!(binary_patch.contains("Binary files /dev/null and b/image.bin differ"));
+    }
+
+    #[test]
+    fn decode_bytes_snapshot_distinguishes_text_and_binary() {
+        let text_snapshot =
+            GitService::<TestWorkspaceService>::decode_bytes_snapshot(b"plain text\n")
+                .expect("text snapshot");
+        assert!(matches!(
+            text_snapshot,
+            GitSnapshotContent::Text(ref content) if content == "plain text\n"
+        ));
+
+        let binary_snapshot =
+            GitService::<TestWorkspaceService>::decode_bytes_snapshot(&[0xff, 0x00, 0x41])
+                .expect("binary snapshot");
+        assert!(matches!(binary_snapshot, GitSnapshotContent::Binary));
+    }
+
+    #[test]
+    fn validate_commit_id_rejects_invalid_values() {
+        let valid = GitService::<TestWorkspaceService>::validate_commit_id(" 0123abc ");
+        assert_eq!(valid.expect("valid commit"), "0123abc");
+
+        let empty = GitService::<TestWorkspaceService>::validate_commit_id("   ")
+            .expect_err("empty commit should fail");
+        assert!(empty.to_string().contains("GIT_COMMIT_INVALID"));
+
+        let malformed = GitService::<TestWorkspaceService>::validate_commit_id("not-a-sha")
+            .expect_err("malformed commit should fail");
+        assert!(malformed.to_string().contains("GIT_COMMIT_INVALID"));
+    }
+
+    #[test]
+    fn validate_branch_name_rejects_empty_and_invalid_refs() {
+        let (_, root, service) = create_temp_repo();
+
+        let empty = service
+            .validate_branch_name(&root, "   ")
+            .expect_err("empty branch should fail");
+        assert!(empty.to_string().contains("GIT_BRANCH_INVALID"));
+
+        let invalid = service
+            .validate_branch_name(&root, "bad branch name")
+            .expect_err("invalid branch should fail");
+        assert!(invalid.to_string().contains("GIT_BRANCH_INVALID"));
+
+        service
+            .validate_branch_name(&root, "feature/test")
+            .expect("valid branch name");
+    }
+
+    #[test]
+    fn filter_ignored_paths_excludes_gitignored_entries() {
+        let (_, root, service) = create_temp_repo();
+        fs::write(root.join(".gitignore"), "ignored.log\n").expect("write gitignore");
+        fs::write(root.join("ignored.log"), "ignored\n").expect("write ignored file");
+        fs::write(root.join("kept.txt"), "kept\n").expect("write kept file");
+
+        let filtered = service
+            .filter_ignored_paths(
+                &root,
+                &[
+                    "ignored.log".to_string(),
+                    "kept.txt".to_string(),
+                    "missing.txt".to_string(),
+                ],
+            )
+            .expect("filter ignored paths");
+
+        assert_eq!(
+            filtered,
+            vec!["kept.txt".to_string(), "missing.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn module_name_matches_crate_name() {
+        assert_eq!(module_name(), "gt-git");
+        assert_eq!(GitDiffMode::from_staged(true), GitDiffMode::Staged);
+        assert_eq!(GitDiffMode::from_staged(false), GitDiffMode::Unstaged);
+    }
+
+    #[test]
+    fn parse_hunk_header_handles_invalid_and_single_line_formats() {
+        assert_eq!(
+            GitService::<TestWorkspaceService>::parse_hunk_header("@@ -4 +9 @@"),
+            Some(((4, 1), (9, 1)))
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::parse_hunk_header("not a hunk"),
+            None
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::parse_hunk_header("@@"),
+            None
+        );
+    }
+
+    #[test]
+    fn compute_word_diff_handles_equal_and_long_lines() {
+        let (old_equal, new_equal) =
+            GitService::<TestWorkspaceService>::compute_word_diff("same words", "same words");
+        assert!(old_equal.iter().all(|segment| segment.kind == "equal"));
+        assert!(new_equal.iter().all(|segment| segment.kind == "equal"));
+
+        let long_old = "a".repeat(5000);
+        let long_new = "b".repeat(5000);
+        let (old_long, new_long) =
+            GitService::<TestWorkspaceService>::compute_word_diff(&long_old, &long_new);
+        assert_eq!(old_long[0].kind, "delete");
+        assert_eq!(old_long[0].value, long_old);
+        assert_eq!(new_long[0].kind, "insert");
+        assert_eq!(new_long[0].value, long_new);
+    }
+
+    #[test]
+    fn parse_diff_patch_handles_rename_and_context_lines() {
+        let (_, _root, service) = create_temp_repo();
+        let patch = "\
+diff --git a/old.txt b/new.txt
+similarity index 100%
+rename from old.txt
+rename to new.txt
+@@ -1,2 +1,2 @@
+-before
+ unchanged
++after
+";
+
+        let parsed = service.parse_diff_patch(patch, "new.txt");
+        assert_eq!(parsed.old_path.as_deref(), Some("old.txt"));
+        assert_eq!(parsed.path, "new.txt");
+        assert_eq!(parsed.hunks.len(), 1);
+        assert_eq!(parsed.hunks[0].lines[0].kind, "del");
+        assert_eq!(parsed.hunks[0].lines[1].kind, "ctx");
+        assert_eq!(parsed.hunks[0].lines[2].kind, "add");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn diff_file_structured_falls_back_to_system_git_patch_parser() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("gt-git-structured-fallback-{}", Uuid::new_v4()));
+        let repo_root = root.join("badrepo");
+        fs::create_dir_all(repo_root.join(".git")).expect("create malformed repo marker");
+        fs::write(repo_root.join("file.txt"), "new\n").expect("create fallback diff file");
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+case \"$*\" in\n\
+  *\"ls-files --others\"*) exit 0 ;;\n\
+  *\"diff --no-ext-diff -- file.txt\"*)\n\
+    printf 'diff --git a/file.txt b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n'\n\
+    ;;\n\
+  *) exit 0 ;;\n\
+esac\n",
+        )
+        .expect("write diff fallback fake git");
+        make_executable(&fake_git);
+
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+        let diff = service
+            .diff_file_structured(&workspace_id, Some("badrepo"), "badrepo/file.txt", false)
+            .expect("structured diff should fall back to system git");
+        assert_eq!(diff.path, "file.txt");
+        assert_eq!(diff.additions, 1);
+        assert_eq!(diff.deletions, 1);
+        assert_eq!(diff.hunks.len(), 1);
+    }
+
+    #[test]
+    fn path_to_workspace_relative_and_repo_context_validate_boundaries() {
+        let workspace_root = std::env::temp_dir().join(format!("gt-git-ws-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        let nested_repo = create_nested_repo(&workspace_root, "packages/app", "tracked.txt");
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+
+        let relative = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &nested_repo,
+            &workspace_root,
+        )
+        .expect("nested repo should be relative");
+        assert_eq!(relative, "packages/app");
+
+        let context = service
+            .resolve_repo_context(&workspace_id, Some("packages/app"))
+            .expect("resolve nested repo context");
+        assert_eq!(context.repository_path, "packages/app");
+        assert_eq!(context.repo_root, nested_repo);
+
+        let absolute_error = service
+            .resolve_repo_context(&workspace_id, Some("/tmp"))
+            .expect_err("absolute repository path should fail");
+        assert!(absolute_error
+            .to_string()
+            .contains("GIT_REPOSITORY_PATH_INVALID"));
+
+        let missing_error = service
+            .resolve_repo_context(&workspace_id, Some("packages/missing"))
+            .expect_err("missing repository path should fail");
+        assert!(missing_error
+            .to_string()
+            .contains("GIT_REPOSITORY_PATH_INVALID"));
+    }
+
+    #[test]
+    fn resolve_repo_context_rejects_missing_workspace_root_and_bare_repo() {
+        let missing_root = std::env::temp_dir().join(format!("gt-git-missing-{}", Uuid::new_v4()));
+        let missing_service = GitService::new(TestWorkspaceService {
+            root: missing_root.clone(),
+        });
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let missing_error = missing_service
+            .resolve_repo_context(&workspace_id, None)
+            .expect_err("missing workspace root should fail");
+        assert!(missing_error
+            .to_string()
+            .contains("GIT_WORKSPACE_ROOT_INVALID"));
+
+        let bare_root = std::env::temp_dir().join(format!("gt-git-bare-{}", Uuid::new_v4()));
+        fs::create_dir_all(&bare_root).expect("create bare root");
+        run_git(&bare_root, &["init", "--bare"]);
+        let bare_service = GitService::new(TestWorkspaceService { root: bare_root });
+        let bare_error = bare_service
+            .resolve_repo_context(&workspace_id, None)
+            .expect_err("bare repository should fail");
+        assert!(bare_error.to_string().contains("bare repositories"));
+    }
+
+    #[test]
+    fn workspace_root_and_repo_context_reject_invalid_workspace_relative_targets() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("gt-git-invalid-targets-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+
+        let file_path = workspace_root.join("plain.txt");
+        fs::write(&file_path, "not a repo").expect("write plain file");
+        let dir_without_git = workspace_root.join("scratch");
+        fs::create_dir_all(&dir_without_git).expect("create non-git dir");
+
+        let file_error = service
+            .resolve_repo_context(&workspace_id, Some("plain.txt"))
+            .expect_err("file path should fail");
+        assert!(file_error
+            .to_string()
+            .contains("repository root does not exist"));
+
+        let non_git_dir_error = service
+            .resolve_repo_context(&workspace_id, Some("scratch"))
+            .expect_err("plain dir should fail");
+        assert!(non_git_dir_error.to_string().contains("no git repository"));
+
+        let escape_error = service
+            .resolve_repo_context(&workspace_id, Some("../escape"))
+            .expect_err("parent traversal should fail");
+        assert!(escape_error
+            .to_string()
+            .contains("repository path escapes workspace"));
+    }
+
+    #[test]
+    fn path_to_workspace_relative_handles_missing_and_outside_paths() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("gt-git-path-root-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        let inside = workspace_root.join("dir/file.txt");
+        fs::create_dir_all(inside.parent().expect("inside parent")).expect("create inside parent");
+        fs::write(&inside, "inside").expect("write inside file");
+
+        let relative = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &inside,
+            &workspace_root,
+        )
+        .expect("inside path should be relative");
+        assert_eq!(relative, "dir/file.txt");
+
+        let outside = std::env::temp_dir().join(format!("gt-git-path-outside-{}", Uuid::new_v4()));
+        fs::create_dir_all(&outside).expect("create outside dir");
+        let outside_error = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &outside,
+            &workspace_root,
+        )
+        .expect_err("outside path should fail");
+        assert!(outside_error.to_string().contains("outside workspace"));
+
+        let missing_path =
+            std::env::temp_dir().join(format!("gt-git-missing-outside-{}", Uuid::new_v4()));
+        let missing_error = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &missing_path,
+            &workspace_root,
+        )
+        .expect_err("missing path should fail");
+        assert!(missing_error.to_string().contains("outside workspace"));
+    }
+
+    #[test]
+    fn resolve_head_oid_rejects_unborn_head() {
+        let root = std::env::temp_dir().join(format!("gt-git-unborn-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create temp root");
+        init_repo(&root);
+        let service = GitService::new(TestWorkspaceService { root: root.clone() });
+
+        let error = service
+            .resolve_head_oid(&root)
+            .expect_err("unborn head should fail");
+        assert!(error.to_string().contains("GIT_REV_PARSE_FAILED"));
+    }
+
+    #[test]
+    fn init_repo_existing_repository_returns_current_branch_name() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        let branch = service
+            .init_repo(&workspace_id, None, Some("other"))
+            .expect("existing repo init should succeed");
+        assert_eq!(branch, "main");
+        assert_eq!(
+            service
+                .run_git(&root, &["branch", "--show-current"], "GIT_TEST_FAILED")
+                .expect("read current branch")
+                .trim(),
+            "main"
+        );
+    }
+
+    #[test]
+    fn join_workspace_relative_path_and_validate_relative_repo_path_cover_edges() {
+        assert_eq!(
+            GitService::<TestWorkspaceService>::join_workspace_relative_path(
+                "packages/app",
+                "src/lib.rs"
+            ),
+            "packages/app/src/lib.rs"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::join_workspace_relative_path("", "src/lib.rs"),
+            "src/lib.rs"
+        );
+
+        let empty_error = GitService::<TestWorkspaceService>::validate_relative_repo_path("   ")
+            .expect_err("empty path should fail");
+        assert!(empty_error.to_string().contains("path cannot be empty"));
+
+        let absolute_error =
+            GitService::<TestWorkspaceService>::validate_relative_repo_path("/tmp/example")
+                .expect_err("absolute path should fail");
+        assert!(absolute_error
+            .to_string()
+            .contains("absolute path is not allowed"));
+    }
+
+    #[test]
+    fn parse_porcelain_status_handles_plain_branch_detached_head_and_short_lines() {
+        let plain = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## feature/test\n?? scratch.txt\n",
+            "packages/app",
+        );
+        assert_eq!(plain.branch, "feature/test");
+        assert_eq!(plain.files.len(), 1);
+        assert_eq!(plain.files[0].path, "packages/app/scratch.txt");
+
+        let detached = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## HEAD (no branch)\nXY\nR  old.txt -> renamed.txt\n",
+            "",
+        );
+        assert_eq!(detached.branch, "HEAD (no branch)");
+        assert_eq!(detached.files.len(), 1);
+        assert_eq!(detached.files[0].path, "renamed.txt");
+
+        let tracking = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## main...origin/main [ahead nope, behind nope]\n M tracked.txt\n",
+            "",
+        );
+        assert_eq!(tracking.branch, "main");
+        assert_eq!(tracking.ahead, 0);
+        assert_eq!(tracking.behind, 0);
+    }
+
+    #[test]
+    fn resolve_status_string_covers_deleted_renamed_and_typechange_variants() {
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::INDEX_DELETED),
+            "D"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::INDEX_RENAMED),
+            "R"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(
+                git2::Status::INDEX_TYPECHANGE
+            ),
+            "T"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::WT_DELETED),
+            "D"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::WT_RENAMED),
+            "R"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::WT_TYPECHANGE),
+            "T"
+        );
+    }
+
+    #[test]
+    fn run_git_and_untracked_patch_helpers_cover_failure_and_binary_paths() {
+        let non_repo_root =
+            std::env::temp_dir().join(format!("gt-git-non-repo-{}", Uuid::new_v4()));
+        fs::create_dir_all(&non_repo_root).expect("create non-repo dir");
+        let service = GitService::new(TestWorkspaceService {
+            root: non_repo_root.clone(),
+        });
+
+        let non_repo_error = service
+            .run_git(&non_repo_root, &["status"], "GIT_TEST_FAILED")
+            .expect_err("non repo command should fail");
+        assert!(non_repo_error.to_string().contains("GIT_REPO_INVALID"));
+
+        let (_, repo_root, repo_service) = create_temp_repo();
+        let command_error = repo_service
+            .run_git(&repo_root, &["definitely-not-a-command"], "GIT_TEST_FAILED")
+            .expect_err("invalid git subcommand should fail");
+        assert!(command_error.to_string().contains("GIT_TEST_FAILED"));
+
+        fs::write(repo_root.join("binary.dat"), vec![0_u8, 159, 146, 150]).expect("write binary");
+        let binary_patch = repo_service
+            .build_untracked_worktree_patch(&repo_root, "binary.dat")
+            .expect("binary patch helper");
+        assert!(binary_patch
+            .expect("binary patch should exist")
+            .contains("Binary files /dev/null and b/binary.dat differ"));
+
+        let missing_patch = repo_service
+            .build_untracked_worktree_patch(&repo_root, "missing.txt")
+            .expect("missing patch helper");
+        assert!(missing_patch.is_none());
+
+        #[cfg(unix)]
+        {
+            let fake_root =
+                std::env::temp_dir().join(format!("gt-git-vanished-untracked-{}", Uuid::new_v4()));
+            fs::create_dir_all(&fake_root).expect("create vanished untracked root");
+            let fake_bin = fake_root.join("fake-bin");
+            fs::create_dir_all(&fake_bin).expect("create fake bin");
+            let fake_git = fake_bin.join("git");
+            fs::write(
+                &fake_git,
+                "#!/bin/sh\n\
+case \"$*\" in\n\
+  *\"ls-files\"*) printf 'vanished.txt\\0' ;;\n\
+  *) exit 0 ;;\n\
+esac\n",
+            )
+            .expect("write vanished untracked fake git");
+            make_executable(&fake_git);
+            let fake_service = make_test_service_with_git_path(fake_root.clone(), &fake_bin);
+            let vanished_patch = fake_service
+                .build_untracked_worktree_patch(&fake_root, "vanished.txt")
+                .expect("vanished untracked patch helper");
+            assert!(vanished_patch.is_none());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_git_covers_spawn_failure_not_repo_and_lossy_stdout() {
+        let root = std::env::temp_dir().join(format!("gt-git-fake-run-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create fake run root");
+
+        let missing_bin = root.join("missing-bin");
+        fs::create_dir_all(&missing_bin).expect("create missing bin");
+        let missing_service = make_test_service_with_git_path(root.clone(), &missing_bin);
+        let spawn_error = missing_service
+            .run_git(&root, &["status"], "GIT_TEST_FAILED")
+            .expect_err("missing git should fail");
+        assert!(spawn_error.to_string().contains("failed to run git"));
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+
+        let not_repo_script = fake_bin.join("git");
+        fs::write(
+            &not_repo_script,
+            "#!/bin/sh\nprintf 'not a git repository\\n' >&2\nexit 1\n",
+        )
+        .expect("write not repo script");
+        make_executable(&not_repo_script);
+        let not_repo_service = make_test_service_with_git_path(root.clone(), &fake_bin);
+        let not_repo_error = not_repo_service
+            .run_git(&root, &["status"], "GIT_TEST_FAILED")
+            .expect_err("not repo script should fail");
+        assert!(not_repo_error.to_string().contains("GIT_REPO_INVALID"));
+
+        fs::write(&not_repo_script, "#!/bin/sh\nprintf '\\377'\nexit 0\n")
+            .expect("rewrite lossy stdout script");
+        make_executable(&not_repo_script);
+        let lossy_service = make_test_service_with_git_path(root.clone(), &fake_bin);
+        let lossy_output = lossy_service
+            .run_git(&root, &["status"], "GIT_TEST_FAILED")
+            .expect("lossy stdout should succeed");
+        assert_eq!(lossy_output, "\u{FFFD}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn filter_ignored_paths_covers_spawn_and_nonzero_failure_shapes() {
+        let root = std::env::temp_dir().join(format!("gt-git-fake-ignore-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create fake ignore root");
+
+        let missing_bin = root.join("missing-bin");
+        fs::create_dir_all(&missing_bin).expect("create missing bin");
+        let missing_service = make_test_service_with_git_path(root.clone(), &missing_bin);
+        let spawn_error = missing_service
+            .filter_ignored_paths(&root, &[String::from("a.txt")])
+            .expect_err("missing git check-ignore should fail");
+        assert!(spawn_error
+            .to_string()
+            .contains("failed to run git check-ignore"));
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(
+            &fake_git,
+            "#!/bin/sh\nprintf 'check-ignore boom\\n' >&2\nexit 2\n",
+        )
+        .expect("write failing check-ignore script");
+        make_executable(&fake_git);
+        let failing_service = make_test_service_with_git_path(root.clone(), &fake_bin);
+        let failure = failing_service
+            .filter_ignored_paths(&root, &[String::from("a.txt")])
+            .expect_err("nonzero check-ignore should fail");
+        assert!(failure
+            .to_string()
+            .contains("git check-ignore failed: check-ignore boom"));
+    }
+
+    #[test]
+    fn status_repo_uses_system_git_fallback_for_unborn_branch_name() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-unborn-status-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create unborn repo root");
+        run_git(&root, &["init", "-b", "main"]);
+        run_git(&root, &["config", "user.name", "GT Office Test"]);
+        run_git(&root, &["config", "user.email", "test@example.com"]);
+        let service = GitService::new(TestWorkspaceService { root });
+
+        let summary = service
+            .status_repo(&workspace_id, None)
+            .expect("status should succeed for unborn repo");
+        assert_eq!(summary.branch, "main");
+    }
+
+    #[test]
+    fn status_with_git2_reports_ahead_behind_and_workspace_prefixed_paths() {
+        let temp_root = std::env::temp_dir().join(format!("gt-git-status-git2-{}", Uuid::new_v4()));
+        let remote_root =
+            std::env::temp_dir().join(format!("gt-git-status-remote-{}", Uuid::new_v4()));
+        let other_root =
+            std::env::temp_dir().join(format!("gt-git-status-other-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("create local repo root");
+        fs::create_dir_all(&remote_root).expect("create remote repo root");
+
+        run_git(&remote_root, &["init", "--bare"]);
+        init_repo(&temp_root);
+        run_git(&temp_root, &["branch", "-M", "main"]);
+        run_git(
+            &temp_root,
+            &[
+                "remote",
+                "add",
+                "origin",
+                remote_root.to_str().expect("remote str"),
+            ],
+        );
+        fs::write(temp_root.join("tracked.txt"), "base\n").expect("write initial tracked");
+        run_git(&temp_root, &["add", "tracked.txt"]);
+        run_git(&temp_root, &["commit", "-m", "init"]);
+        run_git(&temp_root, &["push", "-u", "origin", "main"]);
+
+        run_git(
+            &std::env::temp_dir(),
+            &[
+                "clone",
+                remote_root.to_str().expect("remote str"),
+                other_root.to_str().expect("other str"),
+            ],
+        );
+        run_git(&other_root, &["config", "user.name", "GT Office Test"]);
+        run_git(&other_root, &["config", "user.email", "test@example.com"]);
+        fs::write(other_root.join("remote.txt"), "remote\n").expect("write remote file");
+        run_git(&other_root, &["add", "remote.txt"]);
+        run_git(&other_root, &["commit", "-m", "remote commit"]);
+        run_git(&other_root, &["push", "origin", "main"]);
+
+        fs::write(temp_root.join("local.txt"), "local\n").expect("write local file");
+        run_git(&temp_root, &["add", "local.txt"]);
+        run_git(&temp_root, &["commit", "-m", "local commit"]);
+        run_git(&temp_root, &["fetch", "origin"]);
+
+        fs::write(temp_root.join("tracked.txt"), "base\nmodified\n").expect("modify tracked");
+        fs::write(temp_root.join("untracked.txt"), "scratch\n").expect("write untracked");
+
+        let service = GitService::new(TestWorkspaceService {
+            root: temp_root.clone(),
+        });
+        let summary = service
+            .status_with_git2(&temp_root, "packages/app")
+            .expect("git2 status should succeed");
+
+        assert_eq!(summary.branch, "main");
+        assert_eq!(summary.ahead, 1);
+        assert_eq!(summary.behind, 1);
+        assert!(summary
+            .files
+            .iter()
+            .any(|file| file.path == "packages/app/tracked.txt"));
+        assert!(summary
+            .files
+            .iter()
+            .any(|file| file.path == "packages/app/untracked.txt"));
+    }
+
+    #[test]
+    fn status_with_git2_limits_large_file_lists() {
+        let (_, root, service) = create_temp_repo();
+        for index in 0..=MAX_STATUS_FILES {
+            fs::write(root.join(format!("untracked-{index:04}.txt")), "scratch\n")
+                .expect("write untracked status file");
+        }
+
+        let summary = service
+            .status_with_git2(&root, "")
+            .expect("git2 status should succeed");
+        assert_eq!(summary.files.len(), MAX_STATUS_FILES);
+    }
+
+    #[test]
+    fn build_full_structured_diff_covers_equal_new_and_deleted_shapes() {
+        let unchanged = GitService::<TestWorkspaceService>::build_full_structured_diff(
+            "same.txt", None, "same\n", "same\n", true, true,
+        );
+        assert_eq!(unchanged.additions, 0);
+        assert_eq!(unchanged.deletions, 0);
+        assert!(unchanged.hunks.is_empty());
+
+        let created = GitService::<TestWorkspaceService>::build_full_structured_diff(
+            "new.txt",
+            None,
+            "",
+            "alpha\nbeta\n",
+            false,
+            true,
+        );
+        assert!(created.is_new);
+        assert_eq!(created.hunks[0].new_start, 1);
+        assert_eq!(created.hunks[0].old_start, 0);
+
+        let deleted = GitService::<TestWorkspaceService>::build_full_structured_diff(
+            "gone.txt",
+            None,
+            "alpha\nbeta\n",
+            "",
+            true,
+            false,
+        );
+        assert!(deleted.is_deleted);
+        assert_eq!(deleted.hunks[0].old_start, 1);
+        assert_eq!(deleted.hunks[0].new_start, 0);
+    }
+
+    #[test]
+    fn list_path_helpers_and_empty_stage_paths_cover_direct_helpers() {
+        let (workspace_id, root, service) = create_temp_repo();
+        fs::write(root.join("tracked.txt"), "base\nchanged\n").expect("modify tracked");
+        fs::write(root.join("staged.txt"), "staged\n").expect("write staged file");
+        fs::write(root.join("untracked.txt"), "untracked\n").expect("write untracked file");
+        run_git(&root, &["add", "staged.txt"]);
+
+        let tracked = service
+            .list_tracked_paths(
+                &root,
+                &["tracked.txt".to_string(), "staged.txt".to_string()],
+                "GIT_TEST_FAILED",
+            )
+            .expect("list tracked paths");
+        assert!(tracked.contains("tracked.txt"));
+        assert!(tracked.contains("staged.txt"));
+
+        let index_new = service
+            .list_index_new_paths(&root, &["staged.txt".to_string()], "GIT_TEST_FAILED")
+            .expect("list index-new paths");
+        assert!(index_new.contains("staged.txt"));
+
+        let untracked = service
+            .list_untracked_paths(&root, &["untracked.txt".to_string()], "GIT_TEST_FAILED")
+            .expect("list untracked paths");
+        assert!(untracked.contains("untracked.txt"));
+
+        let empty: Vec<String> = Vec::new();
+        assert_eq!(
+            service
+                .stage(&workspace_id, None, &empty)
+                .expect("stage empty paths"),
+            0
+        );
+        assert_eq!(
+            service
+                .unstage(&workspace_id, None, &empty)
+                .expect("unstage empty paths"),
+            0
+        );
+        assert_eq!(
+            service
+                .filter_ignored_paths(&root, &empty)
+                .expect("filter empty paths"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn status_with_system_git_and_discovery_helpers_cover_root_and_skipped_dirs() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("gt-git-discovery-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        init_repo(&workspace_root);
+        run_git(&workspace_root, &["branch", "-M", "main"]);
+
+        let nested_root = create_nested_repo(&workspace_root, "packages/feature", "nested.txt");
+        create_nested_repo(&workspace_root, "node_modules/ignored", "ignored.txt");
+        create_nested_repo(&workspace_root, "target/ignored", "ignored.txt");
+
+        fs::write(workspace_root.join("root.txt"), "root\n").expect("write root file");
+        fs::write(nested_root.join("nested.txt"), "nested\nchanged\n").expect("modify nested file");
+
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+        let root_status = service
+            .status_with_system_git(&workspace_root, "")
+            .expect("root status");
+        assert_eq!(root_status.branch, "main");
+        assert!(root_status.files.iter().any(|file| file.path == "root.txt"));
+
+        let repos = service
+            .discover_workspace_repositories(&workspace_root)
+            .expect("discover repositories");
+        let repo_paths = repos
+            .iter()
+            .map(|repo| repo.repository_path.as_str())
+            .collect::<Vec<_>>();
+        assert!(repo_paths.contains(&""));
+        assert!(repo_paths.contains(&"packages/feature"));
+        assert!(!repo_paths
+            .iter()
+            .any(|path| path.starts_with("node_modules/")));
+        assert!(!repo_paths.iter().any(|path| path.starts_with("target/")));
+    }
+
+    #[test]
+    fn workspace_root_and_repo_resolution_cover_missing_and_invalid_repository_inputs() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let missing_root = std::env::temp_dir().join(format!("gt-git-missing-{}", Uuid::new_v4()));
+        let missing_service = GitService::new(TestWorkspaceService {
+            root: missing_root.clone(),
+        });
+        let missing_error = missing_service
+            .workspace_root(&workspace_id)
+            .expect_err("missing workspace root should fail");
+        assert!(missing_error
+            .to_string()
+            .contains("GIT_WORKSPACE_ROOT_INVALID"));
+
+        let workspace_root =
+            std::env::temp_dir().join(format!("gt-git-invalid-repo-paths-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+
+        let non_repo_error = service
+            .resolve_repo_context(&workspace_id, None)
+            .expect_err("non-repo workspace should fail");
+        assert!(non_repo_error.to_string().contains("GIT_REPO_INVALID"));
+
+        let absolute_error = service
+            .resolve_repo_context(&workspace_id, Some("/tmp/absolute"))
+            .expect_err("absolute repository path should fail");
+        assert!(absolute_error
+            .to_string()
+            .contains("repository path must be workspace-relative"));
+
+        let escape_error = service
+            .resolve_repo_context(&workspace_id, Some("../escape"))
+            .expect_err("escaping repository path should fail");
+        assert!(escape_error
+            .to_string()
+            .contains("repository path escapes workspace"));
+
+        let missing_repo_error = service
+            .resolve_repo_context(&workspace_id, Some("packages/missing"))
+            .expect_err("missing repository dir should fail");
+        assert!(missing_repo_error
+            .to_string()
+            .contains("repository root does not exist"));
+
+        let plain_dir = workspace_root.join("plain");
+        fs::create_dir_all(&plain_dir).expect("create plain dir");
+        let no_git_error = service
+            .resolve_repo_context(&workspace_id, Some("plain"))
+            .expect_err("plain directory should fail");
+        assert!(no_git_error.to_string().contains("no git repository"));
+    }
+
+    #[test]
+    fn parse_porcelain_status_and_status_helpers_cover_remaining_error_shapes() {
+        let summary = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## No commits yet on feature/no-commits\nA  added.txt\n",
+            "",
+        );
+        assert_eq!(summary.branch, "feature/no-commits");
+        assert_eq!(summary.files[0].status, "A");
+
+        let tracking = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## topic...origin/topic [ahead 2, behind 3]\nR  old.txt -> new.txt\n?? \n",
+            "packages/app",
+        );
+        assert_eq!(tracking.ahead, 2);
+        assert_eq!(tracking.behind, 3);
+        assert_eq!(tracking.files.len(), 1);
+        assert_eq!(tracking.files[0].path, "packages/app/new.txt");
+
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::WT_MODIFIED),
+            "M"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::INDEX_MODIFIED),
+            "M"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::resolve_status_string(git2::Status::WT_NEW),
+            "?"
+        );
+    }
+
+    #[test]
+    fn status_with_git2_and_path_conversion_cover_non_repo_and_missing_root_failures() {
+        let plain_root = std::env::temp_dir().join(format!("gt-git-plain-{}", Uuid::new_v4()));
+        fs::create_dir_all(&plain_root).expect("create plain root");
+        let service = GitService::new(TestWorkspaceService {
+            root: plain_root.clone(),
+        });
+
+        let status_error = service
+            .status_with_git2(&plain_root, "")
+            .expect_err("git2 status should fail for non-repo");
+        assert!(status_error.to_string().contains("GIT_STATUS_GIT2_FAILED"));
+
+        let outside_path = std::env::temp_dir().join(format!("gt-git-outside-{}", Uuid::new_v4()));
+        let missing_root =
+            std::env::temp_dir().join(format!("gt-git-missing-root-{}", Uuid::new_v4()));
+        let path_error = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &outside_path,
+            &missing_root,
+        )
+        .expect_err("missing workspace root should fail path conversion");
+        assert!(path_error
+            .to_string()
+            .contains("repository is outside workspace"));
+    }
+
+    #[test]
+    fn init_repo_status_and_path_validation_cover_additional_edge_paths() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let workspace_root =
+            std::env::temp_dir().join(format!("gt-git-init-status-edge-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+
+        let branch = service
+            .init_repo(&workspace_id, None, Some("main"))
+            .expect("init repo in plain workspace");
+        assert_eq!(branch, "main");
+
+        let empty_status_error = GitService::<TestWorkspaceService>::status_with_system_git(
+            &service,
+            &workspace_root.join("missing"),
+            "",
+        )
+        .expect_err("missing repo status should fail");
+        assert!(empty_status_error.to_string().contains("GIT_STATUS_FAILED"));
+
+        let aggregate_status = service.status(&workspace_id).expect("aggregate status");
+        assert_eq!(aggregate_status.branch, "main");
+        assert_eq!(aggregate_status.repositories.len(), 1);
+        assert_eq!(aggregate_status.repositories[0].repository_path, "");
+
+        let parent_error =
+            GitService::<TestWorkspaceService>::validate_relative_repo_path("../bad")
+                .expect_err("parent traversal should fail");
+        assert!(parent_error
+            .to_string()
+            .contains("parent traversal is not allowed"));
+    }
+
+    #[test]
+    fn repository_and_snapshot_helpers_cover_io_and_scope_failures() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("gt-git-helper-failures-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        init_repo(&workspace_root);
+
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+
+        let missing_dir = workspace_root.join("missing-dir");
+        let discovery_error = service
+            .collect_nested_repositories(&workspace_root, &missing_dir, &mut Vec::new(), false)
+            .expect_err("missing directory should fail discovery");
+        assert!(discovery_error
+            .to_string()
+            .contains("GIT_REPOSITORY_DISCOVERY_FAILED"));
+
+        let repo_context = GitRepoContext {
+            workspace_root: workspace_root.clone(),
+            repo_root: workspace_root.clone(),
+            repository_path: "packages/app".to_string(),
+        };
+        let outside_repo_error = service
+            .normalize_workspace_paths_for_repo(&repo_context, &["other/file.txt".to_string()])
+            .expect_err("path outside repository should fail");
+        assert!(outside_repo_error
+            .to_string()
+            .contains("is outside repository"));
+
+        let dir_snapshot_error =
+            GitService::<TestWorkspaceService>::read_worktree_snapshot(&workspace_root, ".")
+                .err()
+                .expect("reading a directory should fail");
+        assert!(dir_snapshot_error
+            .to_string()
+            .contains("failed to read worktree file"));
+    }
+
+    #[test]
+    fn status_and_discovery_cover_plain_workspace_and_non_git_repo_mapping() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let plain_root =
+            std::env::temp_dir().join(format!("gt-git-plain-status-{}", Uuid::new_v4()));
+        fs::create_dir_all(&plain_root).expect("create plain workspace");
+
+        let service = GitService::new(TestWorkspaceService {
+            root: plain_root.clone(),
+        });
+
+        let repos = service
+            .discover_workspace_repositories(&plain_root)
+            .expect("discover plain workspace repositories");
+        assert!(repos.is_empty());
+
+        let status_error = service
+            .status(&workspace_id)
+            .expect_err("plain workspace status should fail");
+        assert!(status_error.to_string().contains("GIT_REPO_INVALID"));
+
+        let run_git_error = service
+            .run_git(&plain_root, &["status", "--porcelain"], "GIT_TEST_FAILED")
+            .expect_err("run_git should map non-repo errors");
+        assert!(run_git_error.to_string().contains("GIT_REPO_INVALID"));
+    }
+
+    #[test]
+    fn snapshot_helpers_cover_success_binary_and_missing_variants() {
+        let repo_root = std::env::temp_dir().join(format!("gt-git-snapshots-{}", Uuid::new_v4()));
+        fs::create_dir_all(&repo_root).expect("create repo root");
+        init_repo(&repo_root);
+
+        fs::write(repo_root.join("tracked.txt"), "tracked text\n").expect("write tracked text");
+        run_git(&repo_root, &["add", "tracked.txt"]);
+        run_git(&repo_root, &["commit", "-m", "add tracked text"]);
+
+        fs::write(repo_root.join("staged.txt"), "staged text\n").expect("write staged text");
+        run_git(&repo_root, &["add", "staged.txt"]);
+
+        fs::write(repo_root.join("binary.bin"), [0_u8, 159, 146, 150]).expect("write binary");
+        run_git(&repo_root, &["add", "binary.bin"]);
+
+        let repo = Repository::discover(&repo_root).expect("discover repo");
+
+        let tracked_head =
+            GitService::<TestWorkspaceService>::read_head_snapshot(&repo, "tracked.txt")
+                .expect("read head snapshot");
+        assert!(matches!(
+            tracked_head,
+            GitSnapshotContent::Text(ref content) if content == "tracked text\n"
+        ));
+
+        let missing_head =
+            GitService::<TestWorkspaceService>::read_head_snapshot(&repo, "missing.txt")
+                .expect("read missing head snapshot");
+        assert!(matches!(missing_head, GitSnapshotContent::Missing));
+
+        let staged_index =
+            GitService::<TestWorkspaceService>::read_index_snapshot(&repo, "staged.txt")
+                .expect("read index snapshot");
+        assert!(matches!(
+            staged_index,
+            GitSnapshotContent::Text(ref content) if content == "staged text\n"
+        ));
+
+        let binary_index =
+            GitService::<TestWorkspaceService>::read_index_snapshot(&repo, "binary.bin")
+                .expect("read binary index snapshot");
+        assert!(matches!(binary_index, GitSnapshotContent::Binary));
+
+        let missing_index =
+            GitService::<TestWorkspaceService>::read_index_snapshot(&repo, "absent.txt")
+                .expect("read missing index snapshot");
+        assert!(matches!(missing_index, GitSnapshotContent::Missing));
+
+        fs::create_dir_all(repo_root.join("dir")).expect("create tracked dir");
+        fs::write(repo_root.join("dir/file.txt"), "nested\n").expect("write nested file");
+        run_git(&repo_root, &["add", "dir/file.txt"]);
+        run_git(&repo_root, &["commit", "-m", "add dir"]);
+        let repo_with_dir = Repository::discover(&repo_root).expect("rediscover repo with dir");
+        let directory_error =
+            GitService::<TestWorkspaceService>::read_head_snapshot(&repo_with_dir, "dir")
+                .err()
+                .expect("directory HEAD entry cannot be read as blob");
+        assert!(directory_error
+            .to_string()
+            .contains("failed to read HEAD blob"));
+
+        let blob_oid = repo_with_dir
+            .blob(b"standalone head blob")
+            .expect("write standalone blob");
+        fs::write(repo_root.join(".git/HEAD"), blob_oid.to_string()).expect("point HEAD to blob");
+        let blob_head_repo = Repository::discover(&repo_root).expect("rediscover blob HEAD repo");
+        assert!(matches!(
+            GitService::<TestWorkspaceService>::read_head_snapshot(&blob_head_repo, "tracked.txt")
+                .expect("non-tree HEAD should read as missing"),
+            GitSnapshotContent::Missing
+        ));
+    }
+
+    #[test]
+    fn resolve_head_oid_and_blob_decoding_cover_success_cases() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let repo_root = std::env::temp_dir().join(format!("gt-git-head-oid-{}", Uuid::new_v4()));
+        fs::create_dir_all(&repo_root).expect("create repo root");
+        init_repo(&repo_root);
+
+        fs::write(repo_root.join("tracked.txt"), "tracked text\n").expect("write tracked text");
+        run_git(&repo_root, &["add", "tracked.txt"]);
+        run_git(&repo_root, &["commit", "-m", "add tracked text"]);
+
+        let service = GitService::new(TestWorkspaceService {
+            root: repo_root.clone(),
+        });
+        let oid = service
+            .resolve_head_oid(&repo_root)
+            .expect("resolve head oid");
+        assert_eq!(
+            oid,
+            run_git_output(&repo_root, &["rev-parse", "HEAD"]).trim()
+        );
+
+        let repo = Repository::discover(&repo_root).expect("discover repo");
+        let text_blob = repo
+            .head()
+            .expect("head")
+            .peel_to_tree()
+            .expect("tree")
+            .get_path(Path::new("tracked.txt"))
+            .expect("tracked entry")
+            .to_object(&repo)
+            .expect("tracked object")
+            .peel_to_blob()
+            .expect("tracked blob");
+        let text_snapshot = GitService::<TestWorkspaceService>::decode_blob_snapshot(&text_blob)
+            .expect("decode text blob");
+        assert!(matches!(
+            text_snapshot,
+            GitSnapshotContent::Text(ref content) if content == "tracked text\n"
+        ));
+
+        fs::write(repo_root.join("binary.bin"), [0_u8, 159, 146, 150]).expect("write binary");
+        run_git(&repo_root, &["add", "binary.bin"]);
+        run_git(&repo_root, &["commit", "-m", "add binary"]);
+        let binary_repo = Repository::discover(&repo_root).expect("rediscover repo");
+        let binary_blob = binary_repo
+            .head()
+            .expect("head")
+            .peel_to_tree()
+            .expect("tree")
+            .get_path(Path::new("binary.bin"))
+            .expect("binary entry")
+            .to_object(&binary_repo)
+            .expect("binary object")
+            .peel_to_blob()
+            .expect("binary blob");
+        let binary_snapshot =
+            GitService::<TestWorkspaceService>::decode_blob_snapshot(&binary_blob)
+                .expect("decode binary blob");
+        assert!(matches!(binary_snapshot, GitSnapshotContent::Binary));
+
+        let summary = service
+            .status_repo(&workspace_id, None)
+            .expect("status repo after commits");
+        assert_eq!(summary.branch, "main");
+    }
+
+    #[test]
+    fn diff_file_with_git2_covers_rename_delete_and_empty_patch_shapes() {
+        let (_, root, service) = create_temp_repo();
+
+        let unchanged = service
+            .diff_file_with_git2(&root, "tracked.txt", GitDiffMode::Unstaged)
+            .expect("unchanged diff should succeed");
+        assert!(unchanged.hunks.is_empty());
+        assert!(unchanged.patch.is_empty());
+        assert!(!unchanged.is_new);
+        assert!(!unchanged.is_deleted);
+
+        run_git(&root, &["mv", "tracked.txt", "renamed.txt"]);
+        fs::write(root.join("renamed.txt"), "renamed\n").expect("update renamed file");
+        let renamed = service
+            .diff_file_with_git2(&root, "renamed.txt", GitDiffMode::Staged)
+            .expect("renamed diff should succeed");
+        assert!(!renamed.hunks.is_empty());
+        assert!(renamed.patch.contains("renamed.txt"));
+
+        run_git(&root, &["commit", "-m", "rename tracked"]);
+        fs::remove_file(root.join("renamed.txt")).expect("remove renamed file");
+        run_git(&root, &["add", "-u", "renamed.txt"]);
+
+        let deleted = service
+            .diff_file_with_git2(&root, "renamed.txt", GitDiffMode::Staged)
+            .expect("deleted diff should succeed");
+        assert!(deleted.is_deleted);
+        assert!(!deleted.is_new);
+    }
+
+    #[test]
+    fn diff_file_expansion_covers_new_deleted_and_unchanged_text_variants() {
+        let (workspace_id, root, service) = create_temp_repo();
+
+        let unchanged = service
+            .diff_file_expansion(&workspace_id, None, "tracked.txt", None, false)
+            .expect("unchanged expansion should succeed");
+        let unchanged_full = unchanged
+            .full_diff
+            .as_ref()
+            .expect("unchanged full diff should exist");
+        assert!(unchanged_full.hunks.is_empty());
+        assert_eq!(unchanged_full.additions, 0);
+        assert_eq!(unchanged_full.deletions, 0);
+
+        fs::write(root.join("new.txt"), "new file\n").expect("write new file");
+        let created = service
+            .diff_file_expansion(&workspace_id, None, "new.txt", None, false)
+            .expect("new file expansion should succeed");
+        assert!(!created.is_binary);
+        assert!(!created.old_exists);
+        assert!(created.new_exists);
+        let created_full = created
+            .full_diff
+            .as_ref()
+            .expect("new file full diff should exist");
+        assert!(created_full.is_new);
+        assert_eq!(created_full.hunks.len(), 1);
+
+        fs::remove_file(root.join("tracked.txt")).expect("remove tracked file");
+        let deleted = service
+            .diff_file_expansion(&workspace_id, None, "tracked.txt", None, false)
+            .expect("deleted file expansion should succeed");
+        assert!(!deleted.is_binary);
+        assert!(deleted.old_exists);
+        assert!(!deleted.new_exists);
+        let deleted_full = deleted
+            .full_diff
+            .as_ref()
+            .expect("deleted file full diff should exist");
+        assert!(deleted_full.is_deleted);
+        assert_eq!(deleted_full.hunks.len(), 1);
+    }
+
+    #[test]
+    fn validation_and_parser_helpers_cover_remaining_error_shapes() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let missing_root =
+            std::env::temp_dir().join(format!("gt-git-missing-root-{}", Uuid::new_v4()));
+        let service = GitService::new(TestWorkspaceService {
+            root: missing_root.clone(),
+        });
+
+        let workspace_root_error = service
+            .workspace_root(&workspace_id)
+            .expect_err("missing workspace root should fail");
+        assert!(workspace_root_error
+            .to_string()
+            .contains("GIT_WORKSPACE_ROOT_INVALID"));
+
+        let root = std::env::temp_dir().join(format!("gt-git-validate-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create validation root");
+        init_repo(&root);
+        let validation_service = GitService::new(TestWorkspaceService { root: root.clone() });
+
+        let absolute_repo_error = validation_service
+            .resolve_repo_context(&workspace_id, Some(root.to_string_lossy().as_ref()))
+            .expect_err("absolute repository path should fail");
+        assert!(absolute_repo_error
+            .to_string()
+            .contains("repository path must be workspace-relative"));
+
+        let parent_repo_error = validation_service
+            .resolve_repo_context(&workspace_id, Some("../escape"))
+            .expect_err("parent repository path should fail");
+        assert!(parent_repo_error
+            .to_string()
+            .contains("repository path escapes workspace"));
+
+        let missing_repo_error = validation_service
+            .resolve_repo_context(&workspace_id, Some("missing"))
+            .expect_err("missing repository path should fail");
+        assert!(missing_repo_error
+            .to_string()
+            .contains("repository root does not exist"));
+
+        let plain_dir = root.join("plain-dir");
+        fs::create_dir_all(&plain_dir).expect("create plain dir");
+        let plain_repo_error = validation_service
+            .resolve_repo_context(&workspace_id, Some("plain-dir"))
+            .expect_err("plain directory should fail");
+        assert!(plain_repo_error.to_string().contains("no git repository"));
+
+        let outside_repo_error = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            Path::new("/definitely/outside"),
+            &root,
+        )
+        .expect_err("outside repository path should fail");
+        assert!(outside_repo_error
+            .to_string()
+            .contains("repository is outside workspace"));
+
+        let empty_path_error =
+            GitService::<TestWorkspaceService>::validate_relative_repo_path("  ")
+                .expect_err("empty path should fail");
+        assert!(empty_path_error.to_string().contains("GIT_PATH_INVALID"));
+
+        let absolute_path_error =
+            GitService::<TestWorkspaceService>::validate_relative_repo_path("/tmp/nope")
+                .expect_err("absolute path should fail");
+        assert!(absolute_path_error
+            .to_string()
+            .contains("absolute path is not allowed"));
+
+        let empty_branch_error = validation_service
+            .validate_branch_name(&root, "   ")
+            .expect_err("empty branch should fail");
+        assert!(empty_branch_error
+            .to_string()
+            .contains("GIT_BRANCH_INVALID"));
+    }
+
+    #[test]
+    fn parse_porcelain_status_and_patch_parser_cover_more_edge_shapes() {
+        let parser_service = GitService::new(TestWorkspaceService {
+            root: std::env::temp_dir(),
+        });
+        let initial_commit = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## Initial commit on feature\nA  staged.txt\n",
+            "",
+        );
+        assert_eq!(initial_commit.branch, "feature");
+        assert_eq!(initial_commit.files.len(), 1);
+
+        let ahead_behind = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## topic...origin/topic [ahead 2, behind 3]\nR  old.txt -> new.txt\nM  \n?\n",
+            "packages/app",
+        );
+        assert_eq!(ahead_behind.branch, "topic");
+        assert_eq!(ahead_behind.ahead, 2);
+        assert_eq!(ahead_behind.behind, 3);
+        assert_eq!(ahead_behind.files.len(), 1);
+        assert_eq!(ahead_behind.files[0].path, "packages/app/new.txt");
+
+        let detached =
+            GitService::<TestWorkspaceService>::parse_porcelain_status("M  file.txt\n", "");
+        assert_eq!(detached.branch, "HEAD");
+
+        let delete_patch = "\
+diff --git a/file.txt b/file.txt\n\
+index 1111111..2222222 100644\n\
+--- a/file.txt\n\
++++ b/file.txt\n\
+@@ -1,2 +1,1 @@\n\
+ line 1\n\
+-line 2\n";
+        let parsed = parser_service.parse_diff_patch(delete_patch, "file.txt");
+        assert_eq!(parsed.deletions, 1);
+        assert_eq!(parsed.hunks.len(), 1);
+        assert!(parsed.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == "del" && line.content == "line 2"));
+    }
+
+    #[test]
+    fn build_full_structured_diff_and_patch_helpers_cover_richer_shapes() {
+        let renamed = GitService::<TestWorkspaceService>::build_full_structured_diff(
+            "new.txt",
+            Some("old.txt".to_string()),
+            "same\nbefore only\n",
+            "same\nafter only\n",
+            true,
+            true,
+        );
+        assert!(renamed.is_renamed);
+        assert_eq!(renamed.old_path.as_deref(), Some("old.txt"));
+        assert_eq!(renamed.additions, 1);
+        assert_eq!(renamed.deletions, 1);
+        assert_eq!(renamed.hunks.len(), 1);
+        assert!(renamed.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == "ctx" && line.content == "same"));
+        assert!(renamed.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == "del" && line.content == "before only"));
+        assert!(renamed.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == "add" && line.content == "after only"));
+
+        let empty_patch =
+            GitService::<TestWorkspaceService>::build_new_file_text_patch("empty.txt", "");
+        assert!(empty_patch.contains("new file mode 100644"));
+        assert!(!empty_patch.contains("@@"));
+
+        let no_newline_patch =
+            GitService::<TestWorkspaceService>::build_new_file_text_patch("note.txt", "line");
+        assert!(no_newline_patch.contains("\\ No newline at end of file"));
+    }
+
+    #[test]
+    fn parse_diff_patch_and_word_diff_cover_context_flush_and_partial_pairing() {
+        let parser_service = GitService::new(TestWorkspaceService {
+            root: std::env::temp_dir(),
+        });
+        let patch = "\
+diff --git a/old.txt b/new.txt\n\
+similarity index 90%\n\
+rename from old.txt\n\
+rename to new.txt\n\
+@@ -1,3 +1,2 @@\n\
+\x20same line\n\
+-before one\n\
+-before two\n\
++after one\n\
+@@ -8,2 +7,2 @@\n\
+\x20tail context\n\
+-old tail\n\
++new tail\n";
+        let parsed = parser_service.parse_diff_patch(patch, "new.txt");
+        assert!(parsed.is_renamed);
+        assert_eq!(parsed.old_path.as_deref(), Some("old.txt"));
+        assert_eq!(parsed.hunks.len(), 2);
+        assert_eq!(parsed.deletions, 3);
+        assert_eq!(parsed.additions, 2);
+        assert!(parsed.hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == "ctx" && line.content == "same line"));
+        assert!(parsed.hunks[0].lines[1].segments.is_some());
+        assert!(parsed.hunks[0].lines[3].segments.is_some());
+        assert!(parsed.hunks[0].lines[2].segments.is_none());
+
+        let mut hunks = vec![GitDiffHunk {
+            header: "@@ -1,2 +1,1 @@".to_string(),
+            old_start: 1,
+            old_lines: 2,
+            new_start: 1,
+            new_lines: 1,
+            lines: vec![
+                GitDiffLine {
+                    kind: "ctx".to_string(),
+                    content: "keep".to_string(),
+                    old_line: Some(1),
+                    new_line: Some(1),
+                    segments: None,
+                },
+                GitDiffLine {
+                    kind: "del".to_string(),
+                    content: "remove one".to_string(),
+                    old_line: Some(2),
+                    new_line: None,
+                    segments: None,
+                },
+                GitDiffLine {
+                    kind: "del".to_string(),
+                    content: "remove two".to_string(),
+                    old_line: Some(3),
+                    new_line: None,
+                    segments: None,
+                },
+                GitDiffLine {
+                    kind: "add".to_string(),
+                    content: "add one".to_string(),
+                    old_line: None,
+                    new_line: Some(2),
+                    segments: None,
+                },
+            ],
+        }];
+        GitService::<TestWorkspaceService>::enhance_hunks_with_word_diff(&mut hunks);
+        assert!(hunks[0].lines[0].segments.is_none());
+        assert!(hunks[0].lines[1].segments.is_some());
+        assert!(hunks[0].lines[2].segments.is_none());
+        assert!(hunks[0].lines[3].segments.is_some());
+    }
+
+    #[test]
+    fn init_repo_bootstraps_plain_workspace_in_unit_tests() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-init-plain-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create plain workspace");
+        let service = GitService::new(TestWorkspaceService { root: root.clone() });
+
+        let branch = service
+            .init_repo(&workspace_id, None, Some("main"))
+            .expect("init repo should succeed");
+        assert_eq!(branch, "main");
+        assert!(root.join(".git").exists());
+
+        let explicit_root =
+            std::env::temp_dir().join(format!("gt-git-init-explicit-root-{}", Uuid::new_v4()));
+        fs::create_dir_all(&explicit_root).expect("create explicit root workspace");
+        let explicit_service = GitService::new(TestWorkspaceService {
+            root: explicit_root.clone(),
+        });
+        let explicit_branch = explicit_service
+            .init_repo(&workspace_id, Some("  "), Some("main"))
+            .expect("init explicit root repo should succeed");
+        assert_eq!(explicit_branch, "main");
+        assert!(explicit_root.join(".git").exists());
+
+        fs::write(explicit_root.join("tracked.txt"), "tracked\n").expect("write explicit tracked");
+        run_git(&explicit_root, &["add", "tracked.txt"]);
+        run_git(&explicit_root, &["commit", "-m", "initial"]);
+        let detached_head = run_git_output(&explicit_root, &["rev-parse", "HEAD"]);
+        run_git(
+            &explicit_root,
+            &["checkout", "--detach", detached_head.trim()],
+        );
+        let detached_branch = explicit_service
+            .init_repo(&workspace_id, Some("  "), Some("main"))
+            .expect("init existing detached repo should return requested branch");
+        assert_eq!(detached_branch, "main");
+    }
+
+    #[test]
+    fn public_api_validation_and_empty_request_paths_cover_fast_failures() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let missing_root =
+            std::env::temp_dir().join(format!("gt-git-missing-root-{}", Uuid::new_v4()));
+        let missing_service = GitService::new(TestWorkspaceService { root: missing_root });
+        let missing_error = missing_service
+            .status_repo(&workspace_id, None)
+            .expect_err("missing workspace should fail");
+        assert!(missing_error
+            .to_string()
+            .contains("GIT_WORKSPACE_ROOT_INVALID"));
+
+        let root = std::env::temp_dir().join(format!("gt-git-api-fast-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create api fast root");
+        init_repo(&root);
+        let service = GitService::new(TestWorkspaceService { root: root.clone() });
+
+        assert_eq!(
+            service
+                .stage(&workspace_id, None, &[])
+                .expect("empty stage is noop"),
+            0
+        );
+        assert_eq!(
+            service
+                .unstage(&workspace_id, None, &[])
+                .expect("empty unstage is noop"),
+            0
+        );
+
+        let discard_error = service
+            .discard(&workspace_id, None, &[], true)
+            .expect_err("empty discard should fail");
+        assert!(discard_error
+            .to_string()
+            .contains("GIT_DISCARD_PATHS_REQUIRED"));
+
+        let commit_error = service
+            .commit(&workspace_id, None, "   ")
+            .expect_err("empty commit message should fail");
+        assert!(commit_error
+            .to_string()
+            .contains("GIT_COMMIT_MESSAGE_INVALID"));
+
+        let amend_error = service
+            .commit_amend(&workspace_id, None, "\n\t")
+            .expect_err("empty amend message should fail");
+        assert!(amend_error
+            .to_string()
+            .contains("GIT_COMMIT_MESSAGE_INVALID"));
+
+        let absolute_error = service
+            .status_repo(&workspace_id, Some("/outside"))
+            .expect_err("absolute repository path should fail");
+        assert!(absolute_error
+            .to_string()
+            .contains("GIT_REPOSITORY_PATH_INVALID"));
+
+        let escaping_error = service
+            .status_repo(&workspace_id, Some("../outside"))
+            .expect_err("escaping repository path should fail");
+        assert!(escaping_error
+            .to_string()
+            .contains("GIT_REPOSITORY_PATH_INVALID"));
+
+        let missing_repo_error = service
+            .status_repo(&workspace_id, Some("missing"))
+            .expect_err("missing repository path should fail");
+        assert!(missing_repo_error
+            .to_string()
+            .contains("repository root does not exist"));
+
+        fs::create_dir_all(root.join("plain-dir")).expect("create plain dir");
+        let non_repo_error = service
+            .status_repo(&workspace_id, Some("plain-dir"))
+            .expect_err("non-repo path should fail");
+        assert!(non_repo_error.to_string().contains("no git repository"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn structured_command_parsers_cover_short_empty_and_optional_fields() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-fake-structured-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create structured root");
+        init_repo(&root);
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+case \"$*\" in\n\
+  *\"for-each-ref\"*\"refs/heads/\"*)\n\
+    printf 'bad\\n*\\tmain\\torigin/main\\t>\\tabc123\\tSubject\\n \\t\\t\\t\\tdeadbeef\\tNo name\\n'\n\
+    ;;\n\
+  *\"log\"*)\n\
+    printf 'aaaaaaaa\\037aaaa\\037p1 p2\\037HEAD -> main, tag: v1\\037Alice\\037a@example.com\\0372024-01-01T00:00:00Z\\037summary\\036short\\036'\n\
+    ;;\n\
+  *\"stash list\"*)\n\
+    printf 'stash@{0}\\037bbbbbbbb\\0372024-01-02T00:00:00Z\\037WIP\\036short\\036'\n\
+    ;;\n\
+  *\"refs/tags/\"*)\n\
+    printf 'v1\\037oid\\037short\\037Alice\\037message\\036v2\\037oid2\\037short2\\037\\037\\036'\n\
+    ;;\n\
+  *)\n\
+    exit 0\n\
+    ;;\n\
+esac\n",
+        )
+        .expect("write structured fake git");
+        make_executable(&fake_git);
+
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+
+        let branches = service
+            .list_branches(&workspace_id, None, true)
+            .expect("branch parser should tolerate malformed lines");
+        assert_eq!(branches.len(), 1);
+        assert_eq!(branches[0].name, "main");
+        assert!(branches[0].current);
+        assert_eq!(branches[0].upstream.as_deref(), Some("origin/main"));
+
+        let log = service
+            .log(&workspace_id, None, 0, usize::MAX)
+            .expect("log parser should clamp limits and skip short records");
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].parents, vec!["p1", "p2"]);
+        assert!(log[0].refs.iter().any(|value| value == "tag: v1"));
+
+        let stashes = service
+            .stash_list(&workspace_id, None, 0)
+            .expect("stash parser should skip short records");
+        assert_eq!(stashes.len(), 1);
+        assert_eq!(stashes[0].stash, "stash@{0}");
+
+        let tags = service
+            .tag_list(&workspace_id, None)
+            .expect("tag parser should preserve optional fields");
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].tagger.as_deref(), Some("Alice"));
+        assert_eq!(tags[0].message.as_deref(), Some("message"));
+        assert!(tags[1].tagger.is_none());
+        assert!(tags[1].message.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn commit_detail_reports_malformed_metadata_from_git_show() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-fake-detail-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create detail root");
+        init_repo(&root);
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(&fake_git, "#!/bin/sh\nprintf 'too-short'\n")
+            .expect("write malformed detail fake git");
+        make_executable(&fake_git);
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+
+        let error = service
+            .commit_detail(&workspace_id, None, "abcdef123456")
+            .expect_err("malformed metadata should fail");
+        assert!(error
+            .to_string()
+            .contains("failed to parse commit metadata"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_builders_cover_default_blank_and_optional_arguments() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-fake-commands-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create command root");
+        init_repo(&root);
+        fs::write(root.join("tracked.txt"), "tracked\n").expect("write tracked file");
+        run_git(&root, &["add", "tracked.txt"]);
+        run_git(&root, &["commit", "-m", "initial", "--no-gpg-sign"]);
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+case \"$*\" in\n\
+  *\"add -- boom.txt\"*)\n\
+    printf 'fatal: cannot add boom\\n' >&2\n\
+    exit 2\n\
+    ;;\n\
+  *\"rev-parse\"*)\n\
+    printf 'abcdef1234567890\\n'\n\
+    ;;\n\
+  *\"merge --no-edit fail-target\"*)\n\
+    printf 'fatal: not something we can merge\\n' >&2\n\
+    exit 2\n\
+    ;;\n\
+  *\"show --no-patch\"*)\n\
+    printf 'abcdef1234567890\\037abcdef1\\037parent1\\037HEAD -> main\\037Alice\\037a@example.com\\0372024-01-01T00:00:00Z\\037Subject\\036Body\\n'\n\
+    ;;\n\
+  *\"show --format=\"*)\n\
+    printf '\\nshort\\n\\tignored.txt\\nR100\\told-only.txt\\nR100\\told.txt\\t\\nM\\t\\nM\\tfile.txt\\n'\n\
+    ;;\n\
+  *\"log\"*)\n\
+    printf 'abcdef1234567890\\037abcdef1\\037parent1\\037HEAD -> main\\037Alice\\037a@example.com\\0372024-01-01T00:00:00Z\\037Subject\\036'\n\
+    ;;\n\
+  *)\n\
+    exit 0\n\
+    ;;\n\
+esac\n",
+        )
+        .expect("write command fake git");
+        make_executable(&fake_git);
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+
+        let committed = service
+            .commit(&workspace_id, None, " commit message ")
+            .expect("commit command builder");
+        assert_eq!(committed.len(), 40);
+        let amended = service
+            .commit_amend(&workspace_id, None, " amended message ")
+            .expect("commit amend command builder");
+        assert_eq!(amended.len(), 40);
+        let log = service
+            .log(&workspace_id, None, 1, 0)
+            .expect("log command builder");
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].summary, "Subject");
+        let detail = service
+            .commit_detail(&workspace_id, None, "abcdef1234567890")
+            .expect("commit detail command builder");
+        assert_eq!(detail.body, "Body");
+        assert_eq!(detail.files.len(), 1);
+        assert_eq!(detail.files[0].path, "file.txt");
+        let stage_error = service
+            .stage(&workspace_id, None, &["boom.txt".to_string()])
+            .expect_err("non-ignored stage failure should be returned");
+        assert!(stage_error.to_string().contains("GIT_STAGE_FAILED"));
+
+        service
+            .checkout(&workspace_id, None, "topic", true, Some("HEAD"))
+            .expect("checkout create with explicit start point");
+        service
+            .create_branch(&workspace_id, None, "feature", Some("HEAD"))
+            .expect("create branch with explicit start point");
+        service
+            .delete_branch(&workspace_id, None, "feature", false)
+            .expect("delete branch without force");
+        service
+            .delete_branch(&workspace_id, None, "feature", true)
+            .expect("delete branch with force");
+
+        let fetch = service
+            .fetch(&workspace_id, None, Some("  "), false, false)
+            .expect("fetch default remote without tags");
+        assert_eq!(fetch.remote, "origin");
+        assert!(!fetch.prune);
+        assert!(!fetch.include_tags);
+
+        let pull = service
+            .pull(&workspace_id, None, Some("  "), Some("  "), false)
+            .expect("pull default remote without branch");
+        assert_eq!(pull.remote, "origin");
+        assert!(pull.branch.is_none());
+        assert!(!pull.rebase);
+
+        let push = service
+            .push(&workspace_id, None, Some("  "), Some("  "), false, false)
+            .expect("push default remote without branch");
+        assert_eq!(push.remote, "origin");
+        assert!(push.branch.is_none());
+        assert!(!push.set_upstream);
+        assert!(!push.force_with_lease);
+
+        service
+            .stash_push(&workspace_id, None, Some("  "), false, false)
+            .expect("stash push ignores blank message");
+        service
+            .stash_pop(&workspace_id, None, Some("  "))
+            .expect("stash pop ignores blank stash ref");
+        service
+            .tag_create(
+                &workspace_id,
+                None,
+                "v-empty",
+                "HEAD",
+                false,
+                Some("ignored"),
+            )
+            .expect("lightweight tag ignores message");
+        service
+            .tag_push(&workspace_id, None, Some("  "), "v-empty")
+            .expect("tag push defaults remote");
+        service
+            .cherry_pick(&workspace_id, None, "abcdef1234567890")
+            .expect("cherry-pick command builder");
+        service
+            .revert(&workspace_id, None, "abcdef1234567890")
+            .expect("revert command builder");
+        service
+            .reset(&workspace_id, None, "HEAD", "soft")
+            .expect("reset soft command builder");
+        service
+            .merge(&workspace_id, None, "feature", false)
+            .expect("merge command builder");
+        let merge_error = service
+            .merge(&workspace_id, None, "fail-target", false)
+            .expect_err("non-conflict merge failure should be returned");
+        assert!(merge_error.to_string().contains("GIT_MERGE_FAILED"));
+        service
+            .merge_abort(&workspace_id, None)
+            .expect("merge abort command builder");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_builders_trim_blank_optional_arguments() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("gt-git-fake-blank-commands-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create command root");
+        init_repo(&root);
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        let command_log = root.join("commands.log");
+        fs::write(
+            &fake_git,
+            format!(
+                "#!/bin/sh\n\
+printf '%s\\n' \"$*\" >> '{}'\n\
+exit 0\n",
+                command_log.display()
+            ),
+        )
+        .expect("write blank command fake git");
+        make_executable(&fake_git);
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+
+        service
+            .checkout(&workspace_id, None, "blank-start", true, Some("  "))
+            .expect("checkout should ignore blank start point");
+        service
+            .create_branch(&workspace_id, None, "blank-branch", Some("  "))
+            .expect("branch create should ignore blank start point");
+        let fetch = service
+            .fetch(&workspace_id, None, Some("  "), false, false)
+            .expect("fetch should default blank remote");
+        assert_eq!(fetch.remote, "origin");
+        assert!(!fetch.include_tags);
+        let pull = service
+            .pull(&workspace_id, None, Some("  "), Some("  "), false)
+            .expect("pull should default blank remote and ignore blank branch");
+        assert_eq!(pull.remote, "origin");
+        assert_eq!(pull.branch, None);
+        let push = service
+            .push(&workspace_id, None, Some("  "), Some("  "), false, false)
+            .expect("push should default blank remote and ignore blank branch");
+        assert_eq!(push.remote, "origin");
+        assert_eq!(push.branch, None);
+        service
+            .stash_push(&workspace_id, None, Some("  "), false, false)
+            .expect("stash push should ignore blank message");
+        service
+            .stash_pop(&workspace_id, None, Some("  "))
+            .expect("stash pop should ignore blank selector");
+        service
+            .tag_push(&workspace_id, None, Some("  "), "v1.0.0")
+            .expect("tag push should default blank remote");
+        service
+            .cherry_pick(&workspace_id, None, "abcdef1234567890")
+            .expect("cherry-pick command builder");
+        service
+            .revert(&workspace_id, None, "abcdef1234567890")
+            .expect("revert command builder");
+        service
+            .reset(&workspace_id, None, "HEAD~1", "soft")
+            .expect("reset command builder");
+
+        let commands = fs::read_to_string(command_log).expect("read command log");
+        assert!(commands.contains("checkout -b blank-start\n"));
+        assert!(commands.contains("branch blank-branch\n"));
+        assert!(commands.contains("fetch origin --no-tags\n"));
+        assert!(commands.contains("pull origin --no-rebase\n"));
+        assert!(commands.contains("push origin\n"));
+        assert!(commands.contains("stash push\n"));
+        assert!(commands.contains("stash pop\n"));
+        assert!(commands.contains("push origin tag v1.0.0\n"));
+        assert!(commands.contains("cherry-pick abcdef1234567890\n"));
+        assert!(commands.contains("revert --no-edit abcdef1234567890\n"));
+        assert!(commands.contains("reset --soft HEAD~1\n"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn public_commands_propagate_git_failures_with_operation_codes() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-fake-errors-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create command root");
+        init_repo(&root);
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+case \"$*\" in\n\
+  *\"check-ref-format --branch\"*) exit 0 ;;\n\
+  *) echo forced git failure >&2; exit 1 ;;\n\
+esac\n",
+        )
+        .expect("write failure fake git");
+        make_executable(&fake_git);
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+
+        let cases: Vec<(&str, Box<dyn Fn() -> AbstractionResult<()>>)> = vec![
+            (
+                "GIT_COMMIT_FAILED",
+                Box::new(|| service.commit(&workspace_id, None, "message").map(|_| ())),
+            ),
+            (
+                "GIT_COMMIT_FAILED",
+                Box::new(|| {
+                    service
+                        .commit_amend(&workspace_id, None, "message")
+                        .map(|_| ())
+                }),
+            ),
+            (
+                "GIT_LOG_FAILED",
+                Box::new(|| service.log(&workspace_id, None, 10, 0).map(|_| ())),
+            ),
+            (
+                "GIT_COMMIT_DETAIL_FAILED",
+                Box::new(|| {
+                    service
+                        .commit_detail(&workspace_id, None, "abcdef1234567890")
+                        .map(|_| ())
+                }),
+            ),
+            (
+                "GIT_CHECKOUT_FAILED",
+                Box::new(|| service.checkout(&workspace_id, None, "topic", false, None)),
+            ),
+            (
+                "GIT_BRANCH_CREATE_FAILED",
+                Box::new(|| service.create_branch(&workspace_id, None, "topic", None)),
+            ),
+            (
+                "GIT_BRANCH_DELETE_FAILED",
+                Box::new(|| service.delete_branch(&workspace_id, None, "topic", false)),
+            ),
+            (
+                "GIT_FETCH_FAILED",
+                Box::new(|| {
+                    service
+                        .fetch(&workspace_id, None, None, false, false)
+                        .map(|_| ())
+                }),
+            ),
+            (
+                "GIT_STASH_PUSH_FAILED",
+                Box::new(|| service.stash_push(&workspace_id, None, Some("message"), false, false)),
+            ),
+            (
+                "GIT_STASH_LIST_FAILED",
+                Box::new(|| service.stash_list(&workspace_id, None, 10).map(|_| ())),
+            ),
+            (
+                "GIT_TAG_LIST_FAILED",
+                Box::new(|| service.tag_list(&workspace_id, None).map(|_| ())),
+            ),
+            (
+                "GIT_TAG_DELETE_FAILED",
+                Box::new(|| service.tag_delete(&workspace_id, None, "v1.0.0")),
+            ),
+            (
+                "GIT_TAG_PUSH_FAILED",
+                Box::new(|| service.tag_push(&workspace_id, None, None, "v1.0.0")),
+            ),
+            (
+                "GIT_CHERRY_PICK_FAILED",
+                Box::new(|| service.cherry_pick(&workspace_id, None, "abcdef1234567890")),
+            ),
+            (
+                "GIT_REVERT_FAILED",
+                Box::new(|| service.revert(&workspace_id, None, "abcdef1234567890")),
+            ),
+            (
+                "GIT_RESET_FAILED",
+                Box::new(|| service.reset(&workspace_id, None, "HEAD", "mixed")),
+            ),
+            (
+                "GIT_CONFLICT_LIST_FAILED",
+                Box::new(|| service.conflict_list(&workspace_id, None).map(|_| ())),
+            ),
+            (
+                "GIT_MERGE_ABORT_FAILED",
+                Box::new(|| service.merge_abort(&workspace_id, None)),
+            ),
+        ];
+
+        for (expected_code, operation) in cases {
+            let error = operation().expect_err(expected_code);
+            assert!(
+                error.to_string().contains(expected_code),
+                "expected {expected_code}, got {error}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discard_parses_renamed_paths_and_short_porcelain_segments() {
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("gt-git-fake-discard-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create fake discard root");
+        init_repo(&root);
+
+        let fake_bin = root.join("fake-bin");
+        fs::create_dir_all(&fake_bin).expect("create fake bin");
+        let fake_git = fake_bin.join("git");
+        fs::write(
+            &fake_git,
+            "#!/bin/sh\n\
+case \"$*\" in\n\
+  *\"status --porcelain -z\"*)\n\
+    printf 'R  renamed.txt\\0tracked.txt\\0x\\0'\n\
+    ;;\n\
+  *)\n\
+    exit 0\n\
+    ;;\n\
+esac\n",
+        )
+        .expect("write discard fake git");
+        make_executable(&fake_git);
+        let service = make_test_service_with_git_path(root.clone(), &fake_bin);
+
+        let discarded = service
+            .discard(&workspace_id, None, &["renamed.txt".to_string()], false)
+            .expect("renamed path should be discardable");
+        assert_eq!(discarded, 1);
+
+        fs::remove_dir_all(root).expect("fake discard root should be removed");
+    }
+
+    #[test]
+    fn path_to_workspace_relative_reports_missing_workspace_root_canonicalization() {
+        let existing_path = std::env::temp_dir();
+        let missing_root =
+            std::env::temp_dir().join(format!("gt-git-missing-root-{}", Uuid::new_v4()));
+
+        let error = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &existing_path,
+            &missing_root,
+        )
+        .expect_err("missing workspace root should fail canonicalization");
+        assert!(error
+            .to_string()
+            .contains("repository is outside workspace"));
+    }
+
+    #[test]
+    fn resolve_head_oid_and_head_snapshot_cover_unborn_and_non_repo_paths() {
+        let root = std::env::temp_dir().join(format!("gt-git-unborn-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create unborn repo root");
+        init_repo(&root);
+        let service = GitService::new(TestWorkspaceService { root: root.clone() });
+        let head_error = service
+            .resolve_head_oid(&root)
+            .expect_err("unborn HEAD has no target");
+        assert!(head_error.to_string().contains("GIT_REV_PARSE_FAILED"));
+
+        let plain_dir = std::env::temp_dir().join(format!("gt-git-plain-{}", Uuid::new_v4()));
+        fs::create_dir_all(&plain_dir).expect("create plain dir");
+        let discover_error = service
+            .resolve_head_oid(&plain_dir)
+            .expect_err("plain directory is not a repository");
+        assert!(discover_error
+            .to_string()
+            .contains("repository discovery failed"));
+
+        let repo = Repository::discover(&root).expect("discover unborn repo");
+        assert!(matches!(
+            GitService::<TestWorkspaceService>::read_head_snapshot(&repo, "missing.txt")
+                .expect("unborn head snapshot should be missing"),
+            GitSnapshotContent::Missing
+        ));
+
+        fs::write(root.join("tracked.txt"), "tracked\n").expect("write tracked file");
+        run_git(&root, &["add", "tracked.txt"]);
+        run_git(&root, &["commit", "-m", "initial", "--no-gpg-sign"]);
+        run_git(&root, &["checkout", "--detach"]);
+        let detached_id = service
+            .resolve_head_oid(&root)
+            .expect("detached HEAD still has a target");
+        assert_eq!(detached_id.len(), 40);
+
+        fs::remove_dir_all(root).expect("unborn repo root should be removed");
+        fs::remove_dir_all(plain_dir).expect("plain dir should be removed");
+    }
+
+    #[test]
+    fn list_index_new_and_tracked_paths_distinguish_file_sets() {
+        let (_, root, service) = create_temp_repo();
+        fs::write(root.join("tracked.txt"), "modified\n").expect("modify tracked");
+        fs::write(root.join("new.txt"), "new\n").expect("write new");
+        run_git(&root, &["add", "new.txt"]);
+
+        let tracked = service
+            .list_tracked_paths(
+                &root,
+                &["tracked.txt".to_string(), "new.txt".to_string()],
+                "GIT_TEST_FAILED",
+            )
+            .expect("list tracked paths");
+        assert!(tracked.contains("tracked.txt"));
+
+        let index_new = service
+            .list_index_new_paths(&root, &["new.txt".to_string()], "GIT_TEST_FAILED")
+            .expect("list index new paths");
+        assert!(index_new.contains("new.txt"));
+    }
+
+    #[test]
+    fn list_path_helpers_return_empty_sets_for_empty_input() {
+        let (_, root, service) = create_temp_repo();
+
+        assert!(service
+            .list_untracked_paths(&root, &[], "GIT_TEST_FAILED")
+            .expect("empty untracked paths")
+            .is_empty());
+        assert!(service
+            .list_index_new_paths(&root, &[], "GIT_TEST_FAILED")
+            .expect("empty index-new paths")
+            .is_empty());
+        assert!(service
+            .list_tracked_paths(&root, &[], "GIT_TEST_FAILED")
+            .expect("empty tracked paths")
+            .is_empty());
+    }
+
+    #[test]
+    fn normalize_workspace_paths_for_repo_validates_relative_scope() {
+        let workspace_root = std::env::temp_dir().join(format!("gt-git-norm-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        let repo_root = create_nested_repo(&workspace_root, "packages/app", "tracked.txt");
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+        let context = super::GitRepoContext {
+            workspace_root: workspace_root.clone(),
+            repo_root,
+            repository_path: "packages/app".to_string(),
+        };
+
+        let normalized = service
+            .normalize_workspace_paths_for_repo(
+                &context,
+                &[
+                    String::from("packages/app/tracked.txt"),
+                    String::from("packages/app/other.txt"),
+                ],
+            )
+            .expect("normalize scoped paths");
+        assert_eq!(
+            normalized,
+            vec!["tracked.txt".to_string(), "other.txt".to_string()]
+        );
+
+        let outside_repo = service
+            .normalize_workspace_paths_for_repo(
+                &context,
+                &[String::from("packages/other/file.txt")],
+            )
+            .expect_err("path outside repo should fail");
+        assert!(outside_repo.to_string().contains("GIT_PATH_INVALID"));
+
+        let empty = service
+            .normalize_workspace_paths_for_repo(&context, &[String::from("   ")])
+            .expect_err("empty path should fail");
+        assert!(empty.to_string().contains("GIT_PATH_INVALID"));
+
+        let absolute = service
+            .normalize_workspace_paths_for_repo(&context, &[String::from("/tmp/file.txt")])
+            .expect_err("absolute path should fail");
+        assert!(absolute.to_string().contains("GIT_PATH_INVALID"));
+
+        let traversal = service
+            .normalize_workspace_paths_for_repo(&context, &[String::from("../escape.txt")])
+            .expect_err("traversal should fail");
+        assert!(traversal.to_string().contains("GIT_PATH_INVALID"));
+    }
+
+    #[test]
+    fn parse_conflict_file_maps_supported_statuses_and_renames() {
+        let both_added =
+            GitService::<TestWorkspaceService>::parse_conflict_file("packages/app", "AA added.txt")
+                .expect("both added conflict");
+        assert_eq!(both_added.path, "packages/app/added.txt");
+        assert!(matches!(both_added.status, ConflictStatus::BothAdded));
+
+        let renamed = GitService::<TestWorkspaceService>::parse_conflict_file(
+            "packages/app",
+            "DU old.txt -> renamed.txt",
+        )
+        .expect("renamed conflict");
+        assert_eq!(renamed.path, "packages/app/renamed.txt");
+        assert!(matches!(renamed.status, ConflictStatus::DeletedByUs));
+
+        assert!(GitService::<TestWorkspaceService>::parse_conflict_file(
+            "packages/app",
+            "M  plain.txt"
+        )
+        .is_none());
+        assert!(
+            GitService::<TestWorkspaceService>::parse_conflict_file("packages/app", "AA ")
+                .is_none()
+        );
+        assert!(
+            GitService::<TestWorkspaceService>::parse_conflict_file("packages/app", "x").is_none()
+        );
+    }
+
+    #[test]
+    fn parse_porcelain_status_handles_initial_commit_headers() {
+        let no_commits = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## No commits yet on main\n",
+            "",
+        );
+        assert_eq!(no_commits.branch, "main");
+
+        let initial_commit = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "## Initial commit on trunk\n",
+            "",
+        );
+        assert_eq!(initial_commit.branch, "trunk");
+    }
+
+    #[test]
+    fn parse_porcelain_status_limits_file_count() {
+        let mut porcelain = String::from("## main\n");
+        for index in 0..=MAX_STATUS_FILES {
+            porcelain.push_str(&format!("?? file-{index}.txt\n"));
+        }
+
+        let summary =
+            GitService::<TestWorkspaceService>::parse_porcelain_status(&porcelain, "packages/app");
+        assert_eq!(summary.files.len(), MAX_STATUS_FILES);
+    }
+
+    #[test]
+    fn path_join_and_relative_conversion_cover_root_and_outside_cases() {
+        assert_eq!(
+            GitService::<TestWorkspaceService>::join_workspace_relative_path("", "a.txt"),
+            "a.txt"
+        );
+        assert_eq!(
+            GitService::<TestWorkspaceService>::join_workspace_relative_path("pkg", "a.txt"),
+            "pkg/a.txt"
+        );
+
+        let workspace_root = std::env::temp_dir().join(format!("gt-git-root-{}", Uuid::new_v4()));
+        let outside_root = std::env::temp_dir().join(format!("gt-git-outside-{}", Uuid::new_v4()));
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        fs::create_dir_all(&outside_root).expect("create outside root");
+
+        let root_relative = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &workspace_root,
+            &workspace_root,
+        )
+        .expect("workspace root should map to empty path");
+        assert_eq!(root_relative, "");
+
+        let outside_error = GitService::<TestWorkspaceService>::path_to_workspace_relative(
+            &outside_root,
+            &workspace_root,
+        )
+        .expect_err("outside path should fail");
+        assert!(outside_error
+            .to_string()
+            .contains("GIT_REPOSITORY_PATH_INVALID"));
+    }
+
     fn restore_env_var(key: &str, value: Option<std::ffi::OsString>) {
         match value {
             Some(value) => std::env::set_var(key, value),
             None => std::env::remove_var(key),
         }
+    }
+
+    #[test]
+    fn restore_env_var_covers_missing_values() {
+        let key = format!("GT_GIT_TEST_RESTORE_MISSING_{}", Uuid::new_v4());
+        std::env::set_var(&key, "temporary");
+        restore_env_var(&key, None);
+        assert!(std::env::var_os(&key).is_none());
     }
 
     #[cfg(unix)]
@@ -3687,5 +6198,35 @@ mod tests {
             .any(|line| line.kind == "add" && line.content == "  return <div>hello</div>"));
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn test_workspace_service_methods_cover_trait_defaults() {
+        let root = std::env::temp_dir().join(format!("gt-git-service-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("temp root should be created");
+        let workspace_id = WorkspaceId::new("ws-trait");
+        let workspace = TestWorkspaceService { root: root.clone() };
+
+        assert!(workspace.list().expect("list should succeed").is_empty());
+        assert!(workspace.open(&root).is_err());
+        assert!(!workspace
+            .close(&workspace_id)
+            .expect("close should return false"));
+        assert_eq!(
+            workspace
+                .switch_active(&workspace_id)
+                .expect("switch should echo id"),
+            workspace_id
+        );
+        assert_eq!(
+            workspace
+                .restore_session(&workspace_id)
+                .expect("restore should succeed")
+                .terminals
+                .len(),
+            0
+        );
+
+        fs::remove_dir_all(root).expect("temp root should be removed");
     }
 }

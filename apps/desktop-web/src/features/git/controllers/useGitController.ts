@@ -367,12 +367,21 @@ export function useGitController({
   const onRefreshAll = useCallback(() => refreshAll(), [refreshAll])
 
   // Sub-controllers
+  const merge = useGitMerge({
+    workspaceId,
+    repositoryPath: activeRepositoryPath,
+    isGitRepository,
+    runAction,
+    onRefreshAll,
+  })
+
   const status = useGitStatus({
     workspaceId,
     repositoryPath: activeRepositoryPath,
     isGitRepository,
     summary: activeSummary,
     onRefreshSummary,
+    onRefreshMergeState: merge.refreshMergeState,
     runAction,
     invalidateDiffCache,
   })
@@ -432,15 +441,6 @@ export function useGitController({
     cacheRefs,
   })
 
-  // Merge sub-controller
-  const merge = useGitMerge({
-    workspaceId,
-    repositoryPath: activeRepositoryPath,
-    isGitRepository,
-    runAction,
-    onRefreshAll,
-  })
-
   // Commit actions sub-controller (cherry-pick, revert, reset, create branch from commit)
   const commitActions = useGitCommitActions({
     workspaceId,
@@ -498,6 +498,13 @@ export function useGitController({
     void refreshMeta()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRepositoryPath, workspaceId])
+
+  useEffect(() => {
+    if (!merge.isMerging || !workspaceId) {
+      return
+    }
+    void merge.refreshMergeState()
+  }, [activeSummary?.files, merge.isMerging, merge.refreshMergeState, workspaceId])
 
   useEffect(() => {
     if (!shouldAdoptResolvedRepositorySelection({
@@ -599,6 +606,7 @@ export function useGitController({
     mergeConflicts: merge.mergeConflicts,
     isMerging: merge.isMerging,
     startMerge: merge.startMerge,
+    resolveConflict: merge.resolveConflict,
     continueMerge: merge.continueMerge,
     abortMerge: merge.abortMerge,
   }

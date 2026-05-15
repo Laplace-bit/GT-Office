@@ -28,6 +28,10 @@ import { StationActivityComet } from './StationActivityComet'
 import type { AgentStation, StationRole } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
+  resolveFocusStageStationVisibility,
+  resolveRenderedActiveStationId,
+} from './workbench-focus-layout-model'
+import {
   normalizeWorkbenchCustomLayout,
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
@@ -147,29 +151,6 @@ interface StationRestoreAnimationState {
     width: number
     height: number
   }
-}
-
-export function resolveFocusStageStationVisibility(
-  stationId: string,
-  selectedStationId: string | null,
-  slotMode: 'stable' | 'entering' | 'exiting' | 'parked',
-): { focusHidden: boolean; inert: boolean } {
-  const focusHidden = slotMode !== 'parked' && stationId !== selectedStationId
-  return {
-    focusHidden,
-    inert: focusHidden && slotMode !== 'exiting',
-  }
-}
-
-export function resolveRenderedActiveStationId(
-  layoutMode: WorkbenchLayoutMode,
-  selectedStationId: string | null,
-  effectiveActiveStationId: string | null,
-): string | null {
-  if (layoutMode === 'focus') {
-    return selectedStationId ?? effectiveActiveStationId
-  }
-  return effectiveActiveStationId
 }
 
 function usePrefersReducedMotion(): boolean {

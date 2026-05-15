@@ -3264,6 +3264,20 @@
   word-break: break-all;
 }
 
+.git-merge-conflict-resolve-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: #{rem(6)};
+
+  .git-icon-btn {
+    min-width: #{rem(74)};
+    height: #{rem(28)};
+    padding: 0 #{rem(10)};
+    justify-content: center;
+    font-size: var(--vb-git-font-2xs);
+  }
+}
+
 .git-merge-conflict-actions {
   display: flex;
   gap: var(--vb-space-sm);

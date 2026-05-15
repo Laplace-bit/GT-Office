@@ -7,6 +7,7 @@ import type {
   GitStatusFile,
   GitStatusResponse,
 } from '@shell/integration/desktop-api'
+import type { GitConflictFile } from '@shell/integration/desktop-api'
 import type { Locale } from '@shell/i18n/ui-locale'
 
 // ============================================
@@ -107,9 +108,10 @@ export interface GitWorkspaceController {
   revert: (commit: string) => Promise<void>
   reset: (commit: string, mode: 'soft' | 'mixed' | 'hard') => Promise<void>
   createBranchFromCommit: (commit: string) => Promise<void>
-  mergeConflicts: string[]
+  mergeConflicts: GitConflictFile[]
   isMerging: boolean
   startMerge: (source: string) => Promise<void>
+  resolveConflict: (path: string, side: 'ours' | 'theirs') => Promise<void>
   continueMerge: () => Promise<void>
   abortMerge: () => Promise<void>
 }

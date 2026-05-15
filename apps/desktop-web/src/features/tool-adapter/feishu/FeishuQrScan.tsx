@@ -26,7 +26,7 @@ export function FeishuQrScan({ locale, onSuccess, onError }: FeishuQrScanProps) 
   const [attempt, setAttempt] = useState(0)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const unlistenRef = useRef<Array<() => void>>([])
-  const timerRef = useRef<ReturnType<typeof window.setInterval> | null>(null)
+  const timerRef = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {

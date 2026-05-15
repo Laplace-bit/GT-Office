@@ -6,15 +6,7 @@ import {
   restoreScopedRepositorySelection,
   shouldAdoptResolvedRepositorySelection,
 } from '../src/features/git/controllers/repository-selection-model.js'
-
-type GitRepositorySummary = {
-  repositoryPath: string
-  root: boolean
-  branch: string
-  ahead: number
-  behind: number
-  files: unknown[]
-}
+import type { GitRepositorySummary } from '../src/shell/integration/desktop-api.js'
 
 function buildRepositorySummary(
   repositoryPath: string,

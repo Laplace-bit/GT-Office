@@ -22,6 +22,7 @@ interface UseGitStatusInput {
     workspaceId: string | null,
     repositoryPath?: string | null,
   ) => Promise<void>
+  onRefreshMergeState?: () => Promise<void>
   runAction: (actionKey: string, runner: () => Promise<void>) => Promise<void>
   invalidateDiffCache: () => void
 }
@@ -54,6 +55,7 @@ export function useGitStatus({
   isGitRepository,
   summary,
   onRefreshSummary,
+  onRefreshMergeState,
   runAction,
   invalidateDiffCache,
 }: UseGitStatusInput): UseGitStatusResult {
@@ -143,12 +145,13 @@ export function useGitStatus({
         await runAction('stage', async () => {
           await desktopApi.gitStage(workspaceId, [path], repositoryPath)
           invalidateDiffCache()
+          await onRefreshMergeState?.()
         })
       } finally {
         setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
       }
     },
-    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshMergeState, repositoryPath, runAction, workspaceId],
   )
 
   const unstagePath = useCallback(
@@ -162,12 +165,13 @@ export function useGitStatus({
         await runAction('unstage', async () => {
           await desktopApi.gitUnstage(workspaceId, [path], repositoryPath)
           invalidateDiffCache()
+          await onRefreshMergeState?.()
         })
       } finally {
         setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
       }
     },
-    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshMergeState, repositoryPath, runAction, workspaceId],
   )
 
   const stageAll = useCallback(async () => {
@@ -181,11 +185,12 @@ export function useGitStatus({
       await runAction('stage-all', async () => {
         await desktopApi.gitStage(workspaceId, paths, repositoryPath)
         invalidateDiffCache()
+        await onRefreshMergeState?.()
       })
     } finally {
       setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
     }
-  }, [invalidateDiffCache, isGitRepository, repositoryPath, runAction, unstagedFiles, workspaceId])
+  }, [invalidateDiffCache, isGitRepository, onRefreshMergeState, repositoryPath, runAction, unstagedFiles, workspaceId])
 
   const unstageAll = useCallback(async () => {
     if (!workspaceId || !isGitRepository || stagedFiles.length === 0) {
@@ -198,11 +203,12 @@ export function useGitStatus({
       await runAction('unstage-all', async () => {
         await desktopApi.gitUnstage(workspaceId, paths, repositoryPath)
         invalidateDiffCache()
+        await onRefreshMergeState?.()
       })
     } finally {
       setPendingActions((prev) => prev.filter((a) => a.seq !== seq))
     }
-  }, [invalidateDiffCache, isGitRepository, repositoryPath, runAction, stagedFiles, workspaceId])
+  }, [invalidateDiffCache, isGitRepository, onRefreshMergeState, repositoryPath, runAction, stagedFiles, workspaceId])
 
   const discardPath = useCallback(
     async (path: string, includeUntracked = false) => {
@@ -212,9 +218,10 @@ export function useGitStatus({
       await runAction('discard', async () => {
         await desktopApi.gitDiscard(workspaceId, [path], includeUntracked, repositoryPath)
         invalidateDiffCache()
+        await onRefreshMergeState?.()
       })
     },
-    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshMergeState, repositoryPath, runAction, workspaceId],
   )
 
   const discardPaths = useCallback(
@@ -225,9 +232,10 @@ export function useGitStatus({
       await runAction('discard', async () => {
         await desktopApi.gitDiscard(workspaceId, paths, includeUntracked, repositoryPath)
         invalidateDiffCache()
+        await onRefreshMergeState?.()
       })
     },
-    [invalidateDiffCache, isGitRepository, repositoryPath, runAction, workspaceId],
+    [invalidateDiffCache, isGitRepository, onRefreshMergeState, repositoryPath, runAction, workspaceId],
   )
 
   const selectPath = useCallback(

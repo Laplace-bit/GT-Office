@@ -40,6 +40,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     errorMessage,
     isMerging,
     mergeConflicts,
+    resolveConflict,
     continueMerge,
     abortMerge,
   } = controller
@@ -302,7 +303,8 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       <div className="git-pane__content git-history-pane__content">
         {isMerging ? (
           <MergeConflictPanel
-            conflicts={mergeConflicts.map((path) => ({ path, status: 'UU' }))}
+            conflicts={mergeConflicts}
+            onResolve={(path, side) => void resolveConflict(path, side)}
             onContinue={() => void continueMerge()}
             onAbort={() => void abortMerge()}
             locale={locale}

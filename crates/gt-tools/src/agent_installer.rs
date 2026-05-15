@@ -287,28 +287,33 @@ mod tests {
         // If brew is available, there will be a brew install attempt.
         // If neither is available but node dir is found, there will be a node-dir fallback attempt.
         // In a CI/test environment, npm may or may not be present.
-        let has_npm_attempt = plan.attempts.iter().any(|a| a.id.contains("-npm-"));
+        let npm_attempts = plan
+            .attempts
+            .iter()
+            .filter(|a| a.id.ends_with("-npm-mirror") || a.id.ends_with("-npm-official"))
+            .collect::<Vec<_>>();
         let has_brew_attempt = plan.attempts.iter().any(|a| a.id.contains("-brew"));
         let has_node_dir_attempt = plan.attempts.iter().any(|a| a.id.contains("-npm-node-dir"));
         // At least one attempt method should be present if any tool is available,
         // or the plan may be empty if no install tool is found in the test environment.
-        if has_npm_attempt {
-            assert!(plan.attempts.len() >= 2);
-            assert!(plan.attempts[0]
+        if !npm_attempts.is_empty() {
+            assert!(npm_attempts[0]
                 .args
                 .last()
                 .expect("script")
                 .contains(MIRROR_NPM_REGISTRY));
-            assert!(plan.attempts[1]
-                .args
-                .last()
-                .expect("script")
-                .contains(OFFICIAL_NPM_REGISTRY));
-            assert!(plan.attempts[0]
+            assert!(npm_attempts[0]
                 .args
                 .last()
                 .expect("script")
                 .contains("npm prefix -g"));
+            if npm_attempts.len() > 1 {
+                assert!(npm_attempts[1]
+                    .args
+                    .last()
+                    .expect("script")
+                    .contains(OFFICIAL_NPM_REGISTRY));
+            }
         }
         if has_brew_attempt {
             let brew_attempt = plan

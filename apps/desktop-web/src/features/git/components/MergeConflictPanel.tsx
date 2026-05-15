@@ -9,6 +9,7 @@ export interface MergeConflictFile {
 
 interface MergeConflictPanelProps {
   conflicts: MergeConflictFile[]
+  onResolve: (path: string, side: 'ours' | 'theirs') => void
   onContinue: () => void
   onAbort: () => void
   locale: Locale
@@ -16,6 +17,7 @@ interface MergeConflictPanelProps {
 
 export const MergeConflictPanel = memo(function MergeConflictPanel({
   conflicts,
+  onResolve,
   onContinue,
   onAbort,
   locale,
@@ -35,6 +37,22 @@ export const MergeConflictPanel = memo(function MergeConflictPanel({
               {file.status}
             </span>
             <span className="conflict-path">{file.path}</span>
+            <div className="git-merge-conflict-resolve-actions">
+              <button
+                type="button"
+                className="git-icon-btn"
+                onClick={() => onResolve(file.path, 'ours')}
+              >
+                {t(locale, 'git.merge.acceptOurs')}
+              </button>
+              <button
+                type="button"
+                className="git-icon-btn"
+                onClick={() => onResolve(file.path, 'theirs')}
+              >
+                {t(locale, 'git.merge.acceptTheirs')}
+              </button>
+            </div>
           </div>
         ))}
       </div>

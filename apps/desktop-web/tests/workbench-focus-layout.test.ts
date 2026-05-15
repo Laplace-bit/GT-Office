@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   resolveFocusStageStationVisibility,
   resolveRenderedActiveStationId,
-} from '../src/features/workspace-hub/WorkbenchCanvasPanel.js'
+} from '../src/features/workspace-hub/workbench-focus-layout-model.js'
 
 test('focus layout makes non-selected stage slots inert so they cannot block terminal interaction', () => {
   assert.deepEqual(resolveFocusStageStationVisibility('station-b', 'station-a', 'stable'), {

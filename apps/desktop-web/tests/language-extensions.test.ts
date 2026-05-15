@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { detectLanguageFromPath, type LanguageId } from '../src/components/editor/languages/language-extensions.js'
+import { detectLanguageFromPath, type LanguageId } from '../src/components/editor/monaco-languages.js'
 
 describe('language-extensions', () => {
   describe('detectLanguageFromPath', () => {
@@ -215,17 +215,17 @@ describe('language-extensions', () => {
 
       it('detects CSS from .scss extension', () => {
         const result = detectLanguageFromPath('/path/to/styles.scss')
-        assert.strictEqual(result, 'css')
+        assert.strictEqual(result, 'scss')
       })
 
       it('detects CSS from .sass extension', () => {
         const result = detectLanguageFromPath('/path/to/styles.sass')
-        assert.strictEqual(result, 'css')
+        assert.strictEqual(result, 'scss')
       })
 
       it('detects CSS from .less extension', () => {
         const result = detectLanguageFromPath('/path/to/styles.less')
-        assert.strictEqual(result, 'css')
+        assert.strictEqual(result, 'less')
       })
 
       it('detects HTML from .html extension', () => {
@@ -254,7 +254,7 @@ describe('language-extensions', () => {
     describe('Special filenames', () => {
       it('detects Dockerfile as shell', () => {
         const result = detectLanguageFromPath('/path/to/Dockerfile')
-        assert.strictEqual(result, 'shell')
+        assert.strictEqual(result, 'dockerfile')
       })
 
       it('detects makefile as shell', () => {
@@ -306,7 +306,7 @@ describe('language-extensions', () => {
 
       it('handles case-insensitive special filenames', () => {
         const result = detectLanguageFromPath('/path/to/DOCKERFILE')
-        assert.strictEqual(result, 'shell')
+        assert.strictEqual(result, 'dockerfile')
       })
 
       it('handles Windows-style paths', () => {

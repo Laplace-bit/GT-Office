@@ -8,7 +8,7 @@
     "ensure:native": "node ../../scripts/ensure-web-native-bindings.cjs",
     "dev": "npm run ensure:native && vite",
     "build": "npm run ensure:native && tsc -b && vite build",
-    "test:unit": "tsc -p tsconfig.tests.json && node --test .test-dist/tests/*.test.js",
+    "test:unit": "rm -rf .test-dist && tsc -p tsconfig.tests.json && node --test .test-dist/tests/*.test.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

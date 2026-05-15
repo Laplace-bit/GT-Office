@@ -232,6 +232,7 @@ test('drops restore state when the station session changes', () => {
     retainSessionOwnedRestoreState(
       {
         sessionId: 'session-1',
+        revision: 0,
         state: {
           content: 'old screen',
           cols: 80,
@@ -242,6 +243,7 @@ test('drops restore state when the station session changes', () => {
     ),
     {
       sessionId: 'session-1',
+      revision: 0,
       state: {
         content: 'old screen',
         cols: 80,
@@ -254,6 +256,7 @@ test('drops restore state when the station session changes', () => {
     retainSessionOwnedRestoreState(
       {
         sessionId: 'session-1',
+        revision: 0,
         state: {
           content: 'old screen',
           cols: 80,
@@ -269,6 +272,7 @@ test('drops restore state when the station session changes', () => {
     retainSessionOwnedRestoreState(
       {
         sessionId: 'session-1',
+        revision: 0,
         state: {
           content: 'old screen',
           cols: 80,
@@ -295,6 +299,7 @@ test('captures restore state only for a live station session', () => {
     ),
     {
       sessionId: 'session-2',
+      revision: 0,
       state: {
         content: 'screen',
         cols: 120,
@@ -331,6 +336,7 @@ test('captures teardown restore state only when the removing sink still matches 
     ),
     {
       sessionId: 'session-2',
+      revision: 0,
       state: {
         content: 'screen',
         cols: 120,
@@ -379,6 +385,7 @@ test('captures reported restore state only when the reported session still owns 
     ),
     {
       sessionId: 'session-2',
+      revision: 0,
       state: {
         content: 'screen',
         cols: 120,

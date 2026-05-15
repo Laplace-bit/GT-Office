@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
@@ -11,7 +11,7 @@
       "@features/*": ["src/features/*"],
       "@shell/*": ["src/shell/*"]
     },
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": false,
@@ -42,6 +42,7 @@
     "src/features/workspace-hub/station-task-ack-emoji.ts",
     "src/features/workspace-hub/station-mutation-error.ts",
     "src/features/settings/update-preferences-model.ts",
+    "src/features/git/controllers/git-merge-state.ts",
     "src/shell/i18n/messages.ts",
     "src/shell/i18n/ui-locale.ts",
     "src/shell/state/workspace-tab-normalization.ts",

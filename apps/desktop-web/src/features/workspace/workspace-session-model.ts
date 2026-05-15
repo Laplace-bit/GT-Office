@@ -1,9 +1,9 @@
-import type { WorkbenchContainerSnapshot } from '@features/workspace-hub'
+import type { WorkbenchContainerSnapshot } from '../workspace-hub/workbench-container-model.js'
 import {
   isWorkbenchLayoutMode,
   normalizeWorkbenchCustomLayout,
   type WorkbenchCustomLayout,
-} from '@features/workspace-hub/workbench-layout-model'
+} from '../workspace-hub/workbench-layout-model.js'
 
 const WORKSPACE_SESSION_SNAPSHOT_FILE_REL = '.gtoffice/session.snapshot.json'
 const WORKSPACE_SESSION_SNAPSHOT_VERSION = 1 as const
