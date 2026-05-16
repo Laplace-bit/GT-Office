@@ -64,8 +64,25 @@ export function hydrateWorkspaceTerminalSessionDocument(
   const initialRuntimes = createInitialStationTerminals(stations)
 
   stations.forEach((station) => {
-    hydrated.stationTerminals[station.id] =
-      hydrated.stationTerminals[station.id] ?? initialRuntimes[station.id]
+    const cached = hydrated.stationTerminals[station.id]
+    if (cached) {
+      if (cached.sessionId) {
+        delete hydrated.sessionStation[cached.sessionId]
+        delete hydrated.sessionSeq[cached.sessionId]
+        delete hydrated.sessionVisibility[cached.sessionId]
+        delete hydrated.restoreState[station.id]
+        hydrated.stationTerminals[station.id] = {
+          ...cached,
+          sessionId: null,
+          stateRaw: 'idle',
+          shell: null,
+          cwdMode: 'workspace_root',
+          resolvedCwd: null,
+        }
+      }
+    } else {
+      hydrated.stationTerminals[station.id] = initialRuntimes[station.id]
+    }
     if (!Object.prototype.hasOwnProperty.call(hydrated.outputCache, station.id)) {
       hydrated.outputCache[station.id] = getStationIdleBanner(station)
     }
@@ -88,12 +105,11 @@ export function hydrateWorkspaceTerminalSessionDocument(
   })
 
   Object.entries(hydrated.sessionStation).forEach(([sessionId, stationId]) => {
-    if (stationIds.has(stationId)) {
-      return
+    if (!stationIds.has(stationId)) {
+      delete hydrated.sessionStation[sessionId]
+      delete hydrated.sessionSeq[sessionId]
+      delete hydrated.sessionVisibility[sessionId]
     }
-    delete hydrated.sessionStation[sessionId]
-    delete hydrated.sessionSeq[sessionId]
-    delete hydrated.sessionVisibility[sessionId]
   })
 
   return hydrated

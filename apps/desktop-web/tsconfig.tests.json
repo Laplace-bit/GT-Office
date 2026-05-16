@@ -41,11 +41,13 @@
     "src/features/tool-adapter/channel-message-layout.ts",
     "src/features/workspace-hub/station-task-ack-emoji.ts",
     "src/features/workspace-hub/station-mutation-error.ts",
+    "src/features/workspace-hub/station-model.ts",
     "src/features/settings/update-preferences-model.ts",
     "src/features/git/controllers/git-merge-state.ts",
     "src/shell/i18n/messages.ts",
     "src/shell/i18n/ui-locale.ts",
     "src/shell/state/workspace-tab-normalization.ts",
+    "src/shell/state/workspace-terminal-session-store.ts",
     "src/shell/layout/workspace-git-summary-model.ts"
   ]
 }
