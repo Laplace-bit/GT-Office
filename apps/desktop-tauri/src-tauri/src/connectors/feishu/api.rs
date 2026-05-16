@@ -4,11 +4,11 @@ use feishu_sdk::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::process::Command;
 use uuid::Uuid;
 
-use crate::process_utils::configure_std_command;
+use crate::connectors::http_client::{HttpClient, HttpRequest};
 
+use super::send_policy;
 use super::types::FeishuDomain;
 
 #[derive(Debug, Clone)]
@@ -56,6 +56,10 @@ struct MessageSendEnvelope {
     #[serde(default)]
     msg: Option<String>,
     #[serde(default)]
+    request_id: Option<String>,
+    #[serde(default)]
+    http_status: Option<i64>,
+    #[serde(default)]
     data: Option<MessageSendData>,
 }
 
@@ -90,24 +94,7 @@ pub fn build_client(
     Client::new(config).map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))
 }
 
-fn run_curl_json(args: &[&str]) -> Result<Value, String> {
-    let mut command = Command::new("curl");
-    configure_std_command(&mut command);
-    let output = command
-        .args(args)
-        .output()
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    serde_json::from_slice::<Value>(&output.stdout)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))
-}
-
-pub fn fetch_tenant_access_token(
+pub async fn fetch_tenant_access_token(
     domain: FeishuDomain,
     app_id: &str,
     app_secret: &str,
@@ -119,20 +106,33 @@ pub fn fetch_tenant_access_token(
     let body = json!({
         "app_id": app_id.trim(),
         "app_secret": app_secret.trim(),
-    })
-    .to_string();
-    let payload = run_curl_json(&[
-        "-sS",
-        "--max-time",
-        "12",
-        "-X",
-        "POST",
-        "-H",
-        "Content-Type: application/json; charset=utf-8",
-        "-d",
-        body.as_str(),
-        endpoint.as_str(),
-    ])?;
+    });
+
+    let client = HttpClient::new();
+    let request = HttpRequest::post(&endpoint)
+        .json_body(&body)
+        .timeout_secs(12)
+        .build();
+
+    let response = client
+        .execute(request)
+        .await
+        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {e}"))?;
+
+    if !response.is_success() {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: HTTP {}",
+            response.status
+        ));
+    }
+
+    let payload = response
+        .json_value()
+        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {e}"))?;
+    parse_tenant_access_token_response(payload)
+}
+
+fn parse_tenant_access_token_response(payload: Value) -> Result<String, String> {
     let response: TenantAccessTokenResponse = serde_json::from_value(payload)
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
     if response.code != 0 {
@@ -140,6 +140,10 @@ pub fn fetch_tenant_access_token(
             "CHANNEL_CONNECTOR_AUTH_FAILED: {}",
             response
                 .msg
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
                 .unwrap_or_else(|| "tenant_access_token request failed".to_string())
         ));
     }
@@ -150,20 +154,40 @@ pub fn fetch_tenant_access_token(
         .ok_or_else(|| "CHANNEL_CONNECTOR_AUTH_FAILED: missing tenant access token".to_string())
 }
 
-pub fn get_bot_info(
+pub async fn get_bot_info(
     domain: FeishuDomain,
     tenant_access_token: &str,
 ) -> Result<FeishuBotInfo, String> {
     let endpoint = format!("{}/open-apis/bot/v3/info", base_url(domain));
-    let auth_header = format!("Authorization: Bearer {}", tenant_access_token.trim());
-    let payload = run_curl_json(&[
-        "-sS",
-        "--max-time",
-        "12",
-        "-H",
-        auth_header.as_str(),
-        endpoint.as_str(),
-    ])?;
+
+    let client = HttpClient::new();
+    let request = HttpRequest::get(&endpoint)
+        .header(
+            "Authorization",
+            &format!("Bearer {}", tenant_access_token.trim()),
+        )
+        .timeout_secs(12)
+        .build();
+
+    let response = client
+        .execute(request)
+        .await
+        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {e}"))?;
+
+    if !response.is_success() {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: HTTP {}",
+            response.status
+        ));
+    }
+
+    let payload = response
+        .json_value()
+        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {e}"))?;
+    parse_bot_info_response(payload)
+}
+
+fn parse_bot_info_response(payload: Value) -> Result<FeishuBotInfo, String> {
     let response: BotInfoEnvelope = serde_json::from_value(payload)
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
     if response.code != 0 {
@@ -171,6 +195,10 @@ pub fn get_bot_info(
             "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
             response
                 .msg
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
                 .unwrap_or_else(|| "bot info request failed".to_string())
         ));
     }
@@ -213,7 +241,7 @@ fn send_text_message_query() -> Vec<(&'static str, &'static str)> {
 }
 
 fn reply_text_message_query() -> Vec<(&'static str, &'static str)> {
-    vec![("msg_type", "text")]
+    Vec::new()
 }
 
 fn send_text_message_body(peer_id: &str, text: &str, uuid: &str) -> Value {
@@ -227,6 +255,7 @@ fn send_text_message_body(peer_id: &str, text: &str, uuid: &str) -> Value {
 
 fn reply_text_message_body(text: &str, uuid: &str) -> Value {
     json!({
+        "msg_type": "text",
         "content": message_content(text.trim()),
         "uuid": uuid,
     })
@@ -236,12 +265,35 @@ fn extract_message_id(payload: Value, error_prefix: &str) -> Result<String, Stri
     let response: MessageSendEnvelope = serde_json::from_value(payload.clone())
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
     if response.code != 0 {
+        let code = response.code;
+        let message = response
+            .msg
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "message request failed".to_string());
+        let prefix = send_policy::provider_error_prefix(&format!("code={code} msg={message}"));
+        let mut detail = format!("code={code} msg={message}");
+        if let Some(request_id) = response
+            .request_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            detail.push_str(&format!(" request_id={request_id}"));
+        }
+        if let Some(http_status) = response.http_status {
+            detail.push_str(&format!(" http_status={http_status}"));
+        }
         return Err(format!(
             "{}: {}",
-            error_prefix,
-            response
-                .msg
-                .unwrap_or_else(|| "message request failed".to_string())
+            if prefix == "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE" {
+                error_prefix
+            } else {
+                prefix
+            },
+            detail
         ));
     }
     response
@@ -272,13 +324,13 @@ pub async fn send_text_message(
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
         .send()
         .await
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
+        .map_err(send_policy::normalize_provider_error)?;
     if response.status != 200 {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: status={} body={}",
+        return Err(send_policy::normalize_provider_error(format!(
+            "status={} body={}",
             response.status,
             String::from_utf8_lossy(&response.body)
-        ));
+        )));
     }
     extract_message_id(
         response
@@ -305,13 +357,13 @@ pub async fn reply_text_message(
         .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
         .send()
         .await
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
+        .map_err(send_policy::normalize_provider_error)?;
     if response.status != 200 {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: status={} body={}",
+        return Err(send_policy::normalize_provider_error(format!(
+            "status={} body={}",
             response.status,
             String::from_utf8_lossy(&response.body)
-        ));
+        )));
     }
     extract_message_id(
         response
@@ -322,59 +374,5 @@ pub async fn reply_text_message(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        reply_text_message_body, reply_text_message_query, send_text_message_body,
-        send_text_message_query,
-    };
-
-    #[test]
-    fn send_text_message_query_uses_chat_receive_id_type() {
-        assert_eq!(
-            send_text_message_query(),
-            vec![("receive_id_type", "chat_id")]
-        );
-    }
-
-    #[test]
-    fn reply_text_message_query_carries_msg_type() {
-        assert_eq!(reply_text_message_query(), vec![("msg_type", "text")]);
-    }
-
-    #[test]
-    fn send_text_message_body_matches_feishu_create_contract() {
-        let body = send_text_message_body(" oc_123 ", " hello ", "uuid-1");
-
-        assert_eq!(
-            body.get("receive_id").and_then(|value| value.as_str()),
-            Some("oc_123")
-        );
-        assert_eq!(
-            body.get("msg_type").and_then(|value| value.as_str()),
-            Some("text")
-        );
-        assert_eq!(
-            body.get("content").and_then(|value| value.as_str()),
-            Some("{\"text\":\"hello\"}")
-        );
-        assert_eq!(
-            body.get("uuid").and_then(|value| value.as_str()),
-            Some("uuid-1")
-        );
-    }
-
-    #[test]
-    fn reply_text_message_body_keeps_msg_type_out_of_body() {
-        let body = reply_text_message_body(" hello ", "uuid-2");
-
-        assert!(body.get("msg_type").is_none());
-        assert_eq!(
-            body.get("content").and_then(|value| value.as_str()),
-            Some("{\"text\":\"hello\"}")
-        );
-        assert_eq!(
-            body.get("uuid").and_then(|value| value.as_str()),
-            Some("uuid-2")
-        );
-    }
-}
+#[path = "tests/api_tests.rs"]
+mod tests;
