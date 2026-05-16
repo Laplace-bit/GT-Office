@@ -15,6 +15,7 @@ export interface ShellWindowController {
   handleWindowToggleMaximize: () => void
   handleWindowClose: () => void
   handleWindowStartDragging: (event: ReactPointerEvent<HTMLElement>) => void
+  handleWindowDoubleClick: (event: React.MouseEvent<HTMLElement>) => void
 }
 
 export function useShellWindowController({
@@ -187,11 +188,33 @@ export function useShellWindowController({
     void desktopApi.surfaceStartWindowDragging(null).catch(() => {})
   }, [])
 
+  const handleWindowDoubleClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    const target = event.target
+    if (!(target instanceof Element)) {
+      return
+    }
+    const interactiveSelector =
+      "button,input,textarea,select,a,[role='button'],[contenteditable='true'],label,.vb-workspace-tab,.vb-workspace-tab-add,.vb-pin-container-dropdown,.vb-pin-container-dropdown-item"
+    if (target.closest(interactiveSelector)) {
+      return
+    }
+    void desktopApi.windowToggleMaximize().then((success) => {
+      if (!success) {
+        return
+      }
+      syncWindowFrameState()
+    })
+  }, [syncWindowFrameState])
+
   return {
     windowMaximized,
     handleWindowMinimize,
     handleWindowToggleMaximize,
     handleWindowClose,
     handleWindowStartDragging,
+    handleWindowDoubleClick,
   }
 }

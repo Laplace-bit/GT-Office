@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { AppIconName } from '../ui/icons'
 import { AppIcon } from '../ui/icons'
@@ -47,6 +47,7 @@ interface TopControlBarProps {
   onWindowToggleMaximize: () => void
   onWindowClose: () => void
   onBeginWindowDrag?: (event: ReactPointerEvent<HTMLElement>) => void
+  onWindowDoubleClick?: (event: ReactMouseEvent<HTMLElement>) => void
   pinnedWorkbenchContainerId: string | null
   dockedContainerOptions: DockedContainerOption[]
   onTogglePinnedWorkbenchContainer: (containerId: string) => void
@@ -136,6 +137,7 @@ export function TopControlBar({
   onWindowToggleMaximize,
   onWindowClose,
   onBeginWindowDrag,
+  onWindowDoubleClick,
   pinnedWorkbenchContainerId,
   dockedContainerOptions,
   onTogglePinnedWorkbenchContainer,
@@ -297,6 +299,7 @@ export function TopControlBar({
     <header
       className={topClassNames}
       onPointerDownCapture={onBeginWindowDrag}
+      onDoubleClick={onWindowDoubleClick}
     >
       <div className="vb-top-control-leading">
         <div className="vb-top-actions" role="toolbar" aria-label={t(locale, 'topControlBar.openWorkspace')}>

@@ -104,6 +104,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     handleWindowToggleMaximize,
     handleWindowClose,
     handleWindowStartDragging,
+    handleWindowDoubleClick,
   } = useShellWindowController({
     nativeWindowTop,
     nativeWindowTopWindows,
@@ -1204,6 +1205,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         onWindowToggleMaximize: handleWindowToggleMaximize,
         onWindowClose: handleWindowClose,
         onBeginWindowDrag: handleWindowStartDragging,
+        onWindowDoubleClick: handleWindowDoubleClick,
         pinnedWorkbenchContainerId,
         dockedContainerOptions,
         onTogglePinnedWorkbenchContainer: togglePinnedWorkbenchContainer,
