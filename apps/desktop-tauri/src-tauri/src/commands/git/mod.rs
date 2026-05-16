@@ -1,11 +1,7 @@
 pub mod status_coordinator;
 
-#[cfg(test)]
-use gt_abstractions::{ConflictFile, MergeResult, MergeState};
 use gt_abstractions::{GitStatusSummary, WorkspaceId};
 use gt_git::{GitBranchEntry, GitCommitDetail, GitCommitEntry, GitStashEntry, GitTagEntry};
-#[cfg(test)]
-use gt_git::{GitFetchResult, GitPullResult, GitPushResult};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::time::Instant;
@@ -185,119 +181,10 @@ fn build_git_branches_payload(workspace_id: &WorkspaceId, branches: Vec<GitBranc
     })
 }
 
-#[cfg(test)]
-fn build_git_fetch_payload(workspace_id: &WorkspaceId, result: GitFetchResult) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "remote": result.remote,
-        "prune": result.prune,
-        "includeTags": result.include_tags,
-        "queued": true
-    })
-}
-
-#[cfg(test)]
-fn build_git_pull_payload(workspace_id: &WorkspaceId, result: GitPullResult) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "remote": result.remote,
-        "branch": result.branch,
-        "rebase": result.rebase,
-        "queued": true
-    })
-}
-
-#[cfg(test)]
-fn build_git_push_payload(workspace_id: &WorkspaceId, result: GitPushResult) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "remote": result.remote,
-        "branch": result.branch,
-        "setUpstream": result.set_upstream,
-        "forceWithLease": result.force_with_lease,
-        "queued": true
-    })
-}
-
-#[cfg(test)]
-fn build_git_tag_push_payload(
-    workspace_id: &WorkspaceId,
-    remote: Option<String>,
-    name: String,
-) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "remote": remote,
-        "name": name,
-        "queued": true
-    })
-}
-
 fn build_git_stash_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitStashEntry>) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "entries": entries
-    })
-}
-
-#[cfg(test)]
-fn build_git_merge_payload(workspace_id: &WorkspaceId, result: MergeResult) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "success": result.success,
-        "conflicts": result.conflicts,
-        "mergedCommit": result.merged_commit,
-    })
-}
-
-#[cfg(test)]
-fn build_git_merge_continue_payload(workspace_id: &WorkspaceId, merged_commit: String) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "mergedCommit": merged_commit,
-    })
-}
-
-#[cfg(test)]
-fn build_git_merge_abort_payload(workspace_id: &WorkspaceId) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "aborted": true,
-    })
-}
-
-#[cfg(test)]
-fn build_git_conflict_list_payload(
-    workspace_id: &WorkspaceId,
-    conflicts: Vec<ConflictFile>,
-) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "conflicts": conflicts,
-    })
-}
-
-#[cfg(test)]
-fn build_git_merge_state_payload(workspace_id: &WorkspaceId, state: MergeState) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "inProgress": state.in_progress,
-        "conflicts": state.conflicts,
-    })
-}
-
-#[cfg(test)]
-fn build_git_conflict_resolve_payload(
-    workspace_id: &WorkspaceId,
-    path: String,
-    side: String,
-    conflicts: Vec<ConflictFile>,
-) -> Value {
-    json!({
-        "workspaceId": workspace_id.as_str(),
-        "path": path,
-        "side": side,
-        "conflicts": conflicts,
     })
 }
 
