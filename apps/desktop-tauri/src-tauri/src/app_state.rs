@@ -216,9 +216,6 @@ impl ExternalInteractionPrompt {
     }
 
     fn action_for_text_input(&self, input: &str) -> Option<ExternalInteractionAction> {
-        if let Some(submit_text) = self.matches_submit_input(input) {
-            return Some(ExternalInteractionAction::SubmitText(submit_text));
-        }
         let normalized = input.trim();
         if normalized.is_empty() {
             return None;
@@ -226,6 +223,9 @@ impl ExternalInteractionPrompt {
         let lower = normalized.to_ascii_lowercase();
         match self.control_mode {
             ExternalInteractionControlMode::SemanticButtons => {
+                if let Some(submit_text) = self.matches_submit_input(input) {
+                    return Some(ExternalInteractionAction::SubmitText(submit_text));
+                }
                 let alias = match lower.as_str() {
                     "y" | "yes" | "allow" => Some("yes"),
                     "n" | "no" | "deny" => Some("no"),
@@ -2118,7 +2118,7 @@ fn find_menu_title_before_row(
             || is_horizontal_rule_line(trimmed)
             || is_ready_prompt_line_for_tool(trimmed, profile)
         {
-            break;
+            continue;
         }
         if is_interaction_menu_option_row(trimmed)
             || is_permission_prompt_line(trimmed)
