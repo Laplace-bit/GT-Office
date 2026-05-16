@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
+thiserror = "2"
 bincode = "1.3"
 # Preview enhancement
 image = "0.25"
