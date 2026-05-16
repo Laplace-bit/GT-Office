@@ -15,12 +15,11 @@ use tokio::{
     time::{timeout, Duration},
 };
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
     commands::tool_adapter::process_external_inbound_message,
-    connectors::{feishu, telegram},
+    connectors::{feishu, telegram, webhook_tokens::{WebhookTokens, tokens_file_path}},
 };
 
 const CHANNEL_RUNTIME_VERSION: &str = "0.1.0";
@@ -232,8 +231,10 @@ async fn run_runtime(app: AppHandle, state: AppState) -> Result<(), String> {
         .local_addr()
         .map_err(|error| format!("CHANNEL_RUNTIME_ADDR_FAILED: {error}"))?;
 
-    let feishu_token = Uuid::new_v4().simple().to_string();
-    let telegram_token = Uuid::new_v4().simple().to_string();
+    let tokens = WebhookTokens::load_from_path(&tokens_file_path())
+        .unwrap_or_else(|_| WebhookTokens::new());
+    let feishu_token = tokens.feishu_token;
+    let telegram_token = tokens.telegram_token;
     let started_at_ms = now_ms();
     let base_url = format!("http://{}:{}", addr.ip(), addr.port());
 
