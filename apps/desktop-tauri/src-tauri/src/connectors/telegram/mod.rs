@@ -11,7 +11,7 @@ use std::{
     sync::{OnceLock, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
@@ -194,6 +194,9 @@ fn read_poll_offset(account_id: &str) -> Option<i64> {
 }
 
 fn write_poll_offset(account_id: &str, value: i64) {
+    if value < 0 {
+        return;
+    }
     let lock = TELEGRAM_POLL_OFFSETS.get_or_init(|| RwLock::new(HashMap::new()));
     if let Ok(mut guard) = lock.write() {
         guard.insert(account_id.to_string(), value);
@@ -244,7 +247,7 @@ fn mark_poll_primed(account_id: &str) {
     }
 }
 
-fn connector_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn connector_store_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
@@ -252,7 +255,7 @@ fn connector_store_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data.join("channel/connectors.json"))
 }
 
-fn load_store(app: &AppHandle) -> Result<ConnectorStoreFile, String> {
+fn load_store<R: Runtime>(app: &AppHandle<R>) -> Result<ConnectorStoreFile, String> {
     let path = connector_store_path(app)?;
     if !path.exists() {
         return Ok(ConnectorStoreFile::default());
@@ -263,7 +266,7 @@ fn load_store(app: &AppHandle) -> Result<ConnectorStoreFile, String> {
         .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_DECODE_FAILED: {error}"))
 }
 
-fn save_store(app: &AppHandle, store: &ConnectorStoreFile) -> Result<(), String> {
+fn save_store<R: Runtime>(app: &AppHandle<R>, store: &ConnectorStoreFile) -> Result<(), String> {
     let path = connector_store_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -306,6 +309,46 @@ fn load_webhook_secret(record: &TelegramAccountRecord) -> Result<Option<String>,
     Ok(Some(secret))
 }
 
+pub fn account_id_for_webhook_secret(
+    app: &AppHandle<impl Runtime>,
+    webhook_secret: &str,
+) -> Result<Option<String>, String> {
+    let store = load_store(app)?;
+    account_id_for_webhook_secret_in_store(&store, webhook_secret, load_secret)
+}
+
+fn account_id_for_webhook_secret_in_store<F>(
+    store: &ConnectorStoreFile,
+    webhook_secret: &str,
+    load_secret_value: F,
+) -> Result<Option<String>, String>
+where
+    F: Fn(&str) -> Result<String, String>,
+{
+    let webhook_secret = webhook_secret.trim();
+    if webhook_secret.is_empty() {
+        return Ok(None);
+    }
+
+    for record in store.telegram_accounts.values() {
+        if !record.enabled || record.mode != "webhook" {
+            continue;
+        }
+        let Some(reference) = record.webhook_secret_ref.as_deref() else {
+            continue;
+        };
+        let configured_secret = load_secret_value(reference)
+            .map_err(|error| format!("CHANNEL_CONNECTOR_SECRET_LOAD_FAILED: {error}"))?;
+        if configured_secret.trim().is_empty() {
+            continue;
+        }
+        if configured_secret.trim() == webhook_secret {
+            return Ok(Some(record.account_id.clone()));
+        }
+    }
+    Ok(None)
+}
+
 fn to_view(record: &TelegramAccountRecord) -> TelegramConnectorAccountView {
     let has_bot_token = load_secret(&record.bot_token_ref)
         .map(|value| !value.trim().is_empty())
@@ -331,7 +374,9 @@ fn to_view(record: &TelegramAccountRecord) -> TelegramConnectorAccountView {
     }
 }
 
-pub fn list_accounts(app: &AppHandle) -> Result<Vec<TelegramConnectorAccountView>, String> {
+pub fn list_accounts(
+    app: &AppHandle<impl Runtime>,
+) -> Result<Vec<TelegramConnectorAccountView>, String> {
     let store = load_store(app)?;
     let mut accounts: Vec<TelegramConnectorAccountView> =
         store.telegram_accounts.values().map(to_view).collect();
@@ -340,7 +385,7 @@ pub fn list_accounts(app: &AppHandle) -> Result<Vec<TelegramConnectorAccountView
 }
 
 pub fn upsert_account(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     input: TelegramAccountUpsertInput,
 ) -> Result<TelegramConnectorAccountView, String> {
     let account_id = normalize_account_id(input.account_id.as_deref());
@@ -448,7 +493,7 @@ pub fn upsert_account(
 }
 
 pub async fn health_check(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     runtime_webhook_url: Option<String>,
 ) -> Result<TelegramHealthSnapshot, String> {
@@ -504,12 +549,9 @@ pub async fn health_check(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let webhook_matched = runtime_webhook_url.as_ref().map(|runtime_url| {
-        configured_webhook_url
-            .as_deref()
-            .map(|configured| configured == runtime_url)
-            .unwrap_or(false)
-    });
+    let webhook_matched = runtime_webhook_url
+        .as_deref()
+        .map(|runtime_url| webhook_urls_match(configured_webhook_url.as_deref(), runtime_url));
 
     let detail = if let Some(last_error) = webhook_info
         .last_error_message
@@ -543,8 +585,18 @@ pub async fn health_check(
     })
 }
 
+fn webhook_urls_match(configured_webhook_url: Option<&str>, runtime_webhook_url: &str) -> bool {
+    let Some(configured) = configured_webhook_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    configured == runtime_webhook_url.trim()
+}
+
 pub async fn sync_runtime_webhook(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     runtime_webhook_url: &str,
 ) -> Result<TelegramWebhookSyncSnapshot, String> {
@@ -607,7 +659,7 @@ pub async fn sync_runtime_webhook(
 /// is sent. The indicator automatically expires after ~5s or when a message
 /// is delivered.
 pub async fn send_typing_action(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     peer_id: &str,
 ) -> Result<(), String> {
@@ -639,7 +691,7 @@ pub async fn send_typing_action(
 }
 
 pub async fn send_text_reply(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     peer_id: &str,
     text: &str,
@@ -657,36 +709,37 @@ fn keyboard_to_reply_markup(
         .iter()
         .map(|row| {
             row.iter()
-                .map(|button| {
-                    serde_json::json!({
-                        "text": button.text,
-                        "callback_data": button.callback_data,
-                    })
+                .filter_map(|button| {
+                    let text = button.text.trim();
+                    let callback_data = button.callback_data.trim();
+                    if text.is_empty() || callback_data.is_empty() {
+                        return None;
+                    }
+                    Some(serde_json::json!({
+                        "text": text,
+                        "callback_data": callback_data,
+                    }))
                 })
                 .collect::<Vec<_>>()
         })
+        .filter(|row| !row.is_empty())
         .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return None;
+    }
     Some(serde_json::json!({
         "inline_keyboard": rows,
     }))
 }
-
 pub async fn send_text_reply_with_inline_keyboard(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     peer_id: &str,
     text: &str,
     reply_to_message_id: Option<&str>,
     keyboard: Option<&TelegramInlineKeyboard>,
 ) -> Result<TelegramSendSnapshot, String> {
-    let peer_id = peer_id.trim();
-    if peer_id.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
-    }
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
-    }
+    let (peer_id, text) = validate_send_input(peer_id, text)?;
 
     let account_id = normalize_account_id(account_id);
     let key = account_id.to_ascii_lowercase();
@@ -728,7 +781,7 @@ pub async fn send_text_reply_with_inline_keyboard(
 }
 
 pub async fn edit_text_reply(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     peer_id: &str,
     message_id: &str,
@@ -738,25 +791,14 @@ pub async fn edit_text_reply(
 }
 
 pub async fn edit_text_reply_with_inline_keyboard(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     peer_id: &str,
     message_id: &str,
     text: &str,
     keyboard: Option<&TelegramInlineKeyboard>,
 ) -> Result<TelegramSendSnapshot, String> {
-    let peer_id = peer_id.trim();
-    if peer_id.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
-    }
-    let message_id = message_id.trim();
-    if message_id.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: message id is required".to_string());
-    }
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
-    }
+    let (peer_id, message_id, text) = validate_edit_input(peer_id, message_id, text)?;
 
     let account_id = normalize_account_id(account_id);
     let key = account_id.to_ascii_lowercase();
@@ -797,20 +839,43 @@ pub async fn edit_text_reply_with_inline_keyboard(
     })
 }
 
-pub async fn delete_message(
-    app: &AppHandle,
-    account_id: Option<&str>,
-    peer_id: &str,
-    message_id: &str,
-) -> Result<(), String> {
+fn validate_send_input<'a>(peer_id: &'a str, text: &'a str) -> Result<(&'a str, &'a str), String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
+    }
+    Ok((peer_id, text))
+}
+
+fn validate_edit_input<'a>(
+    peer_id: &'a str,
+    message_id: &'a str,
+    text: &'a str,
+) -> Result<(&'a str, &'a str, &'a str), String> {
     let peer_id = peer_id.trim();
     if peer_id.is_empty() {
         return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
     }
     let message_id = message_id.trim();
-    if message_id.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: message id is required".to_string());
+    validate_message_id(message_id)?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
     }
+    Ok((peer_id, message_id, text))
+}
+
+pub async fn delete_message(
+    app: &AppHandle<impl Runtime>,
+    account_id: Option<&str>,
+    peer_id: &str,
+    message_id: &str,
+) -> Result<(), String> {
+    let (peer_id, message_id) = validate_delete_input(peer_id, message_id)?;
 
     let account_id = normalize_account_id(account_id);
     let key = account_id.to_ascii_lowercase();
@@ -842,15 +907,12 @@ pub async fn delete_message(
 }
 
 pub async fn answer_callback_query(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     callback_query_id: &str,
     text: Option<&str>,
 ) -> Result<(), String> {
-    let callback_query_id = callback_query_id.trim();
-    if callback_query_id.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: callback query id is required".to_string());
-    }
+    let callback_query_id = validate_callback_query_input(callback_query_id)?;
 
     let account_id = normalize_account_id(account_id);
     let key = account_id.to_ascii_lowercase();
@@ -876,6 +938,42 @@ pub async fn answer_callback_query(
     Ok(())
 }
 
+fn validate_delete_input<'a>(
+    peer_id: &'a str,
+    message_id: &'a str,
+) -> Result<(&'a str, &'a str), String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let message_id = message_id.trim();
+    validate_message_id(message_id)?;
+    Ok((peer_id, message_id))
+}
+
+fn validate_message_id(message_id: &str) -> Result<(), String> {
+    if message_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: message id is required".to_string());
+    }
+    if message_id
+        .parse::<i64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .is_none()
+    {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: message id must be numeric".to_string());
+    }
+    Ok(())
+}
+
+fn validate_callback_query_input(callback_query_id: &str) -> Result<&str, String> {
+    let callback_query_id = callback_query_id.trim();
+    if callback_query_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: callback query id is required".to_string());
+    }
+    Ok(callback_query_id)
+}
+
 fn polling_accounts(app: &AppHandle, state: &AppState) -> Vec<TelegramAccountRecord> {
     let needed = needed_channel_accounts(state);
     let Ok(store) = load_store(app) else {
@@ -896,6 +994,14 @@ fn polling_accounts(app: &AppHandle, state: &AppState) -> Vec<TelegramAccountRec
         .collect();
     accounts.sort_by(|a, b| a.account_id.cmp(&b.account_id));
     accounts
+}
+
+fn update_id_from_item(item: &serde_json::Value) -> Option<i64> {
+    let value = item.get("update_id")?;
+    if let Some(update_id) = value.as_i64().filter(|value| *value >= 0) {
+        return Some(update_id);
+    }
+    value.as_u64().and_then(|value| i64::try_from(value).ok())
 }
 
 async fn poll_account_once(
@@ -942,15 +1048,7 @@ async fn poll_account_once(
 
     let mut max_update_id: Option<i64> = None;
     for item in items {
-        if let Some(update_id) = item
-            .get("update_id")
-            .and_then(serde_json::Value::as_i64)
-            .or_else(|| {
-                item.get("update_id")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|value| value as i64)
-            })
-        {
+        if let Some(update_id) = update_id_from_item(&item) {
             max_update_id = Some(max_update_id.map_or(update_id, |value| value.max(update_id)));
         }
         let inbound = match parse_telegram_update(&item, &account_id) {
@@ -985,19 +1083,31 @@ async fn poll_account_once(
 }
 
 pub fn spawn_polling_worker(app: AppHandle, state: AppState) {
+    let shutdown = state.shutdown_token.clone();
     tauri::async_runtime::spawn(async move {
-        loop {
-            let accounts = polling_accounts(&app, &state);
-            for record in accounts {
-                if let Err(error) = poll_account_once(&app, &state, record.clone()).await {
-                    warn!(
-                        account_id = %record.account_id,
-                        error = %error,
-                        "telegram polling cycle failed"
-                    );
-                }
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                debug!("telegram polling worker shutting down");
             }
-            sleep(Duration::from_millis(TELEGRAM_POLL_INTERVAL_MS)).await;
+            _ = async {
+                loop {
+                    let accounts = polling_accounts(&app, &state);
+                    for record in accounts {
+                        if let Err(error) = poll_account_once(&app, &state, record.clone()).await {
+                            warn!(
+                                account_id = %record.account_id,
+                                error = %error,
+                                "telegram polling cycle failed"
+                            );
+                        }
+                    }
+                    sleep(Duration::from_millis(TELEGRAM_POLL_INTERVAL_MS)).await;
+                }
+            } => {}
         }
     });
 }
+
+#[cfg(test)]
+#[path = "tests/mod_tests.rs"]
+mod tests;

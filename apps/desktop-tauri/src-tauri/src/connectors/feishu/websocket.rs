@@ -20,7 +20,7 @@ use crate::{
 
 use super::{
     account_store::list_records,
-    types::{FeishuConnectionMode, FeishuDomain},
+    types::{FeishuConnectionMode, FeishuConnectorAccountRecord, FeishuDomain},
 };
 
 static WORKERS: OnceLock<RwLock<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
@@ -100,6 +100,21 @@ fn base_url(domain: FeishuDomain) -> &'static str {
     }
 }
 
+fn desired_websocket_accounts(
+    records: impl IntoIterator<Item = FeishuConnectorAccountRecord>,
+    needed: &HashSet<(String, String)>,
+) -> HashSet<String> {
+    records
+        .into_iter()
+        .filter(|record| {
+            record.enabled
+                && record.connection_mode == FeishuConnectionMode::Websocket
+                && needed.contains(&("feishu".to_string(), record.account_id.to_ascii_lowercase()))
+        })
+        .map(|record| record.account_id.to_ascii_lowercase())
+        .collect()
+}
+
 async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
     let result = async {
         let Some(record) = super::account_store::get_record(&app, &account_id)? else {
@@ -151,16 +166,7 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
 
 pub fn reconcile(app: &AppHandle, state: &AppState) {
     let needed = needed_channel_accounts(state);
-    let desired: HashSet<String> = list_records(app)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|record| {
-            record.enabled
-                && record.connection_mode == FeishuConnectionMode::Websocket
-                && needed.contains(&("feishu".to_string(), record.account_id.to_ascii_lowercase()))
-        })
-        .map(|record| record.account_id.to_ascii_lowercase())
-        .collect();
+    let desired = desired_websocket_accounts(list_records(app).unwrap_or_default(), &needed);
 
     if let Ok(mut guard) = workers().write() {
         let existing: Vec<String> = guard.keys().cloned().collect();
@@ -198,11 +204,23 @@ pub fn reconcile(app: &AppHandle, state: &AppState) {
 }
 
 pub fn spawn_supervisor(app: AppHandle, state: AppState) {
+    let shutdown = state.shutdown_token.clone();
     reconcile(&app, &state);
     tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            reconcile(&app, &state);
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                debug!("feishu websocket supervisor shutting down");
+            }
+            _ = async {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    reconcile(&app, &state);
+                }
+            } => {}
         }
     });
 }
+
+#[cfg(test)]
+#[path = "tests/websocket_tests.rs"]
+mod tests;

@@ -113,10 +113,18 @@ struct RateLimitState {
 }
 
 pub fn spawn(app: AppHandle, state: AppState) {
+    let shutdown = state.shutdown_token.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = run_runtime(app.clone(), state).await {
-            clear_runtime_snapshot();
-            warn!(error = %error, "failed to boot channel adapter runtime");
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                info!("channel adapter runtime shutting down");
+            }
+            result = run_runtime(app.clone(), state) => {
+                if let Err(error) = result {
+                    clear_runtime_snapshot();
+                    warn!(error = %error, "failed to boot channel adapter runtime");
+                }
+            }
         }
     });
 }
@@ -349,6 +357,9 @@ fn route_request(ctx: &RuntimeContext, request: HttpRequest) -> (u16, Value) {
             metrics.webhook_requests = metrics.webhook_requests.saturating_add(1);
         });
         if let Some(token) = path.strip_prefix("/webhook/feishu/") {
+            if let Some(response) = reject_invalid_token(&ctx.feishu_token, token) {
+                return response;
+            }
             if apply_rate_limit("feishu") {
                 with_runtime_metrics_mut(|metrics| {
                     metrics.rate_limited = metrics.rate_limited.saturating_add(1);
@@ -364,6 +375,9 @@ fn route_request(ctx: &RuntimeContext, request: HttpRequest) -> (u16, Value) {
             return handle_feishu_request(ctx, token, &request.headers, &request.body);
         }
         if let Some(token) = path.strip_prefix("/webhook/telegram/") {
+            if let Some(response) = reject_invalid_token(&ctx.telegram_token, token) {
+                return response;
+            }
             if apply_rate_limit("telegram") {
                 with_runtime_metrics_mut(|metrics| {
                     metrics.rate_limited = metrics.rate_limited.saturating_add(1);
@@ -384,6 +398,19 @@ fn route_request(ctx: &RuntimeContext, request: HttpRequest) -> (u16, Value) {
         404,
         json!({ "ok": false, "error": "CHANNEL_ROUTE_NOT_FOUND" }),
     )
+}
+
+fn reject_invalid_token(expected: &str, actual: &str) -> Option<(u16, Value)> {
+    if actual == expected {
+        return None;
+    }
+    with_runtime_metrics_mut(|metrics| {
+        metrics.unauthorized = metrics.unauthorized.saturating_add(1);
+    });
+    Some((
+        401,
+        json!({ "ok": false, "error": "CHANNEL_TOKEN_INVALID" }),
+    ))
 }
 
 fn handle_feishu_request(
@@ -511,7 +538,45 @@ fn handle_telegram_request(
             );
         }
     };
-    let inbound = match parse_telegram_payload(&payload) {
+    let account_id = match headers
+        .get("x-telegram-bot-api-secret-token")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(secret) => match telegram::account_id_for_webhook_secret(&ctx.app, secret) {
+            Ok(Some(account_id)) => account_id,
+            Ok(None) => {
+                with_runtime_metrics_mut(|metrics| {
+                    metrics.unauthorized = metrics.unauthorized.saturating_add(1);
+                });
+                return (
+                    401,
+                    json!({
+                        "ok": false,
+                        "error": "CHANNEL_TELEGRAM_SECRET_INVALID",
+                    }),
+                );
+            }
+            Err(error) => {
+                with_runtime_metrics_mut(|metrics| {
+                    metrics.internal_errors = metrics.internal_errors.saturating_add(1);
+                    mark_runtime_error(metrics, error.clone());
+                });
+                return (
+                    500,
+                    json!({
+                        "ok": false,
+                        "error": "CHANNEL_TELEGRAM_SECRET_LOOKUP_FAILED",
+                        "detail": error,
+                    }),
+                );
+            }
+        },
+        None => "default".to_string(),
+    };
+
+    let inbound = match parse_telegram_payload(&payload, &account_id) {
         Ok(message) => message,
         Err(error) => {
             with_runtime_metrics_mut(|metrics| {
@@ -654,10 +719,12 @@ async fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, String
             headers.insert(key.trim().to_ascii_lowercase(), value.trim().to_string());
         }
     }
-    let expected_body = headers
-        .get("content-length")
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(0);
+    let expected_body = match headers.get("content-length") {
+        Some(value) => value
+            .parse::<usize>()
+            .map_err(|_| "CHANNEL_HTTP_CONTENT_LENGTH_INVALID".to_string())?,
+        None => 0,
+    };
     if expected_body > MAX_BODY_BYTES {
         return Err("CHANNEL_HTTP_BODY_TOO_LARGE".to_string());
     }
@@ -744,7 +811,16 @@ fn is_json_content_type(value: Option<&str>) -> bool {
     media_type == "application/json" || media_type.ends_with("+json")
 }
 
-fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, String> {
+fn parse_telegram_payload(
+    payload: &Value,
+    account_id: &str,
+) -> Result<ExternalInboundMessage, String> {
+    let account_id = account_id.trim();
+    let account_id = if account_id.is_empty() {
+        "default"
+    } else {
+        account_id
+    };
     if let Some(callback) = payload.get("callback_query") {
         let message = callback
             .get("message")
@@ -785,7 +861,7 @@ fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, Str
 
         return Ok(ExternalInboundMessage {
             channel: "telegram".to_string(),
-            account_id: "default".to_string(),
+            account_id: account_id.to_string(),
             peer_kind,
             peer_id,
             sender_id,
@@ -838,7 +914,7 @@ fn parse_telegram_payload(payload: &Value) -> Result<ExternalInboundMessage, Str
 
     Ok(ExternalInboundMessage {
         channel: "telegram".to_string(),
-        account_id: "default".to_string(),
+        account_id: account_id.to_string(),
         peer_kind,
         peer_id,
         sender_id,

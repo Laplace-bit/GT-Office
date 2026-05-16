@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::commands::git::status_coordinator::GitStatusCoordinator;
@@ -147,8 +148,8 @@ pub struct ExternalInteractionPrompt {
     pub control_mode: ExternalInteractionControlMode,
     pub selected_index: Option<usize>,
     pub hint: Option<String>,
-    start_row: u32,
-    end_row: u32,
+    pub(crate) start_row: u32,
+    pub(crate) end_row: u32,
 }
 
 impl ExternalInteractionPrompt {
@@ -455,6 +456,7 @@ pub struct AppState {
     pub settings_service: JsonSettingsService,
     pub task_service: TaskService,
     pub daemon_bridge: DaemonBridge,
+    pub shutdown_token: CancellationToken,
     window_workspace_bindings: Arc<Mutex<HashMap<String, String>>>,
     workspace_watchers: WorkspaceWatcherRegistry,
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
@@ -480,6 +482,7 @@ impl Default for AppState {
             settings_service,
             task_service,
             daemon_bridge: DaemonBridge::default(),
+            shutdown_token: CancellationToken::new(),
             window_workspace_bindings: Arc::new(Mutex::new(HashMap::new())),
             workspace_watchers: WorkspaceWatcherRegistry::default(),
             external_reply_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -781,8 +784,7 @@ impl AppState {
         self.reload_workspace_watcher(app, workspace_id)
     }
 
-    #[cfg(test)]
-    pub fn invalidate_workspace_reset_state_for_test(
+    pub fn invalidate_workspace_reset_state_caches(
         &self,
         workspace_id: &str,
     ) -> Result<(), String> {
@@ -4085,26 +4087,8 @@ fn suppress_injected_input_echo(text: &str, injected_input: Option<&str>) -> Str
 }
 
 #[cfg(test)]
-mod internal_tests {
-    use super::session_log_finalize_delta;
-
-    #[test]
-    fn session_log_finalize_delta_returns_only_unseen_tail() {
-        let final_text = "第一段说明\n第二段说明\n最终结论";
-        let preview_text = "第一段说明\n第二段说明";
-        assert_eq!(
-            session_log_finalize_delta(final_text, preview_text).as_deref(),
-            Some("最终结论")
-        );
-    }
-
-    #[test]
-    fn session_log_finalize_delta_suppresses_duplicate_finalize() {
-        let final_text = "已经发送过的完整正文";
-        let preview_text = "已经发送过的完整正文";
-        assert_eq!(session_log_finalize_delta(final_text, preview_text), None);
-    }
-}
+#[path = "tests/app_state_internal_tests.rs"]
+mod internal_tests;
 
 #[cfg(test)]
 #[path = "tests/app_state_tests.rs"]

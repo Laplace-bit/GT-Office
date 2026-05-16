@@ -13,7 +13,7 @@ use std::{
     sync::{OnceLock, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use tokio::time::{sleep, Duration};
 use tracing::{debug, warn};
 
@@ -85,7 +85,24 @@ fn default_token_ref(account_id: &str) -> String {
     format!("wechat/{}/token", account_id.trim().to_ascii_lowercase())
 }
 
-fn connector_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn sync_buf_file_key(account_id: &str) -> String {
+    let trimmed = account_id.trim();
+    if trimmed.is_empty() {
+        return "default".to_string();
+    }
+    trimmed
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn connector_store_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
@@ -93,7 +110,7 @@ fn connector_store_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data.join("channel/wechat-connectors.json"))
 }
 
-fn load_store(app: &AppHandle) -> Result<ConnectorStoreFile, String> {
+fn load_store<R: Runtime>(app: &AppHandle<R>) -> Result<ConnectorStoreFile, String> {
     let path = connector_store_path(app)?;
     if !path.exists() {
         return Ok(ConnectorStoreFile::default());
@@ -104,7 +121,7 @@ fn load_store(app: &AppHandle) -> Result<ConnectorStoreFile, String> {
         .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_DECODE_FAILED: {error}"))
 }
 
-fn save_store(app: &AppHandle, store: &ConnectorStoreFile) -> Result<(), String> {
+fn save_store<R: Runtime>(app: &AppHandle<R>, store: &ConnectorStoreFile) -> Result<(), String> {
     let path = connector_store_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -116,16 +133,16 @@ fn save_store(app: &AppHandle, store: &ConnectorStoreFile) -> Result<(), String>
         .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_WRITE_FAILED: {error}"))
 }
 
-fn get_record(
-    app: &AppHandle,
+fn get_record<R: Runtime>(
+    app: &AppHandle<R>,
     account_id: &str,
 ) -> Result<Option<WechatConnectorAccountRecord>, String> {
     let store = load_store(app)?;
     Ok(store.wechat_accounts.get(account_id).cloned())
 }
 
-fn upsert_record(
-    app: &AppHandle,
+fn upsert_record<R: Runtime>(
+    app: &AppHandle<R>,
     account_key: String,
     record: WechatConnectorAccountRecord,
 ) -> Result<(), String> {
@@ -134,15 +151,18 @@ fn upsert_record(
     save_store(app, &store)
 }
 
-fn sync_buf_path(app: &AppHandle, account_id: &str) -> Result<PathBuf, String> {
+fn sync_buf_path<R: Runtime>(app: &AppHandle<R>, account_id: &str) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_PATH_FAILED: {error}"))?;
-    Ok(app_data.join(format!("channel/wechat-sync-{}.txt", account_id)))
+    Ok(app_data.join(format!(
+        "channel/wechat-sync-{}.txt",
+        sync_buf_file_key(account_id)
+    )))
 }
 
-fn load_sync_buf(app: &AppHandle, account_id: &str) -> Result<String, String> {
+fn load_sync_buf<R: Runtime>(app: &AppHandle<R>, account_id: &str) -> Result<String, String> {
     let path = sync_buf_path(app, account_id)?;
     if !path.exists() {
         return Ok(String::new());
@@ -151,7 +171,11 @@ fn load_sync_buf(app: &AppHandle, account_id: &str) -> Result<String, String> {
         .map_err(|error| format!("CHANNEL_CONNECTOR_STATE_READ_FAILED: {error}"))
 }
 
-fn save_sync_buf(app: &AppHandle, account_id: &str, value: &str) -> Result<(), String> {
+fn save_sync_buf<R: Runtime>(
+    app: &AppHandle<R>,
+    account_id: &str,
+    value: &str,
+) -> Result<(), String> {
     let path = sync_buf_path(app, account_id)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -187,7 +211,9 @@ fn load_token(record: &WechatConnectorAccountRecord) -> Result<String, String> {
         .map_err(|error| format!("CHANNEL_CONNECTOR_SECRET_LOAD_FAILED: {error}"))
 }
 
-pub fn list_accounts(app: &AppHandle) -> Result<Vec<WechatConnectorAccountView>, String> {
+pub fn list_accounts(
+    app: &AppHandle<impl Runtime>,
+) -> Result<Vec<WechatConnectorAccountView>, String> {
     let store = load_store(app)?;
     let mut accounts: Vec<_> = store.wechat_accounts.into_values().collect();
     accounts.sort_by(|a, b| a.account_id.cmp(&b.account_id));
@@ -195,7 +221,7 @@ pub fn list_accounts(app: &AppHandle) -> Result<Vec<WechatConnectorAccountView>,
 }
 
 pub fn upsert_account(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     input: WechatAccountUpsertInput,
 ) -> Result<WechatConnectorAccountView, String> {
     let account_id = normalize_account_id(input.account_id.as_deref());
@@ -257,7 +283,9 @@ pub fn upsert_account(
     Ok(to_view(&record))
 }
 
-pub fn list_accounts_with_uninitialized_policy(app: &AppHandle) -> Result<Vec<String>, String> {
+pub fn list_accounts_with_uninitialized_policy(
+    app: &AppHandle<impl Runtime>,
+) -> Result<Vec<String>, String> {
     let store = load_store(app)?;
     let mut accounts: Vec<_> = store
         .wechat_accounts
@@ -270,7 +298,11 @@ pub fn list_accounts_with_uninitialized_policy(app: &AppHandle) -> Result<Vec<St
     Ok(accounts)
 }
 
-pub fn mark_access_policy_initialized(app: &AppHandle, account_id: &str) -> Result<(), String> {
+pub fn mark_access_policy_initialized(
+    app: &AppHandle<impl Runtime>,
+    account_id: &str,
+) -> Result<(), String> {
+    let account_id = account_id.trim();
     let store = load_store(app)?;
     let Some((account_key, mut record)) = store
         .wechat_accounts
@@ -284,7 +316,7 @@ pub fn mark_access_policy_initialized(app: &AppHandle, account_id: &str) -> Resu
 }
 
 pub(crate) fn save_bound_account(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: &str,
     token: &str,
     base_url: &str,
@@ -338,6 +370,11 @@ pub fn is_connected(account_id: &str) -> bool {
 }
 
 fn cache_context_token(account_id: &str, user_id: &str, context_token: &str) {
+    let user_id = user_id.trim();
+    let context_token = context_token.trim();
+    if user_id.is_empty() || context_token.is_empty() {
+        return;
+    }
     if let Ok(mut guard) = context_tokens().write() {
         let account_cache = guard.entry(account_id.to_string()).or_default();
         account_cache.insert(user_id.to_string(), context_token.to_string());
@@ -345,6 +382,7 @@ fn cache_context_token(account_id: &str, user_id: &str, context_token: &str) {
 }
 
 fn load_context_token(account_id: &str, user_id: &str) -> Option<String> {
+    let user_id = user_id.trim();
     context_tokens().read().ok().and_then(|guard| {
         guard
             .get(account_id)
@@ -360,6 +398,50 @@ fn extract_text(msg: &api::WeixinMessage) -> String {
         .filter_map(|item| item.text_item.as_ref()?.text.as_deref())
         .collect::<Vec<_>>()
         .join("")
+}
+
+fn update_error_code(ret: i32, errcode: Option<i32>) -> i32 {
+    let errcode = errcode.unwrap_or(0);
+    if errcode != 0 {
+        errcode
+    } else {
+        ret
+    }
+}
+
+fn update_error_detail(ret: i32, errcode: Option<i32>, errmsg: Option<String>) -> Option<String> {
+    let code = update_error_code(ret, errcode);
+    if code == 0 {
+        return None;
+    }
+    Some(
+        errmsg
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("wechat getupdates error {code}")),
+    )
+}
+
+fn runtime_error_from_update(
+    ret: i32,
+    errcode: Option<i32>,
+    errmsg: Option<String>,
+) -> Option<String> {
+    let code = update_error_code(ret, errcode);
+    if code == 0 {
+        return None;
+    }
+    Some(if code == SESSION_EXPIRED_ERRCODE {
+        "CHANNEL_CONNECTOR_AUTH_EXPIRED: wechat token expired".to_string()
+    } else {
+        format!(
+            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
+            update_error_detail(ret, errcode, errmsg)
+                .unwrap_or_else(|| format!("wechat getupdates error {code}"))
+        )
+    })
 }
 
 fn parse_inbound_message(
@@ -425,22 +507,13 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
         let buf = load_sync_buf(&app, &account_id).unwrap_or_default();
         match api::get_updates(&client, &record.base_url, &token, &buf).await {
             Ok(resp) => {
-                let errcode = resp.errcode.unwrap_or(0);
-                let ret = resp.ret;
-                if errcode != 0 || ret != 0 {
-                    let code = if errcode != 0 { errcode } else { ret };
-                    let detail = resp
-                        .errmsg
-                        .unwrap_or_else(|| format!("wechat getupdates error {code}"));
+                let code = update_error_code(resp.ret, resp.errcode);
+                if code != 0 {
                     update_account_runtime_state(
                         &app,
                         &account_id,
                         None,
-                        Some(if code == SESSION_EXPIRED_ERRCODE {
-                            "CHANNEL_CONNECTOR_AUTH_EXPIRED: wechat token expired".to_string()
-                        } else {
-                            format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {detail}")
-                        }),
+                        runtime_error_from_update(resp.ret, resp.errcode, resp.errmsg),
                     );
                     if code == SESSION_EXPIRED_ERRCODE {
                         let _ = save_sync_buf(&app, &account_id, "");
@@ -487,16 +560,23 @@ fn desired_accounts(app: &AppHandle, state: &AppState) -> Vec<String> {
     let Ok(store) = load_store(app) else {
         return Vec::new();
     };
-    let mut items: Vec<String> = store
-        .wechat_accounts
-        .values()
+    desired_wechat_accounts(store.wechat_accounts.into_values().collect(), &needed)
+}
+
+fn desired_wechat_accounts(
+    records: Vec<WechatConnectorAccountRecord>,
+    needed: &HashSet<(String, String)>,
+) -> Vec<String> {
+    let mut items: Vec<String> = records
+        .into_iter()
         .filter(|record| {
             record.enabled
                 && needed.contains(&("wechat".to_string(), record.account_id.to_ascii_lowercase()))
         })
-        .map(|record| record.account_id.clone())
+        .map(|record| record.account_id)
         .collect();
     items.sort();
+    items.dedup();
     items
 }
 
@@ -537,17 +617,25 @@ pub fn reconcile(app: &AppHandle, state: &AppState) {
 }
 
 pub fn spawn_polling_supervisor(app: AppHandle, state: AppState) {
+    let shutdown = state.shutdown_token.clone();
     reconcile(&app, &state);
     tauri::async_runtime::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(10)).await;
-            reconcile(&app, &state);
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                debug!("wechat polling supervisor shutting down");
+            }
+            _ = async {
+                loop {
+                    sleep(Duration::from_secs(10)).await;
+                    reconcile(&app, &state);
+                }
+            } => {}
         }
     });
 }
 
 pub async fn health_check(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
 ) -> Result<WechatHealthSnapshot, String> {
     let account_id = normalize_account_id(account_id);
@@ -577,8 +665,8 @@ pub async fn health_check(
     let client = Client::new();
     let sync_buf = load_sync_buf(app, &record.account_id).unwrap_or_default();
     let probe = api::probe_updates(&client, &record.base_url, &token, &sync_buf).await?;
-    let code = probe.errcode.unwrap_or(0);
-    let ok = code == 0 && probe.ret == 0;
+    let code = update_error_code(probe.ret, probe.errcode);
+    let ok = code == 0;
     let (status, detail) = if ok {
         ("ok".to_string(), "wechat token probe passed".to_string())
     } else if code == SESSION_EXPIRED_ERRCODE {
@@ -589,9 +677,8 @@ pub async fn health_check(
     } else {
         (
             "provider_unavailable".to_string(),
-            probe
-                .errmsg
-                .unwrap_or_else(|| format!("wechat getupdates error {}", probe.ret)),
+            update_error_detail(probe.ret, probe.errcode, probe.errmsg)
+                .unwrap_or_else(|| format!("wechat getupdates error {code}")),
         )
     };
 
@@ -610,12 +697,13 @@ pub async fn health_check(
 }
 
 pub async fn send_text_reply(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     peer_id: &str,
     text: &str,
     _reply_to_message_id: Option<&str>,
 ) -> Result<WechatSendSnapshot, String> {
+    let (peer_id, text) = validate_send_input(peer_id, text)?;
     let account_id = normalize_account_id(account_id);
     let Some(record) = get_record(app, &account_id)? else {
         return Err(format!(
@@ -626,9 +714,7 @@ pub async fn send_text_reply(
     if !record.enabled {
         return Err("CHANNEL_CONNECTOR_DISABLED: wechat account is disabled".to_string());
     }
-    let context_token = load_context_token(&account_id, peer_id).ok_or_else(|| {
-        "CHANNEL_CONNECTOR_CONTEXT_MISSING: no reply context for this user".to_string()
-    })?;
+    let context_token = load_required_context_token(&account_id, peer_id)?;
     let token = load_token(&record)?;
     let client = Client::new();
     let message_id = api::send_message(
@@ -648,3 +734,25 @@ pub async fn send_text_reply(
         delivered_at_ms: now_ms(),
     })
 }
+
+fn load_required_context_token(account_id: &str, peer_id: &str) -> Result<String, String> {
+    load_context_token(account_id, peer_id).ok_or_else(|| {
+        "CHANNEL_CONNECTOR_CONTEXT_MISSING: no reply context for this user".to_string()
+    })
+}
+
+fn validate_send_input<'a>(peer_id: &'a str, text: &'a str) -> Result<(&'a str, &'a str), String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
+    }
+    Ok((peer_id, text))
+}
+
+#[cfg(test)]
+#[path = "tests/mod_tests.rs"]
+mod tests;
