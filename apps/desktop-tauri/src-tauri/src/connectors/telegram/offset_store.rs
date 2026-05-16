@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 const OFFSET_STORE_VERSION: u32 = 1;
 
@@ -44,7 +44,7 @@ fn extract_bot_id(token: &str) -> Option<String> {
     Some(bot_id.to_string())
 }
 
-fn offset_store_path(app: &AppHandle, account_id: &str) -> Result<PathBuf, String> {
+fn offset_store_path<R: Runtime>(app: &AppHandle<R>, account_id: &str) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
@@ -55,8 +55,8 @@ fn offset_store_path(app: &AppHandle, account_id: &str) -> Result<PathBuf, Strin
     )))
 }
 
-pub(super) fn read_offset(
-    app: &AppHandle,
+pub(super) fn read_offset<R: Runtime>(
+    app: &AppHandle<R>,
     account_id: &str,
     token: &str,
 ) -> Result<Option<i64>, String> {
@@ -68,24 +68,39 @@ pub(super) fn read_offset(
         .map_err(|error| format!("CHANNEL_CONNECTOR_OFFSET_READ_FAILED: {error}"))?;
     let state: OffsetStateFile = serde_json::from_slice(&payload)
         .map_err(|error| format!("CHANNEL_CONNECTOR_OFFSET_DECODE_FAILED: {error}"))?;
-    if state.version != OFFSET_STORE_VERSION {
+    if !should_accept_offset_state(&state, token) {
         return Ok(None);
-    }
-    let expected_bot_id = extract_bot_id(token);
-    if let (Some(expected), Some(stored)) = (expected_bot_id, state.bot_id) {
-        if expected != stored {
-            return Ok(None);
-        }
     }
     Ok(Some(state.last_update_id))
 }
 
-pub(super) fn write_offset(
-    app: &AppHandle,
+fn should_accept_offset_state(state: &OffsetStateFile, token: &str) -> bool {
+    if state.version != OFFSET_STORE_VERSION {
+        return false;
+    }
+    if state.last_update_id < 0 {
+        return false;
+    }
+    let expected_bot_id = extract_bot_id(token);
+    if let (Some(expected), Some(stored)) = (expected_bot_id, state.bot_id.as_deref()) {
+        if expected != stored {
+            return false;
+        }
+    }
+    true
+}
+
+pub(super) fn write_offset<R: Runtime>(
+    app: &AppHandle<R>,
     account_id: &str,
     token: &str,
     last_update_id: i64,
 ) -> Result<(), String> {
+    if last_update_id < 0 {
+        return Err(
+            "CHANNEL_CONNECTOR_OFFSET_INVALID: last update id must be non-negative".to_string(),
+        );
+    }
     let path = offset_store_path(app, account_id)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -101,3 +116,7 @@ pub(super) fn write_offset(
     fs::write(path, payload)
         .map_err(|error| format!("CHANNEL_CONNECTOR_OFFSET_WRITE_FAILED: {error}"))
 }
+
+#[cfg(test)]
+#[path = "tests/offset_store_tests.rs"]
+mod tests;

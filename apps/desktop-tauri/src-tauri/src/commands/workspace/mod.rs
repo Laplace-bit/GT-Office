@@ -229,7 +229,7 @@ pub(crate) fn workspace_reset_state_with_storage<R: tauri::Runtime>(
     storage: SqliteStorage,
 ) -> Result<Value, String> {
     reset_workspace_state_storage(&workspace_id, &confirmation_text, state, &storage)?;
-    state.invalidate_workspace_reset_state_for_test(&workspace_id)?;
+    state.invalidate_workspace_reset_state_caches(&workspace_id)?;
     emit_workspace_updated(app, &workspace_id, "reset")?;
     emit_settings_updated(app, &workspace_id)?;
     emit_ai_config_changed(app, &workspace_id)?;

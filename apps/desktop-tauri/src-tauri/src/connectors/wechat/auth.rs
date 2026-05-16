@@ -92,7 +92,7 @@ pub async fn start_auth(account_id: Option<&str>) -> Result<WechatAuthSessionSna
 }
 
 pub async fn auth_status(
-    app: &tauri::AppHandle,
+    app: &tauri::AppHandle<impl tauri::Runtime>,
     auth_session_id: &str,
 ) -> Result<WechatAuthSessionSnapshot, String> {
     let state = sessions()
@@ -117,14 +117,6 @@ pub async fn auth_status(
     next.detail = None;
 
     match status.status.as_str() {
-        "wait" => {
-            next.status = "awaiting_scan".to_string();
-            next.detail = Some("Waiting for scan.".to_string());
-        }
-        "scaned" | "scanned" => {
-            next.status = "scanned".to_string();
-            next.detail = Some("Scanned. Confirm on your phone.".to_string());
-        }
         "confirmed" => {
             let token = status
                 .bot_token
@@ -143,12 +135,10 @@ pub async fn auth_status(
             next.detail = Some("WeChat account bound successfully.".to_string());
             next.bound_account_id = Some(next.account_id.clone());
         }
-        "expired" => {
-            next.status = "expired".to_string();
-            next.detail = Some("QR code expired. Refresh to try again.".to_string());
-        }
         other => {
-            next.detail = Some(format!("Unexpected QR status: {other}"));
+            let (normalized_status, detail) = qr_poll_status_snapshot(other);
+            next.status = normalized_status;
+            next.detail = Some(detail);
         }
     }
 
@@ -174,3 +164,22 @@ pub fn cancel_auth(auth_session_id: &str) -> Result<WechatAuthSessionSnapshot, S
     };
     Ok(to_snapshot(&cancelled))
 }
+
+fn qr_poll_status_snapshot(status: &str) -> (String, String) {
+    match status {
+        "wait" => ("awaiting_scan".to_string(), "Waiting for scan.".to_string()),
+        "scaned" | "scanned" => (
+            "scanned".to_string(),
+            "Scanned. Confirm on your phone.".to_string(),
+        ),
+        "expired" => (
+            "expired".to_string(),
+            "QR code expired. Refresh to try again.".to_string(),
+        ),
+        other => (other.to_string(), format!("Unexpected QR status: {other}")),
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/auth_tests.rs"]
+mod tests;

@@ -52,7 +52,7 @@ pub async fn health_check(
                     account_id: record.account_id,
                     ok: false,
                     status: "auth_failed".to_string(),
-                    detail: error,
+                    detail: error.to_string(),
                     mode: mode.clone(),
                     connection_mode: mode,
                     domain,
@@ -70,13 +70,13 @@ pub async fn health_check(
     let bot_info = match get_bot_info(record.domain, &tenant_access_token).await {
         Ok(info) => info,
         Err(error) => {
-            let status = bot_info_error_status(&error);
+            let status = bot_info_error_status(&error.to_string());
             return Ok(FeishuHealthSnapshot {
                 channel: "feishu".to_string(),
                 account_id: record.account_id,
                 ok: false,
                 status: status.to_string(),
-                detail: error,
+                detail: error.to_string(),
                 mode: mode.clone(),
                 connection_mode: mode,
                 domain,

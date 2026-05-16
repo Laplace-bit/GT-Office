@@ -343,13 +343,14 @@ pub fn account_id_for_webhook_secret(
     account_id_for_webhook_secret_in_store(&store, webhook_secret, load_secret)
 }
 
-fn account_id_for_webhook_secret_in_store<F>(
+fn account_id_for_webhook_secret_in_store<F, E>(
     store: &ConnectorStoreFile,
     webhook_secret: &str,
     load_secret_value: F,
 ) -> Result<Option<String>, String>
 where
-    F: Fn(&str) -> Result<String, String>,
+    F: Fn(&str) -> Result<String, E>,
+    E: std::fmt::Display,
 {
     let webhook_secret = webhook_secret.trim();
     if webhook_secret.is_empty() {
@@ -781,15 +782,10 @@ pub async fn send_text_reply_with_inline_keyboard(
 
     let token = load_bot_token(&record)?;
     let reply_markup = keyboard_to_reply_markup(keyboard);
-    let send_result = telegram_send_message(
-        &token,
-        peer_id,
-        text,
-        reply_to_message_id,
-        reply_markup,
-    )
-    .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
+    let send_result =
+        telegram_send_message(&token, peer_id, text, reply_to_message_id, reply_markup)
+            .await
+            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
 
     Ok(TelegramSendSnapshot {
         channel: "telegram".to_string(),
@@ -835,15 +831,9 @@ pub async fn edit_text_reply_with_inline_keyboard(
 
     let token = load_bot_token(&record)?;
     let reply_markup = keyboard_to_reply_markup(keyboard);
-    let edit_result = telegram_edit_message(
-        &token,
-        peer_id,
-        message_id,
-        text,
-        reply_markup,
-    )
-    .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
+    let edit_result = telegram_edit_message(&token, peer_id, message_id, text, reply_markup)
+        .await
+        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
 
     Ok(TelegramSendSnapshot {
         channel: "telegram".to_string(),

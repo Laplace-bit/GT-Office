@@ -40,11 +40,8 @@ fn channel_error_convenience_constructors_cover_all_variants() {
     assert!(provider.retryable());
     assert!(provider.starts_with("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE:"));
 
-    let provider_code = ChannelError::provider_unavailable_with_code(
-        "api down",
-        "E123".to_string(),
-        Some(503),
-    );
+    let provider_code =
+        ChannelError::provider_unavailable_with_code("api down", "E123".to_string(), Some(503));
     assert!(provider_code.retryable());
     assert!(provider_code.contains("provider_code=E123"));
     assert!(provider_code.contains("http_status=503"));
@@ -131,7 +128,10 @@ fn http_request_builder_constructs_valid_requests() {
 
     assert_eq!(req.method, "POST");
     assert_eq!(req.url, "https://api.example.com/v1/messages");
-    assert!(req.headers.iter().any(|(k, v)| k == "Authorization" && v == "Bearer test-token"));
+    assert!(req
+        .headers
+        .iter()
+        .any(|(k, v)| k == "Authorization" && v == "Bearer test-token"));
     assert!(req.content_type.as_deref() == Some("application/json"));
     assert_eq!(req.timeout_secs, 30);
     assert!(req.body.is_some());
@@ -160,10 +160,7 @@ fn http_response_helpers_work_correctly() {
 
 #[test]
 fn webhook_tokens_round_trip_preserves_values() {
-    let dir = std::env::temp_dir().join(format!(
-        "gto-integration-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("gto-integration-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     let original = WebhookTokens::new();
@@ -179,10 +176,7 @@ fn webhook_tokens_round_trip_preserves_values() {
 
 #[test]
 fn webhook_tokens_recover_from_corrupt_file() {
-    let dir = std::env::temp_dir().join(format!(
-        "gto-integration-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("gto-integration-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     let path = dir.join("corrupt.json");

@@ -657,18 +657,5 @@ pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn claude_provider_env_injection_is_disabled_for_hot_switching() {
-        assert!(!should_inject_provider_env(AgentToolKind::Claude, true));
-    }
-
-    #[test]
-    fn codex_and_gemini_provider_env_injection_remain_enabled() {
-        assert!(should_inject_provider_env(AgentToolKind::Codex, true));
-        assert!(should_inject_provider_env(AgentToolKind::Gemini, true));
-        assert!(!should_inject_provider_env(AgentToolKind::Codex, false));
-    }
-}
+#[path = "../tests/ai_config_tests.rs"]
+mod tests;

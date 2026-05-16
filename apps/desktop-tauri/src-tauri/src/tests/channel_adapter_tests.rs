@@ -1,10 +1,12 @@
 use super::{
-    align_route_with_resolved_workspace, channel_supports_external_reply, codex_event_text,
-    find_command_in_dir, gemini_event_text, migrate_legacy_wechat_access_policies,
-    normalize_executable_path, nvm_bin_dirs, parse_external_interaction_callback,
-    resolve_cli_candidate, runtime_supports_structured_relay, split_text_for_channel,
-    validate_binding_target_selector, AgentRuntimeRegistration, AgentToolKind,
-    PersistedChannelAccessPolicy, PersistedChannelStateFile, PersistedRouteBindingRecord,
+    align_route_with_resolved_workspace, build_external_content_preview, build_external_title,
+    channel_supports_external_reply, codex_event_text, find_command_in_dir, gemini_event_text,
+    migrate_legacy_wechat_access_policies, normalize_account_id, normalize_executable_path,
+    nvm_bin_dirs, parse_external_interaction_callback, resolve_cli_candidate,
+    runtime_supports_structured_relay, split_text_for_channel, summarize_external_text,
+    truncate_text_for_channel, validate_binding_target_selector, AgentRuntimeRegistration,
+    AgentToolKind, PersistedChannelAccessPolicy, PersistedChannelStateFile,
+    PersistedRouteBindingRecord,
 };
 use gt_agent::{AgentRepository, AgentState, CreateAgentInput};
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
@@ -124,6 +126,63 @@ fn runtime_supports_structured_relay_only_for_supported_tools_with_cwd() {
         AgentToolKind::Shell,
         Some("/tmp/workspace")
     )));
+}
+
+#[test]
+fn normalize_account_id_defaults_and_trims_channel_accounts() {
+    assert_eq!(normalize_account_id(None), "default");
+    assert_eq!(normalize_account_id(Some("   ")), "default");
+    assert_eq!(normalize_account_id(Some(" Ops-Bot ")), "Ops-Bot");
+}
+
+#[test]
+fn truncate_text_for_channel_is_character_safe() {
+    assert_eq!(truncate_text_for_channel("hello", 10), "hello");
+    assert_eq!(
+        truncate_text_for_channel("你好世界abc", 4),
+        "你好世界\n\n... [truncated]"
+    );
+}
+
+#[test]
+fn summarize_external_text_collapses_whitespace_and_limits_chars() {
+    assert_eq!(
+        summarize_external_text("  hello\n\nchannel   world  ", 30).as_deref(),
+        Some("hello channel world")
+    );
+    assert_eq!(summarize_external_text(" \n\t ", 30), None);
+    assert_eq!(
+        summarize_external_text("abcdefghijkl", 5).as_deref(),
+        Some("abcde...")
+    );
+}
+
+#[test]
+fn external_title_uses_first_non_empty_line_and_limits_length() {
+    assert_eq!(
+        build_external_title("\n\n  Fix channel route  \nbody"),
+        "Fix channel route"
+    );
+    assert_eq!(build_external_title(" \n\t "), "外部通道任务");
+
+    let long = "a".repeat(90);
+    let title = build_external_title(&long);
+    assert_eq!(title.chars().count(), 72);
+    assert!(title.chars().all(|ch| ch == 'a'));
+}
+
+#[test]
+fn external_content_preview_collapses_whitespace_and_limits_length() {
+    assert_eq!(
+        build_external_content_preview(" hello\nchannel   world ").as_deref(),
+        Some("hello channel world")
+    );
+    assert_eq!(build_external_content_preview(" \n\t "), None);
+
+    let long = "你".repeat(120);
+    let preview = build_external_content_preview(&long).expect("preview");
+    assert_eq!(preview.chars().count(), 99);
+    assert!(preview.ends_with("..."));
 }
 
 #[test]

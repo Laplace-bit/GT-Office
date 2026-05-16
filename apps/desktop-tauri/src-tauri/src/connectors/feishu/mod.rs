@@ -3,6 +3,7 @@ mod api;
 mod app_registration;
 pub mod inbound;
 mod probe;
+mod send_policy;
 pub mod webhook;
 pub mod websocket;
 
@@ -11,7 +12,7 @@ pub mod types;
 use serde_json::Value;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -96,6 +97,18 @@ fn normalize_domain(value: Option<&str>) -> Result<FeishuDomain, String> {
     }
 }
 
+fn normalize_webhook_path(value: &str) -> Option<String> {
+    let path = value.trim();
+    if path.is_empty() {
+        return None;
+    }
+    Some(if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    })
+}
+
 pub fn load_app_secret(record: &FeishuConnectorAccountRecord) -> Result<String, String> {
     load_secret(&record.app_secret_ref)
         .map_err(|error| format!("CHANNEL_CONNECTOR_SECRET_LOAD_FAILED: {error}"))
@@ -129,7 +142,9 @@ fn to_view(record: &FeishuConnectorAccountRecord) -> FeishuConnectorAccountView 
     }
 }
 
-pub fn list_accounts(app: &AppHandle) -> Result<Vec<FeishuConnectorAccountView>, String> {
+pub fn list_accounts<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<FeishuConnectorAccountView>, String> {
     Ok(list_records(app)?
         .into_iter()
         .map(|record| to_view(&record))
@@ -137,7 +152,7 @@ pub fn list_accounts(app: &AppHandle) -> Result<Vec<FeishuConnectorAccountView>,
 }
 
 pub fn upsert_account(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     input: FeishuAccountUpsertInput,
 ) -> Result<FeishuConnectorAccountView, String> {
     let account_id = normalize_account_id(input.account_id.as_deref());
@@ -248,9 +263,7 @@ pub fn upsert_account(
         webhook_path: input
             .webhook_path
             .as_deref()
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(ToString::to_string)
+            .and_then(normalize_webhook_path)
             .or_else(|| existing.as_ref().and_then(|item| item.webhook_path.clone())),
         webhook_host: input
             .webhook_host
@@ -304,21 +317,14 @@ pub fn parse_payload_for_account(
     inbound::parse_payload_for_account(payload, account_id)
 }
 
-pub async fn send_text_reply(
-    app: &AppHandle,
+pub async fn send_text_reply<R: Runtime>(
+    app: &AppHandle<R>,
     account_id: Option<&str>,
     peer_id: &str,
     text: &str,
     reply_to_message_id: Option<&str>,
 ) -> Result<FeishuSendSnapshot, String> {
-    let peer_id = peer_id.trim();
-    if peer_id.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
-    }
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
-    }
+    let (peer_id, text) = validate_send_text_input(peer_id, text)?;
 
     let account_id = normalize_account_id(account_id);
     let Some(record) = account_store::get_record(app, &account_id)? else {
@@ -339,16 +345,17 @@ pub async fn send_text_reply(
     {
         match api::reply_text_message(&client, inbound_message_id, text).await {
             Ok(message_id) => message_id,
-            Err(error) => {
+            Err(error) if send_policy::should_fallback_to_direct_send(&error.to_string()) => {
                 warn!(
                     account_id = %record.account_id,
                     peer_id = %peer_id,
                     reply_to_message_id = %inbound_message_id,
                     error = %error,
-                    "feishu reply send failed, falling back to direct chat send"
+                    "feishu reply target unavailable, falling back to direct chat send"
                 );
                 api::send_text_message(&client, peer_id, text).await?
             }
+            Err(error) => return Err(error.to_string()),
         }
     } else {
         api::send_text_message(&client, peer_id, text).await?
@@ -361,6 +368,21 @@ pub async fn send_text_reply(
         message_id,
         delivered_at_ms: now_ms(),
     })
+}
+
+fn validate_send_text_input<'a>(
+    peer_id: &'a str,
+    text: &'a str,
+) -> Result<(&'a str, &'a str), String> {
+    let peer_id = peer_id.trim();
+    if peer_id.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: peer id is required".to_string());
+    }
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("CHANNEL_CONNECTOR_SEND_INVALID: text is required".to_string());
+    }
+    Ok((peer_id, text))
 }
 
 pub async fn qr_login_start(

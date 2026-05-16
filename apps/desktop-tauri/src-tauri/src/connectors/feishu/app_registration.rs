@@ -91,12 +91,28 @@ struct BotInfoPayload {
     name: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PollErrorAction {
+    Pending,
+    SlowDown,
+    Denied,
+    Expired,
+    Failed(String),
+}
+
 async fn post_registration<T: serde::de::DeserializeOwned>(
     client: &Client,
     domain: FeishuDomain,
     params: &[(&str, &str)],
 ) -> Result<T, String> {
-    let base_url = accounts_base_url(domain);
+    post_registration_with_base(client, accounts_base_url(domain), params).await
+}
+
+async fn post_registration_with_base<T: serde::de::DeserializeOwned>(
+    client: &Client,
+    base_url: &str,
+    params: &[(&str, &str)],
+) -> Result<T, String> {
     let url = format!("{}{}", base_url, REGISTRATION_PATH);
     let body = params
         .iter()
@@ -139,16 +155,7 @@ async fn post_registration<T: serde::de::DeserializeOwned>(
 pub async fn init_app_registration(domain: FeishuDomain) -> Result<(), String> {
     let client = Client::new();
     let res: InitResponse = post_registration(&client, domain, &[("action", "init")]).await?;
-    if !res
-        .supported_auth_methods
-        .contains(&"client_secret".to_string())
-    {
-        return Err(
-            "FEISHU_QR_UNSUPPORTED: Current environment does not support client_secret auth method"
-                .to_string(),
-        );
-    }
-    Ok(())
+    validate_supported_auth_methods(&res)
 }
 
 pub async fn begin_app_registration(
@@ -167,19 +174,32 @@ pub async fn begin_app_registration(
     )
     .await?;
 
-    let mut qr_url = res.verification_uri_complete;
-    if !qr_url.contains("from=") {
-        let separator = if qr_url.contains('?') { '&' } else { '?' };
-        qr_url = format!("{}{}from=gtoffice&tp=ob_cli_app", qr_url, separator);
-    }
+    Ok(begin_result_from_response(res))
+}
 
-    Ok(FeishuQrLoginBeginResult {
+fn begin_result_from_response(res: RawBeginResponse) -> FeishuQrLoginBeginResult {
+    let qr_url = append_qr_tracking_params(res.verification_uri_complete);
+    FeishuQrLoginBeginResult {
         device_code: res.device_code,
         qr_url,
         user_code: res.user_code,
         interval: res.interval.unwrap_or(5),
         expire_in: res.expire_in.unwrap_or(600),
-    })
+    }
+}
+
+fn validate_supported_auth_methods(res: &InitResponse) -> Result<(), String> {
+    let supports_client_secret = res
+        .supported_auth_methods
+        .iter()
+        .any(|method| method.trim().eq_ignore_ascii_case("client_secret"));
+    if supports_client_secret {
+        return Ok(());
+    }
+    Err(
+        "FEISHU_QR_UNSUPPORTED: Current environment does not support client_secret auth method"
+            .to_string(),
+    )
 }
 
 pub async fn poll_app_registration(
@@ -231,7 +251,7 @@ pub async fn poll_app_registration(
         // Domain auto-detection: switch to lark if tenant_brand says so
         if let Some(ref user_info) = poll_res.user_info {
             if let Some(ref brand) = user_info.tenant_brand {
-                if brand == "lark" && !domain_switched {
+                if should_switch_to_lark(brand, domain_switched) {
                     current_domain = FeishuDomain::Lark;
                     domain_switched = true;
                     continue;
@@ -246,11 +266,7 @@ pub async fn poll_app_registration(
             let mut result = FeishuQrLoginSuccessResult {
                 app_id: client_id.clone(),
                 app_secret: client_secret.clone(),
-                domain: if current_domain == FeishuDomain::Lark {
-                    "lark".to_string()
-                } else {
-                    "feishu".to_string()
-                },
+                domain: domain_id(current_domain).to_string(),
                 bot_name: None,
                 open_id: poll_res.user_info.as_ref().and_then(|u| u.open_id.clone()),
             };
@@ -276,29 +292,27 @@ pub async fn poll_app_registration(
         }
 
         // Error handling
-        if let Some(ref error) = poll_res.error {
-            match error.as_str() {
-                "authorization_pending" => {}
-                "slow_down" => {
+        if let Some(action) = poll_error_action(
+            poll_res.error.as_deref(),
+            poll_res.error_description.as_deref(),
+        ) {
+            match action {
+                PollErrorAction::Pending => {}
+                PollErrorAction::SlowDown => {
                     current_interval += 5;
                 }
-                "access_denied" => {
+                PollErrorAction::Denied => {
                     let _ = app.emit(
                         "feishu-qr/error",
                         serde_json::json!({ "message": "FEISHU_QR_DENIED: User denied authorization" }),
                     );
                     return Err("FEISHU_QR_DENIED: User denied authorization".to_string());
                 }
-                "expired_token" => {
+                PollErrorAction::Expired => {
                     let _ = app.emit("feishu-qr/expired", serde_json::json!({}));
                     return Err("FEISHU_QR_EXPIRED: QR code expired".to_string());
                 }
-                other => {
-                    let msg = format!(
-                        "FEISHU_QR_ERROR: {} - {}",
-                        other,
-                        poll_res.error_description.as_deref().unwrap_or("unknown")
-                    );
+                PollErrorAction::Failed(msg) => {
                     let _ = app.emit("feishu-qr/error", serde_json::json!({ "message": &msg }));
                     return Err(msg);
                 }
@@ -318,16 +332,24 @@ async fn fetch_bot_info(
     app_id: &str,
     app_secret: &str,
 ) -> Result<Option<String>, String> {
-    let base = match domain {
+    let base_url = match domain {
         FeishuDomain::Feishu => "https://open.feishu.cn",
         FeishuDomain::Lark => "https://open.larksuite.com",
     };
+    fetch_bot_info_with_base(client, base_url, app_id, app_secret).await
+}
 
+async fn fetch_bot_info_with_base(
+    client: &Client,
+    base_url: &str,
+    app_id: &str,
+    app_secret: &str,
+) -> Result<Option<String>, String> {
     // Get tenant access token
     let token_res: TenantAccessTokenResponse = client
         .post(format!(
             "{}/open-apis/auth/v3/tenant_access_token/internal",
-            base
+            base_url
         ))
         .json(&serde_json::json!({
             "app_id": app_id,
@@ -348,7 +370,7 @@ async fn fetch_bot_info(
 
     // Get bot info
     let info_res: BotInfoEnvelope = client
-        .get(format!("{}/open-apis/bot/v3/info", base))
+        .get(format!("{}/open-apis/bot/v3/info", base_url))
         .header("Authorization", format!("Bearer {}", token))
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .send()
@@ -367,9 +389,73 @@ async fn fetch_bot_info(
         None => return Ok(None),
     };
 
-    // Prefer bot name over app_name
-    let bot_name = bot
-        .name
+    Ok(bot_name_from_payload(&bot))
+}
+
+fn append_qr_tracking_params(qr_url: String) -> String {
+    if query_has_param(&qr_url, "from") {
+        return qr_url;
+    }
+    let (base, fragment) = qr_url
+        .split_once('#')
+        .map(|(base, fragment)| (base, Some(fragment)))
+        .unwrap_or((qr_url.as_str(), None));
+    let separator = if base.contains('?') { '&' } else { '?' };
+    let updated = format!("{base}{separator}from=gtoffice&tp=ob_cli_app");
+    match fragment {
+        Some(fragment) => format!("{updated}#{fragment}"),
+        None => updated,
+    }
+}
+
+fn query_has_param(url: &str, name: &str) -> bool {
+    let Some(query) = url
+        .split_once('?')
+        .map(|(_, tail)| tail.split_once('#').map(|(query, _)| query).unwrap_or(tail))
+    else {
+        return false;
+    };
+    query.split('&').any(|part| {
+        let key = part.split_once('=').map(|(key, _)| key).unwrap_or(part);
+        key == name
+    })
+}
+
+fn domain_id(domain: FeishuDomain) -> &'static str {
+    match domain {
+        FeishuDomain::Feishu => "feishu",
+        FeishuDomain::Lark => "lark",
+    }
+}
+
+fn poll_error_action(error: Option<&str>, description: Option<&str>) -> Option<PollErrorAction> {
+    let error = error?.trim();
+    if error.is_empty() {
+        return None;
+    }
+    let normalized_error = error.to_ascii_lowercase();
+    Some(match normalized_error.as_str() {
+        "authorization_pending" => PollErrorAction::Pending,
+        "slow_down" => PollErrorAction::SlowDown,
+        "access_denied" => PollErrorAction::Denied,
+        "expired_token" => PollErrorAction::Expired,
+        _ => PollErrorAction::Failed(format!(
+            "FEISHU_QR_ERROR: {} - {}",
+            error,
+            description
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown")
+        )),
+    })
+}
+
+fn should_switch_to_lark(tenant_brand: &str, domain_switched: bool) -> bool {
+    !domain_switched && tenant_brand.trim().eq_ignore_ascii_case("lark")
+}
+
+fn bot_name_from_payload(bot: &BotInfoPayload) -> Option<String> {
+    bot.name
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
@@ -380,7 +466,9 @@ async fn fetch_bot_info(
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
                 .map(str::to_string)
-        });
-
-    Ok(bot_name)
+        })
 }
+
+#[cfg(test)]
+#[path = "tests/app_registration_tests.rs"]
+mod tests;

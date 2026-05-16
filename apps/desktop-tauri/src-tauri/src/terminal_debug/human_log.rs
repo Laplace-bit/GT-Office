@@ -96,29 +96,5 @@ fn merge_human_reply_text(previous: &str, next: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{TerminalDebugHumanEntry, TerminalDebugHumanLogState};
-
-    #[test]
-    fn human_log_merges_incremental_reply_growth() {
-        let mut state = TerminalDebugHumanLogState::default();
-        assert!(state.push_reply(1, "你好"));
-        assert!(state.push_reply(2, "你好，世界"));
-
-        assert_eq!(
-            state.snapshot().entries,
-            vec![TerminalDebugHumanEntry {
-                at_ms: 2,
-                text: "你好，世界".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn human_log_ignores_exact_duplicate_reply() {
-        let mut state = TerminalDebugHumanLogState::default();
-        assert!(state.push_reply(1, "稳定正文"));
-        assert!(!state.push_reply(2, "稳定正文"));
-        assert_eq!(state.snapshot().event_count, 1);
-    }
-}
+#[path = "tests/human_log_tests.rs"]
+mod tests;

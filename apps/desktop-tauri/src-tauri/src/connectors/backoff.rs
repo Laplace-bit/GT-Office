@@ -1,5 +1,5 @@
-use std::time::Duration;
 use rand::Rng;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct BackoffPolicy {
@@ -25,7 +25,8 @@ impl Default for BackoffPolicy {
 impl BackoffPolicy {
     pub fn delay(&self, attempt: u32) -> Duration {
         let exponent = attempt as f64;
-        let delay_ms = (self.initial_ms as f64 * self.factor.powf(exponent)).min(self.max_ms as f64);
+        let delay_ms =
+            (self.initial_ms as f64 * self.factor.powf(exponent)).min(self.max_ms as f64);
         Duration::from_millis(delay_ms as u64)
     }
 

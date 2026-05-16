@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::connectors::channel_error::ChannelError;
 use crate::connectors::http_client::{HttpClient, HttpRequest};
 
 use super::send_policy;
@@ -87,18 +88,18 @@ pub fn build_client(
     domain: FeishuDomain,
     app_id: &str,
     app_secret: &str,
-) -> Result<Client, String> {
+) -> Result<Client, ChannelError> {
     let config = Config::builder(app_id.trim(), app_secret.trim())
         .base_url(sdk_base_url(domain))
         .build();
-    Client::new(config).map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))
+    Client::new(config).map_err(|error| ChannelError::provider_unavailable(error.to_string()))
 }
 
 pub async fn fetch_tenant_access_token(
     domain: FeishuDomain,
     app_id: &str,
     app_secret: &str,
-) -> Result<String, String> {
+) -> Result<String, ChannelError> {
     let endpoint = format!(
         "{}/open-apis/auth/v3/tenant_access_token/internal",
         base_url(domain)
@@ -117,47 +118,44 @@ pub async fn fetch_tenant_access_token(
     let response = client
         .execute(request)
         .await
-        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {e}"))?;
+        .map_err(|e| ChannelError::provider_unavailable(e.to_string()))?;
 
     if !response.is_success() {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: HTTP {}",
+        return Err(ChannelError::provider_unavailable(format!(
+            "HTTP {}",
             response.status
-        ));
+        )));
     }
 
-    let payload = response
-        .json_value()
-        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {e}"))?;
+    let payload = response.json_value()?;
     parse_tenant_access_token_response(payload)
 }
 
-fn parse_tenant_access_token_response(payload: Value) -> Result<String, String> {
+fn parse_tenant_access_token_response(payload: Value) -> Result<String, ChannelError> {
     let response: TenantAccessTokenResponse = serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
+        .map_err(|error| ChannelError::invalid_response(error.to_string(), None))?;
     if response.code != 0 {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_AUTH_FAILED: {}",
+        return Err(ChannelError::auth_failed(
             response
                 .msg
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
-                .unwrap_or_else(|| "tenant_access_token request failed".to_string())
+                .unwrap_or_else(|| "tenant_access_token request failed".to_string()),
         ));
     }
     response
         .tenant_access_token
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "CHANNEL_CONNECTOR_AUTH_FAILED: missing tenant access token".to_string())
+        .ok_or_else(|| ChannelError::auth_failed("missing tenant access token"))
 }
 
 pub async fn get_bot_info(
     domain: FeishuDomain,
     tenant_access_token: &str,
-) -> Result<FeishuBotInfo, String> {
+) -> Result<FeishuBotInfo, ChannelError> {
     let endpoint = format!("{}/open-apis/bot/v3/info", base_url(domain));
 
     let client = HttpClient::new();
@@ -172,39 +170,36 @@ pub async fn get_bot_info(
     let response = client
         .execute(request)
         .await
-        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {e}"))?;
+        .map_err(|e| ChannelError::provider_unavailable(e.to_string()))?;
 
     if !response.is_success() {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: HTTP {}",
+        return Err(ChannelError::provider_unavailable(format!(
+            "bot info HTTP {}",
             response.status
-        ));
+        )));
     }
 
-    let payload = response
-        .json_value()
-        .map_err(|e| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {e}"))?;
+    let payload = response.json_value()?;
     parse_bot_info_response(payload)
 }
 
-fn parse_bot_info_response(payload: Value) -> Result<FeishuBotInfo, String> {
+fn parse_bot_info_response(payload: Value) -> Result<FeishuBotInfo, ChannelError> {
     let response: BotInfoEnvelope = serde_json::from_value(payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
+        .map_err(|error| ChannelError::invalid_response(error.to_string(), None))?;
     if response.code != 0 {
-        return Err(format!(
-            "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {}",
+        return Err(ChannelError::provider_unavailable(
             response
                 .msg
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
-                .unwrap_or_else(|| "bot info request failed".to_string())
+                .unwrap_or_else(|| "bot info request failed".to_string()),
         ));
     }
-    let bot = response.bot.ok_or_else(|| {
-        "CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: missing bot payload".to_string()
-    })?;
+    let bot = response
+        .bot
+        .ok_or_else(|| ChannelError::invalid_response("missing bot payload", None))?;
     let bot_name = bot
         .name
         .as_deref()
@@ -219,7 +214,7 @@ fn parse_bot_info_response(payload: Value) -> Result<FeishuBotInfo, String> {
                 .map(str::to_string)
         });
     if bot.activate_status == Some(0) {
-        return Err("CHANNEL_CONNECTOR_AUTH_FAILED: bot capability is not activated".to_string());
+        return Err(ChannelError::auth_failed("bot capability is not activated"));
     }
     Ok(FeishuBotInfo {
         bot_name,
@@ -261,9 +256,9 @@ fn reply_text_message_body(text: &str, uuid: &str) -> Value {
     })
 }
 
-fn extract_message_id(payload: Value, error_prefix: &str) -> Result<String, String> {
+fn extract_message_id(payload: Value, _default_error_prefix: &str) -> Result<String, ChannelError> {
     let response: MessageSendEnvelope = serde_json::from_value(payload.clone())
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?;
+        .map_err(|error| ChannelError::invalid_response(error.to_string(), None))?;
     if response.code != 0 {
         let code = response.code;
         let message = response
@@ -286,34 +281,30 @@ fn extract_message_id(payload: Value, error_prefix: &str) -> Result<String, Stri
         if let Some(http_status) = response.http_status {
             detail.push_str(&format!(" http_status={http_status}"));
         }
-        return Err(format!(
-            "{}: {}",
-            if prefix == "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE" {
-                error_prefix
-            } else {
-                prefix
-            },
-            detail
-        ));
+        if prefix == "CHANNEL_CONNECTOR_PERMISSION_DENIED" {
+            return Err(ChannelError::provider_denied(
+                format!("feishu bot is not in the chat or lacks send permission; {detail}"),
+                None,
+            ));
+        }
+        Err(ChannelError::provider_unavailable(detail))
+    } else {
+        response
+            .data
+            .and_then(|value| value.message_id)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ChannelError::invalid_response(format!("missing message_id in {}", payload), None)
+            })
     }
-    response
-        .data
-        .and_then(|value| value.message_id)
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: missing message_id in {}",
-                payload
-            )
-        })
 }
 
 pub async fn send_text_message(
     client: &Client,
     peer_id: &str,
     text: &str,
-) -> Result<String, String> {
+) -> Result<String, ChannelError> {
     let payload = send_text_message_body(peer_id, text, &Uuid::new_v4().to_string());
     let mut operation = client.operation("im.v1.message.create");
     for (key, value) in send_text_message_query() {
@@ -321,7 +312,7 @@ pub async fn send_text_message(
     }
     let response = operation
         .body_json(&payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
+        .map_err(|error| ChannelError::provider_unavailable(error.to_string()))?
         .send()
         .await
         .map_err(send_policy::normalize_provider_error)?;
@@ -335,7 +326,7 @@ pub async fn send_text_message(
     extract_message_id(
         response
             .json_value()
-            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?,
+            .map_err(|e| ChannelError::invalid_response(e.to_string(), Some(response.status)))?,
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE",
     )
 }
@@ -344,7 +335,7 @@ pub async fn reply_text_message(
     client: &Client,
     inbound_message_id: &str,
     text: &str,
-) -> Result<String, String> {
+) -> Result<String, ChannelError> {
     let payload = reply_text_message_body(text, &Uuid::new_v4().to_string());
     let mut operation = client
         .operation("im.v1.message.reply")
@@ -354,7 +345,7 @@ pub async fn reply_text_message(
     }
     let response = operation
         .body_json(&payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
+        .map_err(|error| ChannelError::provider_unavailable(error.to_string()))?
         .send()
         .await
         .map_err(send_policy::normalize_provider_error)?;
@@ -368,7 +359,7 @@ pub async fn reply_text_message(
     extract_message_id(
         response
             .json_value()
-            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: {error}"))?,
+            .map_err(|e| ChannelError::invalid_response(e.to_string(), Some(response.status)))?,
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE",
     )
 }

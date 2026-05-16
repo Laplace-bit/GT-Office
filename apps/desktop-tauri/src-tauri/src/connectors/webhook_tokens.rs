@@ -48,7 +48,6 @@ impl WebhookTokens {
             serde_json::to_vec_pretty(self).map_err(|e| format!("failed to encode tokens: {e}"))?;
         std::fs::write(path, payload).map_err(|e| format!("failed to write tokens file: {e}"))
     }
-
 }
 
 impl Default for WebhookTokens {

@@ -18,7 +18,8 @@ fn test_provider_unavailable_display() {
 
 #[test]
 fn test_provider_unavailable_with_code_display() {
-    let err = ChannelError::provider_unavailable_with_code("API failure", "E123".to_string(), Some(500));
+    let err =
+        ChannelError::provider_unavailable_with_code("API failure", "E123".to_string(), Some(500));
     let msg = err.to_string();
     assert!(msg.contains("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE"));
     assert!(msg.contains("API failure"));
@@ -190,6 +191,8 @@ fn test_convenience_constructors() {
     assert!(secret_load.to_string().contains("CHANNEL_CONNECTOR_AUTH"));
 
     let invalid_resp = ChannelError::invalid_response("bad json", Some(502));
-    assert!(invalid_resp.to_string().contains("CHANNEL_CONNECTOR_PROVIDER"));
+    assert!(invalid_resp
+        .to_string()
+        .contains("CHANNEL_CONNECTOR_PROVIDER"));
     assert!(invalid_resp.to_string().contains("http_status=502"));
 }

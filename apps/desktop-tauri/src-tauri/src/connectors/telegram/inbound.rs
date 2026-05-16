@@ -32,16 +32,7 @@ pub(super) fn parse_telegram_update(
     update: &Value,
     account_id: &str,
 ) -> Result<(ExternalInboundMessage, i64), String> {
-    let update_id = update
-        .get("update_id")
-        .and_then(Value::as_i64)
-        .or_else(|| {
-            update
-                .get("update_id")
-                .and_then(Value::as_u64)
-                .map(|value| value as i64)
-        })
-        .ok_or_else(|| "missing update_id".to_string())?;
+    let update_id = parse_update_id(update).ok_or_else(|| "missing update_id".to_string())?;
     if let Some(callback) = update.get("callback_query") {
         return parse_telegram_callback_query(update_id, callback, account_id, update);
     }
@@ -92,6 +83,14 @@ pub(super) fn parse_telegram_update(
         },
         update_id,
     ))
+}
+
+fn parse_update_id(update: &Value) -> Option<i64> {
+    let value = update.get("update_id")?;
+    if let Some(update_id) = value.as_i64().filter(|value| *value >= 0) {
+        return Some(update_id);
+    }
+    value.as_u64().and_then(|value| i64::try_from(value).ok())
 }
 
 fn parse_telegram_callback_query(
@@ -152,3 +151,7 @@ fn decode_callback_data(data: &str) -> String {
         .map(str::to_string)
         .unwrap_or_else(|| data.to_string())
 }
+
+#[cfg(test)]
+#[path = "tests/inbound_tests.rs"]
+mod tests;

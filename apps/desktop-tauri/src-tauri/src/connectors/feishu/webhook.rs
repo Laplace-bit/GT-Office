@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 use super::account_store::get_record;
 use super::types::{FeishuConnectionMode, FeishuConnectorAccountRecord, FeishuWebhookSyncSnapshot};
@@ -11,11 +11,16 @@ fn normalize_host(value: Option<&str>) -> Option<String> {
 }
 
 fn normalize_path(account_id: &str, value: Option<&str>) -> String {
-    value
+    let path = value
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(ToString::to_string)
-        .unwrap_or_else(|| format!("/feishu/{}/events", account_id.trim().to_ascii_lowercase()))
+        .unwrap_or_else(|| format!("/feishu/{}/events", account_id.trim().to_ascii_lowercase()));
+    if path.starts_with('/') {
+        path
+    } else {
+        format!("/{path}")
+    }
 }
 
 pub fn runtime_callback_url(
@@ -37,7 +42,7 @@ pub fn runtime_callback_url(
 }
 
 pub fn sync_runtime_webhook(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
     runtime_webhook_url: Option<&str>,
 ) -> Result<FeishuWebhookSyncSnapshot, String> {

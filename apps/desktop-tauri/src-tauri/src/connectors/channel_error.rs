@@ -70,7 +70,12 @@ impl ChannelError {
         self.to_string().contains(needle)
     }
 
-    fn format_provider_display(status: &str, detail: &str, provider_code: Option<&str>, http_status: Option<u16>) -> String {
+    fn format_provider_display(
+        status: &str,
+        detail: &str,
+        provider_code: Option<&str>,
+        http_status: Option<u16>,
+    ) -> String {
         let status_upper = status.to_uppercase();
         let mut s = format!("CHANNEL_CONNECTOR_PROVIDER_{status_upper}: {detail}");
         if let Some(code) = provider_code {
@@ -102,7 +107,11 @@ impl ChannelError {
         }
     }
 
-    pub fn provider_unavailable_with_code(detail: impl Into<String>, provider_code: String, http_status: Option<u16>) -> Self {
+    pub fn provider_unavailable_with_code(
+        detail: impl Into<String>,
+        provider_code: String,
+        http_status: Option<u16>,
+    ) -> Self {
         let detail = detail.into();
         ChannelError::Provider {
             status: "unavailable".to_string(),
@@ -110,7 +119,12 @@ impl ChannelError {
             provider_code: Some(provider_code.clone()),
             http_status,
             retryable: true,
-            provider_display: Self::format_provider_display("unavailable", &detail, Some(&provider_code), http_status),
+            provider_display: Self::format_provider_display(
+                "unavailable",
+                &detail,
+                Some(&provider_code),
+                http_status,
+            ),
         }
     }
 
@@ -139,7 +153,11 @@ impl ChannelError {
 
     pub fn disabled(channel: impl Into<String>, account_id: impl Into<String>) -> Self {
         ChannelError::Config {
-            detail: format!("{} account {} is disabled", channel.into(), account_id.into()),
+            detail: format!(
+                "{} account {} is disabled",
+                channel.into(),
+                account_id.into()
+            ),
         }
     }
 
@@ -179,7 +197,12 @@ impl ChannelError {
             provider_code: None,
             http_status,
             retryable: false,
-            provider_display: Self::format_provider_display("invalid_response", &detail, None, http_status),
+            provider_display: Self::format_provider_display(
+                "invalid_response",
+                &detail,
+                None,
+                http_status,
+            ),
         }
     }
 }

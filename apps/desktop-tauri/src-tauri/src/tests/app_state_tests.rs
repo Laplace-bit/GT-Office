@@ -883,6 +883,53 @@ fn external_reply_dispatch_skips_preview_for_feishu_until_finalize() {
 }
 
 #[test]
+fn external_reply_dispatch_skips_preview_for_wechat_until_finalize() {
+    let state = AppState::default();
+    let target = ExternalReplyRelayTarget {
+        trace_id: "trace_wechat_finalize".to_string(),
+        channel: "wechat".to_string(),
+        account_id: "default".to_string(),
+        peer_id: "wx_peer_123".to_string(),
+        inbound_message_id: "wx_msg_123".to_string(),
+        workspace_id: "ws".to_string(),
+        target_agent_id: "agent-wechat".to_string(),
+        injected_input: None,
+        task_id: None,
+        reply_to_agent_id: None,
+    };
+    state
+        .bind_external_reply_session("s_wechat_finalize", target, now_ms_for_test(1_000))
+        .expect("bind session");
+    state
+        .append_external_reply_chunk(
+            "s_wechat_finalize",
+            b"this wechat reply should not stream as preview",
+            now_ms_for_test(1_100),
+        )
+        .expect("append chunk");
+
+    let preview = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_200), 5_000, 20_000, 200, 10)
+        .expect("take preview candidates");
+    assert!(preview.is_empty());
+
+    state
+        .mark_external_reply_session_ended("s_wechat_finalize", now_ms_for_test(2_500))
+        .expect("mark ended");
+
+    let final_candidates = state
+        .take_external_reply_dispatch_candidates(now_ms_for_test(2_700), 5_000, 20_000, 200, 10)
+        .expect("take final candidates");
+    assert_eq!(final_candidates.len(), 1);
+    assert_eq!(
+        final_candidates[0].phase,
+        ExternalReplyDispatchPhase::Finalize
+    );
+    assert!(final_candidates[0].preview_message_id.is_none());
+    assert_eq!(final_candidates[0].target.channel, "wechat");
+}
+
+#[test]
 fn should_skip_startup_banner_line_detects_version_info() {
     assert!(should_skip_startup_banner_line("v1.0.0"));
     assert!(should_skip_startup_banner_line("v2.3.4-beta"));

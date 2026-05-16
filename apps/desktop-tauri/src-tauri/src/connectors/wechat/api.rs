@@ -12,6 +12,10 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const API_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn build_headers(token: &str) -> Result<HeaderMap, String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("CHANNEL_CONNECTOR_AUTH_INVALID: token is required".to_string());
+    }
     let mut headers = HeaderMap::new();
     headers.insert(
         "AuthorizationType",
@@ -142,7 +146,7 @@ async fn perform_get_updates(
     timeout_duration: Duration,
     treat_timeout_as_empty: bool,
 ) -> Result<GetUpdatesResp, String> {
-    let url = format!("{}/ilink/bot/getupdates", base_url.trim_end_matches('/'));
+    let url = get_updates_url(base_url);
     let body = GetUpdatesReq {
         get_updates_buf: buf.to_string(),
         base_info: base_info(),
@@ -205,24 +209,13 @@ pub async fn send_message(
     context_token: &str,
     text: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/ilink/bot/sendmessage", base_url.trim_end_matches('/'));
-    let body = SendMessageReqBody {
-        msg: SendMessageMsg {
-            from_user_id: String::new(),
-            to_user_id: to_user_id.to_string(),
-            client_id: Uuid::new_v4().simple().to_string(),
-            context_token: context_token.to_string(),
-            message_type: 2,
-            message_state: 2,
-            item_list: vec![SendMessageItem {
-                type_: 1,
-                text_item: SendTextItem {
-                    text: text.to_string(),
-                },
-            }],
-        },
-        base_info: base_info(),
-    };
+    let url = send_message_url(base_url);
+    let body = build_send_message_body(
+        to_user_id,
+        context_token,
+        text,
+        Uuid::new_v4().simple().to_string(),
+    );
 
     let response = client
         .post(&url)
@@ -244,10 +237,7 @@ pub async fn send_message(
 }
 
 pub async fn fetch_qrcode(client: &Client, base_url: &str) -> Result<QrCodeResp, String> {
-    let url = format!(
-        "{}/ilink/bot/get_bot_qrcode?bot_type=3",
-        base_url.trim_end_matches('/')
-    );
+    let url = fetch_qrcode_url(base_url);
     let response = client
         .get(&url)
         .timeout(API_TIMEOUT)
@@ -270,11 +260,7 @@ pub async fn poll_qr_status(
     base_url: &str,
     qrcode: &str,
 ) -> Result<QrStatusResp, String> {
-    let url = format!(
-        "{}/ilink/bot/get_qrcode_status?qrcode={}",
-        base_url.trim_end_matches('/'),
-        qrcode
-    );
+    let url = poll_qr_status_url(base_url, qrcode);
     let response = client
         .get(&url)
         .header("iLink-App-ClientVersion", "1")
@@ -292,3 +278,59 @@ pub async fn poll_qr_status(
         format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: get_qrcode_status invalid JSON: {error}")
     })
 }
+
+fn get_updates_url(base_url: &str) -> String {
+    format!("{}/ilink/bot/getupdates", normalize_base_url(base_url))
+}
+
+fn send_message_url(base_url: &str) -> String {
+    format!("{}/ilink/bot/sendmessage", normalize_base_url(base_url))
+}
+
+fn fetch_qrcode_url(base_url: &str) -> String {
+    format!(
+        "{}/ilink/bot/get_bot_qrcode?bot_type=3",
+        normalize_base_url(base_url)
+    )
+}
+
+fn poll_qr_status_url(base_url: &str, qrcode: &str) -> String {
+    format!(
+        "{}/ilink/bot/get_qrcode_status?qrcode={}",
+        normalize_base_url(base_url),
+        urlencoding::encode(qrcode)
+    )
+}
+
+fn normalize_base_url(base_url: &str) -> &str {
+    base_url.trim().trim_end_matches('/')
+}
+
+fn build_send_message_body(
+    to_user_id: &str,
+    context_token: &str,
+    text: &str,
+    client_id: String,
+) -> SendMessageReqBody {
+    SendMessageReqBody {
+        msg: SendMessageMsg {
+            from_user_id: String::new(),
+            to_user_id: to_user_id.to_string(),
+            client_id,
+            context_token: context_token.to_string(),
+            message_type: 2,
+            message_state: 2,
+            item_list: vec![SendMessageItem {
+                type_: 1,
+                text_item: SendTextItem {
+                    text: text.to_string(),
+                },
+            }],
+        },
+        base_info: base_info(),
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/api_tests.rs"]
+mod tests;

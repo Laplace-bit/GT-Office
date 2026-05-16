@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 use crate::{
     app_state::{
@@ -83,32 +83,40 @@ impl ChannelSinkKind {
 }
 
 pub async fn deliver_interaction_prompt(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     candidate: &ExternalInteractionDispatchCandidate,
 ) -> Result<Option<String>, String> {
-    match ChannelSinkKind::from_channel(&candidate.target.channel) {
+    match interaction_delivery_preflight(candidate)? {
         ChannelSinkKind::Telegram => deliver_telegram_interaction_prompt(app, candidate).await,
         ChannelSinkKind::Feishu => deliver_feishu_interaction_prompt(app, candidate).await,
         ChannelSinkKind::Wechat => deliver_wechat_interaction_prompt(app, candidate).await,
-        ChannelSinkKind::Unsupported => Err(format!(
-            "CHANNEL_REPLY_INTERACTION_UNSUPPORTED: channel {} does not support interactive prompts",
-            candidate.target.channel
-        )),
+        ChannelSinkKind::Unsupported => unreachable!("unsupported sink rejected by preflight"),
     }
 }
 
+fn interaction_delivery_preflight(
+    candidate: &ExternalInteractionDispatchCandidate,
+) -> Result<ChannelSinkKind, String> {
+    let sink = ChannelSinkKind::from_channel(&candidate.target.channel);
+    if sink == ChannelSinkKind::Unsupported {
+        return Err(format!(
+            "CHANNEL_REPLY_INTERACTION_UNSUPPORTED: channel {} does not support interactive prompts",
+            candidate.target.channel
+        ));
+    }
+    Ok(sink)
+}
+
 pub async fn deliver_reply_text(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     target: &ExternalReplyRelayTarget,
     phase: ExternalReplyDispatchPhase,
     text_chunks: &[String],
     preview_message_id: &mut Option<String>,
 ) -> Result<ChannelReplyDeliveryResult, String> {
-    let Some(primary_text) = text_chunks.first() else {
-        return Err("CHANNEL_REPLY_EMPTY: no text chunks available".to_string());
-    };
+    let (primary_text, sink) = reply_delivery_preflight(target, phase, text_chunks)?;
 
-    match ChannelSinkKind::from_channel(&target.channel) {
+    match sink {
         ChannelSinkKind::Telegram => {
             deliver_telegram_reply_text(
                 app,
@@ -133,8 +141,54 @@ pub async fn deliver_reply_text(
     }
 }
 
+fn reply_delivery_preflight<'a>(
+    target: &ExternalReplyRelayTarget,
+    phase: ExternalReplyDispatchPhase,
+    text_chunks: &'a [String],
+) -> Result<(&'a str, ChannelSinkKind), String> {
+    let Some(primary_text) = text_chunks.first() else {
+        return Err("CHANNEL_REPLY_EMPTY: no text chunks available".to_string());
+    };
+    let primary_text = primary_text.trim();
+    if primary_text.is_empty() {
+        return Err("CHANNEL_REPLY_EMPTY: primary text chunk is blank".to_string());
+    }
+
+    let sink = ChannelSinkKind::from_channel(&target.channel);
+    if let Some(error) = preview_unsupported_error(sink, phase) {
+        return Err(error);
+    }
+    if sink == ChannelSinkKind::Unsupported {
+        return Err(format!(
+            "CHANNEL_REPLY_SEND_UNSUPPORTED: channel {} outbound is unsupported",
+            target.channel
+        ));
+    }
+    if target.peer_id.trim().is_empty() {
+        return Err("CHANNEL_REPLY_SEND_INVALID: peer id is required".to_string());
+    }
+
+    Ok((primary_text, sink))
+}
+
+fn preview_unsupported_error(
+    sink: ChannelSinkKind,
+    phase: ExternalReplyDispatchPhase,
+) -> Option<String> {
+    if phase != ExternalReplyDispatchPhase::Preview || sink.capabilities().supports_preview_edit {
+        return None;
+    }
+    match sink {
+        ChannelSinkKind::Feishu | ChannelSinkKind::Wechat => Some(format!(
+            "CHANNEL_REPLY_PREVIEW_UNSUPPORTED: {} preview updates are disabled",
+            sink.id()
+        )),
+        ChannelSinkKind::Telegram | ChannelSinkKind::Unsupported => None,
+    }
+}
+
 async fn deliver_telegram_interaction_prompt(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     candidate: &ExternalInteractionDispatchCandidate,
 ) -> Result<Option<String>, String> {
     match candidate.phase {
@@ -186,7 +240,7 @@ async fn deliver_telegram_interaction_prompt(
 }
 
 async fn deliver_feishu_interaction_prompt(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     candidate: &ExternalInteractionDispatchCandidate,
 ) -> Result<Option<String>, String> {
     match candidate.phase {
@@ -210,7 +264,7 @@ async fn deliver_feishu_interaction_prompt(
 }
 
 async fn deliver_wechat_interaction_prompt(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     candidate: &ExternalInteractionDispatchCandidate,
 ) -> Result<Option<String>, String> {
     match candidate.phase {
@@ -234,7 +288,7 @@ async fn deliver_wechat_interaction_prompt(
 }
 
 async fn deliver_telegram_reply_text(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     target: &ExternalReplyRelayTarget,
     phase: ExternalReplyDispatchPhase,
     primary_text: &str,
@@ -322,12 +376,23 @@ async fn deliver_telegram_reply_text(
     Ok(ChannelReplyDeliveryResult {
         message_id: send_result.message_id,
         delivered_at_ms: send_result.delivered_at_ms,
-        continuation_chunks: text_chunks.len().saturating_sub(1),
+        continuation_chunks: delivered_continuation_chunks(phase, text_chunks),
     })
 }
 
+fn delivered_continuation_chunks(
+    phase: ExternalReplyDispatchPhase,
+    text_chunks: &[String],
+) -> usize {
+    if phase == ExternalReplyDispatchPhase::Finalize {
+        text_chunks.len().saturating_sub(1)
+    } else {
+        0
+    }
+}
+
 async fn deliver_feishu_reply_text(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     target: &ExternalReplyRelayTarget,
     phase: ExternalReplyDispatchPhase,
     primary_text: &str,
@@ -367,7 +432,7 @@ async fn deliver_feishu_reply_text(
 }
 
 async fn deliver_wechat_reply_text(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     target: &ExternalReplyRelayTarget,
     _phase: ExternalReplyDispatchPhase,
     primary_text: &str,
@@ -539,3 +604,7 @@ pub(crate) fn format_interaction_prompt_text(
     }
     lines.join("\n\n")
 }
+
+#[cfg(test)]
+#[path = "tests/channel_sinks_tests.rs"]
+mod tests;
