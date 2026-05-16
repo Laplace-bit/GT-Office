@@ -550,7 +550,7 @@ pub async fn health_check(
     }
 
     let token = load_bot_token(record)?;
-    let me = telegram_get_me(&token)?;
+    let me = telegram_get_me(&token).await?;
     if !me.ok {
         return Ok(TelegramHealthSnapshot {
             channel: "telegram".to_string(),
@@ -569,7 +569,7 @@ pub async fn health_check(
         });
     }
 
-    let webhook_info = telegram_get_webhook_info(&token)?;
+    let webhook_info = telegram_get_webhook_info(&token).await?;
     let configured_webhook_url = webhook_info
         .url
         .map(|value| value.trim().to_string())
@@ -656,8 +656,8 @@ pub async fn sync_runtime_webhook(
     let token = load_bot_token(record)?;
     let webhook_secret = load_webhook_secret(record)?;
 
-    telegram_set_webhook(&token, runtime_webhook_url, webhook_secret.as_deref())?;
-    let webhook_info = telegram_get_webhook_info(&token)?;
+    telegram_set_webhook(&token, runtime_webhook_url, webhook_secret.as_deref()).await?;
+    let webhook_info = telegram_get_webhook_info(&token).await?;
     let configured_webhook_url = webhook_info
         .url
         .map(|value| value.trim().to_string())
@@ -708,10 +708,9 @@ pub async fn send_typing_action(
     }
 
     let token = load_bot_token(&record)?;
-    let peer_owned = peer_id.to_string();
-    tokio::task::spawn_blocking(move || telegram_send_chat_action(&token, &peer_owned, "typing"))
+    telegram_send_chat_action(&token, peer_id, "typing")
         .await
-        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
 
     Ok(())
 }
@@ -781,21 +780,16 @@ pub async fn send_text_reply_with_inline_keyboard(
     }
 
     let token = load_bot_token(&record)?;
-    let peer_owned = peer_id.to_string();
-    let text_owned = text.to_string();
-    let reply_to_owned = reply_to_message_id.map(ToString::to_string);
     let reply_markup = keyboard_to_reply_markup(keyboard);
-    let send_result = tokio::task::spawn_blocking(move || {
-        telegram_send_message(
-            &token,
-            &peer_owned,
-            &text_owned,
-            reply_to_owned.as_deref(),
-            reply_markup,
-        )
-    })
+    let send_result = telegram_send_message(
+        &token,
+        peer_id,
+        text,
+        reply_to_message_id,
+        reply_markup,
+    )
     .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
 
     Ok(TelegramSendSnapshot {
         channel: "telegram".to_string(),
@@ -840,21 +834,16 @@ pub async fn edit_text_reply_with_inline_keyboard(
     }
 
     let token = load_bot_token(&record)?;
-    let peer_owned = peer_id.to_string();
-    let message_id_owned = message_id.to_string();
-    let text_owned = text.to_string();
     let reply_markup = keyboard_to_reply_markup(keyboard);
-    let edit_result = tokio::task::spawn_blocking(move || {
-        telegram_edit_message(
-            &token,
-            &peer_owned,
-            &message_id_owned,
-            &text_owned,
-            reply_markup,
-        )
-    })
+    let edit_result = telegram_edit_message(
+        &token,
+        peer_id,
+        message_id,
+        text,
+        reply_markup,
+    )
     .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
 
     Ok(TelegramSendSnapshot {
         channel: "telegram".to_string(),
@@ -917,13 +906,9 @@ pub async fn delete_message(
     }
 
     let token = load_bot_token(&record)?;
-    let peer_owned = peer_id.to_string();
-    let message_id_owned = message_id.to_string();
-    let delete_result = tokio::task::spawn_blocking(move || {
-        telegram_delete_message(&token, &peer_owned, &message_id_owned)
-    })
-    .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    let delete_result = telegram_delete_message(&token, peer_id, message_id)
+        .await
+        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
     if !delete_result.ok {
         return Err(
             "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: telegram deleteMessage failed".to_string(),
@@ -954,13 +939,9 @@ pub async fn answer_callback_query(
     }
 
     let token = load_bot_token(&record)?;
-    let callback_query_id_owned = callback_query_id.to_string();
-    let text_owned = text.map(ToString::to_string);
-    tokio::task::spawn_blocking(move || {
-        telegram_answer_callback_query(&token, &callback_query_id_owned, text_owned.as_deref())
-    })
-    .await
-    .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    telegram_answer_callback_query(&token, callback_query_id, text)
+        .await
+        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
     Ok(())
 }
 
@@ -1039,12 +1020,7 @@ async fn poll_account_once(
     let token = load_bot_token(&record)?;
 
     if !is_poll_primed(&account_id) {
-        let token_for_delete = token.clone();
-        if let Err(error) =
-            tokio::task::spawn_blocking(move || telegram_delete_webhook(&token_for_delete))
-                .await
-                .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?
-        {
+        if let Err(error) = telegram_delete_webhook(&token).await {
             debug!(
                 account_id = %account_id,
                 error = %error,
@@ -1055,11 +1031,9 @@ async fn poll_account_once(
     }
 
     let offset = resolve_poll_offset(app, &account_id, &token);
-    let token_for_updates = token.clone();
-    let updates =
-        tokio::task::spawn_blocking(move || telegram_get_updates(&token_for_updates, offset))
-            .await
-            .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))??;
+    let updates = telegram_get_updates(&token, offset)
+        .await
+        .map_err(|error| format!("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: {error}"))?;
     if !updates.ok {
         return Err(format!(
             "CHANNEL_CONNECTOR_AUTH_FAILED: {}",
