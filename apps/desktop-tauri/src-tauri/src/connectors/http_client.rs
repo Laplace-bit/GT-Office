@@ -95,7 +95,6 @@ impl HttpRequestBuilder {
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client: Client,
-    connect_timeout_secs: u64,
     max_retries: u32,
     retry_delay_secs: u64,
 }
@@ -117,10 +116,6 @@ impl HttpClient {
             max_retries: DEFAULT_MAX_RETRIES,
             retry_delay_secs: DEFAULT_RETRY_DELAY_SECS,
         }
-    }
-
-    pub fn connect_timeout_secs(&self) -> u64 {
-        self.connect_timeout_secs
     }
 
     pub async fn execute(&self, request: HttpRequest) -> Result<HttpResponse, ChannelError> {
@@ -174,19 +169,10 @@ impl HttpClient {
         let response = req.send().await.map_err(ChannelError::from)?;
 
         let status = response.status().as_u16();
-        let headers: Vec<(String, String)> = response
-            .headers()
-            .iter()
-            .filter_map(|(name, value)| {
-                Some((name.to_string(), value.to_str().ok()?.to_string()))
-            })
-            .collect();
-
         let body_bytes = response.bytes().await.map_err(ChannelError::from)?;
 
         Ok(HttpResponse {
             status,
-            headers,
             body: body_bytes.to_vec(),
         })
     }
@@ -195,34 +181,13 @@ impl HttpClient {
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status: u16,
-    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
 }
 
 impl HttpResponse {
-    pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, ChannelError> {
-        use super::channel_error::{HttpStatusFmt, ProviderCodeFmt};
-        serde_json::from_slice::<T>(&self.body).map_err(|error| ChannelError::Provider {
-            status: "invalid_response".to_string(),
-            detail: format!("invalid JSON: {error}"),
-            provider_code: None,
-            http_status: Some(self.status),
-            retryable: false,
-            provider_code_fmt: ProviderCodeFmt(None),
-            http_status_fmt: HttpStatusFmt(Some(self.status)),
-        })
-    }
-
     pub fn json_value(&self) -> Result<Value, ChannelError> {
-        use super::channel_error::{HttpStatusFmt, ProviderCodeFmt};
-        serde_json::from_slice::<Value>(&self.body).map_err(|error| ChannelError::Provider {
-            status: "invalid_response".to_string(),
-            detail: format!("invalid JSON: {error}"),
-            provider_code: None,
-            http_status: Some(self.status),
-            retryable: false,
-            provider_code_fmt: ProviderCodeFmt(None),
-            http_status_fmt: HttpStatusFmt(Some(self.status)),
+        serde_json::from_slice::<Value>(&self.body).map_err(|error| {
+            ChannelError::invalid_response(format!("invalid JSON: {error}"), Some(self.status))
         })
     }
 
@@ -233,13 +198,6 @@ impl HttpResponse {
     pub fn is_success(&self) -> bool {
         self.status >= 200 && self.status < 300
     }
-
-    pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
-            .map(|(_, value)| value.as_str())
-    }
 }
 
 pub struct HttpClientBuilder {
@@ -249,11 +207,6 @@ pub struct HttpClientBuilder {
 }
 
 impl HttpClientBuilder {
-    pub fn connect_timeout_secs(mut self, secs: u64) -> Self {
-        self.connect_timeout_secs = secs;
-        self
-    }
-
     pub fn max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
         self
@@ -273,7 +226,6 @@ impl HttpClientBuilder {
 
         HttpClient {
             client,
-            connect_timeout_secs: self.connect_timeout_secs,
             max_retries: self.max_retries,
             retry_delay_secs: self.retry_delay_secs,
         }

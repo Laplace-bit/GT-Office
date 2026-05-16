@@ -1,30 +1,26 @@
-use crate::connectors::channel_error::{ChannelError, ProviderCodeFmt, HttpStatusFmt};
+use crate::connectors::channel_error::ChannelError;
 
 #[test]
 fn test_auth_display_format() {
-    let err = ChannelError::Auth {
-        category: "FAILED".to_string(),
-        detail: "Invalid token".to_string(),
-        retryable: false,
-    };
+    let err = ChannelError::auth_failed("Invalid token");
     let msg = err.to_string();
-    assert!(msg.contains("CHANNEL_AUTH_FAILED"));
+    assert!(msg.contains("CHANNEL_CONNECTOR_AUTH_FAILED"));
     assert!(msg.contains("Invalid token"));
 }
 
 #[test]
-fn test_provider_display_format() {
-    let err = ChannelError::Provider {
-        status: "ERROR".to_string(),
-        detail: "API failure".to_string(),
-        provider_code: Some("E123".to_string()),
-        http_status: Some(500),
-        retryable: true,
-        provider_code_fmt: ProviderCodeFmt(Some("E123".to_string())),
-        http_status_fmt: HttpStatusFmt(Some(500)),
-    };
+fn test_provider_unavailable_display() {
+    let err = ChannelError::provider_unavailable("API failure");
     let msg = err.to_string();
-    assert!(msg.contains("CHANNEL_PROVIDER_ERROR"));
+    assert!(msg.contains("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE"));
+    assert!(msg.contains("API failure"));
+}
+
+#[test]
+fn test_provider_unavailable_with_code_display() {
+    let err = ChannelError::provider_unavailable_with_code("API failure", "E123".to_string(), Some(500));
+    let msg = err.to_string();
+    assert!(msg.contains("CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE"));
     assert!(msg.contains("API failure"));
     assert!(msg.contains("provider_code=E123"));
     assert!(msg.contains("http_status=500"));
@@ -32,13 +28,9 @@ fn test_provider_display_format() {
 
 #[test]
 fn test_permission_denied_display() {
-    let err = ChannelError::PermissionDenied {
-        detail: "Access denied".to_string(),
-        provider_code: Some("P001".to_string()),
-        provider_code_fmt: ProviderCodeFmt(Some("P001".to_string())),
-    };
+    let err = ChannelError::provider_denied("Access denied", Some("P001".to_string()));
     let msg = err.to_string();
-    assert!(msg.contains("CHANNEL_PERMISSION_DENIED"));
+    assert!(msg.contains("CHANNEL_CONNECTOR_PERMISSION_DENIED"));
     assert!(msg.contains("Access denied"));
     assert!(msg.contains("provider_code=P001"));
 }
@@ -153,6 +145,15 @@ fn test_retryable_flags() {
         detail: "test".to_string(),
     };
     assert!(!cancelled.retryable());
+
+    let transport_retryable = ChannelError::Transport {
+        detail: "test".to_string(),
+        retryable: true,
+    };
+    assert!(transport_retryable.retryable());
+
+    let permission = ChannelError::provider_denied("test", None);
+    assert!(!permission.retryable());
 }
 
 #[test]
@@ -172,15 +173,23 @@ fn test_from_io_error_connection_reset() {
 }
 
 #[test]
-fn test_from_reqwest_error() {
-    // This test ensures the From<reqwest::Error> implementation compiles
-    // We can't easily create a reqwest::Error without a client, but we can
-    // verify the trait is implemented by checking the type signature
-    fn assert_from_reqwest(_err: reqwest::Error) -> ChannelError {
-        // This would fail to compile if the From impl is missing
-        todo!()
-    }
+fn test_convenience_constructors() {
+    let not_found = ChannelError::not_found("feishu", "default");
+    assert!(not_found.to_string().contains("feishu"));
 
-    // Just verify the function signature exists
-    let _: fn(reqwest::Error) -> ChannelError = assert_from_reqwest;
+    let disabled = ChannelError::disabled("telegram", "ops");
+    assert!(disabled.to_string().contains("telegram"));
+
+    let send_invalid = ChannelError::send_invalid("peer_id is empty");
+    assert!(send_invalid.to_string().contains("CHANNEL_VALIDATION"));
+
+    let store_read = ChannelError::store_read("file error");
+    assert!(store_read.to_string().contains("CHANNEL_STORE_READ"));
+
+    let secret_load = ChannelError::secret_load_failed("keychain error");
+    assert!(secret_load.to_string().contains("CHANNEL_CONNECTOR_AUTH"));
+
+    let invalid_resp = ChannelError::invalid_response("bad json", Some(502));
+    assert!(invalid_resp.to_string().contains("CHANNEL_CONNECTOR_PROVIDER"));
+    assert!(invalid_resp.to_string().contains("http_status=502"));
 }

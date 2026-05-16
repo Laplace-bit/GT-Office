@@ -30,8 +30,8 @@ impl WebhookTokens {
             tokens.save_to_path(path)?;
             return Ok(tokens);
         }
-        let payload = std::fs::read(path)
-            .map_err(|e| format!("failed to read tokens file: {e}"))?;
+        let payload =
+            std::fs::read(path).map_err(|e| format!("failed to read tokens file: {e}"))?;
         let tokens: Self = serde_json::from_slice(&payload).unwrap_or_else(|_| Self::new());
         if tokens.feishu_token.is_empty() || tokens.telegram_token.is_empty() {
             return Ok(Self::new());
@@ -44,15 +44,11 @@ impl WebhookTokens {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("failed to create tokens dir: {e}"))?;
         }
-        let payload = serde_json::to_vec_pretty(self)
-            .map_err(|e| format!("failed to encode tokens: {e}"))?;
-        std::fs::write(path, payload)
-            .map_err(|e| format!("failed to write tokens file: {e}"))
+        let payload =
+            serde_json::to_vec_pretty(self).map_err(|e| format!("failed to encode tokens: {e}"))?;
+        std::fs::write(path, payload).map_err(|e| format!("failed to write tokens file: {e}"))
     }
 
-    pub fn rotate(&self) -> Self {
-        Self::new()
-    }
 }
 
 impl Default for WebhookTokens {

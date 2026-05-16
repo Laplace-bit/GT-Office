@@ -42,7 +42,7 @@ fn tenant_access_token_response_trims_and_reports_auth_failures() {
     }))
     .expect_err("auth failure");
     assert_eq!(
-        provider_error,
+        provider_error.to_string(),
         "CHANNEL_CONNECTOR_AUTH_FAILED: app_secret invalid"
     );
 
@@ -52,7 +52,7 @@ fn tenant_access_token_response_trims_and_reports_auth_failures() {
     }))
     .expect_err("blank auth failure");
     assert_eq!(
-        blank_provider_error,
+        blank_provider_error.to_string(),
         "CHANNEL_CONNECTOR_AUTH_FAILED: tenant_access_token request failed"
     );
 
@@ -62,7 +62,7 @@ fn tenant_access_token_response_trims_and_reports_auth_failures() {
     }))
     .expect_err("missing token");
     assert_eq!(
-        missing,
+        missing.to_string(),
         "CHANNEL_CONNECTOR_AUTH_FAILED: missing tenant access token"
     );
 
@@ -108,7 +108,7 @@ fn bot_info_response_normalizes_names_and_rejects_inactive_bots() {
     }))
     .expect_err("inactive bot");
     assert_eq!(
-        inactive,
+        inactive.to_string(),
         "CHANNEL_CONNECTOR_AUTH_FAILED: bot capability is not activated"
     );
 
@@ -117,7 +117,7 @@ fn bot_info_response_normalizes_names_and_rejects_inactive_bots() {
     }))
     .expect_err("missing bot");
     assert_eq!(
-        missing_bot,
+        missing_bot.to_string(),
         "CHANNEL_CONNECTOR_PROVIDER_INVALID_RESPONSE: missing bot payload"
     );
 
@@ -127,7 +127,7 @@ fn bot_info_response_normalizes_names_and_rejects_inactive_bots() {
     }))
     .expect_err("provider error");
     assert_eq!(
-        provider_error,
+        provider_error.to_string(),
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: bad token"
     );
 
@@ -137,7 +137,7 @@ fn bot_info_response_normalizes_names_and_rejects_inactive_bots() {
     }))
     .expect_err("blank provider error");
     assert_eq!(
-        blank_provider_error,
+        blank_provider_error.to_string(),
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: bot info request failed"
     );
 
@@ -146,7 +146,7 @@ fn bot_info_response_normalizes_names_and_rejects_inactive_bots() {
     }))
     .expect_err("default provider error");
     assert_eq!(
-        default_provider_error,
+        default_provider_error.to_string(),
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: bot info request failed"
     );
 
@@ -278,7 +278,7 @@ fn extract_message_id_omits_blank_request_diagnostics() {
         .expect_err("blank request id should be omitted");
 
     assert_eq!(
-        error,
+        error.to_string(),
         "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: code=9999 msg=failed"
     );
 }
@@ -297,18 +297,18 @@ fn extract_message_id_classifies_membership_error_as_permission_denied() {
 }
 
 #[test]
-fn extract_message_id_uses_default_provider_message_and_custom_prefix() {
+fn extract_message_id_classifies_non_permission_errors_as_provider_unavailable() {
     let error = extract_message_id(
         serde_json::json!({
             "code": 9999
         }),
-        "CHANNEL_CONNECTOR_SEND_FAILED",
+        "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE",
     )
-    .expect_err("default send failure");
+    .expect_err("non-permission provider error");
 
     assert_eq!(
-        error,
-        "CHANNEL_CONNECTOR_SEND_FAILED: code=9999 msg=message request failed"
+        error.to_string(),
+        "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: code=9999 msg=message request failed"
     );
 
     let blank_message = extract_message_id(
@@ -316,12 +316,12 @@ fn extract_message_id_uses_default_provider_message_and_custom_prefix() {
             "code": 9999,
             "msg": "   "
         }),
-        "CHANNEL_CONNECTOR_SEND_FAILED",
+        "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE",
     )
     .expect_err("blank provider message should fallback");
 
     assert_eq!(
-        blank_message,
-        "CHANNEL_CONNECTOR_SEND_FAILED: code=9999 msg=message request failed"
+        blank_message.to_string(),
+        "CHANNEL_CONNECTOR_PROVIDER_UNAVAILABLE: code=9999 msg=message request failed"
     );
 }

@@ -1,26 +1,27 @@
-use std::fmt;
-
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ChannelError {
-    #[error("CHANNEL_AUTH_{category}: {detail}")]
-    Auth { category: String, detail: String, retryable: bool },
+    #[error("CHANNEL_CONNECTOR_AUTH_{category}: {detail}")]
+    Auth {
+        category: String,
+        detail: String,
+        retryable: bool,
+    },
 
-    #[error("CHANNEL_PROVIDER_{status}: {detail}{provider_code_fmt}{http_status_fmt}")]
+    #[error("{provider_display}")]
     Provider {
         status: String,
         detail: String,
         provider_code: Option<String>,
         http_status: Option<u16>,
         retryable: bool,
-        provider_code_fmt: ProviderCodeFmt,
-        http_status_fmt: HttpStatusFmt,
+        provider_display: String,
     },
 
-    #[error("CHANNEL_PERMISSION_DENIED: {detail}{provider_code_fmt}")]
+    #[error("{permission_display}")]
     PermissionDenied {
         detail: String,
         provider_code: Option<String>,
-        provider_code_fmt: ProviderCodeFmt,
+        permission_display: String,
     },
 
     #[error("CHANNEL_VALIDATION: {detail}")]
@@ -45,30 +46,6 @@ pub enum ChannelError {
     Unsupported { detail: String },
 }
 
-#[derive(Debug, Clone)]
-pub struct ProviderCodeFmt(pub Option<String>);
-
-impl fmt::Display for ProviderCodeFmt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Some(code) => write!(f, " provider_code={}", code),
-            None => Ok(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct HttpStatusFmt(pub Option<u16>);
-
-impl fmt::Display for HttpStatusFmt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            Some(status) => write!(f, " http_status={}", status),
-            None => Ok(()),
-        }
-    }
-}
-
 impl ChannelError {
     pub fn retryable(&self) -> bool {
         match self {
@@ -85,27 +62,64 @@ impl ChannelError {
         }
     }
 
+    pub fn starts_with(&self, prefix: &str) -> bool {
+        self.to_string().starts_with(prefix)
+    }
+
+    pub fn contains(&self, needle: &str) -> bool {
+        self.to_string().contains(needle)
+    }
+
+    fn format_provider_display(status: &str, detail: &str, provider_code: Option<&str>, http_status: Option<u16>) -> String {
+        let status_upper = status.to_uppercase();
+        let mut s = format!("CHANNEL_CONNECTOR_PROVIDER_{status_upper}: {detail}");
+        if let Some(code) = provider_code {
+            s.push_str(&format!(" provider_code={code}"));
+        }
+        if let Some(status) = http_status {
+            s.push_str(&format!(" http_status={status}"));
+        }
+        s
+    }
+
+    fn format_permission_display(detail: &str, provider_code: Option<&str>) -> String {
+        let mut s = format!("CHANNEL_CONNECTOR_PERMISSION_DENIED: {detail}");
+        if let Some(code) = provider_code {
+            s.push_str(&format!(" provider_code={code}"));
+        }
+        s
+    }
+
     pub fn provider_unavailable(detail: impl Into<String>) -> Self {
+        let detail = detail.into();
         ChannelError::Provider {
-            status: "UNAVAILABLE".to_string(),
-            detail: detail.into(),
+            status: "unavailable".to_string(),
+            detail: detail.clone(),
             provider_code: None,
             http_status: None,
             retryable: true,
-            provider_code_fmt: ProviderCodeFmt(None),
-            http_status_fmt: HttpStatusFmt(None),
+            provider_display: Self::format_provider_display("unavailable", &detail, None, None),
+        }
+    }
+
+    pub fn provider_unavailable_with_code(detail: impl Into<String>, provider_code: String, http_status: Option<u16>) -> Self {
+        let detail = detail.into();
+        ChannelError::Provider {
+            status: "unavailable".to_string(),
+            detail: detail.clone(),
+            provider_code: Some(provider_code.clone()),
+            http_status,
+            retryable: true,
+            provider_display: Self::format_provider_display("unavailable", &detail, Some(&provider_code), http_status),
         }
     }
 
     pub fn provider_denied(detail: impl Into<String>, provider_code: Option<String>) -> Self {
-        ChannelError::Provider {
-            status: "DENIED".to_string(),
-            detail: detail.into(),
+        let detail = detail.into();
+        ChannelError::PermissionDenied {
+            detail: detail.clone(),
             provider_code: provider_code.clone(),
-            http_status: None,
-            retryable: false,
-            provider_code_fmt: ProviderCodeFmt(provider_code),
-            http_status_fmt: HttpStatusFmt(None),
+            permission_display: Self::format_permission_display(&detail, provider_code.as_deref()),
         }
     }
 
@@ -118,16 +132,14 @@ impl ChannelError {
     }
 
     pub fn not_found(channel: impl Into<String>, account_id: impl Into<String>) -> Self {
-        ChannelError::Store {
-            operation: "NOT_FOUND".to_string(),
-            detail: format!("{}: {}", channel.into(), account_id.into()),
+        ChannelError::Config {
+            detail: format!("{} account {} not found", channel.into(), account_id.into()),
         }
     }
 
     pub fn disabled(channel: impl Into<String>, account_id: impl Into<String>) -> Self {
-        ChannelError::Store {
-            operation: "DISABLED".to_string(),
-            detail: format!("{}: {}", channel.into(), account_id.into()),
+        ChannelError::Config {
+            detail: format!("{} account {} is disabled", channel.into(), account_id.into()),
         }
     }
 
@@ -152,8 +164,22 @@ impl ChannelError {
     }
 
     pub fn secret_load_failed(detail: impl Into<String>) -> Self {
-        ChannelError::Config {
-            detail: format!("Secret load failed: {}", detail.into()),
+        ChannelError::Auth {
+            category: "SECRET_LOAD_FAILED".to_string(),
+            detail: detail.into(),
+            retryable: false,
+        }
+    }
+
+    pub fn invalid_response(detail: impl Into<String>, http_status: Option<u16>) -> Self {
+        let detail = detail.into();
+        ChannelError::Provider {
+            status: "invalid_response".to_string(),
+            detail: detail.clone(),
+            provider_code: None,
+            http_status,
+            retryable: false,
+            provider_display: Self::format_provider_display("invalid_response", &detail, None, http_status),
         }
     }
 }

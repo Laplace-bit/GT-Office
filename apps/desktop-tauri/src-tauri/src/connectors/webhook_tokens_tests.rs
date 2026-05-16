@@ -10,7 +10,8 @@ fn webhook_tokens_new_generates_uuids() {
 
 #[test]
 fn webhook_tokens_persist_and_load() {
-    let dir = std::env::temp_dir().join(format!("gto-webhook-tokens-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("gto-webhook-tokens-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     let original = WebhookTokens::new();
@@ -26,7 +27,8 @@ fn webhook_tokens_persist_and_load() {
 
 #[test]
 fn webhook_tokens_load_returns_new_if_file_missing() {
-    let dir = std::env::temp_dir().join(format!("gto-webhook-tokens-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("gto-webhook-tokens-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     let path = dir.join("nonexistent.json");
@@ -39,7 +41,8 @@ fn webhook_tokens_load_returns_new_if_file_missing() {
 
 #[test]
 fn webhook_tokens_load_returns_new_if_file_invalid() {
-    let dir = std::env::temp_dir().join(format!("gto-webhook-tokens-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("gto-webhook-tokens-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     let path = dir.join("invalid.json");
@@ -48,12 +51,4 @@ fn webhook_tokens_load_returns_new_if_file_invalid() {
     assert!(!loaded.feishu_token.is_empty());
 
     std::fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn webhook_tokens_rotate_generates_new_tokens() {
-    let original = WebhookTokens::new();
-    let rotated = original.rotate();
-    assert_ne!(original.feishu_token, rotated.feishu_token);
-    assert_ne!(original.telegram_token, rotated.telegram_token);
 }

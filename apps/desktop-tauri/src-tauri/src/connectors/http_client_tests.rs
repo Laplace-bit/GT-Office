@@ -25,28 +25,16 @@ fn http_request_builder_post_json() {
     assert_eq!(req.content_type.as_deref(), Some("application/json"));
 }
 
-#[test]
-fn http_client_default_timeouts() {
-    let client = HttpClient::new();
-    assert_eq!(client.connect_timeout_secs(), 8);
-}
-
-#[test]
-fn http_client_with_custom_timeouts() {
-    let client = HttpClient::builder()
-        .connect_timeout_secs(5)
-        .build();
-    assert_eq!(client.connect_timeout_secs(), 5);
-}
-
 #[tokio::test]
 async fn http_client_handles_connection_refused() {
     let client = HttpClient::builder().max_retries(0).build();
-    let result: Result<HttpResponse, super::super::channel_error::ChannelError> = client.execute(
-        HttpRequest::get("http://127.0.0.1:1/impossible")
-            .timeout_secs(2)
-            .build()
-    ).await;
+    let result: Result<HttpResponse, super::super::channel_error::ChannelError> = client
+        .execute(
+            HttpRequest::get("http://127.0.0.1:1/impossible")
+                .timeout_secs(2)
+                .build(),
+        )
+        .await;
     assert!(result.is_err());
     let error = result.unwrap_err();
     assert!(error.retryable());
@@ -72,16 +60,12 @@ fn http_request_timeout_presets() {
 
 #[test]
 fn http_response_helpers() {
-    // Test HttpResponse helpers without making real HTTP calls
     let response = HttpResponse {
         status: 200,
-        headers: vec![("Content-Type".to_string(), "application/json".to_string())],
         body: br#"{"ok":true}"#.to_vec(),
     };
     assert!(response.is_success());
     assert_eq!(response.status, 200);
-    assert_eq!(response.header("Content-Type"), Some("application/json"));
-    assert_eq!(response.header("content-type"), Some("application/json")); // case-insensitive
     let json = response.json_value().unwrap();
     assert_eq!(json["ok"], true);
 }
@@ -90,7 +74,6 @@ fn http_response_helpers() {
 fn http_response_non_success() {
     let response = HttpResponse {
         status: 429,
-        headers: vec![],
         body: br#"{"ok":false,"error_code":429}"#.to_vec(),
     };
     assert!(!response.is_success());
