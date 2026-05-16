@@ -20,6 +20,7 @@ use tracing::{debug, warn};
 use crate::{
     app_state::AppState,
     commands::tool_adapter::{needed_channel_accounts, process_external_inbound_message},
+    connectors::backoff::BackoffPolicy,
     connectors::credential_store::{load_secret, store_secret},
 };
 
@@ -489,9 +490,16 @@ fn parse_inbound_message(
 async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
     let client = Client::new();
     mark_connected(&account_id, true);
+    let mut attempt: u32 = 0;
+    let policy = BackoffPolicy::default();
 
     while let Some(record) = get_record(&app, &account_id).ok().flatten() {
         if !record.enabled {
+            break;
+        }
+
+        // Check cancellation
+        if state.shutdown_token.is_cancelled() {
             break;
         }
 
@@ -499,7 +507,13 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
             Ok(token) => token,
             Err(error) => {
                 update_account_runtime_state(&app, &account_id, None, Some(error));
-                sleep(Duration::from_secs(5)).await;
+                if !policy.should_retry(attempt) {
+                    warn!(account_id = %account_id, attempt, "wechat poll max attempts reached, stopping worker");
+                    break;
+                }
+                let delay = policy.delay_with_jitter(attempt);
+                attempt += 1;
+                tokio::time::sleep(delay).await;
                 continue;
             }
         };
@@ -517,12 +531,20 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
                     );
                     if code == SESSION_EXPIRED_ERRCODE {
                         let _ = save_sync_buf(&app, &account_id, "");
-                        sleep(Duration::from_secs(10)).await;
-                    } else {
-                        sleep(Duration::from_secs(3)).await;
                     }
+                    if !policy.should_retry(attempt) {
+                        warn!(account_id = %account_id, attempt, "wechat poll max attempts reached, stopping worker");
+                        break;
+                    }
+                    let delay = policy.delay_with_jitter(attempt);
+                    warn!(account_id = %account_id, attempt, delay_ms = delay.as_millis(), error_code = code, "wechat poll error, backing off");
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
                     continue;
                 }
+
+                // Reset attempt counter on success
+                attempt = 0;
 
                 for msg in &resp.msgs {
                     let Some(inbound) = parse_inbound_message(&account_id, msg) else {
@@ -547,7 +569,13 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
             Err(error) => {
                 update_account_runtime_state(&app, &account_id, None, Some(error.clone()));
                 debug!(account_id = %account_id, error = %error, "wechat polling cycle failed");
-                sleep(Duration::from_secs(3)).await;
+                if !policy.should_retry(attempt) {
+                    warn!(account_id = %account_id, attempt, "wechat poll max attempts reached, stopping worker");
+                    break;
+                }
+                let delay = policy.delay_with_jitter(attempt);
+                attempt += 1;
+                tokio::time::sleep(delay).await;
             }
         }
     }

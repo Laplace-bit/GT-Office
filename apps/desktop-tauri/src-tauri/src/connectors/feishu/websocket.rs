@@ -16,6 +16,7 @@ use tracing::{debug, warn};
 use crate::{
     app_state::AppState,
     commands::tool_adapter::{needed_channel_accounts, process_external_inbound_message},
+    connectors::backoff::BackoffPolicy,
 };
 
 use super::{
@@ -25,6 +26,8 @@ use super::{
 
 static WORKERS: OnceLock<RwLock<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
 static RUNTIME_STATUS: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+static RESTART_ATTEMPTS: OnceLock<RwLock<HashMap<String, u32>>> = OnceLock::new();
+static MANUALLY_STOPPED: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
 
 fn workers() -> &'static RwLock<HashMap<String, JoinHandle<()>>> {
     WORKERS.get_or_init(|| RwLock::new(HashMap::new()))
@@ -32,6 +35,14 @@ fn workers() -> &'static RwLock<HashMap<String, JoinHandle<()>>> {
 
 fn runtime_status() -> &'static RwLock<HashSet<String>> {
     RUNTIME_STATUS.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+fn restart_attempts() -> &'static RwLock<HashMap<String, u32>> {
+    RESTART_ATTEMPTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn manually_stopped() -> &'static RwLock<HashSet<String>> {
+    MANUALLY_STOPPED.get_or_init(|| RwLock::new(HashSet::new()))
 }
 
 fn mark_connected(account_id: &str, connected: bool) {
@@ -159,6 +170,9 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
 
     if let Err(error) = result {
         warn!(account_id = %account_id, error = %error, "feishu websocket worker exited");
+        if let Ok(mut guard) = restart_attempts().write() {
+            *guard.entry(account_id.clone()).or_insert(0) += 1;
+        }
     } else {
         debug!(account_id = %account_id, "feishu websocket worker stopped");
     }
@@ -167,6 +181,13 @@ async fn worker_loop(app: AppHandle, state: AppState, account_id: String) {
 pub fn reconcile(app: &AppHandle, state: &AppState) {
     let needed = needed_channel_accounts(state);
     let desired = desired_websocket_accounts(list_records(app).unwrap_or_default(), &needed);
+
+    // Clear manually_stopped for desired accounts
+    for account_id in &desired {
+        if let Ok(mut guard) = manually_stopped().write() {
+            guard.remove(account_id);
+        }
+    }
 
     if let Ok(mut guard) = workers().write() {
         let existing: Vec<String> = guard.keys().cloned().collect();
@@ -184,13 +205,42 @@ pub fn reconcile(app: &AppHandle, state: &AppState) {
             }
             if let Some(handle) = guard.remove(&account_id) {
                 handle.abort();
+                if let Ok(mut guard) = manually_stopped().write() {
+                    guard.insert(account_id.clone());
+                }
             }
             mark_connected(&account_id, false);
+            // Reset restart attempts when removing from desired
+            if let Ok(mut guard) = restart_attempts().write() {
+                guard.remove(&account_id);
+            }
         }
 
         for account_id in desired {
             if guard.contains_key(&account_id) {
                 continue;
+            }
+            // Skip if manually stopped
+            if manually_stopped()
+                .read()
+                .map(|g| g.contains(&account_id))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            // Check restart backoff
+            let attempt = restart_attempts()
+                .read()
+                .map(|g| g.get(&account_id).copied().unwrap_or(0))
+                .unwrap_or(0);
+            let policy = BackoffPolicy::default();
+            if !policy.should_retry(attempt) {
+                warn!(account_id = %account_id, attempt, "feishu websocket max restart attempts reached");
+                continue;
+            }
+            // Reset attempts on successful spawn
+            if let Ok(mut guard) = restart_attempts().write() {
+                guard.remove(&account_id);
             }
             let app = app.clone();
             let state = state.clone();

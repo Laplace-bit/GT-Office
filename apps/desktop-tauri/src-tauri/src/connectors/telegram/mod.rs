@@ -17,6 +17,7 @@ use tracing::{debug, warn};
 use crate::{
     app_state::AppState,
     commands::tool_adapter::{needed_channel_accounts, process_external_inbound_message},
+    connectors::backoff::BackoffPolicy,
 };
 
 use super::credential_store::{load_secret, store_secret};
@@ -270,7 +271,9 @@ fn load_store<R: Runtime>(app: &AppHandle<R>) -> Result<ConnectorStoreFile, Stri
             .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_READ_FAILED: {error}"))?;
         if let Ok(old_store) = serde_json::from_slice::<serde_json::Value>(&payload) {
             if let Some(telegram_val) = old_store.get("telegramAccounts") {
-                if let Ok(accounts) = serde_json::from_value::<HashMap<String, TelegramAccountRecord>>(telegram_val.clone()) {
+                if let Ok(accounts) = serde_json::from_value::<HashMap<String, TelegramAccountRecord>>(
+                    telegram_val.clone(),
+                ) {
                     let migrated = ConnectorStoreFile {
                         version: CONNECTOR_STORE_VERSION.to_string(),
                         telegram_accounts: accounts,
@@ -1108,6 +1111,7 @@ async fn poll_account_once(
 pub fn spawn_polling_worker(app: AppHandle, state: AppState) {
     let shutdown = state.shutdown_token.clone();
     tauri::async_runtime::spawn(async move {
+        let mut error_attempts: HashMap<String, u32> = HashMap::new();
         tokio::select! {
             _ = shutdown.cancelled() => {
                 debug!("telegram polling worker shutting down");
@@ -1116,12 +1120,21 @@ pub fn spawn_polling_worker(app: AppHandle, state: AppState) {
                 loop {
                     let accounts = polling_accounts(&app, &state);
                     for record in accounts {
-                        if let Err(error) = poll_account_once(&app, &state, record.clone()).await {
-                            warn!(
-                                account_id = %record.account_id,
-                                error = %error,
-                                "telegram polling cycle failed"
-                            );
+                        let account_id = record.account_id.clone();
+                        match poll_account_once(&app, &state, record).await {
+                            Ok(()) => { error_attempts.remove(&account_id); }
+                            Err(error) => {
+                                let attempt = error_attempts.entry(account_id.clone()).or_insert(0);
+                                let policy = BackoffPolicy::default();
+                                if policy.should_retry(*attempt) {
+                                    let delay = policy.delay_with_jitter(*attempt);
+                                    warn!(account_id = %account_id, attempt = *attempt, delay_ms = delay.as_millis(), error = %error, "telegram poll error, backing off");
+                                    *attempt += 1;
+                                    tokio::time::sleep(delay).await;
+                                } else {
+                                    warn!(account_id = %account_id, "telegram poll max attempts reached, skipping");
+                                }
+                            }
                         }
                     }
                     sleep(Duration::from_millis(TELEGRAM_POLL_INTERVAL_MS)).await;
