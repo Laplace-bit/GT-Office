@@ -14,6 +14,7 @@ import { BranchDialog } from './BranchDialog'
 import { StashDialog } from './StashDialog'
 import { TagDialog } from './TagDialog'
 import { GitConfirmDialog } from './GitConfirmDialog'
+import { GitNoticeBanner } from './GitNoticeBanner'
 import type { GitDiscardKind } from './git-helpers'
 
 type ActiveDialog = 'branches' | 'stash' | 'tags' | null
@@ -26,6 +27,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
   const {
     locale,
     workspaceId,
+    isGitRepository,
     metaLoading,
     errorMessage,
     repositoryNotice,
@@ -96,6 +98,9 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     if (!workspaceId) {
       return
     }
+    if (!isGitRepository) {
+      return
+    }
     if (metaLoading) {
       return
     }
@@ -110,6 +115,7 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     return () => window.clearTimeout(timerId)
   }, [
     branches.length,
+    isGitRepository,
     logEntries.length,
     metaLoading,
     refreshAll,
@@ -211,6 +217,13 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
           onOpenStash={openStash}
           onOpenTags={openTags}
         />
+
+        {!isGitRepository && (
+          <GitNoticeBanner
+            locale={locale}
+            message={t(locale, 'git.info.notRepository')}
+          />
+        )}
 
         {/* Scrollable content area */}
         <div className="git-pane__content">
