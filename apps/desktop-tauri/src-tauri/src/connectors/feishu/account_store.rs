@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{collections::HashMap, fs, path::PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 use super::types::FeishuConnectorAccountRecord;
 
@@ -12,8 +11,6 @@ const CONNECTOR_STORE_VERSION: &str = "1";
 struct ConnectorStoreFile {
     version: String,
     #[serde(default)]
-    telegram_accounts: HashMap<String, Value>,
-    #[serde(default)]
     feishu_accounts: HashMap<String, FeishuConnectorAccountRecord>,
 }
 
@@ -21,32 +18,58 @@ impl Default for ConnectorStoreFile {
     fn default() -> Self {
         Self {
             version: CONNECTOR_STORE_VERSION.to_string(),
-            telegram_accounts: HashMap::new(),
             feishu_accounts: HashMap::new(),
         }
     }
 }
 
-fn connector_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn connector_store_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_PATH_FAILED: {error}"))?;
-    Ok(app_data.join("channel/connectors.json"))
+    Ok(app_data.join("channel/feishu-connectors.json"))
 }
 
-fn load_store(app: &AppHandle) -> Result<ConnectorStoreFile, String> {
-    let path = connector_store_path(app)?;
-    if !path.exists() {
-        return Ok(ConnectorStoreFile::default());
+fn load_store<R: Runtime>(app: &AppHandle<R>) -> Result<ConnectorStoreFile, String> {
+    let new_path = connector_store_path(app)?;
+    if new_path.exists() {
+        let payload = fs::read(&new_path)
+            .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_READ_FAILED: {error}"))?;
+        return serde_json::from_slice::<ConnectorStoreFile>(&payload)
+            .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_DECODE_FAILED: {error}"));
     }
-    let payload =
-        fs::read(&path).map_err(|error| format!("CHANNEL_CONNECTOR_STORE_READ_FAILED: {error}"))?;
-    serde_json::from_slice::<ConnectorStoreFile>(&payload)
-        .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_DECODE_FAILED: {error}"))
+    // Migration: read old shared file and extract feishu accounts
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_PATH_FAILED: {error}"))?;
+    let old_path = app_data.join("channel/connectors.json");
+    if old_path.exists() {
+        let payload = fs::read(&old_path)
+            .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_READ_FAILED: {error}"))?;
+        if let Ok(old_store) = serde_json::from_slice::<serde_json::Value>(&payload) {
+            if let Some(feishu_val) = old_store.get("feishuAccounts") {
+                if let Ok(accounts) = serde_json::from_value::<HashMap<String, FeishuConnectorAccountRecord>>(feishu_val.clone()) {
+                    let migrated = ConnectorStoreFile {
+                        version: CONNECTOR_STORE_VERSION.to_string(),
+                        feishu_accounts: accounts,
+                    };
+                    if let Err(e) = save_store(app, &migrated) {
+                        tracing::warn!(error = %e, "failed to save migrated feishu store");
+                    } else {
+                        let backup = app_data.join("channel/connectors.json.bak");
+                        let _ = fs::rename(&old_path, &backup);
+                    }
+                    return Ok(migrated);
+                }
+            }
+        }
+    }
+    Ok(ConnectorStoreFile::default())
 }
 
-fn save_store(app: &AppHandle, store: &ConnectorStoreFile) -> Result<(), String> {
+fn save_store<R: Runtime>(app: &AppHandle<R>, store: &ConnectorStoreFile) -> Result<(), String> {
     let path = connector_store_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -58,7 +81,9 @@ fn save_store(app: &AppHandle, store: &ConnectorStoreFile) -> Result<(), String>
         .map_err(|error| format!("CHANNEL_CONNECTOR_STORE_WRITE_FAILED: {error}"))
 }
 
-pub fn list_records(app: &AppHandle) -> Result<Vec<FeishuConnectorAccountRecord>, String> {
+pub fn list_records<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<FeishuConnectorAccountRecord>, String> {
     let store = load_store(app)?;
     let mut accounts: Vec<_> = store.feishu_accounts.into_values().collect();
     accounts.sort_by(|a, b| a.account_id.cmp(&b.account_id));
@@ -66,7 +91,7 @@ pub fn list_records(app: &AppHandle) -> Result<Vec<FeishuConnectorAccountRecord>
 }
 
 pub fn get_record(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_id: &str,
 ) -> Result<Option<FeishuConnectorAccountRecord>, String> {
     let store = load_store(app)?;
@@ -74,7 +99,7 @@ pub fn get_record(
 }
 
 pub fn upsert_record(
-    app: &AppHandle,
+    app: &AppHandle<impl Runtime>,
     account_key: String,
     record: FeishuConnectorAccountRecord,
 ) -> Result<(), String> {
@@ -82,3 +107,7 @@ pub fn upsert_record(
     store.feishu_accounts.insert(account_key, record);
     save_store(app, &store)
 }
+
+#[cfg(test)]
+#[path = "tests/account_store_tests.rs"]
+mod tests;
