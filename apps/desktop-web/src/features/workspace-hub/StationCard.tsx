@@ -9,11 +9,9 @@ import {
   resolveStationCardLaunchState,
 } from './station-card-header-model'
 import { StationActionDock } from './StationActionDock'
-import { StationActivityComet } from './StationActivityComet'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
 import { resolveStationTaskAckEmoji } from './station-task-ack-emoji'
-import { useStationActivitySignal } from './useStationActivitySignal'
 import type { StationTaskSignal } from '@features/task-center'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
@@ -201,7 +199,6 @@ function StationCardView({
   const activeRef = useRef(active)
   const restoreAnimationTokenRef = useRef<number | null>(null)
   const [compactLayout, setCompactLayout] = useState(false)
-  const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
 
   useEffect(() => {
     setStationTerminalDebugEnabled(station.id, TERMINAL_DEBUG_PANEL_ENABLED && active)
@@ -518,13 +515,6 @@ function StationCardView({
             </div>
           </div>
         </div>
-        {!active && activitySignal ? (
-          <StationActivityComet
-            locale={locale}
-            level={activitySignal}
-            className="station-window-activity-comet"
-          />
-        ) : null}
         <div className="station-window-header-actions">
           <div className="station-window-action-group">
             <StationIconButton
