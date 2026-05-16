@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+rand = "0.9"
 base64 = "0.22"
 thiserror = "2"
 bincode = "1.3"
