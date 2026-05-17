@@ -31,6 +31,18 @@ export function saveLaunchCommandHistory(history: LaunchCommandHistory): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(history))
 }
 
+export function deleteLaunchCommand(
+  provider: StationToolKind,
+  command: string,
+): LaunchCommandHistory {
+  const history = loadLaunchCommandHistory()
+  const existing = history[provider] ?? []
+  const updated = existing.filter((entry) => entry !== command)
+  const result: LaunchCommandHistory = { ...history, [provider]: updated }
+  saveLaunchCommandHistory(result)
+  return result
+}
+
 export function clearLaunchCommandHistory(): void {
   if (typeof window === 'undefined') {
     return

@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 pub const GLOBAL_ROLE_WORKSPACE_ID: &str = "__global__";
 const DEFAULT_AGENT_WORKDIR_ROOT: &str = ".gtoffice";
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentState {

@@ -22,6 +22,7 @@ import {
 import {
   loadLaunchCommandHistory,
   recordLaunchCommand,
+  deleteLaunchCommand,
   getLaunchCommandHistoryForProvider,
   type LaunchCommandHistory,
 } from './launch-command-model'
@@ -521,7 +522,8 @@ export function StationManageModal({
     if (!open) {
       return
     }
-    const nextRole = editingStation?.roleId ?? effectiveRoles[0]?.id ?? ''
+    const defaultRole = effectiveRoles.find((r) => r.roleKey === 'generator') ?? effectiveRoles[0]
+    const nextRole = editingStation?.roleId ?? defaultRole?.id ?? ''
     setName(editingStation?.name ?? '')
     setRoleId(nextRole)
     setProvider(resolveManagedProviderKey(editingStation?.tool))
@@ -694,16 +696,30 @@ export function StationManageModal({
               {providerHistoryCommands.length > 0 && (
                 <div className="station-form-tag-chips">
                   {providerHistoryCommands.map((cmd) => (
-                    <button
-                      key={cmd}
-                      type="button"
-                      className="station-form-tag-chip"
-                      disabled={saving || deleting}
-                      title={cmd}
-                      onClick={() => setLaunchCommand(cmd)}
-                    >
-                      {cmd.length > 24 ? `${cmd.slice(0, 21)}...` : cmd}
-                    </button>
+                    <span key={cmd} className="station-form-tag-chip">
+                      <button
+                        type="button"
+                        className="station-form-tag-chip-text"
+                        disabled={saving || deleting}
+                        title={cmd}
+                        onClick={() => setLaunchCommand(cmd)}
+                      >
+                        {cmd.length > 24 ? `${cmd.slice(0, 21)}...` : cmd}
+                      </button>
+                      <button
+                        type="button"
+                        className="station-form-tag-chip-delete"
+                        disabled={saving || deleting}
+                        title={locale === 'zh-CN' ? '删除此条记录' : 'Delete this entry'}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          const updated = deleteLaunchCommand(provider, cmd)
+                          setLaunchCommandHistory(updated)
+                        }}
+                      >
+                        <AppIcon name="close" className="vb-icon" aria-hidden="true" />
+                      </button>
+                    </span>
                   ))}
                 </div>
               )}

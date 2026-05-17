@@ -196,36 +196,82 @@
 .station-form-tag-chip {
   display: inline-flex;
   align-items: center;
-  max-width: rem(180);
+  max-width: rem(220);
   height: rem(26);
-  padding: 0 rem(10);
   border-radius: rem(8);
   border: rem(1) solid color-mix(in srgb, var(--vb-border) 50%, transparent);
   background: color-mix(in srgb, var(--vb-surface-muted) 40%, transparent);
+  overflow: hidden;
+}
+
+.station-form-tag-chip-text {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 rem(10);
+  border: none;
+  background: none;
   color: var(--vb-text-muted);
   font-size: rem(12);
   font-weight: 500;
   font-family: var(--vb-font-mono);
-  transition: all 0.15s ease;
-  cursor: pointer;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
 
   &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--vb-accent) 15%, transparent);
-    border-color: color-mix(in srgb, var(--vb-accent) 50%, transparent);
     color: var(--vb-text);
-  }
-
-  &:active:not(:disabled) {
-    transform: scale(0.96);
   }
 
   &:disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }
+}
+
+.station-form-tag-chip-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: rem(20);
+  height: 100%;
+  border: none;
+  border-left: rem(1) solid color-mix(in srgb, var(--vb-border) 30%, transparent);
+  background: none;
+  color: var(--vb-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  padding: 0;
+
+  .vb-icon {
+    width: rem(10);
+    height: rem(10);
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--vb-error);
+  }
+
+  &:disabled {
+    opacity: 0;
+    cursor: not-allowed;
+  }
+}
+
+.station-form-tag-chip:hover .station-form-tag-chip-delete:not(:disabled) {
+  opacity: 1;
+}
+
+.station-form-tag-chip:hover {
+  border-color: color-mix(in srgb, var(--vb-accent) 50%, transparent);
+}
+
+.station-form-tag-chip:has(.station-form-tag-chip-text:active) {
+  transform: scale(0.96);
 }
 
 .station-form-workdir-row {
