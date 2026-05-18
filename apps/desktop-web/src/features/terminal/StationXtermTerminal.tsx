@@ -1,4 +1,11 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { shouldAcceptStationTerminalLocalInput } from './station-terminal-runtime-state'
 import { resolveTerminalDocument } from './station-terminal-document-scope'
 import '@xterm/xterm/css/xterm.css'
@@ -20,6 +27,8 @@ import {
 } from './station-terminal-focus-diagnostics'
 import {
   resolveStationTerminalFocusRequest,
+  shouldContinueStationTerminalFocusAttempt,
+  shouldConsumeInactiveStationTerminalMouseGesture,
   shouldFlushPendingStationTerminalFocus,
 } from './station-terminal-focus-runtime'
 import { shouldRecycleStationTerminalRenderer } from './station-terminal-render-recovery'
@@ -396,6 +405,12 @@ function StationXtermTerminalView({
   const focusRetryFrameRef = useRef<number | null>(null)
   const focusRuntimeReadyRef = useRef(false)
   const pendingAutoFocusRef = useRef(false)
+  const pendingInactiveActivationCleanupRef = useRef<(() => void) | null>(null)
+  const pendingInactiveActivationFrameRef = useRef<number | null>(null)
+  const pendingInactiveActivationClickCleanupRef = useRef<(() => void) | null>(null)
+  const pendingInactiveActivationClickTimeoutRef = useRef<number | null>(null)
+  const pendingInactiveActivationGuardElementRef = useRef<HTMLElement | null>(null)
+  const pendingInactiveActivationGuardTimeoutRef = useRef<number | null>(null)
   const rendererRecoveryTimerRef = useRef<number | null>(null)
   const rendererRecoveryFrameRef = useRef<number | null>(null)
   const rendererRecoveryTokenRef = useRef(0)
@@ -430,6 +445,169 @@ function StationXtermTerminalView({
       })
     },
     [sessionId, stationId],
+  )
+
+  const cancelPendingInactiveActivation = useCallback(() => {
+    const cleanup = pendingInactiveActivationCleanupRef.current
+    if (cleanup) {
+      pendingInactiveActivationCleanupRef.current = null
+      cleanup()
+    }
+    const frameId = pendingInactiveActivationFrameRef.current
+    if (frameId !== null) {
+      pendingInactiveActivationFrameRef.current = null
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [])
+
+  const cancelPendingInactiveActivationClickSuppression = useCallback(() => {
+    const cleanup = pendingInactiveActivationClickCleanupRef.current
+    if (cleanup) {
+      pendingInactiveActivationClickCleanupRef.current = null
+      cleanup()
+    }
+    const timeoutId = pendingInactiveActivationClickTimeoutRef.current
+    if (timeoutId !== null) {
+      pendingInactiveActivationClickTimeoutRef.current = null
+      window.clearTimeout(timeoutId)
+    }
+  }, [])
+
+  const cancelPendingInactiveActivationGuard = useCallback(() => {
+    const guardElement = pendingInactiveActivationGuardElementRef.current
+    if (guardElement) {
+      pendingInactiveActivationGuardElementRef.current = null
+      guardElement.removeAttribute('data-terminal-activation-guard')
+      recordFocusDiagnostic('activation-guard', 'released')
+    }
+    const timeoutId = pendingInactiveActivationGuardTimeoutRef.current
+    if (timeoutId !== null) {
+      pendingInactiveActivationGuardTimeoutRef.current = null
+      window.clearTimeout(timeoutId)
+    }
+  }, [recordFocusDiagnostic])
+
+  const armPendingInactiveActivationGuard = useCallback(
+    (container: HTMLElement | null) => {
+      if (typeof window === 'undefined' || !container) {
+        return
+      }
+      cancelPendingInactiveActivationGuard()
+      pendingInactiveActivationGuardElementRef.current = container
+      container.setAttribute('data-terminal-activation-guard', 'true')
+      recordFocusDiagnostic('activation-guard', container.className || container.tagName.toLowerCase())
+      pendingInactiveActivationGuardTimeoutRef.current = window.setTimeout(() => {
+        pendingInactiveActivationGuardTimeoutRef.current = null
+        cancelPendingInactiveActivationGuard()
+      }, 420)
+    },
+    [cancelPendingInactiveActivationGuard, recordFocusDiagnostic],
+  )
+
+  const armPendingInactiveActivationClickSuppression = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    cancelPendingInactiveActivationClickSuppression()
+    const handleClick = (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      recordFocusDiagnostic('activation-consumed', 'phase=click')
+      cancelPendingInactiveActivationClickSuppression()
+    }
+    pendingInactiveActivationClickCleanupRef.current = () => {
+      window.removeEventListener('click', handleClick, true)
+    }
+    window.addEventListener('click', handleClick, true)
+    pendingInactiveActivationClickTimeoutRef.current = window.setTimeout(() => {
+      pendingInactiveActivationClickTimeoutRef.current = null
+      cancelPendingInactiveActivationClickSuppression()
+    }, 400)
+  }, [cancelPendingInactiveActivationClickSuppression, recordFocusDiagnostic])
+
+  const armPendingInactiveActivation = useCallback(
+    (pointerId: number) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      cancelPendingInactiveActivation()
+      const commitActivation = (phase: 'pointerup') => {
+        cancelPendingInactiveActivation()
+        armPendingInactiveActivationClickSuppression()
+        recordFocusDiagnostic('activation-consumed', `phase=${phase}`)
+        pendingInactiveActivationFrameRef.current = window.requestAnimationFrame(() => {
+          pendingInactiveActivationFrameRef.current = null
+          onActivateStation()
+        })
+      }
+      const handlePointerUp = (event: PointerEvent) => {
+        if (event.pointerId !== pointerId) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        commitActivation('pointerup')
+      }
+      const handlePointerCancel = (event: PointerEvent) => {
+        if (event.pointerId !== pointerId) {
+          return
+        }
+        cancelPendingInactiveActivation()
+        cancelPendingInactiveActivationClickSuppression()
+        cancelPendingInactiveActivationGuard()
+      }
+      pendingInactiveActivationCleanupRef.current = () => {
+        window.removeEventListener('pointerup', handlePointerUp, true)
+        window.removeEventListener('pointercancel', handlePointerCancel, true)
+      }
+      window.addEventListener('pointerup', handlePointerUp, true)
+      window.addEventListener('pointercancel', handlePointerCancel, true)
+    },
+    [
+      armPendingInactiveActivationClickSuppression,
+      cancelPendingInactiveActivation,
+      cancelPendingInactiveActivationClickSuppression,
+      cancelPendingInactiveActivationGuard,
+      onActivateStation,
+      recordFocusDiagnostic,
+    ],
+  )
+
+  const captureInactivePrimaryMouseGesture = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): boolean => {
+      if (
+        !shouldConsumeInactiveStationTerminalMouseGesture({
+          isActive,
+          button: event.button,
+        })
+      ) {
+        return false
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      armPendingInactiveActivationGuard(
+        event.currentTarget.closest('.station-window, .terminal-station-pane') as HTMLElement | null,
+      )
+      recordFocusDiagnostic('activation-consumed', 'phase=pointerdown')
+      const nativeEvent = 'nativeEvent' in event ? event.nativeEvent : null
+      if (typeof PointerEvent !== 'undefined' && nativeEvent instanceof PointerEvent) {
+        armPendingInactiveActivation(nativeEvent.pointerId)
+      } else {
+        pendingInactiveActivationFrameRef.current = window.requestAnimationFrame(() => {
+          pendingInactiveActivationFrameRef.current = null
+          onActivateStation()
+        })
+      }
+      return true
+    },
+    [
+      armPendingInactiveActivation,
+      armPendingInactiveActivationGuard,
+      isActive,
+      onActivateStation,
+      recordFocusDiagnostic,
+    ],
   )
 
   const syncTerminalAppearance = useCallback(() => {
@@ -503,9 +681,18 @@ function StationXtermTerminalView({
   useEffect(() => {
     isActiveRef.current = isActive
     if (isActive) {
+      cancelPendingInactiveActivation()
+      cancelPendingInactiveActivationClickSuppression()
+      cancelPendingInactiveActivationGuard()
       setRuntimeInitAllowed(true)
+      return
     }
-  }, [isActive])
+    const frameId = focusRetryFrameRef.current
+    if (frameId !== null) {
+      focusRetryFrameRef.current = null
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [cancelPendingInactiveActivation, cancelPendingInactiveActivationClickSuppression, cancelPendingInactiveActivationGuard, isActive])
 
   useEffect(() => {
     if (runtimeInitAllowed) {
@@ -568,6 +755,9 @@ function StationXtermTerminalView({
 
   useEffect(() => {
     return () => {
+      cancelPendingInactiveActivation()
+      cancelPendingInactiveActivationClickSuppression()
+      cancelPendingInactiveActivationGuard()
       cancelScheduledRendererRecovery()
       const frameId = appearanceSyncFrameRef.current
       if (frameId === null) {
@@ -586,7 +776,12 @@ function StationXtermTerminalView({
       pendingAutoFocusRef.current = false
       rendererRecoveryInFlightRef.current = false
     }
-  }, [cancelScheduledRendererRecovery])
+  }, [
+    cancelPendingInactiveActivation,
+    cancelPendingInactiveActivationClickSuppression,
+    cancelPendingInactiveActivationGuard,
+    cancelScheduledRendererRecovery,
+  ])
 
   const resetFileDropState = useCallback(() => {
     fileDropDepthRef.current = 0
@@ -797,9 +992,18 @@ function StationXtermTerminalView({
         }
         const requestTerminalFocus = (retryFrames = 8) => {
           cancelScheduledTerminalFocus()
+          if (terminalHasDomFocus()) {
+            recordFocusDiagnostic('focus-skip', 'already-has-focus')
+            return
+          }
           let remainingFrames = Math.max(0, retryFrames)
           const attemptFocus = () => {
-            if (!active) {
+            if (
+              !shouldContinueStationTerminalFocusAttempt({
+                componentMounted: active,
+                stationActive: isActiveRef.current,
+              })
+            ) {
               return
             }
             recordFocusDiagnostic('focus-request', `remainingFrames=${remainingFrames}`)
@@ -1174,7 +1378,9 @@ function StationXtermTerminalView({
             return false
           }
           try {
-            terminal.focus()
+            if (!terminalHasDomFocus()) {
+              terminal.focus()
+            }
             terminal.input('\r', true)
             scheduleRefresh()
             return true
@@ -1399,15 +1605,15 @@ function StationXtermTerminalView({
           'pointerdown',
           `active=${isActive ? 1 : 0};macosWebKit=${isMacOsWebKitEnvironmentRef.current ? 1 : 0};focusStrategy=${focusPlan.focusStrategy}`,
         )
-        // On macOS WebKit, let the activation-driven autofocus path own the focus handoff.
-        // Immediate focus here can race the hidden textarea across two frames and black-screen the WebView.
-        if (focusPlan.activateStation) {
-          onActivateStation()
-        }
-        if (focusPlan.focusStrategy === 'immediate') {
-          focusTerminalRequestRef.current?.()
+        if (focusPlan.focusStrategy === 'none') {
           return
         }
+        // Check if activation is already in progress to prevent duplicate activations
+        if (pendingInactiveActivationCleanupRef.current || pendingInactiveActivationFrameRef.current !== null) {
+          recordFocusDiagnostic('activation-consumed', 'phase=already-pending')
+          return
+        }
+        captureInactivePrimaryMouseGesture(event)
         recordFocusDiagnostic('focus-deferred', 'await-active-terminal')
       }}
       onClick={(event) => {

@@ -1482,6 +1482,7 @@ export interface AgentCreateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptEnabled?: boolean
   promptFileName?: string | null
   promptContent?: string | null
   launchCommand?: string | null
@@ -1501,6 +1502,7 @@ export interface AgentUpdateRequest {
   customWorkdir?: boolean
   employeeNo?: string | null
   state?: AgentState
+  promptEnabled?: boolean
   promptFileName?: string | null
   promptContent?: string | null
   launchCommand?: string | null
@@ -2214,6 +2216,36 @@ async function getWindowController(): Promise<RuntimeWindowController> {
   const windowApi = await import('@tauri-apps/api/window')
   cachedWindowController = windowApi.getCurrentWindow()
   return cachedWindowController
+}
+
+export function runAsyncCleanupSafely(
+  cleanups: Array<(() => void | Promise<void>) | null | undefined>,
+): void {
+  cleanups.forEach((cleanup) => {
+    if (!cleanup) {
+      return
+    }
+    try {
+      void Promise.resolve(cleanup()).catch(() => {
+        // Listener cleanup must never surface as an unhandled rejection.
+      })
+    } catch {
+      // Listener cleanup must never break caller teardown.
+    }
+  })
+}
+
+export function createSafeAsyncCleanup(
+  cleanups: Array<(() => void | Promise<void>) | null | undefined>,
+): () => void {
+  let cleaned = false
+  return () => {
+    if (cleaned) {
+      return
+    }
+    cleaned = true
+    runAsyncCleanupSafely(cleanups)
+  }
 }
 
 export const desktopApi = {
@@ -3317,6 +3349,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptEnabled: request.promptEnabled ?? false,
         promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
         launchCommand: request.launchCommand ?? null,
@@ -3335,6 +3368,7 @@ export const desktopApi = {
         customWorkdir: request.customWorkdir ?? false,
         employeeNo: request.employeeNo ?? null,
         state: request.state ?? null,
+        promptEnabled: request.promptEnabled ?? false,
         promptFileName: request.promptFileName ?? null,
         promptContent: request.promptContent ?? null,
         launchCommand: request.launchCommand ?? null,
@@ -3455,7 +3489,8 @@ export const desktopApi = {
     }
     try {
       const window = await getWindowController()
-      return await window.onResized(onResized)
+      const unlisten = await window.onResized(onResized)
+      return createSafeAsyncCleanup([unlisten])
     } catch {
       return () => {}
     }
@@ -3483,11 +3518,7 @@ export const desktopApi = {
       (event) => handlers.onMeta(event.payload),
     )
 
-    return () => {
-      unlistenOutput()
-      unlistenState()
-      unlistenMeta()
-    }
+    return createSafeAsyncCleanup([unlistenOutput, unlistenState, unlistenMeta])
   },
   async subscribeChannelEvents(handlers: {
     onMessage: (payload: ChannelMessagePayload) => void
@@ -3543,17 +3574,17 @@ export const desktopApi = {
       (event) => handlers.onExternalError?.(event.payload),
     )
 
-    return () => {
-      unlistenMessage()
-      unlistenAck()
-      unlistenDispatchProgress()
-      unlistenExternalInbound()
-      unlistenExternalRouted()
-      unlistenExternalDispatchProgress()
-      unlistenExternalReply()
-      unlistenExternalOutboundResult()
-      unlistenExternalError()
-    }
+    return createSafeAsyncCleanup([
+      unlistenMessage,
+      unlistenAck,
+      unlistenDispatchProgress,
+      unlistenExternalInbound,
+      unlistenExternalRouted,
+      unlistenExternalDispatchProgress,
+      unlistenExternalReply,
+      unlistenExternalOutboundResult,
+      unlistenExternalError,
+    ])
   },
   async subscribeFilesystemEvents(
     onChanged: (payload: FilesystemChangedPayload) => void,
@@ -3567,9 +3598,7 @@ export const desktopApi = {
       'filesystem/changed',
       (event) => onChanged(event.payload),
     )
-    return () => {
-      unlistenChanged()
-    }
+    return createSafeAsyncCleanup([unlistenChanged])
   },
   async subscribeFilesystemWatchErrors(
     onError: (payload: FilesystemWatchErrorPayload) => void,
@@ -3583,9 +3612,7 @@ export const desktopApi = {
       'filesystem/watch_error',
       (event) => onError(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async subscribeDaemonSearchEvents(handlers: {
     onChunk: (payload: DaemonSearchChunkPayload) => void
@@ -3615,12 +3642,7 @@ export const desktopApi = {
       (event) => handlers.onCancelled(event.payload),
     )
 
-    return () => {
-      unlistenChunk()
-      unlistenBackpressure()
-      unlistenDone()
-      unlistenCancelled()
-    }
+    return createSafeAsyncCleanup([unlistenChunk, unlistenBackpressure, unlistenDone, unlistenCancelled])
   },
   async subscribeSettingsUpdated(
     onUpdated: (payload: SettingsUpdatedPayload) => void,
@@ -3633,9 +3655,7 @@ export const desktopApi = {
     const unlisten = await eventApi.listen<SettingsUpdatedPayload>('settings/updated', (event) =>
       onUpdated(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async subscribeAppUpdateProgress(
     onUpdated: (payload: AppUpdateProgressPayload) => void,
@@ -3648,9 +3668,7 @@ export const desktopApi = {
     const unlisten = await eventApi.listen<AppUpdateProgressPayload>('settings/update_progress', (event) =>
       onUpdated(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async subscribeGitUpdated(onUpdated: (payload: GitUpdatedPayload) => void): Promise<() => void> {
     if (!isTauriRuntime()) {
@@ -3661,9 +3679,7 @@ export const desktopApi = {
     const unlisten = await eventApi.listen<GitUpdatedPayload>('git/updated', (event) =>
       onUpdated(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async subscribeGitRemoteOperation(
     onUpdated: (payload: GitRemoteOperationPayload) => void,
@@ -3677,9 +3693,7 @@ export const desktopApi = {
       'git/remote_operation',
       (event) => onUpdated(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async subscribeWorkspaceEvents(handlers: {
     onUpdated?: (payload: WorkspaceUpdatedPayload) => void
@@ -3698,10 +3712,7 @@ export const desktopApi = {
       'workspace/active_changed',
       (event: { payload: WorkspaceActiveChangedPayload }) => handlers.onActiveChanged?.(event.payload),
     )
-    return () => {
-      unlistenUpdated()
-      unlistenActiveChanged()
-    }
+    return createSafeAsyncCleanup([unlistenUpdated, unlistenActiveChanged])
   },
   async subscribeWorkspaceWindowClosed(
     onWindowClosed: (payload: WorkspaceWindowClosedPayload) => void,
@@ -3715,9 +3726,7 @@ export const desktopApi = {
       'workspace/window_closed',
       (event: { payload: WorkspaceWindowClosedPayload }) => onWindowClosed(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async listenInstallProgress(
     agent: AiConfigAgent,
@@ -3731,9 +3740,7 @@ export const desktopApi = {
     const unlisten = await eventApi.listen<AgentInstallProgressEvent>(`install-progress:${agent}`, (event) =>
       onMessage(event.payload),
     )
-    return () => {
-      unlisten()
-    }
+    return createSafeAsyncCleanup([unlisten])
   },
   async subscribeSurfaceEvents(handlers: {
     onWindowClosed?: (payload: SurfaceWindowClosedPayload) => void
@@ -3759,10 +3766,6 @@ export const desktopApi = {
       'surface/bridge',
       (event: { payload: SurfaceBridgeEventPayload }) => handlers.onBridge?.(event.payload),
     )
-    return () => {
-      unlistenClosed()
-      unlistenUpdated()
-      unlistenBridge()
-    }
+    return createSafeAsyncCleanup([unlistenClosed, unlistenUpdated, unlistenBridge])
   },
 }

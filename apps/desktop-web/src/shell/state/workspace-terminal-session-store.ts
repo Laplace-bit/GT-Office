@@ -62,23 +62,13 @@ export function hydrateWorkspaceTerminalSessionDocument(
     : createWorkspaceTerminalSessionDocument(stations)
   const stationIds = new Set(stations.map((station) => station.id))
   const initialRuntimes = createInitialStationTerminals(stations)
+  const retainedSessionStation = new Map<string, string>()
 
   stations.forEach((station) => {
     const cached = hydrated.stationTerminals[station.id]
     if (cached) {
       if (cached.sessionId) {
-        delete hydrated.sessionStation[cached.sessionId]
-        delete hydrated.sessionSeq[cached.sessionId]
-        delete hydrated.sessionVisibility[cached.sessionId]
-        delete hydrated.restoreState[station.id]
-        hydrated.stationTerminals[station.id] = {
-          ...cached,
-          sessionId: null,
-          stateRaw: 'idle',
-          shell: null,
-          cwdMode: 'workspace_root',
-          resolvedCwd: null,
-        }
+        retainedSessionStation.set(cached.sessionId, station.id)
       }
     } else {
       hydrated.stationTerminals[station.id] = initialRuntimes[station.id]
@@ -105,11 +95,16 @@ export function hydrateWorkspaceTerminalSessionDocument(
   })
 
   Object.entries(hydrated.sessionStation).forEach(([sessionId, stationId]) => {
-    if (!stationIds.has(stationId)) {
+    if (retainedSessionStation.get(sessionId) !== stationId) {
       delete hydrated.sessionStation[sessionId]
       delete hydrated.sessionSeq[sessionId]
       delete hydrated.sessionVisibility[sessionId]
     }
+  })
+  retainedSessionStation.forEach((stationId, sessionId) => {
+    hydrated.sessionStation[sessionId] = stationId
+    hydrated.sessionSeq[sessionId] = hydrated.sessionSeq[sessionId] ?? 0
+    hydrated.sessionVisibility[sessionId] = hydrated.sessionVisibility[sessionId] ?? false
   })
 
   return hydrated

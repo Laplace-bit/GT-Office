@@ -13,6 +13,7 @@ export interface CreateStationInput {
   tool: string
   workdir: string
   customWorkdir: boolean
+  promptEnabled: boolean
   promptContent: string
   launchCommand?: string | null
 }
@@ -84,8 +85,8 @@ export function mapAgentProfileToStation(
     return null
   }
   const fallbackWorkdirs = buildStationWorkdirs(role.roleKey, agent.name)
-  const normalizedWorkdir = agent.workdir?.trim() ?? ''
-  const customWorkdir = agent.customWorkdir && normalizedWorkdir.length > 0
+  const normalizedWorkdir = agent.workdir?.trim() || '.'
+  const customWorkdir = normalizedWorkdir !== '.'
   return createAgentStation({
     id: agent.id,
     name: agent.name,
@@ -93,7 +94,7 @@ export function mapAgentProfileToStation(
     role: role.roleKey,
     roleName: role.roleName,
     roleWorkdirRel: fallbackWorkdirs.roleWorkdirRel,
-    agentWorkdirRel: customWorkdir ? normalizedWorkdir : fallbackWorkdirs.agentWorkdirRel,
+    agentWorkdirRel: normalizedWorkdir,
     customWorkdir,
     tool: agent.tool?.trim() ? agent.tool.trim() : 'codex',
     promptFileName: agent.promptFileName,

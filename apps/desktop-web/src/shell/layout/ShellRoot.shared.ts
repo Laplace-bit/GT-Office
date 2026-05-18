@@ -808,6 +808,7 @@ export function createStationEditInput(station: AgentStation): UpdateStationInpu
     tool: station.tool,
     workdir: station.agentWorkdirRel,
     customWorkdir: station.customWorkdir,
+    promptEnabled: Boolean(station.promptFileRelativePath),
     promptContent: '',
     launchCommand: station.launchCommand,
   }

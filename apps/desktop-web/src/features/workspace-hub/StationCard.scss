@@ -214,6 +214,14 @@
   max-width: 100%;
 }
 
+.station-window[data-terminal-activation-guard='true'] {
+  .station-window-header-actions,
+  .station-window-action-group,
+  .station-icon-button {
+    pointer-events: none;
+  }
+}
+
 .station-window-action-group {
   display: inline-flex;
   align-items: center;

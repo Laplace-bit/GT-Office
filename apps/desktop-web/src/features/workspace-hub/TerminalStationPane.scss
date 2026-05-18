@@ -158,6 +158,12 @@
   }
 }
 
+.terminal-station-pane[data-terminal-activation-guard='true'] {
+  .terminal-station-pane-force-close {
+    pointer-events: none;
+  }
+}
+
 .terminal-station-pane :where(.station-terminal-shell) {
   flex: 1;
   display: flex;

@@ -30,6 +30,21 @@ export function shouldAcceptStationTerminalLocalInput(sessionId: string | null |
   return Boolean(sessionId)
 }
 
+export function isStationTerminalFocusReportInput(input: string | null | undefined): boolean {
+  return input === '\x1b[I' || input === '\x1b[O'
+}
+
+export function buildStationTerminalCommandSubmitChunks(
+  command: string,
+  submitSequence: string | null | undefined,
+): string[] {
+  const normalizedSubmitSequence = submitSequence && submitSequence.length > 0 ? submitSequence : '\r'
+  if (!command) {
+    return [normalizedSubmitSequence]
+  }
+  return [command, normalizedSubmitSequence]
+}
+
 export function shouldMatchDetachedBridgeSession(
   runtimeSessionId: string | null | undefined,
   messageSessionId: string | null | undefined,

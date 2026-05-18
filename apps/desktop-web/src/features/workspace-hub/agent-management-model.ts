@@ -14,6 +14,23 @@ export interface AgentProviderSnapshot {
   configStatus: string
 }
 
+function normalizeAgentWorkdir(value: string | null | undefined): string {
+  const normalized = (value ?? '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+/g, '/')
+    .replace(/\/$/, '')
+  if (!normalized || normalized === '.') {
+    return '.'
+  }
+  const segments = normalized.split('/').filter((segment) => segment && segment !== '.')
+  if (segments.length === 0) {
+    return '.'
+  }
+  return segments.join('/')
+}
+
 function normalizeSegment(value: string): string {
   const normalized = value
     .trim()
@@ -24,7 +41,11 @@ function normalizeSegment(value: string): string {
   return normalized || 'agent'
 }
 
-export function buildDefaultAgentWorkdir(name: string): string {
+export function buildDefaultAgentWorkdir(_name: string): string {
+  return '.'
+}
+
+export function buildSuggestedAgentWorkdir(name: string): string {
   return `.gtoffice/${normalizeSegment(name)}`
 }
 
@@ -38,6 +59,22 @@ export function resolvePromptFileNameForProvider(provider: ManagedAgentProvider)
     default:
       return 'AGENTS.md'
   }
+}
+
+export function resolvePromptFileRelativePathForProvider(
+  provider: ManagedAgentProvider,
+  workdir: string | null | undefined,
+): string {
+  const fileName = resolvePromptFileNameForProvider(provider)
+  const normalizedWorkdir = normalizeAgentWorkdir(workdir)
+  if (normalizedWorkdir === '.') {
+    return fileName
+  }
+  return `${normalizedWorkdir}/${fileName}`
+}
+
+export function isWorkspaceRootAgentWorkdir(workdir: string | null | undefined): boolean {
+  return normalizeAgentWorkdir(workdir) === '.'
 }
 
 export function resolveProviderLabel(provider: ManagedAgentProvider): string {

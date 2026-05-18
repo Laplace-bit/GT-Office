@@ -1,6 +1,6 @@
 import { desktopApi } from '../../shell/integration/desktop-api.js'
 
-export type StationTerminalPointerDownFocusStrategy = 'immediate' | 'defer-until-active'
+export type StationTerminalPointerDownFocusStrategy = 'none' | 'defer-until-active'
 
 export interface StationTerminalPointerDownFocusPlanInput {
   isActive: boolean
@@ -8,17 +8,29 @@ export interface StationTerminalPointerDownFocusPlanInput {
 }
 
 export interface StationTerminalPointerDownFocusPlan {
-  activateStation: boolean
   focusStrategy: StationTerminalPointerDownFocusStrategy
 }
 
 export type StationTerminalFocusDiagnosticKind =
   | 'pointerdown'
+  | 'activation-consumed'
+  | 'activation-guard'
   | 'focus-request'
+  | 'focus-skip'
   | 'focus-success'
   | 'focus-deferred'
   | 'focus-error'
   | 'viewport-wake'
+  | 'ui-control-event'
+  | 'terminal-kill-request'
+  | 'terminal-state-event'
+  | 'runtime-state-patch'
+  | 'missing-session-cleanup'
+  | 'visibility-sync-miss'
+  | 'force-close-request'
+  | 'force-close-confirm'
+  | 'force-close-dismiss'
+  | 'remove-station-request'
   | 'window-error'
   | 'unhandled-rejection'
   | 'xterm-init-failed'
@@ -53,18 +65,15 @@ export interface RecordStationTerminalFocusDiagnosticInput {
 
 export function resolveStationTerminalPointerDownFocusPlan({
   isActive,
-  isMacOsWebKitEnvironment,
 }: StationTerminalPointerDownFocusPlanInput): StationTerminalPointerDownFocusPlan {
-  if (!isActive && isMacOsWebKitEnvironment) {
+  if (isActive) {
     return {
-      activateStation: true,
-      focusStrategy: 'defer-until-active',
+      focusStrategy: 'none',
     }
   }
 
   return {
-    activateStation: true,
-    focusStrategy: 'immediate',
+    focusStrategy: 'defer-until-active',
   }
 }
 

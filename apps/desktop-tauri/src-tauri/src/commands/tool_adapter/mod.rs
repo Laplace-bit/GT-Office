@@ -292,7 +292,7 @@ async fn resolve_binding_bot_name(
     None
 }
 
-fn channel_state_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn channel_state_file_path<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
@@ -300,7 +300,9 @@ fn channel_state_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data.join("channel/state.json"))
 }
 
-fn read_channel_state_file(app: &AppHandle) -> Result<PersistedChannelStateFile, String> {
+fn read_channel_state_file<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<PersistedChannelStateFile, String> {
     let path = channel_state_file_path(app)?;
     if !path.exists() {
         return Ok(PersistedChannelStateFile {
@@ -313,8 +315,8 @@ fn read_channel_state_file(app: &AppHandle) -> Result<PersistedChannelStateFile,
         .map_err(|error| format!("CHANNEL_STATE_DECODE_FAILED: {error}"))
 }
 
-fn write_channel_state_file(
-    app: &AppHandle,
+fn write_channel_state_file<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     state_file: &PersistedChannelStateFile,
 ) -> Result<(), String> {
     let path = channel_state_file_path(app)?;
@@ -327,7 +329,10 @@ fn write_channel_state_file(
     fs::write(path, payload).map_err(|error| format!("CHANNEL_STATE_WRITE_FAILED: {error}"))
 }
 
-pub(crate) fn persist_route_bindings(app: &AppHandle, state: &AppState) -> Result<(), String> {
+pub(crate) fn persist_route_bindings<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+) -> Result<(), String> {
     let mut state_file = read_channel_state_file(app)?;
     state_file.version = CHANNEL_STATE_FILE_VERSION;
     state_file.route_bindings = state

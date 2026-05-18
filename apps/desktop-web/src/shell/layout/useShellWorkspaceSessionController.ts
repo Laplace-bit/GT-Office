@@ -655,8 +655,10 @@ export function useShellWorkspaceSessionController({
     if (stationsLoadedWorkspaceId !== presentedWorkspaceId) {
       return
     }
+
     const stationIdSet = new Set(stations.map((station) => station.id))
     const terminalDocument = resolveWorkspaceTerminalDocument(presentedWorkspaceId, stations)
+
     stationTerminalsRef.current = { ...terminalDocument.stationTerminals }
     stationTerminalOutputCacheRef.current = { ...terminalDocument.outputCache }
     stationTerminalOutputRevisionRef.current = { ...terminalDocument.outputRevision }

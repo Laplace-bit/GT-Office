@@ -159,6 +159,18 @@
   }
 }
 
+.station-form-inline-row--end {
+  justify-content: flex-end;
+}
+
+.station-form-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: rem(12);
+  flex-wrap: wrap;
+}
+
 .station-form-inline-action {
   height: rem(40);
   padding: 0 rem(14);
@@ -168,6 +180,50 @@
   color: var(--vb-text);
   font-size: rem(13);
   font-weight: 600;
+
+  &.active {
+    border-color: color-mix(in srgb, var(--vb-accent) 48%, transparent);
+    background: color-mix(in srgb, var(--vb-accent) 16%, var(--vb-surface));
+    color: var(--vb-text);
+  }
+}
+
+.station-form-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: rem(8);
+}
+
+.station-form-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: rem(8);
+  min-height: 0;
+  color: var(--vb-text);
+  font-size: rem(12);
+  font-weight: 500;
+
+  input[type='checkbox'] {
+    margin: 0;
+    width: rem(16);
+    height: rem(16);
+    flex: 0 0 rem(16);
+    padding: 0;
+    border-radius: rem(4);
+    accent-color: var(--vb-accent);
+    box-shadow: none;
+  }
+
+  span {
+    font-size: rem(12);
+    font-weight: 500;
+  }
+}
+
+.station-form-prompt-editor {
+  display: flex;
+  flex-direction: column;
+  gap: rem(10);
 }
 
 .station-form-surface {

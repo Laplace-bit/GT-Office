@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as stationTerminalRuntimeState from '../src/features/terminal/station-terminal-runtime-state.js'
 import {
+  buildStationTerminalCommandSubmitChunks,
   buildClosedStationTerminalRuntime,
   buildSessionBindingRuntimePatch,
   didHydrateChangeSessionBinding,
@@ -123,6 +124,12 @@ test('closed session cleanup unregisters runtime only when the closed session st
   )
 
   assert.equal(resolveClosedStationRuntimeRegistrationCleanup(null, 'session-1'), null)
+})
+
+test('station launch command submit chunks use a single submit sequence', () => {
+  assert.deepEqual(buildStationTerminalCommandSubmitChunks('', '\r'), ['\r'])
+  assert.deepEqual(buildStationTerminalCommandSubmitChunks('codex', '\r'), ['codex', '\r'])
+  assert.deepEqual(buildStationTerminalCommandSubmitChunks('claude', null), ['claude', '\r'])
 })
 
 test('activity signal exposes consistent decay timeouts by speed level', () => {
@@ -697,6 +704,24 @@ test('forwards rendered terminal input only while a live session is still bound'
   assert.equal(shouldForwardStationTerminalInput('session-live'), true)
   assert.equal(shouldForwardStationTerminalInput(null), false)
   assert.equal(shouldForwardStationTerminalInput(undefined), false)
+})
+
+test('does not treat xterm focus reports as terminal input that should reach the backend session', () => {
+  assert.equal(
+    Reflect.has(stationTerminalRuntimeState, 'isStationTerminalFocusReportInput'),
+    true,
+  )
+
+  const isStationTerminalFocusReportInput = Reflect.get(
+    stationTerminalRuntimeState,
+    'isStationTerminalFocusReportInput',
+  ) as ((input: string | null | undefined) => boolean)
+
+  assert.equal(isStationTerminalFocusReportInput('\x1b[I'), true)
+  assert.equal(isStationTerminalFocusReportInput('\x1b[O'), true)
+  assert.equal(isStationTerminalFocusReportInput('\r'), false)
+  assert.equal(isStationTerminalFocusReportInput('ls\n'), false)
+  assert.equal(isStationTerminalFocusReportInput(null), false)
 })
 
 test('accepts local terminal interaction only while a live session is still bound', () => {

@@ -52,7 +52,7 @@ import {
   isMacOsPlatform,
   loadCanvasLayoutPreference,
   nextStationNumber,
-  normalizeFsPath,
+  toRelativePathIfInside,
 } from './ShellRoot.shared'
 import { useShellExternalChannelController } from './useShellExternalChannelController'
 import { useShellTaskDispatchController } from './useShellTaskDispatchController'
@@ -657,8 +657,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       if (!selected) {
         return null
       }
-      const relative = normalizeFsPath(selected).replace(workspaceRoot + '/', '').replace(workspaceRoot + '\\', '') || '.'
-      if (relative === '.' || relative === selected) {
+      const relative = toRelativePathIfInside(selected, workspaceRoot)
+      if (!relative) {
         window.alert(
           locale === 'zh-CN'
             ? '所选目录必须位于当前工作区内。'
@@ -1096,7 +1096,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onOpenStationSearch: handleCanvasOpenStationSearch,
     onRemoveStation: handleCanvasRemoveStation,
   }
-
   const pinnedWorkbenchCanvasProps = showPinnedWorkbenchPane && pinnedWorkbenchContainer
     ? {
         ...workbenchCanvasBaseProps,

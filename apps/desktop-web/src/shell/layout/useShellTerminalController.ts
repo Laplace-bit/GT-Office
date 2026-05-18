@@ -10,6 +10,7 @@ import {
 } from 'react'
 import {
   appendStationTerminalDebugRecord as appendStationTerminalDebugStoreRecord,
+  buildStationTerminalCommandSubmitChunks,
   createTerminalChunkDecoder,
   decodeTerminalBase64Chunk,
   formatTerminalDebugBody,
@@ -32,6 +33,7 @@ import {
   resolveStationRuntimeRegistrationCleanup,
   shouldPreferSessionOwnedRestoreState,
   selectStationTerminalReplaySource,
+  isStationTerminalFocusReportInput,
   shouldApplyRecoveredStationOutput,
   shouldApplyStationSessionLaunchFailure,
   shouldApplyStationSessionResult,
@@ -45,6 +47,10 @@ import {
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
+import {
+  recordStationTerminalFocusDiagnostic,
+  type StationTerminalFocusDiagnosticKind,
+} from '@features/terminal/station-terminal-focus-diagnostics'
 import {
   isStationAgentProcessRunning,
   resolveStationCliLaunchCommand,
@@ -67,7 +73,7 @@ import {
   type WorkbenchContainerModel,
 } from '@features/workspace-hub'
 import {
-  buildAgentWorkspaceMarkerPath,
+  isWorkspaceRootWorkdir,
   resolveAgentWorkdirAbs,
 } from '@features/workspace'
 import {
@@ -336,7 +342,57 @@ export function useShellTerminalController({
     Record<string, { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }>
   >({})
   const stationUnreadDeltaRef = useRef<Record<string, number>>({})
+
+  const recordStationLifecycleDiagnostic = useCallback(
+    (
+      stationId: string,
+      sessionId: string | null,
+      kind:
+        | 'force-close-request'
+        | 'force-close-confirm'
+        | 'force-close-dismiss'
+        | 'remove-station-request'
+        | 'terminal-kill-request'
+        | 'terminal-state-event'
+        | 'runtime-state-patch'
+        | 'missing-session-cleanup'
+        | 'visibility-sync-miss',
+      detail?: string,
+    ) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      void recordStationTerminalFocusDiagnostic({
+        targetWindow: window,
+        stationId,
+        sessionId,
+        kind,
+        detail,
+      })
+    },
+    [],
+  )
+  const recordStationRuntimeDiagnosticBySession = useCallback(
+    (sessionId: string, kind: StationTerminalFocusDiagnosticKind, detail?: string) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      const mappedStationId =
+        sessionStationRef.current[sessionId]
+        ?? findWorkspaceTerminalSessionOwner(workspaceTerminalCacheRef.current, sessionId)?.stationId
+        ?? null
+      void recordStationTerminalFocusDiagnostic({
+        targetWindow: window,
+        stationId: mappedStationId ?? 'session',
+        sessionId,
+        kind,
+        detail,
+      })
+    },
+    [],
+  )
   const stationUnreadFlushTimerRef = useRef<number | null>(null)
+  const activeStationIdRef = useRef(activeStationId)
   const presentedWorkspaceIdRef = useRef<string | null>(null)
   const scheduledStationOutputRecoveryRef = useRef<Record<string, number>>({})
 
@@ -344,6 +400,10 @@ export function useShellTerminalController({
   useEffect(() => {
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId, activeWorkspaceIdRef])
+
+  useEffect(() => {
+    activeStationIdRef.current = activeStationId
+  }, [activeStationId])
 
   useEffect(() => {
     stationTerminalsRef.current = stationTerminals
@@ -561,6 +621,11 @@ export function useShellTerminalController({
           .terminalSetVisibility(sessionId, false)
           .catch((error) => {
             const detail = describeError(error)
+            recordStationRuntimeDiagnosticBySession(
+              sessionId,
+              'visibility-sync-miss',
+              `visible=false;detail=${detail}`,
+            )
             if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
               return
             }
@@ -573,7 +638,7 @@ export function useShellTerminalController({
           })
       })
     },
-    [captureActiveWorkspaceTerminalDocument],
+    [captureActiveWorkspaceTerminalDocument, recordStationRuntimeDiagnosticBySession],
   )
 
   // ── Output streaming ──────────────────────────────────────────────────
@@ -642,6 +707,38 @@ export function useShellTerminalController({
   const setStationTerminalState = useMemo(
     () => (stationId: string, patch: Partial<StationTerminalRuntime>) => {
       const projectionPatch = stripDetachedTerminalRuntimeProjectionPatch(patch)
+      const previousRuntime = stationTerminalsRef.current[stationId] ?? null
+      const nextRuntimePreview =
+        previousRuntime == null
+          ? ({
+              sessionId: patch.sessionId ?? null,
+              stateRaw: patch.stateRaw ?? 'idle',
+              unreadCount: patch.unreadCount ?? 0,
+              shell: patch.shell ?? null,
+              cwdMode: patch.cwdMode ?? 'workspace_root',
+              resolvedCwd: patch.resolvedCwd ?? null,
+            } satisfies StationTerminalRuntime)
+          : {
+              ...previousRuntime,
+              ...patch,
+            }
+      if (
+        previousRuntime == null
+        || previousRuntime.sessionId !== nextRuntimePreview.sessionId
+        || previousRuntime.stateRaw !== nextRuntimePreview.stateRaw
+      ) {
+        recordStationLifecycleDiagnostic(
+          stationId,
+          nextRuntimePreview.sessionId ?? previousRuntime?.sessionId ?? null,
+          'runtime-state-patch',
+          [
+            `fromSession=${previousRuntime?.sessionId ?? 'none'}`,
+            `toSession=${nextRuntimePreview.sessionId ?? 'none'}`,
+            `fromState=${previousRuntime?.stateRaw ?? 'none'}`,
+            `toState=${nextRuntimePreview.stateRaw}`,
+          ].join(';'),
+        )
+      }
       setStationTerminals((prev) => {
         const current = prev[stationId] ?? {
           sessionId: null,
@@ -672,7 +769,11 @@ export function useShellTerminalController({
         publishDetachedRuntimePatch(stationId, projectionPatch)
       }
     },
-    [persistActiveWorkspaceTerminalDocument, publishDetachedRuntimePatch],
+    [
+      persistActiveWorkspaceTerminalDocument,
+      publishDetachedRuntimePatch,
+      recordStationLifecycleDiagnostic,
+    ],
   )
 
   // ── Unread tracking ───────────────────────────────────────────────────
@@ -975,10 +1076,39 @@ export function useShellTerminalController({
       .then(() => {
         terminalSessionVisibilityRef.current[sessionId] = true
       })
-      .catch(() => {
+      .catch((error) => {
+        recordStationRuntimeDiagnosticBySession(
+          sessionId,
+          'visibility-sync-miss',
+          `visible=true;detail=${describeError(error)}`,
+        )
         // Ignore transient sync failure; next render cycle will retry.
       })
-  }, [])
+  }, [recordStationRuntimeDiagnosticBySession])
+
+  const requestTerminalKill = useCallback(
+    (input: {
+      sessionId: string
+      signal: 'TERM' | 'KILL'
+      reason: string
+      stationId?: string | null
+      workspaceId?: string | null
+    }) => {
+      recordStationLifecycleDiagnostic(
+        input.stationId ?? sessionStationRef.current[input.sessionId] ?? 'session',
+        input.sessionId,
+        'terminal-kill-request',
+        [
+          `signal=${input.signal}`,
+          `reason=${input.reason}`,
+          `workspace=${input.workspaceId ?? 'none'}`,
+          `mappedStation=${sessionStationRef.current[input.sessionId] ?? 'none'}`,
+        ].join(';'),
+      )
+      return desktopApi.terminalKill(input.sessionId, input.signal)
+    },
+    [recordStationLifecycleDiagnostic],
+  )
 
   const decodeBase64Chunk = useMemo(
     () => (sessionId: string, base64Chunk: string, stream: boolean): string => {
@@ -992,6 +1122,12 @@ export function useShellTerminalController({
 
   const cleanupMissingWorkspaceTerminalSession = useCallback(
     (workspaceId: string, stationId: string, sessionId: string) => {
+      recordStationLifecycleDiagnostic(
+        stationId,
+        sessionId,
+        'missing-session-cleanup',
+        `workspace=${workspaceId};detail=TERMINAL_SESSION_NOT_FOUND`,
+      )
       const document = workspaceTerminalCacheRef.current[workspaceId]
       if (document) {
         removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
@@ -1016,7 +1152,7 @@ export function useShellTerminalController({
         // The next live registration pass will reconcile this if the session still exists.
       })
     },
-    [setStationTerminalState],
+    [recordStationLifecycleDiagnostic, setStationTerminalState],
   )
 
   const recoverStationTerminalOutput = useCallback(
@@ -1108,6 +1244,11 @@ export function useShellTerminalController({
             }
           } catch (error) {
             const detail = describeError(error)
+            recordStationRuntimeDiagnosticBySession(
+              sessionId,
+              'visibility-sync-miss',
+              `visible=true;detail=${detail}`,
+            )
             if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
               cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId)
             }
@@ -1117,7 +1258,11 @@ export function useShellTerminalController({
         })()
       })
     },
-    [cleanupMissingWorkspaceTerminalSession, recoverStationTerminalOutput],
+    [
+      cleanupMissingWorkspaceTerminalSession,
+      recordStationRuntimeDiagnosticBySession,
+      recoverStationTerminalOutput,
+    ],
   )
 
   const scheduleStationTerminalOutputRecovery = useCallback(
@@ -1178,7 +1323,13 @@ export function useShellTerminalController({
       const previousSessionId = currentRuntime.sessionId
       if (previousSessionId && previousSessionId !== sessionId) {
         removeWorkspaceTerminalSessionBinding(document, previousSessionId, 'killed')
-        void desktopApi.terminalKill(previousSessionId, 'TERM').catch(() => {
+        void requestTerminalKill({
+          sessionId: previousSessionId,
+          signal: 'TERM',
+          reason: 'cache-background-session-superseded',
+          stationId: input.station.id,
+          workspaceId: input.workspaceId,
+        }).catch(() => {
           // Superseded background launches should not leave duplicate station sessions.
         })
       }
@@ -1208,6 +1359,12 @@ export function useShellTerminalController({
         .terminalSetVisibility(sessionId, false)
         .catch((error) => {
           const detail = describeError(error)
+          recordStationLifecycleDiagnostic(
+            input.station.id,
+            sessionId,
+            'visibility-sync-miss',
+            `visible=false;detail=${detail};context=background-cache`,
+          )
           if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
             removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
           }
@@ -1228,7 +1385,7 @@ export function useShellTerminalController({
           // The runtime will be registered again when the workspace is presented.
         })
     },
-    [locale],
+    [locale, recordStationLifecycleDiagnostic, requestTerminalKill],
   )
 
   // ── Terminal event subscription ────────────────────────────────────────
@@ -1237,6 +1394,8 @@ export function useShellTerminalController({
       return
     }
 
+    // Keep focus changes out of the subscription lifecycle. Rebinding these
+    // listeners on every active-station switch can drop live terminal events.
     let disposed = false
     let cleanup: (() => void) | null = null
     void desktopApi
@@ -1298,7 +1457,7 @@ export function useShellTerminalController({
                   directText,
                 ].join('\n'),
               })
-              const unread = stationId !== activeStationId
+              const unread = stationId !== activeStationIdRef.current
               const seq = terminalSessionSeqRef.current[payload.sessionId] ?? 0
               if (payload.seq <= seq) {
                 return
@@ -1409,6 +1568,20 @@ export function useShellTerminalController({
         },
         onStateChanged: (payload: TerminalStatePayload) => {
           const stationId = sessionStationRef.current[payload.sessionId]
+          if (stationId) {
+            recordStationLifecycleDiagnostic(
+              stationId,
+              payload.sessionId,
+              'terminal-state-event',
+              [`from=${payload.from}`, `to=${payload.to}`, `tsMs=${payload.tsMs}`].join(';'),
+            )
+          } else {
+            recordStationRuntimeDiagnosticBySession(
+              payload.sessionId,
+              'terminal-state-event',
+              [`from=${payload.from}`, `to=${payload.to}`, `tsMs=${payload.tsMs}`].join(';'),
+            )
+          }
           if (!stationId) {
             const owner = findWorkspaceTerminalSessionOwner(
               workspaceTerminalCacheRef.current,
@@ -1550,7 +1723,7 @@ export function useShellTerminalController({
           if (tail) {
             appendStationTerminalOutput(stationId, tail)
           }
-          if (stationId !== activeStationId) {
+          if (stationId !== activeStationIdRef.current) {
             const delta = Math.max(1, Math.min(99, payload.unreadChunks || 1))
             incrementStationUnread(stationId, delta)
           }
@@ -1571,12 +1744,13 @@ export function useShellTerminalController({
       }
     }
   }, [
-    activeStationId,
     appendStationTerminalOutput,
     decodeBase64Chunk,
     incrementStationUnread,
     persistActiveWorkspaceTerminalDocument,
     pushStationTerminalDebugRecord,
+    recordStationLifecycleDiagnostic,
+    recordStationRuntimeDiagnosticBySession,
     resetStationTerminalOutput,
     setStationTerminalState,
   ])
@@ -1782,11 +1956,10 @@ export function useShellTerminalController({
               return null
             }
 
-            await desktopApi.fsWriteFile(
-              launchWorkspaceId,
-              buildAgentWorkspaceMarkerPath(station.agentWorkdirRel),
-              '',
-            )
+            const launchesFromWorkspaceRoot = isWorkspaceRootWorkdir(station.agentWorkdirRel)
+            if (!launchesFromWorkspaceRoot) {
+              await desktopApi.fsCreateDir(launchWorkspaceId, station.agentWorkdirRel)
+            }
             const agentWorkspaceCwd = resolveAgentWorkdirAbs(workspaceRoot, station.agentWorkdirRel)
             const terminalEnv = {
               GTO_WORKSPACE_ID: activeWorkspaceId,
@@ -1795,8 +1968,8 @@ export function useShellTerminalController({
               GTO_STATION_ID: station.id,
             }
             const session = await desktopApi.terminalCreate(launchWorkspaceId, {
-              cwd: agentWorkspaceCwd,
-              cwdMode: 'custom',
+              cwd: launchesFromWorkspaceRoot ? null : agentWorkspaceCwd,
+              cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
               env: terminalEnv,
               agentToolKind: normalizeStationToolKind(station.tool),
             })
@@ -1821,10 +1994,13 @@ export function useShellTerminalController({
               }
               const droppedSessionCleanup = resolveDroppedStationSessionCleanup(session.sessionId)
               if (droppedSessionCleanup) {
-                void desktopApi.terminalKill(
-                  droppedSessionCleanup.sessionId,
-                  droppedSessionCleanup.signal,
-                ).catch(() => {
+                void requestTerminalKill({
+                  sessionId: droppedSessionCleanup.sessionId,
+                  signal: droppedSessionCleanup.signal,
+                  reason: 'dropped-async-station-launch',
+                  stationId,
+                  workspaceId: launchWorkspaceId,
+                }).catch(() => {
                   // Dropped async station launches must not leave orphan backend sessions behind.
                 })
               }
@@ -1897,6 +2073,7 @@ export function useShellTerminalController({
       cacheBackgroundLaunchedTerminalSession,
       ensureTerminalSessionVisible,
       locale,
+      requestTerminalKill,
       resetStationTerminalOutput,
       resolveWorkspaceRoot,
       setStationTerminalState,
@@ -2026,6 +2203,56 @@ export function useShellTerminalController({
     ],
   )
 
+  const runStationTerminalCommand = useCallback(
+    async (stationId: string, command: string): Promise<boolean> => {
+      if (!command || !desktopApi.isTauriRuntime()) {
+        return false
+      }
+
+      try {
+        let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+        if (!sessionId) {
+          sessionId = await ensureStationTerminalSession(stationId)
+          if (!sessionId) {
+            return false
+          }
+        }
+        ensureTerminalSessionVisible(sessionId)
+        const chunks = buildStationTerminalCommandSubmitChunks(
+          command,
+          stationSubmitSequenceRef.current[stationId] ?? '\r',
+        )
+        for (let index = 0; index < chunks.length; index += 1) {
+          // Shell launch commands should submit once; the extra hard-Enter path is reserved for
+          // interactive prompt submission after the tool is already running.
+          await desktopApi.terminalWrite(sessionId, chunks[index])
+          if (index + 1 < chunks.length) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 50)
+            })
+          }
+        }
+        scheduleStationTerminalOutputRecovery(activeWorkspaceIdRef.current, stationId, sessionId)
+        return true
+      } catch (error) {
+        appendStationTerminalOutput(
+          stationId,
+          t(locale, 'system.sendFailed', {
+            detail: describeError(error),
+          }),
+        )
+        return false
+      }
+    },
+    [
+      appendStationTerminalOutput,
+      ensureStationTerminalSession,
+      ensureTerminalSessionVisible,
+      locale,
+      scheduleStationTerminalOutputRecovery,
+    ],
+  )
+
   // ── Reset station terminal to agent workdir ────────────────────────────
   const resetStationTerminalToAgentWorkdir = useCallback(
     async (stationId: string): Promise<boolean> => {
@@ -2120,6 +2347,10 @@ export function useShellTerminalController({
   const handleStationTerminalInput = useCallback(
     (stationId: string, data: string) => {
       const submitSequence = normalizeSubmitSequence(data)
+      const focusReportInput = isStationTerminalFocusReportInput(data)
+      if (focusReportInput) {
+        return
+      }
       if (submitSequence) {
         stationSubmitSequenceRef.current[stationId] = submitSequence
         const workspaceId = activeWorkspaceIdRef.current
@@ -2446,6 +2677,10 @@ export function useShellTerminalController({
       }
 
       try {
+        const launchesFromWorkspaceRoot = isWorkspaceRootWorkdir(station.agentWorkdirRel)
+        if (!launchesFromWorkspaceRoot) {
+          await desktopApi.fsCreateDir(workspaceId, station.agentWorkdirRel)
+        }
         const response = await desktopApi.toolLaunch({
           workspaceId,
           profileId,
@@ -2454,11 +2689,11 @@ export function useShellTerminalController({
             stationId: station.id,
             roleKey: station.role,
             toolKind: station.toolKind,
-            cwd: station.agentWorkdirRel,
-            agentWorkdirRel: station.agentWorkdirRel,
+            cwd: launchesFromWorkspaceRoot ? null : station.agentWorkdirRel,
+            agentWorkdirRel: launchesFromWorkspaceRoot ? undefined : station.agentWorkdirRel,
             roleWorkdirRel: station.roleWorkdirRel,
             resolvedCwd: null,
-            cwdMode: 'custom',
+            cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
           },
         })
 
@@ -2484,7 +2719,7 @@ export function useShellTerminalController({
               station,
               sessionId: terminalSessionId,
               shell: response.shell ?? null,
-              cwdMode: response.resolvedCwd ? 'custom' : 'workspace_root',
+              cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
               resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
               submitSequence,
             })
@@ -2492,10 +2727,13 @@ export function useShellTerminalController({
           }
           const droppedSessionCleanup = resolveDroppedStationSessionCleanup(terminalSessionId)
           if (droppedSessionCleanup) {
-            void desktopApi.terminalKill(
-              droppedSessionCleanup.sessionId,
-              droppedSessionCleanup.signal,
-            ).catch(() => {
+            void requestTerminalKill({
+              sessionId: droppedSessionCleanup.sessionId,
+              signal: droppedSessionCleanup.signal,
+              reason: 'dropped-async-tool-launch',
+              stationId: station.id,
+              workspaceId,
+            }).catch(() => {
               // Dropped async tool launches must not leave orphan backend sessions behind.
             })
           }
@@ -2542,8 +2780,13 @@ export function useShellTerminalController({
           stationTerminalInputControllerRef.current?.clear(station.id)
           delete stationTerminalRestoreStateRef.current[station.id]
           delete stationSubmitSequenceRef.current[station.id]
-          void desktopApi
-            .terminalKill(rebindCleanup.previousSessionId, rebindCleanup.signal)
+          void requestTerminalKill({
+            sessionId: rebindCleanup.previousSessionId,
+            signal: rebindCleanup.signal,
+            reason: 'station-session-rebind',
+            stationId: station.id,
+            workspaceId,
+          })
             .catch(() => {
               // Rebinding must not leave the superseded backend session running.
             })
@@ -2574,7 +2817,7 @@ export function useShellTerminalController({
           stateRaw: 'running',
           unreadCount: 0,
           shell: response.shell ?? null,
-          cwdMode: response.resolvedCwd ? 'custom' : 'workspace_root',
+          cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
           resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
         })
 
@@ -2605,6 +2848,7 @@ export function useShellTerminalController({
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
       locale,
+      requestTerminalKill,
       resetStationTerminalOutput,
       sendStationTerminalInput,
       setStationTerminalState,
@@ -2640,7 +2884,7 @@ export function useShellTerminalController({
       if (!resetCwd) {
         return
       }
-      const launchedInSession = await writeStationTerminalWithSubmit(stationId, launchCommand)
+      const launchedInSession = await runStationTerminalCommand(stationId, launchCommand)
       if (!launchedInSession) {
         return
       }
@@ -2650,7 +2894,7 @@ export function useShellTerminalController({
       inspectStationSessionProcesses,
       launchToolProfileForStation,
       resetStationTerminalToAgentWorkdir,
-      writeStationTerminalWithSubmit,
+      runStationTerminalCommand,
     ],
   )
 
@@ -2664,7 +2908,13 @@ export function useShellTerminalController({
       const targetSessionId = runtime?.sessionId ?? mappedSessionId
       if (targetSessionId && desktopApi.isTauriRuntime()) {
         try {
-          await desktopApi.terminalKill(targetSessionId, 'TERM')
+          await requestTerminalKill({
+            sessionId: targetSessionId,
+            signal: 'TERM',
+            reason: 'removed-station-runtime-cleanup',
+            stationId,
+            workspaceId,
+          })
         } catch (error) {
           const detail = describeError(error)
           if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
@@ -2735,13 +2985,26 @@ export function useShellTerminalController({
       }
       return true
     },
-    [appendStationTerminalOutput, externalChannelController.removeStationTaskSignal, locale, setStations, setStationTerminalState],
+    [
+      appendStationTerminalOutput,
+      externalChannelController.removeStationTaskSignal,
+      locale,
+      requestTerminalKill,
+      setStations,
+      setStationTerminalState,
+    ],
   )
 
   // ── Remove station ─────────────────────────────────────────────────────
   const removeStation = useCallback(
     async (stationId: string) => {
       const workspaceId = activeWorkspaceIdRef.current
+      recordStationLifecycleDiagnostic(
+        stationId,
+        stationTerminalsRef.current[stationId]?.sessionId ?? null,
+        'remove-station-request',
+        workspaceId ?? 'workspace:none',
+      )
       if (workspaceId && desktopApi.isTauriRuntime()) {
         setStationDeletePendingId(stationId)
         try {
@@ -2790,7 +3053,7 @@ export function useShellTerminalController({
       setIsStationManageOpen(false)
       setEditingStation(null)
     },
-    [cleanupRemovedStationRuntimeState],
+    [cleanupRemovedStationRuntimeState, recordStationLifecycleDiagnostic],
   )
 
   // ── Force close station terminal (two-step: confirm then kill) ───────
@@ -2799,8 +3062,14 @@ export function useShellTerminalController({
     if (!runtime?.sessionId) {
       return
     }
+    recordStationLifecycleDiagnostic(
+      stationId,
+      runtime.sessionId,
+      'force-close-request',
+      'dialog-open',
+    )
     setForceCloseConfirmPendingId(stationId)
-  }, [])
+  }, [recordStationLifecycleDiagnostic])
 
   const confirmForceCloseStationTerminal = useCallback(async () => {
     const stationId = forceCloseConfirmPendingId
@@ -2813,12 +3082,19 @@ export function useShellTerminalController({
     if (!sessionId) {
       return
     }
+    recordStationLifecycleDiagnostic(stationId, sessionId, 'force-close-confirm', 'kill-request')
     const station = stationsRef.current.find((entry) => entry.id === stationId)
 
     const workspaceId = activeWorkspaceIdRef.current
     try {
       if (desktopApi.isTauriRuntime()) {
-        await desktopApi.terminalKill(sessionId, 'KILL')
+        await requestTerminalKill({
+          sessionId,
+          signal: 'KILL',
+          reason: 'force-close-confirmed',
+          stationId,
+          workspaceId,
+        })
       }
     } catch (error) {
       const detail = describeError(error)
@@ -2861,11 +3137,26 @@ export function useShellTerminalController({
       cwdMode: 'workspace_root',
       resolvedCwd: null,
     })
-  }, [forceCloseConfirmPendingId, appendStationTerminalOutput, locale, resetStationTerminalOutput, setStationTerminalState])
+  }, [
+    forceCloseConfirmPendingId,
+    appendStationTerminalOutput,
+    locale,
+    recordStationLifecycleDiagnostic,
+    requestTerminalKill,
+    resetStationTerminalOutput,
+    setStationTerminalState,
+  ])
 
   const dismissForceCloseConfirm = useCallback(() => {
+    if (forceCloseConfirmPendingId) {
+      recordStationLifecycleDiagnostic(
+        forceCloseConfirmPendingId,
+        stationTerminalsRef.current[forceCloseConfirmPendingId]?.sessionId ?? null,
+        'force-close-dismiss',
+      )
+    }
     setForceCloseConfirmPendingId(null)
-  }, [])
+  }, [forceCloseConfirmPendingId, recordStationLifecycleDiagnostic])
 
   // ── Station delete cleanup ─────────────────────────────────────────────
   const handleStationDeleteCleanupChange = useCallback((patch: Partial<StationDeleteCleanupState>) => {
@@ -2967,7 +3258,7 @@ export function useShellTerminalController({
           continue
         }
 
-        await writeStationTerminalWithSubmit(station.id, launchCommand)
+        await runStationTerminalCommand(station.id, launchCommand)
       }
     } finally {
       setIsBatchLaunchingAgents(false)
@@ -2975,7 +3266,7 @@ export function useShellTerminalController({
   }, [
     isBatchLaunchingAgents,
     launchToolProfileForStation,
-    writeStationTerminalWithSubmit,
+    runStationTerminalCommand,
   ])
 
   // ── Load tool commands for stations ────────────────────────────────────

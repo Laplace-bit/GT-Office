@@ -70,6 +70,25 @@ pub(crate) fn write_terminal_with_submit(
     submit_sequence: &str,
 ) -> Result<(), String> {
     let chunks = build_terminal_submit_chunks(command, submit_sequence);
+    write_terminal_chunks(state, session_id, &chunks, !command.is_empty())
+}
+
+pub(crate) fn write_terminal_command_with_submit(
+    state: &AppState,
+    session_id: &str,
+    command: &str,
+    submit_sequence: &str,
+) -> Result<(), String> {
+    let chunks = build_terminal_command_submit_chunks(command, submit_sequence);
+    write_terminal_chunks(state, session_id, &chunks, !command.is_empty())
+}
+
+fn write_terminal_chunks(
+    state: &AppState,
+    session_id: &str,
+    chunks: &[String],
+    has_command: bool,
+) -> Result<(), String> {
     for (index, chunk) in chunks.iter().enumerate() {
         let accepted = state
             .terminal_provider
@@ -77,7 +96,7 @@ pub(crate) fn write_terminal_with_submit(
             .map_err(to_terminal_error)?;
         if !accepted {
             let reason = match index {
-                0 if !command.is_empty() => "CHANNEL_DELIVERY_FAILED: terminal write rejected",
+                0 if has_command => "CHANNEL_DELIVERY_FAILED: terminal write rejected",
                 0 => "CHANNEL_DELIVERY_FAILED: terminal submit rejected",
                 1 => "CHANNEL_DELIVERY_FAILED: terminal submit rejected",
                 _ => "CHANNEL_DELIVERY_FAILED: terminal hard submit rejected",
@@ -98,6 +117,18 @@ pub(crate) fn build_terminal_submit_chunks(command: &str, submit_sequence: &str)
     }
     chunks.push(submit_sequence.to_string());
     chunks.push("\r".to_string());
+    chunks
+}
+
+pub(crate) fn build_terminal_command_submit_chunks(
+    command: &str,
+    submit_sequence: &str,
+) -> Vec<String> {
+    let mut chunks = Vec::with_capacity(2);
+    if !command.is_empty() {
+        chunks.push(command.to_string());
+    }
+    chunks.push(submit_sequence.to_string());
     chunks
 }
 

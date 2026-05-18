@@ -84,8 +84,8 @@ export function buildRoleWorkdirRel(role: StationRole): string {
   return `${STATION_WORKDIR_ROOT}/roles/${normalizePathSegment(role)}`
 }
 
-export function buildAgentWorkdirRel(agentName: string): string {
-  return `${STATION_WORKDIR_ROOT}/${normalizePathSegment(agentName)}`
+export function buildAgentWorkdirRel(_agentName: string): string {
+  return '.'
 }
 
 export function buildStationWorkdirs(role: StationRole, agentName: string): StationWorkdir {
@@ -109,6 +109,10 @@ export function resolveAgentWorkdirAbs(workspaceRoot: string, agentWorkdirRel: s
     return `${normalizedRoot}${normalizedRelForOs}`
   }
   return `${normalizedRoot}${separator}${normalizedRelForOs}`
+}
+
+export function isWorkspaceRootWorkdir(agentWorkdirRel: string | null | undefined): boolean {
+  return normalizeRelativePath(agentWorkdirRel ?? '') === ''
 }
 
 export function buildAgentWorkspaceMarkerPath(agentWorkdirRel: string): string {

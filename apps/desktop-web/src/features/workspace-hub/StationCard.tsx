@@ -17,11 +17,11 @@ import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import {
-  setStationTerminalDebugEnabled,
   StationXtermTerminal,
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
+import { recordStationTerminalFocusDiagnostic } from '@features/terminal/station-terminal-focus-diagnostics'
 import {
   didStationTerminalRenderabilityChange,
   shouldAutoLaunchStationTerminalFromSurface,
@@ -39,7 +39,6 @@ import './StationCard.scss'
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
-const TERMINAL_DEBUG_PANEL_ENABLED = false
 
 function roleLabel(locale: Locale, station: AgentStation): string {
   switch (station.role) {
@@ -200,9 +199,21 @@ function StationCardView({
   const restoreAnimationTokenRef = useRef<number | null>(null)
   const [compactLayout, setCompactLayout] = useState(false)
 
-  useEffect(() => {
-    setStationTerminalDebugEnabled(station.id, TERMINAL_DEBUG_PANEL_ENABLED && active)
-  }, [active, station.id])
+  const recordStationUiDiagnostic = useCallback(
+    (kind: 'ui-control-event', detail: string) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      void recordStationTerminalFocusDiagnostic({
+        targetWindow: window,
+        stationId: station.id,
+        sessionId: runtime?.sessionId ?? null,
+        kind,
+        detail,
+      })
+    },
+    [runtime?.sessionId, station.id],
+  )
 
   const cancelScheduledTerminalFocus = useCallback(() => {
     const frameId = terminalFocusFrameRef.current
@@ -347,6 +358,7 @@ function StationCardView({
   const hasTerminalSession = Boolean(runtime?.sessionId)
   const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
+
   const roleText = roleLabel(locale, station)
   const identityMeta = useMemo(
     () => buildStationCardIdentityMeta(station.name, roleText, station.tool),
@@ -585,8 +597,12 @@ function StationCardView({
               className="station-minimize-btn"
               tooltip={t(locale, 'workbench.minimizeStation')}
               ariaLabel={t(locale, 'workbench.minimizeStation')}
+              onPointerDown={() => {
+                recordStationUiDiagnostic('ui-control-event', 'station-card:minimize:pointerdown')
+              }}
               onClick={(event) => {
                 event.stopPropagation()
+                recordStationUiDiagnostic('ui-control-event', 'station-card:minimize:click')
                 onMinimizeStation?.(station.id)
               }}
             >
@@ -596,8 +612,18 @@ function StationCardView({
               className="station-fullscreen-btn"
               tooltip={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
               ariaLabel={t(locale, isFullscreen ? 'workbench.exitFullscreen' : 'workbench.fullscreen')}
+              onPointerDown={() => {
+                recordStationUiDiagnostic(
+                  'ui-control-event',
+                  `station-card:${isFullscreen ? 'fullscreen-exit' : 'fullscreen-enter'}:pointerdown`,
+                )
+              }}
               onClick={(event) => {
                 event.stopPropagation()
+                recordStationUiDiagnostic(
+                  'ui-control-event',
+                  `station-card:${isFullscreen ? 'fullscreen-exit' : 'fullscreen-enter'}:click`,
+                )
                 if (isFullscreen) {
                   onExitFullscreen()
                   return
@@ -616,8 +642,12 @@ function StationCardView({
                 className="station-force-close-btn"
                 tooltip={t(locale, 'terminal.forceClose.button')}
                 ariaLabel={t(locale, 'terminal.forceClose.button')}
+                onPointerDown={() => {
+                  recordStationUiDiagnostic('ui-control-event', 'station-card:force-close:pointerdown')
+                }}
                 onClick={(event) => {
                   event.stopPropagation()
+                  recordStationUiDiagnostic('ui-control-event', 'station-card:force-close:click')
                   onForceCloseTerminal(station.id)
                 }}
               >

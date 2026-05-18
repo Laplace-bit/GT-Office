@@ -14,6 +14,7 @@ import {
   StationXtermTerminal,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
+import { recordStationTerminalFocusDiagnostic } from '@features/terminal/station-terminal-focus-diagnostics'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { RenderedScreenSnapshot, ToolCommandSummary } from '@shell/integration/desktop-api'
 import './TerminalStationPane.scss'
@@ -142,6 +143,21 @@ function TerminalStationPaneView({
     () => (action: StationActionDescriptor) => onRunAction(station, action),
     [onRunAction, station],
   )
+  const recordStationUiDiagnostic = useMemo(
+    () => (detail: string) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+      void recordStationTerminalFocusDiagnostic({
+        targetWindow: window,
+        stationId: station.id,
+        sessionId: runtime?.sessionId ?? null,
+        kind: 'ui-control-event',
+        detail,
+      })
+    },
+    [runtime?.sessionId, station.id],
+  )
 
   return (
     <section className={['terminal-station-pane', active ? 'active' : ''].join(' ')}>
@@ -183,8 +199,12 @@ function TerminalStationPaneView({
               className="terminal-station-pane-force-close"
               aria-label={t(locale, 'terminal.forceClose.button')}
               title={t(locale, 'terminal.forceClose.button')}
+              onPointerDown={() => {
+                recordStationUiDiagnostic('terminal-pane:force-close:pointerdown')
+              }}
               onClick={(event) => {
                 event.stopPropagation()
+                recordStationUiDiagnostic('terminal-pane:force-close:click')
                 onForceCloseTerminal(station.id)
               }}
             >

@@ -2,10 +2,9 @@ use std::path::{Path, PathBuf};
 
 use gt_abstractions::{WorkspaceId, WorkspaceService};
 use gt_agent::{
-    default_agent_workdir, default_prompt_content, default_prompt_content_with_role,
-    normalize_agent_slug, prompt_file_name_for_tool, AgentProfile, AgentRepository, AgentRole,
-    AgentRoleScope, AgentState, CreateAgentInput, UpdateAgentInput, DEFAULT_ROLES,
-    GLOBAL_ROLE_WORKSPACE_ID,
+    default_agent_workdir, normalize_agent_slug, prompt_file_name_for_tool, AgentProfile,
+    AgentRepository, AgentRole, AgentRoleScope, AgentState, CreateAgentInput, UpdateAgentInput,
+    DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
 };
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use serde::{Deserialize, Serialize};
@@ -44,7 +43,9 @@ fn get_workspace_root(state: &AppState, workspace_id: &str) -> Result<PathBuf, S
     Ok(PathBuf::from(context.root))
 }
 
-fn resolve_agent_repository(app: &AppHandle) -> Result<SqliteAgentRepository, String> {
+fn resolve_agent_repository<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<SqliteAgentRepository, String> {
     let base_dir = app
         .path()
         .app_data_dir()
@@ -139,17 +140,13 @@ struct RestorableSystemRoleSummary {
 }
 
 fn normalize_relative_workdir(value: &str) -> Option<String> {
-    let normalized = value
-        .trim()
-        .replace('\\', "/")
-        .replace("/./", "/")
-        .trim_matches('/')
-        .to_string();
-    if normalized.is_empty() || normalized == "." {
-        return None;
-    }
+    let normalized = value.trim().replace('\\', "/").replace("/./", "/");
     if normalized.starts_with('/') || normalized.starts_with('~') || normalized.contains(':') {
         return None;
+    }
+    let normalized = normalized.trim_matches('/').to_string();
+    if normalized.is_empty() || normalized == "." {
+        return Some(".".to_string());
     }
     let segments: Vec<&str> = normalized
         .split('/')
@@ -185,14 +182,32 @@ fn resolve_update_agent_tool(existing_tool: &str, requested_tool: Option<String>
 }
 
 fn resolve_update_agent_prompt_file_name(
+    existing_tool: &str,
+    requested_tool: Option<&str>,
     existing_prompt_file_name: Option<&str>,
     requested_prompt_file_name: Option<&str>,
 ) -> Option<String> {
-    requested_prompt_file_name
+    if let Some(requested_file_name) = requested_prompt_file_name
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| existing_prompt_file_name.map(str::to_string))
+    {
+        return Some(requested_file_name.to_string());
+    }
+
+    let resolved_existing_tool = resolve_agent_tool(Some(existing_tool.to_string()));
+    let resolved_requested_tool = requested_tool
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| resolve_agent_tool(Some(value.to_string())))
+        .unwrap_or_else(|| resolved_existing_tool.clone());
+    let existing_default = prompt_file_name_for_tool(resolved_existing_tool.as_str());
+
+    match existing_prompt_file_name {
+        Some(existing_file_name) if Some(existing_file_name) != existing_default => {
+            Some(existing_file_name.to_string())
+        }
+        _ => prompt_file_name_for_tool(resolved_requested_tool.as_str()).map(str::to_string),
+    }
 }
 
 fn should_write_prompt_file_on_update(
@@ -201,14 +216,16 @@ fn should_write_prompt_file_on_update(
     _existing_prompt_file_name: Option<&str>,
     requested_prompt_file_name: Option<&str>,
     prompt_content: Option<&str>,
+    prompt_enabled: bool,
 ) -> bool {
+    if !prompt_enabled {
+        return false;
+    }
+
     let requested_tool = requested_tool
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let requested_prompt_file_name = requested_prompt_file_name
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let prompt_content = prompt_content
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
@@ -231,14 +248,15 @@ fn resolve_agent_workdir(
     custom_workdir: bool,
 ) -> Result<(String, bool), String> {
     let default_workdir = default_agent_workdir(name);
-    let requested = workdir
-        .and_then(|value| normalize_relative_workdir(value.as_str()))
-        .unwrap_or_else(|| default_workdir.clone());
-    if !requested.starts_with(".gtoffice/") && !custom_workdir {
-        return Ok((default_workdir, false));
-    }
     if custom_workdir {
-        return Ok((requested.clone(), requested != default_workdir));
+        let requested = workdir
+            .as_deref()
+            .and_then(normalize_relative_workdir)
+            .ok_or_else(|| "AGENT_WORKDIR_INVALID".to_string())?;
+        if requested == default_workdir {
+            return Ok((default_workdir, false));
+        }
+        return Ok((requested, true));
     }
     Ok((default_workdir, false))
 }
@@ -253,15 +271,41 @@ fn ensure_path_within_workspace(
     let canonical_base = workspace_root
         .canonicalize()
         .unwrap_or_else(|_| workspace_root.to_path_buf());
-    let canonical_joined_parent = joined
-        .parent()
-        .unwrap_or(workspace_root)
+    let mut existing_ancestor = joined.as_path();
+    while !existing_ancestor.exists() {
+        existing_ancestor = existing_ancestor.parent().unwrap_or(workspace_root);
+        if existing_ancestor == workspace_root {
+            break;
+        }
+    }
+    let canonical_existing_ancestor = existing_ancestor
         .canonicalize()
-        .unwrap_or_else(|_| joined.parent().unwrap_or(workspace_root).to_path_buf());
-    if !canonical_joined_parent.starts_with(&canonical_base) {
+        .unwrap_or_else(|_| existing_ancestor.to_path_buf());
+    if !canonical_existing_ancestor.starts_with(&canonical_base) {
         return Err("AGENT_WORKDIR_OUTSIDE_WORKSPACE".to_string());
     }
     Ok(joined)
+}
+
+fn resolve_prompt_relative_path(workdir: &str, file_name: &str) -> String {
+    let normalized_workdir = workdir.trim().trim_matches('/');
+    if normalized_workdir.is_empty() || normalized_workdir == "." {
+        return file_name.to_string();
+    }
+    format!("{normalized_workdir}/{file_name}")
+}
+
+fn ordered_prompt_file_candidates(tool: &str) -> Vec<&'static str> {
+    let mut candidates = Vec::new();
+    if let Some(default_file_name) = prompt_file_name_for_tool(tool) {
+        candidates.push(default_file_name);
+    }
+    for candidate in ["CLAUDE.md", "AGENTS.md", "GEMINI.md"] {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
 }
 
 fn resolve_prompt_file_name(
@@ -283,28 +327,43 @@ fn resolve_prompt_file_name(
 
 fn write_prompt_file(
     workspace_root: &Path,
-    agent_name: &str,
     workdir: &str,
     tool: &str,
     prompt_file_name: Option<&str>,
     prompt_content: Option<String>,
-    role_key: Option<&str>,
 ) -> Result<Option<(String, String)>, String> {
     let Some(file_name) = resolve_prompt_file_name(tool, prompt_file_name)? else {
         return Ok(None);
     };
-    let relative_path = format!("{}/{}", workdir.trim_end_matches('/'), file_name)
-        .trim_start_matches('/')
-        .to_string();
-    let workdir_path = ensure_path_within_workspace(workspace_root, workdir)?;
+    let relative_path = resolve_prompt_relative_path(workdir, &file_name);
+    let absolute_path = ensure_path_within_workspace(workspace_root, &relative_path)?;
+    let workdir_path = absolute_path
+        .parent()
+        .unwrap_or(workspace_root)
+        .to_path_buf();
     std::fs::create_dir_all(&workdir_path)
         .map_err(|error| format!("AGENT_WORKDIR_CREATE_FAILED: {error}"))?;
-    let content = prompt_content
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| default_prompt_content_with_role(agent_name, tool, role_key));
-    std::fs::write(workdir_path.join(&file_name), content)
+    let content = prompt_content.unwrap_or_default();
+    match std::fs::read_to_string(&absolute_path) {
+        Ok(existing_content) if existing_content == content => {
+            return Ok(Some((file_name, relative_path)));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("AGENT_PROMPT_READ_FAILED: {error}")),
+    }
+    std::fs::write(&absolute_path, content)
         .map_err(|error| format!("AGENT_PROMPT_WRITE_FAILED: {error}"))?;
     Ok(Some((file_name, relative_path)))
+}
+
+fn delete_prompt_file(workspace_root: &Path, relative_path: &str) -> Result<(), String> {
+    let absolute_path = ensure_path_within_workspace(workspace_root, relative_path)?;
+    match std::fs::remove_file(absolute_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("AGENT_PROMPT_DELETE_FAILED: {error}")),
+    }
 }
 
 fn read_prompt_file(
@@ -317,25 +376,19 @@ fn read_prompt_file(
     ) {
         let absolute_path = ensure_path_within_workspace(workspace_root, relative_path)?;
         if absolute_path.exists() {
-            let content = std::fs::read_to_string(&absolute_path).unwrap_or_else(|_| {
-                default_prompt_content(agent.name.as_str(), agent.tool.as_str())
-            });
+            let content = std::fs::read_to_string(&absolute_path).unwrap_or_default();
             return Ok((content, Some(file_name), Some(relative_path.to_string())));
         }
     }
 
     if let Some(workdir) = agent.workdir.as_deref() {
-        for candidate in ["CLAUDE.md", "AGENTS.md", "GEMINI.md"] {
-            let relative_path = format!("{}/{}", workdir.trim_end_matches('/'), candidate)
-                .trim_start_matches('/')
-                .to_string();
+        for candidate in ordered_prompt_file_candidates(agent.tool.as_str()) {
+            let relative_path = resolve_prompt_relative_path(workdir, candidate);
             let absolute_path = ensure_path_within_workspace(workspace_root, &relative_path)?;
             if !absolute_path.exists() {
                 continue;
             }
-            let content = std::fs::read_to_string(&absolute_path).unwrap_or_else(|_| {
-                default_prompt_content(agent.name.as_str(), agent.tool.as_str())
-            });
+            let content = std::fs::read_to_string(&absolute_path).unwrap_or_default();
             return Ok((content, Some(candidate.to_string()), Some(relative_path)));
         }
     }
@@ -593,32 +646,27 @@ pub struct AgentCreateRequest {
     pub custom_workdir: Option<bool>,
     pub employee_no: Option<String>,
     pub state: Option<String>,
+    pub prompt_enabled: Option<bool>,
     pub prompt_file_name: Option<String>,
     pub prompt_content: Option<String>,
     pub launch_command: Option<String>,
 }
 
-#[tauri::command]
-pub fn agent_create(
+fn agent_create_with_repo(
     request: AgentCreateRequest,
-    state: State<'_, AppState>,
-    app: AppHandle,
+    repo: &SqliteAgentRepository,
+    workspace_root: &Path,
 ) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
     let agent_state = parse_agent_state(request.state)?;
     let tool = resolve_agent_tool(request.tool);
     let name = request.name.trim().to_string();
+    let prompt_enabled = request.prompt_enabled.unwrap_or(false);
     let (workdir, custom_workdir) = resolve_agent_workdir(
         name.as_str(),
         request.workdir,
         request.custom_workdir.unwrap_or(false),
     )?;
-    let workspace_root = get_workspace_root(state.inner(), &request.workspace_id)?;
 
-    let role_key_lookup = request.role_id.clone();
     let input = CreateAgentInput {
         workspace_id: request.workspace_id.clone(),
         agent_id: request.agent_id,
@@ -634,24 +682,45 @@ pub fn agent_create(
     };
 
     let agent = repo.create_agent(input).map_err(to_command_error)?;
-    let role_key = repo
-        .list_roles(&request.workspace_id)
-        .ok()
-        .and_then(|roles| roles.into_iter().find(|r| r.id == role_key_lookup))
-        .map(|r| r.role_key.clone());
-    write_prompt_file(
-        &workspace_root,
-        name.as_str(),
-        workdir.as_str(),
-        tool.as_str(),
-        request.prompt_file_name.as_deref(),
-        request.prompt_content,
-        role_key.as_deref(),
-    )?;
-    let refreshed = find_agent(&repo, &request.workspace_id, &agent.id)?;
-    let _ =
-        crate::local_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    if prompt_enabled {
+        if let Err(error) = write_prompt_file(
+            workspace_root,
+            workdir.as_str(),
+            tool.as_str(),
+            request.prompt_file_name.as_deref(),
+            request.prompt_content,
+        ) {
+            let _ = repo.delete_agent(&request.workspace_id, &agent.id);
+            return Err(error);
+        }
+    }
+    let refreshed = find_agent(repo, &request.workspace_id, &agent.id)?;
     Ok(json!({ "agent": refreshed }))
+}
+
+fn agent_create_with_context<R: tauri::Runtime>(
+    request: AgentCreateRequest,
+    state: &AppState,
+    app: &AppHandle<R>,
+) -> Result<Value, String> {
+    ensure_workspace_exists(state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    seed_agent_defaults(&repo, &request.workspace_id)?;
+    let workspace_root = get_workspace_root(state, &request.workspace_id)?;
+    let workspace_id = request.workspace_id.clone();
+    let response = agent_create_with_repo(request, &repo, &workspace_root)?;
+    let _ = crate::local_bridge::refresh_directory_snapshot(app, state, &workspace_id);
+    Ok(response)
+}
+
+#[tauri::command]
+pub fn agent_create(
+    request: AgentCreateRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    agent_create_with_context(request, state.inner(), &app)
 }
 
 #[derive(Debug, Deserialize)]
@@ -666,22 +735,18 @@ pub struct AgentUpdateRequest {
     pub custom_workdir: Option<bool>,
     pub employee_no: Option<String>,
     pub state: Option<String>,
+    pub prompt_enabled: Option<bool>,
     pub prompt_file_name: Option<String>,
     pub prompt_content: Option<String>,
     pub launch_command: Option<String>,
 }
 
-#[tauri::command]
-pub fn agent_update(
+fn agent_update_with_repo(
     request: AgentUpdateRequest,
-    state: State<'_, AppState>,
-    app: AppHandle,
+    repo: &SqliteAgentRepository,
+    workspace_root: &Path,
 ) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
-    let existing_agent = find_agent(&repo, &request.workspace_id, &request.agent_id)?;
+    let existing_agent = find_agent(repo, &request.workspace_id, &request.agent_id)?;
     let agent_state = parse_agent_state(request.state)?;
     let tool = resolve_update_agent_tool(existing_agent.tool.as_str(), request.tool.clone());
     let name = request.name.trim().to_string();
@@ -690,17 +755,22 @@ pub fn agent_update(
         request.workdir,
         request.custom_workdir.unwrap_or(false),
     )?;
-    let workspace_root = get_workspace_root(state.inner(), &request.workspace_id)?;
-    let (_, existing_prompt_file_name, _) = read_prompt_file(&workspace_root, &existing_agent)?;
+    let (existing_prompt_content, existing_prompt_file_name, existing_prompt_file_relative_path) =
+        read_prompt_file(workspace_root, &existing_agent)?;
+    let prompt_enabled = request
+        .prompt_enabled
+        .unwrap_or(existing_prompt_file_name.is_some());
     let should_write_prompt = should_write_prompt_file_on_update(
         existing_agent.tool.as_str(),
         request.tool.as_deref(),
         existing_prompt_file_name.as_deref(),
         request.prompt_file_name.as_deref(),
         request.prompt_content.as_deref(),
+        prompt_enabled,
     );
-    let role_key_lookup = request.role_id.clone();
     let prompt_file_name = resolve_update_agent_prompt_file_name(
+        existing_agent.tool.as_str(),
+        request.tool.as_deref(),
         existing_prompt_file_name.as_deref(),
         request.prompt_file_name.as_deref(),
     );
@@ -718,26 +788,56 @@ pub fn agent_update(
     };
 
     let agent = repo.update_agent(input).map_err(to_command_error)?;
-    let role_key = repo
-        .list_roles(&request.workspace_id)
-        .ok()
-        .and_then(|roles| roles.into_iter().find(|r| r.id == role_key_lookup))
-        .map(|r| r.role_key.clone());
-    if should_write_prompt {
-        write_prompt_file(
-            &workspace_root,
-            name.as_str(),
+    if !prompt_enabled {
+        if let Some(existing_relative_path) = existing_prompt_file_relative_path.as_deref() {
+            delete_prompt_file(workspace_root, existing_relative_path)?;
+        }
+    } else if should_write_prompt {
+        let written = write_prompt_file(
+            workspace_root,
             workdir.as_str(),
             tool.as_str(),
             prompt_file_name.as_deref(),
-            request.prompt_content,
-            role_key.as_deref(),
+            request
+                .prompt_content
+                .or_else(|| Some(existing_prompt_content.clone())),
         )?;
+        if let (Some(existing_relative_path), Some((_, written_relative_path))) = (
+            existing_prompt_file_relative_path.as_deref(),
+            written.as_ref(),
+        ) {
+            if existing_relative_path != written_relative_path {
+                delete_prompt_file(workspace_root, existing_relative_path)?;
+            }
+        }
     }
-    let refreshed = find_agent(&repo, &request.workspace_id, &agent.id)?;
-    let _ =
-        crate::local_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
+    let refreshed = find_agent(repo, &request.workspace_id, &agent.id)?;
     Ok(json!({ "agent": refreshed }))
+}
+
+fn agent_update_with_context<R: tauri::Runtime>(
+    request: AgentUpdateRequest,
+    state: &AppState,
+    app: &AppHandle<R>,
+) -> Result<Value, String> {
+    ensure_workspace_exists(state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    seed_agent_defaults(&repo, &request.workspace_id)?;
+    let workspace_root = get_workspace_root(state, &request.workspace_id)?;
+    let workspace_id = request.workspace_id.clone();
+    let response = agent_update_with_repo(request, &repo, &workspace_root)?;
+    let _ = crate::local_bridge::refresh_directory_snapshot(app, state, &workspace_id);
+    Ok(response)
+}
+
+#[tauri::command]
+pub fn agent_update(
+    request: AgentUpdateRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    agent_update_with_context(request, state.inner(), &app)
 }
 
 #[derive(Debug, Deserialize)]
@@ -751,15 +851,15 @@ pub struct AgentDeleteRequest {
     pub replacement_agent_id: Option<String>,
 }
 
-#[tauri::command]
-pub fn agent_delete(
+fn agent_delete_with_repo<F>(
     request: AgentDeleteRequest,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
+    state: &AppState,
+    repo: &SqliteAgentRepository,
+    mut persist_route_bindings: F,
+) -> Result<Value, String>
+where
+    F: FnMut() -> Result<(), String>,
+{
     let cleanup_mode = parse_direct_binding_cleanup_mode(
         request.cleanup_mode.as_deref(),
         request.replacement_agent_id.as_deref(),
@@ -788,7 +888,7 @@ pub fn agent_delete(
                 );
             }
             crate::commands::tool_adapter::validate_binding_target_selector(
-                &repo,
+                repo,
                 &request.workspace_id,
                 replacement_agent_id,
             )?;
@@ -800,7 +900,7 @@ pub fn agent_delete(
             cleanup_mode,
         )?;
         state.task_service.clear_external_idempotency_cache();
-        crate::commands::tool_adapter::persist_route_bindings(&app, state.inner())?;
+        persist_route_bindings()?;
         Some(cleanup)
     } else {
         None
@@ -808,8 +908,6 @@ pub fn agent_delete(
     let deleted = repo
         .delete_agent(&request.workspace_id, &request.agent_id)
         .map_err(to_command_error)?;
-    let _ =
-        crate::local_bridge::refresh_directory_snapshot(&app, state.inner(), &request.workspace_id);
     Ok(json!({
         "deleted": deleted,
         "bindingCleanup": binding_cleanup.as_ref().map(|cleanup| json!({
@@ -823,11 +921,63 @@ pub fn agent_delete(
     }))
 }
 
+fn agent_delete_with_context<R: tauri::Runtime>(
+    request: AgentDeleteRequest,
+    state: &AppState,
+    app: &AppHandle<R>,
+) -> Result<Value, String> {
+    ensure_workspace_exists(state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    let workspace_id = request.workspace_id.clone();
+    let response = agent_delete_with_repo(request, state, &repo, || {
+        crate::commands::tool_adapter::persist_route_bindings(app, state)
+    })?;
+    let _ = crate::local_bridge::refresh_directory_snapshot(app, state, &workspace_id);
+    Ok(response)
+}
+
+#[tauri::command]
+pub fn agent_delete(
+    request: AgentDeleteRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    agent_delete_with_context(request, state.inner(), &app)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPromptReadRequest {
     pub workspace_id: String,
     pub agent_id: String,
+}
+
+fn agent_prompt_read_with_repo(
+    request: AgentPromptReadRequest,
+    repo: &SqliteAgentRepository,
+    workspace_root: &Path,
+) -> Result<Value, String> {
+    let agent = find_agent(repo, &request.workspace_id, &request.agent_id)?;
+    let (prompt_content, prompt_file_name, prompt_file_relative_path) =
+        read_prompt_file(workspace_root, &agent)?;
+    Ok(json!({
+        "promptContent": prompt_content,
+        "promptFileName": prompt_file_name,
+        "promptFileRelativePath": prompt_file_relative_path,
+    }))
+}
+
+fn agent_prompt_read_with_context<R: tauri::Runtime>(
+    request: AgentPromptReadRequest,
+    state: &AppState,
+    app: &AppHandle<R>,
+) -> Result<Value, String> {
+    ensure_workspace_exists(state, &request.workspace_id)?;
+    let repo = resolve_agent_repository(app)?;
+    repo.ensure_schema().map_err(to_command_error)?;
+    let workspace_root = get_workspace_root(state, &request.workspace_id)?;
+    agent_prompt_read_with_repo(request, &repo, &workspace_root)
 }
 
 #[tauri::command]
@@ -836,18 +986,7 @@ pub fn agent_prompt_read(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    let workspace_root = get_workspace_root(state.inner(), &request.workspace_id)?;
-    let agent = find_agent(&repo, &request.workspace_id, &request.agent_id)?;
-    let (prompt_content, prompt_file_name, prompt_file_relative_path) =
-        read_prompt_file(&workspace_root, &agent)?;
-    Ok(json!({
-        "promptContent": prompt_content,
-        "promptFileName": prompt_file_name,
-        "promptFileRelativePath": prompt_file_relative_path,
-    }))
+    agent_prompt_read_with_context(request, state.inner(), &app)
 }
 
 #[derive(Debug, Deserialize)]

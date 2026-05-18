@@ -411,8 +411,10 @@ where
     }
 
     fn parse_porcelain_status(stdout: &str, repository_path: &str) -> GitStatusSummary {
-        let mut summary = GitStatusSummary::default();
-        summary.primary_repository_path = repository_path.to_string();
+        let mut summary = GitStatusSummary {
+            primary_repository_path: repository_path.to_string(),
+            ..GitStatusSummary::default()
+        };
 
         for line in stdout.lines() {
             if let Some(rest) = line.strip_prefix("## ") {
@@ -2287,7 +2289,7 @@ where
         // Merge metadata + body into a single git show call.
         // %x1e separates the structured metadata from the body text.
         let pretty_format =
-            format!("--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e%b");
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e%b".to_string();
         let combined_output = self.run_git(
             &context.repo_root,
             &[
@@ -2998,13 +3000,16 @@ where
         let conflict = conflicts
             .iter()
             .find(|conflict| {
-                self.normalize_workspace_paths_for_repo(&context, &[conflict.path.clone()])
-                    .map(|paths| {
-                        paths
-                            .into_iter()
-                            .any(|candidate| candidate == normalized_path)
-                    })
-                    .unwrap_or(false)
+                self.normalize_workspace_paths_for_repo(
+                    &context,
+                    std::slice::from_ref(&conflict.path),
+                )
+                .map(|paths| {
+                    paths
+                        .into_iter()
+                        .any(|candidate| candidate == normalized_path)
+                })
+                .unwrap_or(false)
             })
             .ok_or_else(|| AbstractionError::InvalidArgument {
                 message: format!("GIT_CONFLICT_NOT_FOUND: path '{path}' is not conflicted"),
@@ -3019,14 +3024,14 @@ where
                 });
             }
         };
-        let selected_side_is_deleted = match (&conflict.status, accept_ours) {
+        let selected_side_is_deleted = matches!(
+            (&conflict.status, accept_ours),
             (ConflictStatus::DeletedByUs, true)
-            | (ConflictStatus::DeletedByThem, false)
-            | (ConflictStatus::AddedByThem, true)
-            | (ConflictStatus::AddedByUs, false)
-            | (ConflictStatus::BothDeleted, _) => true,
-            _ => false,
-        };
+                | (ConflictStatus::DeletedByThem, false)
+                | (ConflictStatus::AddedByThem, true)
+                | (ConflictStatus::AddedByUs, false)
+                | (ConflictStatus::BothDeleted, _)
+        );
 
         if selected_side_is_deleted {
             self.run_git(
@@ -3383,7 +3388,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("gt-git-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("temp repo dir should be created");
 
-        run_git(&root, &["init"]);
+        run_git(&root, &["init", "-b", "main"]);
         run_git(&root, &["config", "user.name", "GT Office Test"]);
         run_git(&root, &["config", "user.email", "test@example.com"]);
 
@@ -3398,7 +3403,7 @@ mod tests {
     }
 
     fn init_repo(root: &Path) {
-        run_git(root, &["init"]);
+        run_git(root, &["init", "-b", "main"]);
         run_git(root, &["config", "user.name", "GT Office Test"]);
         run_git(root, &["config", "user.email", "test@example.com"]);
     }
@@ -4084,6 +4089,7 @@ esac\n",
         run_git(&temp_root, &["add", "tracked.txt"]);
         run_git(&temp_root, &["commit", "-m", "init"]);
         run_git(&temp_root, &["push", "-u", "origin", "main"]);
+        run_git(&remote_root, &["symbolic-ref", "HEAD", "refs/heads/main"]);
 
         run_git(
             &std::env::temp_dir(),
@@ -4958,6 +4964,11 @@ rename to new.txt\n\
         assert_eq!(explicit_branch, "main");
         assert!(explicit_root.join(".git").exists());
 
+        run_git(&explicit_root, &["config", "user.name", "GT Office Test"]);
+        run_git(
+            &explicit_root,
+            &["config", "user.email", "test@example.com"],
+        );
         fs::write(explicit_root.join("tracked.txt"), "tracked\n").expect("write explicit tracked");
         run_git(&explicit_root, &["add", "tracked.txt"]);
         run_git(&explicit_root, &["commit", "-m", "initial"]);

@@ -15,32 +15,43 @@ test('defers pointerdown focus for inactive terminals on macOS WebKit', () => {
       isMacOsWebKitEnvironment: true,
     }),
     {
-      activateStation: true,
       focusStrategy: 'defer-until-active',
     },
   )
 })
 
-test('keeps immediate pointerdown focus for active or non-WebKit terminals', () => {
+test('skips pointerdown focus for active terminals (xterm handles focus natively)', () => {
   assert.deepEqual(
     resolveStationTerminalPointerDownFocusPlan({
       isActive: true,
       isMacOsWebKitEnvironment: true,
     }),
     {
-      activateStation: true,
-      focusStrategy: 'immediate',
+      focusStrategy: 'none',
     },
   )
+})
 
+test('skips pointerdown focus for active terminals on non-WebKit runtimes', () => {
+  assert.deepEqual(
+    resolveStationTerminalPointerDownFocusPlan({
+      isActive: true,
+      isMacOsWebKitEnvironment: false,
+    }),
+    {
+      focusStrategy: 'none',
+    },
+  )
+})
+
+test('defers inactive terminal activation until click on non-WebKit runtimes too', () => {
   assert.deepEqual(
     resolveStationTerminalPointerDownFocusPlan({
       isActive: false,
       isMacOsWebKitEnvironment: false,
     }),
     {
-      activateStation: true,
-      focusStrategy: 'immediate',
+      focusStrategy: 'defer-until-active',
     },
   )
 })

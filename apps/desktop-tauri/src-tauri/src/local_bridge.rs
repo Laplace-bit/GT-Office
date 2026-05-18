@@ -577,8 +577,8 @@ fn directory_get(app: &AppHandle, state: &AppState, params: Value) -> Result<Val
     refresh_directory_snapshot(app, state, workspace_id).map_err(map_command_error)
 }
 
-pub fn refresh_directory_snapshot(
-    app: &AppHandle,
+pub fn refresh_directory_snapshot<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     state: &AppState,
     workspace_id: &str,
 ) -> Result<Value, String> {
@@ -601,8 +601,8 @@ pub fn spawn_refresh_directory_snapshot(app: AppHandle, state: AppState, workspa
     });
 }
 
-fn build_directory_snapshot(
-    app: &AppHandle,
+fn build_directory_snapshot<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     state: &AppState,
     workspace_id: &str,
 ) -> Result<Value, String> {
@@ -1079,7 +1079,9 @@ fn emit_dispatch_progress_events(app: &AppHandle, events: &[TaskDispatchProgress
     }
 }
 
-fn resolve_agent_repository(app: &AppHandle) -> Result<SqliteAgentRepository, String> {
+fn resolve_agent_repository<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<SqliteAgentRepository, String> {
     let base_dir = app
         .path()
         .app_data_dir()

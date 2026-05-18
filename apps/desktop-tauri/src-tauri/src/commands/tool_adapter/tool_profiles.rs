@@ -23,7 +23,7 @@ use crate::{
     app_state::AppState,
     commands::{
         settings::ai_config::augment_terminal_env_for_agent,
-        task_center::write_terminal_with_submit,
+        task_center::{write_terminal_command_with_submit, write_terminal_with_submit},
     },
     local_bridge::spawn_refresh_directory_snapshot,
 };
@@ -603,7 +603,8 @@ pub fn tool_launch(
         .map_err(to_terminal_error)?;
 
     let launch_command = resolve_launch_command(&app, &workspace_id, &agent_id, tool_kind);
-    write_terminal_with_submit(
+    // Bootstrapping the CLI is a shell command, not an in-tool prompt submission.
+    write_terminal_command_with_submit(
         state.inner(),
         &session.session_id,
         &launch_command,

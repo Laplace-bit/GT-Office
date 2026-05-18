@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 pub const GLOBAL_ROLE_WORKSPACE_ID: &str = "__global__";
-const DEFAULT_AGENT_WORKDIR_ROOT: &str = ".gtoffice";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentState {
@@ -331,17 +330,14 @@ pub fn normalize_agent_slug(value: &str) -> String {
     }
 }
 
-pub fn default_agent_workdir(name: &str) -> String {
-    format!(
-        "{DEFAULT_AGENT_WORKDIR_ROOT}/{}",
-        normalize_agent_slug(name)
-    )
+pub fn default_agent_workdir(_name: &str) -> String {
+    ".".to_string()
 }
 
 pub fn prompt_file_relative_path(workdir: &str, tool: &str) -> Option<String> {
     let file_name = prompt_file_name_for_tool(tool)?;
     let normalized_workdir = workdir.trim().trim_matches('/');
-    if normalized_workdir.is_empty() {
+    if normalized_workdir.is_empty() || normalized_workdir == "." {
         return Some(file_name.to_string());
     }
     Some(format!("{normalized_workdir}/{file_name}"))
@@ -352,12 +348,9 @@ mod tests {
     use super::{default_agent_workdir, prompt_file_name_for_tool, prompt_file_relative_path};
 
     #[test]
-    fn default_agent_workdir_uses_shallow_gtoffice_root() {
-        assert_eq!(
-            default_agent_workdir("My Product Agent"),
-            ".gtoffice/my-product-agent"
-        );
-        assert_eq!(default_agent_workdir("  "), ".gtoffice/agent");
+    fn default_agent_workdir_uses_workspace_root() {
+        assert_eq!(default_agent_workdir("My Product Agent"), ".");
+        assert_eq!(default_agent_workdir("  "), ".");
     }
 
     #[test]
@@ -368,6 +361,10 @@ mod tests {
         assert_eq!(
             prompt_file_relative_path(".gtoffice/alpha", "codex"),
             Some(".gtoffice/alpha/AGENTS.md".to_string())
+        );
+        assert_eq!(
+            prompt_file_relative_path(".", "codex"),
+            Some("AGENTS.md".to_string())
         );
     }
 }

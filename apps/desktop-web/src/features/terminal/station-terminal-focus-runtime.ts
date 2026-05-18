@@ -12,6 +12,16 @@ export interface StationTerminalPendingFocusFlushInput {
   focusRuntimeReady: boolean
 }
 
+export interface StationTerminalInactiveMouseGestureInput {
+  isActive: boolean
+  button: number
+}
+
+export interface StationTerminalFocusAttemptContinuationInput {
+  componentMounted: boolean
+  stationActive: boolean
+}
+
 export function resolveStationTerminalFocusRequest({
   focusRuntimeReady,
 }: StationTerminalFocusRequestInput): StationTerminalFocusRequestResolution {
@@ -33,4 +43,18 @@ export function shouldFlushPendingStationTerminalFocus({
   focusRuntimeReady,
 }: StationTerminalPendingFocusFlushInput): boolean {
   return pendingAutoFocus && focusRuntimeReady
+}
+
+export function shouldContinueStationTerminalFocusAttempt({
+  componentMounted,
+  stationActive,
+}: StationTerminalFocusAttemptContinuationInput): boolean {
+  return componentMounted && stationActive
+}
+
+export function shouldConsumeInactiveStationTerminalMouseGesture({
+  isActive,
+  button,
+}: StationTerminalInactiveMouseGestureInput): boolean {
+  return !isActive && button === 0
 }

@@ -4,7 +4,9 @@ use super::{
     build_terminal_snapshot_response, build_terminal_visibility_response,
     build_terminal_write_response, parse_cwd_mode, resolve_terminal_submit_sequence,
 };
-use crate::commands::task_center::build_terminal_submit_chunks;
+use crate::commands::task_center::{
+    build_terminal_command_submit_chunks, build_terminal_submit_chunks,
+};
 use crate::terminal_debug::dev_log::{
     build_frontend_focus_log_entry, should_write_terminal_debug_log_for_build, TerminalDebugLogKind,
 };
@@ -74,6 +76,18 @@ fn build_terminal_submit_chunks_skips_empty_command_but_keeps_submit_bytes() {
             "\x1b[13~".to_string(),
             "\r".to_string(),
         ]
+    );
+}
+
+#[test]
+fn build_terminal_command_submit_chunks_uses_single_submit_for_shell_commands() {
+    assert_eq!(
+        build_terminal_command_submit_chunks("", "\r"),
+        vec!["\r".to_string()]
+    );
+    assert_eq!(
+        build_terminal_command_submit_chunks("codex", "\r"),
+        vec!["codex".to_string(), "\r".to_string()]
     );
 }
 

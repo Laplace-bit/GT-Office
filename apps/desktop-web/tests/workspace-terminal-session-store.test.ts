@@ -91,10 +91,6 @@ function cloneDocument(doc: WorkspaceTerminalSessionDocument): WorkspaceTerminal
   }
 }
 
-/**
- * Reimplementation of hydrateWorkspaceTerminalSessionDocument for testing.
- * This mirrors the production logic to verify the stale-sessionId fix.
- */
 function hydrateWorkspaceTerminalSessionDocument(
   document: WorkspaceTerminalSessionDocument | null | undefined,
   stations: AgentStation[],
@@ -102,23 +98,13 @@ function hydrateWorkspaceTerminalSessionDocument(
   const hydrated = document ? cloneDocument(document) : createFreshDocument(stations)
   const stationIds = new Set(stations.map((station) => station.id))
   const initialRuntimes = Object.fromEntries(stations.map((s) => [s.id, makeIdleRuntime()]))
+  const retainedSessionStation = new Map<string, string>()
 
   stations.forEach((station) => {
     const cached = hydrated.stationTerminals[station.id]
     if (cached) {
       if (cached.sessionId) {
-        delete hydrated.sessionStation[cached.sessionId]
-        delete hydrated.sessionSeq[cached.sessionId]
-        delete hydrated.sessionVisibility[cached.sessionId]
-        delete hydrated.restoreState[station.id]
-        hydrated.stationTerminals[station.id] = {
-          ...cached,
-          sessionId: null,
-          stateRaw: 'idle',
-          shell: null,
-          cwdMode: 'workspace_root' as const,
-          resolvedCwd: null,
-        }
+        retainedSessionStation.set(cached.sessionId, station.id)
       }
     } else {
       hydrated.stationTerminals[station.id] = initialRuntimes[station.id]
@@ -145,11 +131,16 @@ function hydrateWorkspaceTerminalSessionDocument(
   })
 
   Object.entries(hydrated.sessionStation).forEach(([sessionId, stationId]) => {
-    if (!stationIds.has(stationId)) {
+    if (retainedSessionStation.get(sessionId) !== stationId) {
       delete hydrated.sessionStation[sessionId]
       delete hydrated.sessionSeq[sessionId]
       delete hydrated.sessionVisibility[sessionId]
     }
+  })
+  retainedSessionStation.forEach((stationId, sessionId) => {
+    hydrated.sessionStation[sessionId] = stationId
+    hydrated.sessionSeq[sessionId] = hydrated.sessionSeq[sessionId] ?? 0
+    hydrated.sessionVisibility[sessionId] = hydrated.sessionVisibility[sessionId] ?? false
   })
 
   return hydrated
@@ -173,28 +164,28 @@ test('preserves idle station runtime from cache', () => {
   assert.equal(result.stationTerminals['s1'].stateRaw, 'idle')
 })
 
-test('resets stale sessionId to idle during hydration', () => {
+test('preserves cached sessionId during hydration', () => {
   const stations = [makeStation('s1')]
   const cached = createFreshDocument(stations)
 
-  cached.stationTerminals['s1'] = makeRunningRuntime('session-stale')
-  cached.sessionStation['session-stale'] = 's1'
-  cached.sessionSeq['session-stale'] = 1
-  cached.sessionVisibility['session-stale'] = true
+  cached.stationTerminals['s1'] = makeRunningRuntime('session-live')
+  cached.sessionStation['session-live'] = 's1'
+  cached.sessionSeq['session-live'] = 1
+  cached.sessionVisibility['session-live'] = true
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
-  assert.equal(result.stationTerminals['s1'].stateRaw, 'idle')
-  assert.equal(result.stationTerminals['s1'].shell, null)
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-live')
+  assert.equal(result.stationTerminals['s1'].stateRaw, 'running')
+  assert.equal(result.stationTerminals['s1'].shell, 'zsh')
   assert.equal(result.stationTerminals['s1'].cwdMode, 'workspace_root')
   assert.equal(result.stationTerminals['s1'].resolvedCwd, null)
-  assert.equal(result.sessionStation['session-stale'], undefined)
-  assert.equal(result.sessionSeq['session-stale'], undefined)
-  assert.equal(result.sessionVisibility['session-stale'], undefined)
+  assert.equal(result.sessionStation['session-live'], 's1')
+  assert.equal(result.sessionSeq['session-live'], 1)
+  assert.equal(result.sessionVisibility['session-live'], true)
 })
 
-test('clears stale sessionStation binding when resetting sessionId', () => {
+test('preserves multiple cached sessionStation bindings during hydration', () => {
   const stations = [makeStation('s1'), makeStation('s2')]
   const cached = createFreshDocument(stations)
 
@@ -207,59 +198,65 @@ test('clears stale sessionStation binding when resetting sessionId', () => {
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
-  assert.equal(result.stationTerminals['s2'].sessionId, null)
-  assert.deepEqual(Object.keys(result.sessionStation), [])
-  assert.deepEqual(Object.keys(result.sessionSeq), [])
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-a')
+  assert.equal(result.stationTerminals['s2'].sessionId, 'session-b')
+  assert.deepEqual(result.sessionStation, {
+    'session-a': 's1',
+    'session-b': 's2',
+  })
+  assert.deepEqual(result.sessionSeq, {
+    'session-a': 3,
+    'session-b': 7,
+  })
 })
 
-test('clears restoreState for station when resetting stale sessionId', () => {
+test('preserves restoreState for station with active session', () => {
   const stations = [makeStation('s1')]
   const cached = createFreshDocument(stations)
 
-  cached.stationTerminals['s1'] = makeRunningRuntime('session-old')
-  cached.sessionStation['session-old'] = 's1'
+  cached.stationTerminals['s1'] = makeRunningRuntime('session-live')
+  cached.sessionStation['session-live'] = 's1'
   cached.restoreState['s1'] = {
-    sessionId: 'session-old',
+    sessionId: 'session-live',
     revision: 5,
     state: { content: 'old screen', cols: 80, rows: 24 },
   }
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
-  assert.equal(result.restoreState['s1'], undefined)
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-live')
+  assert.deepEqual(result.restoreState['s1'], cached.restoreState['s1'])
 })
 
-test('preserves unreadCount when resetting stale sessionId', () => {
+test('preserves unreadCount for active session', () => {
   const stations = [makeStation('s1')]
   const cached = createFreshDocument(stations)
 
   cached.stationTerminals['s1'] = {
-    ...makeRunningRuntime('session-stale'),
+    ...makeRunningRuntime('session-live'),
     unreadCount: 7,
   }
-  cached.sessionStation['session-stale'] = 's1'
+  cached.sessionStation['session-live'] = 's1'
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
-  assert.equal(result.stationTerminals['s1'].stateRaw, 'idle')
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-live')
+  assert.equal(result.stationTerminals['s1'].stateRaw, 'running')
   assert.equal(result.stationTerminals['s1'].unreadCount, 7)
 })
 
-test('preserves outputCache when resetting stale sessionId', () => {
+test('preserves outputCache for active session', () => {
   const stations = [makeStation('s1')]
   const cached = createFreshDocument(stations)
 
-  cached.stationTerminals['s1'] = makeRunningRuntime('session-stale')
-  cached.sessionStation['session-stale'] = 's1'
+  cached.stationTerminals['s1'] = makeRunningRuntime('session-live')
+  cached.sessionStation['session-live'] = 's1'
   cached.outputCache['s1'] = 'previous terminal output'
   cached.outputRevision['s1'] = 42
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-live')
   assert.equal(result.outputCache['s1'], 'previous terminal output')
   assert.equal(result.outputRevision['s1'], 42)
 })
@@ -326,7 +323,7 @@ test('removes sessionStation entries for stations that no longer exist', () => {
   assert.equal(result.sessionVisibility['orphan-session'], undefined)
 })
 
-test('multiple stale sessionIds are all reset to idle', () => {
+test('multiple cached sessionIds are all preserved', () => {
   const stations = [makeStation('s1'), makeStation('s2'), makeStation('s3')]
   const cached = createFreshDocument(stations)
 
@@ -338,17 +335,23 @@ test('multiple stale sessionIds are all reset to idle', () => {
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
-  assert.equal(result.stationTerminals['s1'].stateRaw, 'idle')
-  assert.equal(result.stationTerminals['s2'].sessionId, null)
-  assert.equal(result.stationTerminals['s2'].stateRaw, 'idle')
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-1')
+  assert.equal(result.stationTerminals['s1'].stateRaw, 'running')
+  assert.equal(result.stationTerminals['s2'].sessionId, 'session-2')
+  assert.equal(result.stationTerminals['s2'].stateRaw, 'running')
   assert.equal(result.stationTerminals['s3'].sessionId, null)
   assert.equal(result.stationTerminals['s3'].stateRaw, 'idle')
-  assert.deepEqual(Object.keys(result.sessionStation), [])
-  assert.deepEqual(Object.keys(result.sessionSeq), [])
+  assert.deepEqual(result.sessionStation, {
+    'session-1': 's1',
+    'session-2': 's2',
+  })
+  assert.deepEqual(result.sessionSeq, {
+    'session-1': 0,
+    'session-2': 0,
+  })
 })
 
-test('mixed idle and running stations: only running ones are reset', () => {
+test('mixed idle and running stations: running ones are preserved', () => {
   const stations = [makeStation('s1'), makeStation('s2')]
   const cached = createFreshDocument(stations)
 
@@ -358,9 +361,24 @@ test('mixed idle and running stations: only running ones are reset', () => {
 
   const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
 
-  assert.equal(result.stationTerminals['s1'].sessionId, null)
-  assert.equal(result.stationTerminals['s1'].stateRaw, 'idle')
+  assert.equal(result.stationTerminals['s1'].sessionId, 'session-active')
+  assert.equal(result.stationTerminals['s1'].stateRaw, 'running')
   assert.equal(result.stationTerminals['s2'].sessionId, null)
   assert.equal(result.stationTerminals['s2'].stateRaw, 'exited')
-  assert.deepEqual(Object.keys(result.sessionStation), [])
+  assert.deepEqual(result.sessionStation, {
+    'session-active': 's1',
+  })
+})
+
+test('restores missing session metadata for cached running session', () => {
+  const stations = [makeStation('s1')]
+  const cached = createFreshDocument(stations)
+
+  cached.stationTerminals['s1'] = makeRunningRuntime('session-live')
+
+  const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
+
+  assert.equal(result.sessionStation['session-live'], 's1')
+  assert.equal(result.sessionSeq['session-live'], 0)
+  assert.equal(result.sessionVisibility['session-live'], false)
 })

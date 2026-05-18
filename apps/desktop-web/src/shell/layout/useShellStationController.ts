@@ -134,6 +134,7 @@ export function useShellStationController({
             workdir: input.workdir,
             customWorkdir: input.customWorkdir,
             state: 'ready',
+            promptEnabled: input.promptEnabled,
             promptContent: input.promptContent,
             launchCommand: input.launchCommand,
           })
@@ -186,6 +187,7 @@ export function useShellStationController({
             workdir: input.workdir,
             customWorkdir: input.customWorkdir,
             state: 'ready',
+            promptEnabled: input.promptEnabled,
             promptContent: input.promptContent,
             launchCommand: input.launchCommand,
           })

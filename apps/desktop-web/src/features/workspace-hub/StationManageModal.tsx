@@ -13,8 +13,11 @@ import { requestStandardModalClose } from '@/components/modal/standard-modal-clo
 import type { CreateStationInput, UpdateStationInput } from './station-model'
 import {
   buildDefaultAgentWorkdir,
+  buildSuggestedAgentWorkdir,
+  isWorkspaceRootAgentWorkdir,
   resolveAvailableAgentProviders,
   resolveManagedProviderKey,
+  resolvePromptFileRelativePathForProvider,
   resolvePromptFileNameForProvider,
   resolveProviderLabel,
   type ManagedAgentProvider,
@@ -492,7 +495,10 @@ export function StationManageModal({
   const [workdir, setWorkdir] = useState('')
   const [launchCommand, setLaunchCommand] = useState('')
   const [promptContent, setPromptContent] = useState('')
-  const [promptUserEdited, setPromptUserEdited] = useState(false)
+  const [customWorkdirEnabled, setCustomWorkdirEnabled] = useState(false)
+  const [promptEnabled, setPromptEnabled] = useState(false)
+  const [promptDraftMode, setPromptDraftMode] = useState<'auto' | 'manual'>('auto')
+  const [promptPrefillLoading, setPromptPrefillLoading] = useState(false)
   const [availableProviders, setAvailableProviders] = useState<
     ReturnType<typeof resolveAvailableAgentProviders>
   >([])
@@ -508,11 +514,13 @@ export function StationManageModal({
     () => effectiveRoles.find((role) => role.id === roleId) ?? effectiveRoles[0] ?? null,
     [effectiveRoles, roleId],
   )
-  const defaultWorkdir = useMemo(
-    () => buildDefaultAgentWorkdir(name.trim() || copy.defaultName),
+  const defaultWorkdir = useMemo(() => buildDefaultAgentWorkdir(name.trim() || copy.defaultName), [copy.defaultName, name])
+  const suggestedCustomWorkdir = useMemo(
+    () => buildSuggestedAgentWorkdir(name.trim() || copy.defaultName),
     [copy.defaultName, name],
   )
   const promptFileName = resolvePromptFileNameForProvider(provider)
+  const activePromptWorkdir = customWorkdirEnabled ? workdir : defaultWorkdir
   const providerHistoryCommands = useMemo(
     () => getLaunchCommandHistoryForProvider(launchCommandHistory, provider),
     [launchCommandHistory, provider],
@@ -524,26 +532,19 @@ export function StationManageModal({
     }
     const defaultRole = effectiveRoles.find((r) => r.roleKey === 'generator') ?? effectiveRoles[0]
     const nextRole = editingStation?.roleId ?? defaultRole?.id ?? ''
+    const initialWorkdir = editingStation?.workdir?.trim() || buildDefaultAgentWorkdir(copy.defaultName)
     setName(editingStation?.name ?? '')
     setRoleId(nextRole)
     setProvider(resolveManagedProviderKey(editingStation?.tool))
-    setWorkdir(editingStation?.workdir ?? buildDefaultAgentWorkdir(copy.defaultName))
+    setWorkdir(initialWorkdir)
+    setCustomWorkdirEnabled(initialWorkdir !== '.')
     setLaunchCommand(editingStation?.launchCommand ?? '')
     setPromptContent('')
-    setPromptUserEdited(false)
+    setPromptEnabled(editingStation?.promptEnabled ?? false)
+    setPromptDraftMode(editingStation ? 'manual' : 'auto')
+    setPromptPrefillLoading(false)
     setLaunchCommandHistory(loadLaunchCommandHistory())
   }, [copy.defaultName, editingStation, effectiveRoles, open])
-
-  // Auto-populate prompt content from role template when creating a new agent
-  // and the user hasn't manually edited the prompt content.
-  useEffect(() => {
-    if (isEdit || !selectedRole || promptUserEdited) {
-      return
-    }
-    const agentName = name.trim() || copy.defaultName
-    const template = resolveRolePromptTemplate(selectedRole.roleKey, agentName, locale)
-    setPromptContent(template)
-  }, [copy.defaultName, isEdit, locale, name, promptUserEdited, selectedRole])
 
   useEffect(() => {
     if (!open || !workspaceId || !desktopApi.isTauriRuntime()) {
@@ -589,10 +590,12 @@ export function StationManageModal({
         })
         if (!cancelled) {
           setPromptContent(response.promptContent)
+          setPromptEnabled(Boolean(response.promptFileRelativePath))
         }
       } catch {
         if (!cancelled) {
           setPromptContent('')
+          setPromptEnabled(false)
         }
       }
     })()
@@ -600,6 +603,64 @@ export function StationManageModal({
       cancelled = true
     }
   }, [editingStation, open, workspaceId])
+
+  useEffect(() => {
+    if (!open || isEdit) {
+      setPromptPrefillLoading(false)
+      return
+    }
+    if (!workspaceId || !desktopApi.isTauriRuntime()) {
+      setPromptPrefillLoading(false)
+      return
+    }
+    if (promptDraftMode !== 'auto') {
+      setPromptPrefillLoading(false)
+      return
+    }
+    if (customWorkdirEnabled || !isWorkspaceRootAgentWorkdir(activePromptWorkdir)) {
+      setPromptPrefillLoading(false)
+      setPromptEnabled(false)
+      setPromptContent('')
+      return
+    }
+
+    const promptPath = resolvePromptFileRelativePathForProvider(provider, activePromptWorkdir)
+    let cancelled = false
+    void (async () => {
+      setPromptPrefillLoading(true)
+      try {
+        const statResponse = await desktopApi.fsStatFiles(workspaceId, [promptPath])
+        if (cancelled) {
+          return
+        }
+        const promptExists = statResponse.entries.find((entry) => entry.path === promptPath)?.exists ?? false
+        if (!promptExists) {
+          setPromptEnabled(false)
+          setPromptContent('')
+          return
+        }
+        const file = await desktopApi.fsReadFileFull(workspaceId, promptPath, 256 * 1024)
+        if (cancelled) {
+          return
+        }
+        setPromptEnabled(true)
+        setPromptContent(file.content)
+      } catch {
+        if (!cancelled) {
+          setPromptEnabled(false)
+          setPromptContent('')
+        }
+      } finally {
+        if (!cancelled) {
+          setPromptPrefillLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activePromptWorkdir, customWorkdirEnabled, isEdit, open, promptDraftMode, provider, workspaceId])
 
   if (!open) {
     return null
@@ -617,8 +678,20 @@ export function StationManageModal({
     deleting ||
     !selectedRole ||
     providersLoading ||
+    promptPrefillLoading ||
     providerOptions.length === 0 ||
-    !name.trim()
+    !name.trim() ||
+    (customWorkdirEnabled && !workdir.trim())
+
+  const applyRolePromptTemplate = () => {
+    if (!selectedRole) {
+      return
+    }
+    const agentName = name.trim() || copy.defaultName
+    setPromptDraftMode('manual')
+    setPromptEnabled(true)
+    setPromptContent(resolveRolePromptTemplate(selectedRole.roleKey, agentName, locale))
+  }
 
   return (
     <>
@@ -751,18 +824,57 @@ export function StationManageModal({
             </label>
 
             <div className="station-form-field station-form-surface">
-              <span>{locale === 'zh-CN' ? '默认工作目录' : 'Default Workdir'}</span>
-              <strong>{defaultWorkdir}</strong>
+              <span>{locale === 'zh-CN' ? '工作目录模式' : 'Workdir Mode'}</span>
+              <div className="station-form-segmented">
+                <button
+                  type="button"
+                  className={`station-form-inline-action ${!customWorkdirEnabled ? 'active' : ''}`}
+                  disabled={saving || deleting}
+                  onClick={() => {
+                    setCustomWorkdirEnabled(false)
+                    setWorkdir(defaultWorkdir)
+                  }}
+                >
+                  {locale === 'zh-CN' ? '工作区根目录' : 'Workspace Root'}
+                </button>
+                <button
+                  type="button"
+                  className={`station-form-inline-action ${customWorkdirEnabled ? 'active' : ''}`}
+                  disabled={saving || deleting}
+                  onClick={() => {
+                    setCustomWorkdirEnabled(true)
+                    setWorkdir((current) => {
+                      const trimmed = current.trim()
+                      if (trimmed && trimmed !== defaultWorkdir) {
+                        return trimmed
+                      }
+                      return suggestedCustomWorkdir
+                    })
+                  }}
+                >
+                  {locale === 'zh-CN' ? '子目录' : 'Subdirectory'}
+                </button>
+              </div>
+              <strong>{customWorkdirEnabled ? workdir.trim() || suggestedCustomWorkdir : defaultWorkdir}</strong>
             </div>
 
             <label className="station-form-field station-form-span-2">
               <span>{locale === 'zh-CN' ? '工作目录' : 'Work Directory'}</span>
+              <p>
+                {customWorkdirEnabled
+                  ? locale === 'zh-CN'
+                    ? '仅支持当前工作区内的相对路径。'
+                    : 'Only workspace-relative paths inside the current workspace are allowed.'
+                  : locale === 'zh-CN'
+                    ? 'Agent 将直接从当前工作区根目录启动。'
+                    : 'The agent will launch directly from the current workspace root.'}
+              </p>
               <div className="station-form-workdir-row">
                 <input
                   type="text"
-                  value={workdir}
-                  disabled={saving || deleting}
-                  placeholder={defaultWorkdir}
+                  value={customWorkdirEnabled ? workdir : defaultWorkdir}
+                  disabled={saving || deleting || !customWorkdirEnabled}
+                  placeholder={suggestedCustomWorkdir}
                   onChange={(event) => setWorkdir(event.target.value)}
                 />
                 <button
@@ -770,10 +882,19 @@ export function StationManageModal({
                   className="station-form-workdir-picker"
                   aria-label={locale === 'zh-CN' ? '选择目录' : 'Select Directory'}
                   title={locale === 'zh-CN' ? '选择目录' : 'Select Directory'}
-                  disabled={saving || deleting}
+                  disabled={saving || deleting || !customWorkdirEnabled}
                   onClick={() => {
                     void (async () => {
                       const selected = await onPickWorkdir()
+                      if (!selected) {
+                        return
+                      }
+                      if (selected === '.') {
+                        setCustomWorkdirEnabled(false)
+                        setWorkdir(defaultWorkdir)
+                        return
+                      }
+                      setCustomWorkdirEnabled(true)
                       if (selected) {
                         setWorkdir(selected)
                       }
@@ -789,33 +910,68 @@ export function StationManageModal({
               <span>{locale === 'zh-CN' ? '系统提示词文件' : 'System Prompt File'}</span>
               <strong>{promptFileName}</strong>
               <p>
-                {isEdit
+                {promptEnabled
                   ? locale === 'zh-CN'
-                    ? '保存时会在该 Agent 工作目录下自动创建或更新这个文件。'
+                    ? '保存时会在该 Agent 工作目录下创建或更新这个文件。'
                     : 'Saving will create or update this file inside the agent workdir.'
                   : locale === 'zh-CN'
-                    ? '系统已根据角色自动生成提示词模板，你可以自由编辑。保存时会在该 Agent 工作目录下自动创建或更新这个文件。'
-                    : 'A role-specific prompt template has been auto-generated. You can freely edit it. Saving will create or update this file inside the agent workdir.'}
+                    ? '默认不会创建 Agent 私有提示词文件。'
+                    : 'No agent-specific prompt file will be created by default.'}
               </p>
+              {!isEdit && !customWorkdirEnabled && promptPrefillLoading && (
+                <p>
+                  {locale === 'zh-CN'
+                    ? '正在检查工作区根目录下是否已有这个提示词文件。'
+                    : 'Checking the workspace root for an existing prompt file.'}
+                </p>
+              )}
             </div>
 
-            <label className="station-form-field station-form-span-2">
-              <span>{locale === 'zh-CN' ? '系统提示词' : 'System Prompt'}</span>
-              <textarea
-                value={promptContent}
-                disabled={saving || deleting}
-                rows={8}
-                placeholder={
-                  locale === 'zh-CN'
-                    ? '系统提示词文件是 markdown 文件，为项目、你的个人工作流或整个组织为 Agents 提供持久指令。你用纯文本编写这些文件；Agent 在每个会话开始时读取它们。'
-                    : 'System prompt files are markdown files that give Agent persistent instructions for a project, your personal workflow, or your entire organization. You write these files in plain text; Agent reads them at the start of every session.'
-                }
-                onChange={(event) => {
-                  setPromptContent(event.target.value)
-                  setPromptUserEdited(true)
-                }}
-              />
-            </label>
+            <div className="station-form-field station-form-span-2">
+              <div className="station-form-heading-row">
+                <span>{locale === 'zh-CN' ? '系统提示词' : 'System Prompt'}</span>
+                <label className="station-form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={promptEnabled}
+                    disabled={saving || deleting || promptPrefillLoading}
+                    onChange={(event) => {
+                      setPromptDraftMode('manual')
+                      setPromptEnabled(event.target.checked)
+                    }}
+                  />
+                  <span>{locale === 'zh-CN' ? '启用 Agent 私有提示词文件' : 'Use agent prompt file'}</span>
+                </label>
+              </div>
+              {promptEnabled && (
+                <div className="station-form-prompt-editor">
+                  <div className="station-form-inline-row station-form-inline-row--end">
+                    <button
+                      type="button"
+                      className="station-form-inline-action"
+                      disabled={saving || deleting || !selectedRole}
+                      onClick={applyRolePromptTemplate}
+                    >
+                      {locale === 'zh-CN' ? '插入角色模板' : 'Insert Role Template'}
+                    </button>
+                  </div>
+                  <textarea
+                    value={promptContent}
+                    disabled={saving || deleting}
+                    rows={8}
+                    placeholder={
+                      locale === 'zh-CN'
+                        ? '系统提示词文件是 markdown 文件，为项目、你的个人工作流或整个组织为 Agents 提供持久指令。你用纯文本编写这些文件；Agent 在每个会话开始时读取它们。'
+                        : 'System prompt files are markdown files that give Agent persistent instructions for a project, your personal workflow, or your entire organization. You write these files in plain text; Agent reads them at the start of every session.'
+                    }
+                    onChange={(event) => {
+                      setPromptDraftMode('manual')
+                      setPromptContent(event.target.value)
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           </section>
 
           <footer className="station-form-actions">
@@ -857,9 +1013,10 @@ export function StationManageModal({
                   role: selectedRole.roleKey,
                   roleName: selectedRole.roleName,
                   tool: provider,
-                  workdir: workdir.trim() || defaultWorkdir,
-                  customWorkdir: (workdir.trim() || defaultWorkdir) !== defaultWorkdir,
-                  promptContent,
+                  workdir: customWorkdirEnabled ? workdir.trim() : defaultWorkdir,
+                  customWorkdir: customWorkdirEnabled,
+                  promptEnabled,
+                  promptContent: promptEnabled ? promptContent : '',
                   launchCommand: launchCommand.trim() || null,
                 }
                 if (launchCommand.trim() && launchCommand.trim() !== provider) {

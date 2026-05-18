@@ -1,9 +1,8 @@
 use crate::sqlite::SqliteStorage;
 use gt_agent::{
-    default_role_seed_by_id, prompt_file_name_for_tool, prompt_file_relative_path, AgentError,
-    AgentProfile, AgentRepository, AgentResult, AgentRole, AgentRoleScope, AgentState,
-    CreateAgentInput, OrganizationDepartment, RoleStatus, UpdateAgentInput, DEFAULT_DEPARTMENTS,
-    DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
+    default_role_seed_by_id, AgentError, AgentProfile, AgentRepository, AgentResult, AgentRole,
+    AgentRoleScope, AgentState, CreateAgentInput, OrganizationDepartment, RoleStatus,
+    UpdateAgentInput, DEFAULT_DEPARTMENTS, DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
 };
 use rusqlite::{params, OptionalExtension};
 
@@ -117,13 +116,7 @@ impl SqliteAgentRepository {
             .map_or(Self::default_department_id(), |dept| dept.id)
     }
 
-    fn hydrate_agent_profile(mut agent: AgentProfile) -> AgentProfile {
-        if let Some(workdir) = agent.workdir.as_deref() {
-            agent.prompt_file_name =
-                prompt_file_name_for_tool(agent.tool.as_str()).map(str::to_string);
-            agent.prompt_file_relative_path =
-                prompt_file_relative_path(workdir, agent.tool.as_str());
-        }
+    fn hydrate_agent_profile(agent: AgentProfile) -> AgentProfile {
         agent
     }
 
