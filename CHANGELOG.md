@@ -1,3 +1,8 @@
+## v0.6.1 (2026-05-18)
+
+- bb0861e fix(workbench): sync detached container view state
+- 882d407 Harden station terminal lifecycle and settings
+
 ## v0.6.0 (2026-05-17)
 
 - 3f329b2 Align agent workdir and prompt flows
