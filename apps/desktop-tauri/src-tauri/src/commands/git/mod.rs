@@ -86,6 +86,7 @@ struct GitRemoteOperationPayload {
     error: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_git_remote_operation(
     app: &AppHandle,
     workspace_id: &WorkspaceId,
@@ -247,7 +248,7 @@ pub async fn git_init(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -407,7 +408,7 @@ pub async fn git_stage(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(build_git_stage_payload(&workspace_id, staged))
 }
@@ -437,7 +438,7 @@ pub async fn git_unstage(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(build_git_unstage_payload(&workspace_id, unstaged))
 }
@@ -470,7 +471,7 @@ pub async fn git_discard(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(build_git_discard_payload(&workspace_id, discarded))
 }
@@ -621,7 +622,7 @@ pub async fn git_checkout(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -870,6 +871,7 @@ pub async fn git_pull(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn git_push(
     workspace_id: String,
     repository_path: Option<String>,
@@ -991,7 +993,7 @@ pub async fn git_stash_push(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -1028,7 +1030,7 @@ pub async fn git_stash_pop(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -1334,7 +1336,7 @@ pub async fn git_merge(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -1364,7 +1366,7 @@ pub async fn git_merge_continue(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -1392,7 +1394,7 @@ pub async fn git_merge_abort(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),
@@ -1451,7 +1453,7 @@ pub async fn git_conflict_resolve(
     state.inner().git_status_coordinator.refresh_immediate(
         &app,
         state.inner(),
-        &workspace_id.as_str(),
+        workspace_id.as_str(),
     );
     Ok(json!({
         "workspaceId": workspace_id.as_str(),

@@ -784,6 +784,7 @@ impl AppState {
         self.reload_workspace_watcher(app, workspace_id)
     }
 
+    #[cfg(test)]
     pub fn invalidate_workspace_reset_state_caches(
         &self,
         workspace_id: &str,

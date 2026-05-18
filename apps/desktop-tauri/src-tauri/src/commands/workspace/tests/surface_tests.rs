@@ -64,6 +64,7 @@ fn detached_window_url_encodes_query_payload_as_url_safe_base64() {
         title: "Ops Deck".to_string(),
         active_station_id: Some("agent-1".to_string()),
         fullscreen_station_id: Some("agent-1".to_string()),
+        minimized_station_ids: Some(vec!["agent-1".to_string()]),
         layout_mode: Some("grid".to_string()),
         custom_layout: Some(SurfaceDetachedCustomLayoutPayload {
             columns: 2,
@@ -92,6 +93,7 @@ fn detached_window_url_encodes_query_payload_as_url_safe_base64() {
     assert_eq!(payload["title"], "Ops Deck");
     assert_eq!(payload["activeStationId"], "agent-1");
     assert_eq!(payload["fullscreenStationId"], "agent-1");
+    assert_eq!(payload["minimizedStationIds"][0], "agent-1");
     assert_eq!(payload["layoutMode"], "grid");
     assert_eq!(payload["customLayout"]["columns"], 2);
     assert_eq!(payload["topmost"], true);

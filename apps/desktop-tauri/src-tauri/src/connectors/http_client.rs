@@ -207,11 +207,13 @@ pub struct HttpClientBuilder {
 }
 
 impl HttpClientBuilder {
+    #[cfg(test)]
     pub fn max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
         self
     }
 
+    #[cfg(test)]
     pub fn retry_delay_secs(mut self, secs: u64) -> Self {
         self.retry_delay_secs = secs;
         self
