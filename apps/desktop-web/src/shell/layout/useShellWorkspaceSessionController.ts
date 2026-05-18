@@ -36,6 +36,7 @@ import { pickDirectory } from '../integration/directory-picker'
 import { t, type Locale } from '../i18n/ui-locale'
 import type { NavItemId } from './navigation-model'
 import type { UiPreferences } from '../state/ui-preferences'
+import { reconcileWorkspaceTerminalRestoredSessions } from '../state/workspace-terminal-session-reconcile'
 import {
   WORKSPACE_SESSION_MAX_RESTORE_TABS,
   WORKSPACE_SESSION_PERSIST_DEBOUNCE_MS,
@@ -871,28 +872,33 @@ export function useShellWorkspaceSessionController({
         }
 
         if (restored.terminals.length > 0 && stationsRef.current.length > 0) {
+          const restoredSessionIds = Array.from(
+            new Set(
+              restored.terminals
+                .map((terminal) => terminal.sessionId?.trim() ?? '')
+                .filter((sessionId): sessionId is string => sessionId.length > 0),
+            ),
+          )
+          const liveSessionIds = new Set(
+            (
+              await Promise.all(
+                restoredSessionIds.map(async (sessionId) => {
+                  try {
+                    const response = await desktopApi.terminalHasSession(sessionId)
+                    return response.alive ? sessionId : null
+                  } catch {
+                    return null
+                  }
+                }),
+              )
+            ).filter((sessionId): sessionId is string => Boolean(sessionId)),
+          )
           const terminalDocument = resolveWorkspaceTerminalDocument(workspaceId, stationsRef.current)
-          restored.terminals.forEach((terminal) => {
-            const sessionId = terminal.sessionId?.trim() ?? ''
-            if (!sessionId) {
-              return
-            }
-            const currentRuntime = terminalDocument.stationTerminals[terminal.stationId]
-            if (!currentRuntime) {
-              return
-            }
-            terminalDocument.stationTerminals[terminal.stationId] = {
-              ...currentRuntime,
-              sessionId,
-              stateRaw: 'running',
-              shell: terminal.shell,
-              cwdMode: terminal.cwdMode,
-              resolvedCwd: terminal.resolvedCwd,
-            }
-            terminalDocument.sessionStation[sessionId] = terminal.stationId
-            terminalDocument.sessionSeq[sessionId] = terminalDocument.sessionSeq[sessionId] ?? 0
-            terminalDocument.sessionVisibility[sessionId] = false
-          })
+          reconcileWorkspaceTerminalRestoredSessions(
+            terminalDocument,
+            restored.terminals,
+            liveSessionIds,
+          )
           workspaceTerminalCacheRef.current[workspaceId] = terminalDocument
         }
 

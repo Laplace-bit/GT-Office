@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AgentStation } from '../src/features/workspace-hub/station-model.js'
 import type { StationTerminalRuntime } from '../src/shell/layout/ShellRoot.shared.js'
+import { reconcileWorkspaceTerminalRestoredSessions } from '../src/shell/state/workspace-terminal-session-reconcile.js'
 
 type WorkspaceTerminalSessionDocument = {
   stationTerminals: Record<string, StationTerminalRuntime>
@@ -381,4 +382,97 @@ test('restores missing session metadata for cached running session', () => {
   assert.equal(result.sessionStation['session-live'], 's1')
   assert.equal(result.sessionSeq['session-live'], 0)
   assert.equal(result.sessionVisibility['session-live'], false)
+})
+
+test('restore reconciliation keeps only live sessions after app relaunch', () => {
+  const stations = [makeStation('s1'), makeStation('s2')]
+  const document = createFreshDocument(stations)
+
+  reconcileWorkspaceTerminalRestoredSessions(
+    document,
+    [
+      {
+        stationId: 's1',
+        sessionId: 'session-live',
+        shell: '/bin/zsh',
+        cwdMode: 'custom',
+        resolvedCwd: '/tmp/project',
+        active: true,
+      },
+      {
+        stationId: 's2',
+        sessionId: 'session-stale',
+        shell: '/bin/zsh',
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
+        active: false,
+      },
+    ],
+    new Set(['session-live']),
+  )
+
+  assert.deepEqual(document.stationTerminals['s1'], {
+    sessionId: 'session-live',
+    stateRaw: 'running',
+    unreadCount: 0,
+    shell: '/bin/zsh',
+    cwdMode: 'custom',
+    resolvedCwd: '/tmp/project',
+  })
+  assert.deepEqual(document.stationTerminals['s2'], makeIdleRuntime())
+  assert.deepEqual(document.sessionStation, {
+    'session-live': 's1',
+  })
+  assert.deepEqual(document.sessionSeq, {
+    'session-live': 0,
+  })
+  assert.deepEqual(document.sessionVisibility, {
+    'session-live': false,
+  })
+})
+
+test('restore reconciliation clears cached stale bindings back to idle', () => {
+  const stations = [makeStation('s1')]
+  const document = createFreshDocument(stations)
+
+  document.stationTerminals['s1'] = {
+    ...makeRunningRuntime('session-stale'),
+    unreadCount: 4,
+  }
+  document.sessionStation['session-stale'] = 's1'
+  document.sessionSeq['session-stale'] = 9
+  document.sessionVisibility['session-stale'] = true
+  document.restoreState['s1'] = {
+    sessionId: 'session-stale',
+    revision: 3,
+    state: { content: 'old output', cols: 80, rows: 24 },
+  }
+
+  reconcileWorkspaceTerminalRestoredSessions(
+    document,
+    [
+      {
+        stationId: 's1',
+        sessionId: 'session-stale',
+        shell: '/bin/zsh',
+        cwdMode: 'workspace_root',
+        resolvedCwd: null,
+        active: true,
+      },
+    ],
+    new Set(),
+  )
+
+  assert.deepEqual(document.stationTerminals['s1'], {
+    sessionId: null,
+    stateRaw: 'idle',
+    unreadCount: 4,
+    shell: null,
+    cwdMode: 'workspace_root',
+    resolvedCwd: null,
+  })
+  assert.equal(document.sessionStation['session-stale'], undefined)
+  assert.equal(document.sessionSeq['session-stale'], undefined)
+  assert.equal(document.sessionVisibility['session-stale'], undefined)
+  assert.equal(document.restoreState['s1'], undefined)
 })

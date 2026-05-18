@@ -1,7 +1,7 @@
 import type { AgentStation } from '@features/workspace-hub'
 import type { SessionOwnedRestoreState } from '@features/terminal'
-import type { StationTerminalRuntime } from '../layout/ShellRoot.shared'
-import { createInitialStationTerminals, getStationIdleBanner } from '../layout/ShellRoot.shared'
+import type { StationTerminalRuntime } from '../layout/ShellRoot.shared.js'
+import { createInitialStationTerminals, getStationIdleBanner } from '../layout/ShellRoot.shared.js'
 
 export interface WorkspaceTerminalSessionDocument {
   stationTerminals: Record<string, StationTerminalRuntime>
@@ -109,7 +109,6 @@ export function hydrateWorkspaceTerminalSessionDocument(
 
   return hydrated
 }
-
 export function findWorkspaceTerminalSessionOwner(
   documents: Record<string, WorkspaceTerminalSessionDocument>,
   sessionId: string | null | undefined,
