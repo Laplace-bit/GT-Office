@@ -24,6 +24,8 @@ export interface WorkbenchContainer {
   id: string
   stationIds: string[]
   activeStationId: string | null
+  fullscreenStationId: string | null
+  minimizedStationIds: string[]
   layoutMode: WorkbenchLayoutMode
   customLayout: WorkbenchCustomLayout
   mode: WorkbenchContainerMode
@@ -38,6 +40,8 @@ export interface WorkbenchContainerSnapshot {
   id: string
   stationIds: string[]
   activeStationId?: string | null
+  fullscreenStationId?: string | null
+  minimizedStationIds?: string[]
   layoutMode?: WorkbenchLayoutMode
   customLayout?: Partial<WorkbenchCustomLayout> | null
   mode?: WorkbenchContainerMode
@@ -101,6 +105,8 @@ export function createWorkbenchContainer(input: {
   id: string
   stationIds?: string[]
   activeStationId?: string | null
+  fullscreenStationId?: string | null
+  minimizedStationIds?: string[]
   layoutMode?: WorkbenchLayoutMode
   customLayout?: Partial<WorkbenchCustomLayout> | null
   mode?: WorkbenchContainerMode
@@ -113,10 +119,17 @@ export function createWorkbenchContainer(input: {
   const mode = input.mode ?? 'docked'
   const activeStationId =
     input.activeStationId && stationIds.includes(input.activeStationId) ? input.activeStationId : stationIds[0] ?? null
+  const fullscreenStationId =
+    input.fullscreenStationId && stationIds.includes(input.fullscreenStationId)
+      ? input.fullscreenStationId
+      : null
+  const minimizedStationIds = normalizeMinimizedStationIds(stationIds, input.minimizedStationIds)
   return {
     id: input.id,
     stationIds,
     activeStationId,
+    fullscreenStationId,
+    minimizedStationIds,
     layoutMode: input.layoutMode ?? 'auto',
     customLayout: normalizeWorkbenchCustomLayout(input.customLayout),
     mode,
@@ -173,6 +186,23 @@ function isSameStringArray(left: string[], right: string[]): boolean {
   return true
 }
 
+function normalizeMinimizedStationIds(stationIds: string[], input: string[] | null | undefined): string[] {
+  if (!Array.isArray(input) || input.length === 0) {
+    return []
+  }
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const stationId of input) {
+    const normalizedStationId = stationId.trim()
+    if (!normalizedStationId || seen.has(normalizedStationId) || !stationIds.includes(normalizedStationId)) {
+      continue
+    }
+    seen.add(normalizedStationId)
+    normalized.push(normalizedStationId)
+  }
+  return normalized
+}
+
 function isSameCustomLayout(left: WorkbenchCustomLayout, right: WorkbenchCustomLayout): boolean {
   return left.columns === right.columns && left.rows === right.rows
 }
@@ -218,11 +248,18 @@ function normalizeContainerSnapshot(
     snapshot.activeStationId && stationIds.includes(snapshot.activeStationId)
       ? snapshot.activeStationId
       : stationIds[0] ?? null
+  const fullscreenStationId =
+    snapshot.fullscreenStationId && stationIds.includes(snapshot.fullscreenStationId)
+      ? snapshot.fullscreenStationId
+      : null
+  const minimizedStationIds = normalizeMinimizedStationIds(stationIds, snapshot.minimizedStationIds)
   const layoutMode = isWorkbenchLayoutMode(snapshot.layoutMode) ? snapshot.layoutMode : 'auto'
   return {
     id,
     stationIds,
     activeStationId,
+    fullscreenStationId,
+    minimizedStationIds,
     layoutMode,
     customLayout: normalizeWorkbenchCustomLayout(snapshot.customLayout),
     mode,
@@ -313,6 +350,11 @@ export function reconcileWorkbenchContainers(
       container.activeStationId && stationIds.includes(container.activeStationId)
         ? container.activeStationId
         : stationIds[0] ?? null
+    const fullscreenStationId =
+      container.fullscreenStationId && stationIds.includes(container.fullscreenStationId)
+        ? container.fullscreenStationId
+        : null
+    const minimizedStationIds = normalizeMinimizedStationIds(stationIds, container.minimizedStationIds)
     const normalizedCustomLayout = normalizeWorkbenchCustomLayout(container.customLayout)
     const customLayout = isSameCustomLayout(normalizedCustomLayout, container.customLayout)
       ? container.customLayout
@@ -332,6 +374,8 @@ export function reconcileWorkbenchContainers(
     if (
       stationIds === container.stationIds &&
       activeStationId === container.activeStationId &&
+      fullscreenStationId === container.fullscreenStationId &&
+      isSameStringArray(minimizedStationIds, container.minimizedStationIds) &&
       customLayout === container.customLayout &&
       frame === container.frame &&
       topmost === container.topmost &&
@@ -345,6 +389,8 @@ export function reconcileWorkbenchContainers(
       mode,
       stationIds,
       activeStationId,
+      fullscreenStationId,
+      minimizedStationIds,
       customLayout,
       frame,
       topmost,
@@ -361,6 +407,8 @@ export function serializeWorkbenchContainers(
     id: container.id,
     stationIds: [...container.stationIds],
     activeStationId: container.activeStationId,
+    fullscreenStationId: container.fullscreenStationId,
+    minimizedStationIds: [...container.minimizedStationIds],
     layoutMode: container.layoutMode,
     customLayout: container.customLayout,
     mode: container.mode,

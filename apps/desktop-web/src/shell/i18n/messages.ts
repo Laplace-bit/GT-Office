@@ -259,7 +259,7 @@ export const messages = {
   'workbench.restoreStationNamed': { 'zh-CN': '恢复 {name}', 'en-US': 'Restore {name}' },
   'workbench.allStationsMinimizedTitle': { 'zh-CN': '当前角色已最小化到程序坞', 'en-US': 'Stations Minimized to Dock' },
   'workbench.allStationsMinimizedDetail': {
-    'zh-CN': '底部程序坞保留了实时状态和未读提示，点击任意图标即可丝滑恢复窗口。',
+    'zh-CN': '底部程序坞保留了实时状态和未读提示，点击任意图标即可恢复窗口。',
     'en-US': 'The dock keeps live status and unread hints. Click any icon to restore its window.',
   },
   'workbench.role': { 'zh-CN': '角色', 'en-US': 'Role' },

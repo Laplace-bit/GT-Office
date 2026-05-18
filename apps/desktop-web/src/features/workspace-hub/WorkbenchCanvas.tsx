@@ -98,6 +98,8 @@ interface WorkbenchCanvasProps {
   toolCommandsByStationId?: Record<string, ToolCommandSummary[]>
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
   onCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void
+  onFullscreenStationChange: (containerId: string, stationId: string | null) => void
+  onMinimizedStationIdsChange: (containerId: string, stationIds: string[]) => void
   onFloatContainer: (containerId: string) => void
   onDockContainer: (containerId: string) => void
   onDetachContainer: (containerId: string) => void
@@ -289,6 +291,8 @@ function WorkbenchCanvasView({
   toolCommandsByStationId = {},
   onLayoutModeChange,
   onCustomLayoutChange,
+  onFullscreenStationChange,
+  onMinimizedStationIdsChange,
   onFloatContainer,
   onDockContainer,
   onDetachContainer,
@@ -607,6 +611,8 @@ function WorkbenchCanvasView({
                     onRemoveStation={onRemoveStation}
                     onLayoutModeChange={onLayoutModeChange}
                     onCustomLayoutChange={onCustomLayoutChange}
+                    onFullscreenStationChange={onFullscreenStationChange}
+                    onMinimizedStationIdsChange={onMinimizedStationIdsChange}
                     onFloatContainer={onFloatContainer}
                     onDockContainer={onDockContainer}
                     onDetachContainer={onDetachContainer}
@@ -686,6 +692,8 @@ function WorkbenchCanvasView({
                     onRemoveStation={onRemoveStation}
                     onLayoutModeChange={onLayoutModeChange}
                     onCustomLayoutChange={onCustomLayoutChange}
+                    onFullscreenStationChange={onFullscreenStationChange}
+                    onMinimizedStationIdsChange={onMinimizedStationIdsChange}
                     onFloatContainer={onFloatContainer}
                     onDockContainer={onDockContainer}
                     onDetachContainer={onDetachContainer}

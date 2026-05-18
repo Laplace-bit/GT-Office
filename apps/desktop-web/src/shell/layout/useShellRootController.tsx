@@ -14,6 +14,11 @@ import {
   getDefaultShortcutBindings,
 } from '@features/keybindings'
 import {
+  applyWorkbenchContainerActiveStationChange,
+  applyWorkbenchContainerCustomLayoutChange,
+  applyWorkbenchContainerFullscreenStationChange,
+  applyWorkbenchContainerLayoutModeChange,
+  applyWorkbenchContainerMinimizedStationIdsChange,
   createDefaultFloatingFrame,
   createDefaultStations,
   createInitialWorkbenchContainers,
@@ -417,6 +422,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     handleCanvasLaunchCliAgent,
     handleCanvasLayoutModeChange,
     handleCanvasCustomLayoutChange,
+    handleCanvasFullscreenStationChange,
+    handleCanvasMinimizedStationIdsChange,
     handleCanvasRemoveStation,
   } = useShellWorkbenchController({
     workbenchContainers,
@@ -772,6 +779,97 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
           if (payload.targetWindowLabel !== 'main') {
             return
           }
+          const message = payload.payload
+          const currentWorkspaceId = activeWorkspaceIdRef.current
+          if (!currentWorkspaceId || message.workspaceId !== currentWorkspaceId) {
+            return
+          }
+          if (message.kind === 'detached_terminal_activate_station') {
+            setWorkbenchContainers((prev) => {
+              const next = applyWorkbenchContainerActiveStationChange(
+                prev,
+                message.containerId,
+                message.stationId,
+              )
+              if (next === prev) {
+                return prev
+              }
+              return next.map((container) =>
+                container.id === message.containerId
+                  ? {
+                      ...container,
+                      lastActiveAtMs: Date.now(),
+                    }
+                  : container,
+              )
+            })
+            setActiveStationId(message.stationId)
+            return
+          }
+          if (message.kind === 'detached_terminal_update_container_view_state') {
+            setWorkbenchContainers((prev) => {
+              let next = prev
+              if (Object.prototype.hasOwnProperty.call(message, 'activeStationId')) {
+                next = applyWorkbenchContainerActiveStationChange(
+                  next,
+                  message.containerId,
+                  message.activeStationId ?? null,
+                )
+              }
+              if (message.layoutMode === 'custom' && message.customLayout) {
+                next = applyWorkbenchContainerCustomLayoutChange(
+                  next,
+                  message.containerId,
+                  message.customLayout,
+                )
+              } else if (message.layoutMode) {
+                next = applyWorkbenchContainerLayoutModeChange(
+                  next,
+                  message.containerId,
+                  message.layoutMode,
+                )
+              } else if (message.customLayout) {
+                next = applyWorkbenchContainerCustomLayoutChange(
+                  next,
+                  message.containerId,
+                  message.customLayout,
+                )
+              }
+              if (Object.prototype.hasOwnProperty.call(message, 'fullscreenStationId')) {
+                next = applyWorkbenchContainerFullscreenStationChange(
+                  next,
+                  message.containerId,
+                  message.fullscreenStationId ?? null,
+                )
+              }
+              if (Array.isArray(message.minimizedStationIds)) {
+                next = applyWorkbenchContainerMinimizedStationIdsChange(
+                  next,
+                  message.containerId,
+                  message.minimizedStationIds,
+                )
+              }
+              if (
+                next !== prev &&
+                typeof message.activeStationId === 'string' &&
+                message.activeStationId
+              ) {
+                next = next.map((container) =>
+                  container.id === message.containerId
+                    ? {
+                        ...container,
+                        lastActiveAtMs: Date.now(),
+                      }
+                    : container,
+                )
+              }
+              return next
+            })
+            if (typeof message.activeStationId === 'string' && message.activeStationId) {
+              setActiveStationId(message.activeStationId)
+            }
+            return
+          }
           handleDetachedSurfaceBridgeMessage(payload)
         },
       })
@@ -833,6 +931,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
           containerId: container.id,
           title: buildWorkbenchContainerTitle(container, stations),
           activeStationId: container.activeStationId,
+          fullscreenStationId: container.fullscreenStationId,
+          minimizedStationIds: container.minimizedStationIds,
           layoutMode: container.layoutMode,
           customLayout: container.customLayout,
           topmost: container.topmost,
@@ -1081,6 +1181,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onDropFilePath: handleTerminalFilePathDrop,
     onLayoutModeChange: handleCanvasLayoutModeChange,
     onCustomLayoutChange: handleCanvasCustomLayoutChange,
+    onFullscreenStationChange: handleCanvasFullscreenStationChange,
+    onMinimizedStationIdsChange: handleCanvasMinimizedStationIdsChange,
     onFloatContainer: floatWorkbenchContainer,
     onDockContainer: dockWorkbenchContainer,
     onDetachContainer: detachWorkbenchContainer,

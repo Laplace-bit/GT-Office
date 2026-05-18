@@ -8,8 +8,11 @@ import {
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
 import {
+  applyWorkbenchContainerActiveStationChange,
   applyWorkbenchContainerCustomLayoutChange,
+  applyWorkbenchContainerFullscreenStationChange,
   applyWorkbenchContainerLayoutModeChange,
+  applyWorkbenchContainerMinimizedStationIdsChange,
 } from '@features/workspace-hub/workbench-container-layout-state'
 import { desktopApi } from '../integration/desktop-api'
 import {
@@ -54,6 +57,8 @@ export interface ShellWorkbenchController {
   handleCanvasLaunchCliAgent: (stationId: string) => void
   handleCanvasLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
   handleCanvasCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void
+  handleCanvasFullscreenStationChange: (containerId: string, stationId: string | null) => void
+  handleCanvasMinimizedStationIdsChange: (containerId: string, stationIds: string[]) => void
   handleCanvasRemoveStation: (stationId: string) => void
 }
 
@@ -86,17 +91,20 @@ export function useShellWorkbenchController({
   const handleCanvasSelectStation = useCallback(
     (containerId: string, stationId: string) => {
       setActiveStationId(stationId)
-      setWorkbenchContainers((prev) =>
-        prev.map((container) =>
+      setWorkbenchContainers((prev) => {
+        const next = applyWorkbenchContainerActiveStationChange(prev, containerId, stationId)
+        if (next === prev) {
+          return prev
+        }
+        return next.map((container) =>
           container.id === containerId
             ? {
                 ...container,
-                activeStationId: stationId,
                 lastActiveAtMs: Date.now(),
               }
             : container,
-        ),
-      )
+        )
+      })
     },
     [setActiveStationId, setWorkbenchContainers],
   )
@@ -109,6 +117,8 @@ export function useShellWorkbenchController({
         id: nextId,
         stationIds: [],
         activeStationId: null,
+        fullscreenStationId: null,
+        minimizedStationIds: [],
         layoutMode: canvasLayoutMode,
         customLayout: canvasCustomLayout,
         mode: 'docked',
@@ -352,6 +362,9 @@ export function useShellWorkbenchController({
             source.activeStationId === stationId
               ? remainingStationIds[0] ?? null
               : source.activeStationId,
+          fullscreenStationId:
+            source.fullscreenStationId === stationId ? null : source.fullscreenStationId,
+          minimizedStationIds: source.minimizedStationIds.filter((id) => id !== stationId),
         }
         next[targetIndex] = {
           ...target,
@@ -456,6 +469,22 @@ export function useShellWorkbenchController({
     [setWorkbenchContainers],
   )
 
+  const handleCanvasFullscreenStationChange = useCallback(
+    (containerId: string, stationId: string | null) => {
+      setWorkbenchContainers((prev) => applyWorkbenchContainerFullscreenStationChange(prev, containerId, stationId))
+    },
+    [setWorkbenchContainers],
+  )
+
+  const handleCanvasMinimizedStationIdsChange = useCallback(
+    (containerId: string, stationIds: string[]) => {
+      setWorkbenchContainers((prev) =>
+        applyWorkbenchContainerMinimizedStationIdsChange(prev, containerId, stationIds),
+      )
+    },
+    [setWorkbenchContainers],
+  )
+
   const handleCanvasRemoveStation = useCallback(
     (stationId: string) => {
       void removeStation(stationId)
@@ -492,6 +521,8 @@ export function useShellWorkbenchController({
     handleCanvasLaunchCliAgent,
     handleCanvasLayoutModeChange,
     handleCanvasCustomLayoutChange,
+    handleCanvasFullscreenStationChange,
+    handleCanvasMinimizedStationIdsChange,
     handleCanvasRemoveStation,
   }
 }

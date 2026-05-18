@@ -88,6 +88,15 @@ export function buildWorkspaceSessionSnapshot(input: {
       activeStationId: typeof item.activeStationId === 'string' && item.activeStationId.trim()
         ? item.activeStationId.trim()
         : null,
+      fullscreenStationId:
+        typeof item.fullscreenStationId === 'string' && item.fullscreenStationId.trim()
+          ? item.fullscreenStationId.trim()
+          : null,
+      minimizedStationIds: Array.isArray(item.minimizedStationIds)
+        ? item.minimizedStationIds
+            .map((stationId) => stationId.trim())
+            .filter(Boolean)
+        : [],
       layoutMode: isWorkbenchLayoutMode(item.layoutMode) ? item.layoutMode : 'auto',
       customLayout: normalizeWorkbenchCustomLayout(item.customLayout),
       mode: item.mode,
@@ -219,6 +228,15 @@ export function parseWorkspaceSessionSnapshot(raw: string): WorkspaceSessionSnap
           typeof value.activeStationId === 'string' && stationIds.includes(value.activeStationId.trim())
             ? value.activeStationId.trim()
             : null
+        const fullscreenStationId =
+          typeof value.fullscreenStationId === 'string' && stationIds.includes(value.fullscreenStationId.trim())
+            ? value.fullscreenStationId.trim()
+            : null
+        const minimizedStationIds = Array.isArray(value.minimizedStationIds)
+          ? value.minimizedStationIds
+              .map((stationId) => (typeof stationId === 'string' ? stationId.trim() : ''))
+              .filter((stationId): stationId is string => stationIds.includes(stationId))
+          : []
         const layoutMode = isWorkbenchLayoutMode(value.layoutMode) ? value.layoutMode : 'auto'
         const customLayout = normalizeWorkbenchCustomLayout(
           (value.customLayout as Partial<WorkbenchCustomLayout> | null | undefined) ?? null,
@@ -249,6 +267,8 @@ export function parseWorkspaceSessionSnapshot(raw: string): WorkspaceSessionSnap
           id: value.id.trim(),
           stationIds,
           activeStationId,
+          fullscreenStationId,
+          minimizedStationIds,
           layoutMode,
           customLayout,
           mode,

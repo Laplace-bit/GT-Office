@@ -572,6 +572,8 @@ export interface SurfaceOpenDetachedWindowRequest {
   containerId: string
   title: string
   activeStationId?: string | null
+  fullscreenStationId?: string | null
+  minimizedStationIds?: string[]
   layoutMode?: 'auto' | 'focus' | 'custom'
   customLayout?: {
     columns: number
@@ -674,6 +676,20 @@ export interface DetachedTerminalActivateStationMessage {
   stationId: string
 }
 
+export interface DetachedTerminalUpdateContainerViewStateMessage {
+  kind: 'detached_terminal_update_container_view_state'
+  workspaceId: string
+  containerId: string
+  activeStationId?: string | null
+  fullscreenStationId?: string | null
+  minimizedStationIds?: string[]
+  layoutMode?: 'auto' | 'focus' | 'custom'
+  customLayout?: {
+    columns: number
+    rows: number
+  } | null
+}
+
 export interface DetachedTerminalOutputAppendMessage {
   kind: 'detached_terminal_output_append'
   workspaceId: string
@@ -719,6 +735,7 @@ export type DetachedTerminalBridgeMessage =
   | DetachedTerminalWriteWithSubmitMessage
   | DetachedTerminalResizeMessage
   | DetachedTerminalActivateStationMessage
+  | DetachedTerminalUpdateContainerViewStateMessage
   | DetachedTerminalOutputAppendMessage
   | DetachedTerminalOutputResetMessage
   | DetachedTerminalRuntimeUpdatedMessage

@@ -47,6 +47,13 @@ export {
   serializeWorkbenchContainers,
 } from './workbench-container-model'
 export {
+  applyWorkbenchContainerActiveStationChange,
+  applyWorkbenchContainerCustomLayoutChange,
+  applyWorkbenchContainerFullscreenStationChange,
+  applyWorkbenchContainerLayoutModeChange,
+  applyWorkbenchContainerMinimizedStationIdsChange,
+} from './workbench-container-layout-state'
+export {
   DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
   DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
   appendDetachedTerminalOutput,

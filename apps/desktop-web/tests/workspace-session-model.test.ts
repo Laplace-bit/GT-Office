@@ -20,7 +20,20 @@ test('workspace session snapshot preserves terminal session ids', () => {
         active: true,
       },
     ],
-    workbenchContainers: [],
+    workbenchContainers: [
+      {
+        id: 'container-1',
+        stationIds: ['station-1'],
+        activeStationId: 'station-1',
+        fullscreenStationId: 'station-1',
+        layoutMode: 'auto',
+        customLayout: { columns: 1, rows: 1 },
+        mode: 'docked',
+        resumeMode: 'docked',
+        topmost: false,
+        frame: null,
+      },
+    ],
   })
 
   const parsed = parseWorkspaceSessionSnapshot(JSON.stringify(snapshot))
@@ -35,4 +48,5 @@ test('workspace session snapshot preserves terminal session ids', () => {
       active: true,
     },
   ])
+  assert.equal(parsed.workbenchContainers[0]?.fullscreenStationId, 'station-1')
 })

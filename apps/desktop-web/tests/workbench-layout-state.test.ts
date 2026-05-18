@@ -7,6 +7,7 @@ import {
 } from '../src/features/workspace-hub/workbench-container-model.js'
 import {
   applyWorkbenchContainerCustomLayoutChange,
+  applyWorkbenchContainerFullscreenStationChange,
   applyWorkbenchContainerLayoutModeChange,
 } from '../src/features/workspace-hub/workbench-container-layout-state.js'
 import { DEFAULT_WORKBENCH_CUSTOM_LAYOUT } from '../src/features/workspace-hub/workbench-layout-model.js'
@@ -104,4 +105,42 @@ test('custom layout changes do not mutate other containers', () => {
   assert.equal(next[0]?.layoutMode, 'custom')
   assert.deepEqual(next[0]?.customLayout, { columns: 3, rows: 2 })
   assert.equal(next[1]?.layoutMode, 'focus')
+})
+
+test('fullscreen station changes stay local to the targeted container', () => {
+  const containers = [
+    createWorkbenchContainer({
+      id: 'container-1',
+      stationIds: ['station-1'],
+      activeStationId: 'station-1',
+    }),
+    createWorkbenchContainer({
+      id: 'container-2',
+      stationIds: ['station-2'],
+      activeStationId: 'station-2',
+      fullscreenStationId: null,
+    }),
+  ]
+
+  const next = applyWorkbenchContainerFullscreenStationChange(containers, 'container-1', 'station-1')
+
+  assert.equal(next[0]?.fullscreenStationId, 'station-1')
+  assert.equal(next[1]?.fullscreenStationId, null)
+})
+
+test('workbench restore preserves valid fullscreen station ids', () => {
+  const restored = restoreWorkbenchContainers(
+    [
+      {
+        id: 'container-1',
+        stationIds: ['station-1'],
+        activeStationId: 'station-1',
+        fullscreenStationId: 'station-1',
+      },
+    ],
+    stations,
+    () => 'generated-container-id',
+  )
+
+  assert.equal(restored[0]?.fullscreenStationId, 'station-1')
 })

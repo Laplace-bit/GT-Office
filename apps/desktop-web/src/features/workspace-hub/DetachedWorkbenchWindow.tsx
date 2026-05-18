@@ -78,6 +78,8 @@ export interface DetachedWorkbenchWindowPayload {
   workspaceId: string
   title: string
   activeStationId?: string | null
+  fullscreenStationId?: string | null
+  minimizedStationIds?: string[]
   layoutMode?: WorkbenchLayoutMode
   customLayout?: WorkbenchCustomLayout
   topmost: boolean
@@ -122,10 +124,24 @@ function buildInitialRuntimeMap(
 }
 
 function buildDetachedContainer(payload: DetachedWorkbenchWindowPayload): WorkbenchContainerModel {
+  const stationIds = payload.stations.map((station) => station.stationId)
+  const minimizedStationIdsInput = payload.minimizedStationIds
+  const minimizedStationIds = Array.isArray(minimizedStationIdsInput)
+    ? minimizedStationIdsInput.filter(
+        (stationId, index) =>
+          stationIds.includes(stationId) && minimizedStationIdsInput.indexOf(stationId) === index,
+      )
+    : []
   return {
     id: payload.containerId,
-    stationIds: payload.stations.map((station) => station.stationId),
+    stationIds,
     activeStationId: payload.activeStationId ?? payload.stations[0]?.stationId ?? null,
+    fullscreenStationId:
+      typeof payload.fullscreenStationId === 'string' &&
+      payload.stations.some((station) => station.stationId === payload.fullscreenStationId)
+        ? payload.fullscreenStationId
+        : null,
+    minimizedStationIds,
     layoutMode: payload.layoutMode ?? 'auto',
     customLayout: normalizeWorkbenchCustomLayout(payload.customLayout),
     mode: 'detached',
@@ -277,6 +293,25 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     async (message: DetachedTerminalBridgeMessage) =>
       desktopApi.surfaceBridgePost(DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL, message),
     [],
+  )
+
+  const postContainerViewStatePatch = useCallback(
+    (
+      patch: Partial<{
+        activeStationId: string | null
+        fullscreenStationId: string | null
+        minimizedStationIds: string[]
+        layoutMode: WorkbenchLayoutMode
+        customLayout: WorkbenchCustomLayout | null
+      }>,
+    ) =>
+      postBridgeMessage({
+        kind: 'detached_terminal_update_container_view_state',
+        workspaceId: payload.workspaceId,
+        containerId: payload.containerId,
+        ...patch,
+      }).catch(() => {}),
+    [payload.containerId, payload.workspaceId, postBridgeMessage],
   )
 
   const setStationRuntime = useCallback((stationId: string, patch: Partial<WorkbenchStationRuntime>) => {
@@ -1137,11 +1172,28 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           onRemoveStation={() => {}}
           onLayoutModeChange={(containerId, mode) => {
             setContainer((prev) => (prev.id === containerId ? { ...prev, layoutMode: mode } : prev))
+            postContainerViewStatePatch({ layoutMode: mode })
           }}
           onCustomLayoutChange={(containerId, customLayout) => {
             setContainer((prev) =>
               prev.id === containerId ? { ...prev, layoutMode: 'custom', customLayout } : prev,
             )
+            postContainerViewStatePatch({
+              layoutMode: 'custom',
+              customLayout,
+            })
+          }}
+          onFullscreenStationChange={(containerId, fullscreenStationId) => {
+            setContainer((prev) =>
+              prev.id === containerId ? { ...prev, fullscreenStationId } : prev,
+            )
+            postContainerViewStatePatch({ fullscreenStationId })
+          }}
+          onMinimizedStationIdsChange={(containerId, minimizedStationIds) => {
+            setContainer((prev) =>
+              prev.id === containerId ? { ...prev, minimizedStationIds } : prev,
+            )
+            postContainerViewStatePatch({ minimizedStationIds })
           }}
           onFloatContainer={() => {}}
           onDockContainer={() => {}}

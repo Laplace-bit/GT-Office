@@ -102,6 +102,8 @@ interface WorkbenchCanvasPanelProps {
   onRemoveStation: (stationId: string) => void
   onLayoutModeChange: (containerId: string, mode: WorkbenchLayoutMode) => void
   onCustomLayoutChange: (containerId: string, layout: WorkbenchCustomLayout) => void
+  onFullscreenStationChange: (containerId: string, stationId: string | null) => void
+  onMinimizedStationIdsChange: (containerId: string, stationIds: string[]) => void
   onFloatContainer: (containerId: string) => void
   onDockContainer: (containerId: string) => void
   onDetachContainer: (containerId: string) => void
@@ -393,6 +395,8 @@ function WorkbenchCanvasPanelView({
   onRemoveStation,
   onLayoutModeChange,
   onCustomLayoutChange,
+  onFullscreenStationChange,
+  onMinimizedStationIdsChange,
   onFloatContainer,
   onDockContainer,
   onDetachContainer,
@@ -418,10 +422,10 @@ function WorkbenchCanvasPanelView({
   const roleFilterEnterTimerRef = useRef<number | null>(null)
   const restoreDockTimerRef = useRef<number | null>(null)
   const restoreCardAnimationTimerRef = useRef<number | null>(null)
-  const [fullscreenStationIdRaw, setFullscreenStationIdRaw] = useState<string | null>(null)
-  const [minimizedStationIds, setMinimizedStationIds] = useState<string[]>([])
   const [restoringStationId, setRestoringStationId] = useState<string | null>(null)
   const [restoreAnimation, setRestoreAnimation] = useState<StationRestoreAnimationState | null>(null)
+  const fullscreenStationIdRaw = container.fullscreenStationId
+  const minimizedStationIds = container.minimizedStationIds
   const normalizedCustomLayout = useMemo(
     () => normalizeWorkbenchCustomLayout(container.customLayout),
     [container.customLayout],
@@ -534,7 +538,6 @@ function WorkbenchCanvasPanelView({
 
   useEffect(() => {
     const stationIdSet = new Set(stations.map((station) => station.id))
-    setMinimizedStationIds((current) => current.filter((stationId) => stationIdSet.has(stationId)))
     setRestoringStationId((current) => (current && stationIdSet.has(current) ? current : null))
   }, [stations])
 
@@ -676,7 +679,10 @@ function WorkbenchCanvasPanelView({
       const nextDisplayedStationIds = orderStationIds([...displayedStationIdsRef.current, stationId])
       displayedStationIdsRef.current = nextDisplayedStationIds
       setDisplayedStationIds(nextDisplayedStationIds)
-      setMinimizedStationIds((current) => current.filter((currentId) => currentId !== stationId))
+      onMinimizedStationIdsChange(
+        container.id,
+        minimizedStationIds.filter((currentId) => currentId !== stationId),
+      )
       restoreDockTimerRef.current = window.setTimeout(() => {
         setRestoringStationId((current) => (current === stationId ? null : current))
         restoreDockTimerRef.current = null
@@ -687,7 +693,7 @@ function WorkbenchCanvasPanelView({
       }, STATION_RESTORE_CARD_ANIMATION_MS)
       onSelectStation(container.id, stationId)
     },
-    [container.id, onSelectStation, orderStationIds],
+    [container.id, minimizedStationIds, onMinimizedStationIdsChange, onSelectStation, orderStationIds],
   )
   const handleMinimizeStation = useCallback(
     (stationId: string) => {
@@ -706,9 +712,11 @@ function WorkbenchCanvasPanelView({
       const nextDisplayedStationIds = displayedStationIdsRef.current.filter((currentId) => currentId !== stationId)
       displayedStationIdsRef.current = nextDisplayedStationIds
       setDisplayedStationIds(nextDisplayedStationIds)
-      setMinimizedStationIds((current) => (current.includes(stationId) ? current : [...current, stationId]))
+      if (!minimizedStationIdSet.has(stationId)) {
+        onMinimizedStationIdsChange(container.id, [...minimizedStationIds, stationId])
+      }
       if (fullscreenStationIdRaw === stationId) {
-        setFullscreenStationIdRaw(null)
+        onFullscreenStationChange(container.id, null)
       }
       const nextVisibleStation = targetVisibleStations.find(
         (station) => station.id !== stationId && !minimizedStationIdSet.has(station.id),
@@ -717,7 +725,17 @@ function WorkbenchCanvasPanelView({
         onSelectStation(container.id, nextVisibleStation.id)
       }
     },
-    [container.id, fullscreenStationIdRaw, minimizedStationIdSet, onSelectStation, restoringStationId, targetVisibleStations],
+    [
+      container.id,
+      fullscreenStationIdRaw,
+      minimizedStationIds,
+      minimizedStationIdSet,
+      onFullscreenStationChange,
+      onMinimizedStationIdsChange,
+      onSelectStation,
+      restoringStationId,
+      targetVisibleStations,
+    ],
   )
   const orderedPrimaryHeaderActions = useMemo(() => {
     const actions: Array<{ id: WorkbenchHeaderActionId; element: ReactNode }> = []
@@ -988,26 +1006,26 @@ function WorkbenchCanvasPanelView({
   const handleEnterFullscreen = useCallback(
     (stationId: string) => {
       handleSelectStation(stationId)
-      setFullscreenStationIdRaw(stationId)
+      onFullscreenStationChange(container.id, stationId)
     },
-    [handleSelectStation],
+    [container.id, handleSelectStation, onFullscreenStationChange],
   )
 
   const handleExitFullscreen = useCallback(() => {
-    setFullscreenStationIdRaw(null)
-  }, [])
+    onFullscreenStationChange(container.id, null)
+  }, [container.id, onFullscreenStationChange])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setFullscreenStationIdRaw(null)
+        onFullscreenStationChange(container.id, null)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [])
+  }, [container.id, onFullscreenStationChange])
 
   useEffect(() => {
     if (!scrollToStationId || fullscreenStationIdRaw) {
@@ -1037,8 +1055,8 @@ function WorkbenchCanvasPanelView({
     if (fullscreenStation) {
       return
     }
-    setFullscreenStationIdRaw(null)
-  }, [fullscreenStation, fullscreenStationIdRaw])
+    onFullscreenStationChange(container.id, null)
+  }, [container.id, fullscreenStation, fullscreenStationIdRaw, onFullscreenStationChange])
 
   const resolveStationSlotMode = useCallback(
     (stationId: string): 'stable' | 'entering' | 'exiting' | 'parked' => {
