@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
+import type { Locale } from '@shell/i18n/ui-locale'
 import { shouldAcceptStationTerminalLocalInput } from './station-terminal-runtime-state'
 import { resolveTerminalDocument } from './station-terminal-document-scope'
 import '@xterm/xterm/css/xterm.css'
@@ -19,6 +20,13 @@ import {
   resolveDeferredMacOsTextInputHandling,
   shouldBypassXtermTextKeyEvent,
 } from './macos-webkit-ime-workaround'
+import { StationTerminalInterruptConfirm } from './StationTerminalInterruptConfirm'
+import {
+  getStationTerminalInterruptControlCharacter,
+  resolveStationTerminalInterruptConfirmKeyAction,
+  resolveStationTerminalInterruptSignalKind,
+  type StationTerminalInterruptSignalKind,
+} from './station-terminal-interrupt-guard'
 import {
   installStationTerminalWindowDiagnostics,
   recordStationTerminalFocusDiagnostic,
@@ -63,6 +71,7 @@ export type StationTerminalSinkBindingHandler = (
 ) => void
 
 interface StationXtermTerminalProps {
+  locale: Locale
   stationId: string
   sessionId: string | null
   isActive?: boolean
@@ -74,6 +83,7 @@ interface StationXtermTerminalProps {
   onBindSink: StationTerminalSinkBindingHandler
   onRenderedScreenSnapshot?: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onDropFilePath?: (stationId: string, payload: TerminalFileDropPayload) => Promise<void> | void
+  onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   onRestoreStateCaptured?: (
     stationId: string,
     state: { content: string; cols: number; rows: number },
@@ -371,6 +381,7 @@ function getTerminalTheme(host?: HTMLElement | null): ITheme {
 }
 
 function StationXtermTerminalView({
+  locale,
   stationId,
   sessionId,
   isActive = false,
@@ -382,6 +393,7 @@ function StationXtermTerminalView({
   onBindSink,
   onRenderedScreenSnapshot,
   onDropFilePath,
+  onShouldConfirmInterrupt,
   onRestoreStateCaptured,
 }: StationXtermTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -390,14 +402,19 @@ function StationXtermTerminalView({
   const boundSinkRef = useRef<StationTerminalSink | null>(null)
   const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(isActive)
   const [rendererRecoveryVersion, setRendererRecoveryVersion] = useState(0)
+  const [pendingInterruptSignalKind, setPendingInterruptSignalKind] =
+    useState<StationTerminalInterruptSignalKind | null>(null)
   const [fileDropActive, setFileDropActive] = useState(false)
   const [fileDropLabel, setFileDropLabel] = useState<string | null>(null)
   const [fileDropPulse, setFileDropPulse] = useState<{ token: number; label: string } | null>(null)
   const isActiveRef = useRef(isActive)
+  const pendingInterruptSignalKindRef = useRef<StationTerminalInterruptSignalKind | null>(null)
+  const interruptCheckInFlightRef = useRef(false)
   const onDataRef = useRef(onData)
   const onResizeRef = useRef(onResize)
   const onRenderedScreenSnapshotRef = useRef(onRenderedScreenSnapshot)
   const onRestoreStateCapturedRef = useRef(onRestoreStateCaptured)
+  const onShouldConfirmInterruptRef = useRef(onShouldConfirmInterrupt)
   const screenRevisionRef = useRef(0)
   const lastSnapshotSignatureRef = useRef('')
   const appearanceSyncFrameRef = useRef<number | null>(null)
@@ -417,6 +434,7 @@ function StationXtermTerminalView({
   const rendererRecoveryInFlightRef = useRef(false)
   const fileDropDepthRef = useRef(0)
   const fileDropPulseTimerRef = useRef<number | null>(null)
+  const sessionIdRef = useRef(sessionId)
   const isMacOsWebKitEnvironmentRef = useRef(
     typeof window !== 'undefined'
       ? isMacOsWebKitTextInputEnvironment({
@@ -430,6 +448,7 @@ function StationXtermTerminalView({
     sessionId: null,
   })
   const lastRenderEventSeqRef = useRef(0)
+  const interruptConfirmOpen = pendingInterruptSignalKind !== null
 
   const recordFocusDiagnostic = useCallback(
     (kind: StationTerminalFocusDiagnosticKind, detail?: string) => {
@@ -446,6 +465,51 @@ function StationXtermTerminalView({
     },
     [sessionId, stationId],
   )
+
+  const restoreTerminalFocusAfterDialog = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.requestAnimationFrame(() => {
+      focusTerminalRequestRef.current?.()
+    })
+  }, [])
+
+  const dismissInterruptConfirm = useCallback(
+    (reason: 'cancel' | 'inactive' | 'session-ended' | 'agent-idle') => {
+      if (!pendingInterruptSignalKindRef.current) {
+        return
+      }
+      pendingInterruptSignalKindRef.current = null
+      setPendingInterruptSignalKind(null)
+      recordFocusDiagnostic('ui-control-event', `terminal-interrupt-confirm:${reason}`)
+      if (reason === 'cancel') {
+        restoreTerminalFocusAfterDialog()
+      }
+    },
+    [recordFocusDiagnostic, restoreTerminalFocusAfterDialog],
+  )
+
+  const confirmInterruptRef = useRef<(signalKind?: StationTerminalInterruptSignalKind | null) => void>(() => {})
+
+  const confirmInterrupt = useCallback(
+    (signalKind?: StationTerminalInterruptSignalKind | null) => {
+      const resolvedSignalKind = signalKind ?? pendingInterruptSignalKindRef.current
+      if (!resolvedSignalKind) {
+        return
+      }
+      pendingInterruptSignalKindRef.current = null
+      setPendingInterruptSignalKind(null)
+      recordFocusDiagnostic('ui-control-event', `terminal-interrupt-confirm:confirm:${resolvedSignalKind}`)
+      if (shouldAcceptStationTerminalLocalInput(sessionIdRef.current)) {
+        onDataRef.current(stationId, getStationTerminalInterruptControlCharacter(resolvedSignalKind))
+      }
+      restoreTerminalFocusAfterDialog()
+    },
+    [recordFocusDiagnostic, restoreTerminalFocusAfterDialog, stationId],
+  )
+
+  confirmInterruptRef.current = confirmInterrupt
 
   const cancelPendingInactiveActivation = useCallback(() => {
     const cleanup = pendingInactiveActivationCleanupRef.current
@@ -663,6 +727,19 @@ function StationXtermTerminalView({
   )
 
   useEffect(() => {
+    sessionIdRef.current = sessionId
+    if (sessionId) {
+      return
+    }
+    interruptCheckInFlightRef.current = false
+    dismissInterruptConfirm('session-ended')
+  }, [dismissInterruptConfirm, sessionId])
+
+  useEffect(() => {
+    onShouldConfirmInterruptRef.current = onShouldConfirmInterrupt
+  }, [onShouldConfirmInterrupt])
+
+  useEffect(() => {
     onDataRef.current = onData
   }, [onData])
 
@@ -687,12 +764,20 @@ function StationXtermTerminalView({
       setRuntimeInitAllowed(true)
       return
     }
+    interruptCheckInFlightRef.current = false
+    dismissInterruptConfirm('inactive')
     const frameId = focusRetryFrameRef.current
     if (frameId !== null) {
       focusRetryFrameRef.current = null
       window.cancelAnimationFrame(frameId)
     }
-  }, [cancelPendingInactiveActivation, cancelPendingInactiveActivationClickSuppression, cancelPendingInactiveActivationGuard, isActive])
+  }, [
+    cancelPendingInactiveActivation,
+    cancelPendingInactiveActivationClickSuppression,
+    cancelPendingInactiveActivationGuard,
+    dismissInterruptConfirm,
+    isActive,
+  ])
 
   useEffect(() => {
     if (runtimeInitAllowed) {
@@ -890,6 +975,89 @@ function StationXtermTerminalView({
             terminalTextarea.removeEventListener('compositionstart', syncTextareaBeforeCompositionStart, true)
           }
         }
+        terminal.attachCustomKeyEventHandler((event) => {
+          if (event.type === 'keydown') {
+            const signalKind = resolveStationTerminalInterruptSignalKind(event)
+            if (signalKind && !terminal.hasSelection() && shouldAcceptStationTerminalLocalInput(sessionIdRef.current)) {
+              if (!onShouldConfirmInterruptRef.current) {
+                return true
+              }
+              const confirmOpen = pendingInterruptSignalKindRef.current !== null
+              if (confirmOpen) {
+                const action = resolveStationTerminalInterruptConfirmKeyAction(event, pendingInterruptSignalKindRef.current)
+                if (action === 'confirm') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  confirmInterruptRef.current(signalKind)
+                  return false
+                }
+                if (action === 'cancel') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  return false
+                }
+                const nextSignalKind = resolveStationTerminalInterruptSignalKind(event)
+                if (nextSignalKind && nextSignalKind !== pendingInterruptSignalKindRef.current && !event.repeat) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  pendingInterruptSignalKindRef.current = nextSignalKind
+                  setPendingInterruptSignalKind(nextSignalKind)
+                  return false
+                }
+                event.preventDefault()
+                event.stopPropagation()
+                return false
+              }
+              event.preventDefault()
+              event.stopPropagation()
+              if (interruptCheckInFlightRef.current) {
+                pendingInterruptSignalKindRef.current = signalKind
+                setPendingInterruptSignalKind(signalKind)
+                return false
+              }
+              interruptCheckInFlightRef.current = true
+              const currentSessionId = sessionIdRef.current
+              void Promise.resolve(
+                onShouldConfirmInterruptRef.current(stationId, currentSessionId ?? ''),
+              )
+                .then((shouldConfirm) => {
+                  interruptCheckInFlightRef.current = false
+                  if (sessionIdRef.current !== currentSessionId) {
+                    return
+                  }
+                  if (!shouldConfirm && shouldAcceptStationTerminalLocalInput(sessionIdRef.current)) {
+                    onDataRef.current(stationId, getStationTerminalInterruptControlCharacter(signalKind))
+                    return
+                  }
+                  if (!pendingInterruptSignalKindRef.current) {
+                    pendingInterruptSignalKindRef.current = signalKind
+                    setPendingInterruptSignalKind(signalKind)
+                  }
+                })
+                .catch(() => {
+                  interruptCheckInFlightRef.current = false
+                  if (sessionIdRef.current !== currentSessionId) {
+                    return
+                  }
+                  if (!pendingInterruptSignalKindRef.current) {
+                    pendingInterruptSignalKindRef.current = signalKind
+                    setPendingInterruptSignalKind(signalKind)
+                  }
+                })
+              return false
+            }
+          }
+          const shouldBypass = shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled)
+          if (shouldBypass) {
+            if (pendingNativeTextInputRef) {
+              pendingNativeTextInputRef.current = true
+            }
+            if (pendingNativeTextInputXtermDataRef) {
+              pendingNativeTextInputXtermDataRef.current = null
+            }
+          }
+          return !shouldBypass
+        })
         if (isMacOsWebKitImeFallbackEnabled && terminalTextarea) {
           // macOS WebKit/WKWebView can route IME + Shift text through delayed input events that
           // xterm 6.0.0 misses on keydown/keypress. Keep xterm in charge of normal composition,
@@ -897,14 +1065,6 @@ function StationXtermTerminalView({
           pendingNativeTextInputRef = { current: false }
           pendingNativeTextInputXtermDataRef = { current: null as string | null }
           suppressedDeferredXtermEchoRef = { current: null as string | null }
-          terminal.attachCustomKeyEventHandler((event) => {
-            const shouldBypass = shouldBypassXtermTextKeyEvent(event, isMacOsWebKitImeFallbackEnabled)
-            if (shouldBypass) {
-              pendingNativeTextInputRef!.current = true
-              pendingNativeTextInputXtermDataRef!.current = null
-            }
-            return !shouldBypass
-          })
           const resetPendingNativeTextInput = () => {
             pendingNativeTextInputRef!.current = false
             pendingNativeTextInputXtermDataRef!.current = null
@@ -1593,6 +1753,7 @@ function StationXtermTerminalView({
     <div
       className={`station-terminal-shell${runtimeInitAllowed ? '' : ' is-runtime-pending'}`}
       data-file-drop-active={fileDropActive ? 'true' : 'false'}
+      data-interrupt-confirm-open={interruptConfirmOpen ? 'true' : 'false'}
       onPointerDownCapture={(event) => {
         if (event.button !== 0) {
           return
@@ -1746,6 +1907,19 @@ function StationXtermTerminalView({
           <span className="station-terminal-drop-label">{fileDropPulse.label}</span>
         </div>
       ) : null}
+      <StationTerminalInterruptConfirm
+        open={interruptConfirmOpen}
+        locale={locale}
+        signalKind={pendingInterruptSignalKind}
+        onClose={() => {
+          dismissInterruptConfirm('cancel')
+        }}
+        onConfirm={confirmInterrupt}
+        onSignalKindChange={(nextSignalKind) => {
+            pendingInterruptSignalKindRef.current = nextSignalKind
+            setPendingInterruptSignalKind(nextSignalKind)
+          }}
+      />
       <div ref={hostRef} className="station-terminal-host" aria-hidden={!runtimeInitAllowed || undefined} />
     </div>
   )

@@ -7,8 +7,12 @@ type StationTerminalRuntimeShape = {
   resolvedCwd: string | null
 }
 
+type StationTerminalRuntimeStateLike = Pick<StationTerminalRuntimeShape, 'sessionId'> & {
+  stateRaw?: string | null
+}
+
 export function shouldRenderStationTerminal(
-  runtime: Pick<StationTerminalRuntimeShape, 'sessionId'> & { stateRaw?: string | null } | null | undefined,
+  runtime: StationTerminalRuntimeStateLike | null | undefined,
 ): boolean {
   if (Boolean(runtime?.sessionId)) {
     return true
@@ -16,8 +20,17 @@ export function shouldRenderStationTerminal(
   return runtime?.stateRaw === 'exited' || runtime?.stateRaw === 'killed' || runtime?.stateRaw === 'failed'
 }
 
+export function isStationTerminalRuntimeLive(
+  runtime: StationTerminalRuntimeStateLike | null | undefined,
+): boolean {
+  if (!runtime?.sessionId) {
+    return false
+  }
+  return runtime.stateRaw !== 'exited' && runtime.stateRaw !== 'killed' && runtime.stateRaw !== 'failed'
+}
+
 export function shouldAutoLaunchStationTerminalFromSurface(
-  runtime: Pick<StationTerminalRuntimeShape, 'sessionId'> & { stateRaw?: string | null } | null | undefined,
+  runtime: StationTerminalRuntimeStateLike | null | undefined,
 ): boolean {
   return !runtime?.sessionId && !shouldRenderStationTerminal(runtime)
 }
@@ -58,8 +71,8 @@ export function shouldMatchDetachedBridgeSession(
 }
 
 export function didStationTerminalRenderabilityChange(
-  previousRuntime: Pick<StationTerminalRuntimeShape, 'sessionId'> & { stateRaw?: string | null } | null | undefined,
-  nextRuntime: Pick<StationTerminalRuntimeShape, 'sessionId'> & { stateRaw?: string | null } | null | undefined,
+  previousRuntime: StationTerminalRuntimeStateLike | null | undefined,
+  nextRuntime: StationTerminalRuntimeStateLike | null | undefined,
 ): boolean {
   return shouldRenderStationTerminal(previousRuntime) !== shouldRenderStationTerminal(nextRuntime)
 }

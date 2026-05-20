@@ -121,7 +121,7 @@ interface StationCardProps {
   station: AgentStation
   active: boolean
   runtime?: StationTerminalRuntime
-  agentRunning?: boolean
+  onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   taskSignal?: StationTaskSignal
   channelBotBindings?: StationChannelBotBindingSummary[]
   isFullscreen?: boolean
@@ -163,7 +163,7 @@ function StationCardView({
   station,
   active,
   runtime,
-  agentRunning = false,
+  onShouldConfirmInterrupt,
   taskSignal,
   isFullscreen,
   isFullscreenMode,
@@ -365,10 +365,11 @@ function StationCardView({
     [roleText, station.name, station.tool],
   )
   const identityTitle = useMemo(() => identityMeta.map((item) => item.label).join(' · '), [identityMeta])
+  const agentRunningForDisplay = hasTerminalSession
   const launchState = resolveStationCardLaunchState({
     sessionId: runtime?.sessionId ?? null,
     stateRaw: runtime?.stateRaw ?? null,
-    agentRunning,
+    agentRunning: agentRunningForDisplay,
   })
   const launchIcon = resolveStationCardLaunchIcon(launchState)
   const primaryLaunchButtonLabel =
@@ -408,12 +409,12 @@ function StationCardView({
     handleStationCardPrimaryLaunch({
       stationId: station.id,
       sessionId: runtime?.sessionId ?? null,
-      agentRunning,
+      agentRunning: agentRunningForDisplay,
       onSelectStation,
       requestTerminalFocus,
       onLaunchCliAgent,
     })
-  }, [agentRunning, onLaunchCliAgent, onSelectStation, requestTerminalFocus, runtime?.sessionId, station.id])
+  }, [agentRunningForDisplay, onLaunchCliAgent, onSelectStation, requestTerminalFocus, runtime?.sessionId, station.id])
   const activateStationAndOpenTerminal = useCallback(() => {
     activateStationAndFocusTerminal()
     if (shouldAutoLaunchTerminal) {
@@ -660,9 +661,11 @@ function StationCardView({
       {shouldRenderTerminal ? (
         <>
           <StationXtermTerminal
+            locale={locale}
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
             isActive={active}
+            onShouldConfirmInterrupt={onShouldConfirmInterrupt}
             appearanceVersion={appearanceVersion}
             performanceDebugEnabled={performanceDebugEnabled}
             onActivateStation={activateStationFromTerminal}
@@ -752,7 +755,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.performanceDebugEnabled === next.performanceDebugEnabled &&
     prev.station === next.station &&
     prev.active === next.active &&
-    prev.agentRunning === next.agentRunning &&
+    prev.onShouldConfirmInterrupt === next.onShouldConfirmInterrupt &&
     prev.isFullscreen === next.isFullscreen &&
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&

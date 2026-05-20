@@ -1984,6 +1984,13 @@ export interface ChannelConnectorAccountUpsertRequest {
   webhookPort?: number | null
 }
 
+export interface ChannelConnectorAccountDeleteResponse {
+  channel: string
+  accountId: string
+  deleted: boolean
+  deletedBindings: number
+}
+
 export interface ChannelConnectorAccountListResponse {
   channel: string
   accounts: ChannelConnectorAccount[]
@@ -3157,6 +3164,17 @@ export const desktopApi = {
         channel,
       },
     })
+  },
+  channelConnectorAccountDelete(channel: string, accountId?: string | null) {
+    return invokeCommand<ChannelConnectorAccountDeleteResponse>(
+      'channel_connector_account_delete',
+      {
+        request: {
+          channel,
+          accountId: accountId ?? null,
+        },
+      },
+    )
   },
   channelConnectorHealth(channel: string, accountId?: string | null) {
     return invokeCommand<ChannelConnectorHealthResponse>('channel_connector_health', {

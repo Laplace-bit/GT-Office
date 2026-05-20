@@ -64,6 +64,7 @@ interface TerminalStationPaneProps {
   appearanceVersion: string
   station: AgentStation
   runtime?: WorkbenchStationRuntime
+  onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   taskSignal?: StationTaskSignal
   channelBotBindings?: StationChannelBotBindingSummary[]
   active: boolean
@@ -86,6 +87,7 @@ function TerminalStationPaneView({
   appearanceVersion,
   station,
   runtime,
+  onShouldConfirmInterrupt,
   taskSignal,
   channelBotBindings,
   active,
@@ -243,9 +245,11 @@ function TerminalStationPaneView({
       {hasTerminalSession ? (
         <>
           <StationXtermTerminal
+            locale={locale}
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
             isActive={active}
+            onShouldConfirmInterrupt={onShouldConfirmInterrupt}
             appearanceVersion={appearanceVersion}
             onActivateStation={() => onSelectStation(station.id)}
             onData={onSendInputData}

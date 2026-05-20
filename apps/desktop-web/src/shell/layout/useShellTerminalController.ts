@@ -15,6 +15,7 @@ import {
   decodeTerminalBase64Chunk,
   formatTerminalDebugBody,
   formatTerminalDebugPreview,
+  isStationTerminalRuntimeLive,
   isStationTerminalDebugEnabled,
   resetTerminalChunkDecoder,
   setStationTerminalDebugHumanLog,
@@ -238,6 +239,7 @@ export interface ShellTerminalController {
   handleDetachedSurfaceBridgeMessage: (event: SurfaceBridgeEventPayload<DetachedTerminalBridgeMessage>) => void
   reportRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   inspectStationSessionProcesses: (stationId: string, sessionId: string) => Promise<TerminalDescribeProcessesResponse | null>
+  shouldConfirmStationInterrupt: (stationId: string, sessionId: string) => Promise<boolean>
 
   // Batch launch & actions
   setIsBatchLaunchingAgents: Dispatch<SetStateAction<boolean>>
@@ -342,6 +344,37 @@ export function useShellTerminalController({
     Record<string, { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }>
   >({})
   const stationUnreadDeltaRef = useRef<Record<string, number>>({})
+  const protectedAgentSessionByStationRef = useRef<Record<string, string>>({})
+
+  const protectStationAgentSession = useCallback(
+    (stationId: string, sessionId: string | null | undefined) => {
+      const normalizedSessionId = sessionId?.trim() ?? ''
+      if (!normalizedSessionId) {
+        return
+      }
+      protectedAgentSessionByStationRef.current[stationId] = normalizedSessionId
+    },
+    [],
+  )
+
+  const hasProtectedStationAgentSession = useCallback(
+    (stationId: string, sessionId: string | null | undefined) => {
+      const normalizedSessionId = sessionId?.trim() ?? ''
+      if (!normalizedSessionId) {
+        return false
+      }
+      const protectedSessionId = protectedAgentSessionByStationRef.current[stationId] ?? ''
+      if (!protectedSessionId) {
+        return false
+      }
+      if (protectedSessionId !== normalizedSessionId) {
+        delete protectedAgentSessionByStationRef.current[stationId]
+        return false
+      }
+      return true
+    },
+    [],
+  )
 
   const recordStationLifecycleDiagnostic = useCallback(
     (
@@ -1674,6 +1707,7 @@ export function useShellTerminalController({
             if (closedSessionCleanup) {
               stationTerminalInputControllerRef.current?.clear(stationId)
               delete stationSubmitSequenceRef.current[stationId]
+              delete protectedAgentSessionByStationRef.current[stationId]
             }
             if (closedRuntimeRegistrationCleanup) {
               void desktopApi
@@ -2654,6 +2688,30 @@ export function useShellTerminalController({
     [],
   )
 
+  const shouldConfirmStationInterrupt = useCallback(
+    async (stationId: string, sessionId: string): Promise<boolean> => {
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      if (!station) {
+        return false
+      }
+      if (!resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)) {
+        return false
+      }
+      if (hasProtectedStationAgentSession(stationId, sessionId)) {
+        return true
+      }
+      const processSnapshot = await inspectStationSessionProcesses(stationId, sessionId)
+      const agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
+      if (agentRunning) {
+        protectStationAgentSession(stationId, sessionId)
+      } else {
+        delete protectedAgentSessionByStationRef.current[stationId]
+      }
+      return agentRunning
+    },
+    [hasProtectedStationAgentSession, inspectStationSessionProcesses, protectStationAgentSession, stationsRef],
+  )
+
   // ── Launch tool profile for station ────────────────────────────────────
   const launchToolProfileForStation = useCallback(
     async (station: AgentStation, profileId: string = station.toolKind) => {
@@ -2672,6 +2730,7 @@ export function useShellTerminalController({
         if (station.toolKind !== 'unknown' && station.toolKind !== 'shell') {
           const command = station.launchCommand?.trim() || station.toolKind
           sendStationTerminalInput(station.id, `${command}\n`)
+          protectStationAgentSession(station.id, sessionId)
         }
         return sessionId
       }
@@ -2820,6 +2879,9 @@ export function useShellTerminalController({
           cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
           resolvedCwd: response.resolvedCwd ?? stationTerminalsRef.current[station.id]?.resolvedCwd ?? null,
         })
+        if (resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)) {
+          protectStationAgentSession(station.id, terminalSessionId)
+        }
 
         return terminalSessionId
       } catch (error) {
@@ -2848,6 +2910,7 @@ export function useShellTerminalController({
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
       locale,
+      protectStationAgentSession,
       requestTerminalKill,
       resetStationTerminalOutput,
       sendStationTerminalInput,
@@ -2876,6 +2939,7 @@ export function useShellTerminalController({
       const processSnapshot = await inspectStationSessionProcesses(stationId, currentSessionId)
       const agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
       if (agentRunning) {
+        protectStationAgentSession(stationId, currentSessionId)
         stationTerminalSinkRef.current[stationId]?.focus()
         return
       }
@@ -2888,11 +2952,13 @@ export function useShellTerminalController({
       if (!launchedInSession) {
         return
       }
+      protectStationAgentSession(stationId, currentSessionId)
       stationTerminalSinkRef.current[stationId]?.focus()
     },
     [
       inspectStationSessionProcesses,
       launchToolProfileForStation,
+      protectStationAgentSession,
       resetStationTerminalToAgentWorkdir,
       runStationTerminalCommand,
     ],
@@ -2969,6 +3035,7 @@ export function useShellTerminalController({
       }
       stationTerminalInputControllerRef.current?.clear(stationId)
       delete stationTerminalRestoreStateRef.current[stationId]
+      delete protectedAgentSessionByStationRef.current[stationId]
 
       setStations((prev) => prev.filter((station) => station.id !== stationId))
       setStationTerminals((prev) => {
@@ -3248,7 +3315,7 @@ export function useShellTerminalController({
 
         const sessionId = stationTerminalsRef.current[station.id]?.sessionId ?? null
         const runtime = stationTerminalsRef.current[station.id]
-        const agentRunning = Boolean(runtime?.sessionId && runtime.stateRaw !== 'killed' && runtime.stateRaw !== 'failed')
+        const agentRunning = isStationTerminalRuntimeLive(runtime)
         if (agentRunning) {
           continue
         }
@@ -3258,7 +3325,10 @@ export function useShellTerminalController({
           continue
         }
 
-        await runStationTerminalCommand(station.id, launchCommand)
+        const launchedInSession = await runStationTerminalCommand(station.id, launchCommand)
+        if (launchedInSession) {
+          protectStationAgentSession(station.id, sessionId)
+        }
       }
     } finally {
       setIsBatchLaunchingAgents(false)
@@ -3266,6 +3336,7 @@ export function useShellTerminalController({
   }, [
     isBatchLaunchingAgents,
     launchToolProfileForStation,
+    protectStationAgentSession,
     runStationTerminalCommand,
   ])
 
@@ -3386,9 +3457,7 @@ export function useShellTerminalController({
     () =>
       stations.reduce<Record<string, boolean>>((acc, station) => {
         const runtime = stationTerminals[station.id]
-        // Derive running state from terminal session: active session = agent is running,
-        // killed/failed/no session = agent is not running. No process polling needed.
-        acc[station.id] = Boolean(runtime?.sessionId && runtime.stateRaw !== 'killed' && runtime.stateRaw !== 'failed')
+        acc[station.id] = isStationTerminalRuntimeLive(runtime)
         return acc
       }, {}),
     [stationTerminals, stations],
@@ -3547,6 +3616,7 @@ export function useShellTerminalController({
     handleDetachedSurfaceBridgeMessage,
     reportRenderedScreenSnapshot,
     inspectStationSessionProcesses,
+    shouldConfirmStationInterrupt,
 
     // Batch launch & actions
     setIsBatchLaunchingAgents,

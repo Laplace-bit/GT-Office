@@ -371,6 +371,20 @@
   gap: rem(12);
   min-width: 0;
 }
+
+.channel-bot-stats {
+  display: flex;
+  align-items: center;
+  gap: rem(8);
+  flex-shrink: 0;
+}
+
+.channel-bot-header-actions {
+  display: flex;
+  align-items: center;
+  gap: rem(4);
+}
+
 .channel-bot-icon {
   width: rem(32);
   height: rem(32);
