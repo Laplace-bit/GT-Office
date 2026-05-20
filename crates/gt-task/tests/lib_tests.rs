@@ -676,6 +676,39 @@ fn unregister_runtime_purges_agent_message_threads_by_default() {
 }
 
 #[test]
+fn delete_route_binding_treats_null_and_default_account_as_same_identity() {
+    let service = TaskService::default();
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-1".to_string(),
+        channel: "feishu".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "agent-1".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+
+    let deleted = service.delete_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-1".to_string(),
+        channel: "Feishu".to_string(),
+        account_id: None,
+        peer_kind: Some(ExternalPeerKind::Direct),
+        peer_pattern: None,
+        target_agent_id: "agent-2".to_string(),
+        priority: 0,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+
+    assert!(deleted);
+    assert!(service.list_route_bindings(None).is_empty());
+}
+
+#[test]
 fn resolve_external_route_prefers_specific_binding() {
     let service = TaskService::default();
     let generic_binding = ChannelRouteBinding {
@@ -828,7 +861,7 @@ fn resolve_external_route_preferring_workspace_breaks_same_score_ties() {
 }
 
 #[test]
-fn resolve_external_route_preferring_workspace_does_not_override_higher_score_match() {
+fn resolve_external_route_picks_more_specific_peer_pattern_across_workspaces() {
     let service = TaskService::default();
     service.upsert_route_binding(ChannelRouteBinding {
         workspace_id: "ws-current".to_string(),
@@ -871,11 +904,154 @@ fn resolve_external_route_preferring_workspace_does_not_override_higher_score_ma
     };
 
     let resolved = service
-        .resolve_external_route_preferring_workspace("ws-current", &inbound)
-        .expect("higher score route");
+        .resolve_external_route(&inbound)
+        .expect("more specific peer route");
     assert_eq!(resolved.workspace_id, "ws-other");
     assert_eq!(resolved.target_agent_id, "assistant-a");
     assert_eq!(resolved.matched_by, "binding.peer");
+}
+
+#[test]
+fn resolve_external_route_routes_same_account_by_peer_pattern_per_workspace() {
+    let service = TaskService::default();
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-alpha".to_string(),
+        channel: "feishu".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Group),
+        peer_pattern: Some("room-alpha".to_string()),
+        target_agent_id: "agent-alpha".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+    service.upsert_route_binding(ChannelRouteBinding {
+        workspace_id: "ws-beta".to_string(),
+        channel: "feishu".to_string(),
+        account_id: Some("default".to_string()),
+        peer_kind: Some(ExternalPeerKind::Group),
+        peer_pattern: Some("room-beta".to_string()),
+        target_agent_id: "agent-beta".to_string(),
+        priority: 100,
+        created_at_ms: None,
+        bot_name: None,
+        enabled: true,
+    });
+
+    let alpha_inbound = ExternalInboundMessage {
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Group,
+        peer_id: "room-alpha".to_string(),
+        sender_id: "member-1".to_string(),
+        sender_name: None,
+        message_id: "msg-alpha".to_string(),
+        text: "hello alpha".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    };
+    let beta_inbound = ExternalInboundMessage {
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Group,
+        peer_id: "room-beta".to_string(),
+        sender_id: "member-2".to_string(),
+        sender_name: None,
+        message_id: "msg-beta".to_string(),
+        text: "hello beta".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    };
+
+    let alpha_route = service
+        .resolve_external_route(&alpha_inbound)
+        .expect("alpha route");
+    let beta_route = service
+        .resolve_external_route(&beta_inbound)
+        .expect("beta route");
+    assert_eq!(alpha_route.workspace_id, "ws-alpha");
+    assert_eq!(alpha_route.target_agent_id, "agent-alpha");
+    assert_eq!(beta_route.workspace_id, "ws-beta");
+    assert_eq!(beta_route.target_agent_id, "agent-beta");
+}
+
+#[test]
+fn resolve_external_route_returns_none_when_multiple_workspaces_tie_at_top_score() {
+    let service = TaskService::default();
+    for (workspace_id, target_agent_id) in [("ws-alpha", "role:a"), ("ws-beta", "role:b")] {
+        service.upsert_route_binding(ChannelRouteBinding {
+            workspace_id: workspace_id.to_string(),
+            channel: "feishu".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Direct),
+            peer_pattern: None,
+            target_agent_id: target_agent_id.to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        });
+    }
+
+    let inbound = ExternalInboundMessage {
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Direct,
+        peer_id: "user-001".to_string(),
+        sender_id: "user-001".to_string(),
+        sender_name: None,
+        message_id: "msg-ambiguous".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    };
+
+    assert!(service.resolve_external_route(&inbound).is_none());
+    assert!(service.is_external_route_ambiguous(&inbound));
+}
+
+#[test]
+fn resolve_external_route_returns_none_when_multiple_targets_tie_in_same_workspace() {
+    let service = TaskService::default();
+    for (peer_pattern, target_agent_id) in [("*", "agent-a"), ("group-*", "agent-b")] {
+        service.upsert_route_binding(ChannelRouteBinding {
+            workspace_id: "ws-shared".to_string(),
+            channel: "feishu".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Group),
+            peer_pattern: Some(peer_pattern.to_string()),
+            target_agent_id: target_agent_id.to_string(),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        });
+    }
+
+    let inbound = ExternalInboundMessage {
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Group,
+        peer_id: "group-room".to_string(),
+        sender_id: "member-1".to_string(),
+        sender_name: None,
+        message_id: "msg-ambiguous".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    };
+
+    assert!(service.resolve_external_route(&inbound).is_none());
+    assert!(service.is_external_route_ambiguous(&inbound));
 }
 
 #[test]
@@ -957,6 +1133,96 @@ fn resolve_external_route_returns_none_when_only_match_is_disabled() {
     });
 
     assert!(resolved.is_none());
+}
+
+fn seed_feishu_bindings(service: &TaskService, count: usize) {
+    for index in 0..count {
+        service.upsert_route_binding(ChannelRouteBinding {
+            workspace_id: format!("ws-{}", index % 8),
+            channel: "feishu".to_string(),
+            account_id: Some("default".to_string()),
+            peer_kind: Some(ExternalPeerKind::Group),
+            peer_pattern: Some(format!("room-{index}")),
+            target_agent_id: format!("agent-{index}"),
+            priority: 100,
+            created_at_ms: None,
+            bot_name: None,
+            enabled: true,
+        });
+    }
+}
+
+fn sample_inbound(peer_id: &str) -> ExternalInboundMessage {
+    ExternalInboundMessage {
+        channel: "feishu".to_string(),
+        account_id: "default".to_string(),
+        peer_kind: ExternalPeerKind::Group,
+        peer_id: peer_id.to_string(),
+        sender_id: "member-1".to_string(),
+        sender_name: None,
+        message_id: "msg-perf".to_string(),
+        text: "hello".to_string(),
+        idempotency_key: None,
+        workspace_id_hint: None,
+        target_agent_id_hint: None,
+        metadata: json!({}),
+    }
+}
+
+#[test]
+#[ignore = "manual perf; cargo test -p gt-task route_resolve_perf --release -- --ignored --nocapture"]
+fn route_resolve_perf_report() {
+    use std::time::Instant;
+
+    let scenarios: [(&str, usize, &str); 4] = [
+        ("unique_match", 50, "room-12"),
+        ("unique_match", 200, "room-150"),
+        ("not_found", 200, "room-missing"),
+        ("ambiguous_miss_path", 2, "room-0"),
+    ];
+
+    println!("\nroute_resolve perf (release build recommended)");
+    for (label, binding_count, peer_id) in scenarios {
+        let service = TaskService::default();
+        if label == "ambiguous_miss_path" {
+            for workspace_id in ["ws-alpha", "ws-beta"] {
+                service.upsert_route_binding(ChannelRouteBinding {
+                    workspace_id: workspace_id.to_string(),
+                    channel: "feishu".to_string(),
+                    account_id: Some("default".to_string()),
+                    peer_kind: Some(ExternalPeerKind::Group),
+                    peer_pattern: None,
+                    target_agent_id: format!("agent-{workspace_id}"),
+                    priority: 100,
+                    created_at_ms: None,
+                    bot_name: None,
+                    enabled: true,
+                });
+            }
+        } else {
+            seed_feishu_bindings(&service, binding_count);
+        }
+
+        let inbound = sample_inbound(peer_id);
+        const ITERS: u32 = 50_000;
+        let start = Instant::now();
+        for _ in 0..ITERS {
+            let _ = service.resolve_external_route(&inbound);
+        }
+        let resolve_only_us = start.elapsed().as_micros() as f64 / ITERS as f64;
+
+        let start = Instant::now();
+        for _ in 0..ITERS {
+            if service.resolve_external_route(&inbound).is_none() {
+                let _ = service.is_external_route_ambiguous(&inbound);
+            }
+        }
+        let miss_path_us = start.elapsed().as_micros() as f64 / ITERS as f64;
+
+        println!(
+            "{label:24} bindings={binding_count:3} resolve_only={resolve_only_us:6.2}us miss_path={miss_path_us:6.2}us",
+        );
+    }
 }
 
 #[test]

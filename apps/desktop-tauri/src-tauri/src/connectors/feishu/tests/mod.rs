@@ -1,9 +1,9 @@
 use super::{
     account_store,
     api::build_client,
-    default_app_secret_ref, default_verification_token_ref, list_accounts, normalize_account_id,
-    normalize_connection_mode, normalize_domain, normalize_webhook_path, parse_payload_for_account,
-    parse_webhook_payload, send_text_reply,
+    default_app_secret_ref, default_verification_token_ref, list_accounts,
+    next_available_account_id, normalize_account_id, normalize_connection_mode, normalize_domain,
+    normalize_webhook_path, parse_payload_for_account, parse_webhook_payload, send_text_reply,
     types::{
         FeishuAccountUpsertInput, FeishuConnectionMode, FeishuConnectorAccountRecord, FeishuDomain,
     },
@@ -38,6 +38,31 @@ fn sample_record(account_id: &str) -> FeishuConnectorAccountRecord {
         webhook_port: None,
         updated_at_ms: 0,
     }
+}
+
+#[test]
+fn next_available_account_id_reuses_existing_account_for_same_app_id() {
+    let mut existing = sample_record("ops");
+    existing.app_id = "cli_shared".to_string();
+
+    assert_eq!(
+        next_available_account_id(&[existing], Some("Support Bot"), "cli_shared"),
+        "ops"
+    );
+}
+
+#[test]
+fn next_available_account_id_uses_bot_name_slug_and_suffix() {
+    let existing = vec![sample_record("support-bot"), sample_record("feishu-bot")];
+
+    assert_eq!(
+        next_available_account_id(&existing, Some("Support Bot"), "cli_new"),
+        "support-bot-2"
+    );
+    assert_eq!(
+        next_available_account_id(&existing, Some("  "), "###"),
+        "feishu-bot-2"
+    );
 }
 
 #[test]

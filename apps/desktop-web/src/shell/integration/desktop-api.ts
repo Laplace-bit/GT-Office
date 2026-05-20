@@ -2058,6 +2058,11 @@ export interface ChannelBindingListResponse {
   bindings: ChannelRouteBinding[]
 }
 
+export interface ChannelBindingDeleteResponse {
+  deleted: boolean
+  binding: ChannelRouteBinding
+}
+
 export interface ChannelAccessApproveResponse {
   approved: boolean
   channel: string
@@ -3270,7 +3275,7 @@ export const desktopApi = {
     })
   },
   channelBindingDelete(binding: ChannelRouteBinding) {
-    return invokeCommand<Record<string, unknown>>('channel_binding_delete', {
+    return invokeCommand<ChannelBindingDeleteResponse>('channel_binding_delete', {
       binding: {
         workspaceId: binding.workspaceId,
         channel: binding.channel,
@@ -3279,6 +3284,9 @@ export const desktopApi = {
         peerPattern: binding.peerPattern ?? null,
         targetAgentId: binding.targetAgentId,
         priority: binding.priority ?? 0,
+        createdAtMs: binding.createdAtMs ?? null,
+        botName: binding.botName ?? null,
+        enabled: binding.enabled ?? true,
       },
     })
   },

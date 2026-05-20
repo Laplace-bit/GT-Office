@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useState } from 'react'
 import { desktopApi, type AgentRole, type AgentProfile, type ChannelConnectorAccount, type ChannelRouteBinding } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
-import { buildChannelBotBindingGroups, normalizeChannelAccountId } from './channel-bot-binding-model'
+import {
+  buildChannelBotBindingGroups,
+  isConfiguredChannelBotGroup,
+  matchesChannelBindingIdentity,
+  normalizeChannelAccountId,
+} from './channel-bot-binding-model'
 import { resolveConnectorAccounts } from './channel-connector-runtime'
 import { ChannelProviderCard } from './ChannelProviderCard'
 import { ChannelConfigurationModal } from './ChannelConfigurationModal'
 import { ChannelOverview } from './ChannelOverview'
 import { ChannelWizard } from './ChannelWizard'
+import { ChannelBindingDeleteConfirmDialog } from './ChannelBindingDeleteConfirmDialog'
 
 export type ConnectorChannel = 'feishu' | 'telegram' | 'wechat'
 
 const SUPPORTED_CHANNELS: ConnectorChannel[] = ['wechat', 'feishu', 'telegram']
+type ChannelBotGroup = ReturnType<typeof buildChannelBotBindingGroups>[number]
+
+type DeleteConfirmState =
+  | { kind: 'route'; binding: ChannelRouteBinding }
+  | { kind: 'connection'; group: ChannelBotGroup }
+  | null
 
 interface ChannelManagerPaneProps {
   locale: Locale
@@ -30,8 +42,16 @@ function describeError(value: unknown): string {
   return 'unknown'
 }
 
-function buildHealthCheckKey(binding: ChannelRouteBinding): string {
-  return `${binding.channel.trim().toLowerCase()}::${normalizeChannelAccountId(binding.accountId).toLowerCase()}`
+function buildHealthCheckKey(channel: string, accountId?: string | null): string {
+  return `${channel.trim().toLowerCase()}::${normalizeChannelAccountId(accountId).toLowerCase()}`
+}
+
+function matchesChannelAccount(binding: ChannelRouteBinding, channel: string, accountId?: string | null): boolean {
+  return (
+    binding.channel.trim().toLowerCase() === channel.trim().toLowerCase() &&
+    normalizeChannelAccountId(binding.accountId).toLowerCase() ===
+      normalizeChannelAccountId(accountId).toLowerCase()
+  )
 }
 
 function formatCheckedAt(locale: Locale, timestampMs: number): string {
@@ -68,6 +88,7 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
   const [wizardOpen, setWizardOpen] = useState(variant === 'studio')
   const [editingBinding, setEditingBinding] = useState<ChannelRouteBinding | null>(null)
   const [configChannel, setConfigChannel] = useState<ConnectorChannel | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState>(null)
 
   const loadRuntimeStatus = useCallback(async () => {
     if (!desktopApi.isTauriRuntime()) {
@@ -141,25 +162,51 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
     setWizardOpen(true)
   }
 
-  const handleDeleteBinding = async (binding: ChannelRouteBinding) => {
-    if (!window.confirm(t(locale, '确定要删除这条通道路由绑定吗？', 'Are you sure you want to delete this channel route binding?'))) {
+  const handleRequestDeleteBinding = (binding: ChannelRouteBinding) => {
+    if (!desktopApi.isTauriRuntime()) {
+      setErrorMessage(
+        t(locale, '当前为 Web 预览模式，无法删除路由。请使用桌面应用。', 'Route deletion is unavailable in web preview. Use the desktop app.'),
+      )
       return
     }
+    setErrorMessage(null)
+    setStatusMessage(null)
+    setDeleteConfirm({ kind: 'route', binding })
+  }
+
+  const executeDeleteBinding = async (binding: ChannelRouteBinding) => {
     setLoading(true)
+    setStatusMessage(t(locale, '正在删除路由…', 'Deleting route…'))
+    setErrorMessage(null)
     try {
-      await desktopApi.channelBindingDelete(binding)
+      const result = await desktopApi.channelBindingDelete(binding)
+      if (!result.deleted) {
+        setStatusMessage(null)
+        setErrorMessage(
+          t(
+            locale,
+            '未找到要删除的路由绑定，可能已被删除或账号标识不一致。',
+            'Route binding was not found. It may have been removed already or the account identity no longer matches.',
+          ),
+        )
+        return
+      }
+      setBindings((current) => current.filter((entry) => !matchesChannelBindingIdentity(entry, binding)))
       await loadBindingsAndRoles()
       setStatusMessage(t(locale, '已删除路由绑定。', 'Route binding deleted.'))
-      setTimeout(() => setStatusMessage(null), 3000)
+      setTimeout(() => setStatusMessage(null), 4000)
     } catch (error) {
+      setStatusMessage(null)
       setErrorMessage(t(locale, '删除绑定失败: {detail}', 'Failed to delete binding: {detail}', { detail: describeError(error) }))
     } finally {
       setLoading(false)
+      setDeleteConfirm(null)
     }
   }
 
   const handleToggleBindingEnabled = async (binding: ChannelRouteBinding, nextEnabled: boolean) => {
     setLoading(true)
+    setStatusMessage(null)
     setErrorMessage(null)
     try {
       await desktopApi.channelBindingUpsert({
@@ -184,23 +231,38 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
     }
   }
 
-  const handleHealthCheckBinding = async (binding: ChannelRouteBinding) => {
-    const healthCheckKey = buildHealthCheckKey(binding)
+  const handleHealthCheckGroup = async (group: ChannelBotGroup) => {
+    const healthCheckKey = buildHealthCheckKey(group.channel, group.accountId)
     setHealthCheckingKey(healthCheckKey)
+    setStatusMessage(null)
     setErrorMessage(null)
     try {
-      const response = await desktopApi.channelConnectorHealth(binding.channel, binding.accountId ?? null)
+      const response = await desktopApi.channelConnectorHealth(group.channel, group.accountId ?? null)
       const health = response.health
       const healthBotName = (health.botName ?? health.botUsername ?? '').trim()
-      const previousBotName = (binding.botName ?? '').trim()
-      if (healthBotName && healthBotName !== previousBotName) {
-        await desktopApi.channelBindingUpsert({
-          ...binding,
-          botName: healthBotName,
-        })
+      const accountBindings = bindings.filter((binding) =>
+        matchesChannelAccount(binding, group.channel, group.accountId),
+      )
+      const bindingsToRefresh = healthBotName
+        ? accountBindings.filter((binding) => (binding.botName ?? '').trim() !== healthBotName)
+        : []
+      if (bindingsToRefresh.length > 0) {
+        await Promise.all(
+          bindingsToRefresh.map((binding) =>
+            desktopApi.channelBindingUpsert({
+              ...binding,
+              botName: healthBotName,
+            }),
+          ),
+        )
         await loadBindingsAndRoles()
       }
-      const botName = healthBotName || previousBotName || normalizeChannelAccountId(binding.accountId)
+      const previousBotName =
+        accountBindings
+          .map((binding) => (binding.botName ?? '').trim())
+          .find((value) => value.length > 0) ?? ''
+      const botName =
+        healthBotName || previousBotName || normalizeChannelAccountId(group.accountId)
       const checkedAt = formatCheckedAt(locale, health.checkedAtMs)
       if (health.ok) {
         setStatusMessage(
@@ -228,6 +290,79 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
     } finally {
       setHealthCheckingKey(null)
     }
+  }
+
+  const handleRequestDeleteGroup = (group: ChannelBotGroup) => {
+    if (!desktopApi.isTauriRuntime()) {
+      setErrorMessage(
+        t(locale, '当前为 Web 预览模式，无法删除连接。请使用桌面应用。', 'Connection deletion is unavailable in web preview. Use the desktop app.'),
+      )
+      return
+    }
+    setErrorMessage(null)
+    setStatusMessage(null)
+    setDeleteConfirm({ kind: 'connection', group })
+  }
+
+  const executeDeleteGroup = async (group: ChannelBotGroup) => {
+    setLoading(true)
+    setStatusMessage(null)
+    setErrorMessage(null)
+    try {
+      const result = await desktopApi.channelConnectorAccountDelete(group.channel, group.accountId)
+      setBindings((current) =>
+        current.filter(
+          (binding) =>
+            !(
+              binding.channel.trim().toLowerCase() === group.channel.trim().toLowerCase() &&
+              normalizeChannelAccountId(binding.accountId).toLowerCase() ===
+                normalizeChannelAccountId(group.accountId).toLowerCase()
+            ),
+        ),
+      )
+      setConnectorAccounts((current) =>
+        current.filter(
+          (account) =>
+            !(
+              account.channel.trim().toLowerCase() === group.channel.trim().toLowerCase() &&
+              normalizeChannelAccountId(account.accountId).toLowerCase() ===
+                normalizeChannelAccountId(group.accountId).toLowerCase()
+            ),
+        ),
+      )
+      await loadBindingsAndRoles()
+      await loadRuntimeStatus()
+      setStatusMessage(
+        t(
+          locale,
+          '已删除连接 {account}，移除 {count} 条路由。',
+          'Deleted connection {account} and removed {count} routes.',
+          {
+            account: normalizeChannelAccountId(result.accountId),
+            count: result.deletedBindings,
+          },
+        ),
+      )
+      setTimeout(() => setStatusMessage(null), 4000)
+    } catch (error) {
+      setErrorMessage(
+        t(locale, '删除连接失败: {detail}', 'Failed to delete connection: {detail}', {
+          detail: describeError(error),
+        }),
+      )
+    } finally {
+      setLoading(false)
+      setDeleteConfirm(null)
+    }
+  }
+
+  const handleDeleteConfirmCancel = () => {
+    if (loading) {
+      return
+    }
+    setDeleteConfirm(null)
+    setStatusMessage(t(locale, '已取消删除。', 'Delete cancelled.'))
+    setTimeout(() => setStatusMessage(null), 2500)
   }
 
   const handleWizardClose = () => {
@@ -262,6 +397,7 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
     accounts: connectorAccounts,
     configuredChannels: addedChannels,
   })
+  const configuredChannelBotGroups = channelBotGroups.filter(isConfiguredChannelBotGroup)
 
   if (wizardOpen && variant === 'studio') {
     return (
@@ -289,15 +425,18 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
           variant={variant}
           runtimeRunning={runtimeRunning}
           onAddChannel={handleAddChannelClick}
-          channelBotGroups={channelBotGroups}
+          channelBotGroups={configuredChannelBotGroups}
           roles={roles}
           agents={agents}
           onEditBinding={handleEditBinding}
-          onDeleteBinding={handleDeleteBinding}
+          onDeleteBinding={handleRequestDeleteBinding}
+          onDeleteGroup={handleRequestDeleteGroup}
           onToggleBindingEnabled={handleToggleBindingEnabled}
-          onHealthCheckBinding={handleHealthCheckBinding}
+          onHealthCheckGroup={handleHealthCheckGroup}
           healthCheckingKey={healthCheckingKey}
           loading={loading}
+          statusMessage={statusMessage}
+          errorMessage={errorMessage}
         />
       ) : (
         <>
@@ -314,8 +453,8 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
           </div>
           <div className="channel-providers-list" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
             {SUPPORTED_CHANNELS.map((channel) => {
-              const groupsForChannel = channelBotGroups.filter(g => g.channel === channel)
-              const botCount = groupsForChannel.reduce((sum, g) => sum + g.routes.length, 0)
+              const groupsForChannel = configuredChannelBotGroups.filter(g => g.channel === channel)
+              const botCount = groupsForChannel.length
               
               return (
                 <ChannelProviderCard
@@ -335,20 +474,19 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
               locale={locale}
               workspaceId={workspaceId}
               channel={configChannel}
-              botGroups={channelBotGroups.filter(g => g.channel === configChannel)}
+              botGroups={configuredChannelBotGroups.filter(g => g.channel === configChannel)}
               roles={roles}
               agents={agents}
               onClose={() => setConfigChannel(null)}
-              onEditBinding={(binding) => {
-                setEditingBinding(binding)
-                // Need to wire this up properly in next step if necessary
-              }}
-              onDeleteBinding={handleDeleteBinding}
+              onDeleteBinding={handleRequestDeleteBinding}
+              onDeleteGroup={handleRequestDeleteGroup}
               onToggleBindingEnabled={handleToggleBindingEnabled}
-              onHealthCheckBinding={handleHealthCheckBinding}
+              onHealthCheckGroup={handleHealthCheckGroup}
               onWizardSuccess={handleWizardSuccess}
               healthCheckingKey={healthCheckingKey}
               loading={loading}
+              statusMessage={statusMessage}
+              errorMessage={errorMessage}
               connectorAccounts={connectorAccounts}
               telegramWebhook={telegramWebhook}
               feishuWebhook={feishuWebhook}
@@ -360,6 +498,46 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
       
       {statusMessage && <p className="settings-channel-message">{statusMessage}</p>}
       {errorMessage && <p className="settings-channel-error">{errorMessage}</p>}
+
+      {deleteConfirm?.kind === 'route' ? (
+        <ChannelBindingDeleteConfirmDialog
+          locale={locale}
+          kind="route"
+          title={t(locale, '删除路由', 'Delete Route')}
+          description={t(
+            locale,
+            '删除后该匹配规则将不再把消息转发到对应 Agent。此操作不可撤销。',
+            'This removes the routing rule and stops forwarding messages to the bound agent. This cannot be undone.',
+          )}
+          detail={t(locale, '目标: {target} · 匹配: {kind}/{pattern}', 'Target: {target} · Match: {kind}/{pattern}', {
+            target: deleteConfirm.binding.targetAgentId,
+            kind: deleteConfirm.binding.peerKind ?? '*',
+            pattern: deleteConfirm.binding.peerPattern || '*',
+          })}
+          loading={loading}
+          onCancel={handleDeleteConfirmCancel}
+          onConfirm={() => void executeDeleteBinding(deleteConfirm.binding)}
+        />
+      ) : null}
+
+      {deleteConfirm?.kind === 'connection' ? (
+        <ChannelBindingDeleteConfirmDialog
+          locale={locale}
+          kind="connection"
+          title={t(locale, '删除连接', 'Delete Connection')}
+          description={t(
+            locale,
+            '这会删除该 Bot 账号凭证，并移除其下所有路由绑定。',
+            'This removes the bot account credentials and every route bound to it.',
+          )}
+          detail={t(locale, '账号: {account}', 'Account: {account}', {
+            account: normalizeChannelAccountId(deleteConfirm.group.accountId),
+          })}
+          loading={loading}
+          onCancel={handleDeleteConfirmCancel}
+          onConfirm={() => void executeDeleteGroup(deleteConfirm.group)}
+        />
+      ) : null}
     </div>
   )
 }

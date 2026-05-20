@@ -50,7 +50,7 @@ export function FeishuConnectorWizard({
   const [healthSnapshot, setHealthSnapshot] = useState<ChannelConnectorHealthResponse['health'] | null>(null)
   const [connectionTestPassed, setConnectionTestPassed] = useState(false)
   const [platformSubscriptionConfirmed, setPlatformSubscriptionConfirmed] = useState(false)
-  const [qrScanResult, setQrScanResult] = useState<{ appId: string; domain: string } | null>(null)
+  const [qrScanResult, setQrScanResult] = useState<{ accountId: string; appId: string; domain: string } | null>(null)
   const [form, setForm] = useState<FeishuWizardForm>(() =>
     buildFeishuDefaultForm({
       editingBinding,
@@ -77,7 +77,7 @@ export function FeishuConnectorWizard({
     }
   }
 
-  const handleQrScanSuccess = (result: { appId: string; domain: string }) => {
+  const handleQrScanSuccess = (result: { accountId: string; appId: string; domain: string }) => {
     setForm((prev) => ({
       ...prev,
       appId: result.appId,
@@ -108,7 +108,8 @@ export function FeishuConnectorWizard({
       return
     }
 
-    const normalizedAccountId = editingBinding?.accountId?.trim() || 'default'
+    const normalizedAccountId =
+      editingBinding?.accountId?.trim() || qrScanResult?.accountId?.trim() || 'default'
     const targetSelector = normalizeAgentTarget(form.targetAgentId)
     if (!targetSelector) {
       setErrorMessage(t(locale, '请选择一个 Agent。', 'Select an Agent first.'))

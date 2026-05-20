@@ -1,9 +1,13 @@
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import type { AgentRole, AgentProfile, ChannelRouteBinding } from '@shell/integration/desktop-api'
-import { normalizeChannelAccountId, type buildChannelBotBindingGroups } from './channel-bot-binding-model'
+import {
+  buildChannelRouteRowKey,
+  normalizeChannelAccountId,
+  type ChannelBotBindingGroup,
+} from './channel-bot-binding-model'
 import { AppIcon } from '@shell/ui/icons'
 
-type ChannelBotGroup = ReturnType<typeof buildChannelBotBindingGroups>[number]
+type ChannelBotGroup = ChannelBotBindingGroup
 
 interface ChannelBotCardProps {
   group: ChannelBotGroup
@@ -13,7 +17,8 @@ interface ChannelBotCardProps {
   onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
   onToggleBindingEnabled: (binding: ChannelRouteBinding, nextEnabled: boolean) => void
-  onHealthCheckBinding: (binding: ChannelRouteBinding) => void
+  onHealthCheckGroup: (group: ChannelBotGroup) => void
+  onDeleteGroup: (group: ChannelBotGroup) => void
   healthCheckingKey: string | null
   loading: boolean
 }
@@ -34,8 +39,8 @@ function formatBindingCreatedAt(locale: Locale, createdAtMs?: number | null): st
   }).format(new Date(createdAtMs))
 }
 
-function buildHealthCheckKey(binding: ChannelRouteBinding): string {
-  return `${binding.channel.trim().toLowerCase()}::${normalizeChannelAccountId(binding.accountId).toLowerCase()}`
+function buildHealthCheckKey(channel: string, accountId?: string | null): string {
+  return `${channel.trim().toLowerCase()}::${normalizeChannelAccountId(accountId).toLowerCase()}`
 }
 
 export function ChannelBotCard({
@@ -46,7 +51,8 @@ export function ChannelBotCard({
   onEditBinding,
   onDeleteBinding,
   onToggleBindingEnabled,
-  onHealthCheckBinding,
+  onHealthCheckGroup,
+  onDeleteGroup,
   healthCheckingKey,
   loading,
 }: ChannelBotCardProps) {
@@ -68,6 +74,9 @@ export function ChannelBotCard({
       return agent ? agent.name : target.value
     }
   }
+
+  const groupHealthKey = buildHealthCheckKey(group.channel, group.accountId)
+  const isHealthChecking = healthCheckingKey === groupHealthKey
 
   return (
     <div className="channel-bot-card">
@@ -93,6 +102,31 @@ export function ChannelBotCard({
           <span className="channel-bot-route-badge">
             {t(locale, 'settings.channel.entry.routeCount', { count: group.routes.length })}
           </span>
+          <div className="channel-bot-header-actions">
+            <button
+              type="button"
+              className={`channel-route-icon-btn ${isHealthChecking ? 'is-loading' : ''}`}
+              onClick={() => onHealthCheckGroup(group)}
+              disabled={loading || isHealthChecking}
+              aria-label={t(locale, '检查连接', 'Check Connection')}
+              title={t(locale, '检查连接', 'Check Connection')}
+            >
+              <AppIcon name="activity" className="vb-icon" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="channel-route-icon-btn channel-route-icon-btn-danger"
+              onClick={(event) => {
+                event.stopPropagation()
+                onDeleteGroup(group)
+              }}
+              disabled={loading}
+              aria-label={t(locale, '删除连接', 'Delete Connection')}
+              title={t(locale, '删除连接', 'Delete Connection')}
+            >
+              <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -100,15 +134,13 @@ export function ChannelBotCard({
         <ul className="channel-bot-routes">
           {group.routes.map(({ binding, target }: { binding: ChannelRouteBinding; target: { type: string; value: string } }) => {
             const targetLabel = getTargetLabel(target)
-            const routeHealthKey = buildHealthCheckKey(binding)
-            const isHealthChecking = healthCheckingKey === routeHealthKey
             const accountId = normalizeChannelAccountId(binding.accountId)
             const botName = (binding.botName ?? '').trim() || (accountId === 'default' ? t(locale, '未识别 Bot', 'Unknown Bot') : accountId)
             const enabled = binding.enabled !== false
             const bindingSummary = `${botName} - ${targetLabel} - ${formatBindingCreatedAt(locale, binding.createdAtMs)}`
 
             return (
-              <li key={`${binding.channel}:${binding.accountId}:${binding.peerPattern}:${binding.targetAgentId}`} className="channel-bot-route-item">
+              <li key={buildChannelRouteRowKey(binding)} className="channel-bot-route-item">
                 <div className="channel-bot-route-info">
                   <p className="channel-bot-route-binding" title={bindingSummary}>
                     {bindingSummary}
@@ -123,16 +155,6 @@ export function ChannelBotCard({
                   </p>
                 </div>
                 <div className="channel-bot-route-actions">
-                  <button
-                    type="button"
-                    className={`channel-route-icon-btn ${isHealthChecking ? 'is-loading' : ''}`}
-                    onClick={() => onHealthCheckBinding(binding)}
-                    disabled={loading || isHealthChecking}
-                    aria-label={t(locale, '健康检查', 'Health Check')}
-                    title={t(locale, '健康检查', 'Health Check')}
-                  >
-                    <AppIcon name="activity" className="vb-icon" aria-hidden="true" />
-                  </button>
                   <button
                     type="button"
                     className="channel-route-icon-btn"
@@ -156,10 +178,13 @@ export function ChannelBotCard({
                   <button
                     type="button"
                     className="channel-route-icon-btn channel-route-icon-btn-danger"
-                    onClick={() => onDeleteBinding(binding)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onDeleteBinding(binding)
+                    }}
                     disabled={loading}
-                    aria-label={t(locale, '删除', 'Delete')}
-                    title={t(locale, '删除', 'Delete')}
+                    aria-label={t(locale, '删除路由', 'Delete Route')}
+                    title={t(locale, '删除路由', 'Delete Route')}
                   >
                     <AppIcon name="trash" className="vb-icon" aria-hidden="true" />
                   </button>

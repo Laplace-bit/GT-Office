@@ -123,6 +123,22 @@ pub fn upsert_record(
     save_store(app, &store).map_err(|e| e.to_string())
 }
 
+pub fn delete_record(app: &AppHandle<impl Runtime>, account_id: &str) -> Result<bool, String> {
+    let normalized_account_id = account_id.trim().to_ascii_lowercase();
+    if normalized_account_id.is_empty() {
+        return Ok(false);
+    }
+    let mut store = load_store(app).map_err(|e| e.to_string())?;
+    let deleted = store
+        .feishu_accounts
+        .remove(&normalized_account_id)
+        .is_some();
+    if deleted {
+        save_store(app, &store).map_err(|e| e.to_string())?;
+    }
+    Ok(deleted)
+}
+
 #[cfg(test)]
 #[path = "tests/account_store_tests.rs"]
 mod tests;

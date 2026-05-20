@@ -235,6 +235,7 @@ pub fn run() {
             tool_adapter::channel_adapter_status,
             tool_adapter::channel_connector_account_upsert,
             tool_adapter::channel_connector_account_list,
+            tool_adapter::channel_connector_account_delete,
             tool_adapter::channel_connector_health,
             tool_adapter::channel_connector_webhook_sync,
             tool_adapter::channel_connector_wechat_auth_start,

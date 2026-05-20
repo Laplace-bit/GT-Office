@@ -10,6 +10,7 @@ pub mod websocket;
 pub mod types;
 
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -39,6 +40,70 @@ pub fn normalize_account_id(value: Option<&str>) -> String {
         .filter(|item| !item.is_empty())
         .unwrap_or("default")
         .to_ascii_lowercase()
+}
+
+fn sanitize_account_slug(value: &str) -> String {
+    let mut slug = String::with_capacity(value.len());
+    let mut last_was_separator = false;
+    for ch in value.chars() {
+        let normalized = ch.to_ascii_lowercase();
+        if normalized.is_ascii_alphanumeric() {
+            slug.push(normalized);
+            last_was_separator = false;
+            continue;
+        }
+        if matches!(normalized, '-' | '_' | '.') {
+            slug.push(normalized);
+            last_was_separator = false;
+            continue;
+        }
+        if !last_was_separator {
+            slug.push('-');
+            last_was_separator = true;
+        }
+    }
+    slug.trim_matches(|ch| matches!(ch, '-' | '_' | '.'))
+        .to_string()
+}
+
+fn next_available_account_id(
+    existing_records: &[FeishuConnectorAccountRecord],
+    bot_name: Option<&str>,
+    app_id: &str,
+) -> String {
+    let normalized_app_id = app_id.trim();
+    if let Some(existing) = existing_records
+        .iter()
+        .find(|record| record.app_id.trim().eq_ignore_ascii_case(normalized_app_id))
+    {
+        return existing.account_id.clone();
+    }
+
+    let preferred = bot_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(sanitize_account_slug)
+        .filter(|value| !value.is_empty());
+    let fallback = sanitize_account_slug(normalized_app_id);
+    let base = preferred
+        .or_else(|| (!fallback.is_empty()).then_some(fallback))
+        .unwrap_or_else(|| "feishu-bot".to_string());
+    let taken: HashSet<String> = existing_records
+        .iter()
+        .map(|record| record.account_id.trim().to_ascii_lowercase())
+        .collect();
+    if !taken.contains(&base) {
+        return base;
+    }
+
+    let mut suffix = 2usize;
+    loop {
+        let candidate = format!("{base}-{suffix}");
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
 }
 
 fn default_app_secret_ref(account_id: &str) -> String {
@@ -282,6 +347,14 @@ pub fn upsert_account(
     Ok(to_view(&record))
 }
 
+pub fn delete_account(
+    app: &AppHandle<impl Runtime>,
+    account_id: Option<&str>,
+) -> Result<bool, String> {
+    let account_id = normalize_account_id(account_id);
+    account_store::delete_record(app, &account_id)
+}
+
 pub async fn health_check(
     app: &AppHandle,
     account_id: Option<&str>,
@@ -437,10 +510,15 @@ pub async fn qr_login_start(
                 "lark" => FeishuDomain::Lark,
                 _ => FeishuDomain::Feishu,
             };
+            let account_id = next_available_account_id(
+                &list_records(&app_clone).unwrap_or_default(),
+                success.bot_name.as_deref(),
+                &success.app_id,
+            );
 
             // Auto-save account
             let upsert_input = FeishuAccountUpsertInput {
-                account_id: Some("default".to_string()),
+                account_id: Some(account_id.clone()),
                 enabled: Some(true),
                 connection_mode: Some("websocket".to_string()),
                 domain: Some(feishu_domain.as_str().to_string()),
@@ -461,6 +539,17 @@ pub async fn qr_login_start(
                 );
                 return;
             }
+
+            let _ = app_clone.emit(
+                "feishu-qr/success",
+                serde_json::json!({
+                    "accountId": account_id,
+                    "appId": success.app_id,
+                    "domain": success.domain,
+                    "botName": success.bot_name,
+                    "openId": success.open_id,
+                }),
+            );
 
             // Start websocket connection
             websocket::reconcile(&app_clone, &state_clone);

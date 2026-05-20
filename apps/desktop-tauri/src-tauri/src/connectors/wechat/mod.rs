@@ -284,6 +284,38 @@ pub fn upsert_account(
     Ok(to_view(&record))
 }
 
+pub fn delete_account(
+    app: &AppHandle<impl Runtime>,
+    account_id: Option<&str>,
+) -> Result<bool, String> {
+    let account_id = normalize_account_id(account_id);
+    let mut store = load_store(app)?;
+    let Some(account_key) = store
+        .wechat_accounts
+        .keys()
+        .find(|key| key.trim().eq_ignore_ascii_case(&account_id))
+        .cloned()
+    else {
+        return Ok(false);
+    };
+    store.wechat_accounts.remove(&account_key);
+    save_store(app, &store)?;
+    if let Some(lock) = CONTEXT_TOKENS.get() {
+        if let Ok(mut guard) = lock.write() {
+            guard.remove(&account_key);
+            guard.remove(&account_id);
+        }
+    }
+    if let Ok(mut guard) = runtime_status().write() {
+        guard.remove(&account_key);
+        guard.remove(&account_id);
+    }
+    if let Ok(path) = sync_buf_path(app, &account_key) {
+        let _ = fs::remove_file(path);
+    }
+    Ok(true)
+}
+
 pub fn list_accounts_with_uninitialized_policy(
     app: &AppHandle<impl Runtime>,
 ) -> Result<Vec<String>, String> {

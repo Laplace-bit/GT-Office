@@ -1,6 +1,6 @@
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { ChannelBotCard } from './ChannelBotCard'
-import { buildChannelBotBindingGroups } from './channel-bot-binding-model'
+import { type ChannelBotBindingGroup } from './channel-bot-binding-model'
 import { type AgentRole, type AgentProfile, type ChannelRouteBinding } from '@shell/integration/desktop-api'
 import { AppIcon } from '@shell/ui/icons'
 
@@ -9,15 +9,18 @@ interface ChannelOverviewProps {
   variant?: 'embedded' | 'studio' | 'settings'
   runtimeRunning: boolean
   onAddChannel: () => void
-  channelBotGroups: ReturnType<typeof buildChannelBotBindingGroups>
+  channelBotGroups: ChannelBotBindingGroup[]
   roles: AgentRole[]
   agents: AgentProfile[]
   onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
+  onDeleteGroup: (group: ChannelBotBindingGroup) => void
   onToggleBindingEnabled: (binding: ChannelRouteBinding, nextEnabled: boolean) => void
-  onHealthCheckBinding: (binding: ChannelRouteBinding) => void
+  onHealthCheckGroup: (group: ChannelBotBindingGroup) => void
   healthCheckingKey: string | null
   loading: boolean
+  statusMessage?: string | null
+  errorMessage?: string | null
 }
 
 export function ChannelOverview({
@@ -30,10 +33,13 @@ export function ChannelOverview({
   agents,
   onEditBinding,
   onDeleteBinding,
+  onDeleteGroup,
   onToggleBindingEnabled,
-  onHealthCheckBinding,
+  onHealthCheckGroup,
   healthCheckingKey,
-  loading
+  loading,
+  statusMessage,
+  errorMessage,
 }: ChannelOverviewProps) {
   const isSettings = variant === 'settings'
   const isStudio = variant === 'studio'
@@ -73,6 +79,9 @@ export function ChannelOverview({
         </div>
       </div>
 
+      {errorMessage ? <div className="provider-workspace__feedback is-error">{errorMessage}</div> : null}
+      {statusMessage ? <div className="provider-workspace__feedback is-success">{statusMessage}</div> : null}
+
       {channelBotGroups.length === 0 ? (
         <div className="settings-pane-section channel-empty-state">
           <p>
@@ -98,8 +107,9 @@ export function ChannelOverview({
               agents={agents}
               onEditBinding={onEditBinding}
               onDeleteBinding={onDeleteBinding}
+              onDeleteGroup={onDeleteGroup}
               onToggleBindingEnabled={onToggleBindingEnabled}
-              onHealthCheckBinding={onHealthCheckBinding}
+              onHealthCheckGroup={onHealthCheckGroup}
               healthCheckingKey={healthCheckingKey}
               loading={loading}
             />

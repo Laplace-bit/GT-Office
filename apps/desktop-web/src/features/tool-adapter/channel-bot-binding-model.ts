@@ -35,6 +35,10 @@ function normalizeCompareKey(value: string): string {
   return value.trim().toLowerCase()
 }
 
+function normalizeOptionalCompareKey(value?: string | null): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
 function compareChannelOrder(channel: string): number {
   const normalized = normalizeCompareKey(channel)
   if (normalized === 'wechat') {
@@ -61,6 +65,37 @@ function compareChannelName(a: string, b: string): number {
 export function normalizeChannelAccountId(accountId?: string | null): string {
   const trimmed = typeof accountId === 'string' ? accountId.trim() : ''
   return trimmed.length > 0 ? trimmed : DEFAULT_ACCOUNT_ID
+}
+
+export function matchesChannelBindingIdentity(
+  left: ChannelRouteBinding,
+  right: ChannelRouteBinding,
+): boolean {
+  return (
+    left.workspaceId === right.workspaceId &&
+    normalizeCompareKey(left.channel) === normalizeCompareKey(right.channel) &&
+    normalizeChannelAccountId(left.accountId).toLowerCase() ===
+      normalizeChannelAccountId(right.accountId).toLowerCase() &&
+    normalizeOptionalCompareKey(left.peerKind) === normalizeOptionalCompareKey(right.peerKind) &&
+    normalizeOptionalCompareKey(left.peerPattern) ===
+      normalizeOptionalCompareKey(right.peerPattern)
+  )
+}
+
+export function buildChannelRouteRowKey(binding: ChannelRouteBinding): string {
+  return [
+    binding.workspaceId,
+    binding.channel.trim().toLowerCase(),
+    normalizeChannelAccountId(binding.accountId).toLowerCase(),
+    normalizeOptionalCompareKey(binding.peerKind),
+    normalizeOptionalCompareKey(binding.peerPattern),
+    binding.targetAgentId.trim(),
+    String(binding.createdAtMs ?? ''),
+  ].join('::')
+}
+
+export function isConfiguredChannelBotGroup(group: ChannelBotBindingGroup): boolean {
+  return group.hasBotAccount || group.routes.length > 0
 }
 
 export function parseChannelBindingTarget(targetAgentId: string): ParsedChannelBindingTarget {
@@ -120,6 +155,12 @@ export function buildChannelBotBindingGroups(input: {
   configuredChannels.forEach((channel) => {
     const normalizedChannel = channel.trim()
     if (!normalizedChannel) {
+      return
+    }
+    const hasExistingGroup = Array.from(groups.values()).some(
+      (group) => normalizeCompareKey(group.channel) === normalizeCompareKey(normalizedChannel),
+    )
+    if (hasExistingGroup) {
       return
     }
     ensureGroup(normalizedChannel, DEFAULT_ACCOUNT_ID, false)

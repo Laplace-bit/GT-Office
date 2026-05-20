@@ -135,6 +135,14 @@ pub struct ChannelConnectorAccountListRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChannelConnectorAccountDeleteRequest {
+    pub channel: String,
+    #[serde(default)]
+    pub account_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChannelConnectorHealthRequest {
     pub channel: String,
     #[serde(default)]
@@ -2330,16 +2338,6 @@ fn route_from_hints(message: &ExternalInboundMessage) -> Option<ExternalRouteRes
     })
 }
 
-fn active_workspace_id(state: &AppState) -> Option<String> {
-    state
-        .workspace_service
-        .list()
-        .ok()?
-        .into_iter()
-        .find(|workspace| workspace.active)
-        .map(|workspace| workspace.workspace_id.to_string())
-}
-
 pub(crate) fn needed_channel_accounts(state: &AppState) -> HashSet<(String, String)> {
     let workspaces = match state.workspace_service.list() {
         Ok(workspaces) => workspaces,
@@ -2770,15 +2768,20 @@ pub(crate) fn process_external_inbound_message(
     }
 
     let route = route_from_hints(&message)
-        .or_else(|| {
-            active_workspace_id(state).and_then(|workspace_id| {
-                state
-                    .task_service
-                    .resolve_external_route_preferring_workspace(&workspace_id, &message)
-            })
-        })
         .or_else(|| state.task_service.resolve_external_route(&message));
     let Some(route) = route else {
+        let ambiguous = state.task_service.is_external_route_ambiguous(&message);
+        let (code, detail) = if ambiguous {
+            (
+                "CHANNEL_ROUTE_AMBIGUOUS",
+                "multiple route bindings matched inbound message; refine peerPattern or remove duplicate catch-all routes",
+            )
+        } else {
+            (
+                "CHANNEL_ROUTE_NOT_FOUND",
+                "no route binding matched inbound message",
+            )
+        };
         let response = ExternalInboundResponse {
             trace_id: trace_id.clone(),
             status: ExternalInboundStatus::RouteNotFound,
@@ -2787,14 +2790,9 @@ pub(crate) fn process_external_inbound_message(
             target_agent_id: None,
             task_id: None,
             pairing_code: None,
-            detail: Some("CHANNEL_ROUTE_NOT_FOUND".to_string()),
+            detail: Some(code.to_string()),
         };
-        emit_external_error(
-            app,
-            &response.trace_id,
-            "CHANNEL_ROUTE_NOT_FOUND",
-            "no route binding matched inbound message",
-        );
+        emit_external_error(app, &response.trace_id, code, detail);
         state
             .task_service
             .store_external_idempotency(idempotency_key, response.clone());
@@ -2879,68 +2877,26 @@ Approve this identity in Channel settings or switch policy to open."
                 resolved_workspace_id = workspace_id;
                 path
             } else {
-                let fallback_workspace_id =
-                    state.workspace_service.list().ok().and_then(|workspaces| {
-                        workspaces
-                            .iter()
-                            .find(|workspace| workspace.active)
-                            .map(|workspace| workspace.workspace_id.to_string())
-                            .or_else(|| {
-                                if workspaces.len() == 1 {
-                                    Some(workspaces[0].workspace_id.to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                    });
-                if let Some(fallback_workspace_id) = fallback_workspace_id {
-                    if let Ok(path) = state.workspace_root_path(&fallback_workspace_id) {
-                        resolved_workspace_id = fallback_workspace_id;
-                        path
-                    } else {
-                        let response = ExternalInboundResponse {
-                            trace_id: trace_id.clone(),
-                            status: ExternalInboundStatus::Failed,
-                            idempotent_hit: false,
-                            workspace_id: Some(route.workspace_id),
-                            target_agent_id: Some(route.target_agent_id),
-                            task_id: None,
-                            pairing_code: None,
-                            detail: Some(format!("WORKSPACE_RESOLVE_FAILED: {error}")),
-                        };
-                        emit_external_error(
-                            app,
-                            &response.trace_id,
-                            "WORKSPACE_RESOLVE_FAILED",
-                            &error,
-                        );
-                        state
-                            .task_service
-                            .store_external_idempotency(idempotency_key, response.clone());
-                        return Ok(response);
-                    }
-                } else {
-                    let response = ExternalInboundResponse {
-                        trace_id: trace_id.clone(),
-                        status: ExternalInboundStatus::Failed,
-                        idempotent_hit: false,
-                        workspace_id: Some(route.workspace_id),
-                        target_agent_id: Some(route.target_agent_id),
-                        task_id: None,
-                        pairing_code: None,
-                        detail: Some(format!("WORKSPACE_RESOLVE_FAILED: {error}")),
-                    };
-                    emit_external_error(
-                        app,
-                        &response.trace_id,
-                        "WORKSPACE_RESOLVE_FAILED",
-                        &error,
-                    );
-                    state
-                        .task_service
-                        .store_external_idempotency(idempotency_key, response.clone());
-                    return Ok(response);
-                }
+                let response = ExternalInboundResponse {
+                    trace_id: trace_id.clone(),
+                    status: ExternalInboundStatus::Failed,
+                    idempotent_hit: false,
+                    workspace_id: Some(route.workspace_id),
+                    target_agent_id: Some(route.target_agent_id),
+                    task_id: None,
+                    pairing_code: None,
+                    detail: Some(format!("WORKSPACE_RESOLVE_FAILED: {error}")),
+                };
+                emit_external_error(
+                    app,
+                    &response.trace_id,
+                    "WORKSPACE_RESOLVE_FAILED",
+                    &error,
+                );
+                state
+                    .task_service
+                    .store_external_idempotency(idempotency_key, response.clone());
+                return Ok(response);
             }
         }
     };
@@ -3307,6 +3263,81 @@ pub fn channel_connector_account_list(
     }
 }
 
+fn remove_channel_connector_account_scope(
+    app: &AppHandle,
+    state: &AppState,
+    channel: &str,
+    account_id: Option<&str>,
+) -> Result<(String, usize), String> {
+    let normalized_channel = channel.trim().to_ascii_lowercase();
+    let normalized_account_id = normalize_account_id(account_id);
+    let bindings = state
+        .task_service
+        .list_route_bindings(None)
+        .into_iter()
+        .filter(|binding| {
+            binding
+                .channel
+                .trim()
+                .eq_ignore_ascii_case(&normalized_channel)
+                && normalize_account_id(binding.account_id.as_deref())
+                    .eq_ignore_ascii_case(&normalized_account_id)
+        })
+        .collect::<Vec<_>>();
+    let deleted_bindings = bindings
+        .iter()
+        .filter(|binding| state.task_service.delete_route_binding((*binding).clone()))
+        .count();
+    state
+        .task_service
+        .clear_external_account_scope(&normalized_channel, &normalized_account_id);
+    persist_route_bindings(app, state)?;
+    Ok((normalized_account_id, deleted_bindings))
+}
+
+#[tauri::command]
+pub fn channel_connector_account_delete(
+    request: ChannelConnectorAccountDeleteRequest,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let channel = request.channel.trim().to_ascii_lowercase();
+    if !matches!(channel.as_str(), "telegram" | "feishu" | "wechat") {
+        return Err(format!(
+            "CHANNEL_CONNECTOR_UNSUPPORTED: channel {} is not supported yet",
+            request.channel
+        ));
+    }
+    let (account_id, deleted_bindings) = remove_channel_connector_account_scope(
+        &app,
+        state.inner(),
+        &channel,
+        request.account_id.as_deref(),
+    )?;
+
+    let deleted_account = match channel.as_str() {
+        "telegram" => telegram::delete_account(&app, Some(&account_id))?,
+        "feishu" => {
+            let deleted = feishu::delete_account(&app, Some(&account_id))?;
+            feishu::websocket::reconcile(&app, state.inner());
+            deleted
+        }
+        "wechat" => {
+            let deleted = wechat::delete_account(&app, Some(&account_id))?;
+            wechat::reconcile(&app, state.inner());
+            deleted
+        }
+        _ => unreachable!(),
+    };
+
+    Ok(json!({
+        "channel": channel,
+        "accountId": account_id,
+        "deleted": deleted_account,
+        "deletedBindings": deleted_bindings,
+    }))
+}
+
 #[tauri::command]
 pub async fn channel_connector_health(
     request: ChannelConnectorHealthRequest,
@@ -3575,6 +3606,12 @@ pub fn channel_binding_delete(
         return Err("CHANNEL_BINDING_INVALID: targetAgentId is required".to_string());
     }
     let deleted = state.task_service.delete_route_binding(binding.clone());
+    if !deleted {
+        return Err(
+            "CHANNEL_BINDING_DELETE_NOT_FOUND: no route binding matched the provided identity"
+                .to_string(),
+        );
+    }
     state.task_service.clear_external_idempotency_cache();
     persist_route_bindings(&app, state.inner())?;
     Ok(json!({

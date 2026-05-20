@@ -1,0 +1,92 @@
+@use '../../styles/tokens/responsive' as *;
+
+.channel-binding-delete-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: rem(24);
+  background: rgba(12, 14, 18, 0.56);
+  backdrop-filter: blur(rem(8));
+}
+
+.channel-binding-delete-confirm-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: rem(12);
+  width: min(rem(440), 100%);
+  padding: rem(22);
+  border-radius: rem(22);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border) 78%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 96%, white);
+  box-shadow: 0 rem(18) rem(44) rgba(15, 23, 42, 0.28);
+
+  h4 {
+    margin: 0;
+    font-size: rem(18);
+    color: var(--vb-text);
+  }
+
+  p {
+    margin: 0;
+    color: var(--vb-text-muted);
+    line-height: 1.6;
+  }
+}
+
+.channel-binding-delete-confirm-detail {
+  display: block;
+  color: var(--vb-text);
+  font-size: rem(14);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.channel-binding-delete-confirm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: rem(40);
+  height: rem(40);
+  border-radius: rem(999);
+  color: #b42318;
+  background: rgba(254, 226, 226, 0.9);
+
+  &.is-connection {
+    color: #9a3412;
+    background: rgba(255, 237, 213, 0.95);
+  }
+}
+
+.channel-binding-delete-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: rem(10);
+  margin-top: rem(4);
+}
+
+.channel-binding-delete-confirm-btn {
+  min-width: rem(96);
+  min-height: rem(40);
+  padding: 0 rem(16);
+  border-radius: rem(12);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border) 82%, transparent);
+  background: color-mix(in srgb, var(--vb-surface-secondary) 86%, white);
+  color: var(--vb-text);
+  font-size: rem(13);
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &.is-danger {
+    border-color: rgba(248, 113, 113, 0.26);
+    background: rgba(254, 226, 226, 0.92);
+    color: #991b1b;
+  }
+}

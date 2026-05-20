@@ -278,16 +278,6 @@ pub async fn poll_app_registration(
                 result.bot_name = Some(bot_name);
             }
 
-            // Emit success event WITHOUT app_secret (security)
-            let _ = app.emit(
-                "feishu-qr/success",
-                serde_json::json!({
-                    "appId": result.app_id,
-                    "domain": result.domain,
-                    "botName": result.bot_name,
-                    "openId": result.open_id,
-                }),
-            );
             return Ok(result);
         }
 

@@ -6,6 +6,7 @@ import { desktopApi } from '@shell/integration/desktop-api'
 type QrScanState = 'idle' | 'loading' | 'scanning' | 'success' | 'error'
 
 interface QrScanResult {
+  accountId: string
   appId: string
   domain: string
   botName?: string | null

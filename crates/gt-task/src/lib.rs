@@ -202,6 +202,13 @@ pub struct ExternalRouteResolution {
     pub matched_by: String,
 }
 
+#[derive(Debug, Clone)]
+enum ExternalRouteSelection {
+    Matched(ExternalRouteResolution),
+    Miss,
+    Ambiguous,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalAccessEntry {
@@ -656,15 +663,11 @@ impl TaskService {
             Err(_) => return false,
         };
 
-        if let Some(existing) = guard.route_bindings.iter_mut().find(|entry| {
-            entry.workspace_id == normalized.workspace_id
-                && normalize_token(&entry.channel) == normalize_token(&normalized.channel)
-                && normalize_optional_token(&entry.account_id)
-                    == normalize_optional_token(&normalized.account_id)
-                && entry.peer_kind == normalized.peer_kind
-                && normalize_optional_token(&entry.peer_pattern)
-                    == normalize_optional_token(&normalized.peer_pattern)
-        }) {
+        if let Some(existing) = guard
+            .route_bindings
+            .iter_mut()
+            .find(|entry| route_binding_identity_matches(entry, &normalized))
+        {
             normalized.created_at_ms = existing
                 .created_at_ms
                 .or(normalized.created_at_ms)
@@ -689,15 +692,9 @@ impl TaskService {
         };
 
         let initial_len = guard.route_bindings.len();
-        guard.route_bindings.retain(|entry| {
-            !(entry.workspace_id == normalized.workspace_id
-                && normalize_token(&entry.channel) == normalize_token(&normalized.channel)
-                && normalize_optional_token(&entry.account_id)
-                    == normalize_optional_token(&normalized.account_id)
-                && entry.peer_kind == normalized.peer_kind
-                && normalize_optional_token(&entry.peer_pattern)
-                    == normalize_optional_token(&normalized.peer_pattern))
-        });
+        guard
+            .route_bindings
+            .retain(|entry| !route_binding_identity_matches(entry, &normalized));
 
         guard.route_bindings.len() < initial_len
     }
@@ -793,11 +790,46 @@ impl TaskService {
             .collect()
     }
 
+    pub fn clear_external_account_scope(&self, channel: &str, account_id: &str) {
+        let channel_key = normalize_token(channel);
+        let account_key = normalize_account_id(account_id);
+        let access_policy_key = access_policy_key(&channel_key, &account_key);
+        let mut guard = match self.state.write() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        guard.access_policies.remove(&access_policy_key);
+        guard.allowlist_entries.retain(|entry| {
+            parse_allowlist_key(entry)
+                .map(|(entry_channel, entry_account, _)| {
+                    !(entry_channel == channel_key && entry_account == account_key)
+                })
+                .unwrap_or(true)
+        });
+        guard.pairing_requests.retain(|entry, _| {
+            parse_allowlist_key(entry)
+                .map(|(entry_channel, entry_account, _)| {
+                    !(entry_channel == channel_key && entry_account == account_key)
+                })
+                .unwrap_or(true)
+        });
+    }
+
     pub fn resolve_external_route(
         &self,
         inbound: &ExternalInboundMessage,
     ) -> Option<ExternalRouteResolution> {
-        self.resolve_external_route_matching(inbound, |_| true, None)
+        match self.resolve_external_route_selection(inbound, |_| true, None) {
+            ExternalRouteSelection::Matched(route) => Some(route),
+            ExternalRouteSelection::Miss | ExternalRouteSelection::Ambiguous => None,
+        }
+    }
+
+    pub fn is_external_route_ambiguous(&self, inbound: &ExternalInboundMessage) -> bool {
+        matches!(
+            self.resolve_external_route_selection(inbound, |_| true, None),
+            ExternalRouteSelection::Ambiguous
+        )
     }
 
     pub fn resolve_external_route_preferring_workspace(
@@ -809,7 +841,14 @@ impl TaskService {
         if preferred_workspace_id.is_empty() {
             return self.resolve_external_route(inbound);
         }
-        self.resolve_external_route_matching(inbound, |_| true, Some(preferred_workspace_id))
+        match self.resolve_external_route_selection(
+            inbound,
+            |binding| binding.workspace_id == preferred_workspace_id,
+            None,
+        ) {
+            ExternalRouteSelection::Matched(route) => Some(route),
+            ExternalRouteSelection::Miss | ExternalRouteSelection::Ambiguous => None,
+        }
     }
 
     pub fn resolve_external_route_in_workspace(
@@ -821,19 +860,22 @@ impl TaskService {
         if workspace_id.is_empty() {
             return None;
         }
-        self.resolve_external_route_matching(
+        match self.resolve_external_route_selection(
             inbound,
             |binding| binding.workspace_id == workspace_id,
             None,
-        )
+        ) {
+            ExternalRouteSelection::Matched(route) => Some(route),
+            ExternalRouteSelection::Miss | ExternalRouteSelection::Ambiguous => None,
+        }
     }
 
-    fn resolve_external_route_matching<F>(
+    fn resolve_external_route_selection<F>(
         &self,
         inbound: &ExternalInboundMessage,
         workspace_filter: F,
         preferred_workspace_id: Option<&str>,
-    ) -> Option<ExternalRouteResolution>
+    ) -> ExternalRouteSelection
     where
         F: Fn(&ChannelRouteBinding) -> bool,
     {
@@ -841,10 +883,13 @@ impl TaskService {
         let account_id = normalize_account_id(&inbound.account_id);
         let peer_id = inbound.peer_id.trim();
         if peer_id.is_empty() {
-            return None;
+            return ExternalRouteSelection::Miss;
         }
 
-        let guard = self.state.read().ok()?;
+        let guard = match self.state.read() {
+            Ok(guard) => guard,
+            Err(_) => return ExternalRouteSelection::Miss,
+        };
         let mut candidates: Vec<(i32, i32, &ChannelRouteBinding, String)> = Vec::new();
         for binding in &guard.route_bindings {
             if !workspace_filter(binding) {
@@ -876,9 +921,29 @@ impl TaskService {
             let matched_by = resolve_matched_by(binding);
             candidates.push((score, preferred_workspace_score, binding, matched_by));
         }
+        if candidates.is_empty() {
+            return ExternalRouteSelection::Miss;
+        }
         candidates.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-        let (_, _, selected, matched_by) = candidates.first()?;
-        Some(ExternalRouteResolution {
+        let (top_score, top_preferred_score, _, _) = candidates[0];
+        let top_tier: Vec<_> = candidates
+            .iter()
+            .filter(|(score, preferred_score, _, _)| {
+                *score == top_score && *preferred_score == top_preferred_score
+            })
+            .collect();
+        let mut distinct_targets = HashSet::new();
+        for (_, _, binding, _) in &top_tier {
+            distinct_targets.insert((
+                binding.workspace_id.as_str(),
+                binding.target_agent_id.as_str(),
+            ));
+        }
+        if distinct_targets.len() > 1 {
+            return ExternalRouteSelection::Ambiguous;
+        }
+        let (_, _, selected, matched_by) = top_tier[0];
+        ExternalRouteSelection::Matched(ExternalRouteResolution {
             workspace_id: selected.workspace_id.clone(),
             target_agent_id: selected.target_agent_id.clone(),
             matched_by: matched_by.clone(),
@@ -1327,6 +1392,25 @@ fn normalize_account_id(value: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn normalize_route_binding_account_id(value: &Option<String>) -> String {
+    let normalized = value.as_deref().map(normalize_token).unwrap_or_default();
+    if normalized.is_empty() {
+        "default".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn route_binding_identity_matches(left: &ChannelRouteBinding, right: &ChannelRouteBinding) -> bool {
+    left.workspace_id == right.workspace_id
+        && normalize_token(&left.channel) == normalize_token(&right.channel)
+        && normalize_route_binding_account_id(&left.account_id)
+            == normalize_route_binding_account_id(&right.account_id)
+        && left.peer_kind == right.peer_kind
+        && normalize_optional_token(&left.peer_pattern)
+            == normalize_optional_token(&right.peer_pattern)
 }
 
 fn default_binding_enabled() -> bool {

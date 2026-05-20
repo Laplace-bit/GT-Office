@@ -5,7 +5,7 @@ import { type AgentRole, type AgentProfile, type ChannelRouteBinding } from '@sh
 import { type ConnectorChannel } from './ChannelManagerPane'
 import { AiConfigOverlay } from '../settings/ai-providers/shared/AiConfigOverlay'
 import { ChannelBotCard } from './ChannelBotCard'
-import { type ChannelBotBindingGroup } from './channel-bot-binding-model'
+import { type ChannelBotBindingGroup, isConfiguredChannelBotGroup } from './channel-bot-binding-model'
 import { ChannelWizard } from './ChannelWizard'
 
 interface ChannelConfigurationModalProps {
@@ -16,13 +16,15 @@ interface ChannelConfigurationModalProps {
   roles: AgentRole[]
   agents: AgentProfile[]
   onClose: () => void
-  onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
+  onDeleteGroup: (group: ChannelBotBindingGroup) => void
   onToggleBindingEnabled: (binding: ChannelRouteBinding, nextEnabled: boolean) => void
-  onHealthCheckBinding: (binding: ChannelRouteBinding) => void
+  onHealthCheckGroup: (group: ChannelBotBindingGroup) => void
   onWizardSuccess: (message: string) => void
   healthCheckingKey: string | null
   loading: boolean
+  statusMessage?: string | null
+  errorMessage?: string | null
   connectorAccounts: any[]
   telegramWebhook: string
   feishuWebhook: string
@@ -51,17 +53,21 @@ export function ChannelConfigurationModal({
   agents,
   onClose,
   onDeleteBinding,
+  onDeleteGroup,
   onToggleBindingEnabled,
-  onHealthCheckBinding,
+  onHealthCheckGroup,
   onWizardSuccess,
   healthCheckingKey,
   loading,
+  statusMessage,
+  errorMessage,
   connectorAccounts,
   telegramWebhook,
   feishuWebhook,
   addedChannels,
 }: ChannelConfigurationModalProps) {
-  const [wizardOpen, setWizardOpen] = useState(botGroups.length === 0)
+  const hasConfiguredGroups = botGroups.some(isConfiguredChannelBotGroup)
+  const [wizardOpen, setWizardOpen] = useState(!hasConfiguredGroups)
   const [editingBinding, setEditingBinding] = useState<ChannelRouteBinding | null>(null)
 
   const handleEdit = (binding: ChannelRouteBinding) => {
@@ -72,7 +78,7 @@ export function ChannelConfigurationModal({
   const handleWizardClose = () => {
     setWizardOpen(false)
     setEditingBinding(null)
-    if (botGroups.length === 0) {
+    if (!hasConfiguredGroups) {
       onClose()
     }
   }
@@ -92,6 +98,8 @@ export function ChannelConfigurationModal({
       onClose={onClose}
     >
       <div className="provider-workspace">
+        {errorMessage ? <div className="provider-workspace__feedback is-error">{errorMessage}</div> : null}
+        {statusMessage ? <div className="provider-workspace__feedback is-success">{statusMessage}</div> : null}
         {wizardOpen ? (
           <section className="provider-workspace__panel" onClick={(e) => e.stopPropagation()}>
             <ChannelWizard 
@@ -137,8 +145,9 @@ export function ChannelConfigurationModal({
                   agents={agents}
                   onEditBinding={handleEdit}
                   onDeleteBinding={onDeleteBinding}
+                  onDeleteGroup={onDeleteGroup}
                   onToggleBindingEnabled={onToggleBindingEnabled}
-                  onHealthCheckBinding={onHealthCheckBinding}
+                  onHealthCheckGroup={onHealthCheckGroup}
                   healthCheckingKey={healthCheckingKey}
                   loading={loading}
                 />

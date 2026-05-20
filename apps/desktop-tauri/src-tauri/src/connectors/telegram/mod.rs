@@ -519,6 +519,30 @@ pub fn upsert_account(
     Ok(to_view(&record))
 }
 
+pub fn delete_account(
+    app: &AppHandle<impl Runtime>,
+    account_id: Option<&str>,
+) -> Result<bool, String> {
+    let account_id = normalize_account_id(account_id);
+    let account_key = account_id.to_ascii_lowercase();
+    let mut store = load_store(app)?;
+    let deleted = store.telegram_accounts.remove(&account_key).is_some();
+    if deleted {
+        save_store(app, &store)?;
+        if let Some(lock) = TELEGRAM_POLL_OFFSETS.get() {
+            if let Ok(mut guard) = lock.write() {
+                guard.remove(&account_id);
+            }
+        }
+        if let Some(lock) = TELEGRAM_POLL_PRIMED.get() {
+            if let Ok(mut guard) = lock.write() {
+                guard.remove(&account_id);
+            }
+        }
+    }
+    Ok(deleted)
+}
+
 pub async fn health_check(
     app: &AppHandle<impl Runtime>,
     account_id: Option<&str>,
