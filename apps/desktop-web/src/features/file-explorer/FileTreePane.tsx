@@ -1,6 +1,5 @@
 import { createPortal } from 'react-dom'
 import {
-  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -376,7 +375,7 @@ function buildTreeNodes(
       path,
       name: entry.name,
       kind: entry.kind,
-      visual: resolveFileVisual(entry.name, entry.kind, children != null && children.length > 0),
+      visual: resolveFileVisual(entry.name, entry.kind, false),
       gitStatus: gitStatusesByPath[path] ?? null,
       loading: entry.kind === 'dir' ? Boolean(loading[path]) : false,
       children,
@@ -413,14 +412,10 @@ function TreeNodeRenderer({
     >
       {data.kind === 'dir' ? (
         <div className="tree-toggle">
-          <span className="tree-chevron" onClick={(event) => {
-            event.stopPropagation()
-            node.toggle()
-          }}>
+          <span className="tree-chevron" aria-hidden="true">
             <AppIcon
               name={node.isOpen ? 'chevron-down' : 'chevron-right'}
               className="vb-icon vb-icon-tree-chevron"
-              aria-hidden="true"
             />
           </span>
           <span className={`tree-node-icon tree-node-icon--${data.visual.kind}`} aria-hidden="true">
@@ -452,8 +447,6 @@ function TreeNodeRenderer({
     </div>
   )
 }
-
-const MemoTreeNodeRenderer = memo(TreeNodeRenderer)
 
 function TreeDragPreview({ dragIds }: DragPreviewProps) {
   return (
@@ -600,6 +593,34 @@ export function FileTreePane({
     }
   }, [workspaceId])
 
+  const closeOpenPathsUnder = useCallback((path: string) => {
+    const normalized = normalizeDirectoryPath(path)
+    const api = treeRef.current
+    if (!api) {
+      return
+    }
+    for (const openPath of Object.keys(api.openState)) {
+      if (api.isOpen(openPath) && isPathUnder(openPath, normalized)) {
+        api.close(openPath)
+      }
+    }
+  }, [])
+
+  const ensureOpenDirectoriesLoaded = useCallback(() => {
+    const api = treeRef.current
+    if (!api || !workspaceId) {
+      return
+    }
+    for (const path of Object.keys(api.openState)) {
+      if (!api.isOpen(path) || path === ROOT_DIR) {
+        continue
+      }
+      if (!loadedDirectoriesRef.current[path] && !inFlightDirectoryLoadsRef.current[path]) {
+        void loadDirectory(path)
+      }
+    }
+  }, [loadDirectory, workspaceId])
+
   const refreshRoot = useCallback(async () => {
     if (!workspaceId) {
       return
@@ -608,8 +629,9 @@ export function FileTreePane({
     setLoadedDirectories({})
     setLoadingDirectories({})
     await loadDirectory(ROOT_DIR)
+    ensureOpenDirectoriesLoaded()
     await refreshGitStatuses()
-  }, [loadDirectory, refreshGitStatuses, workspaceId])
+  }, [ensureOpenDirectoriesLoaded, loadDirectory, refreshGitStatuses, workspaceId])
 
   useEffect(() => {
     workspaceIdRef.current = workspaceId
@@ -655,9 +677,8 @@ export function FileTreePane({
     if (!viewport) {
       return
     }
-    const rect = viewport.getBoundingClientRect()
-    const nextWidth = Math.max(0, Math.round(rect.width))
-    const nextHeight = Math.max(0, Math.round(rect.height))
+    const nextWidth = Math.max(0, Math.round(viewport.clientWidth))
+    const nextHeight = Math.max(0, Math.round(viewport.clientHeight))
     setTreeSize((current) => (
       current.width === nextWidth && current.height === nextHeight
         ? current
@@ -750,6 +771,7 @@ export function FileTreePane({
     if (normalized === ROOT_DIR) {
       return
     }
+    closeOpenPathsUnder(normalized)
     setEntriesByDirectory((prev) => {
       const next: Record<string, FsEntry[]> = {}
       for (const [dir, entries] of Object.entries(prev)) {
@@ -778,7 +800,7 @@ export function FileTreePane({
       }
       return next
     })
-  }, [])
+  }, [closeOpenPathsUnder])
 
   const applyOptimisticTreeMove = useCallback((
     fromPath: string,
@@ -1124,6 +1146,10 @@ export function FileTreePane({
     () => buildTreeNodes(entriesByDirectory, loadingDirectories, gitStatusesByPath, ROOT_DIR),
     [entriesByDirectory, gitStatusesByPath, loadingDirectories],
   )
+
+  useEffect(() => {
+    ensureOpenDirectoriesLoaded()
+  }, [ensureOpenDirectoriesLoaded, treeData])
 
   const nodeKindsByPath = useMemo(() => {
     const next: Record<string, 'dir' | 'file'> = {}
@@ -1489,17 +1515,19 @@ export function FileTreePane({
           event.stopPropagation()
         }}
         onClick={(event) => {
+          if (node.data.kind === 'dir') {
+            node.select()
+            setSelectedTreePath(node.data.path)
+            node.toggle()
+            return
+          }
           node.handleClick(event)
           setSelectedTreePath(node.data.path)
-          if (node.data.kind === 'file') {
-            onSelectFile(node.data.path)
-          }
+          onSelectFile(node.data.path)
         }}
         onDoubleClick={(event) => {
           event.stopPropagation()
-          if (node.data.kind === 'dir') {
-            node.toggle()
-          } else {
+          if (node.data.kind === 'file') {
             onSelectFile(node.data.path)
           }
         }}
@@ -1589,7 +1617,7 @@ export function FileTreePane({
   ])
   const renderNode = useCallback(
     (props: NodeRendererProps<TreeNodeData>) => (
-      <MemoTreeNodeRenderer {...props} loadingLabel={loadingLabel} />
+      <TreeNodeRenderer {...props} loadingLabel={loadingLabel} />
     ),
     [loadingLabel],
   )
@@ -1737,6 +1765,7 @@ export function FileTreePane({
         >
           {treeSize.width > 0 && treeSize.height > 0 ? (
             <Tree<TreeNodeData>
+              key={workspaceId ?? 'no-workspace'}
               ref={treeRef}
               dndManager={treeDndManager}
               data={treeData}
@@ -1760,9 +1789,6 @@ export function FileTreePane({
                 setSelectedTreePath(node.data.path)
                 if (node.data.kind === 'dir') {
                   node.toggle()
-                  if (!loadedDirectoriesRef.current[node.data.path]) {
-                    void loadDirectory(node.data.path)
-                  }
                 } else {
                   onSelectFile(node.data.path)
                 }
