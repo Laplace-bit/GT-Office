@@ -118,6 +118,18 @@
   overflow-y: auto;
   padding: #{rem(4)};
 
+  &:has(.channel-wizard-container) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .channel-wizard-container {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+  }
+
   &::-webkit-scrollbar {
     width: #{rem(8)};
   }

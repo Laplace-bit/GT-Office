@@ -132,22 +132,13 @@ export function FeishuQrScan({ locale, onSuccess, onError }: FeishuQrScanProps) 
   return (
     <div className="feishu-qr-scan">
       {scanState === 'idle' && (
-        <div className="feishu-qr-scan-idle">
-          <button
-            type="button"
-            className="settings-btn settings-btn-primary"
-            onClick={handleStartScan}
-          >
-            {t(locale, '扫码连接飞书', 'Scan QR to Connect')}
-          </button>
-          <p className="feishu-qr-scan-hint">
-            {t(
-              locale,
-              '使用飞书或 Lark 扫描二维码，自动创建应用并连接。',
-              'Scan with Feishu or Lark to auto-create an app and connect.',
-            )}
-          </p>
-        </div>
+        <button
+          type="button"
+          className="settings-btn settings-btn-primary"
+          onClick={handleStartScan}
+        >
+          {t(locale, '生成二维码', 'Generate QR Code')}
+        </button>
       )}
 
       {scanState === 'loading' && (
@@ -158,39 +149,28 @@ export function FeishuQrScan({ locale, onSuccess, onError }: FeishuQrScanProps) 
       )}
 
       {scanState === 'scanning' && qrUrl && (
-        <div className="feishu-qr-scan-scanning">
-          <div className="feishu-qr-code-wrapper">
-            <QRCodeSVG
-              value={qrUrl}
-              size={240}
-              level="M"
-              bgColor="#ffffff"
-              fgColor="#0f172a"
-            />
+        <div className="channel-connect-layout feishu-qr-scan-active">
+          <div className="channel-qr-box">
+            <QRCodeSVG value={qrUrl} size={168} level="M" bgColor="#ffffff" fgColor="#0f172a" />
           </div>
-          <p className="feishu-qr-scan-instruction">
-            {t(
-              locale,
-              '请使用飞书/Lark 扫描二维码',
-              'Scan the QR code with Feishu/Lark',
-            )}
-          </p>
-          {attempt > 0 && (
-            <p className="feishu-qr-scan-attempt">
-              {t(locale, '等待扫码... (尝试 {n})', 'Waiting for scan... (attempt {n})', { n: attempt })}
+          <div className="channel-connect-side">
+            <p className="feishu-qr-scan-instruction">
+              {t(locale, '请使用飞书或 Lark 扫描二维码', 'Scan the QR code with Feishu or Lark')}
             </p>
-          )}
-          <p className="feishu-qr-scan-timer">
-            {t(locale, '剩余 {time}', '{time} remaining', { time: formatRemaining(remainingSec) })}
-          </p>
+            {attempt > 0 && (
+              <p className="feishu-qr-scan-meta">
+                {t(locale, '等待扫码…（第 {n} 次）', 'Waiting for scan… (attempt {n})', { n: attempt })}
+              </p>
+            )}
+            <p className="feishu-qr-scan-meta">
+              {t(locale, '剩余 {time}', '{time} remaining', { time: formatRemaining(remainingSec) })}
+            </p>
+          </div>
         </div>
       )}
 
       {scanState === 'success' && (
-        <div className="feishu-qr-scan-success">
-          <div className="feishu-qr-scan-check">✓</div>
-          <p>{t(locale, '连接成功！', 'Connected!')}</p>
-        </div>
+        <p className="channel-connect-success">{t(locale, '连接成功', 'Connected')}</p>
       )}
 
       {scanState === 'error' && (
@@ -198,11 +178,7 @@ export function FeishuQrScan({ locale, onSuccess, onError }: FeishuQrScanProps) 
           <p className="settings-channel-error">
             {errorMessage || t(locale, '连接失败，请重试。', 'Connection failed. Please try again.')}
           </p>
-          <button
-            type="button"
-            className="settings-btn settings-btn-primary"
-            onClick={handleRetry}
-          >
+          <button type="button" className="settings-btn settings-btn-secondary" onClick={handleRetry}>
             {t(locale, '重新扫码', 'Retry Scan')}
           </button>
         </div>

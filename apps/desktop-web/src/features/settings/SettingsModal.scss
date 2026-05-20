@@ -223,14 +223,6 @@
     gap: #{rem(20)};
   }
 
-  .channel-overview-top {
-    padding: #{rem(20)};
-    background: color-mix(in srgb, var(--vb-surface-muted) 50%, transparent);
-    border-radius: var(--vb-radius-lg);
-    border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
-    box-shadow: 0 #{rem(2)} #{rem(10)} rgba(0,0,0,0.02);
-  }
-
   .channel-bot-card {
     border-radius: var(--vb-radius-lg);
     border-color: color-mix(in srgb, var(--vb-border) 40%, transparent);

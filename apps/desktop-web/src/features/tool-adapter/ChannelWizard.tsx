@@ -10,6 +10,7 @@ import {
 } from '@shell/integration/desktop-api'
 import { FeishuConnectorWizard } from './feishu'
 import { WechatConnectorWizard } from './wechat/WechatConnectorWizard'
+import { ChannelWizardFrame } from './ChannelWizardFrame'
 import { normalizeChannelAccountId, parseChannelBindingTarget } from './channel-bot-binding-model'
 
 type ConnectorChannel = 'feishu' | 'telegram' | 'wechat'
@@ -27,6 +28,7 @@ interface ChannelWizardProps {
   telegramWebhook: string
   feishuWebhook: string
   initialChannel?: ConnectorChannel
+  embedded?: boolean
 }
 
 interface TelegramWizardForm {
@@ -53,19 +55,6 @@ function describeError(value: unknown): string {
   if (value instanceof Error) return value.message
   if (typeof value === 'string' && value.trim()) return value
   return 'unknown'
-}
-
-function WizardStepBar({ total, current }: { total: number; current: number }) {
-  return (
-    <div className="channel-wizard-step-bar">
-      {Array.from({ length: total }).map((_, index) => (
-        <div
-          key={index}
-          className={`channel-wizard-step-segment ${index === current ? 'active' : ''} ${index < current ? 'completed' : ''}`}
-        />
-      ))}
-    </div>
-  )
 }
 
 function ChannelChooser({
@@ -129,13 +118,9 @@ function TelegramChannelWizard({
   connectorAccounts,
   telegramWebhook,
   onBack,
-}: Omit<ChannelWizardProps, 'addedChannels' | 'feishuWebhook'> & { onBack?: () => void }) {
+  embedded = false,
+}: Omit<ChannelWizardProps, 'addedChannels' | 'feishuWebhook'> & { onBack?: () => void; embedded?: boolean }) {
   const activeAgents = useMemo(() => agents.filter((agent) => agent.state !== 'terminated'), [agents])
-  const agentLabelById = useMemo(() => {
-    const map = new Map<string, string>()
-    activeAgents.forEach((agent) => map.set(agent.id, agent.name))
-    return map
-  }, [activeAgents])
 
   const defaultForm: TelegramWizardForm = useMemo(() => {
     if (editingBinding) {
@@ -173,14 +158,14 @@ function TelegramChannelWizard({
     (account) => account.channel === 'telegram' && account.accountId === normalizedAccountId && account.hasBotToken,
   )
 
-  const reviewTargetLabel = agentLabelById.get(form.targetAgentId) ?? form.targetAgentId
-
   const canGoNext = useMemo(() => {
     if (wizardStep === 0) {
-      return Boolean(form.targetAgentId.trim())
+      const hasTarget = Boolean(form.targetAgentId.trim())
+      const hasTokenInput = Boolean(form.telegramBotToken.trim())
+      return hasTarget && (hasToken || hasTokenInput)
     }
     return true
-  }, [form.targetAgentId, wizardStep])
+  }, [form.targetAgentId, form.telegramBotToken, hasToken, wizardStep])
 
   const updateField = <K extends keyof TelegramWizardForm>(key: K, value: TelegramWizardForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -241,207 +226,186 @@ function TelegramChannelWizard({
     setSaving(false)
   }
 
-  const goNext = () => setWizardStep((v) => Math.min(TELEGRAM_STEP_COUNT - 1, v + 1))
-  const goPrev = () => setWizardStep((v) => Math.max(0, v - 1))
+  const wizardTitle = editingBinding
+    ? t(locale, '编辑 Telegram Channel', 'Edit Telegram Channel')
+    : t(locale, '新增 Telegram Channel', 'Add Telegram Channel')
 
-  return (
-    <div className="channel-wizard-container">
-      <header className="channel-wizard-header">
-        <div className="channel-wizard-title" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {onBack && (
-            <button type="button" className="settings-btn settings-btn-icon" onClick={onBack} title={t(locale, '返回', 'Back')} disabled={saving} style={{ padding: '0.25rem 0.35rem', border: 'none', background: 'transparent' }}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-                <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-              </svg>
-            </button>
-          )}
-          <div>
-            <h4>
-              {editingBinding
-                ? t(locale, '编辑 Telegram Channel', 'Edit Telegram Channel')
-                : t(locale, '新增 Telegram Channel', 'Add Telegram Channel')}
-            </h4>
-          </div>
-        </div>
-      </header>
-
-      <WizardStepBar total={TELEGRAM_STEP_COUNT} current={wizardStep} />
-
-      <div className="channel-wizard-body">
-        {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
-
-        <div className="channel-wizard-step-animate" key={wizardStep}>
-          {wizardStep === 0 && (
-            <div className="settings-pane-section">
-              <p className="channel-wizard-step-label">{t(locale, 'Step 1 — Bot 配置 & 路由', 'Step 1 — Bot Setup & Routing')}</p>
-              {telegramWebhook && (
-                <div className="settings-form-group">
-                  <label>{t(locale, 'Webhook URL', 'Webhook URL')}</label>
-                  <code className="channel-wizard-inline-code">{telegramWebhook}</code>
-                </div>
-              )}
-              <div className="channel-wizard-two-column">
-                <div className="settings-form-group">
-                  <label>Account ID</label>
-                  <input
-                    className="settings-input"
-                    value={form.accountId}
-                    disabled={saving || Boolean(editingBinding)}
-                    placeholder="default"
-                    onChange={(event) => updateField('accountId', event.target.value)}
-                  />
-                </div>
-                <div className="settings-form-group">
-                  <label>{t(locale, 'Bot Token', 'Bot Token')}</label>
-                  <input
-                    type="password"
-                    className="settings-input"
-                    value={form.telegramBotToken}
-                    disabled={saving}
-                    placeholder={
-                      hasToken
-                        ? t(locale, '已保存；留空不更新', 'Saved; leave blank to keep')
-                        : t(locale, '来自 BotFather', 'From BotFather')
-                    }
-                    onChange={(event) => updateField('telegramBotToken', event.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="channel-wizard-two-column">
-                <div className="settings-form-group">
-                  <label>{t(locale, '消息类型', 'Peer Kind')}</label>
-                  <select
-                    className="settings-select"
-                    value={form.peerKind}
-                    disabled={saving}
-                    onChange={(event) => updateField('peerKind', event.target.value as 'direct' | 'group')}
-                  >
-                    <option value="direct">Direct</option>
-                    <option value="group">Group</option>
-                  </select>
-                </div>
-                <div className="settings-form-group">
-                  <label>{t(locale, '目标 Agent', 'Target Agent')}</label>
-                  <select
-                    className="settings-select"
-                    value={form.targetAgentId}
-                    disabled={saving || activeAgents.length === 0}
-                    onChange={(event) => updateField('targetAgentId', event.target.value)}
-                  >
-                    {activeAgents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {wizardStep === 1 && (
-            <div className="settings-pane-section">
-              <p className="channel-wizard-step-label">{t(locale, 'Step 2 — 准入策略 & 确认', 'Step 2 — Access Policy & Review')}</p>
-              <div className="channel-wizard-two-column">
-                <div className="settings-form-group">
-                  <label>{t(locale, '准入策略', 'Access Policy')}</label>
-                  <select
-                    className="settings-select"
-                    value={form.policyMode}
-                    disabled={saving}
-                    onChange={(event) => updateField('policyMode', event.target.value as ExternalAccessPolicyMode)}
-                  >
-                    <option value="open">open — {t(locale, '全部放行', 'Allow all')}</option>
-                    <option value="pairing">pairing — {t(locale, '首次配对', 'First-time pairing')}</option>
-                    <option value="allowlist">allowlist — {t(locale, '白名单', 'Allowlist')}</option>
-                    <option value="disabled">disabled</option>
-                  </select>
-                </div>
-                <div className="settings-form-group">
-                  <label>{t(locale, '优先级', 'Priority')}</label>
-                  <input
-                    type="number"
-                    className="settings-input"
-                    value={form.priority}
-                    disabled={saving}
-                    onChange={(event) => updateField('priority', Number(event.target.value))}
-                  />
-                </div>
-              </div>
-              <div className="settings-form-group">
-                <label>{t(locale, '预授权 identities（可选）', 'Pre-approve identities (optional)')}</label>
-                <textarea
-                  className="settings-input"
-                  rows={3}
-                  value={form.approveIdentities}
-                  disabled={saving}
-                  placeholder={t(locale, '每行一个，或逗号分隔', 'One per line or comma-separated')}
-                  onChange={(event) => updateField('approveIdentities', event.target.value)}
-                />
-              </div>
-
-              <div className="feishu-inline-panel channel-wizard-review-panel">
-                <ul className="feishu-review-list">
-                  <li>
-                    <span>Channel</span>
-                    <strong>Telegram</strong>
-                  </li>
-                  <li>
-                    <span>Account</span>
-                    <strong>{normalizedAccountId}</strong>
-                  </li>
-                  <li>
-                    <span>{t(locale, '目标', 'Target')}</span>
-                    <strong>{reviewTargetLabel || '-'}</strong>
-                  </li>
-                  <li>
-                    <span>{t(locale, '匹配', 'Match')}</span>
-                    <strong>
-                      {form.peerKind} / {form.peerPattern || '*'}
-                    </strong>
-                  </li>
-                  <li>
-                    <span>{t(locale, '策略', 'Policy')}</span>
-                    <strong>{form.policyMode}</strong>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <footer className="channel-wizard-footer">
+  const wizardFooter = (
+    <>
+      <button
+        type="button"
+        className="settings-btn settings-btn-secondary"
+        onClick={() => setWizardStep((v) => Math.max(0, v - 1))}
+        disabled={saving || wizardStep === 0}
+      >
+        {t(locale, '上一步', 'Previous')}
+      </button>
+      {wizardStep < TELEGRAM_STEP_COUNT - 1 ? (
         <button
           type="button"
-          className="settings-btn settings-btn-secondary"
-          onClick={goPrev}
-          disabled={saving || wizardStep === 0}
+          className="settings-btn settings-btn-primary"
+          onClick={() => setWizardStep((v) => Math.min(TELEGRAM_STEP_COUNT - 1, v + 1))}
+          disabled={saving || !canGoNext}
         >
-          {t(locale, '上一步', 'Back')}
+          {t(locale, '下一步', 'Next')}
         </button>
-        {wizardStep < TELEGRAM_STEP_COUNT - 1 ? (
-          <button
-            type="button"
-            className="settings-btn settings-btn-primary"
-            onClick={goNext}
-            disabled={saving || !canGoNext}
-          >
-            {t(locale, '下一步', 'Next')}
-          </button>
-        ) : (
-          <button type="button" className="settings-btn settings-btn-primary" onClick={applyWizard} disabled={saving}>
-            {saving ? t(locale, '保存中…', 'Saving…') : t(locale, '完成配置', 'Finish Setup')}
-          </button>
+      ) : (
+        <button type="button" className="settings-btn settings-btn-primary" onClick={applyWizard} disabled={saving}>
+          {saving ? t(locale, '应用中...', 'Applying...') : t(locale, '应用配置', 'Apply Configuration')}
+        </button>
+      )}
+    </>
+  )
+
+  return (
+    <ChannelWizardFrame
+      locale={locale}
+      embedded={embedded}
+      title={wizardTitle}
+      stepCount={TELEGRAM_STEP_COUNT}
+      wizardStep={wizardStep}
+      saving={saving}
+      onBack={onBack}
+      footer={wizardFooter}
+    >
+      {errorMessage && <div className="settings-channel-error">{errorMessage}</div>}
+
+      <div className="channel-wizard-step-animate" key={wizardStep}>
+        {wizardStep === 0 && (
+          <div className="channel-wizard-form-stack">
+            <p className="channel-wizard-step-desc">
+              {t(
+                locale,
+                '填写 BotFather 提供的 Token，并选择消息路由目标。',
+                'Enter the BotFather token and choose where messages are routed.',
+              )}
+            </p>
+            {telegramWebhook ? (
+              <div className="settings-form-group">
+                <label>{t(locale, 'Webhook URL（参考）', 'Webhook URL (reference)')}</label>
+                <code className="channel-wizard-inline-code">{telegramWebhook}</code>
+              </div>
+            ) : null}
+            <div className="channel-wizard-two-column">
+              <div className="settings-form-group">
+                <label>Account ID</label>
+                <input
+                  className="settings-input"
+                  value={form.accountId}
+                  disabled={saving || Boolean(editingBinding)}
+                  placeholder="default"
+                  onChange={(event) => updateField('accountId', event.target.value)}
+                />
+              </div>
+              <div className="settings-form-group">
+                <label>{t(locale, 'Bot Token', 'Bot Token')}</label>
+                <input
+                  type="password"
+                  className="settings-input"
+                  value={form.telegramBotToken}
+                  disabled={saving}
+                  placeholder={
+                    hasToken
+                      ? t(locale, '已保存；留空不更新', 'Saved; leave blank to keep')
+                      : t(locale, '来自 BotFather', 'From BotFather')
+                  }
+                  onChange={(event) => updateField('telegramBotToken', event.target.value)}
+                />
+              </div>
+            </div>
+            <div className="channel-wizard-two-column">
+              <div className="settings-form-group">
+                <label>{t(locale, '消息类型', 'Peer Kind')}</label>
+                <select
+                  className="settings-select"
+                  value={form.peerKind}
+                  disabled={saving}
+                  onChange={(event) => updateField('peerKind', event.target.value as 'direct' | 'group')}
+                >
+                  <option value="direct">Direct</option>
+                  <option value="group">Group</option>
+                </select>
+              </div>
+              <div className="settings-form-group">
+                <label>{t(locale, '目标 Agent', 'Target Agent')}</label>
+                <select
+                  className="settings-select"
+                  value={form.targetAgentId}
+                  disabled={saving || activeAgents.length === 0}
+                  onChange={(event) => updateField('targetAgentId', event.target.value)}
+                >
+                  {activeAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="settings-form-group">
+              <label>{t(locale, 'Peer Pattern（可选）', 'Peer Pattern (optional)')}</label>
+              <input
+                className="settings-input"
+                value={form.peerPattern}
+                disabled={saving}
+                placeholder={t(locale, '默认匹配全部', 'Match all by default')}
+                onChange={(event) => updateField('peerPattern', event.target.value)}
+              />
+            </div>
+          </div>
         )}
-      </footer>
-    </div>
+
+        {wizardStep === 1 && (
+          <div className="channel-wizard-form-stack">
+            <p className="channel-wizard-step-desc">
+              {t(locale, '设置外部消息的准入策略。', 'Configure how external messages are admitted.')}
+            </p>
+            <div className="channel-wizard-two-column">
+              <div className="settings-form-group">
+                <label>{t(locale, '准入策略', 'Access Policy')}</label>
+                <select
+                  className="settings-select"
+                  value={form.policyMode}
+                  disabled={saving}
+                  onChange={(event) => updateField('policyMode', event.target.value as ExternalAccessPolicyMode)}
+                >
+                  <option value="open">open — {t(locale, '全部放行', 'Allow all')}</option>
+                  <option value="pairing">pairing — {t(locale, '首次配对', 'First-time pairing')}</option>
+                  <option value="allowlist">allowlist — {t(locale, '白名单', 'Allowlist')}</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </div>
+              <div className="settings-form-group">
+                <label>{t(locale, '优先级', 'Priority')}</label>
+                <input
+                  type="number"
+                  className="settings-input"
+                  value={form.priority}
+                  disabled={saving}
+                  onChange={(event) => updateField('priority', Number(event.target.value))}
+                />
+              </div>
+            </div>
+            <div className="settings-form-group">
+              <label>{t(locale, '预授权 identities（可选）', 'Pre-approve identities (optional)')}</label>
+              <textarea
+                className="settings-input"
+                rows={3}
+                value={form.approveIdentities}
+                disabled={saving}
+                placeholder={t(locale, '每行一个，或逗号分隔', 'One per line or comma-separated')}
+                onChange={(event) => updateField('approveIdentities', event.target.value)}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </ChannelWizardFrame>
   )
 }
 
 export function ChannelWizard(props: ChannelWizardProps) {
-  const { editingBinding, initialChannel, locale } = props
+  const { editingBinding, initialChannel, locale, embedded = false } = props
   const [selectedChannel, setSelectedChannel] = useState<ConnectorChannel | null>(
     initialChannel ?? (editingBinding?.channel as ConnectorChannel | undefined) ?? null,
   )
@@ -454,7 +418,7 @@ export function ChannelWizard(props: ChannelWizardProps) {
     setSelectedChannel(null)
   }
 
-  const onBack = !editingBinding ? handleBack : undefined
+  const onBack = !embedded && !editingBinding && !initialChannel ? handleBack : undefined
 
   if (selectedChannel === 'feishu') {
     return (
@@ -467,6 +431,7 @@ export function ChannelWizard(props: ChannelWizardProps) {
         agents={props.agents}
         connectorAccounts={props.connectorAccounts}
         onBack={onBack}
+        embedded={embedded}
       />
     )
   }
@@ -482,6 +447,7 @@ export function ChannelWizard(props: ChannelWizardProps) {
         agents={props.agents}
         connectorAccounts={props.connectorAccounts}
         onBack={onBack}
+        embedded={embedded}
       />
     )
   }
@@ -498,6 +464,7 @@ export function ChannelWizard(props: ChannelWizardProps) {
       connectorAccounts={props.connectorAccounts}
       telegramWebhook={props.telegramWebhook}
       onBack={onBack}
+      embedded={embedded}
     />
   )
 }

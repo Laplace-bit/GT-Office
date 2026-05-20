@@ -6,6 +6,15 @@
   gap: rem(16);
 }
 
+.provider-workspace--channel-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .provider-workspace__feedback {
   padding: rem(12) rem(14);
   border-radius: rem(14);

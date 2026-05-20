@@ -196,14 +196,7 @@ export function SettingsModal({
           <div className="settings-pane-section">
             <div className="settings-channels-list-wrapper">
               {workspaceId ? (
-                <ChannelManagerPane
-                  locale={locale}
-                  workspaceId={workspaceId}
-                  variant="settings"
-                  onEnterStudio={() => {
-                    window.__GTO_OPEN_CHANNEL_STUDIO__?.()
-                  }}
-                />
+                <ChannelManagerPane locale={locale} workspaceId={workspaceId} variant="settings" />
               ) : (
                 <p style={{ color: 'var(--vb-text-muted)', padding: `${rem14(20)} 0` }}>
                   {t(locale, '请先打开一个工作区以管理通道。', 'Please open a workspace to manage channels.')}

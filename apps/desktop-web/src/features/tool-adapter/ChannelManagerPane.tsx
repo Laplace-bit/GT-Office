@@ -10,7 +10,6 @@ import {
 import { resolveConnectorAccounts } from './channel-connector-runtime'
 import { ChannelProviderCard } from './ChannelProviderCard'
 import { ChannelConfigurationModal } from './ChannelConfigurationModal'
-import { ChannelOverview } from './ChannelOverview'
 import { ChannelWizard } from './ChannelWizard'
 import { ChannelBindingDeleteConfirmDialog } from './ChannelBindingDeleteConfirmDialog'
 
@@ -28,7 +27,6 @@ interface ChannelManagerPaneProps {
   locale: Locale
   workspaceId: string | null
   variant?: 'embedded' | 'studio' | 'settings'
-  onEnterStudio?: () => void
   onClose?: () => void
 }
 
@@ -70,13 +68,12 @@ function formatCheckedAt(locale: Locale, timestampMs: number): string {
   }).format(new Date(timestampMs))
 }
 
-export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', onEnterStudio, onClose }: ChannelManagerPaneProps) {
+export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', onClose }: ChannelManagerPaneProps) {
   const [loading, setLoading] = useState(false)
   const [healthCheckingKey, setHealthCheckingKey] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const [runtimeRunning, setRuntimeRunning] = useState(false)
   const [feishuWebhook, setFeishuWebhook] = useState('')
   const [telegramWebhook, setTelegramWebhook] = useState('')
 
@@ -104,7 +101,6 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
       const statusAccounts = await resolveConnectorAccounts(status, (channel) =>
         desktopApi.channelConnectorAccountList(channel),
       )
-      setRuntimeRunning(Boolean(status.running))
       setFeishuWebhook(runtime?.feishuWebhook ?? '')
       setTelegramWebhook(runtime?.telegramWebhook ?? '')
       setConnectorAccounts(statusAccounts)
@@ -141,26 +137,6 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
   useEffect(() => {
     void loadBindingsAndRoles()
   }, [loadBindingsAndRoles])
-
-  const handleAddChannelClick = () => {
-    if (variant === 'settings') {
-      onEnterStudio?.()
-      return
-    }
-
-    setEditingBinding(null)
-    setWizardOpen(true)
-  }
-
-  const handleEditBinding = (binding: ChannelRouteBinding) => {
-    if (variant === 'settings') {
-      onEnterStudio?.()
-      return
-    }
-
-    setEditingBinding(binding)
-    setWizardOpen(true)
-  }
 
   const handleRequestDeleteBinding = (binding: ChannelRouteBinding) => {
     if (!desktopApi.isTauriRuntime()) {
@@ -419,81 +395,50 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
 
   return (
     <div className={`channel-manager-pane ${variant === 'studio' ? 'is-studio' : ''}`}>
-      {variant === 'studio' ? (
-        <ChannelOverview 
+      <div
+        className="channel-providers-list"
+        style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+      >
+        {SUPPORTED_CHANNELS.map((channel) => {
+          const groupsForChannel = configuredChannelBotGroups.filter((g) => g.channel === channel)
+          const botCount = groupsForChannel.length
+
+          return (
+            <ChannelProviderCard
+              key={channel}
+              locale={locale}
+              channel={channel}
+              botCount={botCount}
+              selected={configChannel === channel}
+              onSelect={() => setConfigChannel(channel)}
+            />
+          )
+        })}
+      </div>
+
+      {configChannel && (
+        <ChannelConfigurationModal
           locale={locale}
-          variant={variant}
-          runtimeRunning={runtimeRunning}
-          onAddChannel={handleAddChannelClick}
-          channelBotGroups={configuredChannelBotGroups}
+          workspaceId={workspaceId}
+          channel={configChannel}
+          botGroups={configuredChannelBotGroups.filter((g) => g.channel === configChannel)}
           roles={roles}
           agents={agents}
-          onEditBinding={handleEditBinding}
+          onClose={() => setConfigChannel(null)}
           onDeleteBinding={handleRequestDeleteBinding}
           onDeleteGroup={handleRequestDeleteGroup}
           onToggleBindingEnabled={handleToggleBindingEnabled}
           onHealthCheckGroup={handleHealthCheckGroup}
+          onWizardSuccess={handleWizardSuccess}
           healthCheckingKey={healthCheckingKey}
           loading={loading}
           statusMessage={statusMessage}
           errorMessage={errorMessage}
+          connectorAccounts={connectorAccounts}
+          telegramWebhook={telegramWebhook}
+          feishuWebhook={feishuWebhook}
+          addedChannels={addedChannels}
         />
-      ) : (
-        <>
-          <div className="channel-overview-top settings">
-            <div className="channel-overview-status">
-              <h4>{t(locale, '通道概览', 'Channel Overview')}</h4>
-              <p>{t(locale, '查看当前绑定的机器人与路由状态。', 'View the status of currently bound bots and routes.')}</p>
-            </div>
-            <div className="settings-channel-header-actions">
-              <span className={`channel-runtime-pill ${runtimeRunning ? 'running' : 'stopped'}`}>
-                {runtimeRunning ? t(locale, '网络连接正常', 'Network Connected') : t(locale, '未就绪', 'Not Ready')}
-              </span>
-            </div>
-          </div>
-          <div className="channel-providers-list" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-            {SUPPORTED_CHANNELS.map((channel) => {
-              const groupsForChannel = configuredChannelBotGroups.filter(g => g.channel === channel)
-              const botCount = groupsForChannel.length
-              
-              return (
-                <ChannelProviderCard
-                  key={channel}
-                  locale={locale}
-                  channel={channel}
-                  botCount={botCount}
-                  selected={configChannel === channel}
-                  onSelect={() => setConfigChannel(channel)}
-                />
-              )
-            })}
-          </div>
-
-          {configChannel && (
-            <ChannelConfigurationModal
-              locale={locale}
-              workspaceId={workspaceId}
-              channel={configChannel}
-              botGroups={configuredChannelBotGroups.filter(g => g.channel === configChannel)}
-              roles={roles}
-              agents={agents}
-              onClose={() => setConfigChannel(null)}
-              onDeleteBinding={handleRequestDeleteBinding}
-              onDeleteGroup={handleRequestDeleteGroup}
-              onToggleBindingEnabled={handleToggleBindingEnabled}
-              onHealthCheckGroup={handleHealthCheckGroup}
-              onWizardSuccess={handleWizardSuccess}
-              healthCheckingKey={healthCheckingKey}
-              loading={loading}
-              statusMessage={statusMessage}
-              errorMessage={errorMessage}
-              connectorAccounts={connectorAccounts}
-              telegramWebhook={telegramWebhook}
-              feishuWebhook={feishuWebhook}
-              addedChannels={addedChannels}
-            />
-          )}
-        </>
       )}
       
       {statusMessage && <p className="settings-channel-message">{statusMessage}</p>}

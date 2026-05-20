@@ -91,32 +91,35 @@ export function ChannelConfigurationModal({
 
   const title = getChannelDisplayName(locale, channel)
 
+  const wizardSubtitle = editingBinding
+    ? t(locale, '编辑通道绑定', 'Edit channel binding')
+    : t(locale, '添加通道连接', 'Add channel connection')
+
   return (
     <AiConfigOverlay
       title={title}
-      subtitle={t(locale, '通道配置管理', 'Channel Configuration')}
+      subtitle={wizardOpen ? wizardSubtitle : t(locale, '通道配置管理', 'Channel Configuration')}
       onClose={onClose}
     >
-      <div className="provider-workspace">
-        {errorMessage ? <div className="provider-workspace__feedback is-error">{errorMessage}</div> : null}
-        {statusMessage ? <div className="provider-workspace__feedback is-success">{statusMessage}</div> : null}
+      <div className={`provider-workspace ${wizardOpen ? 'provider-workspace--channel-wizard' : ''}`}>
+        {!wizardOpen && errorMessage ? <div className="provider-workspace__feedback is-error">{errorMessage}</div> : null}
+        {!wizardOpen && statusMessage ? <div className="provider-workspace__feedback is-success">{statusMessage}</div> : null}
         {wizardOpen ? (
-          <section className="provider-workspace__panel" onClick={(e) => e.stopPropagation()}>
-            <ChannelWizard 
-              locale={locale}
-              workspaceId={workspaceId}
-              onClose={handleWizardClose}
-              onSuccess={handleSuccess}
-              editingBinding={editingBinding}
-              roles={roles}
-              agents={agents}
-              connectorAccounts={connectorAccounts}
-              addedChannels={addedChannels}
-              telegramWebhook={telegramWebhook}
-              feishuWebhook={feishuWebhook}
-              initialChannel={channel}
-            />
-          </section>
+          <ChannelWizard
+            locale={locale}
+            workspaceId={workspaceId}
+            onClose={handleWizardClose}
+            onSuccess={handleSuccess}
+            editingBinding={editingBinding}
+            roles={roles}
+            agents={agents}
+            connectorAccounts={connectorAccounts}
+            addedChannels={addedChannels}
+            telegramWebhook={telegramWebhook}
+            feishuWebhook={feishuWebhook}
+            initialChannel={channel}
+            embedded
+          />
         ) : (
           <section className="provider-workspace__panel">
             <div className="provider-workspace__toolbar">

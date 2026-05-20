@@ -1,7 +1,6 @@
 export * from './ChannelBotCard'
 export * from './CommunicationChannelsPane'
 export * from './ChannelManagerPane'
-export * from './ChannelOverview'
 export * from './ChannelStudio'
 export * from './ChannelWizard'
 export * from './channel-bot-binding-model'

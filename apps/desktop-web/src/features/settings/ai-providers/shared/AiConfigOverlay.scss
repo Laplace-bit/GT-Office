@@ -91,6 +91,12 @@
   display: flex;
   flex-direction: column;
 
+  &:has(.provider-workspace--channel-wizard) {
+    padding: rem(20) rem(32) rem(16);
+    overflow: hidden;
+    min-height: 0;
+  }
+
   /* Custom scrollbar for glass effect */
   &::-webkit-scrollbar {
     width: rem(6);
