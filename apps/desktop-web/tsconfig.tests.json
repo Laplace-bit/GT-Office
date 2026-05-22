@@ -47,6 +47,7 @@
     "src/shell/i18n/messages.ts",
     "src/shell/i18n/ui-locale.ts",
     "src/shell/state/workspace-tab-normalization.ts",
+    "src/shell/state/workspace-tab-visibility.ts",
     "src/shell/state/workspace-terminal-session-store.ts",
     "src/shell/layout/workspace-git-summary-model.ts"
   ]

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopApi } from '../integration/desktop-api'
 import type { WorkspaceTabInfo } from './workspace-tab-model'
 import { normalizeWorkspaceTabsResponse } from './workspace-tab-normalization'
+import { resolveVisibleWorkspaceTabs } from './workspace-tab-visibility'
 
 function applyTabOrder(tabs: WorkspaceTabInfo[], order: string[]): WorkspaceTabInfo[] {
   if (order.length === 0) {
@@ -72,6 +73,7 @@ export function useWorkspaceTabController(
   const [closingTabId, setClosingTabId] = useState<string | null>(null)
   const pendingWorkspaceSwitchIdRef = useRef<string | null>(null)
   const tabOrderRef = useRef<string[]>([])
+  const workspaceListFetchSeqRef = useRef(0)
 
   const beginWorkspaceSwitchAnimation = useCallback((workspaceId?: string | null) => {
     if (workspaceId && pendingWorkspaceSwitchIdRef.current !== workspaceId) {
@@ -182,24 +184,32 @@ export function useWorkspaceTabController(
     [],
   )
 
+  const applyWorkspaceListResponse = useCallback((response: Awaited<ReturnType<typeof desktopApi.workspaceList>>) => {
+    const tabs = normalizeWorkspaceTabsResponse(response)
+    const ordered = applyTabOrder(tabs, tabOrderRef.current)
+    tabOrderRef.current = ordered.map((t) => t.workspaceId)
+    setWorkspaceTabs(ordered)
+  }, [])
+
+  const refreshTabs = useCallback(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    const fetchSeq = workspaceListFetchSeqRef.current + 1
+    workspaceListFetchSeqRef.current = fetchSeq
+    void desktopApi.workspaceList().then((response) => {
+      if (workspaceListFetchSeqRef.current !== fetchSeq) {
+        return
+      }
+      applyWorkspaceListResponse(response)
+    })
+  }, [applyWorkspaceListResponse])
+
   // --- Sync workspace list on mount ---
 
   useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) return
-
-    let cancelled = false
-    void desktopApi.workspaceList().then((response) => {
-      if (cancelled) return
-      const tabs = normalizeWorkspaceTabsResponse(response)
-      const ordered = applyTabOrder(tabs, tabOrderRef.current)
-      tabOrderRef.current = ordered.map((t) => t.workspaceId)
-      setWorkspaceTabs(ordered)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    refreshTabs()
+  }, [refreshTabs])
 
   // --- Subscribe to workspace events ---
 
@@ -208,15 +218,6 @@ export function useWorkspaceTabController(
 
     let unlisten: (() => void) | null = null
     let unlistenWindowClosed: (() => void) | null = null
-
-    const refreshTabs = () => {
-      void desktopApi.workspaceList().then((response) => {
-        const tabs = normalizeWorkspaceTabsResponse(response)
-        const ordered = applyTabOrder(tabs, tabOrderRef.current)
-        tabOrderRef.current = ordered.map((t) => t.workspaceId)
-        setWorkspaceTabs(ordered)
-      })
-    }
 
     void desktopApi
       .subscribeWorkspaceEvents({
@@ -237,16 +238,48 @@ export function useWorkspaceTabController(
       unlisten?.()
       unlistenWindowClosed?.()
     }
-  }, [])
+  }, [refreshTabs])
 
-  // --- Filter tabs in single-workspace mode ---
+  // Re-sync when bootstrap binds a workspace before the first list fetch settles.
+  useEffect(() => {
+    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
+      return
+    }
+    const anchorWorkspaceId = isSingleWorkspaceMode
+      ? workspaceWindowId?.trim() || null
+      : activeWorkspaceId
+    if (!anchorWorkspaceId) {
+      return
+    }
+    const hasAnchorTab = workspaceTabs.some((tab) => tab.workspaceId === anchorWorkspaceId)
+    if (!hasAnchorTab) {
+      refreshTabs()
+    }
+  }, [
+    activeWorkspaceId,
+    activeWorkspaceRoot,
+    isSingleWorkspaceMode,
+    refreshTabs,
+    workspaceTabs,
+    workspaceWindowId,
+  ])
 
   const visibleTabs = useMemo(
     () =>
-      isSingleWorkspaceMode
-        ? workspaceTabs.filter((t) => t.workspaceId === workspaceWindowId)
-        : workspaceTabs.filter((t) => !t.windowLabel),
-    [isSingleWorkspaceMode, workspaceWindowId, workspaceTabs],
+      resolveVisibleWorkspaceTabs({
+        isSingleWorkspaceMode,
+        workspaceWindowId,
+        workspaceTabs,
+        activeWorkspaceId,
+        activeWorkspaceRoot,
+      }),
+    [
+      activeWorkspaceId,
+      activeWorkspaceRoot,
+      isSingleWorkspaceMode,
+      workspaceWindowId,
+      workspaceTabs,
+    ],
   )
 
   return {
