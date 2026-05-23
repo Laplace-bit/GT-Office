@@ -1,3 +1,14 @@
+## v0.6.2 (2026-05-23)
+
+- 6a735b7 fix(shell): show workspace tab on startup for single workspace
+- fe1f94d fix(file-tree): align expand state, row toggle, and overflow clipping
+- ae7f417 refactor(channels): simplify connector wizards and remove channel overview
+- 517f5e2 fix(channels): multi-bot Feishu routing, safe resolution, and route delete UX
+- 93b75e1 fix(terminal): intercept Ctrl+C from frontend before async agent check
+- 78f5f6a Fix stale terminal session restore after relaunch
+- 053f951 fix(ci): unblock rust clippy and surface test
+- 8a9c38c chore(release): sync Cargo.lock for v0.6.1
+
 ## v0.6.1 (2026-05-18)
 
 - bb0861e fix(workbench): sync detached container view state
