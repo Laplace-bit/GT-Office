@@ -1,3 +1,13 @@
+## v0.6.3 (2026-05-24)
+
+### Startup and production fixes
+
+- Fix production white screen (relative Vite base + CSP for Monaco workers).
+- Instant HTML startup skeleton; defer heavy bundles and channel services until UI ready.
+- Lazy shell chunks; startup measurement script.
+
+- a6be855 fix(startup): production white screen and faster first paint
+
 ## v0.6.2 (2026-05-23)
 
 - 6a735b7 fix(shell): show workspace tab on startup for single workspace
