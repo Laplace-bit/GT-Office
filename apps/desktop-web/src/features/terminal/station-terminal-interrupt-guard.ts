@@ -11,6 +11,47 @@ export interface StationTerminalInterruptKeyboardEventLike {
 export type StationTerminalInterruptSignalKind = 'sigint' | 'sigtstp'
 export type StationTerminalInterruptConfirmKeyAction = 'none' | 'cancel' | 'confirm'
 
+export type StationTerminalInterruptKeyAction =
+  | { action: 'none'; signalKind: StationTerminalInterruptSignalKind | null }
+  | { action: 'open-confirm'; signalKind: StationTerminalInterruptSignalKind }
+  | { action: 'confirm-interrupt'; signalKind: StationTerminalInterruptSignalKind }
+
+export function isStationTerminalInterruptKeyboardEvent(
+  event: StationTerminalInterruptKeyboardEventLike,
+): boolean {
+  return resolveStationTerminalInterruptSignalKind(event) !== null
+}
+
+export function resolveStationTerminalInterruptKeyAction(input: {
+  event: StationTerminalInterruptKeyboardEventLike
+  agentRunning: boolean
+  confirmOpen: boolean
+  hasSelection: boolean
+  pendingSignalKind?: StationTerminalInterruptSignalKind | null
+}): StationTerminalInterruptKeyAction {
+  const signalKind = resolveStationTerminalInterruptSignalKind(input.event)
+  if (!signalKind || input.hasSelection || !input.agentRunning) {
+    return { action: 'none', signalKind: null }
+  }
+
+  if (input.confirmOpen) {
+    const pendingSignalKind = input.pendingSignalKind ?? null
+    if (
+      pendingSignalKind &&
+      signalKind === pendingSignalKind &&
+      !input.event.repeat
+    ) {
+      return { action: 'confirm-interrupt', signalKind }
+    }
+    if (pendingSignalKind && signalKind !== pendingSignalKind && !input.event.repeat) {
+      return { action: 'open-confirm', signalKind }
+    }
+    return { action: 'none', signalKind: pendingSignalKind }
+  }
+
+  return { action: 'open-confirm', signalKind }
+}
+
 function isCtrlCKey(event: StationTerminalInterruptKeyboardEventLike): boolean {
   const key = event.key.trim().toLowerCase()
   return key === 'c' || event.code === 'KeyC'

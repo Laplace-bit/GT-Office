@@ -7,13 +7,13 @@ import {
 
 function createAction(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'gemini-model',
+    id: 'codex-model',
     label: 'Model',
     shortLabel: '/model',
     slashCommand: '/model',
-    tooltip: 'Choose the active Gemini model',
+    tooltip: 'Choose the active Codex model',
     icon: 'sparkles',
-    providerKind: 'gemini',
+    providerKind: 'codex',
     commandFamily: 'built_in',
     kind: 'provider_native',
     category: 'prompt_insert',
@@ -39,7 +39,7 @@ test('normalizes multi-word slash commands into preference keys', () => {
   assert.equal(
     resolveStationActionPreferenceKey(
       createAction({
-        id: 'gemini-tools-desc',
+        id: 'codex-tools-desc',
         slashCommand: '/tools desc',
       }),
     ),
@@ -60,9 +60,9 @@ test('localizes disabled live-session guidance for quick commands', () => {
       'zh-CN',
       createAction({
         disabled: true,
-        disabledReason: 'Start a live Gemini session first',
+        disabledReason: 'Start a live Codex session first',
         }),
     ),
-    '请先启动一个 Gemini 实时会话。',
+    '请先启动一个 Codex 实时会话。',
   )
 })

@@ -98,7 +98,7 @@ test('detects whether the station agent is actually running inside the current t
 test('resolves the default cli launch command from the station tool kind', () => {
   assert.equal(resolveStationCliLaunchCommand('codex'), 'codex')
   assert.equal(resolveStationCliLaunchCommand('claude'), 'claude')
-  assert.equal(resolveStationCliLaunchCommand('gemini'), 'gemini')
+  assert.equal(resolveStationCliLaunchCommand('gemini'), null)
   assert.equal(resolveStationCliLaunchCommand('shell'), null)
 })
 
@@ -106,6 +106,7 @@ test('resolves custom launch command when provided, falling back to tool kind', 
   assert.equal(resolveStationCliLaunchCommand('claude', 'claude --model sonnet'), 'claude --model sonnet')
   assert.equal(resolveStationCliLaunchCommand('codex', 'codex --full-auto'), 'codex --full-auto')
   assert.equal(resolveStationCliLaunchCommand('gemini', '  gemini --sandbox  '), 'gemini --sandbox')
+  assert.equal(resolveStationCliLaunchCommand('gemini', null), null)
   assert.equal(resolveStationCliLaunchCommand('claude', ''), 'claude')
   assert.equal(resolveStationCliLaunchCommand('claude', null), 'claude')
   assert.equal(resolveStationCliLaunchCommand('claude', undefined), 'claude')
