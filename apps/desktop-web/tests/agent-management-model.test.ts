@@ -51,9 +51,9 @@ test('only exposes configured or installed providers for the agent form', () => 
     {
       agent: 'gemini',
       installStatus: {
-        installed: false,
+        installed: true,
       },
-      configStatus: 'guidance_only',
+      configStatus: 'configured',
     },
   ])
 

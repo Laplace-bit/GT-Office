@@ -15,6 +15,7 @@ use gt_ai_config::{
 };
 use gt_storage::{SqliteAgentRepository, SqliteAiConfigRepository, SqliteStorage};
 use gt_task::{AgentRuntimeRegistration, AgentToolKind};
+use gt_tools::agent_installer::{AgentInstaller, GEMINI_CLI_SUPPORTED};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
@@ -537,14 +538,14 @@ pub fn tool_list_profiles(
     app: AppHandle,
 ) -> Result<Value, String> {
     let snapshot = read_ai_config_snapshot(&app, state.inner(), &workspace_id)?;
-    let profiles = [
-        AgentToolKind::Claude,
-        AgentToolKind::Codex,
-        AgentToolKind::Gemini,
-    ]
-    .into_iter()
-    .map(|tool_kind| build_profile_value(&workspace_id, &snapshot, tool_kind))
-    .collect::<Vec<_>>();
+    let mut supported_tools = vec![AgentToolKind::Claude, AgentToolKind::Codex];
+    if GEMINI_CLI_SUPPORTED {
+        supported_tools.push(AgentToolKind::Gemini);
+    }
+    let profiles = supported_tools
+        .into_iter()
+        .map(|tool_kind| build_profile_value(&workspace_id, &snapshot, tool_kind))
+        .collect::<Vec<_>>();
     Ok(json!({ "workspaceId": workspace_id, "profiles": profiles }))
 }
 
@@ -562,6 +563,12 @@ pub fn tool_launch(
             profile_id.trim()
         )
     })?;
+    if tool_kind == AgentToolKind::Gemini && !GEMINI_CLI_SUPPORTED {
+        return Err(format!(
+            "TOOL_PROFILE_DEPRECATED: {}",
+            AgentInstaller::gemini_cli_deprecation_message()
+        ));
+    }
     let profile_id_canonical = canonical_profile_id(tool_kind).to_string();
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let resolved_cwd = resolve_launch_cwd(context.as_ref(), &workspace_root);

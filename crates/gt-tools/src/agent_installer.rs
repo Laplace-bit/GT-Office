@@ -652,7 +652,52 @@ pub enum AgentUninstallAction {
 
 pub struct AgentInstaller;
 
+/// Google has discontinued Gemini CLI; GT Office keeps uninstall/cleanup only.
+pub const GEMINI_CLI_SUPPORTED: bool = false;
+
 impl AgentInstaller {
+    pub fn gemini_cli_supported() -> bool {
+        GEMINI_CLI_SUPPORTED
+    }
+
+    pub fn gemini_cli_deprecation_message() -> &'static str {
+        "Gemini CLI has been discontinued by Google. GT Office no longer supports installing, configuring, or launching Gemini CLI."
+    }
+
+    fn gemini_deprecated_install_status(detection: &DetectionResult) -> AgentInstallStatus {
+        let installed = detection.executable.is_some();
+        let uninstall_available = installed
+            && detection
+                .executable
+                .as_deref()
+                .and_then(Self::gemini_uninstall_action_for_path)
+                .is_some();
+        let mut issues = vec![Self::gemini_cli_deprecation_message().to_string()];
+        if installed && !uninstall_available {
+            issues.push(
+                "Gemini CLI is still installed on this machine; remove it manually or via your package manager."
+                    .to_string(),
+            );
+        }
+        AgentInstallStatus {
+            installed,
+            executable: detection
+                .executable
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            requires_node: true,
+            node_ready: false,
+            npm_ready: false,
+            brew_ready: false,
+            install_available: false,
+            uninstall_available,
+            detected_by: detection.detected_by.clone(),
+            issues,
+            auto_install_supported: false,
+            recommended_action: None,
+        }
+    }
+
     pub fn install_status(agent: AgentType) -> AgentInstallStatus {
         if let Some(status) = Self::load_cached_install_status(agent) {
             tracing::debug!("agent installer cache hit for {}", Self::cache_key(agent));
@@ -670,6 +715,11 @@ impl AgentInstaller {
             None
         };
         let detection = Self::detect_installed_with_node_dir(agent, node_runtime_dir.as_deref());
+        if agent == AgentType::Gemini && !Self::gemini_cli_supported() {
+            let status = Self::gemini_deprecated_install_status(&detection);
+            Self::store_cached_install_status(agent, &status);
+            return status;
+        }
         let node_ready = if requires_node {
             node_runtime_dir.is_some() || Self::command_succeeds("node", &["-v"])
         } else {
@@ -787,6 +837,11 @@ impl AgentInstaller {
     }
 
     pub fn build_install_plan(agent: AgentType) -> AgentInstallPlan {
+        if agent == AgentType::Gemini && !Self::gemini_cli_supported() {
+            return AgentInstallPlan {
+                attempts: Vec::new(),
+            };
+        }
         let profile = Self::probe_install_network(agent);
         Self::build_install_plan_with_profile(agent, &profile)
     }

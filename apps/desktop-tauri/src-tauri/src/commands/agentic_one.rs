@@ -35,6 +35,10 @@ pub async fn agent_install_status(agent: AgentType) -> Result<AgentInstallStatus
 
 #[tauri::command]
 pub async fn install_agent(window: tauri::Window, agent: AgentType) -> Result<(), String> {
+    if agent == AgentType::Gemini && !AgentInstaller::gemini_cli_supported() {
+        return Err(AgentInstaller::gemini_cli_deprecation_message().to_string());
+    }
+
     let status = AgentInstaller::install_status_fresh(agent);
 
     if status.installed {

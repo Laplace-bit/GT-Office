@@ -1,6 +1,6 @@
 import type { TranslationKey } from '../i18n/ui-locale.js'
 
-export const quickCommandProviderIds = ['claude', 'codex', 'gemini'] as const
+export const quickCommandProviderIds = ['claude', 'codex'] as const
 
 export type QuickCommandProviderId = (typeof quickCommandProviderIds)[number]
 
@@ -25,22 +25,16 @@ export const quickCommandProviderCopyByProvider: Record<
     titleKey: 'quickCommands.provider.codex.title',
     descriptionKey: 'quickCommands.provider.codex.description',
   },
-  gemini: {
-    titleKey: 'quickCommands.provider.gemini.title',
-    descriptionKey: 'quickCommands.provider.gemini.description',
-  },
 }
 
 export const quickCommandDefaultVisibilityByProvider: Record<QuickCommandProviderId, boolean> = {
   claude: true,
   codex: true,
-  gemini: true,
 }
 
 const quickCommandGenericDescriptionByProvider: Record<QuickCommandProviderId, TranslationKey> = {
   claude: 'quickCommands.command.genericClaude',
   codex: 'quickCommands.command.genericCodex',
-  gemini: 'quickCommands.command.genericGemini',
 }
 
 export type CommandCapsuleSubmitMode = 'insert' | 'insert_and_submit'
@@ -139,80 +133,16 @@ const quickCommandMetadataByProvider: Record<
     status: { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
     statusline: { descriptionKey: 'quickCommands.command.surface', submitMode: 'insert_and_submit' },
   },
-  gemini: {
-    about: { descriptionKey: 'quickCommands.command.info', submitMode: 'insert_and_submit' },
-    auth: { descriptionKey: 'quickCommands.command.account', submitMode: 'insert_and_submit' },
-    bug: { descriptionKey: 'quickCommands.command.account', submitMode: 'insert' },
-    chat: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert' },
-    'chat-delete': { descriptionKey: 'quickCommands.command.session', submitMode: 'insert' },
-    'chat-list': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    'chat-resume': { descriptionKey: 'quickCommands.command.session', submitMode: 'insert' },
-    'chat-save': { descriptionKey: 'quickCommands.command.session', submitMode: 'insert' },
-    'chat-share': { descriptionKey: 'quickCommands.command.account', submitMode: 'insert' },
-    clear: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert_and_submit' },
-    commands: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    'commands-reload': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    compress: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert_and_submit' },
-    copy: { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    directory: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    dir: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'directory-add': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'directory-show': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    docs: { descriptionKey: 'quickCommands.command.info', submitMode: 'insert_and_submit' },
-    editor: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    extensions: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    exit: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert_and_submit' },
-    help: { descriptionKey: 'quickCommands.command.info', submitMode: 'insert_and_submit' },
-    hooks: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'hooks-list': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    ide: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'ide-status': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    init: { descriptionKey: 'quickCommands.command.info', submitMode: 'insert_and_submit' },
-    mcp: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'mcp-auth': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'mcp-desc': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert' },
-    'mcp-list': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    'mcp-refresh': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    'mcp-schema': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert' },
-    memory: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'memory-add': { descriptionKey: 'quickCommands.command.plan', submitMode: 'insert' },
-    'memory-list': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    'memory-refresh': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    'memory-show': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    model: { descriptionKey: 'quickCommands.command.runtime', submitMode: 'insert' },
-    plan: { descriptionKey: 'quickCommands.command.plan', submitMode: 'insert' },
-    policies: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert' },
-    'policies-list': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    privacy: { descriptionKey: 'quickCommands.command.account', submitMode: 'insert_and_submit' },
-    quit: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert_and_submit' },
-    restore: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert' },
-    rewind: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert_and_submit' },
-    resume: { descriptionKey: 'quickCommands.command.session', submitMode: 'insert' },
-    settings: { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    shells: { descriptionKey: 'quickCommands.command.runtime', submitMode: 'insert_and_submit' },
-    'setup-github': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    skills: { descriptionKey: 'quickCommands.command.info', submitMode: 'insert' },
-    'skills-list': { descriptionKey: 'quickCommands.command.info', submitMode: 'insert_and_submit' },
-    'skills-reload': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    stats: { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    'terminal-setup': { descriptionKey: 'quickCommands.command.control', submitMode: 'insert_and_submit' },
-    theme: { descriptionKey: 'quickCommands.command.surface', submitMode: 'insert' },
-    tools: { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert_and_submit' },
-    'tools-desc': { descriptionKey: 'quickCommands.command.inspect', submitMode: 'insert' },
-    vim: { descriptionKey: 'quickCommands.command.info', submitMode: 'insert_and_submit' },
-  },
 }
 
 const quickCommandProviderNameByProvider: Record<QuickCommandProviderId, string> = {
   claude: 'Claude',
   codex: 'Codex',
-  gemini: 'Gemini',
 }
 
 const quickCommandStartLiveSessionReasonKeyByProvider: Record<QuickCommandProviderId, TranslationKey> = {
   claude: 'quickCommands.rail.disabled.startClaudeSession',
   codex: 'quickCommands.rail.disabled.startCodexSession',
-  gemini: 'quickCommands.rail.disabled.startGeminiSession',
 }
 
 function readBooleanValue(value: unknown, fallback: boolean): boolean {
@@ -240,12 +170,6 @@ export function normalizeQuickCommandVisibilityByProvider(
       !hasSupportedProviderEntry && typeof legacyVisible === 'boolean'
         ? legacyVisible
         : quickCommandDefaultVisibilityByProvider.codex,
-    ),
-    gemini: readBooleanValue(
-      current.gemini,
-      !hasSupportedProviderEntry && typeof legacyVisible === 'boolean'
-        ? legacyVisible
-        : quickCommandDefaultVisibilityByProvider.gemini,
     ),
   }
 }

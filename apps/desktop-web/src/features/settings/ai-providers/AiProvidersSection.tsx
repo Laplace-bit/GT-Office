@@ -28,7 +28,7 @@ interface AiProvidersSectionProps {
 
 type AgentLoadingMap = Record<AiConfigAgent, boolean>
 
-const AGENT_ORDER: AiConfigAgent[] = ['claude', 'codex', 'gemini']
+const AGENT_ORDER: AiConfigAgent[] = ['claude', 'codex']
 
 const AGENT_DISPLAY_NAMES: Record<AiConfigAgent, string> = {
   claude: 'Claude Code',
@@ -95,7 +95,7 @@ function toLoadingMap(snapshot: AiConfigReadSnapshotResponse | null): AgentLoadi
   return {
     claude: !loadedAgents.has('claude'),
     codex: !loadedAgents.has('codex'),
-    gemini: !loadedAgents.has('gemini'),
+    gemini: false,
   }
 }
 
@@ -386,18 +386,6 @@ export function AiProvidersSection({ workspaceId, locale }: AiProvidersSectionPr
           locale={locale}
           agent={configAgent}
           guide={snapshot.snapshot.codex}
-          onReload={() => handleReload({ background: true })}
-          onSnapshotUpdate={handleSnapshotUpdate}
-          onClose={() => setConfigAgentId(null)}
-        />
-      )}
-
-      {configAgentId === 'gemini' && configAgent && snapshot && (
-        <ProviderWorkspaceModal
-          agentId="gemini"
-          locale={locale}
-          agent={configAgent}
-          guide={snapshot.snapshot.gemini}
           onReload={() => handleReload({ background: true })}
           onSnapshotUpdate={handleSnapshotUpdate}
           onClose={() => setConfigAgentId(null)}

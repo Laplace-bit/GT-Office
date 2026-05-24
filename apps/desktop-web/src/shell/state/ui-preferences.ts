@@ -231,13 +231,11 @@ export const commandRailProviderCommandOptionsByProvider: Record<
 > = {
   claude: commandRailClaudeCommandOptions,
   codex: commandRailCodexCommandOptions,
-  gemini: commandRailGeminiCommandOptions,
 }
 
 export const commandRailDefaultPinnedCommandIdsByProvider: Record<CommandRailProviderId, string[]> = {
   claude: ['new', 'diff', 'context', 'plan', 'status', 'agents', 'mcp', 'simplify', 'effort-max'],
   codex: ['new', 'review', 'diff', 'status', 'model', 'mcp', 'plan', 'fast-on'],
-  gemini: ['resume', 'clear', 'help', 'model', 'mcp-list', 'memory-show', 'stats', 'tools-desc'],
 }
 
 export function buildPresetCommandCapsuleOrderId(commandId: string): string {
@@ -277,7 +275,6 @@ function createEmptyCustomCommandCapsulesByProvider(): Record<CommandRailProvide
   return {
     claude: [],
     codex: [],
-    gemini: [],
   }
 }
 
@@ -287,7 +284,6 @@ function buildDefaultOrderedCommandCapsuleIdsByProvider(
   return {
     claude: pinnedCommandIdsByProvider.claude.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)),
     codex: pinnedCommandIdsByProvider.codex.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)),
-    gemini: pinnedCommandIdsByProvider.gemini.map((commandId) => buildPresetCommandCapsuleOrderId(commandId)),
   }
 }
 
@@ -531,7 +527,6 @@ function normalizeOrderedCommandCapsuleIdsByProvider(
   const normalized = {
     claude: [] as string[],
     codex: [] as string[],
-    gemini: [] as string[],
   }
 
   ;(Object.keys(normalized) as CommandRailProviderId[]).forEach((providerId) => {

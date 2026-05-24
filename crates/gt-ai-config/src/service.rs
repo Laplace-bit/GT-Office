@@ -3042,24 +3042,19 @@ impl AiConfigService {
         let mut gemini_snapshot = gemini_snapshot_template();
         gemini_snapshot.config = gemini_config.clone();
         gemini_snapshot.saved_providers = saved_gemini_providers;
-        let (claude_install_status, codex_install_status, gemini_install_status) =
-            thread::scope(|scope| {
-                let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
-                let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
-                let gemini_install = scope.spawn(|| map_install_status(AiConfigAgent::Gemini));
+        let (claude_install_status, codex_install_status) = thread::scope(|scope| {
+            let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
+            let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
 
-                (
-                    claude_install
-                        .join()
-                        .unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
-                    codex_install
-                        .join()
-                        .unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
-                    gemini_install
-                        .join()
-                        .unwrap_or_else(|_| map_install_status(AiConfigAgent::Gemini)),
-                )
-            });
+            (
+                claude_install
+                    .join()
+                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Claude)),
+                codex_install
+                    .join()
+                    .unwrap_or_else(|_| map_install_status(AiConfigAgent::Codex)),
+            )
+        });
 
         Ok(AiConfigSnapshot {
             agents: vec![
@@ -3086,18 +3081,6 @@ impl AiConfigService {
                         crate::models::AiAgentConfigStatus::Unconfigured
                     },
                     active_summary: AiConfigService::codex_summary(&codex_snapshot.config),
-                },
-                crate::models::AiAgentSnapshotCard {
-                    agent: AiConfigAgent::Gemini,
-                    title: "aiConfig.agent.gemini.title".to_string(),
-                    subtitle: "aiConfig.agent.gemini.subtitle".to_string(),
-                    install_status: gemini_install_status,
-                    config_status: if gemini_snapshot.config.active_mode.is_some() {
-                        crate::models::AiAgentConfigStatus::Configured
-                    } else {
-                        crate::models::AiAgentConfigStatus::Unconfigured
-                    },
-                    active_summary: AiConfigService::gemini_summary(&gemini_snapshot.config),
                 },
             ],
             claude: ClaudeSnapshot {

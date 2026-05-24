@@ -93,7 +93,7 @@ export function ProviderAgentCard({
   const hasEnvIssues = !statusLoading && !agent.installStatus.installed && agent.installStatus.requiresNode && (!agent.installStatus.nodeReady || !agent.installStatus.npmReady) && !agent.installStatus.brewReady
   const showManualUninstall = !statusLoading && agent.installStatus.installed && !agent.installStatus.uninstallAvailable
 
-  const hasQuickCommands = agent.agent === 'claude' || agent.agent === 'codex' || agent.agent === 'gemini'
+  const hasQuickCommands = agent.agent === 'claude' || agent.agent === 'codex'
 
   const logoSrc = {
     claude: '/assets/logos/claude.webp',
@@ -305,7 +305,12 @@ export function ProviderAgentCard({
               </button>
             </div>
             <div className="pac-commands-drawer__body">
-              <ProviderQuickCommands locale={locale} providerId={agent.agent} />
+              {hasQuickCommands && (
+                <ProviderQuickCommands
+                  locale={locale}
+                  providerId={agent.agent === 'codex' ? 'codex' : 'claude'}
+                />
+              )}
             </div>
           </div>
         </div>,

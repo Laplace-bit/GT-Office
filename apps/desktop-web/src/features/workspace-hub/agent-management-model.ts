@@ -103,7 +103,10 @@ export function resolveManagedProviderKey(tool: string | null | undefined): Mana
 function isSelectableProvider(
   agent: AgentProviderSnapshot,
 ): agent is AgentProviderSnapshot & { agent: ManagedAgentProvider } {
-  if (agent.agent !== 'claude' && agent.agent !== 'codex' && agent.agent !== 'gemini') {
+  if (agent.agent === 'gemini') {
+    return false
+  }
+  if (agent.agent !== 'claude' && agent.agent !== 'codex') {
     return false
   }
   return agent.installStatus.installed || agent.configStatus === 'configured'

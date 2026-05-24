@@ -34,7 +34,10 @@ export function resolveStationCliLaunchCommand(
   if (launchCommand?.trim()) {
     return launchCommand.trim()
   }
-  if (toolKind === 'claude' || toolKind === 'codex' || toolKind === 'gemini') {
+  if (toolKind === 'gemini') {
+    return null
+  }
+  if (toolKind === 'claude' || toolKind === 'codex') {
     return toolKind
   }
   return null

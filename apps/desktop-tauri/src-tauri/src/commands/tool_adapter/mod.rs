@@ -1172,7 +1172,10 @@ async fn run_structured_reply_job(
     match runtime.tool_kind {
         AgentToolKind::Claude => run_claude_structured_relay(app, &target, &runtime, &prompt).await,
         AgentToolKind::Codex => run_codex_structured_relay(app, &target, &runtime, &prompt).await,
-        AgentToolKind::Gemini => run_gemini_structured_relay(app, &target, &runtime, &prompt).await,
+        AgentToolKind::Gemini => Err(format!(
+            "CHANNEL_REPLY_TOOL_DEPRECATED: {}",
+            gt_tools::agent_installer::AgentInstaller::gemini_cli_deprecation_message()
+        )),
         _ => Err(format!(
             "CHANNEL_REPLY_STRUCTURED_UNSUPPORTED: tool {:?} is not supported",
             runtime.tool_kind
