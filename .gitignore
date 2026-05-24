@@ -39,7 +39,6 @@ _backups/
 # AI agent local state
 .claude/
 .codex/
-.gemini/
 .superpowers/
 
 # Temp/build artifacts

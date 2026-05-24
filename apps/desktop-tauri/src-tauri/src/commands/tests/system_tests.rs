@@ -65,10 +65,7 @@ fn gto_skill_target_dir_uses_agent_specific_directories() {
         gto_skill_target_dir_from_home(&home, "codex").unwrap(),
         home.join(".codex").join("skills").join(GTO_SKILL_DIR_NAME)
     );
-    assert_eq!(
-        gto_skill_target_dir_from_home(&home, "gemini").unwrap(),
-        home.join(".gemini").join("skills").join(GTO_SKILL_DIR_NAME)
-    );
+    assert!(gto_skill_target_dir_from_home(&home, "legacy-removed").is_err());
 }
 
 #[test]

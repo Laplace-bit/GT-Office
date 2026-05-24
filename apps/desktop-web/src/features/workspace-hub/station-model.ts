@@ -1,7 +1,7 @@
 import type { AgentProfile, AgentRole } from '../../shell/integration/desktop-api.js'
 import { buildStationWorkdirs, type StationRole } from '../workspace/station-workdir-model.js'
 
-export type StationToolKind = 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+export type StationToolKind = 'claude' | 'codex' | 'shell' | 'unknown'
 
 export type { StationRole } from '../workspace/station-workdir-model.js'
 
@@ -51,9 +51,6 @@ export function normalizeStationToolKind(tool: string | null | undefined): Stati
   }
   if (normalized.includes('codex')) {
     return 'codex'
-  }
-  if (normalized.includes('gemini')) {
-    return 'gemini'
   }
   if (normalized.includes('shell')) {
     return 'shell'

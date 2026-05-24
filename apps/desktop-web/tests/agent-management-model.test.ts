@@ -5,6 +5,7 @@ import {
   buildDefaultAgentWorkdir,
   isWorkspaceRootAgentWorkdir,
   resolveAvailableAgentProviders,
+  resolveManagedProviderKey,
   resolvePromptFileRelativePathForProvider,
   resolvePromptFileNameForProvider,
 } from '../src/features/workspace-hub/agent-management-model.js'
@@ -17,13 +18,16 @@ test('builds the new shallow default agent workdir', () => {
 test('maps providers to the correct system prompt filenames', () => {
   assert.equal(resolvePromptFileNameForProvider('claude'), 'CLAUDE.md')
   assert.equal(resolvePromptFileNameForProvider('codex'), 'AGENTS.md')
-  assert.equal(resolvePromptFileNameForProvider('gemini'), 'GEMINI.md')
 })
 
 test('resolves prompt file paths against the selected workdir', () => {
   assert.equal(resolvePromptFileRelativePathForProvider('codex', '.'), 'AGENTS.md')
   assert.equal(resolvePromptFileRelativePathForProvider('claude', '.gtoffice/research'), '.gtoffice/research/CLAUDE.md')
-  assert.equal(resolvePromptFileRelativePathForProvider('gemini', 'notes'), 'notes/GEMINI.md')
+})
+
+test('defaults unknown tool strings to codex', () => {
+  assert.equal(resolveManagedProviderKey('other-tool'), 'codex')
+  assert.equal(resolveManagedProviderKey(''), 'codex')
 })
 
 test('recognizes workspace-root agent workdirs', () => {
@@ -49,7 +53,7 @@ test('only exposes configured or installed providers for the agent form', () => 
       configStatus: 'configured',
     },
     {
-      agent: 'gemini',
+      agent: 'openai',
       installStatus: {
         installed: true,
       },

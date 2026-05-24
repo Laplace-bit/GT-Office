@@ -7,7 +7,7 @@
 当前最有价值的资产不是多 agent 编排，也不是 channel relay，而是这几层：
 
 - workspace 边界和会话恢复
-- 真实 PTY terminal 承载 Claude Code / Codex CLI / Gemini CLI
+- 真实 PTY terminal 承载 Claude Code / Codex CLI
 - 文件浏览、预览、基础编辑
 - Git 状态与常用操作
 - 桌面壳能力：窗口、surface、恢复、系统集成
@@ -173,7 +173,7 @@ Tauri command 代码量上：
 
 必须保留。
 
-这是 Agent IDE Shell 与普通终端管理器的关键区别：它理解 Claude/Codex/Gemini 的安装、启动和上下文。
+这是 Agent IDE Shell 与普通终端管理器的关键区别：它理解 Claude/Codex 的安装、启动和上下文。
 
 ## 3.2 应降级为次要能力
 
@@ -442,7 +442,7 @@ Tauri 后端应收敛成以下能力组：
 
 GT Office 现在最应该做的不是证明“它也能做多 agent 协作”，而是证明：
 
-**它是 Claude Code / Codex CLI / Gemini CLI 在真实代码库里最好用、最稳定、最懂 workspace 的桌面壳。**
+**它是 Claude Code / Codex CLI 在真实代码库里最好用、最稳定、最懂 workspace 的桌面壳。**
 
 如果按这个目标重审架构，那么结论很简单：
 

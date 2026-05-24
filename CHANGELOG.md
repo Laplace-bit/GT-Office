@@ -222,5 +222,5 @@ Initial tagged GT Office production release.
 
 - Delivered the cross-platform desktop shell for workspace, files, terminal, Git, multi-station collaboration, and tool adapter workflows.
 - Hardened terminal presentation for production by removing station bootstrap metadata from visible terminal output and disabling the terminal debug panel in station cards.
-- Kept Codex/Claude/Gemini-oriented CLI flows workspace-bound, with improved rendered-screen parsing and cleaner human-facing terminal content.
+- Kept Codex/Claude-oriented CLI flows workspace-bound, with improved rendered-screen parsing and cleaner human-facing terminal content.
 - Refreshed repository release docs, including the root README and release guidance.

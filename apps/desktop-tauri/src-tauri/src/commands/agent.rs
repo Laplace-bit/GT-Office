@@ -163,8 +163,6 @@ fn resolve_agent_tool(tool: Option<String>) -> String {
     let lowered = normalized.trim().to_ascii_lowercase();
     if lowered.contains("claude") {
         "claude".to_string()
-    } else if lowered.contains("gemini") {
-        "gemini".to_string()
     } else {
         "codex".to_string()
     }
@@ -300,7 +298,7 @@ fn ordered_prompt_file_candidates(tool: &str) -> Vec<&'static str> {
     if let Some(default_file_name) = prompt_file_name_for_tool(tool) {
         candidates.push(default_file_name);
     }
-    for candidate in ["CLAUDE.md", "AGENTS.md", "GEMINI.md"] {
+    for candidate in ["CLAUDE.md", "AGENTS.md"] {
         if !candidates.contains(&candidate) {
             candidates.push(candidate);
         }
@@ -318,7 +316,7 @@ fn resolve_prompt_file_name(
         .filter(|value| !value.is_empty())
     {
         None => Ok(default),
-        Some("CLAUDE.md") | Some("AGENTS.md") | Some("GEMINI.md") => {
+        Some("CLAUDE.md") | Some("AGENTS.md") => {
             Ok(Some(prompt_file_name.unwrap().trim().to_string()))
         }
         Some(other) => Err(format!("AGENT_PROMPT_FILE_INVALID: {other}")),

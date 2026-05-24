@@ -92,11 +92,6 @@ export const messages = {
     'zh-CN': '管理 Codex CLI 的原生命令和常用预设。',
     'en-US': 'Manage Codex CLI native commands and common presets.',
   },
-  'quickCommands.provider.gemini.title': { 'zh-CN': 'Gemini 快捷命令', 'en-US': 'Gemini quick commands' },
-  'quickCommands.provider.gemini.description': {
-    'zh-CN': '管理 Gemini CLI 的原生命令和常用预设。',
-    'en-US': 'Manage Gemini CLI native commands and common presets.',
-  },
   'quickCommands.command.session': {
     'zh-CN': '开始、恢复或整理当前会话。',
     'en-US': 'Start, resume, or tidy the current session.',
@@ -144,10 +139,6 @@ export const messages = {
   'quickCommands.command.genericCodex': {
     'zh-CN': 'Codex CLI 原生命令。',
     'en-US': 'Codex CLI native command.',
-  },
-  'quickCommands.command.genericGemini': {
-    'zh-CN': 'Gemini CLI 原生命令。',
-    'en-US': 'Gemini CLI native command.',
   },
   'quickCommands.command.claude.addDir': { 'zh-CN': '添加工作目录', 'en-US': 'Add a new working directory' },
   'quickCommands.command.claude.agents': { 'zh-CN': '管理代理配置', 'en-US': 'Manage agent configurations' },
@@ -208,10 +199,6 @@ export const messages = {
   'quickCommands.rail.disabled.startCodexSession': {
     'zh-CN': '请先启动一个 Codex 实时会话。',
     'en-US': 'Start a live Codex session first.',
-  },
-  'quickCommands.rail.disabled.startGeminiSession': {
-    'zh-CN': '请先启动一个 Gemini 实时会话。',
-    'en-US': 'Start a live Gemini session first.',
   },
   'quickCommands.tooltip.startSession': {
     'zh-CN': '请先启动 {provider} 会话。',
@@ -1567,10 +1554,6 @@ export const messages = {
     'zh-CN': '应用后会更新当前工作区的 Codex provider 配置，并在启动 Codex 终端时注入对应变量。',
     'en-US': 'Applying updates the current workspace Codex provider config and injects the matching variables when Codex terminals start.',
   },
-  'aiConfig.warning.systemGeminiSync': {
-    'zh-CN': '应用后会更新当前工作区的 Gemini provider 配置，并在启动 Gemini 终端时注入对应变量。',
-    'en-US': 'Applying updates the current workspace Gemini provider config and injects the matching variables when Gemini terminals start.',
-  },
   'aiConfig.saved.title': { 'zh-CN': '已保存的 Claude 供应商', 'en-US': 'Saved Claude Providers' },
   'aiConfig.saved.desc': {
     'zh-CN': '每次应用 Claude 配置后，当前供应商都会写入数据库。您可以在这里查看并直接切换到任意已保存配置。',
@@ -1604,15 +1587,6 @@ export const messages = {
   'aiConfig.agent.codex.summary': {
     'zh-CN': '自动注入 OPENAI_API_KEY。',
     'en-US': 'Injected OPENAI_API_KEY when starting.'
-  },
-  'aiConfig.agent.gemini.title': { 'zh-CN': 'Gemini CLI', 'en-US': 'Gemini CLI' },
-  'aiConfig.agent.gemini.subtitle': {
-    'zh-CN': '轻量化 API Key 配置与终端环境注入。',
-    'en-US': 'Lightweight API Key configuration and terminal injection.'
-  },
-  'aiConfig.agent.gemini.summary': {
-    'zh-CN': '自动注入 GOOGLE_API_KEY。',
-    'en-US': 'Injected GOOGLE_API_KEY when starting.'
   },
 
   /* Claude Presets */
@@ -1919,7 +1893,7 @@ export const messages = {
   'aiConfig.preset.custom.step2': { 'zh-CN': '确认网关支持标准的鉴权变量。', 'en-US': 'Confirm the gateway expects standard auth vars.' },
   'aiConfig.preset.custom.step3': { 'zh-CN': '在自定义表单中粘贴端点、模型和 API Key。', 'en-US': 'Paste endpoint, model, and API key in the custom form.' },
 
-  /* Codex & Gemini Presets */
+  /* Codex Presets */
   'aiConfig.preset.codexOfficial.name': { 'zh-CN': 'OpenAI 官方', 'en-US': 'OpenAI Official' },
   'aiConfig.preset.codexOfficial.desc': {
     'zh-CN': '使用 Codex CLI 的官方登录流程与默认模型配置。',
@@ -2040,126 +2014,6 @@ export const messages = {
   'aiConfig.preset.codexBaiLing.step1': { 'zh-CN': '阅读 BaiLing 接入文档并准备 API Key。', 'en-US': 'Review the BaiLing onboarding docs and prepare an API key.' },
   'aiConfig.preset.codexBaiLing.step2': { 'zh-CN': '确认将使用 BaiLing 的兼容 Base URL。', 'en-US': 'Confirm the BaiLing compatible base URL.' },
   'aiConfig.preset.codexBaiLing.step3': { 'zh-CN': '在 GT Office 中预览生成的 Codex config.toml 模板。', 'en-US': 'Review the generated Codex config.toml template in GT Office.' },
-  'aiConfig.preset.geminiOfficial.name': { 'zh-CN': 'Google 官方 OAuth', 'en-US': 'Google Official OAuth' },
-  'aiConfig.preset.geminiOfficial.desc': {
-    'zh-CN': '使用 Gemini CLI 原生 OAuth 登录流程。',
-    'en-US': 'Use the native Gemini CLI OAuth sign-in flow.',
-  },
-  'aiConfig.preset.geminiOfficial.step1': { 'zh-CN': '安装 Gemini CLI。', 'en-US': 'Install the Gemini CLI.' },
-  'aiConfig.preset.geminiOfficial.step2': { 'zh-CN': '按官方流程完成 OAuth 登录。', 'en-US': 'Complete OAuth sign-in with the official flow.' },
-  'aiConfig.preset.geminiOfficial.step3': { 'zh-CN': '返回 GT Office 记录当前工作区的 provider 元数据。', 'en-US': 'Return to GT Office to record workspace provider metadata.' },
-  'aiConfig.preset.geminiApiKey.name': { 'zh-CN': 'Google AI Studio API Key', 'en-US': 'Google AI Studio API Key' },
-  'aiConfig.preset.geminiApiKey.desc': {
-    'zh-CN': '使用 Google AI Studio API Key 注入 Gemini 运行时环境。',
-    'en-US': 'Use a Google AI Studio API key for Gemini runtime injection.',
-  },
-  'aiConfig.preset.geminiApiKey.step1': { 'zh-CN': '打开 Google AI Studio。', 'en-US': 'Open Google AI Studio.' },
-  'aiConfig.preset.geminiApiKey.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiApiKey.step3': { 'zh-CN': '将 API Key 粘贴到 GT Office，并预览工作区注入变更。', 'en-US': 'Paste the API key into GT Office and preview the workspace injection changes.' },
-  'aiConfig.preset.geminiOpenRouter.name': { 'zh-CN': 'OpenRouter', 'en-US': 'OpenRouter' },
-  'aiConfig.preset.geminiOpenRouter.desc': {
-    'zh-CN': '通过 OpenRouter 路由 Gemini 模型，并补充兼容所需的额外环境变量。',
-    'en-US': 'Route Gemini models through OpenRouter with the extra environment variables required for compatibility.',
-  },
-  'aiConfig.preset.geminiOpenRouter.step1': { 'zh-CN': '注册 OpenRouter 并准备额度。', 'en-US': 'Register with OpenRouter and make sure credits are available.' },
-  'aiConfig.preset.geminiOpenRouter.step2': { 'zh-CN': '创建 API Key。', 'en-US': 'Create an API key.' },
-  'aiConfig.preset.geminiOpenRouter.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与附加环境变量。', 'en-US': 'Confirm the API key and extra environment variables in GT Office.' },
-  'aiConfig.preset.geminiDeepseek.name': { 'zh-CN': 'DeepSeek', 'en-US': 'DeepSeek' },
-  'aiConfig.preset.geminiDeepseek.desc': {
-    'zh-CN': '使用 DeepSeek 的兼容接口注入 Gemini 运行时环境。',
-    'en-US': 'Use DeepSeek\'s compatible endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiDeepseek.step1': { 'zh-CN': '打开 DeepSeek 平台并创建 API Key。', 'en-US': 'Open the DeepSeek platform and create an API key.' },
-  'aiConfig.preset.geminiDeepseek.step2': { 'zh-CN': '确认将使用 DeepSeek 的兼容 Base URL。', 'en-US': 'Confirm the DeepSeek compatible base URL.' },
-  'aiConfig.preset.geminiDeepseek.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiZhipuGlm.name': { 'zh-CN': 'Zhipu GLM', 'en-US': 'Zhipu GLM' },
-  'aiConfig.preset.geminiZhipuGlm.desc': {
-    'zh-CN': '使用智谱 GLM 的兼容接口注入 Gemini 运行时环境。',
-    'en-US': 'Use Zhipu GLM\'s compatible endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiZhipuGlm.step1': { 'zh-CN': '打开智谱开放平台并创建 API Key。', 'en-US': 'Open Zhipu\'s platform and create an API key.' },
-  'aiConfig.preset.geminiZhipuGlm.step2': { 'zh-CN': '确认将使用 GLM-5 与对应兼容 Base URL。', 'en-US': 'Confirm GLM-5 and the matching compatible base URL.' },
-  'aiConfig.preset.geminiZhipuGlm.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiQwenCoder.name': { 'zh-CN': 'Qwen Coder', 'en-US': 'Qwen Coder' },
-  'aiConfig.preset.geminiQwenCoder.desc': {
-    'zh-CN': '使用阿里云百炼兼容入口注入 Qwen Coder 的 Gemini 运行时配置。',
-    'en-US': 'Use Alibaba Bailian\'s compatible endpoint to inject Gemini runtime settings for Qwen Coder.',
-  },
-  'aiConfig.preset.geminiQwenCoder.step1': { 'zh-CN': '打开阿里云百炼并创建 API Key。', 'en-US': 'Open Alibaba Bailian and create an API key.' },
-  'aiConfig.preset.geminiQwenCoder.step2': { 'zh-CN': '确认 Coding 能力已开通，并使用兼容模式 Base URL。', 'en-US': 'Confirm coding access is enabled and use the compatible-mode base URL.' },
-  'aiConfig.preset.geminiQwenCoder.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiKimiK2.name': { 'zh-CN': 'Kimi K2', 'en-US': 'Kimi K2' },
-  'aiConfig.preset.geminiKimiK2.desc': {
-    'zh-CN': '使用 Moonshot Kimi K2 的兼容接口注入 Gemini 运行时环境。',
-    'en-US': 'Use Moonshot\'s Kimi K2 compatible endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiKimiK2.step1': { 'zh-CN': '打开 Moonshot 控制台并创建 API Key。', 'en-US': 'Open the Moonshot console and create an API key.' },
-  'aiConfig.preset.geminiKimiK2.step2': { 'zh-CN': '确认使用 Kimi K2.5 对应兼容 Base URL。', 'en-US': 'Confirm the Kimi K2.5 compatible base URL.' },
-  'aiConfig.preset.geminiKimiK2.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiKimiForCoding.name': { 'zh-CN': 'Kimi For Coding', 'en-US': 'Kimi For Coding' },
-  'aiConfig.preset.geminiKimiForCoding.desc': {
-    'zh-CN': '使用 Kimi Coding 专用入口注入更贴近编程场景的 Gemini 配置。',
-    'en-US': 'Use the dedicated Kimi Coding endpoint for Gemini settings tuned to programming workflows.',
-  },
-  'aiConfig.preset.geminiKimiForCoding.step1': { 'zh-CN': '阅读 Kimi Coding 文档并创建 API Key。', 'en-US': 'Review the Kimi Coding docs and create an API key.' },
-  'aiConfig.preset.geminiKimiForCoding.step2': { 'zh-CN': '确认使用 Coding 专用兼容 Base URL。', 'en-US': 'Confirm the coding-specific compatible base URL.' },
-  'aiConfig.preset.geminiKimiForCoding.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiMinimax.name': { 'zh-CN': 'MiniMax', 'en-US': 'MiniMax' },
-  'aiConfig.preset.geminiMinimax.desc': {
-    'zh-CN': '使用 MiniMax 的兼容接口注入 Gemini 运行时环境。',
-    'en-US': 'Use MiniMax\'s compatible endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiMinimax.step1': { 'zh-CN': '打开 MiniMax 控制台并创建 API Key。', 'en-US': 'Open the MiniMax console and create an API key.' },
-  'aiConfig.preset.geminiMinimax.step2': { 'zh-CN': '确认 Coding Plan/额度可用，并使用兼容 Base URL。', 'en-US': 'Confirm your coding plan or credits and use the compatible base URL.' },
-  'aiConfig.preset.geminiMinimax.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiDoubaoSeed.name': { 'zh-CN': 'DouBaoSeed', 'en-US': 'DouBaoSeed' },
-  'aiConfig.preset.geminiDoubaoSeed.desc': {
-    'zh-CN': '使用火山引擎 DouBaoSeed 编程入口注入 Gemini 运行时环境。',
-    'en-US': 'Use the Volcengine DouBaoSeed coding endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiDoubaoSeed.step1': { 'zh-CN': '打开火山引擎 Ark 控制台并创建 API Key。', 'en-US': 'Open the Volcengine Ark console and create an API key.' },
-  'aiConfig.preset.geminiDoubaoSeed.step2': { 'zh-CN': '确认模型服务已开通，并使用 Coding 兼容入口。', 'en-US': 'Confirm model access is enabled and use the coding-compatible endpoint.' },
-  'aiConfig.preset.geminiDoubaoSeed.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiXiaomiMimo.name': { 'zh-CN': 'Xiaomi MiMo', 'en-US': 'Xiaomi MiMo' },
-  'aiConfig.preset.geminiXiaomiMimo.desc': {
-    'zh-CN': '使用小米 MiMo 的兼容接口注入 Gemini 运行时环境。',
-    'en-US': 'Use Xiaomi MiMo\'s compatible endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiXiaomiMimo.step1': { 'zh-CN': '打开 MiMo 控制台并创建 API Key。', 'en-US': 'Open the MiMo console and create an API key.' },
-  'aiConfig.preset.geminiXiaomiMimo.step2': { 'zh-CN': '确认使用 MiMo 对应兼容 Base URL。', 'en-US': 'Confirm the MiMo compatible base URL.' },
-  'aiConfig.preset.geminiXiaomiMimo.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiModelScope.name': { 'zh-CN': 'ModelScope', 'en-US': 'ModelScope' },
-  'aiConfig.preset.geminiModelScope.desc': {
-    'zh-CN': '使用 ModelScope 聚合推理入口注入 Gemini 运行时环境。',
-    'en-US': 'Use ModelScope\'s aggregate inference endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiModelScope.step1': { 'zh-CN': '打开 ModelScope Access Token 页面并创建 Token。', 'en-US': 'Open the ModelScope access token page and create a token.' },
-  'aiConfig.preset.geminiModelScope.step2': { 'zh-CN': '确认将使用 GLM-5 对应兼容 Base URL。', 'en-US': 'Confirm the compatible base URL for GLM-5.' },
-  'aiConfig.preset.geminiModelScope.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiKatCoder.name': { 'zh-CN': 'KAT-Coder', 'en-US': 'KAT-Coder' },
-  'aiConfig.preset.geminiKatCoder.desc': {
-    'zh-CN': '使用 KAT-Coder 专用编程线路注入 Gemini 运行时环境。',
-    'en-US': 'Use KAT-Coder\'s dedicated coding route to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiKatCoder.step1': { 'zh-CN': '在 StreamLake 控制台创建或确认可用端点。', 'en-US': 'Create or confirm an available endpoint in the StreamLake console.' },
-  'aiConfig.preset.geminiKatCoder.step2': { 'zh-CN': '将 Base URL 中的 `YOUR_ENDPOINT_ID` 替换为真实端点 ID。', 'en-US': 'Replace `YOUR_ENDPOINT_ID` in the base URL with your real endpoint ID.' },
-  'aiConfig.preset.geminiKatCoder.step3': { 'zh-CN': '创建 API Key 并在 GT Office 中确认环境变量变更。', 'en-US': 'Create an API key and confirm the environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiLongcat.name': { 'zh-CN': 'Longcat', 'en-US': 'Longcat' },
-  'aiConfig.preset.geminiLongcat.desc': {
-    'zh-CN': '使用 Longcat 的兼容接口注入面向编码场景的 Gemini 配置。',
-    'en-US': 'Use Longcat\'s compatible endpoint to inject Gemini settings for coding workflows.',
-  },
-  'aiConfig.preset.geminiLongcat.step1': { 'zh-CN': '打开 Longcat 平台并创建 API Key。', 'en-US': 'Open the Longcat platform and create an API key.' },
-  'aiConfig.preset.geminiLongcat.step2': { 'zh-CN': '确认订阅或额度可用，并使用兼容 Base URL。', 'en-US': 'Confirm your subscription or credits and use the compatible base URL.' },
-  'aiConfig.preset.geminiLongcat.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
-  'aiConfig.preset.geminiBaiLing.name': { 'zh-CN': 'BaiLing', 'en-US': 'BaiLing' },
-  'aiConfig.preset.geminiBaiLing.desc': {
-    'zh-CN': '使用 BaiLing 的兼容接口注入 Gemini 运行时环境。',
-    'en-US': 'Use BaiLing\'s compatible endpoint to inject Gemini runtime settings.',
-  },
-  'aiConfig.preset.geminiBaiLing.step1': { 'zh-CN': '阅读 BaiLing 接入文档并准备 API Key。', 'en-US': 'Review the BaiLing onboarding docs and prepare an API key.' },
-  'aiConfig.preset.geminiBaiLing.step2': { 'zh-CN': '确认将使用 BaiLing 的兼容 Base URL。', 'en-US': 'Confirm the BaiLing compatible base URL.' },
-  'aiConfig.preset.geminiBaiLing.step3': { 'zh-CN': '在 GT Office 中确认 API Key 与 Gemini 环境变量变更。', 'en-US': 'Confirm the API key and Gemini environment variable changes in GT Office.' },
 
   /* Mainland-friendly Codex Presets */
   'aiConfig.preset.codexAiHubMix.name': { 'zh-CN': 'AiHubMix', 'en-US': 'AiHubMix' },
@@ -2275,71 +2129,6 @@ export const messages = {
   'aiConfig.preset.codexCTok.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
   'aiConfig.preset.codexCTok.step3': { 'zh-CN': '在 GT Office 中预览 CTok.ai 的 config.toml 模板。', 'en-US': 'Review the CTok.ai config.toml template in GT Office.' },
 
-  /* Mainland-friendly Gemini Presets */
-  'aiConfig.preset.geminiPackyCode.name': { 'zh-CN': 'PackyCode', 'en-US': 'PackyCode' },
-  'aiConfig.preset.geminiPackyCode.desc': {
-    'zh-CN': '通过 PackyCode 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use PackyCode as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiPackyCode.step1': { 'zh-CN': '打开 PackyCode 并完成账号准备。', 'en-US': 'Open PackyCode and finish account setup.' },
-  'aiConfig.preset.geminiPackyCode.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiPackyCode.step3': { 'zh-CN': '在 GT Office 中确认 PackyCode 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the PackyCode API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiCubence.name': { 'zh-CN': 'Cubence', 'en-US': 'Cubence' },
-  'aiConfig.preset.geminiCubence.desc': {
-    'zh-CN': '通过 Cubence 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use Cubence as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiCubence.step1': { 'zh-CN': '打开 Cubence 并完成账号准备。', 'en-US': 'Open Cubence and finish account setup.' },
-  'aiConfig.preset.geminiCubence.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiCubence.step3': { 'zh-CN': '在 GT Office 中确认 Cubence 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the Cubence API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiAiGoCode.name': { 'zh-CN': 'AIGoCode', 'en-US': 'AIGoCode' },
-  'aiConfig.preset.geminiAiGoCode.desc': {
-    'zh-CN': '通过 AIGoCode 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use AIGoCode as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiAiGoCode.step1': { 'zh-CN': '打开 AIGoCode 并完成账号准备。', 'en-US': 'Open AIGoCode and finish account setup.' },
-  'aiConfig.preset.geminiAiGoCode.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiAiGoCode.step3': { 'zh-CN': '在 GT Office 中确认 AIGoCode 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the AIGoCode API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiAiCodeMirror.name': { 'zh-CN': 'AICodeMirror', 'en-US': 'AICodeMirror' },
-  'aiConfig.preset.geminiAiCodeMirror.desc': {
-    'zh-CN': '通过 AICodeMirror 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use AICodeMirror as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiAiCodeMirror.step1': { 'zh-CN': '打开 AICodeMirror 并完成账号准备。', 'en-US': 'Open AICodeMirror and finish account setup.' },
-  'aiConfig.preset.geminiAiCodeMirror.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiAiCodeMirror.step3': { 'zh-CN': '在 GT Office 中确认 AICodeMirror 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the AICodeMirror API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiAiCoding.name': { 'zh-CN': 'AICoding', 'en-US': 'AICoding' },
-  'aiConfig.preset.geminiAiCoding.desc': {
-    'zh-CN': '通过 AICoding 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use AICoding as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiAiCoding.step1': { 'zh-CN': '打开 AICoding 并完成账号准备。', 'en-US': 'Open AICoding and finish account setup.' },
-  'aiConfig.preset.geminiAiCoding.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiAiCoding.step3': { 'zh-CN': '在 GT Office 中确认 AICoding 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the AICoding API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiCrazyRouter.name': { 'zh-CN': 'CrazyRouter', 'en-US': 'CrazyRouter' },
-  'aiConfig.preset.geminiCrazyRouter.desc': {
-    'zh-CN': '通过 CrazyRouter 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use CrazyRouter as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiCrazyRouter.step1': { 'zh-CN': '打开 CrazyRouter 并完成账号准备。', 'en-US': 'Open CrazyRouter and finish account setup.' },
-  'aiConfig.preset.geminiCrazyRouter.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiCrazyRouter.step3': { 'zh-CN': '在 GT Office 中确认 CrazyRouter 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the CrazyRouter API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiSSSAiCode.name': { 'zh-CN': 'SSSAiCode', 'en-US': 'SSSAiCode' },
-  'aiConfig.preset.geminiSSSAiCode.desc': {
-    'zh-CN': '通过 SSSAiCode 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use SSSAiCode as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiSSSAiCode.step1': { 'zh-CN': '打开 SSSAiCode 并完成账号准备。', 'en-US': 'Open SSSAiCode and finish account setup.' },
-  'aiConfig.preset.geminiSSSAiCode.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiSSSAiCode.step3': { 'zh-CN': '在 GT Office 中确认 SSSAiCode 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the SSSAiCode API key, base URL, and model settings in GT Office.' },
-  'aiConfig.preset.geminiCTok.name': { 'zh-CN': 'CTok.ai', 'en-US': 'CTok.ai' },
-  'aiConfig.preset.geminiCTok.desc': {
-    'zh-CN': '通过 CTok.ai 接入国内可用的 Gemini 兼容网关。',
-    'en-US': 'Use CTok.ai as a mainland-friendly Gemini-compatible gateway.',
-  },
-  'aiConfig.preset.geminiCTok.step1': { 'zh-CN': '打开 CTok.ai 并完成账号准备。', 'en-US': 'Open CTok.ai and finish account setup.' },
-  'aiConfig.preset.geminiCTok.step2': { 'zh-CN': '创建或复制可用的 API Key。', 'en-US': 'Create or copy an available API key.' },
-  'aiConfig.preset.geminiCTok.step3': { 'zh-CN': '在 GT Office 中确认 CTok.ai 的 API Key、Base URL 与模型配置。', 'en-US': 'Confirm the CTok.ai API key, base URL, and model settings in GT Office.' },
 
   /* Light Guides */
   'aiConfig.guide.codex.summary': {
@@ -2350,13 +2139,6 @@ export const messages = {
   'aiConfig.guide.codex.tip2': { 'zh-CN': '如果使用公司网关，请在 Codex 自身的配置文件中修改。', 'en-US': 'If using a company gateway, configure it in Codex\'s own config file.' },
   'aiConfig.guide.codex.tip3': { 'zh-CN': 'GT Office 将持续检测并确保其处于就绪状态。', 'en-US': 'GT Office will continue to detect readiness.' },
 
-  'aiConfig.guide.gemini.summary': {
-    'zh-CN': 'GT Office 提供安装检测、官方文档及本地配置路径引导。',
-    'en-US': 'GT Office provides install detection, official docs, and local config guidance.'
-  },
-  'aiConfig.guide.gemini.tip1': { 'zh-CN': 'Gemini 通常在安装后通过官方 CLI 流程进行配置。', 'en-US': 'Gemini is usually configured with official CLI flow after install.' },
-  'aiConfig.guide.gemini.tip2': { 'zh-CN': '如已使用 API Key，请保持在 Gemini 自身的配置文件中。', 'en-US': 'Keep existing API keys inside Gemini\'s own config file.' },
-  'aiConfig.guide.gemini.tip3': { 'zh-CN': '此页面用于就绪状态检查，而非次级配置面板。', 'en-US': 'Use this page as a launch readiness check.' },
 
   'aiConfig.light.readiness': { 'zh-CN': '安装与就绪检查', 'en-US': 'Installation & Readiness' },
   'aiConfig.light.cliTool': { 'zh-CN': 'CLI 工具', 'en-US': 'CLI Tool' },
@@ -2451,10 +2233,6 @@ export const messages = {
     'zh-CN': '推荐值会自动带入详细配置，可按需修改。',
     'en-US': 'Recommended values are prefilled and can be adjusted in details.',
   },
-  'aiConfig.light.geminiAuthModeDesc': {
-    'zh-CN': 'Gemini 会根据鉴权模式自动切换运行时类型。',
-    'en-US': 'Gemini switches its runtime type automatically from the selected auth mode.',
-  },
   'aiConfig.light.codexConfigTemplateDesc': {
     'zh-CN': 'Codex 预设会为你准备推荐的 config.toml 模板。',
     'en-US': 'Codex presets prepare a recommended config.toml template for you.',
@@ -2463,17 +2241,9 @@ export const messages = {
     'zh-CN': '配置 Codex 的供应商、模型、密钥以及可选的 config.toml。',
     'en-US': 'Configure the Codex provider, model, key, and optional config.toml.',
   },
-  'aiConfig.light.geminiDetailsDesc': {
-    'zh-CN': '配置 Gemini 的供应商、鉴权方式、模型以及按需注入的 API Key。',
-    'en-US': 'Configure the Gemini provider, auth mode, model, and API key when required.',
-  },
   'aiConfig.light.codexOfficialModeDesc': {
     'zh-CN': '官方模式保持 Codex CLI 的原生登录流程，不需要额外的 API Key 或 config.toml 覆盖。',
     'en-US': 'Official mode keeps the native Codex CLI sign-in flow and does not require extra API key or config.toml overrides.',
-  },
-  'aiConfig.light.geminiOfficialModeDesc': {
-    'zh-CN': '官方模式保持 Gemini CLI 的原生登录流程，GT Office 仅记录当前工作区的 provider 元数据。',
-    'en-US': 'Official mode keeps the native Gemini CLI sign-in flow, while GT Office only records workspace provider metadata.',
   },
   'aiConfig.light.customProviderNameDesc': {
     'zh-CN': '可为你的自定义端点命名，方便在工作区内辨识。',
@@ -2482,10 +2252,6 @@ export const messages = {
   'aiConfig.light.presetProviderNameDesc': {
     'zh-CN': '预设名称来自供应商目录，便于与后端配置保持一致。',
     'en-US': 'Preset names come from the provider catalog so the UI stays aligned with backend config.',
-  },
-  'aiConfig.light.geminiSelectedTypeDesc': {
-    'zh-CN': 'Gemini 将根据鉴权方式生成匹配的 selectedType。',
-    'en-US': 'Gemini derives a matching selectedType from the chosen auth mode.',
   },
   'aiConfig.light.runtimeTypeDerivedDesc': {
     'zh-CN': '该字段由鉴权模式自动推导，预览时会一并提交。',

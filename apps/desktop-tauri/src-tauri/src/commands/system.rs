@@ -496,7 +496,6 @@ fn gto_skill_target_dir_from_home(home: &Path, agent: &str) -> Result<PathBuf, S
     match agent {
         "claude" => Ok(home.join(".claude").join("skills").join(GTO_SKILL_DIR_NAME)),
         "codex" => Ok(home.join(".codex").join("skills").join(GTO_SKILL_DIR_NAME)),
-        "gemini" => Ok(home.join(".gemini").join("skills").join(GTO_SKILL_DIR_NAME)),
         _ => Err(format!(
             "GTO_SKILL_TARGET_UNSUPPORTED: unsupported agent {agent}"
         )),

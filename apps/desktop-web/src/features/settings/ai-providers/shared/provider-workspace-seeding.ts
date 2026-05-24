@@ -11,18 +11,12 @@ import type {
   CodexProviderPreset,
   CodexSavedProviderSnapshot,
   CodexSnapshot,
-  GeminiConfigSnapshot,
-  GeminiDraftInput,
-  GeminiProviderPreset,
-  GeminiSavedProviderSnapshot,
-  GeminiSnapshot,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 
 import { localizeLabel, type ProviderMode } from './provider-workspace-presenter.js'
 import {
   CUSTOM_PROVIDER_ID,
-  resolveSelectedType,
   type EditorMode,
   type ProviderWorkspaceAgentId,
   type ProviderWorkspaceGuide,
@@ -33,11 +27,11 @@ interface BuildSeedArgs {
   agentId: ProviderWorkspaceAgentId
   locale: Locale
   guide: ProviderWorkspaceGuide
-  presets: Array<ClaudeProviderPreset | CodexProviderPreset | GeminiProviderPreset>
-  selectablePresets: Array<ClaudeProviderPreset | CodexProviderPreset | GeminiProviderPreset>
-  defaultPreset: ClaudeProviderPreset | CodexProviderPreset | GeminiProviderPreset | null
-  officialPreset: ClaudeProviderPreset | CodexProviderPreset | GeminiProviderPreset | null
-  customPreset: ClaudeProviderPreset | CodexProviderPreset | GeminiProviderPreset | null
+  presets: Array<ClaudeProviderPreset | CodexProviderPreset>
+  selectablePresets: Array<ClaudeProviderPreset | CodexProviderPreset>
+  defaultPreset: ClaudeProviderPreset | CodexProviderPreset | null
+  officialPreset: ClaudeProviderPreset | CodexProviderPreset | null
+  customPreset: ClaudeProviderPreset | CodexProviderPreset | null
   officialProviderId: string
 }
 
@@ -53,8 +47,6 @@ function createBaseSeed(): ProviderWorkspaceSeed {
     apiKey: '',
     authScheme: 'anthropic_api_key',
     configToml: '',
-    authMode: 'oauth',
-    selectedType: resolveSelectedType('oauth'),
     apiFormat: 'anthropic',
     modelOverrides: {},
   }
@@ -70,8 +62,6 @@ export function selectGuideFromSnapshot(
       return snapshot.claude as typeof guide
     case 'codex':
       return snapshot.codex as typeof guide
-    case 'gemini':
-      return snapshot.gemini as typeof guide
   }
 }
 
@@ -100,23 +90,6 @@ export function removeSavedProviderFromGuide(
     }
     case 'codex': {
       const typedGuide = guide as CodexSnapshot
-      const remainingSavedProviders = typedGuide.savedProviders.filter(
-        (item) => item.savedProviderId !== savedProviderId,
-      )
-      return {
-        ...typedGuide,
-        savedProviders: remainingSavedProviders,
-        config:
-          typedGuide.config.savedProviderId === savedProviderId
-            ? {
-                ...typedGuide.config,
-                savedProviderId: remainingSavedProviders.find((item) => item.isActive)?.savedProviderId,
-              }
-            : typedGuide.config,
-      }
-    }
-    case 'gemini': {
-      const typedGuide = guide as GeminiSnapshot
       const remainingSavedProviders = typedGuide.savedProviders.filter(
         (item) => item.savedProviderId !== savedProviderId,
       )
@@ -187,46 +160,20 @@ export function buildCurrentSeed(args: BuildSeedArgs): ProviderWorkspaceSeed {
     return seed
   }
 
-  if (agentId === 'codex') {
-    const codexGuide = guide as CodexSnapshot
-    const nextMode = (codexGuide.config.activeMode ?? (defaultPreset ? 'preset' : 'official')) as ProviderMode
-    const nextPreset =
-      nextMode === 'official'
-        ? officialPreset
-        : nextMode === 'custom'
-          ? customPreset
-          : presets.find((item) => item.providerId === codexGuide.config.providerId) ?? defaultPreset
-    seed.mode = nextMode
-    seed.providerId = nextPreset?.providerId ?? ''
-    seed.providerName = nextMode === 'custom' ? codexGuide.config.providerName ?? '' : localizeLabel(locale, nextPreset?.name)
-    seed.baseUrl = nextMode === 'official' ? codexGuide.config.baseUrl ?? '' : codexGuide.config.baseUrl ?? nextPreset?.endpoint ?? ''
-    seed.model = codexGuide.config.model ?? nextPreset?.recommendedModel ?? ''
-    seed.configToml = codexGuide.config.configToml ?? (nextPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''
-    return seed
-  }
-
-  const geminiGuide = guide as GeminiSnapshot
-  const nextMode = (geminiGuide.config.activeMode ?? (defaultPreset ? 'preset' : 'official')) as ProviderMode
+  const codexGuide = guide as CodexSnapshot
+  const nextMode = (codexGuide.config.activeMode ?? (defaultPreset ? 'preset' : 'official')) as ProviderMode
   const nextPreset =
     nextMode === 'official'
       ? officialPreset
       : nextMode === 'custom'
         ? customPreset
-        : presets.find((item) => item.providerId === geminiGuide.config.providerId) ?? defaultPreset
-  const nextAuthMode =
-    nextMode === 'official'
-      ? 'oauth'
-      : geminiGuide.config.authMode ?? (nextPreset as GeminiProviderPreset | undefined)?.authMode ?? 'api_key'
+        : presets.find((item) => item.providerId === codexGuide.config.providerId) ?? defaultPreset
   seed.mode = nextMode
   seed.providerId = nextPreset?.providerId ?? ''
-  seed.providerName = nextMode === 'custom' ? geminiGuide.config.providerName ?? '' : localizeLabel(locale, nextPreset?.name)
-  seed.baseUrl = nextMode === 'official' ? geminiGuide.config.baseUrl ?? '' : geminiGuide.config.baseUrl ?? nextPreset?.endpoint ?? ''
-  seed.model = geminiGuide.config.model ?? nextPreset?.recommendedModel ?? ''
-  seed.authMode = nextAuthMode
-  seed.selectedType =
-    geminiGuide.config.selectedType
-      ?? (nextPreset as GeminiProviderPreset | undefined)?.selectedType
-      ?? resolveSelectedType(nextAuthMode)
+  seed.providerName = nextMode === 'custom' ? codexGuide.config.providerName ?? '' : localizeLabel(locale, nextPreset?.name)
+  seed.baseUrl = nextMode === 'official' ? codexGuide.config.baseUrl ?? '' : codexGuide.config.baseUrl ?? nextPreset?.endpoint ?? ''
+  seed.model = codexGuide.config.model ?? nextPreset?.recommendedModel ?? ''
+  seed.configToml = codexGuide.config.configToml ?? (nextPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''
   return seed
 }
 
@@ -280,60 +227,33 @@ export function buildSavedProviderSeed(
     return seed
   }
 
-  if (agentId === 'codex') {
-    const nextSavedProvider = savedProvider as CodexSavedProviderSnapshot
-    seed.mode = nextSavedProvider.mode
-    if (nextSavedProvider.mode === 'official') {
-      seed.providerId = officialPreset?.providerId ?? officialProviderId
-      seed.providerName = localizeLabel(locale, nextSavedProvider.providerName) || localizeLabel(locale, officialPreset?.name)
-      seed.model = nextSavedProvider.model ?? officialPreset?.recommendedModel ?? ''
-    } else if (nextSavedProvider.mode === 'custom') {
-      seed.providerId = nextSavedProvider.providerId ?? customPreset?.providerId ?? CUSTOM_PROVIDER_ID
-      seed.providerName = localizeLabel(locale, nextSavedProvider.providerName)
-      seed.baseUrl = nextSavedProvider.baseUrl ?? customPreset?.endpoint ?? ''
-      seed.model = nextSavedProvider.model ?? customPreset?.recommendedModel ?? ''
-      seed.configToml = nextSavedProvider.configToml ?? (customPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''
-    } else {
-      const nextPreset = presets.find((item) => item.providerId === nextSavedProvider.providerId) ?? defaultPreset
-      seed.providerId = nextSavedProvider.providerId ?? defaultPreset?.providerId ?? ''
-      seed.providerName = localizeLabel(locale, nextSavedProvider.providerName) || localizeLabel(locale, nextPreset?.name)
-      seed.baseUrl = nextSavedProvider.baseUrl ?? nextPreset?.endpoint ?? ''
-      seed.model = nextSavedProvider.model ?? nextPreset?.recommendedModel ?? ''
-      seed.configToml = nextSavedProvider.configToml ?? (nextPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''
-    }
-    return seed
-  }
-
-  const nextSavedProvider = savedProvider as GeminiSavedProviderSnapshot
+  const nextSavedProvider = savedProvider as CodexSavedProviderSnapshot
   seed.mode = nextSavedProvider.mode
-  seed.authMode = nextSavedProvider.authMode
-  seed.selectedType = nextSavedProvider.selectedType
   if (nextSavedProvider.mode === 'official') {
     seed.providerId = officialPreset?.providerId ?? officialProviderId
     seed.providerName = localizeLabel(locale, nextSavedProvider.providerName) || localizeLabel(locale, officialPreset?.name)
     seed.model = nextSavedProvider.model ?? officialPreset?.recommendedModel ?? ''
-    return seed
-  }
-  if (nextSavedProvider.mode === 'custom') {
+  } else if (nextSavedProvider.mode === 'custom') {
     seed.providerId = nextSavedProvider.providerId ?? customPreset?.providerId ?? CUSTOM_PROVIDER_ID
     seed.providerName = localizeLabel(locale, nextSavedProvider.providerName)
     seed.baseUrl = nextSavedProvider.baseUrl ?? customPreset?.endpoint ?? ''
     seed.model = nextSavedProvider.model ?? customPreset?.recommendedModel ?? ''
-    return seed
+    seed.configToml = nextSavedProvider.configToml ?? (customPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''
+  } else {
+    const nextPreset = presets.find((item) => item.providerId === nextSavedProvider.providerId) ?? defaultPreset
+    seed.providerId = nextSavedProvider.providerId ?? defaultPreset?.providerId ?? ''
+    seed.providerName = localizeLabel(locale, nextSavedProvider.providerName) || localizeLabel(locale, nextPreset?.name)
+    seed.baseUrl = nextSavedProvider.baseUrl ?? nextPreset?.endpoint ?? ''
+    seed.model = nextSavedProvider.model ?? nextPreset?.recommendedModel ?? ''
+    seed.configToml = nextSavedProvider.configToml ?? (nextPreset as CodexProviderPreset | undefined)?.configTemplate ?? ''
   }
-
-  const nextPreset = presets.find((item) => item.providerId === nextSavedProvider.providerId) ?? defaultPreset
-  seed.providerId = nextSavedProvider.providerId ?? defaultPreset?.providerId ?? ''
-  seed.providerName = localizeLabel(locale, nextSavedProvider.providerName) || localizeLabel(locale, nextPreset?.name)
-  seed.baseUrl = nextSavedProvider.baseUrl ?? nextPreset?.endpoint ?? ''
-  seed.model = nextSavedProvider.model ?? nextPreset?.recommendedModel ?? ''
   return seed
 }
 
 export function buildModeSeed(
-  args: BuildSeedArgs & { nextMode: ProviderMode; authMode: GeminiSnapshot['config']['authMode'] },
+  args: BuildSeedArgs & { nextMode: ProviderMode },
 ): Partial<ProviderWorkspaceSeed> {
-  const { agentId, locale, defaultPreset, officialPreset, customPreset, officialProviderId, nextMode, authMode } = args
+  const { defaultPreset, officialPreset, customPreset, officialProviderId, nextMode, locale } = args
 
   if (nextMode === 'official') {
     return {
@@ -344,13 +264,10 @@ export function buildModeSeed(
       model: officialPreset?.recommendedModel ?? '',
       authScheme: (officialPreset as ClaudeSnapshot['presets'][number] | undefined)?.authScheme ?? 'anthropic_auth_token',
       configToml: '',
-      authMode: 'oauth',
-      selectedType: resolveSelectedType('oauth'),
     }
   }
 
   if (nextMode === 'custom') {
-    const nextAuthMode = (customPreset as GeminiProviderPreset | undefined)?.authMode ?? authMode ?? 'api_key'
     return {
       mode: nextMode,
       providerId: customPreset?.providerId ?? CUSTOM_PROVIDER_ID,
@@ -359,13 +276,10 @@ export function buildModeSeed(
       model: customPreset?.recommendedModel ?? '',
       authScheme: (customPreset as ClaudeSnapshot['presets'][number] | undefined)?.authScheme ?? 'anthropic_api_key',
       configToml: (customPreset as CodexProviderPreset | undefined)?.configTemplate ?? '',
-      authMode: nextAuthMode,
-      selectedType: (customPreset as GeminiProviderPreset | undefined)?.selectedType ?? resolveSelectedType(nextAuthMode),
     }
   }
 
   const nextPreset = defaultPreset
-  const nextAuthMode = (nextPreset as GeminiProviderPreset | undefined)?.authMode ?? authMode ?? 'api_key'
   return {
     mode: nextMode,
     providerId: nextPreset?.providerId ?? '',
@@ -374,20 +288,16 @@ export function buildModeSeed(
     model: nextPreset?.recommendedModel ?? '',
     authScheme: (nextPreset as ClaudeSnapshot['presets'][number] | undefined)?.authScheme ?? 'anthropic_api_key',
     configToml: (nextPreset as CodexProviderPreset | undefined)?.configTemplate ?? '',
-    authMode: agentId === 'gemini' ? nextAuthMode : authMode ?? 'oauth',
-    selectedType: (nextPreset as GeminiProviderPreset | undefined)?.selectedType ?? resolveSelectedType(nextAuthMode),
   }
 }
 
 export function buildPresetSeed(
-  args: Pick<BuildSeedArgs, 'agentId' | 'locale' | 'presets' | 'defaultPreset'> & {
+  args: Pick<BuildSeedArgs, 'locale' | 'presets' | 'defaultPreset'> & {
     nextProviderId: string
-    authMode: GeminiSnapshot['config']['authMode']
   },
 ): Partial<ProviderWorkspaceSeed> {
-  const { locale, presets, defaultPreset, nextProviderId, authMode } = args
+  const { locale, presets, defaultPreset, nextProviderId } = args
   const nextPreset = presets.find((item) => item.providerId === nextProviderId) ?? defaultPreset
-  const nextAuthMode = (nextPreset as GeminiProviderPreset | undefined)?.authMode ?? authMode ?? 'api_key'
   return {
     providerId: nextProviderId,
     providerName: localizeLabel(locale, nextPreset?.name),
@@ -395,8 +305,6 @@ export function buildPresetSeed(
     model: nextPreset?.recommendedModel ?? '',
     authScheme: (nextPreset as ClaudeSnapshot['presets'][number] | undefined)?.authScheme ?? 'anthropic_api_key',
     configToml: (nextPreset as CodexProviderPreset | undefined)?.configTemplate ?? '',
-    authMode: nextAuthMode,
-    selectedType: (nextPreset as GeminiProviderPreset | undefined)?.selectedType ?? resolveSelectedType(nextAuthMode),
   }
 }
 
@@ -425,35 +333,21 @@ export function buildDraftInput(
     } satisfies ClaudeDraftInput
   }
 
-  if (agentId === 'codex') {
-    return {
-      mode: seed.mode,
-      savedProviderId: seed.editorMode === 'edit' ? seed.editingSavedProviderId ?? undefined : undefined,
-      providerId: seed.mode === 'preset' ? seed.providerId || undefined : undefined,
-      providerName: seed.mode === 'custom' ? seed.providerName.trim() || undefined : undefined,
-      baseUrl: seed.mode === 'official' ? undefined : seed.baseUrl.trim() || undefined,
-      model: seed.mode === 'official' ? undefined : seed.model.trim() || undefined,
-      apiKey: requiresApiKey ? seed.apiKey.trim() || undefined : undefined,
-      configToml: seed.mode === 'official' ? undefined : seed.configToml.trim() || undefined,
-    } satisfies CodexDraftInput
-  }
-
   return {
     mode: seed.mode,
     savedProviderId: seed.editorMode === 'edit' ? seed.editingSavedProviderId ?? undefined : undefined,
-    authMode: seed.mode === 'official' ? undefined : seed.authMode,
     providerId: seed.mode === 'preset' ? seed.providerId || undefined : undefined,
     providerName: seed.mode === 'custom' ? seed.providerName.trim() || undefined : undefined,
     baseUrl: seed.mode === 'official' ? undefined : seed.baseUrl.trim() || undefined,
     model: seed.mode === 'official' ? undefined : seed.model.trim() || undefined,
     apiKey: requiresApiKey ? seed.apiKey.trim() || undefined : undefined,
-    selectedType: seed.mode === 'official' ? undefined : seed.selectedType,
-  } satisfies GeminiDraftInput
+    configToml: seed.mode === 'official' ? undefined : seed.configToml.trim() || undefined,
+  } satisfies CodexDraftInput
 }
 
 export function computeCanReuseSecret(
   currentSavedProvider: ProviderWorkspaceGuide['savedProviders'][number] | null,
-  currentConfig: ClaudeConfigSnapshot | CodexConfigSnapshot | GeminiConfigSnapshot,
+  currentConfig: ClaudeConfigSnapshot | CodexConfigSnapshot,
   currentSelectionProviderId: string,
   seed: ProviderWorkspaceSeed,
 ): boolean {

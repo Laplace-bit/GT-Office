@@ -9,7 +9,6 @@ use gt_agent::{AgentRepository, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WOR
 use gt_ai_config::{
     AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
     AiConfigSnapshot, ClaudeConfigSnapshot, ClaudeSnapshot, CodexConfigSnapshot, CodexSnapshot,
-    GeminiConfigSnapshot, GeminiSnapshot,
 };
 use gt_storage::{
     AiConfigAuditLogInput, SavedClaudeProviderInput, SqliteAgentRepository,
@@ -353,16 +352,6 @@ fn empty_ai_config_snapshot() -> AiConfigSnapshot {
             tips: Vec::new(),
             presets: Vec::new(),
             config: CodexConfigSnapshot::default(),
-            saved_providers: Vec::new(),
-        },
-        gemini: GeminiSnapshot {
-            title: "Gemini".to_string(),
-            summary: String::new(),
-            config_path: None,
-            docs_url: "https://example.com/gemini".to_string(),
-            tips: Vec::new(),
-            presets: Vec::new(),
-            config: GeminiConfigSnapshot::default(),
             saved_providers: Vec::new(),
         },
     }

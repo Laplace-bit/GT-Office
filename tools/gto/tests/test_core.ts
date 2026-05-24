@@ -425,9 +425,9 @@ test('renderOutput keeps agent list order stable', () => {
   assert.equal(
     renderAgentList([
       { id: 'a1', name: 'Alpha', roleId: 'r1', tool: 'claude', state: 'ready', workdir: '.gtoffice/alpha' },
-      { id: 'a2', name: 'Beta', roleId: 'r2', tool: 'gemini', state: 'paused', workdir: '.gtoffice/beta' },
+      { id: 'a2', name: 'Beta', roleId: 'r2', tool: 'codex', state: 'paused', workdir: '.gtoffice/beta' },
     ]),
-    'Alpha / a1 / r1 / claude / ready / .gtoffice/alpha\nBeta / a2 / r2 / gemini / paused / .gtoffice/beta',
+    'Alpha / a1 / r1 / claude / ready / .gtoffice/alpha\nBeta / a2 / r2 / codex / paused / .gtoffice/beta',
   )
 })
 
@@ -2512,10 +2512,10 @@ test('createAgentCommands().update() allows replacing tool while keeping require
   const result = await commands.update({
     workspaceId: 'ws-1',
     agentId: 'agent-1',
-    payload: { tool: 'gemini' },
+    payload: { tool: 'codex' },
   })
 
-  assert.equal(result.tool, 'gemini')
+  assert.equal(result.tool, 'codex')
 })
 
 test('createAgentCommands().create() allows nullable optional fields to default cleanly', async () => {

@@ -395,7 +395,7 @@ test('runCli rejects invalid agent tool values', async () => {
   assert.equal(exitCode, 1)
   assertErrorEnvelope(writes, {
     code: 'INVALID_ARGUMENT',
-    message: 'Option --tool must be one of: claude, codex, gemini',
+    message: 'Option --tool must be one of: claude, codex',
   })
 })
 
@@ -429,7 +429,7 @@ test('runCli rejects invalid prompt file names', async () => {
   assert.equal(exitCode, 1)
   assertErrorEnvelope(writes, {
     code: 'INVALID_ARGUMENT',
-    message: 'Option --prompt-file-name must be one of: CLAUDE.md, AGENTS.md, GEMINI.md',
+    message: 'Option --prompt-file-name must be one of: CLAUDE.md, AGENTS.md',
   })
 })
 

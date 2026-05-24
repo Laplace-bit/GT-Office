@@ -653,7 +653,6 @@ impl AppState {
         let preview_id = match &preview {
             StoredAiConfigPreview::Claude(p) => p.preview_id.clone(),
             StoredAiConfigPreview::Codex(p) => p.preview_id.clone(),
-            StoredAiConfigPreview::Gemini(p) => p.preview_id.clone(),
         };
         let mut previews = self.ai_config_previews.lock().map_err(|_| {
             "AI_CONFIG_PREVIEW_LOCK_POISONED: ai config preview lock poisoned".to_string()
@@ -1931,7 +1930,7 @@ fn extract_rendered_menu_prompt_from_rows(
 
     // For terminal navigation menus (no numbered options), expand forward
     // from the last strong option to include non-strong option rows (e.g.
-    // "Gemini 2.5 Pro") and hints. For numbered menus, the strong options
+    // "Custom Model Pro") and hints. For numbered menus, the strong options
     // already define the range — no forward expansion needed.
     let has_numbered_option = filtered_rows[menu_start_idx..=last_strong_idx]
         .iter()
@@ -2518,7 +2517,6 @@ fn provider_session_from_log(metadata: &SessionLogProviderSession) -> AgentProvi
         provider: match metadata.provider {
             SessionLogProvider::Claude => AgentToolKind::Claude,
             SessionLogProvider::Codex => AgentToolKind::Codex,
-            SessionLogProvider::Gemini => AgentToolKind::Gemini,
         },
         provider_session_id: metadata.provider_session_id.clone(),
         log_path: metadata
@@ -2534,7 +2532,6 @@ fn session_log_provider_for_tool_kind(tool_kind: AgentToolKind) -> Option<Sessio
     match tool_kind {
         AgentToolKind::Claude => Some(SessionLogProvider::Claude),
         AgentToolKind::Codex => Some(SessionLogProvider::Codex),
-        AgentToolKind::Gemini => Some(SessionLogProvider::Gemini),
         AgentToolKind::Shell | AgentToolKind::Unknown => None,
     }
 }
@@ -3381,7 +3378,7 @@ fn should_skip_runtime_noise_line_for_tool(line: &str, profile: ToolScreenProfil
         }
     }
     // Generalized TUI status bar detection (works across Codex CLI, Claude
-    // Code, Gemini CLI, and any ratatui/ink/blessed-based TUI agent)
+    // Code, and any ratatui/ink/blessed-based TUI agent)
     if is_tui_status_bar_line(normalized) {
         return true;
     }
@@ -3552,7 +3549,7 @@ fn should_skip_external_reply_line(line: &str) -> bool {
 
 /// Detect TUI status bar lines by structural pattern.
 ///
-/// CLI agent TUIs (Codex, Claude Code, Gemini CLI, etc.) render status bars
+/// CLI agent TUIs (Codex, Claude Code, etc.) render status bars
 /// that share a common structural pattern: segments separated by middle-dot
 /// (`·`) containing model info, paths, and resource indicators. This detector
 /// is tool-agnostic — it looks for the structural signature rather than
@@ -3561,7 +3558,7 @@ fn should_skip_external_reply_line(line: &str) -> bool {
 /// Matched patterns include:
 /// - `gpt-5.3-codex · gpt-5.3-codex high · /mnt/c/project · 100%…`
 /// - `claude-sonnet-4 · /home/user/project · 95% left`
-/// - `gemini-2.5-pro · medium · ~/workspace · 42% left`
+/// - `custom-model-2.5 · medium · ~/workspace · 42% left`
 /// - `gpt-5.3-codex · gpt-5.3-codex xhigh · /mnt/…` (model + quality + path)
 fn is_tui_status_bar_line(line: &str) -> bool {
     let trimmed = line.trim();
@@ -3593,11 +3590,10 @@ fn is_tui_status_bar_line(line: &str) -> bool {
     // Check for model name patterns (common in AI CLI tools)
     let has_model_segment = segments.iter().any(|seg| {
         let s = seg.trim().to_ascii_lowercase();
-        // Model names often contain: gpt, claude, gemini, codex, sonnet, opus, haiku
+        // Model names often contain: gpt, claude, codex, sonnet, opus, haiku
         // or quality indicators: high, medium, low, xhigh
         s.contains("gpt")
             || s.contains("claude")
-            || s.contains("gemini")
             || s.contains("codex")
             || s.contains("sonnet")
             || s.contains("opus")
@@ -3640,7 +3636,7 @@ fn is_tui_padded_fragment(line: &str) -> bool {
 /// CLI tools and agents often output startup information that should not be
 /// included in the response to external channels. This function detects:
 /// - Version information (e.g., "v1.0.0", "version 2.3.4")
-/// - Tool name banners (e.g., "Claude Code", "Gemini CLI")
+/// - Tool name banners (e.g., "Claude Code", "Codex CLI")
 /// - Initialization messages (e.g., "Initializing...", "Loading model...")
 /// - Connection status (e.g., "Connected to API", "Authenticating...")
 /// - Configuration messages (e.g., "Configuration loaded", "Settings applied")
@@ -3673,7 +3669,6 @@ fn should_skip_startup_banner_line_for_tool(line: &str, profile: ToolScreenProfi
         if lower.contains("model:")
             || lower.contains("gpt-")
             || lower.contains("claude-")
-            || lower.contains("gemini-")
             || lower.contains("/model to")
         {
             return true;
@@ -3745,7 +3740,7 @@ fn should_skip_startup_banner_line_for_tool(line: &str, profile: ToolScreenProfi
 
     // Model/tool name banners (e.g., ">_ OpenAI Codex (v0.110.0)")
     if (lower.contains(">_") || lower.contains("│"))
-        && (lower.contains("codex") || lower.contains("claude") || lower.contains("gemini"))
+        && (lower.contains("codex") || lower.contains("claude"))
     {
         return true;
     }
@@ -3887,10 +3882,7 @@ fn is_placeholder_prompt_content_for_tool(content: &str, profile: ToolScreenProf
     if lower.starts_with("type your message") || lower.starts_with("type a message") {
         return true;
     }
-    if matches!(
-        profile,
-        ToolScreenProfile::Gemini | ToolScreenProfile::Generic
-    ) && lower.contains("@path/to/file")
+    if matches!(profile, ToolScreenProfile::Generic) && lower.contains("@path/to/file")
     {
         return true;
     }

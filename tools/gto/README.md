@@ -46,9 +46,9 @@ Bridge error envelopes preserve machine-readable downstream command codes for st
 
 ## Supported enum values
 
-- `--tool`: `claude`, `codex`, `gemini`
+- `--tool`: `claude`, `codex`
 - `--state`: `ready`, `paused`, `blocked`, `terminated`
-- `--prompt-file-name`: `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`
+- `--prompt-file-name`: `CLAUDE.md`, `AGENTS.md`
 - `--scope`: `workspace`, `global`
 - `--status`: `active`, `deprecated`, `disabled`
 - `--channel-kind`: `direct`, `group`, `broadcast`

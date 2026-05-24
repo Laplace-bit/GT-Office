@@ -7,16 +7,15 @@ import {
   resolveSavedProviderMeta,
 } from '../src/features/settings/ai-providers/shared/provider-workspace-presenter.js'
 
-test('builds compact meta pills for Gemini providers', () => {
-  const meta = resolveSavedProviderMeta('en-US', 'gemini', {
-    savedProviderId: 'gemini-oauth',
+test('builds compact meta pills for Codex providers', () => {
+  const meta = resolveSavedProviderMeta('en-US', 'codex', {
+    savedProviderId: 'codex-openai',
     mode: 'preset',
-    providerId: 'google-official',
-    providerName: 'Gemini Official',
+    providerId: 'openai-official',
+    providerName: 'OpenAI Official',
     baseUrl: null,
-    model: 'gemini-2.5-pro',
-    authMode: 'oauth',
-    selectedType: 'oauth-personal',
+    model: 'gpt-5.4',
+    configToml: null,
     hasSecret: true,
     isActive: false,
     createdAtMs: 1,
@@ -24,7 +23,7 @@ test('builds compact meta pills for Gemini providers', () => {
     lastAppliedAtMs: 3,
   })
 
-  assert.deepEqual(meta, ['Preset', 'gemini-2.5-pro', 'Secret vaulted', 'OAuth'])
+  assert.deepEqual(meta, ['Preset', 'gpt-5.4', 'Secret vaulted'])
 })
 
 test('falls back to CLI-managed copy when an official provider has no endpoint', () => {

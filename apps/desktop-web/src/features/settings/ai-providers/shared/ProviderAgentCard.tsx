@@ -49,7 +49,7 @@ function translateInstallIssue(locale: Locale, issue: string, agentKind: string)
     return t(locale, 'aiConfig.card.issueShellNotReady')
   }
   if (issue.includes('uninstall source could not be identified') || issue.includes('卸载来源无法自动识别')) {
-    const name = agentKind === 'codex' ? 'Codex CLI' : agentKind === 'gemini' ? 'Gemini CLI' : agentKind
+    const name = agentKind === 'codex' ? 'Codex CLI' : agentKind
     return t(locale, 'aiConfig.card.issueUninstallUnknown', { name })
   }
   return issue
@@ -98,7 +98,6 @@ export function ProviderAgentCard({
   const logoSrc = {
     claude: '/assets/logos/claude.webp',
     codex: '/assets/logos/openai.webp',
-    gemini: '/assets/logos/gemini.webp',
   }[agent.agent]
 
   const primaryAction = !agent.installStatus.installed ? (

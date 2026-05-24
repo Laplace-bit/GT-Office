@@ -174,7 +174,7 @@ fn agent_create_rolls_back_when_prompt_write_fails() {
 fn agent_update_moves_prompt_file_and_prompt_read_returns_latest_content() {
     let fixture = AgentCommandFixture::create();
     let mut create_request = fixture.create_request("Prompt Update Agent");
-    create_request.tool = Some("gemini".to_string());
+    create_request.tool = Some("codex".to_string());
     create_request.workdir = Some(".gtoffice/research".to_string());
     create_request.custom_workdir = Some(true);
     create_request.prompt_enabled = Some(true);
@@ -187,7 +187,7 @@ fn agent_update_moves_prompt_file_and_prompt_read_returns_latest_content() {
         .as_str()
         .expect("created agent id")
         .to_string();
-    let original_prompt_path = fixture.workspace_root.join(".gtoffice/research/GEMINI.md");
+    let original_prompt_path = fixture.workspace_root.join(".gtoffice/research/AGENTS.md");
     assert_eq!(
         fs::read_to_string(&original_prompt_path).expect("read original prompt"),
         "original prompt"
@@ -326,8 +326,8 @@ fn rejects_unsupported_role_status_values() {
 fn update_preserves_existing_tool_when_request_omits_it() {
     assert_eq!(resolve_update_agent_tool("Claude Code", None), "claude");
     assert_eq!(
-        resolve_update_agent_tool("Gemini CLI", Some("   ".to_string())),
-        "gemini"
+        resolve_update_agent_tool("Codex CLI", Some("   ".to_string())),
+        "codex"
     );
 }
 
@@ -342,8 +342,8 @@ fn update_uses_requested_tool_when_present() {
 #[test]
 fn update_preserves_existing_prompt_file_name_when_request_omits_it() {
     assert_eq!(
-        resolve_update_agent_prompt_file_name("Claude Code", None, Some("GEMINI.md"), None),
-        Some("GEMINI.md".to_string())
+        resolve_update_agent_prompt_file_name("Claude Code", None, Some("AGENTS.md"), None),
+        Some("AGENTS.md".to_string())
     );
     assert_eq!(
         resolve_update_agent_prompt_file_name("Claude Code", None, Some("CLAUDE.md"), Some("   ")),
@@ -369,11 +369,11 @@ fn update_uses_new_default_prompt_file_name_when_tool_changes() {
     assert_eq!(
         resolve_update_agent_prompt_file_name(
             "Claude Code",
-            Some("Gemini CLI"),
+            Some("Codex CLI"),
             Some("CLAUDE.md"),
             None
         ),
-        Some("GEMINI.md".to_string())
+        Some("AGENTS.md".to_string())
     );
 }
 
@@ -382,15 +382,15 @@ fn update_skips_prompt_write_when_prompt_inputs_are_omitted() {
     assert!(!should_write_prompt_file_on_update(
         "Claude Code",
         None,
-        Some("GEMINI.md"),
+        Some("AGENTS.md"),
         None,
         None,
         true,
     ));
     assert!(!should_write_prompt_file_on_update(
-        "Gemini CLI",
+        "Codex CLI",
         Some("   "),
-        Some("GEMINI.md"),
+        Some("AGENTS.md"),
         Some("   "),
         None,
         true,
@@ -401,7 +401,7 @@ fn update_skips_prompt_write_when_prompt_inputs_are_omitted() {
 fn update_does_not_write_prompt_file_when_prompt_is_disabled() {
     assert!(!should_write_prompt_file_on_update(
         "Claude Code",
-        Some("Gemini CLI"),
+        Some("Codex CLI"),
         Some("CLAUDE.md"),
         None,
         Some("updated prompt"),
@@ -433,7 +433,7 @@ fn update_requires_prompt_write_for_explicit_content_or_prompt_file_override() {
 fn update_requires_prompt_write_when_tool_changes_prompt_file_name() {
     assert!(should_write_prompt_file_on_update(
         "Claude Code",
-        Some("Gemini CLI"),
+        Some("Codex CLI"),
         Some("CLAUDE.md"),
         None,
         None,
@@ -463,27 +463,27 @@ fn update_omitting_prompt_inputs_does_not_overwrite_existing_custom_prompt_file(
     let workspace_root = temp_dir.path().clone();
     let workdir = ".gtoffice/agent-alpha";
     fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
-    let custom_prompt_path = workspace_root.join(workdir).join("GEMINI.md");
+    let agents_prompt_path = workspace_root.join(workdir).join("AGENTS.md");
 
     write_prompt_file(
         &workspace_root,
         workdir,
         "claude",
-        Some("GEMINI.md"),
+        Some("AGENTS.md"),
         Some("custom prompt".to_string()),
     )
     .unwrap();
 
-    let initial_content = fs::read_to_string(&custom_prompt_path).unwrap();
+    let initial_content = fs::read_to_string(&agents_prompt_path).unwrap();
     assert_eq!(initial_content, "custom prompt");
 
-    if should_write_prompt_file_on_update("Claude Code", None, Some("GEMINI.md"), None, None, true)
+    if should_write_prompt_file_on_update("Claude Code", None, Some("AGENTS.md"), None, None, true)
     {
-        write_prompt_file(&workspace_root, workdir, "claude", Some("GEMINI.md"), None).unwrap();
+        write_prompt_file(&workspace_root, workdir, "claude", Some("AGENTS.md"), None).unwrap();
     }
 
     assert_eq!(
-        fs::read_to_string(custom_prompt_path).unwrap(),
+        fs::read_to_string(agents_prompt_path).unwrap(),
         "custom prompt"
     );
 }
@@ -499,7 +499,7 @@ fn update_preserves_existing_prompt_file_override_through_prompt_read_and_write(
         &workspace_root,
         workdir,
         "claude",
-        Some("GEMINI.md"),
+        Some("AGENTS.md"),
         Some("custom prompt".to_string()),
     )
     .unwrap();
@@ -540,8 +540,8 @@ fn update_preserves_existing_prompt_file_override_through_prompt_read_and_write(
     )
     .unwrap();
 
-    let gemini_path = workspace_root.join(workdir).join("GEMINI.md");
-    assert_eq!(fs::read_to_string(gemini_path).unwrap(), "updated prompt");
+    let agents_prompt_path = workspace_root.join(workdir).join("AGENTS.md");
+    assert_eq!(fs::read_to_string(agents_prompt_path).unwrap(), "updated prompt");
 }
 
 #[test]
@@ -553,10 +553,6 @@ fn accepts_supported_prompt_file_name_overrides() {
     assert_eq!(
         resolve_prompt_file_name("codex", Some("AGENTS.md")).unwrap(),
         Some("AGENTS.md".to_string())
-    );
-    assert_eq!(
-        resolve_prompt_file_name("gemini", Some(" GEMINI.md ")).unwrap(),
-        Some("GEMINI.md".to_string())
     );
 }
 

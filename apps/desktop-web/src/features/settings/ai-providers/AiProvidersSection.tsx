@@ -33,11 +33,10 @@ const AGENT_ORDER: AiConfigAgent[] = ['claude', 'codex']
 const AGENT_DISPLAY_NAMES: Record<AiConfigAgent, string> = {
   claude: 'Claude Code',
   codex: 'Codex CLI',
-  gemini: 'Gemini CLI',
 }
 
-function mapAgentType(agent: AiConfigAgent): 'ClaudeCode' | 'Codex' | 'Gemini' {
-  return agent === 'claude' ? 'ClaudeCode' : agent === 'codex' ? 'Codex' : 'Gemini'
+function mapAgentType(agent: AiConfigAgent): 'ClaudeCode' | 'Codex' {
+  return agent === 'claude' ? 'ClaudeCode' : 'Codex'
 }
 
 interface ProgressModalState {
@@ -72,12 +71,10 @@ function createPendingAgentCard(agent: AiConfigAgent): AiAgentSnapshotCard {
   const titleByAgent: Record<AiConfigAgent, string> = {
     claude: 'aiConfig.agent.claude.title',
     codex: 'aiConfig.agent.codex.title',
-    gemini: 'aiConfig.agent.gemini.title',
   }
   const subtitleByAgent: Record<AiConfigAgent, string> = {
     claude: 'aiConfig.agent.claude.subtitle',
     codex: 'aiConfig.agent.codex.subtitle',
-    gemini: 'aiConfig.agent.gemini.subtitle',
   }
 
   return {
@@ -95,7 +92,6 @@ function toLoadingMap(snapshot: AiConfigReadSnapshotResponse | null): AgentLoadi
   return {
     claude: !loadedAgents.has('claude'),
     codex: !loadedAgents.has('codex'),
-    gemini: false,
   }
 }
 

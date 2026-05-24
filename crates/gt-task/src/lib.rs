@@ -350,7 +350,6 @@ pub struct AgentRuntimeRegistration {
 pub enum AgentToolKind {
     Claude,
     Codex,
-    Gemini,
     Shell,
     #[default]
     Unknown,

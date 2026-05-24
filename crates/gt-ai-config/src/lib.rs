@@ -4,7 +4,6 @@ pub mod service;
 
 pub use catalog::{
     claude_provider_presets, codex_provider_presets, codex_snapshot_template,
-    gemini_provider_presets, gemini_snapshot_template,
 };
 pub use models::{
     AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
@@ -13,10 +12,8 @@ pub use models::{
     ClaudeConfigSnapshot, ClaudeDraftInput, ClaudeNormalizedDraft, ClaudeProviderMode,
     ClaudeProviderPreset, ClaudeSavedProviderSnapshot, ClaudeSnapshot, CodexConfigSnapshot,
     CodexDraftInput, CodexNormalizedDraft, CodexProviderMode, CodexProviderPreset,
-    CodexSavedProviderSnapshot, CodexSnapshot, GeminiAuthMode, GeminiConfigSnapshot,
-    GeminiDraftInput, GeminiNormalizedDraft, GeminiProviderMode, GeminiProviderPreset,
-    GeminiSavedProviderSnapshot, GeminiSnapshot, StoredAiConfigPreview, StoredClaudePreview,
-    StoredCodexPreview, StoredGeminiPreview,
+    CodexSavedProviderSnapshot, CodexSnapshot, StoredAiConfigPreview, StoredClaudePreview,
+    StoredCodexPreview,
 };
 pub use service::{AiConfigError, AiConfigResult, AiConfigService};
 

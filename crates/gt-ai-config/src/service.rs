@@ -20,8 +20,7 @@ use uuid::Uuid;
 use crate::{
     catalog::{
         claude_official_provider_preset, claude_provider_presets, codex_provider_presets,
-        codex_snapshot_template, gemini_provider_presets, gemini_snapshot_template,
-        CLAUDE_OFFICIAL_PROVIDER_ID,
+        codex_snapshot_template, CLAUDE_OFFICIAL_PROVIDER_ID,
     },
     models::{
         AiConfigAgent, AiConfigApplyResponse, AiConfigMaskedChange, AiConfigNormalizedDraft,
@@ -29,9 +28,7 @@ use crate::{
         ClaudeConfigSnapshot, ClaudeDraftInput, ClaudeModelOverrides, ClaudeNormalizedDraft,
         ClaudeProviderMode, ClaudeSavedProviderSnapshot, ClaudeSnapshot, CodexConfigSnapshot,
         CodexDraftInput, CodexNormalizedDraft, CodexProviderMode, CodexSavedProviderSnapshot,
-        GeminiAuthMode, GeminiConfigSnapshot, GeminiDraftInput, GeminiNormalizedDraft,
-        GeminiProviderMode, GeminiSavedProviderSnapshot, StoredAiConfigPreview,
-        StoredClaudePreview, StoredCodexPreview, StoredGeminiPreview,
+        StoredAiConfigPreview, StoredClaudePreview, StoredCodexPreview,
     },
 };
 
@@ -476,18 +473,6 @@ impl AiConfigService {
             .collect()
     }
 
-    fn list_saved_gemini_providers(&self) -> AiConfigResult<Vec<GeminiSavedProviderSnapshot>> {
-        self.audit_repository
-            .ensure_schema()
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-        self.audit_repository
-            .list_saved_providers("gemini")
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?
-            .into_iter()
-            .map(saved_gemini_provider_snapshot_from_record)
-            .collect()
-    }
-
     fn resolve_saved_provider_id(
         &self,
         agent: &str,
@@ -551,42 +536,6 @@ impl AiConfigService {
             })
             .map_err(|error| AiConfigError::Storage(error.to_string()))?;
         saved_codex_provider_snapshot_from_record(record)
-    }
-
-    fn upsert_saved_gemini_provider_record(
-        &self,
-        saved_provider_id: &str,
-        normalized: &GeminiNormalizedDraft,
-        applied_at_ms: u64,
-    ) -> AiConfigResult<GeminiSavedProviderSnapshot> {
-        let extra_json = json!({
-            "authMode": Self::gemini_auth_mode_to_string(&normalized.auth_mode),
-            "selectedType": normalized.selected_type,
-        })
-        .to_string();
-        let record = self
-            .audit_repository
-            .upsert_saved_provider(&SavedAiProviderInput {
-                agent: "gemini".to_string(),
-                saved_provider_id: Some(saved_provider_id.to_string()),
-                fingerprint: fingerprint_gemini_config(normalized),
-                mode: Self::gemini_mode_to_string(&normalized.mode).to_string(),
-                provider_id: normalized.provider_id.clone(),
-                provider_name: normalized
-                    .provider_name
-                    .clone()
-                    .unwrap_or_else(|| "Gemini".to_string()),
-                base_url: normalized.base_url.clone(),
-                model: normalized.model.clone(),
-                secret_ref: normalized.secret_ref.clone(),
-                has_secret: normalized.has_secret,
-                extra_json,
-                created_at_ms: applied_at_ms as i64,
-                updated_at_ms: applied_at_ms as i64,
-                last_applied_at_ms: applied_at_ms as i64,
-            })
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-        saved_gemini_provider_snapshot_from_record(record)
     }
 
     pub fn list_audit_logs(
@@ -659,56 +608,6 @@ impl AiConfigService {
                         "user_settings".to_string(),
                         "codex_auth_json".to_string(),
                         "codex_config_toml".to_string(),
-                        "saved_provider_db".to_string(),
-                    ],
-                })
-            }
-            AiConfigAgent::Gemini => {
-                self.audit_repository
-                    .ensure_schema()
-                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                let saved_provider = self
-                    .audit_repository
-                    .get_saved_provider("gemini", saved_provider_id)
-                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
-                    .ok_or_else(|| {
-                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
-                    })?;
-                let normalized = normalized_from_saved_gemini_provider(&saved_provider)?;
-                let env_backup = self.snapshot_file_state(&Self::gemini_env_path()?)?;
-                let settings_backup = self.snapshot_file_state(&Self::gemini_settings_path()?)?;
-                if let Err(error) = self.sync_gemini_live_settings(&normalized) {
-                    let _ =
-                        self.restore_file_state(&Self::gemini_env_path()?, env_backup.as_deref());
-                    let _ = self.restore_file_state(
-                        &Self::gemini_settings_path()?,
-                        settings_backup.as_deref(),
-                    );
-                    return Err(error);
-                }
-                self.settings
-                    .update(
-                        SettingsScope::User,
-                        None,
-                        &Self::build_gemini_workspace_patch(&normalized, Some(saved_provider_id)),
-                    )
-                    .map_err(|error| AiConfigError::Settings(error.to_string()))?;
-                self.audit_repository
-                    .set_active_saved_provider("gemini", saved_provider_id, now_ms() as i64)
-                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                let effective =
-                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
-                Ok(AiConfigApplyResponse {
-                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
-                    preview_id: format!("saved-provider:{saved_provider_id}"),
-                    confirmed_by: confirmed_by.to_string(),
-                    applied: true,
-                    audit_id: format!("audit:{}", Uuid::new_v4()),
-                    effective,
-                    changed_targets: vec![
-                        "user_settings".to_string(),
-                        "gemini_env_file".to_string(),
-                        "gemini_settings_json".to_string(),
                         "saved_provider_db".to_string(),
                     ],
                 })
@@ -847,63 +746,6 @@ impl AiConfigService {
                     ],
                 })
             }
-            AiConfigAgent::Gemini => {
-                let deleted = self
-                    .audit_repository
-                    .delete_saved_provider("gemini", saved_provider_id)
-                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                if !deleted {
-                    return Err(AiConfigError::SavedProviderNotFound(
-                        saved_provider_id.to_string(),
-                    ));
-                }
-                let remaining = self
-                    .audit_repository
-                    .list_saved_providers("gemini")
-                    .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                if let Some(next) = remaining.first() {
-                    let normalized = normalized_from_saved_gemini_provider(next)?;
-                    self.sync_gemini_live_settings(&normalized)?;
-                    self.settings
-                        .update(
-                            SettingsScope::User,
-                            None,
-                            &Self::build_gemini_workspace_patch(
-                                &normalized,
-                                Some(next.saved_provider_id.as_str()),
-                            ),
-                        )
-                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
-                    self.audit_repository
-                        .set_active_saved_provider(
-                            "gemini",
-                            &next.saved_provider_id,
-                            now_ms() as i64,
-                        )
-                        .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-                } else {
-                    self.sync_gemini_live_settings(&official_gemini_normalized_draft())?;
-                    self.settings
-                        .update(SettingsScope::User, None, &Self::build_empty_gemini_patch())
-                        .map_err(|error| AiConfigError::Settings(error.to_string()))?;
-                }
-                let effective =
-                    self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
-                Ok(AiConfigApplyResponse {
-                    workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
-                    preview_id: format!("delete-provider:{saved_provider_id}"),
-                    confirmed_by: confirmed_by.to_string(),
-                    applied: true,
-                    audit_id: format!("audit:{}", Uuid::new_v4()),
-                    effective,
-                    changed_targets: vec![
-                        "user_settings".to_string(),
-                        "gemini_env_file".to_string(),
-                        "gemini_settings_json".to_string(),
-                        "saved_provider_db".to_string(),
-                    ],
-                })
-            }
         }
     }
 
@@ -924,17 +766,6 @@ impl AiConfigService {
             .load_effective(None)
             .map_err(|error| AiConfigError::Settings(error.to_string()))?;
         Self::read_codex_config_from_value(&effective.values)
-    }
-
-    pub fn read_gemini_config(
-        &self,
-        _workspace_root: &Path,
-    ) -> AiConfigResult<GeminiConfigSnapshot> {
-        let effective = self
-            .settings
-            .load_effective(None)
-            .map_err(|error| AiConfigError::Settings(error.to_string()))?;
-        Self::read_gemini_config_from_value(&effective.values)
     }
 
     pub fn preview_codex_patch(
@@ -989,69 +820,6 @@ impl AiConfigService {
         Ok((
             response,
             StoredAiConfigPreview::Codex(StoredCodexPreview {
-                preview_id,
-                saved_provider_id,
-                normalized_draft: normalized,
-                changed_keys: changes.into_iter().map(|entry| entry.key).collect(),
-                secret_refs,
-                warnings,
-                api_key_secret,
-            }),
-        ))
-    }
-
-    pub fn preview_gemini_patch(
-        &self,
-        workspace_id: &str,
-        workspace_root: &Path,
-        draft: GeminiDraftInput,
-    ) -> AiConfigResult<(AiConfigPreviewResponse, StoredAiConfigPreview)> {
-        let current = self.read_gemini_config(workspace_root)?;
-        let saved_provider_id = draft.saved_provider_id.clone();
-        let saved_provider = if let Some(saved_provider_id) = saved_provider_id.as_deref() {
-            Some(
-                self.audit_repository
-                    .get_saved_provider("gemini", saved_provider_id)
-                    .map_err(|error| AiConfigError::Storage(error.to_string()))?
-                    .ok_or_else(|| {
-                        AiConfigError::SavedProviderNotFound(saved_provider_id.to_string())
-                    })?,
-            )
-        } else {
-            None
-        };
-        let (normalized, api_key_secret) =
-            Self::normalize_gemini_draft(workspace_id, &current, saved_provider.as_ref(), draft)?;
-        let changes = Self::diff_gemini_config(&current, &normalized);
-        if changes.is_empty() {
-            return Err(AiConfigError::Invalid(
-                "no effective changes to apply".to_string(),
-            ));
-        }
-
-        let preview_id = format!("preview:{}", Uuid::new_v4());
-        let warnings = Self::build_gemini_warnings(&normalized);
-        let secret_refs = normalized
-            .secret_ref
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let response = AiConfigPreviewResponse {
-            workspace_id: workspace_id.to_string(),
-            scope: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
-            agent: AiConfigAgent::Gemini,
-            preview_id: preview_id.clone(),
-            allowed: true,
-            normalized_draft: AiConfigNormalizedDraft::Gemini(normalized.clone()),
-            masked_diff: changes.clone(),
-            changed_keys: changes.iter().map(|entry| entry.key.clone()).collect(),
-            secret_refs: secret_refs.clone(),
-            warnings: warnings.clone(),
-        };
-
-        Ok((
-            response,
-            StoredAiConfigPreview::Gemini(StoredGeminiPreview {
                 preview_id,
                 saved_provider_id,
                 normalized_draft: normalized,
@@ -1155,140 +923,11 @@ impl AiConfigService {
         })
     }
 
-    pub fn apply_gemini_preview(
-        &self,
-        _workspace_id: &str,
-        workspace_root: &Path,
-        confirmed_by: &str,
-        preview: &StoredGeminiPreview,
-    ) -> AiConfigResult<AiConfigApplyResponse> {
-        self.audit_repository
-            .ensure_schema()
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-
-        if let (Some(secret_ref), Some(secret_value)) = (
-            preview.normalized_draft.secret_ref.as_deref(),
-            preview.api_key_secret.as_deref(),
-        ) {
-            self.secret_store
-                .store(secret_ref, secret_value)
-                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
-        }
-
-        let env_path = Self::gemini_env_path()?;
-        let settings_path = Self::gemini_settings_path()?;
-        let env_backup = self.snapshot_file_state(&env_path)?;
-        let settings_backup = self.snapshot_file_state(&settings_path)?;
-        if let Err(error) = self.sync_gemini_live_settings(&preview.normalized_draft) {
-            let _ = self.restore_file_state(&env_path, env_backup.as_deref());
-            let _ = self.restore_file_state(&settings_path, settings_backup.as_deref());
-            return Err(error);
-        }
-
-        let saved_provider_id = self.resolve_saved_provider_id(
-            "gemini",
-            fingerprint_gemini_config(&preview.normalized_draft),
-            preview.saved_provider_id.as_deref(),
-        )?;
-        let patch = Self::build_gemini_workspace_patch(
-            &preview.normalized_draft,
-            Some(saved_provider_id.as_str()),
-        );
-        if let Err(error) = self.settings.update(SettingsScope::User, None, &patch) {
-            let _ = self.restore_file_state(&env_path, env_backup.as_deref());
-            let _ = self.restore_file_state(&settings_path, settings_backup.as_deref());
-            return Err(AiConfigError::Settings(error.to_string()));
-        }
-
-        let audit_id = format!("audit:{}", Uuid::new_v4());
-        let created_at_ms = now_ms() as i64;
-        let changed_keys_json = serde_json::to_string(&preview.changed_keys)
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-        let secret_refs_json = serde_json::to_string(&preview.secret_refs)
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-
-        self.audit_repository
-            .insert_audit_log(&AiConfigAuditLogInput {
-                audit_id: audit_id.clone(),
-                workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
-                agent: "gemini".to_string(),
-                mode: Self::gemini_mode_to_string(&preview.normalized_draft.mode).to_string(),
-                provider_id: preview.normalized_draft.provider_id.clone(),
-                changed_keys_json,
-                secret_refs_json,
-                confirmed_by: confirmed_by.to_string(),
-                created_at_ms,
-            })
-            .map_err(|error| AiConfigError::Storage(error.to_string()))?;
-
-        self.upsert_saved_gemini_provider_record(
-            &saved_provider_id,
-            &preview.normalized_draft,
-            created_at_ms as u64,
-        )?;
-
-        let effective = self.read_snapshot(GLOBAL_AI_CONFIG_CONTEXT, Some(workspace_root))?;
-
-        Ok(AiConfigApplyResponse {
-            workspace_id: GLOBAL_AI_CONFIG_CONTEXT.to_string(),
-            preview_id: preview.preview_id.clone(),
-            confirmed_by: confirmed_by.to_string(),
-            applied: true,
-            audit_id,
-            effective,
-            changed_targets: vec![
-                "user_settings".to_string(),
-                "gemini_env_file".to_string(),
-                "gemini_settings_json".to_string(),
-                "saved_provider_db".to_string(),
-                "secret_store".to_string(),
-                "audit_log".to_string(),
-            ],
-        })
-    }
-
     fn sync_codex_live_settings(&self, normalized: &CodexNormalizedDraft) -> AiConfigResult<()> {
         let auth_path = Self::codex_auth_path()?;
         let config_path = Self::codex_config_path()?;
         self.sync_codex_auth_file(&auth_path, normalized)?;
         self.sync_codex_config_file(&config_path, normalized)
-    }
-
-    fn sync_gemini_live_settings(&self, normalized: &GeminiNormalizedDraft) -> AiConfigResult<()> {
-        let env_path = Self::gemini_env_path()?;
-        let settings_path = Self::gemini_settings_path()?;
-        self.sync_gemini_env_file(&env_path, normalized)?;
-
-        let mut root = read_json_object_file(&settings_path)?;
-        let root_object = root.as_object_mut().ok_or_else(|| {
-            AiConfigError::LiveSync(format!(
-                "Gemini settings root must be an object at {}",
-                settings_path.display()
-            ))
-        })?;
-        let security = root_object
-            .entry("security".to_string())
-            .or_insert_with(|| json!({}));
-        let security_object = security.as_object_mut().ok_or_else(|| {
-            AiConfigError::LiveSync(format!(
-                "Gemini settings security must be an object at {}",
-                settings_path.display()
-            ))
-        })?;
-        let auth = security_object
-            .entry("auth".to_string())
-            .or_insert_with(|| json!({}));
-        let auth_object = auth.as_object_mut().ok_or_else(|| {
-            AiConfigError::LiveSync(format!(
-                "Gemini settings auth must be an object at {}",
-                settings_path.display()
-            ))
-        })?;
-        auth_object.insert(
-            "selectedType".to_string(),
-            Value::String(normalized.selected_type.clone()),
-        );
-        write_json_atomic(&settings_path, &root)
     }
 
     fn sync_codex_auth_file(
@@ -1385,54 +1024,6 @@ impl AiConfigService {
         })
     }
 
-    fn sync_gemini_env_file(
-        &self,
-        path: &Path,
-        normalized: &GeminiNormalizedDraft,
-    ) -> AiConfigResult<()> {
-        let mut env = parse_simple_env_file(path);
-
-        if let Some(base_url) = normalized
-            .base_url
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), base_url.to_string());
-        } else {
-            env.remove("GOOGLE_GEMINI_BASE_URL");
-        }
-
-        if let Some(model) = normalized
-            .model
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            env.insert("GEMINI_MODEL".to_string(), model.to_string());
-        } else {
-            env.remove("GEMINI_MODEL");
-        }
-
-        if normalized.auth_mode == GeminiAuthMode::ApiKey {
-            let secret_ref = normalized.secret_ref.as_deref().ok_or_else(|| {
-                AiConfigError::Invalid("configured Gemini secret reference is missing".to_string())
-            })?;
-            let secret = self
-                .secret_store
-                .load(secret_ref)
-                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
-            env.insert("GEMINI_API_KEY".to_string(), secret);
-        } else {
-            env.remove("GEMINI_API_KEY");
-        }
-
-        if env.is_empty() {
-            return remove_file_if_exists(path);
-        }
-
-        let env_text = serialize_simple_env_file(&env);
-        write_bytes_atomic(path, env_text.as_bytes())
-    }
-
     fn codex_runtime_env(&self, workspace_root: &Path) -> AiConfigResult<BTreeMap<String, String>> {
         let config = self.read_codex_config(workspace_root)?;
         let mode = match config.active_mode {
@@ -1453,48 +1044,8 @@ impl AiConfigService {
         Ok(env)
     }
 
-    fn gemini_runtime_env(
-        &self,
-        workspace_root: &Path,
-    ) -> AiConfigResult<BTreeMap<String, String>> {
-        let config = self.read_gemini_config(workspace_root)?;
-        let mode = match config.active_mode {
-            Some(mode) => mode,
-            None => return Ok(BTreeMap::new()),
-        };
-        let auth_mode = config.auth_mode.unwrap_or(GeminiAuthMode::OAuth);
-        let mut env = BTreeMap::new();
-        if mode != GeminiProviderMode::Official {
-            if let Some(base_url) = config.base_url.filter(|value| !value.trim().is_empty()) {
-                env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), base_url);
-            }
-        }
-        if let Some(model) = config.model.filter(|value| !value.trim().is_empty()) {
-            env.insert("GEMINI_MODEL".to_string(), model);
-        }
-        if auth_mode == GeminiAuthMode::ApiKey {
-            if let Some(secret_ref) = config.secret_ref.filter(|value| !value.trim().is_empty()) {
-                let secret = self
-                    .secret_store
-                    .load(&secret_ref)
-                    .map_err(|error| AiConfigError::Secret(error.to_string()))?;
-                env.insert("GEMINI_API_KEY".to_string(), secret);
-            }
-        }
-        Ok(env)
-    }
-
     fn codex_summary(config: &CodexConfigSnapshot) -> Option<String> {
         let provider = config.provider_name.as_deref().unwrap_or("Codex");
-        let model = config.model.as_deref().unwrap_or("default");
-        config
-            .active_mode
-            .as_ref()
-            .map(|mode| format!("{mode:?}: {provider} / {model}"))
-    }
-
-    fn gemini_summary(config: &GeminiConfigSnapshot) -> Option<String> {
-        let provider = config.provider_name.as_deref().unwrap_or("Gemini");
         let model = config.model.as_deref().unwrap_or("default");
         config
             .active_mode
@@ -1523,55 +1074,6 @@ impl AiConfigService {
             AiConfigError::LiveSync("unable to resolve user home directory".to_string())
         })?;
         Ok(home.join(".codex").join("config.toml"))
-    }
-
-    fn gemini_env_path() -> AiConfigResult<PathBuf> {
-        let home = user_home_dir().ok_or_else(|| {
-            AiConfigError::LiveSync("unable to resolve user home directory".to_string())
-        })?;
-        Ok(home.join(".gemini").join(".env"))
-    }
-
-    fn gemini_settings_path() -> AiConfigResult<PathBuf> {
-        let home = user_home_dir().ok_or_else(|| {
-            AiConfigError::LiveSync("unable to resolve user home directory".to_string())
-        })?;
-        Ok(home.join(".gemini").join("settings.json"))
-    }
-
-    fn build_gemini_env_text(
-        secret_store: &SecretStore,
-        normalized: &GeminiNormalizedDraft,
-    ) -> AiConfigResult<String> {
-        let mut env = BTreeMap::new();
-        if let Some(base_url) = normalized
-            .base_url
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), base_url.to_string());
-        }
-        if let Some(model) = normalized
-            .model
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            env.insert("GEMINI_MODEL".to_string(), model.to_string());
-        }
-        if normalized.auth_mode == GeminiAuthMode::ApiKey {
-            let secret_ref = normalized.secret_ref.as_deref().ok_or_else(|| {
-                AiConfigError::Invalid("configured Gemini secret reference is missing".to_string())
-            })?;
-            let secret = secret_store
-                .load(secret_ref)
-                .map_err(|error| AiConfigError::Secret(error.to_string()))?;
-            env.insert("GEMINI_API_KEY".to_string(), secret);
-        }
-        Ok(env
-            .into_iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("\n"))
     }
 
     fn validate_codex_config_toml(text: &str) -> AiConfigResult<()> {
@@ -1823,164 +1325,6 @@ impl AiConfigService {
         }
     }
 
-    fn normalize_gemini_draft(
-        workspace_id: &str,
-        current: &GeminiConfigSnapshot,
-        saved_provider: Option<&SavedAiProviderRecord>,
-        draft: GeminiDraftInput,
-    ) -> AiConfigResult<(GeminiNormalizedDraft, Option<String>)> {
-        match draft.mode {
-            GeminiProviderMode::Official => {
-                let preset = gemini_provider_presets()
-                    .into_iter()
-                    .find(|item| item.provider_id == "google-official")
-                    .ok_or_else(|| {
-                        AiConfigError::Invalid("missing Gemini official preset".to_string())
-                    })?;
-                Ok((
-                    GeminiNormalizedDraft {
-                        mode: GeminiProviderMode::Official,
-                        auth_mode: GeminiAuthMode::OAuth,
-                        provider_id: Some(preset.provider_id),
-                        provider_name: Some(preset.name),
-                        base_url: None,
-                        model: Some(preset.recommended_model),
-                        selected_type: GeminiAuthMode::OAuth.selected_type().to_string(),
-                        secret_ref: None,
-                        has_secret: false,
-                    },
-                    None,
-                ))
-            }
-            GeminiProviderMode::Preset => {
-                let provider_id = required_field(draft.provider_id, "providerId")?;
-                let preset = gemini_provider_presets()
-                    .into_iter()
-                    .find(|item| item.provider_id == provider_id)
-                    .ok_or_else(|| AiConfigError::Invalid("unknown Gemini preset".to_string()))?;
-                let auth_mode = draft.auth_mode.unwrap_or(preset.auth_mode.clone());
-                let provider_name =
-                    normalize_non_empty(draft.provider_name).unwrap_or_else(|| preset.name.clone());
-                let base_url = Self::normalize_optional_endpoint(
-                    draft.base_url.or_else(|| preset.endpoint.clone()),
-                )?;
-                let model = normalize_non_empty(draft.model)
-                    .or_else(|| Some(preset.recommended_model.clone()));
-                let selected_type = normalize_non_empty(draft.selected_type)
-                    .unwrap_or_else(|| auth_mode.selected_type().to_string());
-                let secret_input = normalize_non_empty(draft.api_key);
-                let requires_secret =
-                    auth_mode == GeminiAuthMode::ApiKey || preset.requires_api_key;
-                let can_reuse_secret = current.provider_id.as_deref()
-                    == Some(preset.provider_id.as_str())
-                    && current.has_secret
-                    && current.secret_ref.is_some();
-                let saved_provider_secret_ref = saved_provider.and_then(|item| {
-                    if item.has_secret {
-                        item.secret_ref.clone()
-                    } else {
-                        None
-                    }
-                });
-                let secret_ref = if requires_secret {
-                    if secret_input.is_some() {
-                        Some(Self::provider_secret_ref(
-                            workspace_id,
-                            "gemini",
-                            &preset.provider_id,
-                        ))
-                    } else if can_reuse_secret {
-                        current.secret_ref.clone()
-                    } else if saved_provider_secret_ref.is_some() {
-                        saved_provider_secret_ref
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                if requires_secret && secret_ref.is_none() {
-                    return Err(AiConfigError::Invalid(
-                        "API key is required for the selected Gemini provider".to_string(),
-                    ));
-                }
-                Ok((
-                    GeminiNormalizedDraft {
-                        mode: GeminiProviderMode::Preset,
-                        auth_mode,
-                        provider_id: Some(preset.provider_id),
-                        provider_name: Some(provider_name),
-                        base_url,
-                        model,
-                        selected_type,
-                        secret_ref,
-                        has_secret: requires_secret,
-                    },
-                    secret_input,
-                ))
-            }
-            GeminiProviderMode::Custom => {
-                let auth_mode = draft.auth_mode.unwrap_or(GeminiAuthMode::ApiKey);
-                let provider_name = required_field(draft.provider_name, "providerName")?;
-                let base_url = Some(normalize_endpoint(required_field(
-                    draft.base_url,
-                    "baseUrl",
-                )?)?);
-                let model = Some(required_field(draft.model, "model")?);
-                let selected_type = normalize_non_empty(draft.selected_type)
-                    .unwrap_or_else(|| auth_mode.selected_type().to_string());
-                let secret_input = normalize_non_empty(draft.api_key);
-                let requires_secret = auth_mode == GeminiAuthMode::ApiKey;
-                let can_reuse_secret = current.provider_id.as_deref() == Some("custom-gateway")
-                    && current.has_secret
-                    && current.secret_ref.is_some();
-                let saved_provider_secret_ref = saved_provider.and_then(|item| {
-                    if item.has_secret {
-                        item.secret_ref.clone()
-                    } else {
-                        None
-                    }
-                });
-                let secret_ref = if requires_secret {
-                    if secret_input.is_some() {
-                        Some(Self::provider_secret_ref(
-                            workspace_id,
-                            "gemini",
-                            "custom-gateway",
-                        ))
-                    } else if can_reuse_secret {
-                        current.secret_ref.clone()
-                    } else if saved_provider_secret_ref.is_some() {
-                        saved_provider_secret_ref
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                if requires_secret && secret_ref.is_none() {
-                    return Err(AiConfigError::Invalid(
-                        "API key is required for the custom Gemini provider".to_string(),
-                    ));
-                }
-                Ok((
-                    GeminiNormalizedDraft {
-                        mode: GeminiProviderMode::Custom,
-                        auth_mode,
-                        provider_id: Some("custom-gateway".to_string()),
-                        provider_name: Some(provider_name),
-                        base_url,
-                        model,
-                        selected_type,
-                        secret_ref,
-                        has_secret: requires_secret,
-                    },
-                    secret_input,
-                ))
-            }
-        }
-    }
-
     fn diff_codex_config(
         current: &CodexConfigSnapshot,
         next: &CodexNormalizedDraft,
@@ -2044,94 +1388,9 @@ impl AiConfigService {
         changes
     }
 
-    fn diff_gemini_config(
-        current: &GeminiConfigSnapshot,
-        next: &GeminiNormalizedDraft,
-    ) -> Vec<AiConfigMaskedChange> {
-        let mut changes = Vec::new();
-        push_change(
-            &mut changes,
-            "ai.providers.gemini.activeMode",
-            "Mode",
-            current
-                .active_mode
-                .as_ref()
-                .map(Self::gemini_mode_to_string),
-            Some(Self::gemini_mode_to_string(&next.mode)),
-            false,
-        );
-        push_change(
-            &mut changes,
-            "ai.providers.gemini.authMode",
-            "Auth",
-            current
-                .auth_mode
-                .as_ref()
-                .map(Self::gemini_auth_mode_to_string),
-            Some(Self::gemini_auth_mode_to_string(&next.auth_mode)),
-            false,
-        );
-        push_change(
-            &mut changes,
-            "ai.providers.gemini.providerName",
-            "Provider",
-            current.provider_name.as_deref(),
-            next.provider_name.as_deref(),
-            false,
-        );
-        push_change(
-            &mut changes,
-            "ai.providers.gemini.baseUrl",
-            "Endpoint",
-            current.base_url.as_deref(),
-            next.base_url.as_deref(),
-            false,
-        );
-        push_change(
-            &mut changes,
-            "ai.providers.gemini.model",
-            "Model",
-            current.model.as_deref(),
-            next.model.as_deref(),
-            false,
-        );
-        push_change(
-            &mut changes,
-            "ai.providers.gemini.selectedType",
-            "Selected Type",
-            current.selected_type.as_deref(),
-            Some(next.selected_type.as_str()),
-            false,
-        );
-        push_change_owned(
-            &mut changes,
-            "ai.providers.gemini.apiKey",
-            "API Key",
-            Some(
-                if current.has_secret {
-                    "Saved"
-                } else {
-                    "Missing"
-                }
-                .to_string(),
-            ),
-            Some(if next.has_secret { "Ready" } else { "Not set" }.to_string()),
-            true,
-        );
-        changes
-    }
-
     fn build_codex_warnings(normalized: &CodexNormalizedDraft) -> Vec<String> {
         let mut warnings = vec!["aiConfig.warning.systemCodexSync".to_string()];
         if normalized.mode == CodexProviderMode::Custom {
-            warnings.push("aiConfig.warning.customGateway".to_string());
-        }
-        warnings
-    }
-
-    fn build_gemini_warnings(normalized: &GeminiNormalizedDraft) -> Vec<String> {
-        let mut warnings = vec!["aiConfig.warning.systemGeminiSync".to_string()];
-        if normalized.mode == GeminiProviderMode::Custom {
             warnings.push("aiConfig.warning.customGateway".to_string());
         }
         warnings
@@ -2161,31 +1420,6 @@ impl AiConfigService {
         })
     }
 
-    fn build_gemini_workspace_patch(
-        normalized: &GeminiNormalizedDraft,
-        saved_provider_id: Option<&str>,
-    ) -> Value {
-        json!({
-            "ai": {
-                "providers": {
-                    "gemini": {
-                        "savedProviderId": saved_provider_id,
-                        "activeMode": Self::gemini_mode_to_string(&normalized.mode),
-                        "authMode": Self::gemini_auth_mode_to_string(&normalized.auth_mode),
-                        "providerId": normalized.provider_id,
-                        "providerName": normalized.provider_name,
-                        "baseUrl": normalized.base_url,
-                        "model": normalized.model,
-                        "selectedType": normalized.selected_type,
-                        "secretRef": normalized.secret_ref,
-                        "hasSecret": normalized.has_secret,
-                        "updatedAtMs": now_ms(),
-                    }
-                }
-            }
-        })
-    }
-
     fn build_empty_codex_patch() -> Value {
         json!({
             "ai": {
@@ -2198,28 +1432,6 @@ impl AiConfigService {
                         "baseUrl": Value::Null,
                         "model": Value::Null,
                         "configToml": Value::Null,
-                        "secretRef": Value::Null,
-                        "hasSecret": false,
-                        "updatedAtMs": now_ms(),
-                    }
-                }
-            }
-        })
-    }
-
-    fn build_empty_gemini_patch() -> Value {
-        json!({
-            "ai": {
-                "providers": {
-                    "gemini": {
-                        "savedProviderId": Value::Null,
-                        "activeMode": Value::Null,
-                        "authMode": Value::Null,
-                        "providerId": Value::Null,
-                        "providerName": Value::Null,
-                        "baseUrl": Value::Null,
-                        "model": Value::Null,
-                        "selectedType": Value::Null,
                         "secretRef": Value::Null,
                         "hasSecret": false,
                         "updatedAtMs": now_ms(),
@@ -2278,59 +1490,6 @@ impl AiConfigService {
         }))
     }
 
-    fn read_gemini_config_from_value(value: &Value) -> AiConfigResult<GeminiConfigSnapshot> {
-        let config_value = value
-            .pointer("/ai/providers/gemini")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let object = config_value.as_object().cloned().unwrap_or_default();
-        let saved_provider_id = object
-            .get("savedProviderId")
-            .and_then(Value::as_str)
-            .map(|value| value.to_string());
-        let secret_ref = object
-            .get("secretRef")
-            .and_then(Value::as_str)
-            .map(|value| value.to_string());
-        Ok(with_official_gemini_config_defaults(GeminiConfigSnapshot {
-            saved_provider_id,
-            active_mode: object
-                .get("activeMode")
-                .and_then(Value::as_str)
-                .and_then(Self::parse_gemini_mode),
-            auth_mode: object
-                .get("authMode")
-                .and_then(Value::as_str)
-                .and_then(Self::parse_gemini_auth_mode),
-            provider_id: object
-                .get("providerId")
-                .and_then(Value::as_str)
-                .map(|value| value.to_string()),
-            provider_name: object
-                .get("providerName")
-                .and_then(Value::as_str)
-                .map(|value| value.to_string()),
-            base_url: object
-                .get("baseUrl")
-                .and_then(Value::as_str)
-                .map(|value| value.to_string()),
-            model: object
-                .get("model")
-                .and_then(Value::as_str)
-                .map(|value| value.to_string()),
-            selected_type: object
-                .get("selectedType")
-                .and_then(Value::as_str)
-                .map(|value| value.to_string()),
-            secret_ref: secret_ref.clone(),
-            has_secret: object
-                .get("hasSecret")
-                .and_then(Value::as_bool)
-                .unwrap_or_else(|| secret_ref.is_some()),
-            updated_at_ms: object.get("updatedAtMs").and_then(Value::as_u64),
-        }))
-    }
-
     fn parse_codex_mode(value: &str) -> Option<CodexProviderMode> {
         match value.trim().to_ascii_lowercase().as_str() {
             "official" => Some(CodexProviderMode::Official),
@@ -2345,38 +1504,6 @@ impl AiConfigService {
             CodexProviderMode::Official => "official",
             CodexProviderMode::Preset => "preset",
             CodexProviderMode::Custom => "custom",
-        }
-    }
-
-    fn parse_gemini_mode(value: &str) -> Option<GeminiProviderMode> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "official" => Some(GeminiProviderMode::Official),
-            "preset" => Some(GeminiProviderMode::Preset),
-            "custom" => Some(GeminiProviderMode::Custom),
-            _ => None,
-        }
-    }
-
-    fn gemini_mode_to_string(mode: &GeminiProviderMode) -> &'static str {
-        match mode {
-            GeminiProviderMode::Official => "official",
-            GeminiProviderMode::Preset => "preset",
-            GeminiProviderMode::Custom => "custom",
-        }
-    }
-
-    fn parse_gemini_auth_mode(value: &str) -> Option<GeminiAuthMode> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "oauth" => Some(GeminiAuthMode::OAuth),
-            "api_key" => Some(GeminiAuthMode::ApiKey),
-            _ => None,
-        }
-    }
-
-    fn gemini_auth_mode_to_string(mode: &GeminiAuthMode) -> &'static str {
-        match mode {
-            GeminiAuthMode::OAuth => "oauth",
-            GeminiAuthMode::ApiKey => "api_key",
         }
     }
 
@@ -3019,29 +2146,10 @@ impl AiConfigService {
                 .find(|item| item.is_active)
                 .map(|item| item.saved_provider_id.clone());
         }
-        let mut gemini_config = self.read_gemini_config(workspace_root)?;
-        let saved_gemini_providers = self.list_saved_gemini_providers()?;
-        if gemini_config.active_mode.is_none() {
-            if let Some(home) = user_home.as_deref() {
-                if let Some(live_config) = discover_live_gemini_config_from_home(home) {
-                    gemini_config = live_config;
-                }
-            }
-        }
-        if gemini_config.saved_provider_id.is_none() {
-            gemini_config.saved_provider_id = saved_gemini_providers
-                .iter()
-                .find(|item| item.is_active)
-                .map(|item| item.saved_provider_id.clone());
-        }
 
         let mut codex_snapshot = codex_snapshot_template();
         codex_snapshot.config = codex_config.clone();
         codex_snapshot.saved_providers = saved_codex_providers;
-
-        let mut gemini_snapshot = gemini_snapshot_template();
-        gemini_snapshot.config = gemini_config.clone();
-        gemini_snapshot.saved_providers = saved_gemini_providers;
         let (claude_install_status, codex_install_status) = thread::scope(|scope| {
             let claude_install = scope.spawn(|| map_install_status(AiConfigAgent::Claude));
             let codex_install = scope.spawn(|| map_install_status(AiConfigAgent::Codex));
@@ -3090,7 +2198,6 @@ impl AiConfigService {
                 can_apply_official_mode: true,
             },
             codex: codex_snapshot,
-            gemini: gemini_snapshot,
         })
     }
 
@@ -3102,7 +2209,6 @@ impl AiConfigService {
         match agent {
             AiConfigAgent::Claude => self.build_claude_runtime_env(workspace_root),
             AiConfigAgent::Codex => self.codex_runtime_env(workspace_root),
-            AiConfigAgent::Gemini => self.gemini_runtime_env(workspace_root),
         }
     }
 
@@ -3805,187 +2911,6 @@ fn normalized_from_saved_codex_provider(
     })
 }
 
-fn fingerprint_gemini_config(normalized: &GeminiNormalizedDraft) -> String {
-    json!({
-        "mode": AiConfigService::gemini_mode_to_string(&normalized.mode),
-        "authMode": AiConfigService::gemini_auth_mode_to_string(&normalized.auth_mode),
-        "providerId": normalized.provider_id,
-        "providerName": normalized.provider_name,
-        "baseUrl": normalized.base_url,
-        "model": normalized.model,
-        "selectedType": normalized.selected_type,
-        "hasSecret": normalized.has_secret,
-    })
-    .to_string()
-}
-
-fn official_gemini_normalized_draft() -> GeminiNormalizedDraft {
-    let preset = gemini_provider_presets()
-        .into_iter()
-        .find(|item| item.provider_id == "google-official")
-        .unwrap_or_else(|| {
-            panic!("missing Gemini official preset");
-        });
-    GeminiNormalizedDraft {
-        mode: GeminiProviderMode::Official,
-        auth_mode: GeminiAuthMode::OAuth,
-        provider_id: Some(preset.provider_id),
-        provider_name: Some(preset.name),
-        base_url: None,
-        model: Some(preset.recommended_model),
-        selected_type: GeminiAuthMode::OAuth.selected_type().to_string(),
-        secret_ref: None,
-        has_secret: false,
-    }
-}
-
-fn with_official_gemini_config_defaults(mut config: GeminiConfigSnapshot) -> GeminiConfigSnapshot {
-    let is_official = config.active_mode == Some(GeminiProviderMode::Official)
-        || config.provider_id.as_deref() == Some("google-official");
-    if !is_official {
-        return config;
-    }
-
-    let defaults = official_gemini_normalized_draft();
-    config.auth_mode = Some(GeminiAuthMode::OAuth);
-    config.provider_id = config.provider_id.or(defaults.provider_id);
-    config.provider_name = config.provider_name.or(defaults.provider_name);
-    config.base_url = None;
-    config.model = config.model.or(defaults.model);
-    config.selected_type = Some(defaults.selected_type);
-    config.secret_ref = None;
-    config.has_secret = false;
-    config
-}
-
-fn saved_gemini_provider_snapshot_from_record(
-    record: SavedAiProviderRecord,
-) -> AiConfigResult<GeminiSavedProviderSnapshot> {
-    let mode = AiConfigService::parse_gemini_mode(&record.mode).ok_or_else(|| {
-        AiConfigError::Storage(format!(
-            "saved Gemini provider has invalid mode: {}",
-            record.mode
-        ))
-    })?;
-    let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
-    let is_official = mode == GeminiProviderMode::Official;
-    let defaults = if is_official {
-        Some(official_gemini_normalized_draft())
-    } else {
-        None
-    };
-    let auth_mode = extra
-        .get("authMode")
-        .and_then(Value::as_str)
-        .and_then(AiConfigService::parse_gemini_auth_mode)
-        .unwrap_or_else(|| {
-            defaults
-                .as_ref()
-                .map(|value| value.auth_mode.clone())
-                .unwrap_or(GeminiAuthMode::OAuth)
-        });
-    let selected_type = if is_official {
-        defaults
-            .as_ref()
-            .map(|value| value.selected_type.clone())
-            .unwrap_or_else(|| GeminiAuthMode::OAuth.selected_type().to_string())
-    } else {
-        extra
-            .get("selectedType")
-            .and_then(Value::as_str)
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| auth_mode.selected_type().to_string())
-    };
-
-    Ok(GeminiSavedProviderSnapshot {
-        saved_provider_id: record.saved_provider_id,
-        mode,
-        auth_mode,
-        provider_id: record.provider_id.or_else(|| {
-            defaults
-                .as_ref()
-                .and_then(|value| value.provider_id.clone())
-        }),
-        provider_name: if record.provider_name.trim().is_empty() {
-            defaults
-                .as_ref()
-                .and_then(|value| value.provider_name.clone())
-                .unwrap_or_else(|| "aiConfig.agent.gemini.title".to_string())
-        } else {
-            record.provider_name
-        },
-        base_url: if is_official { None } else { record.base_url },
-        model: if is_official {
-            record
-                .model
-                .or_else(|| defaults.as_ref().and_then(|value| value.model.clone()))
-        } else {
-            record.model
-        },
-        selected_type,
-        has_secret: if is_official {
-            false
-        } else {
-            record.has_secret
-        },
-        is_active: record.is_active,
-        created_at_ms: record.created_at_ms.max(0) as u64,
-        updated_at_ms: record.updated_at_ms.max(0) as u64,
-        last_applied_at_ms: record.last_applied_at_ms.max(0) as u64,
-    })
-}
-
-fn normalized_from_saved_gemini_provider(
-    record: &SavedAiProviderRecord,
-) -> AiConfigResult<GeminiNormalizedDraft> {
-    let mode = AiConfigService::parse_gemini_mode(&record.mode).ok_or_else(|| {
-        AiConfigError::Storage(format!(
-            "saved Gemini provider has invalid mode: {}",
-            record.mode
-        ))
-    })?;
-    if mode == GeminiProviderMode::Official {
-        return Ok(official_gemini_normalized_draft());
-    }
-    let extra = serde_json::from_str::<Value>(&record.extra_json).unwrap_or_else(|_| json!({}));
-    let auth_mode = extra
-        .get("authMode")
-        .and_then(Value::as_str)
-        .and_then(AiConfigService::parse_gemini_auth_mode)
-        .unwrap_or(GeminiAuthMode::OAuth);
-    let selected_type = extra
-        .get("selectedType")
-        .and_then(Value::as_str)
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| auth_mode.selected_type().to_string());
-
-    if mode != GeminiProviderMode::Official
-        && record.has_secret
-        && record
-            .secret_ref
-            .as_deref()
-            .map(|value| value.trim().is_empty())
-            .unwrap_or(true)
-    {
-        return Err(AiConfigError::Storage(format!(
-            "saved Gemini provider {} is missing secret reference",
-            record.saved_provider_id
-        )));
-    }
-
-    Ok(GeminiNormalizedDraft {
-        mode,
-        auth_mode,
-        provider_id: record.provider_id.clone(),
-        provider_name: Some(record.provider_name.clone()),
-        base_url: record.base_url.clone(),
-        model: record.model.clone(),
-        selected_type,
-        secret_ref: record.secret_ref.clone(),
-        has_secret: record.has_secret,
-    })
-}
-
 fn build_claude_managed_env(
     mode: ClaudeProviderMode,
     provider_id: Option<&str>,
@@ -4168,14 +3093,6 @@ fn codex_auth_path_from_home(home: &Path) -> PathBuf {
     home.join(".codex").join("auth.json")
 }
 
-fn gemini_env_path_from_home(home: &Path) -> PathBuf {
-    home.join(".gemini").join(".env")
-}
-
-fn gemini_settings_path_from_home(home: &Path) -> PathBuf {
-    home.join(".gemini").join("settings.json")
-}
-
 fn normalize_live_endpoint_value(value: &str) -> Option<String> {
     let trimmed = value.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -4196,35 +3113,6 @@ fn latest_file_updated_at_ms(paths: &[&Path]) -> Option<u64> {
                 .map(|value| value.as_millis() as u64)
         })
         .max()
-}
-
-fn parse_simple_env_file(path: &Path) -> BTreeMap<String, String> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return BTreeMap::new();
-    };
-
-    raw.lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                return None;
-            }
-            let (key, value) = trimmed.split_once('=')?;
-            let key = key.trim();
-            if key.is_empty() {
-                return None;
-            }
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            Some((key.to_string(), value.to_string()))
-        })
-        .collect()
-}
-
-fn serialize_simple_env_file(env: &BTreeMap<String, String>) -> String {
-    env.iter()
-        .map(|(key, value)| format!("{key}={value}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn discover_live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapshot> {
@@ -4336,139 +3224,6 @@ fn discover_live_codex_config_from_home(home: &Path) -> Option<CodexConfigSnapsh
             base_url: defaults.base_url,
             model: model.or(defaults.model),
             config_toml: (!config_text.trim().is_empty()).then_some(config_text),
-            secret_ref: None,
-            has_secret,
-            updated_at_ms,
-        });
-    }
-
-    None
-}
-
-fn discover_live_gemini_config_from_home(home: &Path) -> Option<GeminiConfigSnapshot> {
-    let env_path = gemini_env_path_from_home(home);
-    let settings_path = gemini_settings_path_from_home(home);
-    if !env_path.exists() && !settings_path.exists() {
-        return None;
-    }
-
-    let env = parse_simple_env_file(&env_path);
-    let settings = read_json_object_file(&settings_path)
-        .ok()
-        .unwrap_or_else(|| json!({}));
-    let selected_type = settings
-        .get("security")
-        .and_then(Value::as_object)
-        .and_then(|security| security.get("auth"))
-        .and_then(Value::as_object)
-        .and_then(|auth| auth.get("selectedType"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            env.get("GEMINI_API_KEY").and_then(|value| {
-                if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(GeminiAuthMode::ApiKey.selected_type().to_string())
-                }
-            })
-        });
-    let auth_mode = match selected_type.as_deref() {
-        Some("gemini-api-key") => GeminiAuthMode::ApiKey,
-        _ => GeminiAuthMode::OAuth,
-    };
-    let base_url = env
-        .get("GOOGLE_GEMINI_BASE_URL")
-        .and_then(|value| normalize_live_endpoint_value(value));
-    let model = env
-        .get("GEMINI_MODEL")
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let api_key = env
-        .get("GEMINI_API_KEY")
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let has_secret = api_key.is_some();
-    let updated_at_ms = latest_file_updated_at_ms(&[&env_path, &settings_path]);
-
-    if let Some(base_url) = base_url {
-        let matched_preset = gemini_provider_presets()
-            .into_iter()
-            .filter(|preset| {
-                preset
-                    .endpoint
-                    .as_deref()
-                    .and_then(normalize_live_endpoint_value)
-                    .as_deref()
-                    == Some(base_url.as_str())
-            })
-            .find(|preset| {
-                selected_type.as_deref() == Some(preset.selected_type.as_str())
-                    || auth_mode == preset.auth_mode
-            });
-
-        if let Some(preset) = matched_preset {
-            let requires_secret =
-                preset.auth_mode == GeminiAuthMode::ApiKey || preset.requires_api_key;
-            if requires_secret && !has_secret {
-                return None;
-            }
-            if preset.provider_id == "google-official" && !has_secret {
-                return None;
-            }
-
-            let preset_auth_mode = selected_type
-                .as_deref()
-                .map(|_| auth_mode.clone())
-                .unwrap_or_else(|| preset.auth_mode.clone());
-            let preset_selected_type = selected_type
-                .clone()
-                .unwrap_or_else(|| preset_auth_mode.selected_type().to_string());
-            return Some(GeminiConfigSnapshot {
-                saved_provider_id: None,
-                active_mode: Some(GeminiProviderMode::Preset),
-                auth_mode: Some(preset_auth_mode),
-                provider_id: Some(preset.provider_id),
-                provider_name: Some(preset.name),
-                base_url: Some(base_url),
-                model: model.or(Some(preset.recommended_model)),
-                selected_type: Some(preset_selected_type),
-                secret_ref: None,
-                has_secret,
-                updated_at_ms,
-            });
-        }
-
-        return Some(GeminiConfigSnapshot {
-            saved_provider_id: None,
-            active_mode: Some(GeminiProviderMode::Custom),
-            auth_mode: Some(auth_mode.clone()),
-            provider_id: Some("custom-gateway".to_string()),
-            provider_name: Some("Custom Gateway".to_string()),
-            base_url: Some(base_url),
-            model,
-            selected_type: Some(
-                selected_type.unwrap_or_else(|| auth_mode.selected_type().to_string()),
-            ),
-            secret_ref: None,
-            has_secret,
-            updated_at_ms,
-        });
-    }
-
-    if has_secret {
-        let defaults = official_gemini_normalized_draft();
-        return Some(GeminiConfigSnapshot {
-            saved_provider_id: None,
-            active_mode: Some(GeminiProviderMode::Official),
-            auth_mode: Some(auth_mode),
-            provider_id: defaults.provider_id,
-            provider_name: defaults.provider_name,
-            base_url: defaults.base_url,
-            model: model.or(defaults.model),
-            selected_type: Some(
-                selected_type.unwrap_or_else(|| GeminiAuthMode::OAuth.selected_type().to_string()),
-            ),
             secret_ref: None,
             has_secret,
             updated_at_ms,
@@ -4794,7 +3549,6 @@ fn map_install_status(agent: AiConfigAgent) -> crate::models::AiAgentInstallStat
     let agent_type = match agent {
         AiConfigAgent::Claude => AgentType::ClaudeCode,
         AiConfigAgent::Codex => AgentType::Codex,
-        AiConfigAgent::Gemini => AgentType::Gemini,
     };
     let status = AgentInstaller::install_status(agent_type);
     crate::models::AiAgentInstallStatus {
@@ -5013,34 +3767,6 @@ fn write_codex_live_config(
             }),
         );
     }
-}
-
-#[cfg(test)]
-fn write_gemini_live_config(
-    home: &Path,
-    selected_type: &str,
-    base_url: &str,
-    model: &str,
-    api_key: Option<&str>,
-) {
-    let mut env_lines = vec![
-        format!("GOOGLE_GEMINI_BASE_URL={base_url}"),
-        format!("GEMINI_MODEL={model}"),
-    ];
-    if let Some(api_key) = api_key {
-        env_lines.push(format!("GEMINI_API_KEY={api_key}"));
-    }
-    write_text_file(&home.join(".gemini").join(".env"), &env_lines.join("\n"));
-    write_json_file(
-        &home.join(".gemini").join("settings.json"),
-        &json!({
-            "security": {
-                "auth": {
-                    "selectedType": selected_type,
-                }
-            }
-        }),
-    );
 }
 
 #[cfg(test)]
@@ -6076,65 +4802,6 @@ command = "npx"
     }
 
     #[test]
-    fn gemini_official_mode_removes_managed_endpoint_and_api_key_but_preserves_other_settings() {
-        let dir = temp_dir("gemini-official-sync");
-        let service = service_for(&dir);
-
-        with_test_home(&dir, |home| {
-            write_text_file(
-                &home.join(".gemini").join(".env"),
-                "GOOGLE_GEMINI_BASE_URL=https://proxy.example.com/v1\nGEMINI_MODEL=gemini-2.5-pro\nGEMINI_API_KEY=secret-value\nUNRELATED_FLAG=keep-me\n",
-            );
-            write_json_file(
-                &home.join(".gemini").join("settings.json"),
-                &json!({
-                    "security": {
-                        "auth": {
-                            "selectedType": "gemini-api-key"
-                        }
-                    },
-                    "mcpServers": {
-                        "gto-agent-bridge": {
-                            "command": "npx"
-                        }
-                    }
-                }),
-            );
-
-            service
-                .sync_gemini_live_settings(&official_gemini_normalized_draft())
-                .unwrap();
-
-            let env = parse_simple_env_file(&home.join(".gemini").join(".env"));
-            assert!(!env.contains_key("GOOGLE_GEMINI_BASE_URL"));
-            assert!(!env.contains_key("GEMINI_API_KEY"));
-            assert_eq!(
-                env.get("UNRELATED_FLAG").map(String::as_str),
-                Some("keep-me")
-            );
-            assert_eq!(
-                env.get("GEMINI_MODEL").map(String::as_str),
-                Some("gemini-2.5-pro")
-            );
-
-            let settings =
-                read_json_object_file(&home.join(".gemini").join("settings.json")).unwrap();
-            assert_eq!(
-                settings
-                    .pointer("/security/auth/selectedType")
-                    .and_then(Value::as_str),
-                Some("oauth-personal")
-            );
-            assert_eq!(
-                settings
-                    .pointer("/mcpServers/gto-agent-bridge/command")
-                    .and_then(Value::as_str),
-                Some("npx")
-            );
-        });
-    }
-
-    #[test]
     fn managed_env_includes_default_model_aliases_and_preset_extra_env() {
         let env = build_claude_managed_env(
             ClaudeProviderMode::Preset,
@@ -6240,21 +4907,6 @@ command = "npx"
         let codex_endpoint = codex_preset.endpoint.clone().expect("codex endpoint");
         let codex_model = codex_preset.recommended_model.clone();
 
-        let gemini_preset = gemini_provider_presets()
-            .into_iter()
-            .find(|preset| preset.provider_id != "google-official" && preset.endpoint.is_some())
-            .expect("expected gemini preset with endpoint");
-        let gemini_endpoint = gemini_preset.endpoint.clone().expect("gemini endpoint");
-        let gemini_model = gemini_preset.recommended_model.clone();
-        let gemini_selected_type = gemini_preset.auth_mode.selected_type().to_string();
-        let gemini_api_key = if gemini_preset.auth_mode == GeminiAuthMode::ApiKey
-            || gemini_preset.requires_api_key
-        {
-            Some("gemini-test-key")
-        } else {
-            None
-        };
-
         let claude_preset = claude_provider_presets()
             .into_iter()
             .find(|preset| preset.provider_id != CLAUDE_OFFICIAL_PROVIDER_ID)
@@ -6271,13 +4923,6 @@ command = "npx"
                 &codex_endpoint,
                 &codex_model,
                 Some("codex-test-key"),
-            );
-            write_gemini_live_config(
-                home,
-                &gemini_selected_type,
-                &gemini_endpoint,
-                &gemini_model,
-                gemini_api_key,
             );
             write_claude_live_config(
                 home,
@@ -6306,23 +4951,6 @@ command = "npx"
             Some(codex_endpoint.as_str())
         );
         assert!(snapshot.codex.config.has_secret);
-
-        assert_eq!(
-            snapshot.gemini.config.active_mode,
-            Some(GeminiProviderMode::Preset)
-        );
-        assert_eq!(
-            snapshot.gemini.config.provider_id.as_deref(),
-            Some(gemini_preset.provider_id.as_str())
-        );
-        assert_eq!(
-            snapshot.gemini.config.base_url.as_deref(),
-            Some(gemini_endpoint.as_str())
-        );
-        assert_eq!(
-            snapshot.gemini.config.selected_type.as_deref(),
-            Some(gemini_selected_type.as_str())
-        );
 
         assert_eq!(
             snapshot.claude.config.active_mode,
@@ -6361,21 +4989,6 @@ command = "npx"
         let codex_endpoint = codex_preset.endpoint.clone().expect("codex endpoint");
         let codex_model = codex_preset.recommended_model.clone();
 
-        let gemini_preset = gemini_provider_presets()
-            .into_iter()
-            .find(|preset| preset.provider_id != "google-official" && preset.endpoint.is_some())
-            .expect("expected gemini preset with endpoint");
-        let gemini_endpoint = gemini_preset.endpoint.clone().expect("gemini endpoint");
-        let gemini_model = gemini_preset.recommended_model.clone();
-        let gemini_selected_type = gemini_preset.auth_mode.selected_type().to_string();
-        let gemini_api_key = if gemini_preset.auth_mode == GeminiAuthMode::ApiKey
-            || gemini_preset.requires_api_key
-        {
-            Some("gemini-import-key")
-        } else {
-            None
-        };
-
         let claude_preset = claude_provider_presets()
             .into_iter()
             .find(|preset| preset.provider_id != CLAUDE_OFFICIAL_PROVIDER_ID)
@@ -6393,13 +5006,6 @@ command = "npx"
                 &codex_model,
                 Some("codex-import-key"),
             );
-            write_gemini_live_config(
-                home,
-                &gemini_selected_type,
-                &gemini_endpoint,
-                &gemini_model,
-                gemini_api_key,
-            );
             write_claude_live_config(
                 home,
                 &claude_auth_key,
@@ -6416,25 +5022,16 @@ command = "npx"
 
         assert!(snapshot.claude.saved_providers.is_empty());
         assert!(snapshot.codex.saved_providers.is_empty());
-        assert!(snapshot.gemini.saved_providers.is_empty());
         assert!(snapshot.claude.config.saved_provider_id.is_none());
         assert!(snapshot.codex.config.saved_provider_id.is_none());
-        assert!(snapshot.gemini.config.saved_provider_id.is_none());
         assert!(snapshot.claude.config.secret_ref.is_none());
         assert!(snapshot.codex.config.secret_ref.is_none());
-        assert!(snapshot.gemini.config.secret_ref.is_none());
 
         let persisted_codex = service
             .read_codex_config(&workspace_root)
             .expect("codex settings should remain empty");
         assert!(persisted_codex.active_mode.is_none());
         assert!(persisted_codex.secret_ref.is_none());
-
-        let persisted_gemini = service
-            .read_gemini_config(&workspace_root)
-            .expect("gemini settings should remain empty");
-        assert!(persisted_gemini.active_mode.is_none());
-        assert!(persisted_gemini.secret_ref.is_none());
 
         let persisted_claude = service
             .read_claude_config(&workspace_root)
@@ -6449,10 +5046,6 @@ command = "npx"
         assert!(service
             .list_saved_codex_providers()
             .expect("codex saved providers should remain empty")
-            .is_empty());
-        assert!(service
-            .list_saved_gemini_providers()
-            .expect("gemini saved providers should remain empty")
             .is_empty());
     }
 
@@ -6507,62 +5100,6 @@ command = "npx"
                     .pointer("/codex/savedProviders/0/providerId")
                     .and_then(Value::as_str),
                 Some("codex-official")
-            );
-        });
-    }
-
-    #[test]
-    fn gemini_apply_persists_global_settings_and_saved_provider_list() {
-        let dir = temp_dir("gemini-global-saved-provider");
-        let workspace_root = dir.join("workspace");
-        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
-        let service = service_for(&dir);
-        let workspace_id = workspace_id("gemini-global-saved-provider");
-
-        with_test_home(&dir, |_home| {
-            let (_, stored) = service
-                .preview_gemini_patch(
-                    &workspace_id,
-                    &workspace_root,
-                    GeminiDraftInput {
-                        mode: GeminiProviderMode::Official,
-                        saved_provider_id: None,
-                        auth_mode: None,
-                        provider_id: None,
-                        provider_name: None,
-                        base_url: None,
-                        model: None,
-                        api_key: None,
-                        selected_type: None,
-                    },
-                )
-                .unwrap();
-            let stored = match stored {
-                StoredAiConfigPreview::Gemini(value) => value,
-                _ => panic!("Expected Gemini preview"),
-            };
-
-            let applied = service
-                .apply_gemini_preview(&workspace_id, &workspace_root, "tester", &stored)
-                .unwrap();
-            let effective_json = serde_json::to_value(&applied.effective).unwrap();
-            let user_json = read_json_object_file(&dir.join("user-settings.json")).unwrap();
-
-            assert_eq!(
-                user_json
-                    .pointer("/ai/providers/gemini/providerId")
-                    .and_then(Value::as_str),
-                Some("google-official")
-            );
-            assert!(
-                !workspace_root.join(".gtoffice/config.json").exists(),
-                "workspace config should stay untouched for global provider settings"
-            );
-            assert_eq!(
-                effective_json
-                    .pointer("/gemini/savedProviders/0/providerId")
-                    .and_then(Value::as_str),
-                Some("google-official")
             );
         });
     }
@@ -6641,63 +5178,6 @@ command = "npx"
                 switched.effective.codex.config.provider_id.as_deref(),
                 Some("codex-official")
             );
-        });
-    }
-
-    #[test]
-    fn deleting_last_gemini_provider_clears_global_active_config() {
-        let dir = temp_dir("gemini-delete-provider");
-        let workspace_root = dir.join("workspace");
-        fs::create_dir_all(workspace_root.join(".gtoffice")).unwrap();
-        let service = service_for(&dir);
-        let workspace_id = workspace_id("gemini-delete-provider");
-
-        with_test_home(&dir, |_home| {
-            let (_, stored) = service
-                .preview_gemini_patch(
-                    &workspace_id,
-                    &workspace_root,
-                    GeminiDraftInput {
-                        mode: GeminiProviderMode::Official,
-                        saved_provider_id: None,
-                        auth_mode: None,
-                        provider_id: None,
-                        provider_name: None,
-                        base_url: None,
-                        model: None,
-                        api_key: None,
-                        selected_type: None,
-                    },
-                )
-                .unwrap();
-            let stored = match stored {
-                StoredAiConfigPreview::Gemini(value) => value,
-                _ => panic!("Expected Gemini preview"),
-            };
-            let applied = service
-                .apply_gemini_preview(&workspace_id, &workspace_root, "tester", &stored)
-                .unwrap();
-            let saved_provider_id = applied
-                .effective
-                .gemini
-                .saved_providers
-                .first()
-                .map(|item| item.saved_provider_id.clone())
-                .expect("saved gemini provider");
-
-            let deleted = service
-                .delete_saved_provider(
-                    AiConfigAgent::Gemini,
-                    Some(&workspace_root),
-                    &saved_provider_id,
-                    "tester",
-                )
-                .unwrap();
-
-            assert!(deleted.applied);
-            assert!(deleted.effective.gemini.saved_providers.is_empty());
-            assert!(deleted.effective.gemini.config.saved_provider_id.is_none());
-            assert!(deleted.effective.gemini.config.active_mode.is_none());
         });
     }
 }

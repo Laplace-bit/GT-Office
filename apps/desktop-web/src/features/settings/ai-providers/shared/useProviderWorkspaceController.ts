@@ -7,8 +7,6 @@ import {
   type ClaudeSavedProviderSnapshot,
   type ClaudeSnapshot,
   type CodexConfigSnapshot,
-  type GeminiConfigSnapshot,
-  type GeminiProviderPreset,
 } from '@shell/integration/desktop-api'
 import { t } from '@shell/i18n/ui-locale'
 
@@ -51,8 +49,6 @@ export function useProviderWorkspaceController(props: ProviderWorkspaceModalProp
     apiKey: '',
     authScheme: 'anthropic_api_key',
     configToml: '',
-    authMode: 'oauth',
-    selectedType: 'oauth-personal',
     apiFormat: 'anthropic',
     modelOverrides: {},
   })
@@ -76,8 +72,7 @@ export function useProviderWorkspaceController(props: ProviderWorkspaceModalProp
   }, [guide])
 
   const presets = localGuide.presets
-  const officialProviderId =
-    agentId === 'claude' ? 'anthropic-official' : agentId === 'codex' ? 'codex-official' : 'google-official'
+  const officialProviderId = agentId === 'claude' ? 'anthropic-official' : 'codex-official'
   const officialPreset = presets.find((item) => item.providerId === officialProviderId) ?? presets[0] ?? null
   const customPreset = presets.find((item) => item.providerId === CUSTOM_PROVIDER_ID) ?? null
   const selectablePresets = presets.filter(
@@ -85,7 +80,7 @@ export function useProviderWorkspaceController(props: ProviderWorkspaceModalProp
   )
   const defaultPreset = selectablePresets[0] ?? officialPreset ?? customPreset ?? presets[0] ?? null
   const savedProviders = localGuide.savedProviders
-  const currentConfig = localGuide.config as ClaudeSnapshot['config'] | CodexConfigSnapshot | GeminiConfigSnapshot
+  const currentConfig = localGuide.config as ClaudeSnapshot['config'] | CodexConfigSnapshot
   const currentSavedProvider =
     seed.editingSavedProviderId != null
       ? savedProviders.find((item) => item.savedProviderId === seed.editingSavedProviderId) ?? null
@@ -174,7 +169,7 @@ export function useProviderWorkspaceController(props: ProviderWorkspaceModalProp
     setFetchedModels([])
     setShowPresetPicker(nextMode === 'preset')
     setShowConfigTemplate(false)
-    applySeed(buildModeSeed({ ...seedArgs, nextMode, authMode: seed.authMode }))
+    applySeed(buildModeSeed({ ...seedArgs, nextMode }))
   }
 
   const handlePresetSelect = (nextProviderId: string) => {
@@ -182,7 +177,7 @@ export function useProviderWorkspaceController(props: ProviderWorkspaceModalProp
     setFetchedModels([])
     setShowPresetPicker(false)
     setShowConfigTemplate(false)
-    applySeed(buildPresetSeed({ agentId, locale, presets, defaultPreset, nextProviderId, authMode: seed.authMode }))
+    applySeed(buildPresetSeed({ locale, presets, defaultPreset, nextProviderId }))
   }
 
   const currentSelectionProviderId =
@@ -196,17 +191,11 @@ export function useProviderWorkspaceController(props: ProviderWorkspaceModalProp
   const requiresApiKey =
     agentId === 'claude'
       ? seed.mode !== 'official'
-      : agentId === 'codex'
-        ? seed.mode === 'custom'
-          ? true
-          : seed.mode === 'official'
-            ? false
-            : Boolean(currentPreset && 'requiresApiKey' in currentPreset && currentPreset.requiresApiKey)
+      : seed.mode === 'custom'
+        ? true
         : seed.mode === 'official'
           ? false
-          : seed.mode === 'custom'
-            ? seed.authMode === 'api_key'
-            : seed.authMode === 'api_key' || Boolean((currentPreset as GeminiProviderPreset | undefined)?.requiresApiKey)
+          : Boolean(currentPreset && 'requiresApiKey' in currentPreset && currentPreset.requiresApiKey)
   const isFormValid =
     seed.mode === 'official'
       ? canApplyOfficialMode

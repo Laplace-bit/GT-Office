@@ -5,7 +5,7 @@ fn catalog_without_provider_exposes_only_native_commands() {
     let commands = build_catalog_command_list(None, false, false);
     assert!(commands.iter().any(|item| item.id == "claude-clear"));
     assert!(commands.iter().any(|item| item.id == "codex-new"));
-    assert!(commands.iter().any(|item| item.id == "gemini-help"));
+    assert!(!commands.iter().any(|item| item.id.starts_with("legacy-removed-")));
     assert!(!commands.iter().any(|item| item.id == "launch-claude"));
     assert!(!commands.iter().any(|item| item.id == "open-providers"));
     assert!(!commands.iter().any(|item| item.id == "open-channels"));
@@ -99,35 +99,6 @@ fn codex_catalog_includes_official_native_commands() {
 }
 
 #[test]
-fn gemini_catalog_includes_official_native_commands() {
-    let commands = build_catalog_command_list(Some(AgentToolKind::Gemini), true, false);
-
-    for id in [
-        "gemini-help",
-        "gemini-resume",
-        "gemini-model",
-        "gemini-mcp-list",
-        "gemini-memory-show",
-        "gemini-settings",
-        "gemini-tools-desc",
-        "gemini-vim",
-    ] {
-        assert!(commands.iter().any(|item| item.id == id), "{id}");
-    }
-
-    let model = commands
-        .iter()
-        .find(|item| item.id == "gemini-model")
-        .expect("model");
-    assert_eq!(model.presentation, ToolCommandPresentation::Direct);
-    assert!(matches!(
-        model.execution,
-        ToolCommandExecution::InsertText { submit: true, .. }
-    ));
-    assert!(model.arguments.is_empty());
-}
-
-#[test]
 fn detached_readonly_disables_provider_writes() {
     let claude_commands = build_catalog_command_list(Some(AgentToolKind::Claude), false, true);
     let help = claude_commands
@@ -148,17 +119,6 @@ fn detached_readonly_disables_provider_writes() {
     assert!(!review.enabled);
     assert_eq!(
         review.disabled_reason.as_deref(),
-        Some("Detached windows are read only")
-    );
-
-    let gemini_commands = build_catalog_command_list(Some(AgentToolKind::Gemini), false, true);
-    let help = gemini_commands
-        .iter()
-        .find(|item| item.id == "gemini-help")
-        .expect("help");
-    assert!(!help.enabled);
-    assert_eq!(
-        help.disabled_reason.as_deref(),
         Some("Detached windows are read only")
     );
 }
@@ -225,11 +185,6 @@ fn only_truly_parameterized_commands_use_custom_sheets() {
             "claude-add-dir",
             "claude-batch",
             "claude-loop",
-            "gemini-chat-delete",
-            "gemini-chat-resume",
-            "gemini-chat-save",
-            "gemini-directory-add",
-            "gemini-memory-add",
         ]
     );
 }

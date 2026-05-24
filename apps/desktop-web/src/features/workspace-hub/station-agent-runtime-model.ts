@@ -18,7 +18,6 @@ export interface StationTerminalProcessSnapshot {
 const toolProcessMarkers: Record<StationToolKind, string[]> = {
   claude: ['claude', 'claude-code', '@anthropic-ai/claude-code'],
   codex: ['codex', 'openai/codex', '@openai/codex'],
-  gemini: ['gemini', 'gemini-cli', '@google/gemini-cli'],
   shell: [],
   unknown: [],
 }
@@ -33,9 +32,6 @@ export function resolveStationCliLaunchCommand(
 ): string | null {
   if (launchCommand?.trim()) {
     return launchCommand.trim()
-  }
-  if (toolKind === 'gemini') {
-    return null
   }
   if (toolKind === 'claude' || toolKind === 'codex') {
     return toolKind

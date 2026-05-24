@@ -1,10 +1,7 @@
 use super::{
     normalize_endpoint, parse_simple_env_file, read_live_claude_draft, read_live_codex_draft,
-    read_live_gemini_draft,
 };
-use gt_ai_config::{
-    ClaudeAuthScheme, ClaudeProviderMode, CodexProviderMode, GeminiAuthMode, GeminiProviderMode,
-};
+use gt_ai_config::{ClaudeAuthScheme, ClaudeProviderMode, CodexProviderMode};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -37,13 +34,13 @@ fn normalize_endpoint_trims_spaces_and_trailing_slashes() {
 #[test]
 fn parse_simple_env_file_skips_comments_and_unquotes_values() {
     let home = temp_home("env");
-    let env_path = home.join(".gemini").join(".env");
+    let env_path = home.join(".fixture").join(".env");
     write_file(
         &env_path,
         r#"
             # ignored
-            GEMINI_API_KEY = " key-1 "
-            GOOGLE_GEMINI_BASE_URL=' https://gateway.example.com/ '
+            TEST_API_KEY = " key-1 "
+            TEST_BASE_URL=' https://gateway.example.com/ '
             INVALID
             =missing-key
             "#,
@@ -52,11 +49,11 @@ fn parse_simple_env_file_skips_comments_and_unquotes_values() {
     let env = parse_simple_env_file(&env_path);
 
     assert_eq!(
-        env.get("GEMINI_API_KEY").map(String::as_str),
+        env.get("TEST_API_KEY").map(String::as_str),
         Some(" key-1 ")
     );
     assert_eq!(
-        env.get("GOOGLE_GEMINI_BASE_URL").map(String::as_str),
+        env.get("TEST_BASE_URL").map(String::as_str),
         Some(" https://gateway.example.com/ ")
     );
     assert!(!env.contains_key("INVALID"));
@@ -193,64 +190,4 @@ fn read_live_codex_draft_imports_official_when_only_auth_exists() {
     assert_eq!(draft.model, None);
     assert_eq!(draft.api_key.as_deref(), Some("sk-official"));
     assert_eq!(draft.config_toml, None);
-}
-
-#[test]
-fn read_live_gemini_draft_imports_custom_gateway_and_auth_mode() {
-    let home = temp_home("gemini");
-    write_file(
-        &home.join(".gemini").join(".env"),
-        r#"
-            GEMINI_API_KEY=" gem-key "
-            GOOGLE_GEMINI_BASE_URL=" https://gemini-gateway.example.com/// "
-            GEMINI_MODEL="gemini-custom"
-            "#,
-    );
-    write_file(
-        &home.join(".gemini").join("settings.json"),
-        r#"{"security": {"auth": {"selectedType": "gemini-api-key"}}}"#,
-    );
-
-    let draft = read_live_gemini_draft(&home).expect("gemini draft");
-
-    assert_eq!(draft.mode, GeminiProviderMode::Custom);
-    assert_eq!(draft.auth_mode, Some(GeminiAuthMode::ApiKey));
-    assert_eq!(draft.provider_name.as_deref(), Some("Custom Gateway"));
-    assert_eq!(
-        draft.base_url.as_deref(),
-        Some("https://gemini-gateway.example.com")
-    );
-    assert_eq!(draft.model.as_deref(), Some("gemini-custom"));
-    assert_eq!(draft.api_key.as_deref(), Some("gem-key"));
-    assert_eq!(draft.selected_type.as_deref(), Some("gemini-api-key"));
-}
-
-#[test]
-fn read_live_gemini_draft_reports_missing_config() {
-    let home = temp_home("gemini-empty");
-
-    let error = read_live_gemini_draft(&home).expect_err("missing gemini config");
-
-    assert_eq!(
-        error,
-        "AI_CONFIG_IMPORT_FAILED: no Gemini provider configuration found in ~/.gemini"
-    );
-}
-
-#[test]
-fn read_live_gemini_draft_imports_official_when_only_api_key_exists() {
-    let home = temp_home("gemini-official");
-    write_file(
-        &home.join(".gemini").join(".env"),
-        r#"GEMINI_API_KEY=" gem-official ""#,
-    );
-
-    let draft = read_live_gemini_draft(&home).expect("gemini official draft");
-
-    assert_eq!(draft.mode, GeminiProviderMode::Official);
-    assert_eq!(draft.auth_mode, None);
-    assert_eq!(draft.base_url, None);
-    assert_eq!(draft.model, None);
-    assert_eq!(draft.api_key.as_deref(), Some("gem-official"));
-    assert_eq!(draft.selected_type, None);
 }

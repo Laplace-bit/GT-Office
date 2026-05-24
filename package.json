@@ -3,7 +3,7 @@
   "version": "0.6.3",
   "private": true,
   "license": "Apache-2.0",
-  "description": "GT Office is a cross-platform AI agent desktop app and multi-agent workspace for Claude Code, Codex CLI, Gemini CLI, terminals, files, and Git.",
+  "description": "GT Office is a cross-platform AI agent desktop app and multi-agent workspace for Claude Code, Codex CLI, terminals, files, and Git.",
   "homepage": "https://github.com/Laplace-bit/GT-Office",
   "repository": {
     "type": "git",
@@ -17,8 +17,7 @@
     "multi-agent",
     "claude-code",
     "codex-cli",
-    "gemini-cli",
-    "tauri",
+        "tauri",
     "react",
     "rust",
     "desktop-app",

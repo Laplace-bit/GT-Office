@@ -6,7 +6,7 @@
 **分类**: Applications > Developer tools
 **条目**:
 ```markdown
-- [GT Office](https://github.com/Laplace-bit/GT-Office) - Native multi-agent collaborative workspace to orchestrate AI CLI tools (Claude Code, Codex, Gemini CLI) with persistent workspaces, agent-to-agent communication, and external channel proxy. ![v2]
+- [GT Office](https://github.com/Laplace-bit/GT-Office) - Native multi-agent collaborative workspace to orchestrate AI CLI tools (Claude Code, Codex CLI) with persistent workspaces, agent-to-agent communication, and external channel proxy. ![v2]
 ```
 
 ## 2. awesome-rust

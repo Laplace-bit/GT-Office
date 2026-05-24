@@ -4,10 +4,9 @@ use std::{
 };
 
 use gt_ai_config::{
-    claude_provider_presets, codex_provider_presets, gemini_provider_presets, AiConfigAgent,
-    AiConfigApplyResponse, AiConfigDraftInput, AiConfigService, ClaudeAuthScheme, ClaudeDraftInput,
-    ClaudeProviderMode, CodexDraftInput, CodexProviderMode, GeminiAuthMode, GeminiDraftInput,
-    GeminiProviderMode,
+    claude_provider_presets, codex_provider_presets, AiConfigAgent, AiConfigApplyResponse,
+    AiConfigDraftInput, AiConfigService, ClaudeAuthScheme, ClaudeDraftInput, ClaudeProviderMode,
+    CodexDraftInput, CodexProviderMode,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
@@ -61,19 +60,6 @@ pub fn ai_config_import_current(
                 .apply_codex_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, &stored)
                 .map_err(|error: gt_ai_config::AiConfigError| error.to_string())?
         }
-        AiConfigDraftInput::Gemini(draft) => {
-            let (_, stored) = service
-                .preview_gemini_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, draft)
-                .map_err(|error: gt_ai_config::AiConfigError| error.to_string())?;
-            let gt_ai_config::StoredAiConfigPreview::Gemini(stored) = stored else {
-                return Err(
-                    "AI_CONFIG_IMPORT_FAILED: unexpected Gemini preview payload".to_string()
-                );
-            };
-            service
-                .apply_gemini_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, &stored)
-                .map_err(|error: gt_ai_config::AiConfigError| error.to_string())?
-        }
     };
 
     let _ = app.emit(
@@ -98,7 +84,6 @@ fn import_current_draft(
     match agent {
         AiConfigAgent::Claude => read_live_claude_draft(&home).map(AiConfigDraftInput::Claude),
         AiConfigAgent::Codex => read_live_codex_draft(&home).map(AiConfigDraftInput::Codex),
-        AiConfigAgent::Gemini => read_live_gemini_draft(&home).map(AiConfigDraftInput::Gemini),
     }
 }
 
@@ -293,104 +278,6 @@ fn read_live_codex_draft(home: &Path) -> Result<CodexDraftInput, String> {
     })
 }
 
-fn read_live_gemini_draft(home: &Path) -> Result<GeminiDraftInput, String> {
-    let env_path = home.join(".gemini").join(".env");
-    let settings_path = home.join(".gemini").join("settings.json");
-    let env = parse_simple_env_file(&env_path);
-    let settings = std::fs::read_to_string(&settings_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-    let selected_type = settings
-        .get("security")
-        .and_then(Value::as_object)
-        .and_then(|security| security.get("auth"))
-        .and_then(Value::as_object)
-        .and_then(|auth| auth.get("selectedType"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            env.get("GEMINI_API_KEY").and_then(|value| {
-                if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(GeminiAuthMode::ApiKey.selected_type().to_string())
-                }
-            })
-        });
-    let auth_mode = match selected_type.as_deref() {
-        Some("gemini-api-key") => GeminiAuthMode::ApiKey,
-        _ => GeminiAuthMode::OAuth,
-    };
-    let base_url = env
-        .get("GOOGLE_GEMINI_BASE_URL")
-        .map(|value| normalize_endpoint(value));
-    let model = env
-        .get("GEMINI_MODEL")
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let api_key = env
-        .get("GEMINI_API_KEY")
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-
-    if let Some(base_url) = base_url {
-        if let Some(preset) = gemini_provider_presets().into_iter().find(|preset| {
-            preset
-                .endpoint
-                .as_deref()
-                .map(normalize_endpoint)
-                .as_deref()
-                == Some(base_url.as_str())
-                && (selected_type.as_deref() == Some(preset.selected_type.as_str())
-                    || auth_mode == preset.auth_mode)
-        }) {
-            return Ok(GeminiDraftInput {
-                mode: GeminiProviderMode::Preset,
-                saved_provider_id: None,
-                auth_mode: Some(auth_mode.clone()),
-                provider_id: Some(preset.provider_id),
-                provider_name: Some(preset.name),
-                base_url: Some(base_url),
-                model: model.or(Some(preset.recommended_model)),
-                api_key,
-                selected_type: selected_type.or(Some(auth_mode.selected_type().to_string())),
-            });
-        }
-
-        return Ok(GeminiDraftInput {
-            mode: GeminiProviderMode::Custom,
-            saved_provider_id: None,
-            auth_mode: Some(auth_mode.clone()),
-            provider_id: None,
-            provider_name: Some("Custom Gateway".to_string()),
-            base_url: Some(base_url),
-            model,
-            api_key,
-            selected_type: selected_type.or(Some(auth_mode.selected_type().to_string())),
-        });
-    }
-
-    if api_key.is_none() && model.is_none() {
-        return Err(
-            "AI_CONFIG_IMPORT_FAILED: no Gemini provider configuration found in ~/.gemini"
-                .to_string(),
-        );
-    }
-
-    Ok(GeminiDraftInput {
-        mode: GeminiProviderMode::Official,
-        saved_provider_id: None,
-        auth_mode: None,
-        provider_id: None,
-        provider_name: None,
-        base_url: None,
-        model: None,
-        api_key,
-        selected_type: None,
-    })
-}
-
 fn user_home_dir() -> Option<PathBuf> {
     env::var_os("HOME")
         .filter(|value| !value.is_empty())
@@ -414,6 +301,7 @@ fn normalize_endpoint(value: &str) -> String {
     value.trim().trim_end_matches('/').to_string()
 }
 
+#[cfg(test)]
 fn parse_simple_env_file(path: &Path) -> std::collections::BTreeMap<String, String> {
     let Ok(raw) = std::fs::read_to_string(path) else {
         return std::collections::BTreeMap::new();

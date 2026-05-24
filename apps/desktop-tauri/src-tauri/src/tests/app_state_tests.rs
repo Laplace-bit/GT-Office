@@ -200,9 +200,9 @@ fn tui_status_bar_detection_is_tool_agnostic() {
     assert!(is_tui_status_bar_line(
         "claude-sonnet-4 · high · /home/user/project · 95% left"
     ));
-    // Gemini CLI style (hypothetical)
+    // Generic model slug style
     assert!(is_tui_status_bar_line(
-        "gemini-2.5-pro · medium · ~/workspace · 42% left"
+        "custom-model-2.5 · medium · ~/workspace · 42% left"
     ));
     // Windows path
     assert!(is_tui_status_bar_line(
@@ -1555,7 +1555,7 @@ fn extract_last_assistant_block_stops_at_user_prompt() {
 fn extract_last_assistant_block_works_without_bullet_marker() {
     use super::extract_last_assistant_block;
 
-    // Agent without • marker (e.g., Gemini CLI, other agents)
+    // Agent without • marker (e.g., other CLI agents)
     let input = "Here is my response\n\
                  With multiple lines\n\
                  And some content";
@@ -1584,8 +1584,8 @@ fn normalize_reply_text_handles_codex_cli_output() {
 }
 
 #[test]
-fn normalize_reply_text_handles_gemini_cli_output() {
-    // Hypothetical Gemini CLI output
+fn normalize_reply_text_handles_thinking_banner_output() {
+    // CLI output with a transient thinking banner
     let input = "Thinking (2s)\n\
                  \n\
                  Based on your request, here's the solution:\n\
@@ -2716,8 +2716,8 @@ fn rendered_screen_extracts_terminal_navigation_menu_prompt() {
             },
             RenderedScreenSnapshotRow {
                 row_index: 4,
-                text: "  Gemini 2.5 Pro".to_string(),
-                trimmed_text: "Gemini 2.5 Pro".to_string(),
+                text: "  Llama 3 Pro".to_string(),
+                trimmed_text: "Llama 3 Pro".to_string(),
                 is_blank: false,
             },
             RenderedScreenSnapshotRow {
@@ -2741,7 +2741,7 @@ fn rendered_screen_extracts_terminal_navigation_menu_prompt() {
     assert_eq!(prompt.options.len(), 3);
     assert_eq!(prompt.options[0].label, "GPT-5.4");
     assert_eq!(prompt.options[1].label, "Claude Sonnet 4");
-    assert_eq!(prompt.options[2].label, "Gemini 2.5 Pro");
+    assert_eq!(prompt.options[2].label, "Llama 3 Pro");
     assert_eq!(prompt.options[0].submit_text, None);
     assert_eq!(
         prompt.control_mode,
@@ -2827,8 +2827,8 @@ fn text_input_can_control_terminal_navigation_prompt_across_channels() {
                     },
                     RenderedScreenSnapshotRow {
                         row_index: 4,
-                        text: "  Gemini 2.5 Pro".to_string(),
-                        trimmed_text: "Gemini 2.5 Pro".to_string(),
+                        text: "  Llama 3 Pro".to_string(),
+                        trimmed_text: "Llama 3 Pro".to_string(),
                         is_blank: false,
                     },
                     RenderedScreenSnapshotRow {
@@ -2892,7 +2892,7 @@ fn vt_fallback_extracts_terminal_navigation_prompt_across_channels() {
     state
         .append_external_reply_chunk(
             "s_vt_nav_text_1",
-            b"\x1b[2K\r\xE2\x80\xBA /model\r\nSelect model\r\n  GPT-5.4\r\n\xE2\x80\xBA Claude Sonnet 4\r\n  Gemini 2.5 Pro\r\nUse \xe2\x86\x91/\xe2\x86\x93 to select \xc2\xb7 Enter to confirm \xc2\xb7 Esc to cancel\r\n",
+            b"\x1b[2K\r\xE2\x80\xBA /model\r\nSelect model\r\n  GPT-5.4\r\n\xE2\x80\xBA Claude Sonnet 4\r\n  Llama 3 Pro\r\nUse \xe2\x86\x91/\xe2\x86\x93 to select \xc2\xb7 Enter to confirm \xc2\xb7 Esc to cancel\r\n",
             now_ms_for_test(1_100),
         )
         .expect("append vt menu");
@@ -3174,9 +3174,9 @@ fn rendered_screen_does_not_treat_leading_bullet_reply_as_menu_options() {
 }
 
 #[test]
-fn rendered_screen_gemini_reply_ignores_footer_and_placeholder() {
+fn rendered_screen_spark_marker_reply_ignores_footer_and_placeholder() {
     let snapshot = RenderedScreenSnapshot {
-        session_id: "s_rendered_gemini_1".to_string(),
+        session_id: "s_rendered_spark_1".to_string(),
         screen_revision: 3,
         captured_at_ms: now_ms_for_test(1_200),
         viewport_top: 0,
@@ -3229,8 +3229,8 @@ fn rendered_screen_gemini_reply_ignores_footer_and_placeholder() {
             },
             RenderedScreenSnapshotRow {
                 row_index: 7,
-                text: " shift+tab to accept edits                        2 GEMINI.md files | 9 MCP servers | 2 skills ".to_string(),
-                trimmed_text: "shift+tab to accept edits                        2 GEMINI.md files | 9 MCP servers | 2 skills".to_string(),
+                text: " shift+tab to accept edits                        2 NOTES.md files | 9 MCP servers | 2 skills ".to_string(),
+                trimmed_text: "shift+tab to accept edits                        2 NOTES.md files | 9 MCP servers | 2 skills".to_string(),
                 is_blank: false,
             },
             RenderedScreenSnapshotRow {
@@ -3241,8 +3241,8 @@ fn rendered_screen_gemini_reply_ignores_footer_and_placeholder() {
             },
             RenderedScreenSnapshotRow {
                 row_index: 9,
-                text: " /mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3) ".to_string(),
-                trimmed_text: "/mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3)".to_string(),
+                text: " /mnt/.../build/agent-03                   no sandbox                   /model Auto (Model 3) ".to_string(),
+                trimmed_text: "/mnt/.../build/agent-03                   no sandbox                   /model Auto (Model 3)".to_string(),
                 is_blank: false,
             },
         ],
@@ -3256,9 +3256,9 @@ fn rendered_screen_gemini_reply_ignores_footer_and_placeholder() {
 }
 
 #[test]
-fn rendered_screen_gemini_placeholder_prompt_counts_as_ready() {
+fn rendered_screen_spark_marker_placeholder_prompt_counts_as_ready() {
     let snapshot = RenderedScreenSnapshot {
-        session_id: "s_rendered_gemini_ready_1".to_string(),
+        session_id: "s_rendered_spark_ready_1".to_string(),
         screen_revision: 2,
         captured_at_ms: now_ms_for_test(1_400),
         viewport_top: 0,
@@ -3275,10 +3275,8 @@ fn rendered_screen_gemini_placeholder_prompt_counts_as_ready() {
             },
             RenderedScreenSnapshotRow {
                 row_index: 1,
-                text: "✦ Hello! I'm Gemini CLI, your senior software engineering partner.".to_string(),
-                trimmed_text:
-                    "✦ Hello! I'm Gemini CLI, your senior software engineering partner."
-                        .to_string(),
+                text: "✦ Hello! I'm your senior software engineering partner.".to_string(),
+                trimmed_text: "✦ Hello! I'm your senior software engineering partner.".to_string(),
                 is_blank: false,
             },
             RenderedScreenSnapshotRow {
@@ -3301,9 +3299,9 @@ fn rendered_screen_gemini_placeholder_prompt_counts_as_ready() {
             },
             RenderedScreenSnapshotRow {
                 row_index: 5,
-                text: " /mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3) ".to_string(),
+                text: " /mnt/.../build/agent-03                   no sandbox                   /model Auto (Model 3) ".to_string(),
                 trimmed_text:
-                    "/mnt/.../build/agent-03                   no sandbox                   /model Auto (Gemini 3)"
+                    "/mnt/.../build/agent-03                   no sandbox                   /model Auto (Model 3)"
                         .to_string(),
                 is_blank: false,
             },

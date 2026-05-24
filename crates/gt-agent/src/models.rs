@@ -135,8 +135,6 @@ fn normalize_tool_provider_key(tool: &str) -> &'static str {
     let normalized = tool.trim().to_ascii_lowercase();
     if normalized.contains("claude") {
         "claude"
-    } else if normalized.contains("gemini") {
-        "gemini"
     } else {
         "codex"
     }
@@ -146,7 +144,6 @@ pub fn prompt_file_name_for_tool(tool: &str) -> Option<&'static str> {
     match normalize_tool_provider_key(tool) {
         "claude" => Some("CLAUDE.md"),
         "codex" => Some("AGENTS.md"),
-        "gemini" => Some("GEMINI.md"),
         _ => None,
     }
 }
@@ -357,7 +354,6 @@ mod tests {
     fn prompt_file_metadata_matches_supported_providers() {
         assert_eq!(prompt_file_name_for_tool("claude"), Some("CLAUDE.md"));
         assert_eq!(prompt_file_name_for_tool("codex"), Some("AGENTS.md"));
-        assert_eq!(prompt_file_name_for_tool("gemini"), Some("GEMINI.md"));
         assert_eq!(
             prompt_file_relative_path(".gtoffice/alpha", "codex"),
             Some(".gtoffice/alpha/AGENTS.md".to_string())

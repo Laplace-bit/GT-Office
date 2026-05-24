@@ -117,7 +117,7 @@ export function resolveStationCliLaunchCommand(
   if (launchCommand?.trim()) {
     return launchCommand.trim()
   }
-  return toolKind  // fallback: "claude" | "codex" | "gemini"
+  return toolKind  // fallback: "claude" | "codex"
 }
 ```
 

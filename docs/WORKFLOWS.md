@@ -24,7 +24,7 @@ Key constraint: all path operations are validated against the workspace root. No
 ## Terminal Sessions
 
 1. **Create** — Open a terminal card bound to the workspace root (or a custom cwd within the workspace). Each terminal runs a real PTY session.
-2. **CLI Agent Launch** — Station cards provide one-click launch for Claude Code, Codex CLI, and Gemini CLI. The terminal inherits the workspace context and environment variables (`GTO_WORKSPACE_ID`, `GTO_AGENT_ID`).
+2. **CLI Agent Launch** — Station cards provide one-click launch for Claude Code and Codex CLI. The terminal inherits the workspace context and environment variables (`GTO_WORKSPACE_ID`, `GTO_AGENT_ID`).
 3. **Output Parsing** — The VT100 parser filters bootstrap metadata from agent output, keeping the visible terminal clean.
 4. **Session Restore** — Terminal sessions persist across workspace reopen. The PTY reconnects to the shell process.
 5. **Quick Commands** — Each CLI provider has a set of quick commands accessible from the station card (e.g., `/mcp`, `/status`, `/agents` for Claude Code).
@@ -55,7 +55,7 @@ Each station gets its own terminal and can launch a different CLI agent. Station
 
 The `gto` CLI is the primary interface for agent-to-agent communication:
 
-1. **Install** — Install CLI agents (Claude, Codex, Gemini) through the provider UI. The installer handles platform-specific setup.
+1. **Install** — Install CLI agents (Claude, Codex) through the provider UI. The installer handles platform-specific setup.
 2. **Directory Snapshot** — `gto directory snapshot` discovers available agents in the current workspace and returns their IDs and roles.
 3. **Task Dispatch** — `gto send` writes a task to the target agent's terminal and submits it.
 4. **Reply** — Agents respond via `gto reply-status` (short progress updates) or `gto handover` (completion summaries with next steps).

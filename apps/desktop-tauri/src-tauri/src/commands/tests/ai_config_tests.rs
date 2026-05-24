@@ -6,9 +6,8 @@ fn claude_provider_env_injection_is_disabled_for_hot_switching() {
 }
 
 #[test]
-fn codex_and_gemini_provider_env_injection_remain_enabled() {
+fn codex_provider_env_injection_remains_enabled() {
     assert!(should_inject_provider_env(AgentToolKind::Codex, true));
-    assert!(should_inject_provider_env(AgentToolKind::Gemini, true));
     assert!(!should_inject_provider_env(AgentToolKind::Codex, false));
 }
 
@@ -29,8 +28,8 @@ fn agent_tool_kind_from_param_normalizes_known_values() {
         AgentToolKind::Codex
     );
     assert_eq!(
-        agent_tool_kind_from_param(Some("gemini".to_string())),
-        AgentToolKind::Gemini
+        agent_tool_kind_from_param(Some("legacy-removed".to_string())),
+        AgentToolKind::Unknown
     );
     assert_eq!(
         agent_tool_kind_from_param(Some("shell".to_string())),

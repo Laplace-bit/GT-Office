@@ -163,7 +163,7 @@ Options
 // 2. 确认 workspace 已打开
 // 3. 创建 terminal session (terminal_create)
 // 4. 绑定 agent 到 terminal
-// 5. 启动 agent 进程（根据 tool: codex/claude/gemini 选择对应 CLI）
+// 5. 启动 agent 进程（根据 tool: codex/claude 选择对应 CLI）
 // 6. 返回 { agentId, sessionId, pid?, status: "online" }
 //
 // 原子性：如果任何步骤失败，回滚已创建的 terminal 和 binding

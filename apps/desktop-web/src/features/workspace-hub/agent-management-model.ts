@@ -1,4 +1,4 @@
-export type ManagedAgentProvider = 'claude' | 'codex' | 'gemini'
+export type ManagedAgentProvider = 'claude' | 'codex'
 
 export interface AgentProviderOption {
   key: ManagedAgentProvider
@@ -53,8 +53,6 @@ export function resolvePromptFileNameForProvider(provider: ManagedAgentProvider)
   switch (provider) {
     case 'claude':
       return 'CLAUDE.md'
-    case 'gemini':
-      return 'GEMINI.md'
     case 'codex':
     default:
       return 'AGENTS.md'
@@ -81,8 +79,6 @@ export function resolveProviderLabel(provider: ManagedAgentProvider): string {
   switch (provider) {
     case 'claude':
       return 'Claude Code'
-    case 'gemini':
-      return 'Gemini CLI'
     case 'codex':
     default:
       return 'Codex CLI'
@@ -94,18 +90,12 @@ export function resolveManagedProviderKey(tool: string | null | undefined): Mana
   if (normalized.includes('claude')) {
     return 'claude'
   }
-  if (normalized.includes('gemini')) {
-    return 'gemini'
-  }
   return 'codex'
 }
 
 function isSelectableProvider(
   agent: AgentProviderSnapshot,
 ): agent is AgentProviderSnapshot & { agent: ManagedAgentProvider } {
-  if (agent.agent === 'gemini') {
-    return false
-  }
   if (agent.agent !== 'claude' && agent.agent !== 'codex') {
     return false
   }

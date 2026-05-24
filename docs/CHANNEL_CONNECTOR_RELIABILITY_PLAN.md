@@ -189,7 +189,7 @@ Unit tests:
 - Terminal debug log entry construction and build-mode write gates.
 - Terminal debug human reply de-duplication, incremental merge, punctuation completion, clear, and retained log limit behavior.
 - Process command configuration wrappers.
-- AI provider live config import parsing for Claude, Codex, and Gemini official/custom local config files.
+- AI provider live config import parsing for Claude and Codex official/custom local config files.
 - External tool terminal screen profile IDs, prompt prefixes, and assistant markers.
 - AI config model endpoint candidate derivation, endpoint validation preflight, and updater error categorization.
 - Channel sink preflight, WeChat/Feishu preview rejection, Telegram interaction keyboard grouping, and plain-channel prompt text.

@@ -207,11 +207,11 @@ function requireRoleId(argv: string[]) {
   return roleId
 }
 
-const AGENT_TOOLS = ['claude', 'codex', 'gemini'] as const
+const AGENT_TOOLS = ['claude', 'codex'] as const
 const AGENT_STATES = ['ready', 'paused', 'blocked', 'terminated'] as const
 const ROLE_SCOPES = ['workspace', 'global'] as const
 const ROLE_STATUSES = ['active', 'deprecated', 'disabled'] as const
-const PROMPT_FILE_NAMES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'] as const
+const PROMPT_FILE_NAMES = ['CLAUDE.md', 'AGENTS.md'] as const
 const CHANNEL_KINDS = ['direct', 'group', 'broadcast'] as const
 const MESSAGE_TYPES = ['task_instruction', 'status', 'handover'] as const
 

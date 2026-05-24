@@ -283,7 +283,7 @@ function isTerminalBootstrapLine(line: string): boolean {
     line === '%' ||
     isStationMetadataLine(line) ||
     /^\$\s*tool:/i.test(line) ||
-    /^[^\s@]+@[^\s]+\s+.+[%#$]\s*(claude|codex|gemini)?$/i.test(line) ||
+    /^[^\s@]+@[^\s]+\s+.+[%#$]\s*(claude|codex)?$/i.test(line) ||
     /Claude Code v\d/i.test(line) ||
     /^[▐▛▜▌█ ]+Claude Code v\d/i.test(line)
   )

@@ -954,7 +954,7 @@ export interface SettingsUpdatedPayload {
   tsMs: number
 }
 
-export type AiConfigAgent = 'claude' | 'codex' | 'gemini'
+export type AiConfigAgent = 'claude' | 'codex'
 
 export type ClaudeProviderMode = 'official' | 'preset' | 'custom'
 
@@ -1079,10 +1079,6 @@ export interface ClaudeSnapshot {
 
 export type CodexProviderMode = 'official' | 'preset' | 'custom'
 
-export type GeminiProviderMode = 'official' | 'preset' | 'custom'
-
-export type GeminiAuthMode = 'oauth' | 'api_key'
-
 export interface CodexProviderPreset {
   providerId: string
   name: string
@@ -1098,22 +1094,6 @@ export interface CodexProviderPreset {
   setupSteps: string[]
 }
 
-export interface GeminiProviderPreset {
-  providerId: string
-  name: string
-  category: string
-  description: string
-  websiteUrl: string
-  apiKeyUrl: string
-  billingUrl: string
-  recommendedModel: string
-  endpoint?: string | null
-  authMode: GeminiAuthMode
-  selectedType: string
-  requiresApiKey: boolean
-  setupSteps: string[]
-  extraEnv?: Record<string, string>
-}
 
 export interface CodexConfigSnapshot {
   savedProviderId?: string | null
@@ -1128,19 +1108,6 @@ export interface CodexConfigSnapshot {
   updatedAtMs?: number | null
 }
 
-export interface GeminiConfigSnapshot {
-  savedProviderId?: string | null
-  activeMode?: GeminiProviderMode | null
-  authMode?: GeminiAuthMode | null
-  providerId?: string | null
-  providerName?: string | null
-  baseUrl?: string | null
-  model?: string | null
-  selectedType?: string | null
-  secretRef?: string | null
-  hasSecret: boolean
-  updatedAtMs?: number | null
-}
 
 export interface CodexSavedProviderSnapshot {
   savedProviderId: string
@@ -1157,21 +1124,6 @@ export interface CodexSavedProviderSnapshot {
   lastAppliedAtMs: number
 }
 
-export interface GeminiSavedProviderSnapshot {
-  savedProviderId: string
-  mode: GeminiProviderMode
-  providerId?: string | null
-  providerName: string
-  baseUrl?: string | null
-  model?: string | null
-  authMode: GeminiAuthMode
-  selectedType: string
-  hasSecret: boolean
-  isActive: boolean
-  createdAtMs: number
-  updatedAtMs: number
-  lastAppliedAtMs: number
-}
 
 export interface CodexSnapshot {
   title: string
@@ -1184,22 +1136,11 @@ export interface CodexSnapshot {
   savedProviders: CodexSavedProviderSnapshot[]
 }
 
-export interface GeminiSnapshot {
-  title: string
-  summary: string
-  configPath?: string | null
-  docsUrl: string
-  tips: string[]
-  presets: GeminiProviderPreset[]
-  config: GeminiConfigSnapshot
-  savedProviders: GeminiSavedProviderSnapshot[]
-}
 
 export interface AiConfigSnapshot {
   agents: AiAgentSnapshotCard[]
   claude: ClaudeSnapshot
   codex: CodexSnapshot
-  gemini: GeminiSnapshot
 }
 
 export interface AiConfigReadSnapshotResponse {
@@ -1233,17 +1174,6 @@ export interface CodexDraftInput {
   configToml?: string | null
 }
 
-export interface GeminiDraftInput {
-  mode: GeminiProviderMode
-  savedProviderId?: string | null
-  authMode?: GeminiAuthMode | null
-  providerId?: string | null
-  providerName?: string | null
-  baseUrl?: string | null
-  model?: string | null
-  apiKey?: string | null
-  selectedType?: string | null
-}
 
 export interface ClaudeNormalizedDraft {
   mode: ClaudeProviderMode
@@ -1269,19 +1199,8 @@ export interface CodexNormalizedDraft {
   hasSecret: boolean
 }
 
-export interface GeminiNormalizedDraft {
-  mode: GeminiProviderMode
-  authMode: GeminiAuthMode
-  providerId?: string | null
-  providerName?: string | null
-  baseUrl?: string | null
-  model?: string | null
-  selectedType: string
-  secretRef?: string | null
-  hasSecret: boolean
-}
 
-export type AiConfigDraftInput = ClaudeDraftInput | CodexDraftInput | GeminiDraftInput
+export type AiConfigDraftInput = ClaudeDraftInput | CodexDraftInput
 
 export interface AiConfigFetchedModel {
   id: string
@@ -1298,26 +1217,21 @@ export interface AiConfigEndpointTestResult {
 export type AiConfigNormalizedDraft =
   | { claude: ClaudeNormalizedDraft }
   | { codex: CodexNormalizedDraft }
-  | { gemini: GeminiNormalizedDraft }
 
 export type AnyAiConfigNormalizedDraft =
   | ClaudeNormalizedDraft
   | CodexNormalizedDraft
-  | GeminiNormalizedDraft
 
 export function unwrapAiConfigNormalizedDraft(
   draft: AiConfigNormalizedDraft,
 ):
   | { agent: 'claude'; draft: ClaudeNormalizedDraft }
   | { agent: 'codex'; draft: CodexNormalizedDraft }
-  | { agent: 'gemini'; draft: GeminiNormalizedDraft } {
+ {
   if ('claude' in draft) {
     return { agent: 'claude', draft: draft.claude }
   }
-  if ('codex' in draft) {
-    return { agent: 'codex', draft: draft.codex }
-  }
-  return { agent: 'gemini', draft: draft.gemini }
+  return { agent: 'codex', draft: draft.codex }
 }
 
 export interface AiConfigMaskedChange {
@@ -1615,7 +1529,7 @@ export interface AgentRuntimeRegisterRequest {
   stationId: string
   roleKey?: string | null
   sessionId: string
-  toolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+  toolKind?: 'claude' | 'codex' | 'shell' | 'unknown'
   resolvedCwd?: string | null
   submitSequence?: string | null
   online?: boolean
@@ -1627,7 +1541,7 @@ export interface AgentRuntimeRegisterResponse {
   stationId: string
   roleKey?: string | null
   sessionId: string
-  toolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+  toolKind?: 'claude' | 'codex' | 'shell' | 'unknown'
   resolvedCwd?: string | null
   submitSequence?: string | null
   registered: boolean
@@ -1649,7 +1563,7 @@ export type ToolProfileActionCategory =
 
 export type ToolProfileSurfaceTarget = 'terminal' | 'workspace_ui' | 'tool_adapter'
 export type ToolProfileScopeKind = 'station' | 'workspace' | 'selection'
-export type ToolProfileProviderKind = 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown' | 'any'
+export type ToolProfileProviderKind = 'claude' | 'codex' | 'shell' | 'unknown' | 'any'
 export type ToolCommandProviderKind = ToolProfileProviderKind
 export type ToolCommandKind =
   | 'semantic'
@@ -2335,13 +2249,13 @@ export const desktopApi = {
   systemGtoCliUninstall() {
     return invokeCommand<GtoCliStatus>('system_gto_cli_uninstall', {})
   },
-  systemGtoSkillStatus(agent: 'claude' | 'codex' | 'gemini') {
+  systemGtoSkillStatus(agent: 'claude' | 'codex') {
     return invokeCommand<GtoSkillStatus>('system_gto_skill_status', { agent })
   },
-  systemGtoSkillInstall(agent: 'claude' | 'codex' | 'gemini') {
+  systemGtoSkillInstall(agent: 'claude' | 'codex') {
     return invokeCommand<GtoSkillStatus>('system_gto_skill_install', { agent })
   },
-  systemGtoSkillUninstall(agent: 'claude' | 'codex' | 'gemini') {
+  systemGtoSkillUninstall(agent: 'claude' | 'codex') {
     return invokeCommand<GtoSkillStatus>('system_gto_skill_uninstall', { agent })
   },
   workspaceGetWindowActive() {
@@ -2858,7 +2772,7 @@ export const desktopApi = {
       cwd?: string | null
       cwdMode?: 'workspace_root' | 'custom'
       env?: Record<string, string>
-      agentToolKind?: 'claude' | 'codex' | 'gemini' | 'shell' | 'unknown'
+      agentToolKind?: 'claude' | 'codex' | 'shell' | 'unknown'
       injectProviderEnv?: boolean
     },
   ) {
@@ -2956,13 +2870,13 @@ export const desktopApi = {
       confirmedBy,
     })
   },
-  agentInstallStatus(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+  agentInstallStatus(agent: 'ClaudeCode' | 'Codex') {
     return invokeCommand<AgentInstallStatus>('agent_install_status', { agent })
   },
-  installAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+  installAgent(agent: 'ClaudeCode' | 'Codex') {
     return invokeCommand<void>('install_agent', { agent })
   },
-  uninstallAgent(agent: 'ClaudeCode' | 'Codex' | 'Gemini') {
+  uninstallAgent(agent: 'ClaudeCode' | 'Codex') {
     return invokeCommand<void>('uninstall_agent', { agent })
   },
   surfaceOpenDetachedWindow(payload: SurfaceOpenDetachedWindowRequest) {

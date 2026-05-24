@@ -107,29 +107,6 @@ mod tests {
     }
 
     #[test]
-    fn gemini_local_bin_uninstall_uses_combined_npm_command() {
-        let executable = if cfg!(windows) {
-            PathBuf::from(r"C:\Users\tester\.local\bin\gemini.cmd")
-        } else {
-            PathBuf::from("/Users/tester/.local/bin/gemini")
-        };
-
-        let action = AgentInstaller::gemini_uninstall_action_for_path(&executable)
-            .expect("gemini uninstall action");
-
-        match action {
-            AgentUninstallAction::Command { args, .. } => {
-                let script = args.last().expect("script arg");
-                assert!(script.contains("npm uninstall -g @google/gemini-cli"));
-                assert!(script.contains(".local"));
-            }
-            AgentUninstallAction::RemovePaths { .. } => {
-                panic!("expected npm uninstall command for gemini");
-            }
-        }
-    }
-
-    #[test]
     fn install_status_uses_persisted_cache_before_rescanning() {
         let dir = temp_dir("cache-hit");
         with_test_home(&dir, |home| {
@@ -503,7 +480,6 @@ mod tests {
 pub enum AgentType {
     ClaudeCode,
     Codex,
-    Gemini,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -652,52 +628,7 @@ pub enum AgentUninstallAction {
 
 pub struct AgentInstaller;
 
-/// Google has discontinued Gemini CLI; GT Office keeps uninstall/cleanup only.
-pub const GEMINI_CLI_SUPPORTED: bool = false;
-
 impl AgentInstaller {
-    pub fn gemini_cli_supported() -> bool {
-        GEMINI_CLI_SUPPORTED
-    }
-
-    pub fn gemini_cli_deprecation_message() -> &'static str {
-        "Gemini CLI has been discontinued by Google. GT Office no longer supports installing, configuring, or launching Gemini CLI."
-    }
-
-    fn gemini_deprecated_install_status(detection: &DetectionResult) -> AgentInstallStatus {
-        let installed = detection.executable.is_some();
-        let uninstall_available = installed
-            && detection
-                .executable
-                .as_deref()
-                .and_then(Self::gemini_uninstall_action_for_path)
-                .is_some();
-        let mut issues = vec![Self::gemini_cli_deprecation_message().to_string()];
-        if installed && !uninstall_available {
-            issues.push(
-                "Gemini CLI is still installed on this machine; remove it manually or via your package manager."
-                    .to_string(),
-            );
-        }
-        AgentInstallStatus {
-            installed,
-            executable: detection
-                .executable
-                .as_ref()
-                .map(|path| path.display().to_string()),
-            requires_node: true,
-            node_ready: false,
-            npm_ready: false,
-            brew_ready: false,
-            install_available: false,
-            uninstall_available,
-            detected_by: detection.detected_by.clone(),
-            issues,
-            auto_install_supported: false,
-            recommended_action: None,
-        }
-    }
-
     pub fn install_status(agent: AgentType) -> AgentInstallStatus {
         if let Some(status) = Self::load_cached_install_status(agent) {
             tracing::debug!("agent installer cache hit for {}", Self::cache_key(agent));
@@ -715,11 +646,6 @@ impl AgentInstaller {
             None
         };
         let detection = Self::detect_installed_with_node_dir(agent, node_runtime_dir.as_deref());
-        if agent == AgentType::Gemini && !Self::gemini_cli_supported() {
-            let status = Self::gemini_deprecated_install_status(&detection);
-            Self::store_cached_install_status(agent, &status);
-            return status;
-        }
         let node_ready = if requires_node {
             node_runtime_dir.is_some() || Self::command_succeeds("node", &["-v"])
         } else {
@@ -768,7 +694,7 @@ impl AgentInstaller {
                 .as_deref()
                 .and_then(Self::claude_uninstall_action_for_path)
                 .is_some(),
-            AgentType::Codex | AgentType::Gemini => {
+            AgentType::Codex => {
                 if detection.executable.is_none() {
                     false
                 } else {
@@ -789,7 +715,6 @@ impl AgentInstaller {
             let agent_name = match agent {
                 AgentType::ClaudeCode => "Claude Code",
                 AgentType::Codex => "Codex CLI",
-                AgentType::Gemini => "Gemini CLI",
             };
             issues.push(format!(
                 "{agent_name} uninstall source could not be identified automatically; remove it with the original installer or package manager."
@@ -798,7 +723,7 @@ impl AgentInstaller {
 
         let auto_install_supported = match agent {
             AgentType::ClaudeCode => true,
-            AgentType::Codex | AgentType::Gemini => npm_ready || brew_ready,
+            AgentType::Codex => npm_ready || brew_ready,
         };
         let recommended_action = if detection.executable.is_some() {
             None
@@ -837,11 +762,6 @@ impl AgentInstaller {
     }
 
     pub fn build_install_plan(agent: AgentType) -> AgentInstallPlan {
-        if agent == AgentType::Gemini && !Self::gemini_cli_supported() {
-            return AgentInstallPlan {
-                attempts: Vec::new(),
-            };
-        }
         let profile = Self::probe_install_network(agent);
         Self::build_install_plan_with_profile(agent, &profile)
     }
@@ -960,7 +880,7 @@ impl AgentInstaller {
             ),
             AgentInstallDiagnosticCode::NpmMissing => {
                 let brew_hint = if cfg!(not(target_os = "windows")) {
-                    " Try installing via Homebrew (brew install --cask codex for Codex, brew install gemini-cli for Gemini), or install Node.js first."
+                    " Try installing via Homebrew (brew install --cask codex for Codex), or install Node.js first."
                 } else {
                     " Install Node.js first to enable automatic installation."
                 };
@@ -1045,7 +965,7 @@ impl AgentInstaller {
                     attempts.push(Self::claude_official_install_attempt());
                 }
             }
-            AgentType::Codex | AgentType::Gemini => {
+            AgentType::Codex => {
                 // Try npm install first (with mirror fallback) when npm is available
                 if npm_ready {
                     for (index, registry) in registry_candidates.iter().enumerate() {
@@ -1177,7 +1097,6 @@ impl AgentInstaller {
         let package_name = match agent {
             AgentType::ClaudeCode => "@anthropic-ai/claude-code",
             AgentType::Codex => "@openai/codex",
-            AgentType::Gemini => "@google/gemini-cli",
         };
         let registry_id = if registry.contains("npmmirror") {
             "mirror"
@@ -1236,7 +1155,6 @@ impl AgentInstaller {
 
         let brew_cmd = match agent {
             AgentType::Codex => "brew install --cask codex",
-            AgentType::Gemini => "brew install gemini-cli",
             AgentType::ClaudeCode => "brew install --cask claude",
         };
 
@@ -1260,7 +1178,6 @@ impl AgentInstaller {
         let package_name = match agent {
             AgentType::ClaudeCode => "@anthropic-ai/claude-code",
             AgentType::Codex => "@openai/codex",
-            AgentType::Gemini => "@google/gemini-cli",
         };
         let registry = registry_candidates
             .first()
@@ -1415,7 +1332,6 @@ impl AgentInstaller {
         match agent {
             AgentType::ClaudeCode => "Claude Code",
             AgentType::Codex => "Codex CLI",
-            AgentType::Gemini => "Gemini CLI",
         }
     }
 
@@ -1428,7 +1344,6 @@ impl AgentInstaller {
 
         match agent {
             AgentType::Codex => Self::codex_uninstall_action_for_path(&executable),
-            AgentType::Gemini => Self::gemini_uninstall_action_for_path(&executable),
             AgentType::ClaudeCode => Self::claude_uninstall_action_for_path(&executable),
         }
     }
@@ -1465,45 +1380,14 @@ impl AgentInstaller {
         Some(Self::npm_uninstall_action("@openai/codex"))
     }
 
-    fn gemini_uninstall_action_for_path(executable: &Path) -> Option<AgentUninstallAction> {
-        let path_text = executable.display().to_string();
-
-        // Check for Homebrew installation (macOS/Linux)
-        if !cfg!(target_os = "windows")
-            && (path_text.contains("/opt/homebrew/bin")
-                || path_text.contains("/usr/local/bin")
-                || path_text.contains("/.linuxbrew/bin"))
-        {
-            // Homebrew installation - use brew uninstall, no npm required
-            return Some(AgentUninstallAction::Command {
-                program: "bash".to_string(),
-                args: vec![
-                    "-lc".to_string(),
-                    "brew uninstall gemini-cli 2>/dev/null || echo 'Homebrew uninstall attempted'"
-                        .to_string(),
-                ],
-            });
-        }
-
-        // .local/bin installation via npm --prefix. The shared uninstall helper now
-        // removes both the default global install and the local-prefix install.
-        if path_text.contains(".local/bin/gemini") || path_text.contains(".local\\bin\\gemini") {
-            return Some(Self::npm_uninstall_action("@google/gemini-cli"));
-        }
-
-        // npm global installation (default for all platforms)
-        Some(Self::npm_uninstall_action("@google/gemini-cli"))
-    }
-
     pub fn requires_node_env(agent: AgentType) -> bool {
-        matches!(agent, AgentType::Codex | AgentType::Gemini)
+        matches!(agent, AgentType::Codex)
     }
 
     pub fn executable_name(agent: AgentType) -> &'static str {
         match agent {
             AgentType::ClaudeCode => "claude",
             AgentType::Codex => "codex",
-            AgentType::Gemini => "gemini",
         }
     }
 
@@ -1943,7 +1827,7 @@ impl AgentInstaller {
     }
 
     fn node_wrapped_command(command_name: &str) -> bool {
-        matches!(command_name, "codex" | "gemini" | "npm")
+        matches!(command_name, "codex" | "npm")
     }
 
     pub fn find_node_runtime_dir() -> Option<PathBuf> {
@@ -2117,7 +2001,6 @@ impl AgentInstaller {
         match agent {
             AgentType::ClaudeCode => "claude",
             AgentType::Codex => "codex",
-            AgentType::Gemini => "gemini",
         }
     }
 

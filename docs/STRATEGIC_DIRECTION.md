@@ -16,7 +16,7 @@
 
 > **Agent Workspace OS — 中国开发者使用 AI 编程 Agent 的最佳入口**
 
-GT Office 的核心使命是成为 Claude Code、Codex CLI、Gemini CLI 等 AI 编程 Agent 在真实代码库里**最稳定、最懂 workspace、最有记忆**的桌面运行环境。
+GT Office 的核心使命是成为 Claude Code、Codex CLI 等 AI 编程 Agent 在真实代码库里**最稳定、最懂 workspace、最有记忆**的桌面运行环境。
 
 在全球市场，官方工具（Claude Agent View、Codex Desktop）正在蚕食第三方 GUI wrapper 的空间。但**在中国市场，官方工具不可用或受限**，GT Office 是连接中国开发者和世界级 AI Agent 的桥梁。
 

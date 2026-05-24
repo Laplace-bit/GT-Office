@@ -13,7 +13,7 @@ test('normalizes quick command visibility for supported providers only', () => {
     normalizeQuickCommandVisibilityByProvider({
       claude: false,
       codex: true,
-      gemini: false,
+      unknown: false,
     }),
     {
       claude: false,
@@ -22,8 +22,8 @@ test('normalizes quick command visibility for supported providers only', () => {
   )
 })
 
-test('does not treat gemini as a supported quick-command provider', () => {
-  assert.equal(isQuickCommandProviderId('gemini'), false)
+test('rejects unsupported quick-command provider ids', () => {
+  assert.equal(isQuickCommandProviderId('unknown'), false)
   assert.equal(isQuickCommandProviderId('claude'), true)
   assert.equal(isQuickCommandProviderId('codex'), true)
 })

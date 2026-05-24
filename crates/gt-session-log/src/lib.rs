@@ -15,7 +15,6 @@ const RESCAN_INTERVAL_MS: u64 = 1_500;
 pub enum SessionLogProvider {
     Claude,
     Codex,
-    Gemini,
 }
 
 #[derive(Debug, Clone)]
@@ -121,7 +120,6 @@ pub fn bind_session_log_with_config(
             prompt_fingerprint,
             config,
         ))),
-        SessionLogProvider::Gemini => None,
     }
 }
 

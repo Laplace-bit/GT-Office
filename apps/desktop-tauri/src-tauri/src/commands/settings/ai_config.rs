@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use futures_util::future::join_all;
 use gt_ai_config::{
     AiConfigAgent, AiConfigReadSnapshotResponse, AiConfigService, ClaudeDraftInput,
-    CodexDraftInput, GeminiDraftInput, StoredAiConfigPreview,
+    CodexDraftInput, StoredAiConfigPreview,
 };
 use gt_storage::{SqliteAiConfigRepository, SqliteStorage};
 use gt_task::AgentToolKind;
@@ -52,7 +52,7 @@ pub(super) fn resolve_ai_workspace_root(
 }
 
 fn should_inject_provider_env(tool_kind: AgentToolKind, include_provider_env: bool) -> bool {
-    include_provider_env && matches!(tool_kind, AgentToolKind::Codex | AgentToolKind::Gemini)
+    include_provider_env && tool_kind == AgentToolKind::Codex
 }
 
 pub fn augment_terminal_env_for_agent(
@@ -66,7 +66,6 @@ pub fn augment_terminal_env_for_agent(
     let agent = match tool_kind {
         AgentToolKind::Claude => AiConfigAgent::Claude,
         AgentToolKind::Codex => AiConfigAgent::Codex,
-        AgentToolKind::Gemini => AiConfigAgent::Gemini,
         _ => return Ok(env),
     };
 
@@ -100,7 +99,6 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
     let (agent_type, override_var) = match tool_kind {
         AgentToolKind::Claude => (AgentType::ClaudeCode, "GTO_CLAUDE_COMMAND"),
         AgentToolKind::Codex => (AgentType::Codex, "GTO_CODEX_COMMAND"),
-        AgentToolKind::Gemini => (AgentType::Gemini, "GTO_GEMINI_COMMAND"),
         _ => return,
     };
 
@@ -130,7 +128,7 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
         }
     }
 
-    // For node-wrapped commands (codex, gemini), also prepend the node runtime
+    // For node-wrapped commands (e.g. codex), also prepend the node runtime
     // directory to PATH so the shebang #!/usr/bin/env node can resolve node.
     if AgentInstaller::requires_node_env(agent_type) {
         if let Some(node_dir) = AgentInstaller::find_node_runtime_dir() {
@@ -250,11 +248,6 @@ pub fn ai_config_preview_patch(
                 .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
             service.preview_codex_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, draft)
         }
-        AiConfigAgent::Gemini => {
-            let draft: GeminiDraftInput = serde_json::from_value(draft)
-                .map_err(|error| format!("AI_CONFIG_INVALID_DRAFT: {error}"))?;
-            service.preview_gemini_patch(GLOBAL_AI_CONFIG_CONTEXT, root_ref, draft)
-        }
     }
     .map_err(|error| error.to_string())?;
 
@@ -286,16 +279,12 @@ pub fn ai_config_apply_patch(
         StoredAiConfigPreview::Codex(p) => {
             service.apply_codex_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, p)
         }
-        StoredAiConfigPreview::Gemini(p) => {
-            service.apply_gemini_preview(GLOBAL_AI_CONFIG_CONTEXT, root_ref, &confirmed_by, p)
-        }
     }
     .map_err(|error| error.to_string())?;
 
     let changed_keys = match &preview {
         StoredAiConfigPreview::Claude(p) => p.changed_keys.clone(),
         StoredAiConfigPreview::Codex(p) => p.changed_keys.clone(),
-        StoredAiConfigPreview::Gemini(p) => p.changed_keys.clone(),
     };
 
     let _ = app.emit(
@@ -650,7 +639,6 @@ pub fn agent_tool_kind_from_param(value: Option<String>) -> AgentToolKind {
     {
         "claude" => AgentToolKind::Claude,
         "codex" => AgentToolKind::Codex,
-        "gemini" => AgentToolKind::Gemini,
         "shell" => AgentToolKind::Shell,
         _ => AgentToolKind::Unknown,
     }

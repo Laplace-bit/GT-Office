@@ -2,7 +2,7 @@
 
 ## Overview
 
-Redesign the quick-command settings UI for each CLI agent provider (`claude`, `codex`, `gemini`) into a cleaner, higher-efficiency configuration surface.
+Redesign the quick-command settings UI for each CLI agent provider (`claude`, `codex`) into a cleaner, higher-efficiency configuration surface.
 
 The new direction is:
 

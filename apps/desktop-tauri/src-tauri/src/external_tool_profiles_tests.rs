@@ -1,8 +1,7 @@
-use super::ToolScreenProfile;
-use gt_task::AgentToolKind;
+use super::*;
 
 #[test]
-fn tool_screen_profile_maps_agent_tool_kinds() {
+fn from_tool_kind_maps_known_tools() {
     assert_eq!(
         ToolScreenProfile::from_tool_kind(AgentToolKind::Codex),
         ToolScreenProfile::Codex
@@ -10,10 +9,6 @@ fn tool_screen_profile_maps_agent_tool_kinds() {
     assert_eq!(
         ToolScreenProfile::from_tool_kind(AgentToolKind::Claude),
         ToolScreenProfile::Claude
-    );
-    assert_eq!(
-        ToolScreenProfile::from_tool_kind(AgentToolKind::Gemini),
-        ToolScreenProfile::Gemini
     );
     assert_eq!(
         ToolScreenProfile::from_tool_kind(AgentToolKind::Shell),
@@ -26,20 +21,17 @@ fn tool_screen_profile_maps_agent_tool_kinds() {
 }
 
 #[test]
-fn tool_screen_profile_ids_and_markers_match_contract() {
+fn profile_metadata_matches_tool_conventions() {
     assert_eq!(ToolScreenProfile::Codex.id(), "codex");
     assert_eq!(ToolScreenProfile::Claude.id(), "claude");
-    assert_eq!(ToolScreenProfile::Gemini.id(), "gemini");
     assert_eq!(ToolScreenProfile::Generic.id(), "generic");
 
-    assert_eq!(ToolScreenProfile::Gemini.assistant_markers(), &["✦ "]);
     assert_eq!(
         ToolScreenProfile::Codex.assistant_markers(),
-        &["• ", "● ", "⏺ "]
+        &["• ", "● ", "⏺ ", "✦ "]
     );
-    assert_eq!(ToolScreenProfile::Gemini.prompt_prefixes(), &["> "]);
     assert_eq!(
-        ToolScreenProfile::Generic.prompt_prefixes(),
+        ToolScreenProfile::Codex.prompt_prefixes(),
         &["› ", "❯ ", "$ ", "> "]
     );
 }

@@ -2,13 +2,12 @@ import type {
   AiAgentSnapshotCard,
   AiConfigSnapshot,
   CodexSnapshot,
-  GeminiSnapshot,
 } from '@shell/integration/desktop-api'
 import type { Locale } from '@shell/i18n/ui-locale'
 
 import { ProviderWorkspaceModal } from '../shared/ProviderWorkspaceModal'
 
-interface BaseLightProviderConfigModalProps<TGuide extends CodexSnapshot | GeminiSnapshot> {
+interface BaseLightProviderConfigModalProps<TGuide extends CodexSnapshot> {
   workspaceId?: string | null
   locale: Locale
   agent: AiAgentSnapshotCard
@@ -31,29 +30,6 @@ export function CodexConfigModal({
   return (
     <ProviderWorkspaceModal
       agentId="codex"
-      locale={locale}
-      agent={agent}
-      guide={guide}
-      onReload={async () => {
-        await onReload()
-      }}
-      onSnapshotUpdate={onSnapshotUpdate ?? (() => {})}
-      onClose={onClose}
-    />
-  )
-}
-
-export function GeminiConfigModal({
-  locale,
-  agent,
-  guide,
-  onReload,
-  onSnapshotUpdate,
-  onClose,
-}: BaseLightProviderConfigModalProps<GeminiSnapshot>) {
-  return (
-    <ProviderWorkspaceModal
-      agentId="gemini"
       locale={locale}
       agent={agent}
       guide={guide}

@@ -151,9 +151,6 @@ export function normalizeStationToolKind(
   if (normalized.includes('codex')) {
     return 'codex'
   }
-  if (normalized.includes('gemini')) {
-    return 'gemini'
-  }
   if (normalized.includes('shell')) {
     return 'shell'
   }
@@ -169,8 +166,6 @@ export function buildStationLaunchCommand(station: AgentStation): string | null 
       return 'claude\n'
     case 'codex':
       return 'codex\n'
-    case 'gemini':
-      return 'gemini\n'
     default:
       return null
   }

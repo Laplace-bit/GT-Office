@@ -11,11 +11,9 @@ use gt_abstractions::{
 use gt_agent::AgentRepository;
 use gt_ai_config::{
     AiConfigService, AiConfigSnapshot, ClaudeConfigSnapshot, CodexConfigSnapshot,
-    GeminiConfigSnapshot,
 };
 use gt_storage::{SqliteAgentRepository, SqliteAiConfigRepository, SqliteStorage};
 use gt_task::{AgentRuntimeRegistration, AgentToolKind};
-use gt_tools::agent_installer::{AgentInstaller, GEMINI_CLI_SUPPORTED};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
@@ -36,7 +34,6 @@ pub(crate) fn canonical_profile_tool_kind(profile_id: &str) -> Option<AgentToolK
     match profile_id.trim().to_ascii_lowercase().as_str() {
         "claude" | "claude-code" => Some(AgentToolKind::Claude),
         "codex" | "codex-cli" => Some(AgentToolKind::Codex),
-        "gemini" | "gemini-cli" => Some(AgentToolKind::Gemini),
         _ => None,
     }
 }
@@ -45,7 +42,6 @@ pub(crate) fn canonical_profile_id(tool_kind: AgentToolKind) -> &'static str {
     match tool_kind {
         AgentToolKind::Claude => "claude",
         AgentToolKind::Codex => "codex",
-        AgentToolKind::Gemini => "gemini",
         AgentToolKind::Shell | AgentToolKind::Unknown => "unknown",
     }
 }
@@ -54,7 +50,6 @@ pub(crate) fn profile_title(tool_kind: AgentToolKind) -> &'static str {
     match tool_kind {
         AgentToolKind::Claude => "Claude",
         AgentToolKind::Codex => "Codex",
-        AgentToolKind::Gemini => "Gemini",
         AgentToolKind::Shell | AgentToolKind::Unknown => "Unknown",
     }
 }
@@ -173,15 +168,6 @@ fn codex_provider_summary(config: &CodexConfigSnapshot) -> Option<String> {
         .map(|mode| format!("{mode:?}: {provider} / {model}"))
 }
 
-fn gemini_provider_summary(config: &GeminiConfigSnapshot) -> Option<String> {
-    let provider = config.provider_name.as_deref().unwrap_or("Gemini");
-    let model = config.model.as_deref().unwrap_or("default");
-    config
-        .active_mode
-        .as_ref()
-        .map(|mode| format!("{mode:?}: {provider} / {model}"))
-}
-
 fn profile_warnings(snapshot: &AiConfigSnapshot, tool_kind: AgentToolKind) -> Vec<String> {
     match tool_kind {
         AgentToolKind::Claude => {
@@ -204,16 +190,6 @@ fn profile_warnings(snapshot: &AiConfigSnapshot, tool_kind: AgentToolKind) -> Ve
                 ]
             }
         }
-        AgentToolKind::Gemini => {
-            if snapshot.gemini.config.active_mode.is_some() {
-                Vec::new()
-            } else {
-                vec![
-                    "TOOL_PROFILE_PROVIDER_UNCONFIGURED: Gemini has no active GT Office provider for this workspace; launch will fall back to existing local CLI config."
-                        .to_string(),
-                ]
-            }
-        }
         AgentToolKind::Shell | AgentToolKind::Unknown => {
             vec!["TOOL_PROFILE_UNSUPPORTED: unsupported tool profile".to_string()]
         }
@@ -222,7 +198,7 @@ fn profile_warnings(snapshot: &AiConfigSnapshot, tool_kind: AgentToolKind) -> Ve
 
 fn dock_icon(tool_kind: AgentToolKind) -> &'static str {
     match tool_kind {
-        AgentToolKind::Claude | AgentToolKind::Codex | AgentToolKind::Gemini => "sparkles",
+        AgentToolKind::Claude | AgentToolKind::Codex => "sparkles",
         AgentToolKind::Shell | AgentToolKind::Unknown => "terminal",
     }
 }
@@ -233,7 +209,7 @@ fn profile_tooltip(tool_kind: AgentToolKind) -> String {
             "Launch Claude with GT Office live provider config and hot-switch-compatible settings"
                 .to_string()
         }
-        AgentToolKind::Codex | AgentToolKind::Gemini => format!(
+        AgentToolKind::Codex => format!(
             "Launch {} with workspace-aware GT Office provider config",
             profile_title(tool_kind)
         ),
@@ -282,23 +258,6 @@ fn build_profile_value(
                 "docsUrl": snapshot.codex.docs_url,
             }),
         ),
-        AgentToolKind::Gemini => (
-            snapshot.gemini.config.active_mode.is_some(),
-            gemini_provider_summary(&snapshot.gemini.config),
-            json!({
-                "activeMode": snapshot.gemini.config.active_mode,
-                "authMode": snapshot.gemini.config.auth_mode,
-                "providerId": snapshot.gemini.config.provider_id,
-                "providerName": snapshot.gemini.config.provider_name,
-                "baseUrl": snapshot.gemini.config.base_url,
-                "model": snapshot.gemini.config.model,
-                "selectedType": snapshot.gemini.config.selected_type,
-                "hasSecret": snapshot.gemini.config.has_secret,
-                "updatedAtMs": snapshot.gemini.config.updated_at_ms,
-                "configPath": snapshot.gemini.config_path,
-                "docsUrl": snapshot.gemini.docs_url,
-            }),
-        ),
         AgentToolKind::Shell | AgentToolKind::Unknown => (false, None, json!({})),
     };
 
@@ -318,7 +277,6 @@ fn build_profile_value(
         "priority": match tool_kind {
             AgentToolKind::Claude => 400,
             AgentToolKind::Codex => 410,
-            AgentToolKind::Gemini => 420,
             AgentToolKind::Shell | AgentToolKind::Unknown => 900,
         },
         "group": "profiles",
@@ -538,10 +496,7 @@ pub fn tool_list_profiles(
     app: AppHandle,
 ) -> Result<Value, String> {
     let snapshot = read_ai_config_snapshot(&app, state.inner(), &workspace_id)?;
-    let mut supported_tools = vec![AgentToolKind::Claude, AgentToolKind::Codex];
-    if GEMINI_CLI_SUPPORTED {
-        supported_tools.push(AgentToolKind::Gemini);
-    }
+    let supported_tools = [AgentToolKind::Claude, AgentToolKind::Codex];
     let profiles = supported_tools
         .into_iter()
         .map(|tool_kind| build_profile_value(&workspace_id, &snapshot, tool_kind))
@@ -563,12 +518,6 @@ pub fn tool_launch(
             profile_id.trim()
         )
     })?;
-    if tool_kind == AgentToolKind::Gemini && !GEMINI_CLI_SUPPORTED {
-        return Err(format!(
-            "TOOL_PROFILE_DEPRECATED: {}",
-            AgentInstaller::gemini_cli_deprecation_message()
-        ));
-    }
     let profile_id_canonical = canonical_profile_id(tool_kind).to_string();
     let workspace_root = state.workspace_root_path(&workspace_id)?;
     let resolved_cwd = resolve_launch_cwd(context.as_ref(), &workspace_root);

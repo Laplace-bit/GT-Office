@@ -28,7 +28,7 @@ What actually happened.
 
 - OS: [e.g. macOS 15.3]
 - GT Office version: [e.g. v0.3.1]
-- Agent tool: [e.g. Claude Code / Codex / Gemini CLI]
+- Agent tool: [e.g. Claude Code / Codex CLI]
 
 ## Screenshots / Logs
 

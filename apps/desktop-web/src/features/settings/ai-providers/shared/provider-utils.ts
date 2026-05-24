@@ -6,7 +6,7 @@ export type LightAgentSnapshotCard = AiAgentSnapshotCard & { agent: LightAgentId
 export function isLightAgentSnapshotCard(
   agent: AiAgentSnapshotCard | null | undefined,
 ): agent is LightAgentSnapshotCard {
-  return agent?.agent === 'codex' || agent?.agent === 'gemini'
+  return agent?.agent === 'codex'
 }
 
 export function describeUnknownError(value: unknown): string {

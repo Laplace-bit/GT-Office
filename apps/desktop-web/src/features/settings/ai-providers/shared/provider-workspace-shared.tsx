@@ -6,8 +6,6 @@ import type {
   ClaudeModelOverrides,
   ClaudeSnapshot,
   CodexSnapshot,
-  GeminiAuthMode,
-  GeminiSnapshot,
 } from '@shell/integration/desktop-api'
 import { translateMaybeKey, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon, type AppIconName } from '@shell/ui/icons'
@@ -31,15 +29,6 @@ export type ProviderWorkspaceModalProps =
       onSnapshotUpdate: (effective: AiConfigSnapshot) => void
       onClose: () => void
     }
-  | {
-      agentId: 'gemini'
-      locale: Locale
-      agent: AiAgentSnapshotCard
-      guide: GeminiSnapshot
-      onReload: () => Promise<void>
-      onSnapshotUpdate: (effective: AiConfigSnapshot) => void
-      onClose: () => void
-    }
 
 export type ProviderWorkspaceAgentId = ProviderWorkspaceModalProps['agentId']
 export type ProviderWorkspaceGuide = ProviderWorkspaceModalProps['guide']
@@ -57,17 +46,11 @@ export interface ProviderWorkspaceSeed {
   apiKey: string
   authScheme: ClaudeAuthScheme
   configToml: string
-  authMode: GeminiAuthMode
-  selectedType: string
   apiFormat: ClaudeApiFormat
   modelOverrides: ClaudeModelOverrides
 }
 
 export const CUSTOM_PROVIDER_ID = 'custom-gateway'
-
-export function resolveSelectedType(authMode: GeminiAuthMode): string {
-  return authMode === 'oauth' ? 'oauth-personal' : 'gemini-api-key'
-}
 
 export function resolveAgentDisplayName(locale: Locale, agent: AiAgentSnapshotCard): string {
   return translateMaybeKey(locale, agent.title)

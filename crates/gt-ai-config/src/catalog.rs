@@ -1,9 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::models::{
-    ClaudeAuthScheme, ClaudeProviderPreset, CodexProviderPreset, GeminiAuthMode,
-    GeminiProviderPreset,
-};
+use crate::models::{ClaudeAuthScheme, ClaudeProviderPreset, CodexProviderPreset};
 
 #[path = "catalog_claude_core.rs"]
 mod catalog_claude_core;
@@ -11,15 +8,12 @@ mod catalog_claude_core;
 mod catalog_claude_partners;
 #[path = "catalog_codex.rs"]
 mod catalog_codex;
-#[path = "catalog_gemini.rs"]
-mod catalog_gemini;
 #[path = "catalog_snapshots.rs"]
 mod catalog_snapshots;
 
 pub use catalog_claude_core::{claude_official_provider_preset, claude_provider_presets};
 pub use catalog_codex::codex_provider_presets;
-pub use catalog_gemini::gemini_provider_presets;
-pub use catalog_snapshots::{codex_snapshot_template, gemini_snapshot_template};
+pub use catalog_snapshots::codex_snapshot_template;
 
 pub const CLAUDE_OFFICIAL_PROVIDER_ID: &str = "anthropic-official";
 pub const CLAUDE_OFFICIAL_BASE_URL: &str = "https://api.anthropic.com";
@@ -180,67 +174,6 @@ fn build_codex_china_preset(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn build_gemini_preset(
-    prefix: &str,
-    provider_id: &str,
-    category: &str,
-    website_url: &str,
-    api_key_url: &str,
-    billing_url: &str,
-    recommended_model: &str,
-    endpoint: Option<&str>,
-    auth_mode: GeminiAuthMode,
-    selected_type: &str,
-    requires_api_key: bool,
-    extra_env: BTreeMap<String, String>,
-) -> GeminiProviderPreset {
-    GeminiProviderPreset {
-        provider_id: provider_id.to_string(),
-        name: preset_key(prefix, "name"),
-        category: category.to_string(),
-        description: preset_key(prefix, "desc"),
-        website_url: website_url.to_string(),
-        api_key_url: api_key_url.to_string(),
-        billing_url: billing_url.to_string(),
-        recommended_model: recommended_model.to_string(),
-        endpoint: endpoint.map(str::to_string),
-        auth_mode,
-        selected_type: selected_type.to_string(),
-        requires_api_key,
-        setup_steps: vec![
-            preset_key(prefix, "step1"),
-            preset_key(prefix, "step2"),
-            preset_key(prefix, "step3"),
-        ],
-        extra_env,
-    }
-}
-
-fn build_gemini_china_preset(
-    prefix: &str,
-    provider_id: &str,
-    website_url: &str,
-    api_key_url: &str,
-    recommended_model: &str,
-    endpoint: &str,
-) -> GeminiProviderPreset {
-    build_gemini_preset(
-        prefix,
-        provider_id,
-        "aiConfig.category.china",
-        website_url,
-        api_key_url,
-        website_url,
-        recommended_model,
-        Some(endpoint),
-        GeminiAuthMode::ApiKey,
-        GeminiAuthMode::ApiKey.selected_type(),
-        true,
-        BTreeMap::new(),
-    )
-}
-
 fn env_map(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
     entries
         .iter()
@@ -276,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_and_gemini_china_suppliers_match_claude_direction() {
+    fn codex_china_suppliers_match_claude_direction() {
         let expected = expected_china_provider_ids();
         let claude = claude_provider_presets()
             .into_iter()
@@ -285,11 +218,6 @@ mod tests {
             .map(|preset| preset.provider_id)
             .collect::<Vec<_>>();
         let codex = codex_provider_presets()
-            .into_iter()
-            .filter(|preset| preset.category == "aiConfig.category.china")
-            .map(|preset| preset.provider_id)
-            .collect::<Vec<_>>();
-        let gemini = gemini_provider_presets()
             .into_iter()
             .filter(|preset| preset.category == "aiConfig.category.china")
             .map(|preset| preset.provider_id)
@@ -309,31 +237,11 @@ mod tests {
                 .map(|value| value.to_string())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(
-            gemini,
-            expected
-                .iter()
-                .map(|value| value.to_string())
-                .collect::<Vec<_>>()
-        );
     }
 
     #[test]
-    fn codex_and_gemini_china_presets_keep_translation_keys() {
+    fn codex_china_presets_keep_translation_keys() {
         for preset in codex_provider_presets()
-            .into_iter()
-            .filter(|preset| preset.category == "aiConfig.category.china")
-        {
-            assert!(preset.name.starts_with("aiConfig.preset."));
-            assert!(preset.description.starts_with("aiConfig.preset."));
-            assert_eq!(preset.setup_steps.len(), 3);
-            assert!(preset
-                .setup_steps
-                .iter()
-                .all(|step| step.starts_with("aiConfig.preset.")));
-        }
-
-        for preset in gemini_provider_presets()
             .into_iter()
             .filter(|preset| preset.category == "aiConfig.category.china")
         {

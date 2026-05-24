@@ -4,7 +4,6 @@ use gt_task::AgentToolKind;
 pub enum ToolScreenProfile {
     Codex,
     Claude,
-    Gemini,
     Generic,
 }
 
@@ -13,7 +12,6 @@ impl ToolScreenProfile {
         match tool_kind {
             AgentToolKind::Codex => Self::Codex,
             AgentToolKind::Claude => Self::Claude,
-            AgentToolKind::Gemini => Self::Gemini,
             AgentToolKind::Shell | AgentToolKind::Unknown => Self::Generic,
         }
     }
@@ -22,23 +20,16 @@ impl ToolScreenProfile {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
-            Self::Gemini => "gemini",
             Self::Generic => "generic",
         }
     }
 
     pub fn assistant_markers(self) -> &'static [&'static str] {
-        match self {
-            Self::Gemini => &["✦ "],
-            Self::Codex | Self::Claude | Self::Generic => &["• ", "● ", "⏺ "],
-        }
+        &["• ", "● ", "⏺ ", "✦ "]
     }
 
     pub fn prompt_prefixes(self) -> &'static [&'static str] {
-        match self {
-            Self::Codex | Self::Claude | Self::Generic => &["› ", "❯ ", "$ ", "> "],
-            Self::Gemini => &["> "],
-        }
+        &["› ", "❯ ", "$ ", "> "]
     }
 }
 

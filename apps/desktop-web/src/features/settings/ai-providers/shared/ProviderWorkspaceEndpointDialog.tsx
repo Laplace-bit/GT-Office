@@ -5,7 +5,7 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 
 interface ProviderWorkspaceEndpointDialogProps {
-  agentId: 'claude' | 'codex' | 'gemini'
+  agentId: 'claude' | 'codex'
   locale: Locale
   currentValue: string
   initialUrls: string[]

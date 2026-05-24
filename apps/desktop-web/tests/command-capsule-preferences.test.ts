@@ -27,7 +27,6 @@ test('loadUiPreferences preserves legacy active custom capsules when ordered ids
       quickCommandVisibilityByProvider: {
         claude: true,
         codex: true,
-        gemini: true,
       },
       pinnedCommandIdsByProvider: {
         codex: ['plan', 'model'],
@@ -81,7 +80,6 @@ test('loadUiPreferences keeps save-only custom capsules inactive when explicit o
       quickCommandVisibilityByProvider: {
         claude: true,
         codex: true,
-        gemini: true,
       },
       pinnedCommandIdsByProvider: {
         codex: ['plan', 'model'],
