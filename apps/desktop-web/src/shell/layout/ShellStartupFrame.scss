@@ -1,0 +1,59 @@
+.shell-startup-frame {
+  height: 100dvh;
+  min-height: 100dvh;
+  display: flex;
+  gap: var(--vb-space-2xs, 0.25rem);
+  background: var(--vb-bg, #000);
+  overflow: hidden;
+}
+
+.shell-startup-frame-rail {
+  width: 3.25rem;
+  flex-shrink: 0;
+  border-radius: var(--vb-radius-lg, 0.75rem);
+  background: color-mix(in srgb, var(--vb-surface-elevated, #1c1c1e) 72%, transparent);
+  animation: shell-startup-pulse 1.2s ease-in-out infinite;
+}
+
+.shell-startup-frame-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vb-space-2xs, 0.25rem);
+}
+
+.shell-startup-frame-topbar {
+  height: 2.75rem;
+  border-radius: var(--vb-radius-lg, 0.75rem);
+  background: color-mix(in srgb, var(--vb-surface-elevated, #1c1c1e) 72%, transparent);
+  animation: shell-startup-pulse 1.2s ease-in-out infinite;
+}
+
+.shell-startup-frame-content {
+  flex: 1;
+  border-radius: var(--vb-radius-lg, 0.75rem);
+  background: color-mix(in srgb, var(--vb-surface-elevated, #1c1c1e) 56%, transparent);
+  animation: shell-startup-pulse 1.2s ease-in-out infinite;
+  animation-delay: 0.15s;
+}
+
+.shell-pane-loading {
+  width: 100%;
+  height: 100%;
+  min-height: 8rem;
+  border-radius: var(--vb-radius-lg, 0.75rem);
+  background: color-mix(in srgb, var(--vb-surface-elevated, #1c1c1e) 48%, transparent);
+  animation: shell-startup-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes shell-startup-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 0.85;
+  }
+}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Editor, { type OnMount, type Monaco } from '@monaco-editor/react'
 import type { editor as MonacoEditorAPI } from 'monaco-editor'
+import { ensureMonacoEnvironment } from '@shell/integration/monaco-env'
 import { detectLanguageFromPath, toMonacoLanguageId } from './monaco-languages'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { isDarkDataTheme } from '@shell/state/ui-preferences'
@@ -149,6 +150,19 @@ export function MonacoEditor({
   const contentRef = useRef(content)
   const isExternalUpdateRef = useRef(false)
   const [themeName, setThemeName] = useState(resolveThemeName)
+  const [monacoReady, setMonacoReady] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void ensureMonacoEnvironment().then(() => {
+      if (active) {
+        setMonacoReady(true)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Sync refs
   useEffect(() => {
@@ -261,6 +275,14 @@ export function MonacoEditor({
     })
     return () => observer.disconnect()
   }, [])
+
+  if (!monacoReady) {
+    return (
+      <div className="monaco-editor-container">
+        <div className="monaco-editor-loading" />
+      </div>
+    )
+  }
 
   return (
     <div className="monaco-editor-container">

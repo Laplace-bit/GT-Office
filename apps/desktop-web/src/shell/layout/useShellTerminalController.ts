@@ -47,7 +47,7 @@ import {
   type TerminalDebugRecordInput,
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
-} from '@features/terminal'
+} from '@features/terminal/runtime'
 import {
   recordStationTerminalFocusDiagnostic,
   type StationTerminalFocusDiagnosticKind,

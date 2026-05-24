@@ -2317,6 +2317,9 @@ export const desktopApi = {
       defaultPath: defaultPath ?? null,
     })
   },
+  signalUiReady() {
+    return invokeCommand<void>('system_signal_ui_ready')
+  },
   systemOpenUrl(url: string) {
     return invokeCommand<void>('system_open_url', { url })
   },

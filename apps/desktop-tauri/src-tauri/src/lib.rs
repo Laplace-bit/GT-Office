@@ -8,6 +8,7 @@ mod external_tool_profiles;
 mod filesystem_watcher;
 mod local_bridge;
 mod process_utils;
+mod startup_services;
 mod terminal_debug;
 
 use base64::Engine;
@@ -15,8 +16,6 @@ use gt_terminal::TerminalRuntimeEvent;
 use rustls::crypto::aws_lc_rs;
 use serde_json::json;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
-use tracing::warn;
-
 use commands::{
     agent, agentic_one, file_explorer, git, keybindings, security, settings, system, task_center,
     terminal, tool_adapter, workspace,
@@ -46,20 +45,6 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             let state = app.state::<app_state::AppState>();
-            if let Err(error) =
-                tool_adapter::restore_persisted_channel_state(&app_handle, state.inner())
-            {
-                warn!(error = %error, "restore persisted channel state failed");
-            }
-            local_bridge::spawn(app_handle.clone(), state.inner().clone());
-            channel_adapter_runtime::spawn(app_handle.clone(), state.inner().clone());
-            connectors::feishu::websocket::spawn_supervisor(app_handle.clone(), state.inner().clone());
-            connectors::telegram::spawn_polling_worker(app_handle.clone(), state.inner().clone());
-            connectors::wechat::spawn_polling_supervisor(app_handle.clone(), state.inner().clone());
-            tool_adapter::spawn_external_reply_flush_worker(
-                app_handle.clone(),
-                state.inner().clone(),
-            );
             let receiver = state.terminal_provider.take_event_receiver().map_err(|error| {
                 format!(
                     "failed to subscribe terminal runtime events during setup: {}",
@@ -67,7 +52,6 @@ pub fn run() {
                 )
             })?;
             let relay_state = state.inner().clone();
-
             std::thread::spawn(move || {
                 while let Ok(event) = receiver.recv() {
                     match event {
@@ -280,6 +264,7 @@ pub fn run() {
             security::security_health,
             system::system_gto_doctor,
             system::system_pick_directory,
+            system::system_signal_ui_ready,
             system::system_open_url,
         ])
         .run(tauri::generate_context!())

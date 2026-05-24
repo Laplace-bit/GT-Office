@@ -7,7 +7,13 @@ use serde_json::{json, Value};
 use tauri::{Manager, State};
 use tracing::warn;
 
-use crate::app_state::AppState;
+use crate::{app_state::AppState, startup_services};
+
+#[tauri::command]
+pub fn system_signal_ui_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    startup_services::spawn_deferred_startup_services(&app, state.inner());
+    Ok(())
+}
 
 const GTO_WRAPPER_MARKER: &str = "# Managed by GT Office: gto cli";
 const GTO_SKILL_DIR_NAME: &str = "gto-agent-communication";

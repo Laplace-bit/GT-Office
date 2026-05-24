@@ -2,6 +2,70 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color-scheme: dark;
+      }
+
+      #root {
+        height: 100%;
+      }
+
+      .shell-startup-frame {
+        height: 100dvh;
+        min-height: 100dvh;
+        display: flex;
+        gap: 0.25rem;
+        background: #000;
+        overflow: hidden;
+      }
+
+      .shell-startup-frame-rail {
+        width: 3.25rem;
+        flex-shrink: 0;
+        border-radius: 0.75rem;
+        background: rgba(28, 28, 30, 0.72);
+        animation: shell-startup-pulse 1.2s ease-in-out infinite;
+      }
+
+      .shell-startup-frame-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .shell-startup-frame-topbar {
+        height: 2.75rem;
+        border-radius: 0.75rem;
+        background: rgba(28, 28, 30, 0.72);
+        animation: shell-startup-pulse 1.2s ease-in-out infinite;
+      }
+
+      .shell-startup-frame-content {
+        flex: 1;
+        border-radius: 0.75rem;
+        background: rgba(28, 28, 30, 0.56);
+        animation: shell-startup-pulse 1.2s ease-in-out infinite;
+        animation-delay: 0.15s;
+      }
+
+      @keyframes shell-startup-pulse {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+
+        50% {
+          opacity: 0.85;
+        }
+      }
+    </style>
     <script>
       (() => {
         const root = document.documentElement
@@ -19,17 +83,39 @@
         root.dataset.theme = themeMode
         root.style.backgroundColor = themeMode === 'graphite-dark' ? '#000000' : '#f5f5f7'
         root.style.colorScheme = themeMode === 'graphite-dark' ? 'dark' : 'light'
+        if (themeMode === 'graphite-light') {
+          document.body.style.background = '#f5f5f7'
+          const style = document.createElement('style')
+          style.textContent = `
+            .shell-startup-frame { background: #f5f5f7; }
+            .shell-startup-frame-rail,
+            .shell-startup-frame-topbar,
+            .shell-startup-frame-content { background: rgba(255, 255, 255, 0.72); }
+          `
+          document.head.appendChild(style)
+        }
       })()
     </script>
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cascadia+Code:wght@300..700&family=Fira+Code:wght@300..700&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300..800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>desktop-web</title>
+    <title>GT Office</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Cascadia+Code:wght@300..700&family=Fira+Code:wght@300..700&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300..800&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="shell-startup-frame" role="status" aria-live="polite" aria-busy="true">
+        <div class="shell-startup-frame-rail" aria-hidden="true"></div>
+        <div class="shell-startup-frame-main">
+          <div class="shell-startup-frame-topbar" aria-hidden="true"></div>
+          <div class="shell-startup-frame-content" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

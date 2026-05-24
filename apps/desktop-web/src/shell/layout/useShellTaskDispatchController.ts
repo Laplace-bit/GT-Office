@@ -21,7 +21,7 @@ import {
   normalizeStationToolKind,
 } from './ShellRoot.shared'
 import { desktopApi } from '../integration/desktop-api'
-import { resolveStationRuntimeRegistrationCleanup } from '@features/terminal'
+import { resolveStationRuntimeRegistrationCleanup } from '@features/terminal/runtime'
 
 interface UseShellTaskDispatchControllerInput {
   initialStations: AgentStation[]

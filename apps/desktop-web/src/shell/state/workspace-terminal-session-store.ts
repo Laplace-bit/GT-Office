@@ -1,5 +1,5 @@
 import type { AgentStation } from '@features/workspace-hub'
-import type { SessionOwnedRestoreState } from '@features/terminal'
+import type { SessionOwnedRestoreState } from '@features/terminal/runtime'
 import type { StationTerminalRuntime } from '../layout/ShellRoot.shared.js'
 import { createInitialStationTerminals, getStationIdleBanner } from '../layout/ShellRoot.shared.js'
 

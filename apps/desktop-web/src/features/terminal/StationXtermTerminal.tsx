@@ -46,29 +46,16 @@ import {
   type TerminalFileDropPayload,
 } from '@shell/utils/terminal-file-drop'
 import { resolveTerminalSerializeDelayMs } from './station-terminal-capture-policy'
+import type {
+  StationTerminalSink,
+  StationTerminalSinkBindingHandler,
+} from './station-terminal-sink-types'
 
-export interface StationTerminalSink {
-  write: (chunk: string) => Promise<void>
-  reset: (content?: string) => Promise<void>
-  restore: (content: string, cols: number, rows: number) => Promise<void>
-  focus: () => void
-  submit: () => boolean
-}
-
-export interface StationTerminalSinkBindingMeta {
-  sourceSink?: StationTerminalSink | null
-  sourceSessionId?: string | null
-  restoreState?: string | null
-  restoreCols?: number
-  restoreRows?: number
-  restorePriority?: 'active' | 'background'
-}
-
-export type StationTerminalSinkBindingHandler = (
-  stationId: string,
-  sink: StationTerminalSink | null,
-  meta?: StationTerminalSinkBindingMeta,
-) => void
+export type {
+  StationTerminalSink,
+  StationTerminalSinkBindingHandler,
+  StationTerminalSinkBindingMeta,
+} from './station-terminal-sink-types'
 
 interface StationXtermTerminalProps {
   locale: Locale

@@ -1,28 +1,16 @@
-import { StationActionCommandSheet, StationForceCloseConfirmDialog } from '@features/workspace-hub'
-import { ShellRootView } from './ShellRootView'
-import { useShellRootController } from './useShellRootController'
-import { WorkspaceCloseDialog } from './WorkspaceCloseDialog'
+import { lazy, Suspense } from 'react'
+import { ShellStartupFrame } from './ShellStartupFrame'
 
-import './ShellRoot.scss'
+const ShellRootLoaded = lazy(() => import('./ShellRoot.loaded'))
 
 interface ShellRootProps {
   workspaceWindowId?: string
 }
 
 export function ShellRoot({ workspaceWindowId }: ShellRootProps = {}) {
-  const {
-    shellRootViewProps,
-    stationActionCommandSheetProps,
-    workspaceCloseDialogProps,
-    stationForceCloseConfirmDialogProps,
-  } = useShellRootController({ workspaceWindowId })
-
   return (
-    <>
-      <ShellRootView {...shellRootViewProps} />
-      <StationActionCommandSheet {...stationActionCommandSheetProps} />
-      <WorkspaceCloseDialog {...workspaceCloseDialogProps} />
-      <StationForceCloseConfirmDialog {...stationForceCloseConfirmDialogProps} />
-    </>
+    <Suspense fallback={<ShellStartupFrame />}>
+      <ShellRootLoaded workspaceWindowId={workspaceWindowId} />
+    </Suspense>
   )
 }

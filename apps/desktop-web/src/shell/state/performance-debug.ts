@@ -5,7 +5,7 @@ export interface PerformanceDebugState {
 const STORAGE_KEY = 'gtoffice.performance.debug.v1'
 
 export const defaultPerformanceDebugState: PerformanceDebugState = {
-  enabled: true,
+  enabled: false,
 }
 
 export function loadPerformanceDebugState(): PerformanceDebugState {
@@ -16,7 +16,10 @@ export function loadPerformanceDebugState(): PerformanceDebugState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) {
-      return defaultPerformanceDebugState
+      return {
+        enabled:
+          typeof import.meta !== 'undefined' && import.meta.env?.DEV === true,
+      }
     }
     const parsed = JSON.parse(raw) as Partial<PerformanceDebugState> | null
     return {
