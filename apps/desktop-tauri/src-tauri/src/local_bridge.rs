@@ -921,6 +921,7 @@ fn dev_bootstrap_agents(
                 cwd_mode: cwd_mode.clone(),
                 env: terminal_env,
                 agent_tool_kind: Some(format!("{tool_kind:?}").to_ascii_lowercase()),
+                login_shell: None,
             })
             .map_err(|error| {
                 BridgeError::new(

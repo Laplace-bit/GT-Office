@@ -71,6 +71,8 @@ interface WorkbenchCanvasProps {
   locale: Locale
   appearanceVersion: string
   performanceDebugEnabled?: boolean
+  workspaceId?: string | null
+  workspaceCwd?: string | null
   showStage?: boolean
   showFloatingPortal?: boolean
   floatingVisibility?: 'all' | 'topmost' | 'non_topmost'
@@ -88,6 +90,10 @@ interface WorkbenchCanvasProps {
   onSelectStation: (containerId: string, stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onSessionRelaunch?: (
+    stationId: string,
+    request: import('@features/session').SessionRelaunchRequest,
+  ) => void
   onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
@@ -264,6 +270,8 @@ function WorkbenchCanvasView({
   locale,
   appearanceVersion,
   performanceDebugEnabled = false,
+  workspaceId = null,
+  workspaceCwd = null,
   showStage = true,
   showFloatingPortal = true,
   floatingVisibility = 'all',
@@ -281,6 +289,7 @@ function WorkbenchCanvasView({
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onSessionRelaunch,
   onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
@@ -584,6 +593,8 @@ function WorkbenchCanvasView({
                     locale={locale}
                     appearanceVersion={appearanceVersion}
                     performanceDebugEnabled={performanceDebugEnabled}
+                    workspaceId={workspaceId}
+                    workspaceCwd={workspaceCwd}
                     container={container}
                     containerIndex={index}
                     stations={containerStations}
@@ -600,6 +611,7 @@ function WorkbenchCanvasView({
                     onSelectStation={onSelectStation}
                     onLaunchStationTerminal={onLaunchStationTerminal}
                     onLaunchCliAgent={onLaunchCliAgent}
+                    onSessionRelaunch={onSessionRelaunch}
                     onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
@@ -667,6 +679,8 @@ function WorkbenchCanvasView({
                     locale={locale}
                     appearanceVersion={appearanceVersion}
                     performanceDebugEnabled={performanceDebugEnabled}
+                    workspaceId={workspaceId}
+                    workspaceCwd={workspaceCwd}
                     container={container}
                     containerIndex={dockedContainers.length + index}
                     stations={containerStations}
@@ -681,6 +695,7 @@ function WorkbenchCanvasView({
                     onSelectStation={onSelectStation}
                     onLaunchStationTerminal={onLaunchStationTerminal}
                     onLaunchCliAgent={onLaunchCliAgent}
+                    onSessionRelaunch={onSessionRelaunch}
                     onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}

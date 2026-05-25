@@ -4,6 +4,7 @@ pub mod file_explorer;
 pub mod git;
 pub mod keybindings;
 pub mod security;
+pub mod session;
 pub mod settings;
 pub mod system;
 pub mod task_center;

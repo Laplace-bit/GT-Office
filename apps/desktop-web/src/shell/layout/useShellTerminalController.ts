@@ -57,6 +57,11 @@ import {
   resolveStationCliLaunchCommand,
 } from '@features/workspace-hub/station-agent-runtime-model'
 import {
+  buildSessionRelaunchLaunchCommand,
+  resolveStationSessionProvider,
+  type SessionRelaunchRequest,
+} from '@features/session'
+import {
   buildStationDeleteCleanupRequest,
   buildStationDeleteCleanupState,
   type StationDeleteCleanupState,
@@ -219,6 +224,9 @@ export interface ShellTerminalController {
   removeStation: (stationId: string) => Promise<void>
   cleanupRemovedStationRuntimeState: (stationId: string, workspaceId: string | null) => Promise<boolean>
   launchStationCliAgent: (stationId: string) => Promise<void>
+  resumeGtoSession: (stationId: string, gtoSessionId: string) => Promise<void>
+  relaunchGtoSession: (stationId: string, request: SessionRelaunchRequest) => Promise<void>
+  warmStationTerminal: (stationId: string) => void
   handleBatchLaunchAgents: () => Promise<void>
   loadToolCommandsForStations: () => Promise<void>
   executeStationAction: (station: AgentStation, action: StationActionDescriptor) => Promise<void>
@@ -2006,6 +2014,8 @@ export function useShellTerminalController({
               cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
               env: terminalEnv,
               agentToolKind: normalizeStationToolKind(station.tool),
+              injectProviderEnv: false,
+              loginShell: false,
             })
             if (
               !shouldApplyStationSessionResult(
@@ -2262,7 +2272,7 @@ export function useShellTerminalController({
           await desktopApi.terminalWrite(sessionId, chunks[index])
           if (index + 1 < chunks.length) {
             await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 50)
+              window.setTimeout(resolve, 5)
             })
           }
         }
@@ -2883,6 +2893,25 @@ export function useShellTerminalController({
           protectStationAgentSession(station.id, terminalSessionId)
         }
 
+        if (station.toolKind === 'claude' || station.toolKind === 'codex') {
+          const sessionCwd =
+            response.resolvedCwd ?? (await resolveWorkspaceRoot(workspaceId))
+          if (sessionCwd) {
+            void desktopApi
+              .sessionLaunch({
+                workspaceId,
+                stationId: station.id,
+                agentId: station.id,
+                provider: station.toolKind,
+                cwd: sessionCwd,
+                terminalSessionId,
+              })
+              .catch(() => {
+                // Session registry is best-effort; terminal launch already succeeded.
+              })
+          }
+        }
+
         return terminalSessionId
       } catch (error) {
         if (
@@ -2913,9 +2942,167 @@ export function useShellTerminalController({
       protectStationAgentSession,
       requestTerminalKill,
       resetStationTerminalOutput,
+      resolveWorkspaceRoot,
       sendStationTerminalInput,
       setStationTerminalState,
     ],
+  )
+
+  const launchCliInStationTerminal = useCallback(
+    async (
+      stationId: string,
+      launchCommand: string,
+      options?: {
+        bindGtoSessionId?: string
+        sessionCwd?: string | null
+        startedMessageKey?: 'session.resumeStarted' | 'session.continueLastStarted' | 'session.forkStarted' | 'system.terminalLaunched'
+      },
+    ): Promise<boolean> => {
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!workspaceId || !desktopApi.isTauriRuntime()) {
+        return false
+      }
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      if (!station || !launchCommand.trim()) {
+        return false
+      }
+
+      _setActiveStationId(stationId)
+
+      const existingSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+      const sessionId = existingSessionId ?? (await ensureStationTerminalSession(stationId))
+      if (!sessionId) {
+        return false
+      }
+
+      const runtime = stationTerminalsRef.current[stationId]
+      if (!runtime?.sessionId) {
+        setStationTerminalState(stationId, {
+          sessionId,
+          stateRaw: 'running',
+          unreadCount: 0,
+          shell: runtime?.shell ?? null,
+          cwdMode: isWorkspaceRootWorkdir(station.agentWorkdirRel) ? 'workspace_root' : 'custom',
+          resolvedCwd: options?.sessionCwd ?? runtime?.resolvedCwd ?? null,
+        })
+      }
+
+      sessionStationRef.current[sessionId] = stationId
+      ensureTerminalSessionVisible(sessionId)
+
+      void desktopApi
+        .agentRuntimeRegister({
+          workspaceId,
+          agentId: station.id,
+          stationId: station.id,
+          roleKey: station.role,
+          sessionId,
+          toolKind: normalizeStationToolKind(station.tool),
+          resolvedCwd: stationTerminalsRef.current[stationId]?.resolvedCwd ?? options?.sessionCwd ?? null,
+          submitSequence: stationSubmitSequenceRef.current[stationId] ?? null,
+          online: true,
+        })
+        .catch(() => {})
+
+      const launched = await runStationTerminalCommand(stationId, launchCommand.trim())
+      if (!launched) {
+        return false
+      }
+
+      protectStationAgentSession(stationId, sessionId)
+
+      if (options?.bindGtoSessionId) {
+        void desktopApi
+          .sessionResumeBind({
+            gtoSessionId: options.bindGtoSessionId,
+            terminalSessionId: sessionId,
+            stationId: station.id,
+            agentId: station.id,
+          })
+          .catch(() => {})
+      }
+
+      const startedKey = options?.startedMessageKey ?? 'system.terminalLaunched'
+      resetStationTerminalOutput(
+        stationId,
+        `${t(locale, startedKey)}${t(locale, 'system.terminalSessionInfo', {
+          sessionId,
+          cwd: stationTerminalsRef.current[stationId]?.resolvedCwd ?? options?.sessionCwd ?? station.agentWorkdirRel,
+        })}`,
+      )
+      stationTerminalSinkRef.current[stationId]?.focus()
+      return true
+    },
+    [
+      ensureStationTerminalSession,
+      ensureTerminalSessionVisible,
+      locale,
+      protectStationAgentSession,
+      resetStationTerminalOutput,
+      runStationTerminalCommand,
+      setStationTerminalState,
+      _setActiveStationId,
+    ],
+  )
+
+  const relaunchGtoSession = useCallback(
+    async (stationId: string, request: SessionRelaunchRequest) => {
+      const station = stationsRef.current.find((entry) => entry.id === stationId)
+      if (!station) {
+        return
+      }
+      const expectedProvider = resolveStationSessionProvider(station)
+      if (!expectedProvider) {
+        return
+      }
+
+      const launchCommand = buildSessionRelaunchLaunchCommand(
+        request.mode,
+        expectedProvider,
+        request.providerSessionId,
+      )
+
+      const startedMessageKey =
+        request.mode === 'fork' || request.mode === 'forkLast'
+          ? 'session.forkStarted'
+          : request.mode === 'continueLast'
+            ? 'session.continueLastStarted'
+            : 'session.resumeStarted'
+
+      const ok = await launchCliInStationTerminal(stationId, launchCommand, {
+        bindGtoSessionId: request.mode === 'resume' ? request.gtoSessionId : undefined,
+        sessionCwd: request.cwd ?? null,
+        startedMessageKey,
+      })
+      if (!ok) {
+        appendStationTerminalOutput(
+          stationId,
+          t(locale, 'session.resumeFailed', {
+            detail: 'launch failed',
+          }),
+        )
+      }
+    },
+    [appendStationTerminalOutput, launchCliInStationTerminal, locale],
+  )
+
+  const warmStationTerminal = useCallback(
+    (stationId: string) => {
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      if (stationTerminalsRef.current[stationId]?.sessionId) {
+        return
+      }
+      void ensureStationTerminalSession(stationId)
+    },
+    [ensureStationTerminalSession],
+  )
+
+  const resumeGtoSession = useCallback(
+    (stationId: string, gtoSessionId: string) =>
+      relaunchGtoSession(stationId, { mode: 'resume', gtoSessionId }),
+    [relaunchGtoSession],
   )
 
   // ── Launch station CLI agent ────────────────────────────────────────────
@@ -2927,12 +3114,21 @@ export function useShellTerminalController({
       }
       const currentSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       const launchCommand = resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)
-      if (!currentSessionId || !launchCommand) {
-        const sessionId = await launchToolProfileForStation(station)
-        if (!sessionId) {
-          return
+      if (!currentSessionId) {
+        if (launchCommand) {
+          await launchCliInStationTerminal(stationId, launchCommand, {
+            startedMessageKey: 'system.terminalLaunched',
+          })
+        } else {
+          const sessionId = await launchToolProfileForStation(station)
+          if (!sessionId) {
+            return
+          }
+          stationTerminalSinkRef.current[stationId]?.focus()
         }
-        stationTerminalSinkRef.current[stationId]?.focus()
+        return
+      }
+      if (!launchCommand) {
         return
       }
 
@@ -2957,6 +3153,7 @@ export function useShellTerminalController({
     },
     [
       inspectStationSessionProcesses,
+      launchCliInStationTerminal,
       launchToolProfileForStation,
       protectStationAgentSession,
       resetStationTerminalToAgentWorkdir,
@@ -3596,6 +3793,9 @@ export function useShellTerminalController({
     removeStation,
     cleanupRemovedStationRuntimeState,
     launchStationCliAgent,
+    resumeGtoSession,
+    relaunchGtoSession,
+    warmStationTerminal,
     handleBatchLaunchAgents,
     loadToolCommandsForStations,
     executeStationAction,

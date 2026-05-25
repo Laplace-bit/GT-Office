@@ -69,6 +69,8 @@ interface WorkbenchCanvasPanelProps {
   locale: Locale
   appearanceVersion: string
   performanceDebugEnabled?: boolean
+  workspaceId?: string | null
+  workspaceCwd?: string | null
   container: WorkbenchContainerModel
   containerIndex: number
   stations: AgentStation[]
@@ -86,6 +88,10 @@ interface WorkbenchCanvasPanelProps {
   onSelectStation: (containerId: string, stationId: string) => void
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onSessionRelaunch?: (
+    stationId: string,
+    request: import('@features/session').SessionRelaunchRequest,
+  ) => void
   onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
@@ -366,6 +372,8 @@ function WorkbenchCanvasPanelView({
   locale,
   appearanceVersion,
   performanceDebugEnabled = false,
+  workspaceId = null,
+  workspaceCwd = null,
   container,
   containerIndex,
   stations,
@@ -383,6 +391,7 @@ function WorkbenchCanvasPanelView({
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onSessionRelaunch,
   onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
@@ -1122,9 +1131,12 @@ function WorkbenchCanvasPanelView({
                 : undefined
             }
             onStationDragEnd={onStationDragEnd}
+            workspaceId={workspaceId}
+            workspaceCwd={workspaceCwd}
             onSelectStation={handleSelectStation}
             onLaunchStationTerminal={onLaunchStationTerminal}
             onLaunchCliAgent={onLaunchCliAgent}
+            onSessionRelaunch={onSessionRelaunch}
             onForceCloseTerminal={onForceCloseTerminal}
             onSendInputData={onSendInputData}
             onResizeTerminal={onResizeTerminal}
@@ -1160,6 +1172,9 @@ function WorkbenchCanvasPanelView({
       onForceCloseTerminal,
       onLaunchCliAgent,
       onLaunchStationTerminal,
+      onSessionRelaunch,
+      workspaceCwd,
+      workspaceId,
       onDropFilePath,
       onRemoveStation,
       onRenderedScreenSnapshot,

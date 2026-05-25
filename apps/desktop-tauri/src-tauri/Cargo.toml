@@ -63,6 +63,7 @@ gt-storage = { path = "../../../crates/gt-storage" }
 gt-security = { path = "../../../crates/gt-security" }
 gt-telemetry = { path = "../../../crates/gt-telemetry" }
 gt-daemon = { path = "../../../crates/gt-daemon" }
+gt-agent-session = { path = "../../../crates/gt-agent-session" }
 tauri-plugin-updater = "2.10.1"
 
 [dev-dependencies]

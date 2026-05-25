@@ -85,6 +85,7 @@ fn workspace_root_mode_resolves_to_workspace_root() {
             cwd_mode: TerminalCwdMode::WorkspaceRoot,
             env: BTreeMap::new(),
             agent_tool_kind: None,
+            login_shell: None,
         })
         .expect("create session");
 
@@ -108,6 +109,7 @@ fn custom_mode_resolves_relative_path_inside_workspace() {
             cwd_mode: TerminalCwdMode::Custom,
             env: BTreeMap::new(),
             agent_tool_kind: None,
+            login_shell: None,
         })
         .expect("create session");
 
@@ -135,6 +137,7 @@ fn custom_mode_rejects_path_outside_workspace() {
         cwd_mode: TerminalCwdMode::Custom,
         env: BTreeMap::new(),
         agent_tool_kind: None,
+        login_shell: None,
     });
 
     let error = result.expect_err("should reject outside cwd");
@@ -167,6 +170,7 @@ fn pty_provider_emits_output_event_after_write() {
             cwd_mode: TerminalCwdMode::WorkspaceRoot,
             env: BTreeMap::new(),
             agent_tool_kind: None,
+            login_shell: None,
         })
         .expect("create pty session");
     provider
@@ -217,6 +221,7 @@ fn pty_provider_records_hidden_output_for_delta_recovery() {
             cwd_mode: TerminalCwdMode::WorkspaceRoot,
             env: BTreeMap::new(),
             agent_tool_kind: None,
+            login_shell: None,
         })
         .expect("create pty session");
 
@@ -274,6 +279,7 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
             cwd_mode: TerminalCwdMode::WorkspaceRoot,
             env: BTreeMap::new(),
             agent_tool_kind: None,
+            login_shell: None,
         })
         .expect("create pty session");
 

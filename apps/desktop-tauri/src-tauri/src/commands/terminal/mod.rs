@@ -188,6 +188,7 @@ pub fn terminal_create(
     env: Option<BTreeMap<String, String>>,
     agent_tool_kind: Option<String>,
     inject_provider_env: Option<bool>,
+    login_shell: Option<bool>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
@@ -209,6 +210,7 @@ pub fn terminal_create(
         cwd_mode: cwd_mode.clone(),
         env,
         agent_tool_kind,
+        login_shell,
     };
     let session = state
         .terminal_provider

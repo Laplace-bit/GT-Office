@@ -1925,6 +1925,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gt-agent-session"
+version = "0.6.3"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "gt-ai-config"
 version = "0.6.3"
 dependencies = [
@@ -1949,6 +1963,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -2211,6 +2226,7 @@ dependencies = [
  "grep-searcher",
  "gt-abstractions",
  "gt-agent",
+ "gt-agent-session",
  "gt-ai-config",
  "gt-changefeed",
  "gt-core",

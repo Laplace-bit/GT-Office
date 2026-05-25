@@ -17,7 +17,7 @@ use rustls::crypto::aws_lc_rs;
 use serde_json::json;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use commands::{
-    agent, agentic_one, file_explorer, git, keybindings, security, settings, system, task_center,
+    agent, agentic_one, file_explorer, git, keybindings, security, session, settings, system, task_center,
     terminal, tool_adapter, workspace,
 };
 
@@ -266,6 +266,16 @@ pub fn run() {
             system::system_pick_directory,
             system::system_signal_ui_ready,
             system::system_open_url,
+            session::session_list,
+            session::session_discover,
+            session::session_get,
+            session::session_launch,
+            session::session_end,
+            session::session_resume_check,
+            session::session_resume_bind,
+            session::session_update_title,
+            session::session_changefeed_query,
+            session::session_changefeed_push,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

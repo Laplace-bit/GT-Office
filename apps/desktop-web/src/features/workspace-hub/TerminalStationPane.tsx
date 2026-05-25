@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useCallback } from 'react'
 import type { AgentStation } from './station-model'
 import { StationActionDock } from './StationActionDock'
 import { StationActivityComet } from './StationActivityComet'
@@ -17,6 +17,8 @@ import {
 import { recordStationTerminalFocusDiagnostic } from '@features/terminal/station-terminal-focus-diagnostics'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { RenderedScreenSnapshot, ToolCommandSummary } from '@shell/integration/desktop-api'
+import { SessionHistoryList, useSessionHistory, resolveStationSessionProvider } from '@features/session'
+import { resolveAgentWorkdirAbs } from '@features/workspace/station-workdir-model'
 import './TerminalStationPane.scss'
 
 export interface WorkbenchStationRuntime {
@@ -64,6 +66,8 @@ interface TerminalStationPaneProps {
   appearanceVersion: string
   station: AgentStation
   runtime?: WorkbenchStationRuntime
+  workspaceId?: string | null
+  workspaceCwd?: string | null
   onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   taskSignal?: StationTaskSignal
   channelBotBindings?: StationChannelBotBindingSummary[]
@@ -79,6 +83,7 @@ interface TerminalStationPaneProps {
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onReturnToWorkspace?: () => void
   onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
+  onSessionRelaunch?: (request: import('@features/session').SessionRelaunchRequest) => void
   commands?: ToolCommandSummary[]
 }
 
@@ -87,6 +92,8 @@ function TerminalStationPaneView({
   appearanceVersion,
   station,
   runtime,
+  workspaceId,
+  workspaceCwd,
   onShouldConfirmInterrupt,
   taskSignal,
   channelBotBindings,
@@ -102,6 +109,7 @@ function TerminalStationPaneView({
   onRenderedScreenSnapshot,
   onReturnToWorkspace,
   onRunAction,
+  onSessionRelaunch,
   commands = [],
 }: TerminalStationPaneProps) {
   const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
@@ -111,26 +119,6 @@ function TerminalStationPaneView({
   const hiddenChannelBindingCount = Math.max(0, (channelBotBindings ?? []).length - visibleChannelBindingSummaries.length)
   const sessionLabel = sessionStateLabel(locale, hasTerminalSession)
   const detachedReadonly = launchMode === 'detached-readonly'
-  const idleCopy = useMemo(() => {
-    if (!detachedReadonly) {
-      return {
-        title: t(locale, '终端尚未启动', 'Terminal idle'),
-        detail: t(
-          locale,
-          '先启动终端会话，再进入 CLI 或执行任务派发。',
-          'Launch the terminal session before opening a CLI agent or dispatching tasks.',
-        ),
-      }
-    }
-    return {
-      title: t(locale, '终端尚未启动', 'Terminal idle'),
-      detail: t(
-        locale,
-        '在独立窗口中启动终端会话，或返回主工作台操作。',
-        'Launch the terminal session here, or return to the workspace.',
-      ),
-    }
-  }, [detachedReadonly, locale])
   const stationActions = useMemo(
     () =>
       resolveStationActions({
@@ -145,6 +133,24 @@ function TerminalStationPaneView({
     () => (action: StationActionDescriptor) => onRunAction(station, action),
     [onRunAction, station],
   )
+  const sessionProvider = resolveStationSessionProvider(station)
+  const discoverCwd = useMemo(() => {
+    if (!workspaceCwd) {
+      return null
+    }
+    return resolveAgentWorkdirAbs(workspaceCwd, station.agentWorkdirRel)
+  }, [workspaceCwd, station.agentWorkdirRel])
+  const sessionHistory = useSessionHistory(
+    !hasTerminalSession && workspaceId && sessionProvider ? workspaceId : null,
+    { discoverCwd, provider: sessionProvider },
+  )
+  const handleSessionDiscover = useCallback(() => {
+    if (workspaceId && discoverCwd) {
+      void sessionHistory.discover(workspaceId, discoverCwd, true)
+    } else {
+      void sessionHistory.refresh()
+    }
+  }, [workspaceId, discoverCwd, sessionHistory])
   const recordStationUiDiagnostic = useMemo(
     () => (detail: string) => {
       if (typeof window === 'undefined') {
@@ -260,10 +266,15 @@ function TerminalStationPaneView({
         </>
       ) : (
         <div className="terminal-station-pane-idle-state">
-          <div className="terminal-station-pane-idle-copy">
-            <strong>{idleCopy.title}</strong>
-            <p>{idleCopy.detail}</p>
-          </div>
+          {workspaceId && sessionProvider ? (
+            <StationSessionHistoryPanel
+              locale={locale}
+              workspaceId={workspaceId}
+              discoverCwd={discoverCwd}
+              provider={sessionProvider}
+              onRelaunch={onSessionRelaunch}
+            />
+          ) : null}
           <div className="terminal-station-pane-idle-actions">
             <button
               type="button"
@@ -271,7 +282,7 @@ function TerminalStationPaneView({
               onClick={() => onLaunchStationTerminal(station.id)}
             >
               <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-              <span>{t(locale, 'workbench.launchTerminal')}</span>
+              <span>{t(locale, 'workbench.stationLaunchTerminal')}</span>
             </button>
             <button
               type="button"
@@ -279,7 +290,7 @@ function TerminalStationPaneView({
               onClick={() => onLaunchCliAgent(station.id)}
             >
               <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-              <span>{t(locale, 'workbench.launchCliAgent')}</span>
+              <span>{t(locale, 'workbench.stationLaunchAgent')}</span>
             </button>
             {detachedReadonly && onReturnToWorkspace ? (
               <button

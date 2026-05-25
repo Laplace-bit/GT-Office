@@ -186,30 +186,27 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 1.125rem;
   padding: 1.125rem;
   min-height: 0;
   background: transparent;
-}
 
-.terminal-station-pane-idle-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-
-  strong {
-    font-size: 0.9375rem;
-    font-weight: 700;
-    color: var(--vb-text);
+  .session-history-list {
+    flex: 1 1 auto;
+    min-height: 10rem;
+    overflow: hidden;
   }
 
-  p {
-    margin: 0;
-    max-width: 46ch;
-    font-size: 0.7813rem;
-    line-height: 1.55;
-    color: var(--vb-text-muted);
+  .session-history-list-cards {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .terminal-station-pane-idle-actions {
+    flex-shrink: 0;
+    margin-top: auto;
   }
 }
 
@@ -317,11 +314,6 @@
       -webkit-box-orient: vertical;
       -webkit-line-clamp: 2;
     }
-  }
-
-  .terminal-station-pane-idle-copy p {
-    max-width: none;
-    overflow-wrap: anywhere;
   }
 
   .terminal-station-pane-idle-button {

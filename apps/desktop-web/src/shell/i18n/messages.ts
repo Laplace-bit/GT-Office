@@ -258,6 +258,8 @@ export const messages = {
   'workbench.stateLabel': { 'zh-CN': '状态', 'en-US': 'State' },
   'workbench.launchTerminal': { 'zh-CN': '启动终端会话', 'en-US': 'Launch Terminal Session' },
   'workbench.launchCliAgent': { 'zh-CN': '启动 CLI Agent', 'en-US': 'Launch CLI Agent' },
+  'workbench.stationLaunchAgent': { 'zh-CN': '启动 Agent', 'en-US': 'Launch Agent' },
+  'workbench.stationLaunchTerminal': { 'zh-CN': '启动终端', 'en-US': 'Launch Terminal' },
   'workbench.focusCliAgent': { 'zh-CN': '聚焦当前 CLI Agent', 'en-US': 'Focus Current CLI Agent' },
   'workbench.relaunchCliAgent': { 'zh-CN': '重新启动 CLI Agent', 'en-US': 'Relaunch CLI Agent' },
   'workbench.commandPlaceholder': {
@@ -1399,6 +1401,30 @@ export const messages = {
   'system.launchFailed': {
     'zh-CN': '[系统] 启动失败: {detail}\n',
     'en-US': '[system] launch failed: {detail}\n',
+  },
+  'session.resumeFailed': {
+    'zh-CN': '[系统] 恢复会话失败: {detail}\n',
+    'en-US': '[system] resume session failed: {detail}\n',
+  },
+  'session.resumeProviderMismatch': {
+    'zh-CN': '[系统] 该历史会话与当前 Agent 工具不匹配，无法恢复。\n',
+    'en-US': '[system] This history session does not match the current agent tool.\n',
+  },
+  'session.resumeNotAvailable': {
+    'zh-CN': '[系统] 无法恢复该会话（记录缺失或已损坏）。\n',
+    'en-US': '[system] Cannot resume this session (missing or corrupted log).\n',
+  },
+  'session.resumeStarted': {
+    'zh-CN': '[系统] 正在恢复历史会话…\n',
+    'en-US': '[system] Resuming session history…\n',
+  },
+  'session.continueLastStarted': {
+    'zh-CN': '[系统] 正在继续上次会话…\n',
+    'en-US': '[system] Continuing the most recent session…\n',
+  },
+  'session.forkStarted': {
+    'zh-CN': '[系统] 正在分叉会话（新分支）…\n',
+    'en-US': '[system] Forking session into a new branch…\n',
   },
   'system.noActiveSession': {
     'zh-CN': '[系统] 当前没有活动终端会话。\n',

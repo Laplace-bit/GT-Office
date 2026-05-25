@@ -21,6 +21,101 @@ export interface WorkspaceListResponse {
   workspaces: WorkspaceListItem[]
 }
 
+// ── Session History ──
+
+export type SessionProvider = 'claude' | 'codex'
+export type SessionLifecycle = 'live' | 'stopped' | 'archived'
+
+export interface SessionCard {
+  gtoSessionId: string
+  workspaceId: string
+  agentId: string
+  provider: SessionProvider
+  lifecycle: SessionLifecycle
+  providerSessionId?: string | null
+  title: string | null
+  cwd: string
+  startedAtMs: number
+  lastActivityAtMs: number
+  filesChanged: number
+  insertions: number
+  deletions: number
+  commitsAhead: number
+}
+
+export interface SessionListResponse {
+  cards: SessionCard[]
+  limit: number
+  offset: number
+}
+
+export interface SessionDiscoverResponse {
+  cards: SessionCard[]
+  newCount: number
+  updatedCount: number
+}
+
+export interface SessionDetailResponse {
+  session: {
+    gtoSessionId: string
+    workspaceId: string
+    agentId: string
+    stationId: string
+    provider: SessionProvider
+    providerSessionId: string | null
+    providerLogPath: string | null
+    terminalSessionId: string | null
+    lifecycle: SessionLifecycle
+    title: string | null
+    cwd: string
+    startedAtMs: number
+    endedAtMs: number | null
+    lastActivityAtMs: number
+    createdAtMs: number
+    updatedAtMs: number
+  } | null
+  stats: {
+    gtoSessionId: string
+    gitStartCommit: string | null
+    gitEndCommit: string | null
+    filesChanged: number
+    insertions: number
+    deletions: number
+    commitsAhead: number
+    updatedAtMs: number
+  } | null
+}
+
+export type ResumeCheck = 'canResume' | 'logFileMissing' | 'logFileCorrupted' | 'providerMismatch'
+
+export type SessionRelaunchMode = 'resume' | 'continueLast' | 'fork' | 'forkLast'
+
+export interface SessionResumeCheckResponse {
+  check: ResumeCheck | 'not_found'
+  launchCommand: string | null
+  steps: Array<
+    | { startCli: { command: string } }
+    | { waitMs: { ms: number } }
+    | { injectCommand: { command: string } }
+    | { injectSubmit: { text: string } }
+  >
+}
+
+export type SessionActivityKind = 'branchSwitched' | 'newCommits' | 'filesChanged' | 'dirtyChanged'
+
+export interface SessionActivityItem {
+  workspaceId: string
+  kind: SessionActivityKind
+  detail: string
+  revision: number
+}
+
+export interface SessionActivityEventPayload {
+  items: SessionActivityItem[]
+}
+
+// ── End Session History ──
+
 export interface WorkspaceContextResponse {
   workspaceId: string
   root: string
@@ -2774,6 +2869,8 @@ export const desktopApi = {
       env?: Record<string, string>
       agentToolKind?: 'claude' | 'codex' | 'shell' | 'unknown'
       injectProviderEnv?: boolean
+      /** When false, skip login-shell startup for faster PTY (PATH must be set via env). */
+      loginShell?: boolean
     },
   ) {
     return invokeCommand<TerminalCreateResponse>('terminal_create', {
@@ -2784,6 +2881,7 @@ export const desktopApi = {
       env: options?.env ?? null,
       agentToolKind: options?.agentToolKind ?? null,
       injectProviderEnv: options?.injectProviderEnv ?? null,
+      loginShell: options?.loginShell ?? null,
     })
   },
   aiConfigReadSnapshot(workspaceId?: string | null, allow?: string | null) {
@@ -3641,6 +3739,17 @@ export const desktopApi = {
     )
     return createSafeAsyncCleanup([unlisten])
   },
+  async subscribeSessionActivity(onActivity: (payload: SessionActivityEventPayload) => void): Promise<() => void> {
+    if (!isTauriRuntime()) {
+      return () => {}
+    }
+
+    const eventApi = await import('@tauri-apps/api/event')
+    const unlisten = await eventApi.listen<SessionActivityEventPayload>('gtoffice:session-activity', (event) =>
+      onActivity(event.payload),
+    )
+    return createSafeAsyncCleanup([unlisten])
+  },
   async subscribeGitRemoteOperation(
     onUpdated: (payload: GitRemoteOperationPayload) => void,
   ): Promise<() => void> {
@@ -3727,5 +3836,98 @@ export const desktopApi = {
       (event: { payload: SurfaceBridgeEventPayload }) => handlers.onBridge?.(event.payload),
     )
     return createSafeAsyncCleanup([unlistenClosed, unlistenUpdated, unlistenBridge])
+  },
+
+  // ── Session History ──
+  sessionList(workspaceId: string, provider?: SessionProvider | null, limit?: number, offset?: number) {
+    return invokeCommand<SessionListResponse>('session_list', {
+      workspaceId,
+      provider: provider ?? null,
+      limit: limit ?? null,
+      offset: offset ?? null,
+    })
+  },
+  sessionDiscover(
+    workspaceId: string,
+    cwd: string,
+    provider?: SessionProvider | null,
+    force = false,
+  ) {
+    return invokeCommand<SessionDiscoverResponse>('session_discover', {
+      workspaceId,
+      cwd,
+      provider: provider ?? null,
+      force,
+    })
+  },
+  sessionGet(gtoSessionId: string) {
+    return invokeCommand<SessionDetailResponse>('session_get', {
+      gtoSessionId,
+    })
+  },
+  sessionLaunch(params: {
+    workspaceId: string
+    stationId: string
+    agentId: string
+    provider: SessionProvider
+    cwd: string
+    terminalSessionId?: string | null
+  }) {
+    return invokeCommand<{ gtoSessionId: string }>('session_launch', {
+      workspaceId: params.workspaceId,
+      stationId: params.stationId,
+      agentId: params.agentId,
+      provider: params.provider,
+      cwd: params.cwd,
+      terminalSessionId: params.terminalSessionId ?? null,
+    })
+  },
+  sessionResumeBind(params: {
+    gtoSessionId: string
+    terminalSessionId: string
+    stationId: string
+    agentId: string
+  }) {
+    return invokeCommand<{ ok: boolean }>('session_resume_bind', params)
+  },
+  sessionEnd(gtoSessionId: string) {
+    return invokeCommand<{ ok: boolean }>('session_end', {
+      gtoSessionId,
+    })
+  },
+  sessionResumeCheck(params: {
+    gtoSessionId?: string | null
+    relaunchMode?: SessionRelaunchMode
+    expectedProvider?: SessionProvider | null
+  }) {
+    return invokeCommand<SessionResumeCheckResponse>('session_resume_check', {
+      gtoSessionId: params.gtoSessionId ?? null,
+      relaunchMode: params.relaunchMode ?? 'resume',
+      expectedProvider: params.expectedProvider ?? null,
+    })
+  },
+  sessionUpdateTitle(gtoSessionId: string, title: string) {
+    return invokeCommand<{ ok: boolean }>('session_update_title', {
+      gtoSessionId,
+      title,
+    })
+  },
+  sessionChangefeedQuery(workspaceId: string) {
+    return invokeCommand<{ snapshot: unknown }>('session_changefeed_query', {
+      workspaceId,
+    })
+  },
+  sessionChangefeedPush(params: {
+    workspaceId: string
+    branch: string
+    dirty: boolean
+    ahead: number
+    behind: number
+    stagedFiles: number
+    unstagedFiles: number
+    untrackedFiles: number
+    revision: number
+  }) {
+    return invokeCommand<{ emitted: boolean }>('session_changefeed_push', params)
   },
 }

@@ -76,6 +76,7 @@ import { useShellWorkspaceSessionController } from './useShellWorkspaceSessionCo
 import { ShellRootView } from './ShellRootView'
 import { WorkspaceCloseDialog } from './WorkspaceCloseDialog'
 import { pickDirectory } from '../integration/directory-picker'
+import type { SessionRelaunchRequest } from '@features/session'
 
 interface ShellRootProps {
   workspaceWindowId?: string
@@ -323,6 +324,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     reconcileStationRuntimeRegistration,
     removeStation,
     launchStationCliAgent,
+    relaunchGtoSession,
     handleBatchLaunchAgents,
     executeStationAction,
     handleSubmitStationActionSheet,
@@ -1162,6 +1164,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`,
     performanceDebugEnabled: performanceDebugState.enabled,
     showFloatingPortal: true as const,
+    workspaceId: presentedWorkspaceId,
+    workspaceCwd: presentedWorkspaceRoot,
     stations,
     roleFilter: stationOverviewState.roleFilter,
     activeStationId,
@@ -1174,6 +1178,9 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onSelectStation: handleCanvasSelectStation,
     onLaunchStationTerminal: handleCanvasLaunchStationTerminal,
     onLaunchCliAgent: handleCanvasLaunchCliAgent,
+    onSessionRelaunch: (stationId: string, request: SessionRelaunchRequest) => {
+      void relaunchGtoSession(stationId, request)
+    },
     onForceCloseTerminal: forceCloseStationTerminal,
     onSendInputData: handleStationTerminalInput,
     onResizeTerminal: resizeStationTerminal,

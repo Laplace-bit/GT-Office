@@ -174,9 +174,24 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     station: AgentStation
     action: StationActionDescriptor
   } | null>(null)
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [stationRuntimes, setStationRuntimes] = useState<Record<string, WorkbenchStationRuntime>>(() => {
     return buildInitialRuntimeMap(payload.stations)
   })
+  useEffect(() => {
+    if (!desktopApi.isTauriRuntime()) {
+      return
+    }
+    void desktopApi
+      .workspaceGetContext(payload.workspaceId)
+      .then((context) => {
+        setWorkspaceRoot(context.root)
+      })
+      .catch(() => {
+        setWorkspaceRoot(null)
+      })
+  }, [payload.workspaceId])
+
   const stationRuntimesRef = useRef(stationRuntimes)
   const sinkByStationRef = useRef<Record<string, StationTerminalSink | null>>({})
   const stationTerminalRestoreStateRef = useRef<Record<string, StationTerminalRestoreState>>({})
@@ -1136,6 +1151,8 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         <WorkbenchCanvasPanel
           locale={uiPreferences.locale as Locale}
           appearanceVersion={`${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`}
+          workspaceId={payload.workspaceId}
+          workspaceCwd={workspaceRoot}
           container={container}
           containerIndex={0}
           stations={stations}

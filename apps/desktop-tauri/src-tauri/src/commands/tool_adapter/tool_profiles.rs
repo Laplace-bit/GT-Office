@@ -316,6 +316,16 @@ fn context_string(context: Option<&Value>, keys: &[&str]) -> Option<String> {
     None
 }
 
+fn context_bool(context: Option<&Value>, keys: &[&str]) -> Option<bool> {
+    let object = context?.as_object()?;
+    for key in keys {
+        if let Some(value) = object.get(*key).and_then(Value::as_bool) {
+            return Some(value);
+        }
+    }
+    None
+}
+
 fn context_string_list(context: Option<&Value>, keys: &[&str]) -> Vec<String> {
     let Some(object) = context.and_then(Value::as_object) else {
         return Vec::new();
@@ -552,13 +562,16 @@ pub fn tool_launch(
         cwd_mode: cwd_mode.clone(),
         env,
         agent_tool_kind: Some(profile_id_canonical.clone()),
+        login_shell: context_bool(context.as_ref(), &["loginShell", "login_shell"]),
     };
     let session = state
         .terminal_provider
         .create_session(request)
         .map_err(to_terminal_error)?;
 
-    let launch_command = resolve_launch_command(&app, &workspace_id, &agent_id, tool_kind);
+    let launch_command = context_string(context.as_ref(), &["launchCommand", "launch_command"])
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| resolve_launch_command(&app, &workspace_id, &agent_id, tool_kind));
     // Bootstrapping the CLI is a shell command, not an in-tool prompt submission.
     write_terminal_command_with_submit(
         state.inner(),
@@ -589,7 +602,11 @@ pub fn tool_launch(
             provider_session: None,
             online: true,
         });
-    spawn_refresh_directory_snapshot(app.clone(), state.inner().clone(), workspace_id.clone());
+    let has_custom_launch =
+        context_string(context.as_ref(), &["launchCommand", "launch_command"]).is_some();
+    if !has_custom_launch {
+        spawn_refresh_directory_snapshot(app.clone(), state.inner().clone(), workspace_id.clone());
+    }
 
     Ok(json!({
         "workspaceId": workspace_id,

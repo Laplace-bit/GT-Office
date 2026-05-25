@@ -1333,13 +1333,12 @@ where
         let mut command = CommandBuilder::new(&shell_name);
 
         let shell_lower = shell_name.to_lowercase();
+        let use_login_shell = request.login_shell.unwrap_or(true);
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
             command.arg("-NoLogo");
-        } else {
-            // Start as a login shell to ensure profile files are sourced
-            // (e.g. /etc/zprofile -> path_helper, ~/.zprofile -> homebrew).
-            // macOS GUI apps have a minimal PATH; login shells restore the
-            // full user PATH including Homebrew, fnm, nvm, etc.
+        } else if use_login_shell {
+            // Login shell restores PATH from profiles (slow). Skip when `login_shell`
+            // is false and the caller already augmented PATH in `env` (fast agent launch).
             command.arg("-l");
         }
 

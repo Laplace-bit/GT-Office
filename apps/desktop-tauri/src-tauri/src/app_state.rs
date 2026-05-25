@@ -1,5 +1,21 @@
 use gt_abstractions::{AllowAllPolicyEvaluator, SettingsScope, WorkspaceId, WorkspaceService};
+use gt_agent_session::SessionRegistry;
 use gt_ai_config::StoredAiConfigPreview;
+use gt_changefeed::SessionChangeFeed;
+
+pub struct SharedSessionRegistry(pub SessionRegistry);
+
+impl Clone for SharedSessionRegistry {
+    fn clone(&self) -> Self {
+        SharedSessionRegistry(SessionRegistry::open(self.0.db_path().clone()).expect("failed to clone session registry"))
+    }
+}
+
+impl std::ops::Deref for SharedSessionRegistry {
+    type Target = SessionRegistry;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
 use gt_git::GitService;
 use gt_session_log::{
     bind_session_log, SessionLogBinding, SessionLogHealth, SessionLogProvider,
@@ -457,6 +473,8 @@ pub struct AppState {
     pub task_service: TaskService,
     pub daemon_bridge: DaemonBridge,
     pub shutdown_token: CancellationToken,
+    pub session_registry: SharedSessionRegistry,
+    pub session_change_feed: Arc<Mutex<SessionChangeFeed>>,
     window_workspace_bindings: Arc<Mutex<HashMap<String, String>>>,
     workspace_watchers: WorkspaceWatcherRegistry,
     external_reply_sessions: Arc<Mutex<HashMap<String, ExternalReplyRelaySession>>>,
@@ -483,6 +501,8 @@ impl Default for AppState {
             task_service,
             daemon_bridge: DaemonBridge::default(),
             shutdown_token: CancellationToken::new(),
+            session_registry: SharedSessionRegistry(Self::init_session_registry()),
+            session_change_feed: Arc::new(Mutex::new(SessionChangeFeed::new())),
             window_workspace_bindings: Arc::new(Mutex::new(HashMap::new())),
             workspace_watchers: WorkspaceWatcherRegistry::default(),
             external_reply_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -495,6 +515,19 @@ impl Default for AppState {
 }
 
 impl AppState {
+    fn init_session_registry() -> SessionRegistry {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        let db_path = home.join(".gtoffice/sessions.db");
+        let registry = SessionRegistry::open(db_path).expect("failed to open session registry");
+        if let Err(error) = registry.mark_all_live_stopped() {
+            tracing::warn!(?error, "failed to mark live agent sessions as stopped on startup");
+        }
+        registry
+    }
+
     pub fn update_terminal_debug_human_log(
         &self,
         session_id: &str,

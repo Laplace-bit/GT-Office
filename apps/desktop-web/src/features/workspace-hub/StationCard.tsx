@@ -34,6 +34,8 @@ import type {
   ToolCommandSummary,
 } from '@shell/integration/desktop-api'
 import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
+import { SessionHistoryList, useSessionHistory, resolveStationSessionProvider } from '@features/session'
+import { resolveAgentWorkdirAbs } from '@features/workspace/station-workdir-model'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
@@ -129,10 +131,16 @@ interface StationCardProps {
   isMiniature?: boolean
   isFocusHidden?: boolean
   restoreAnimation?: StationRestoreAnimation | null
+  workspaceId?: string | null
+  workspaceCwd?: string | null
   onSelectStation: (stationId: string) => void
 
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
+  onSessionRelaunch?: (
+    stationId: string,
+    request: import('@features/session').SessionRelaunchRequest,
+  ) => void
   onForceCloseTerminal?: (stationId: string) => void
   onSendInputData: (stationId: string, data: string) => void
   onResizeTerminal: (stationId: string, cols: number, rows: number) => void
@@ -170,9 +178,12 @@ function StationCardView({
   isMiniature,
   isFocusHidden,
   restoreAnimation,
+  workspaceId,
+  workspaceCwd,
   onSelectStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
+  onSessionRelaunch,
   onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
@@ -356,6 +367,30 @@ function StationCardView({
 
   const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
+  const sessionProvider = resolveStationSessionProvider(station)
+  const discoverCwd = useMemo(() => {
+    if (!workspaceCwd) {
+      return null
+    }
+    return resolveAgentWorkdirAbs(workspaceCwd, station.agentWorkdirRel)
+  }, [workspaceCwd, station.agentWorkdirRel])
+  const sessionHistory = useSessionHistory(
+    !hasTerminalSession && workspaceId && sessionProvider ? workspaceId : null,
+    { discoverCwd, provider: sessionProvider },
+  )
+  const handleSessionDiscover = useCallback(() => {
+    if (workspaceId && discoverCwd) {
+      void sessionHistory.discover(workspaceId, discoverCwd, true)
+    } else {
+      void sessionHistory.refresh()
+    }
+  }, [workspaceId, discoverCwd, sessionHistory])
+  const handleSessionRelaunch = useCallback(
+    (request: import('@features/session').SessionRelaunchRequest) => {
+      onSessionRelaunch?.(station.id, request)
+    },
+    [onSessionRelaunch, station.id],
+  )
   const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
 
@@ -679,16 +714,16 @@ function StationCardView({
         </>
       ) : (
         <div className="station-terminal-idle-state">
-          <div className="station-terminal-idle-copy">
-            <strong>{t(locale, '当前 Agent 尚未启动', 'Agent idle')}</strong>
-            <p>
-              {t(
-                locale,
-                '直接启动当前 CLI Agent，或先进入纯终端会话。',
-                'Launch the current CLI agent directly, or open a plain terminal session first.',
-              )}
-            </p>
-          </div>
+          {workspaceId && sessionProvider ? (
+            <SessionHistoryList
+              locale={locale}
+              cards={sessionHistory.cards}
+              loading={sessionHistory.loading}
+              error={sessionHistory.error}
+              onDiscover={handleSessionDiscover}
+              onRelaunch={onSessionRelaunch ? handleSessionRelaunch : undefined}
+            />
+          ) : null}
           <div className="station-terminal-idle-actions">
             <button
               type="button"
@@ -703,7 +738,7 @@ function StationCardView({
                 aria-hidden="true"
                 strokeWidth={1.9}
               />
-              <span>{t(locale, 'workbench.launchCliAgent')}</span>
+              <span>{t(locale, 'workbench.stationLaunchAgent')}</span>
             </button>
             <button
               type="button"
@@ -714,7 +749,7 @@ function StationCardView({
               }}
             >
               <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-              <span>{t(locale, 'workbench.launchTerminal')}</span>
+              <span>{t(locale, 'workbench.stationLaunchTerminal')}</span>
             </button>
           </div>
         </div>
@@ -765,6 +800,9 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onSelectStation === next.onSelectStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&
     prev.onLaunchCliAgent === next.onLaunchCliAgent &&
+    prev.workspaceId === next.workspaceId &&
+    prev.workspaceCwd === next.workspaceCwd &&
+    prev.onSessionRelaunch === next.onSessionRelaunch &&
     prev.onForceCloseTerminal === next.onForceCloseTerminal &&
     prev.onSendInputData === next.onSendInputData &&
     prev.onResizeTerminal === next.onResizeTerminal &&

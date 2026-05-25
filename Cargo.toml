@@ -15,6 +15,7 @@ members = [
   "crates/gt-settings",
   "crates/gt-session-log",
   "crates/gt-keymap",
+  "crates/gt-agent-session",
   "crates/gt-ai-config",
   "crates/gt-task",
   "crates/gt-storage",

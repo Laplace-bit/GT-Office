@@ -1,328 +1,218 @@
 # Agent Session 架构设计
 
-> **版本**：v2.0  
-> **日期**：2026-05-24  
-> **状态**：设计文档（未实现）  
+> **版本**：v2.2
+> **日期**：2026-05-24
+> **状态**：P0 实现中（后端 + Station 历史列表 + 恢复流程已接入）
 > **Provider 范围**：**Claude Code + Codex CLI**
 
-## 1. 设计目标
+## 1. 核心价值
 
-| 目标 | 说明 |
+**一句话**：让用户对 Agent 了如指掌——看到历史、恢复对话、实时感知它在干什么。
+
+三个杀手体验：
+
+1. **开箱即见**：App 打开，还没启动 Agent，就能看到「这个目录下我上次做了什么」，点一下就接上
+2. **实时感知**：Agent 在跑的时候，git 变更自动弹出通知——改了什么文件、提交了什么，点击直接跳到 diff
+3. **事后复盘**：每个 Session 有 git 变更快照——改了哪些文件、提交了几次、diff 是什么
+
+数据来源只用**可靠的东西**：
+
+| 数据 | 来源 | 可靠性 |
+|------|------|--------|
+| Session 列表、标题、时间 | Provider 文件系统扫描 + 首行解析 | ✅ 文件系统操作，极稳 |
+| 文件变更数、提交数、diff | git log / git diff | ✅ git 稳定，Provider 无关 |
+| 实时 git 变更通知 | `GitStatusCoordinator` → `git/updated` 事件 | ✅ 已有基础设施，push 推送 |
+| Channel 消息 | `gt-session-log` 现有 poll/bind 机制 | ✅ 已有，**不动** |
+| 恢复对话 | Provider 原生 /resume | ✅ Provider 自己的功能 |
+
+**不动的东西**：
+
+| 模块 | 说明 |
 |------|------|
-| **开箱即见** | App 打开 → Station 立即展示当前目录下的历史 Session，无需等待 Agent 启动 |
-| **一键恢复** | 点击历史 Session → 新建 PTY → Provider 原生 resume 接上对话，零配置 |
-| **透明闭环** | 每个 Session 可见：目标、进展、文件变更、验证结果——从观察到审计完整闭环 |
-| **实时感知** | Agent 执行时结构化活动流，而非空壳终端 |
-| **数据壁垒** | Session 元数据与时间线落在 GT Office（SQLite），不完全依赖 Provider |
-| **性能优先** | Discovery 缓存 + 增量扫描 + 懒加载，App 打开 < 500ms 可见历史 |
+| `gt-session-log` 的 Channel 消息解析 | 现有 poll/bind 机制完整服务于 Channel 功能，Session Discovery 是新增模式，不影响 |
 
-**核心判断**：
+**不依赖的东西**：
 
-> GT Office 的壁垒不是「能启动 Claude」，而是 **唯一记得你在哪个 workspace、哪个 Agent、哪次 Session 做到哪、改了什么、怎么验的**。
+| 数据 | 原方案 | 问题 |
+|------|--------|------|
+| 结构化活动流 | JSONL tool_use 解析 | ❌ Provider 内部格式，随时变，解析脆 |
+| 验证追踪 | JSONL Bash 工具关键词匹配 | ❌ 格式不稳定，exit code 提取不可靠 |
+| 详细时间线 | 逐行解析 JSONL | ❌ 两个 Provider 格式完全不同，维护负担大 |
 
-**杀手体验**：用户打开 App，还没启动 Agent，就能看到「这个目录下我上次做了什么」，点一下就接上。这不是锦上添花，是 CLI Agent 管理工具的必需品。
-
----
-
-## 2. 现状分析
-
-### 2.1 现有三层 Session
-
-```text
-Layer 0  GtoSession          GT Office 账本（待建）— 产品主键
-Layer 1  Terminal Session    terminalSessionId — PTY，App 关闭即失效
-Layer 2  Runtime Binding     agentId ↔ terminalSessionId（内存 HashMap）
-Layer 3  Provider Session    Claude jsonl / Codex rollout — 磁盘持久
-```
-
-| 层级 | 现有实现 | 问题 |
-|------|----------|------|
-| Terminal | `gt-terminal` | `session.snapshot.json` 存 id，重启后 PTY 已死 |
-| Runtime | `AgentRuntimeRegistration` | 内存 HashMap，App 重启丢失；1:1 绑定（同一 agent 只能有一个 session） |
-| Provider | `gt-session-log` | 能读日志，但仅用于实时 poll 回复文本，未产品化为列表 + 恢复 |
-
-**用户需求本质**：以 Layer 3 为对话真相，用 Layer 0 索引体验，Layer 1 仅为运行时载体。
-
-### 2.2 现有模块能力
-
-| 模块 | 已有能力 | 需扩展 |
-|------|----------|--------|
-| `gt-session-log` | Claude/Codex JSONL 解析、prompt 指纹锚定、poll 增量读取、健康状态机 | 增加 Discovery 模式：扫描所有 Session（非仅当前锚定的那个） |
-| `gt-terminal` | PTY 创建/写入/销毁、session 生命周期 | 无需大改，Resume 复用 `create_session` + `write_command` |
-| `AgentRuntimeRegistration` | agentId ↔ terminalSessionId 绑定、tool_kind | 增加 `gtoSessionId` 字段 |
-| `WorkspaceTerminalSessionDocument` | 前端 session 持久化（snapshot.json） | 增加 `lastActiveGtoSessionIds` 字段 |
-| `tool_launch` | PTY 创建 → CLI 写入 → Runtime 注册 | 委托 `session.launch` |
+这些不是不做，而是**等 Provider 提供稳定的事件 API 再做**。当前基于 git + 文件系统。
 
 ---
 
-## 3. Provider Session 存储详查
+## 2. Provider Session 存储实查
 
-### 3.1 Claude Code
-
-**目录结构**：
+### 2.1 Claude Code
 
 ```text
-~/.claude/
-  projects/
-    -<encoded-path>/                  ← project-key = 绝对路径非字母数字替换为 -
-      <session-uuid>.jsonl            ← 会话记录
-      <session-uuid>/
-        subagents/                    ← 子 Agent 记录
-          agent-<id>.jsonl
-          agent-<id>.meta.json
-        tool-results/                 ← 工具结果附件
-      sessions-index.json             ← 索引文件（可选）
-      memory/                         ← 项目级记忆
+~/.claude/projects/-<encoded-path>/         ← 路径非字母数字 → -
+  <uuid>.jsonl                               ← 会话记录
+  <uuid>/subagents/agent-<id>.jsonl          ← 子 Agent
+  sessions-index.json                         ← 索引（可选）
+  memory/                                     ← 项目记忆
 ```
 
-**project-key 编码规则**：绝对路径中所有非 ASCII 字母数字字符替换为 `-`。
-- macOS: `/Users/dzlin/work/GT-Office` → `-Users-dzlin-work-GT-Office`
-- Windows: `C:\Users\foo\project` → `-C--Users-foo-project`
-
-**sessions-index.json 格式**：
-
-```json
-{
-  "entries": [
-    {
-      "projectPath": "/absolute/path/to/project",
-      "fullPath": "/full/path/to/session-file.jsonl",
-      "fileMtime": 1714276800,
-      "isSidechain": false
-    }
-  ]
-}
-```
-
-**JSONL 行类型**：
-
-| type | 含义 |
+| 字段 | 说明 |
 |------|------|
-| `user` | 用户消息，`message.role = "user"`, `message.content = string \| array` |
-| `assistant` | 回复，`message.role = "assistant"`, `message.content` 含 `text`/`thinking`/`tool_use`/`tool_result` |
-| `attachment` | 系统事件，含 `sessionId`, `cwd`, `gitBranch`, `version` |
-| `last-prompt` | 最近 prompt 指针，含 `sessionId` |
-| `permission-mode` | 权限模式 |
+| project-key | 绝对路径所有非字母数字字符替换为 `-` |
+| sessions-index.json | `{entries: [{projectPath, fullPath, fileMtime, isSidechain}]}` |
+| JSONL 行类型 | `user`, `assistant`, `attachment`, `last-prompt`, `permission-mode` |
+| 恢复方式 | TUI `/resume` |
 
-**恢复方式**：TUI 内 `/resume`，选择历史 session 继续对话。
+**platform**：macOS/Linux 用 `$HOME`，Windows 用 `$USERPROFILE`，路径比较需 lowercase。
 
-**平台差异**：
-- macOS/Linux: `$HOME` 优先
-- Windows: `$USERPROFILE` 优先，路径比较需 lowercase
-
-### 3.2 Codex CLI
-
-**目录结构**：
+### 2.2 Codex CLI
 
 ```text
-~/.codex/
-  sessions/
-    YYYY/MM/DD/
-      rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl
-  auth.json
-  config.toml
-  .codex-global-state.json
+~/.codex/sessions/YYYY/MM/DD/
+  rollout-YYYY-MM-DDThh-mm-ss-<uuid>.jsonl
 ```
 
-**rollout JSONL 格式**：
-
-首行固定为 `session_meta`：
-
-```json
-{
-  "timestamp": "2026-05-16T12:38:16.298Z",
-  "type": "session_meta",
-  "payload": {
-    "id": "019e30af-...",
-    "timestamp": "2026-05-16T12:07:49.038Z",
-    "cwd": "/Users/dzlin/work/GT-Office",
-    "originator": "codex-tui",
-    "cli_version": "0.130.0",
-    "source": "cli",
-    "model_provider": "custom",
-    "git": {
-      "commit_hash": "3d3b3679...",
-      "branch": "main",
-      "repository_url": "https://github.com/..."
-    }
-  }
-}
-```
-
-**后续行类型**：
-
-| type | payload.type | 含义 |
-|------|-------------|------|
-| `response_item` | `message` (role: user/assistant) | 对话消息 |
-| `response_item` | `function_call` | 工具调用请求 |
-| `response_item` | `function_call_output` | 工具调用结果 |
-| `event_msg` | `task_started` / `task_complete` | 任务生命周期 |
-| `event_msg` | `user_message` | 用户输入 |
-| `event_msg` | `token_count` | Token 统计 |
-| `turn_context` | — | Turn 级上下文（模型名、cwd） |
-
-assistant 消息有 `phase` 字段：`"commentary"`（中间推理，应过滤）vs `"final_answer"`（最终回复）。
-
-**恢复方式**：`/resume` 或 `codex exec resume --last`。
+| 字段 | 说明 |
+|------|------|
+| 首行 | `session_meta`：`{id, cwd, originator, cli_version, git: {branch, commit_hash}}` |
+| 后续行 | `response_item(message/function_call)`, `event_msg(task_started/task_complete/user_message/token_count)`, `turn_context` |
+| assistant phase | `commentary`（中间推理，过滤）vs `final_answer`（最终回复） |
+| 恢复方式 | `/resume` 或 `codex exec resume --last` |
 
 ---
 
-## 4. 总体架构（分层解耦）
+## 3. 总体架构（四层解耦）
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│  Layer 4: UI                                                         │
-│  ┌───────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
-│  │ Station Idle  │  │ Station Live│  │ Session Detail            │   │
-│  │ 历史列表+摘要 │  │ 终端+活动流│  │ 时间线/Diff/验证          │   │
-│  └───────┬───────┘  └──────┬──────┘  └────────────┬─────────────┘   │
-└──────────┼─────────────────┼─────────────────────┼─────────────────┘
-           │ session.*       │ session.activity     │ session.get
-           │ commands        │ events               │ session.timeline
-┌──────────┼─────────────────┼─────────────────────┼─────────────────┐
-│  Layer 3: Tauri Bridge                                               │
-│  session.list │ session.launch │ session.get │ session.timeline     │
-│  session.discover │ session.end │ session.resume                    │
-└──────────┼──────────────────────────────────────────────────────────┘
-           │
-┌──────────┼──────────────────────────────────────────────────────────┐
-│  Layer 2: gt-agent-session (Domain Crate)                            │
-│                                                                      │
-│  ┌─────────────────────┐  ┌──────────────────────────────────────┐  │
-│  │ SessionRegistry     │  │ ProviderSessionDiscovery             │  │
-│  │ - CRUD GtoSession   │  │ - scan ~/.claude/projects/<key>/     │  │
-│  │ - lifecycle 管理    │  │ - scan ~/.codex/sessions/YYYY/.../   │  │
-│  │ - SQLite 持久化     │  │ - cwd 匹配 + 去重                   │  │
-│  └──────────┬──────────┘  └──────────────┬───────────────────────┘  │
-│             │                            │                          │
-│  ┌──────────┴──────────┐  ┌──────────────┴───────────────────────┐  │
-│  │ SessionBindingService│  │ SessionSummaryService              │  │
-│  │ - Gto ↔ Provider 绑定│  │ - 首尾消息提取                    │  │
-│  │ - 首次用户确认      │  │ - git diff --stat                  │  │
-│  │ - 重复自动复用      │  │ - 文件变更统计                     │  │
-│  └─────────────────────┘  └────────────────────────────────────┘  │
-│                                                                      │
-│  ┌─────────────────────┐  ┌──────────────────────────────────────┐  │
-│  │ SessionResumeService│  │ SessionObserver                     │  │
-│  │ - PTY 创建 + 命令编排│  │ - file watcher 监听 jsonl 增量     │  │
-│  │ - handover 注入     │  │ - 结构化活动事件                    │  │
-│  └─────────────────────┘  └──────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
-           │                            │
-┌──────────┼────────────────────────────┼──────────────────────────────┐
-│  Layer 1: Infrastructure                                              │
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
-│  │ gt-session-log│  │ gt-terminal  │  │ SQLite       │               │
-│  │ JSONL 解析   │  │ PTY 管理     │  │ 持久化       │               │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘               │
-│         │                  │                  │                       │
-│  ┌──────┴───────┐  ┌──────┴───────┐  ┌──────┴───────┐               │
-│  │ ~/.claude/   │  │ PTY 进程管理  │  │ .gtoffice/   │               │
-│  │ ~/.codex/    │  │              │  │ sessions.db  │               │
-│  └──────────────┘  └──────────────┘  └──────────────┘               │
-└──────────────────────────────────────────────────────────────────────┘
-           │
-┌──────────┼──────────────────────────────────────────────────────────┐
-│  Layer 0: Provider Truth                                             │
-│  Claude JSONL / Codex Rollout — 磁盘持久，不可变                    │
-└──────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│  Layer 4: UI                                                       │
+│                                                                    │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐ │
+│  │ Station Idle     │  │ Station Live     │  │ Session Detail   │ │
+│  │ 历史列表 + 摘要  │  │ 终端 + Git 通知  │  │ Git Diff + 信息  │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘ │
+└───────────┼─────────────────────┼───────────────────────┼─────────┘
+            │                     │                       │
+┌───────────┼─────────────────────┼───────────────────────┼─────────┐
+│  Layer 3: Tauri Commands                                           │
+│                                                                    │
+│  session.list  session.launch  session.get  session.resume        │
+│  session.discover  session.end  session.activity                  │
+└───────────┼───────────────────────────────────────────────────────┘
+            │
+┌───────────┼───────────────────────────────────────────────────────┐
+│  Layer 2: gt-agent-session (Domain)                                 │
+│                                                                    │
+│  ┌─────────────────────┐  ┌────────────────────────────────────┐ │
+│  │ SessionRegistry     │  │ ProviderScanner                    │ │
+│  │ - SQLite CRUD       │  │ - 扫描 ~/.claude/projects/<key>/   │ │
+│  │ - 生命周期管理      │  │ - 扫描 ~/.codex/sessions/          │ │
+│  └──────────┬──────────┘  │ - cwd 匹配 + 去重                 │ │
+│             │              └──────────────┬─────────────────────┘ │
+│  ┌──────────┴──────────┐  ┌──────────────┴─────────────────────┐ │
+│  │ SessionSummary      │  │ GitSessionDiff                     │ │
+│  │ - 首条消息提取      │  │ - git_start_commit / git_end_commit │ │
+│  │                     │  │ - git diff --stat / git log         │ │
+│  └─────────────────────┘  └────────────────────────────────────┘ │
+│                                                                    │
+│  ┌─────────────────────┐  ┌────────────────────────────────────┐ │
+│  │ ResumeService       │  │ SessionActivity                    │ │
+│  │ - PTY 创建          │  │ - 监听 git/updated 事件            │ │
+│  │ - resume 命令编排   │  │ - 差量对比 → 结构化通知            │ │
+│  └─────────────────────┘  │ - 通知 → 前端 toast + 跳转         │ │
+│                           └────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────┘
+            │
+┌───────────┼───────────────────────────────────────────────────────┐
+│  Layer 1: Infrastructure (已有，不新建)                            │
+│                                                                    │
+│  gt-session-log     gt-terminal    gt-git    SQLite              │
+│  (Channel 解析不动)  (PTY 管理)    (git 操作)  (.gtoffice/db)    │
+│                                                                    │
+│  GitStatusCoordinator → git/updated 事件 (已有)                   │
+│  NotificationStore → toast 通知 (已有)                              │
+│  DiffViewer / GitGraphView → 详情页 (已有)                         │
+│  gt-changefeed → 实现为 SessionActivity 的数据桥接                │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-**层间依赖规则**：
+**层间规则**：
 
 | 层 | 可依赖 | 不可依赖 |
 |----|--------|----------|
-| Layer 4 (UI) | Layer 3 (Tauri Bridge) | 直接调用 Layer 2/1 |
-| Layer 3 (Bridge) | Layer 2 (Domain) | 直接操作 Layer 1 |
-| Layer 2 (Domain) | Layer 1 (Infra) | 不感知 Tauri |
-| Layer 1 (Infra) | 无外部依赖 | 不感知 Domain 语义 |
+| UI (L4) | Tauri Commands (L3) | 直接调 Domain/Infra |
+| Tauri Commands (L3) | Domain (L2) | 直接操作 Infra |
+| Domain (L2) | Infra (L1) | 不感知 Tauri |
+| Infra (L1) | 无外部依赖 | 不感知 Domain 语义 |
 
 ---
 
-## 5. 核心数据模型
+## 4. 数据模型
 
-### 5.1 GtoSession（主表）
+### 4.1 gto_sessions（主表）
 
 ```sql
 CREATE TABLE gto_sessions (
-  gto_session_id    TEXT PRIMARY KEY,          -- UUID，永久不变
-  workspace_id      TEXT NOT NULL,
-  agent_id          TEXT NOT NULL,
-  station_id        TEXT NOT NULL,
-  provider          TEXT NOT NULL,              -- 'claude' | 'codex'
-  provider_session_id TEXT,                    -- Provider 的 session ID
-  provider_log_path TEXT,                      -- jsonl 文件绝对路径
-  terminal_session_id TEXT,                    -- 仅 live 时有值
-  lifecycle         TEXT NOT NULL DEFAULT 'live',  -- 'live' | 'stopped' | 'archived'
-  title             TEXT,                      -- 首条用户消息摘要
-  goal_summary      TEXT,                      -- 目标/成果概述
-  cwd               TEXT NOT NULL,             -- Agent 工作目录
+  gto_session_id     TEXT PRIMARY KEY,
+  workspace_id       TEXT NOT NULL,
+  agent_id           TEXT NOT NULL,
+  station_id         TEXT NOT NULL,
+  provider           TEXT NOT NULL,              -- 'claude' | 'codex'
+  provider_session_id TEXT,
+  provider_log_path  TEXT,                      -- jsonl 绝对路径
+  terminal_session_id TEXT,                      -- 仅 live 时有值
+  lifecycle          TEXT NOT NULL DEFAULT 'live',  -- 'live' | 'stopped' | 'archived'
+  title              TEXT,                       -- 首条用户消息前 80 字符
+  cwd                TEXT NOT NULL,
   started_at_ms     INTEGER NOT NULL,
   ended_at_ms       INTEGER,
   last_activity_at_ms INTEGER NOT NULL,
-  discovery_source  TEXT NOT NULL DEFAULT 'provider_scan',  -- 'gto_launch' | 'provider_scan' | 'channel' | 'import'
-  user_confirmed    INTEGER NOT NULL DEFAULT 0,            -- 首次绑定是否用户确认
-  created_at_ms     INTEGER NOT NULL,
-  updated_at_ms     INTEGER NOT NULL
+  created_at_ms      INTEGER NOT NULL,
+  updated_at_ms      INTEGER NOT NULL
 );
 
-CREATE INDEX idx_sessions_workspace_agent ON gto_sessions(workspace_id, agent_id);
+CREATE INDEX idx_sessions_ws_agent ON gto_sessions(workspace_id, agent_id, last_activity_at_ms DESC);
 CREATE INDEX idx_sessions_lifecycle ON gto_sessions(lifecycle);
-CREATE INDEX idx_sessions_last_activity ON gto_sessions(last_activity_at_ms DESC);
 ```
 
-### 5.2 SessionStats（统计表，独立解耦）
+**设计说明**：
+
+- **不需要 `bindConfidence` 或 `userConfirmed`**——发现即关联，恢复就是确认
+- **不需要 `goalSummary`**——P0 只做首条消息提取，摘要留给 P3
+- **不需要 `discoverySource`**——来源只有一种：扫描 Provider 目录
+
+### 4.2 session_stats（统计表——全部来自 git，Provider 无关）
 
 ```sql
 CREATE TABLE session_stats (
-  gto_session_id    TEXT PRIMARY KEY REFERENCES gto_sessions(gto_session_id),
-  files_touched     INTEGER DEFAULT 0,
-  files_created     INTEGER DEFAULT 0,
-  files_modified    INTEGER DEFAULT 0,
-  files_deleted     INTEGER DEFAULT 0,
-  git_commits       INTEGER DEFAULT 0,
-  git_diff_additions INTEGER DEFAULT 0,
-  git_diff_deletions  INTEGER DEFAULT 0,
-  commands_run      INTEGER DEFAULT 0,
-  verification_passed INTEGER DEFAULT 0,
-  verification_failed INTEGER DEFAULT 0,
-  prompt_count      INTEGER DEFAULT 0,
-  tool_call_count  INTEGER DEFAULT 0,
-  updated_at_ms    INTEGER NOT NULL
+  gto_session_id      TEXT PRIMARY KEY REFERENCES gto_sessions(gto_session_id),
+  git_start_commit     TEXT,                       -- Session 开始时的 HEAD commit
+  git_end_commit       TEXT,                       -- Session 结束时的 HEAD commit（可 null）
+  files_changed        INTEGER DEFAULT 0,          -- git diff --stat 的 files changed
+  insertions           INTEGER DEFAULT 0,          -- git diff --stat 的 insertions
+  deletions            INTEGER DEFAULT 0,          -- git diff --stat 的 deletions
+  commits_ahead       INTEGER DEFAULT 0,           -- git log --oneline start..end 的数量
+  updated_at_ms        INTEGER NOT NULL
 );
 ```
 
-**设计理由**：统计维度会持续增加，独立表避免频繁 ALTER 主表，且支持按需 JOIN 懒加载。
+**为什么用 git 而不是 JSONL**：
 
-### 5.3 SessionEvent（时间线）
+git 是稳定的外部工具，输出格式几十年不变，跟 Provider 完全无关。我们在 Session 开始时记 `git_start_commit`，结束时记 `git_end_commit`，所有统计数据都能用 git 命令算出来：
 
-```sql
-CREATE TABLE session_events (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  gto_session_id  TEXT NOT NULL REFERENCES gto_sessions(gto_session_id),
-  event_kind      TEXT NOT NULL,        -- 见下表
-  event_data      TEXT NOT NULL,       -- JSON
-  occurred_at_ms  INTEGER NOT NULL,
-  sequence        INTEGER NOT NULL      -- 单 Session 内递增序号
-);
+```bash
+# 文件变更统计
+git diff --stat <start_commit>..<end_commit>
 
-CREATE INDEX idx_events_session_seq ON session_events(gto_session_id, sequence);
+# 提交数
+git log --oneline <start_commit>..<end_commit> | wc -l
+
+# 完整 diff
+git diff <start_commit>..<end_commit>
 ```
 
-| event_kind | 含义 | data 示例 |
-|------------|------|-----------|
-| `session.created` | Session 创建 | `{source: "gto_launch"}` |
-| `session.bound` | Provider Session 绑定 | `{providerSessionId, logPath}` |
-| `prompt.user` | 用户输入 | `{text: "修复..."}` |
-| `prompt.assistant` | Agent 回复摘要 | `{text: "已修复...", charCount: 1200}` |
-| `file.changed` | 文件变更 | `{path, kind: "create|modify|delete"}` |
-| `git.commit` | Git 提交 | `{hash, message, additions, deletions}` |
-| `verify.run` | 验证执行 | `{command, exitCode, duration}` |
-| `session.stopped` | Session 停止 | `{reason: "user"|"pty_exit"|"app_restart"}` |
-| `session.archived` | 归档 | `{}` |
+这比解析 JSONL tool_use 可靠几个数量级。
 
-### 5.4 生命周期：三态模型
+### 4.3 生命周期：三态
 
 ```text
 live ──→ stopped ──→ archived
@@ -330,250 +220,159 @@ live ──→ stopped ──→ archived
    Resume
 ```
 
-| 状态 | 含义 | terminalSessionId | 可操作 |
-|------|------|-------------------|--------|
-| `live` | Agent 在跑，PTY 在线 | 有值 | 查看、停止 |
-| `stopped` | PTY 已断，对话可恢复 | null | 恢复、归档 |
-| `archived` | 不再关心 | null | 仅只读 |
+| 状态 | 含义 | terminalSessionId |
+|------|------|-------------------|
+| `live` | Agent 在跑 | 有值 |
+| `stopped` | PTY 断了，可恢复 | null |
+| `archived` | 不关心了 | null |
 
-**App 重启策略**：所有原 `live` 批量转 `stopped`，不假装 PTY 仍存活。UI 诚实标注「点击恢复对话」。
-
-**三态 vs 五态的理由**：`draft` 合并入 `live`（创建即活），`paused`/`ended` 合并为 `stopped`（用户不区分暂停和结束，关心的是「能不能接上」）。减少状态 = 减少边缘场景 = 减少 bug。
+App 重启时：所有 `live` 批量转 `stopped`。
 
 ---
 
-## 6. Discovery：Provider Session 发现
+## 5. 发现与扫描
 
-### 6.1 总体流程
+### 5.1 启动流程
 
 ```text
-App 启动
+App 打开 / Workspace 加载
   │
-  ├─ 1. 读 SQLite 缓存 → 立即渲染历史列表（< 50ms）
+  ├─ 1. 读 SQLite → 立即渲染历史列表（< 50ms）
   │
-  ├─ 2. 后台异步：Provider Scan
-  │     ├─ Claude: 读 sessions-index.json + 扫描 project dir
-  │     ├─ Codex:  遍历 ~/.codex/sessions/ 下 session_meta
-  │     └─ 结果：ProviderSessionCandidate[]
+  ├─ 2. 后台：ProviderScanner
+  │     ├─ Claude: sessions-index.json 或目录扫描
+  │     ├─ Codex:  遍历 sessions/YYYY/MM/DD/ 下首行 session_meta
+  │     └─ 产出：ProviderSessionCandidate[]
   │
-  ├─ 3. Merge：按 providerLogPath / providerSessionId 去重
-  │     ├─ 已在 SQLite → 更新 lastActivityAtMs
-  │     └─ 新发现 → 创建 GtoSession (lifecycle=stopped, userConfirmed=false)
+  ├─ 3. Merge：按 provider_log_path 去重
+  │     ├─ 已在 SQLite → 更新 last_activity_at_ms
+  │     └─ 新发现 → INSERT (lifecycle=stopped)
   │
   └─ 4. 前端增量更新列表
 ```
 
-**关键性能保障**：步骤 1 先于步骤 2 返回，用户看到的不是空白等待。
+**关键**：步骤 1 先于步骤 2。用户看到的不是空白等待。
 
-### 6.2 Claude Discovery 实现
+### 5.2 Claude 扫描实现
 
 ```rust
-struct ClaudeSessionDiscovery {
-    home_dir: PathBuf,
-}
+fn scan_claude_sessions(home_dir: &Path, cwd: &Path) -> Vec<ProviderSessionCandidate> {
+    let project_key = claude_project_key_for_path(cwd);
+    let project_dir = home_dir.join(".claude/projects").join(project_key);
 
-impl ClaudeSessionDiscovery {
-    /// 扫描指定 cwd 对应的所有 Claude Session
-    fn scan_for_cwd(&self, cwd: &Path) -> Vec<ProviderSessionCandidate> {
-        let project_key = claude_project_key_for_path(cwd);
-        let project_dir = self.home_dir.join(".claude/projects").join(&project_key);
+    if !project_dir.exists() { return vec![]; }
 
-        if !project_dir.exists() {
-            return vec![];
-        }
-
-        // 优先读 sessions-index.json
-        if let Ok(entries) = read_sessions_index(&project_dir) {
-            return entries
-                .into_iter()
-                .filter(|e| !e.is_sidechain && paths_match(&e.project_path, cwd))
-                .filter(|e| Path::new(&e.full_path).exists())
-                .map(|e| ProviderSessionCandidate {
-                    provider: Provider::Claude,
-                    provider_session_id: None,  // Claude 从 jsonl 文件名提取
-                    log_path: PathBuf::from(&e.full_path),
-                    cwd: cwd.to_path_buf(),
-                    modified_at_ms: e.file_mtime * 1000,
-                    first_user_message: None,   // 懒加载
-                })
-                .collect();
-        }
-
-        // Fallback: 扫描目录下所有 .jsonl
-        scan_jsonl_files(&project_dir)
+    // 1. 优先读 sessions-index.json
+    if let Ok(entries) = read_sessions_index(&project_dir) {
+        return entries
             .into_iter()
-            .map(|path| ProviderSessionCandidate {
-                provider: Provider::Claude,
-                provider_session_id: None,
+            .filter(|e| !e.is_sidechain && paths_match(&e.project_path, cwd))
+            .filter(|e| Path::new(&e.full_path).exists())
+            .map(to_candidate)
+            .collect();
+    }
+
+    // 2. Fallback: 扫目录下 .jsonl
+    scan_jsonl_files(&project_dir)
+        .into_iter()
+        .map(to_candidate)
+        .collect()
+}
+```
+
+### 5.3 Codex 扫描实现
+
+```rust
+fn scan_codex_sessions(sessions_root: &Path, cwd: &Path) -> Vec<ProviderSessionCandidate> {
+    let normalized_cwd = normalize_path(cwd);
+
+    walk_jsonl_files(sessions_root)
+        .into_iter()
+        .filter_map(|path| {
+            let meta = extract_codex_session_meta(&path)?;  // 只读首行
+            if !paths_match_normalized(&meta.cwd, &normalized_cwd) {
+                return None;
+            }
+            Some(ProviderSessionCandidate {
+                provider: Provider::Codex,
+                provider_session_id: Some(meta.id),
                 log_path: path,
                 cwd: cwd.to_path_buf(),
                 modified_at_ms: file_mtime_ms(&path),
-                first_user_message: None,
+                first_user_message: None,  // 懒加载
             })
-            .collect()
-    }
+        })
+        .collect()
 }
 ```
 
-**sessions-index.json 不可靠场景**：
-- 文件不存在 → 回退目录扫描
-- `projectPath` 与 cwd 不匹配（符号链接、路径规范化差异）→ 回退
-- 文件存在但为空 → 回退
+**性能**：Codex 只读首行 session_meta（<1ms/文件）。100-500 文件场景 < 500ms。
 
-### 6.3 Codex Discovery 实现
+### 5.4 缓存策略
 
-```rust
-struct CodexSessionDiscovery {
-    sessions_root: PathBuf,  // ~/.codex/sessions/
-}
-
-impl CodexSessionDiscovery {
-    fn scan_for_cwd(&self, cwd: &Path) -> Vec<ProviderSessionCandidate> {
-        let normalized_cwd = normalize_path(cwd);
-
-        walk_jsonl_files(&self.sessions_root)
-            .into_iter()
-            .filter_map(|path| {
-                // 只读首行 session_meta
-                let meta = extract_codex_session_meta(&path)?;
-                if !paths_match_normalized(&meta.cwd, &normalized_cwd) {
-                    return None;
-                }
-                Some(ProviderSessionCandidate {
-                    provider: Provider::Codex,
-                    provider_session_id: Some(meta.id),
-                    log_path: path,
-                    cwd: cwd.to_path_buf(),
-                    modified_at_ms: file_mtime_ms(&path),
-                    first_user_message: None,
-                })
-            })
-            .collect()
-    }
-}
-```
-
-**Codex 首行提取优化**：只读文件第一个 `\n`，不加载全文。`std::io::BufReader` + `read_line` 即可，I/O 成本极低。
-
-### 6.4 跨平台路径匹配
-
-```rust
-fn paths_match_normalized(a: &Path, b: &Path) -> bool {
-    let na = normalize_path(a);
-    let nb = normalize_path(b);
-    #[cfg(windows)]
-    { na.to_lowercase() == nb.to_lowercase() }
-    #[cfg(not(windows))]
-    { na == nb }
-}
-
-fn normalize_path(p: &Path) -> String {
-    let mut s = p.to_string_lossy().replace('\\', "/");
-    while s.ends_with('/') { s.pop(); }
-    s
-}
-```
-
-### 6.5 Discovery 缓存策略
-
-| 层级 | 存储 | TTL | 刷新时机 |
-|------|------|-----|----------|
-| L1: SQLite GtoSession | `.gtoffice/sessions.db` | 永久 | Discovery merge 时更新 |
-| L2: 内存 Provider 扫描结果 | `SessionDiscoveryCache` | 30s | 下次 scan 时覆盖 |
-| L3: 首条消息缓存 | `SessionSummaryService` | 永久（惰性写入 SQLite） | 首次读取后缓存 |
-
-**L2 的意义**：避免高频场景（如连续打开多个 workspace）重复扫描磁盘。
-
----
-
-## 7. Session 摘要与卡片信息
-
-### 7.1 摘要提取（P0 核心，非 P3）
-
-每个 Session 卡片需要以下信息，**全部可在 Discovery 阶段低成本获取**：
-
-| 字段 | 来源 | 获取成本 |
+| 层级 | 存储 | 刷新时机 |
 |------|------|----------|
-| title | jsonl 首条 `type: "user"` 消息前 80 字符 | 读 1-5 行 |
-| provider | 扫描时已知 | 0 |
-| startedAtMs | 文件 mtime 或 `attachment` 行的 timestamp | 0 |
-| lastActivityAtMs | 文件 mtime | 0 |
-| filesTouched / gitCommits | `git diff --stat HEAD~N` 或 jsonl 中 `tool_use` 计数 | 懒加载（展开卡片时） |
-| lifecycle | SQLite | 0 |
+| L1: SQLite gto_sessions | `.gtoffice/sessions.db` | ProviderScanner merge 时 |
+| L2: 内存扫描结果 | `DiscoveryCache` | 30s TTL 或手动刷新 |
 
-### 7.2 懒加载策略
+---
+
+## 6. 摘要与统计（P0 核心，全部基于 git）
+
+### 6.1 卡片字段与来源
+
+| 字段 | 来源 | 获取成本 | 可靠性 |
+|------|------|----------|--------|
+| title | JSONL 首条 user 消息前 80 字符 | 读 1-5 行 | ✅ 首行解析稳定 |
+| provider | 扫描时已知 | 0 | ✅ |
+| started_at_ms | 文件 mtime | 0 | ✅ |
+| last_activity_at_ms | 文件 mtime | 0 | ✅ |
+| lifecycle | SQLite | 0 | ✅ |
+| files_changed / commits | `git diff --stat` / `git log` | 懒加载，< 50ms | ✅ git 极稳 |
+| 完整 diff | `git diff start..end` | 详情页按需 | ✅ |
+
+### 6.2 Git 统计流程
 
 ```text
-卡片折叠态（列表中）：
-  title + provider + 时间 + lifecycle
-  获取成本：SQLite 读 1 行，< 1ms
+Session 开始时：
+  git rev-parse HEAD → 记录 git_start_commit
 
-卡片展开态（悬停/点击）：
-  + 首条用户消息（已缓存）
-  + 文件变更数、git commit 数
-  + 验证状态
-  获取成本：SQLite JOIN session_stats，< 5ms
+Session 结束时：
+  git rev-parse HEAD → 记录 git_end_commit
+  git diff --stat <start>..<end> → files_changed, insertions, deletions
+  git log --oneline <start>..<end> → commits_ahead
 
-详情页（点击进入）：
-  + 完整 SessionEvent 时间线
-  + 文件变更 Diff
-  + 命令记录
-  获取成本：按需查询，分页加载
+卡片展示时（懒加载）：
+  读 session_stats 一行即可
+```
+
+**注意**：如果 Session 开始时不在 git repo 中（`git rev-parse HEAD` 失败），统计字段留 null，卡片显示 `—`。不崩溃，只是没数据。
+
+### 6.3 懒加载策略
+
+```text
+列表态：title + provider + 时间 + lifecycle
+       → SQLite 读 1 行，< 1ms
+
+展开态：+ 文件变更数 + 提交数 + 增删行数
+       → JOIN session_stats，< 5ms
+
+详情态：+ git log 提交列表 + git diff 文件列表
+       → 按需 git 命令，< 100ms
 ```
 
 ---
 
-## 8. 绑定策略
+## 7. 一键恢复
 
-### 8.1 首次绑定：用户确认
-
-**问题**：自动判定绑定置信度容易出错（cwd 相同但不是同一个 session、多个 session 同 cwd）。
-
-**方案**：首次发现新 Provider Session 时，一律标记 `userConfirmed = false`，在 UI 上展示「未确认」标签。用户点击「确认关联」后标记为 `true`。
-
-但 **不影响使用**：用户可以直接点击「恢复」，确认动作与恢复动作合二为一。
-
-```text
-○ 修复 Git panel 崩溃     2h前  [恢复]  ← 点击 = 确认 + 恢复
-○ 接入 webhook             昨天  [恢复]
-● 实现登录功能             3d前  ✓已确认  ← 之前确认过，直接恢复
-```
-
-### 8.2 重复绑定：自动复用
-
-同一 `providerLogPath` 已存在 GtoSession 记录时，Discovery 不创建新记录，仅更新 `lastActivityAtMs`。
-
-### 8.3 绑定流程
-
-```text
-New Session (GTO 发起):
-  1. session.launch(new) → 创建 GtoSession (live)
-  2. 创建 PTY → 启动 CLI
-  3. gt-session-log 发现 Provider Session → bind
-  4. 更新 providerSessionId + providerLogPath + userConfirmed = true
-
-Resume Session:
-  1. 用户点击历史 Session
-  2. session.launch(resume, gtoSessionId) → GtoSession (stopped → live)
-  3. 创建新 PTY → 启动 CLI → 注入 /resume 命令
-  4. 绑定新 terminalSessionId
-  5. 更新 userConfirmed = true
-```
-
----
-
-## 9. Resume 编排
-
-### 9.1 恢复流程
+### 7.1 恢复流程
 
 ```text
 用户点击「恢复」
   │
-  ├─ 1. 检查 GtoSession 存储信息
-  │     ├─ provider = claude → 准备 /resume 命令
-  │     └─ provider = codex → 准备 resume 命令
+  ├─ 1. 查 GtoSession（provider, cwd, providerSessionId）
   │
-  ├─ 2. 创建新 PTY Session (gt-terminal::create_session)
+  ├─ 2. 创建新 PTY Session（gt-terminal::create_session）
   │     └─ cwd = gtoSession.cwd
   │
   ├─ 3. 写入启动命令
@@ -582,339 +381,391 @@ Resume Session:
   │
   ├─ 4. 等待 CLI 就绪（150ms）
   │
-  ├─ 5. 注入 handover 上下文（见 §9.2）
+  ├─ 5. 注入 resume 命令
+  │     ├─ claude: "/resume" → 选择 providerSessionId 对应的 session
+  │     └─ codex: "/resume" 或 "codex exec resume --last"
   │
-  ├─ 6. 注入 resume 命令
-  │     ├─ claude: "/resume" + Enter → 选择 session
-  │     └─ codex: "/resume" + Enter
+  ├─ 6. 更新 GtoSession
+  │     ├─ lifecycle = live
+  │     └─ terminal_session_id = 新 PTY ID
   │
-  └─ 7. 更新 GtoSession
-        ├─ lifecycle = live
-        ├─ terminalSessionId = 新 PTY ID
-        └─ userConfirmed = true
+  └─ 前端切换到 Station Live
 ```
 
-### 9.2 Handover 上下文注入
+### 7.2 Handover 上下文
 
-每个 Session 在 `stopped` 时自动生成 handover 摘要，Resume 时注入到 prompt 前缀。
+Session 停止时自动生成 handover 摘要，Resume 时注入 prompt 前缀。数据全部来自 git：
 
-**handover 内容**：
-
-```markdown
-[GT Office Session Context]
-上次会话目标：{title}
-进展：{goalSummary || '进行中'}
-未完成：{从最后几条 assistant 消息推断}
-文件变更：{filesTouched} 个文件
-Git 提交：{gitCommits} 次
-验证：{verificationPassed} 通过 / {verificationFailed} 失败
+```text
+[GT Office] 上次会话: {title}
+变更: {files_changed} 个文件 | +{insertions} -{deletions} | {commits_ahead} 次提交
+最后一次提交: {git log -1 --oneline}
 ──────────
 ```
 
-**注入方式**：作为 `initialPrompt` 的一部分，在 CLI 启动后写入。用户看到这段上下文，可以选择接受或忽略。
+### 7.3 恢复策略矩阵
 
-### 9.3 恢复策略矩阵
-
-| 情况 | 对话恢复 | 终端画面 | Handover |
-|------|----------|----------|----------|
-| Provider Session 完整 | ✅ /resume | ❌ 新 PTY（空白） | ✅ 注入 |
-| Provider Session 已删 | ❌ | 仅 GTO 只读时间线 | ✅ 注入 |
-| userConfirmed = false | ⚠️ 用户确认后恢复 | ❌ | ✅ |
+| 场景 | 对话恢复 | 终端画面 |
+|------|----------|----------|
+| Provider jsonl 完整 | ✅ /resume | 新 PTY（空白），handover 提供上下文 |
+| Provider jsonl 已删 | ❌ | GTO 只读时间线 + handover |
+| Provider jsonl 部分损坏 | ⚠️ | 尝试 resume，失败则 fallback 到只读 |
 
 ---
 
-## 10. 实时监控：SessionObserver
+## 8. 实时感知：复用已有 Git 基础设施
 
-### 10.1 从 Poll 到 Push
+### 8.1 核心思路
 
-当前 `gt-session-log` 使用轮询模式（每 1.5s rescan），适合「获取 Agent 回复文本」。但实时监控需要更低的延迟。
+**Agent 在跑 = git 在变。** `GitStatusCoordinator` 已经在 push `git/updated` 事件了。我们只需要：
 
-**方案**：在 `gt-session-log` 的 poll 基础上，增加 file watcher 监听 jsonl 文件增量写入。
+1. Session `live` 时，监听 `git/updated`
+2. 对比前后差量（新文件变更、新提交、分支切换）
+3. 弹出通知，点击跳转 DiffViewer / GitGraphView
+
+**零新基础设施**——全复用现有组件。
+
+### 8.2 已有基础设施
+
+| 组件 | 已有能力 | 本次用途 |
+|------|----------|----------|
+| `GitStatusCoordinator` | 检测 git 状态变化，推送 `git/updated` 事件 | Session 活动信号源 |
+| `GitUpdatedPayload` | 含 `branch`, `ahead`, `behind`, `files[]`, `dirty`, `revision` | 差量对比的输入 |
+| `NotificationStore` | toast 通知系统（info/warning/error/success，自动消失） | 弹出活动通知 |
+| `DiffViewer` | 文件 diff 查看器，支持 hunk staging | 点击通知跳转目标 |
+| `GitGraphView` | 提交图，无限滚动 | 点击通知跳转目标 |
+| `gt-git::log()` | 提交历史查询 | 获取新提交详情 |
+| `gt-changefeed` | **空壳 stub** | 实现 SessionActivity 数据桥接 |
+
+### 8.3 SessionActivity 工作流
+
+```text
+Agent Session 变为 live
+  │
+  ├─ 1. 记录 git_start_commit = git rev-parse HEAD
+  ├─ 2. 订阅 git/updated 事件（workspace 级别）
+  │
+  │  Agent 干活...git 状态变化...
+  │
+  ├─ 3. 收到 git/updated
+  │     ├─ 对比前一次 payload
+  │     ├─ branch 变了？→ 通知 "切换到分支 xxx"
+  │     ├─ ahead 增加了？→ 查 git log 取新 commit → 通知 "提交: fix: xxx"
+  │     ├─ files 变了？→ 通知 "修改了 3 个文件"
+  │     └─ 记录差量到 Session 活动记录
+  │
+  ├─ 4. Session 变为 stopped
+  │     ├─ 记录 git_end_commit = git rev-parse HEAD
+  │     ├─ 计算并缓存 session_stats
+  │     └─ 取消订阅 git/updated
+```
+
+### 8.4 差量检测逻辑
 
 ```rust
-struct SessionObserver {
-    watched_paths: HashMap<String, RecommendedWatcher>,  // gtoSessionId → watcher
-    event_tx: Sender<SessionActivityEvent>,
+struct GitStatusSnapshot {
+    revision: u64,
+    branch: String,
+    ahead: u32,
+    behind: u32,
+    dirty: bool,
+    files: Vec<GitStatusFile>,  // 已有类型
 }
 
-impl SessionObserver {
-    fn start_observing(&mut self, gto_session_id: &str, log_path: &Path) {
-        let tx = self.event_tx.clone();
-        let path = log_path.to_path_buf();
+impl SessionActivity {
+    /// 对比前后 git/updated payload，产出结构化活动
+    fn diff_snapshots(prev: &GitStatusSnapshot, curr: &GitStatusSnapshot) -> Vec<SessionActivityItem> {
+        let mut items = Vec::new();
 
-        let mut watcher = RecommendedWatcher::new(move |res: Result<Event, _>| {
-            match res {
-                Ok(Event { kind: EventKind::Modify(_), .. }) => {
-                    let _ = tx.send(SessionActivityEvent::LogUpdated {
-                        gto_session_id: gto_session_id.to_string(),
-                        path: path.clone(),
-                    });
-                }
-                _ => {}
-            }
-        }, Config::default());
+        // 分支切换
+        if prev.branch != curr.branch {
+            items.push(SessionActivityItem::BranchSwitched {
+                from: prev.branch.clone(),
+                to: curr.branch.clone(),
+            });
+        }
 
-        watcher.watch(log_path, RecursiveMode::NonRecursive).ok();
-        self.watched_paths.insert(gto_session_id.to_string(), watcher);
+        // 新提交
+        if curr.ahead > prev.ahead {
+            items.push(SessionActivityItem::NewCommits {
+                count: curr.ahead - prev.ahead,
+            });
+        }
+
+        // 文件变更（对比 files 列表）
+        let new_changes = diff_file_lists(&prev.files, &curr.files);
+        if !new_changes.is_empty() {
+            items.push(SessionActivityItem::FilesChanged {
+                files: new_changes,
+            });
+        }
+
+        items
     }
 }
 ```
 
-### 10.2 活动事件结构
+### 8.5 通知样式与跳转
+
+**原则**：复用 `NotificationStore`，不造新组件。通知自动消失（5s），但可在 Station 内留活动记录。
+
+```text
+Agent 正在运行时，Station 区域弹出通知：
+
+┌─ Station ──────────────────────────────────────────────┐
+│                                                        │
+│  ┌─ Terminal ───────────────┐  ┌─ 活动通知 ──────────┐ │
+│  │ $ claude                 │  │                      │ │
+│  │ > 修复登录 bug           │  │ 📝 提交: fix: auth  │ │
+│  │ ...                      │  │   crash              │ │
+│  │                          │  │   [查看 diff →]      │ │
+│  │                          │  │                      │ │
+│  │                          │  │ ✏️ 修改了 3 个文件    │ │
+│  │                          │  │   src/auth.rs        │ │
+│  │                          │  │   src/login.tsx      │ │
+│  │                          │  │   package.json       │ │
+│  │                          │  │   [查看 diff →]      │ │
+│  └──────────────────────────┘  └──────────────────────┘ │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+
+点击 [查看 diff →]：
+  → 打开 Git 面板，聚焦到 DiffViewer
+  → 或打开 GitGraphView，滚动到对应 commit
+```
+
+**实现方式**：
+
+1. `SessionActivity` 检测到差量 → 通过 Tauri `emit` 发送 `gtoffice:session-activity` 事件
+2. 前端 `useSessionActivity` hook 监听事件 → 调用 `NotificationStore.addNotification()`
+3. 通知组件渲染自定义内容（含跳转链接），复用已有 notification UI
+
+### 8.6 changefeed 的角色
+
+现有 `gt-changefeed` 是空壳 stub，正好用于 SessionActivity 的数据桥接：
 
 ```rust
-enum SessionActivityEvent {
-    LogUpdated {
-        gto_session_id: String,
-        path: PathBuf,
-    },
-    TerminalOutput {
-        gto_session_id: String,
-        chunk: String,
-    },
-    GitActivity {
-        gto_session_id: String,
-        event: GitEvent,
-    },
+// gt-changefeed: 从 git/updated 事件 → Session 活动记录
+pub struct SessionChangeFeed {
+    session_id: String,
+    last_snapshot: Option<GitStatusSnapshot>,
+}
+
+impl SessionChangeFeed {
+    /// 接收 git/updated，差量检测，产出活动事件
+    pub fn on_git_updated(&mut self, payload: &GitUpdatedPayload) -> Vec<SessionActivityItem> {
+        let curr = GitStatusSnapshot::from(payload);
+        let items = match &self.last_snapshot {
+            Some(prev) => SessionActivity::diff_snapshots(prev, &curr),
+            None => vec![],  // 首次，无差量
+        };
+        self.last_snapshot = Some(curr);
+        items
+    }
 }
 ```
 
-**处理流程**：`LogUpdated` → 触发增量 JSONL 解析 → 提取结构化事件 → 推送前端。
+**与现有 `changefeed_query` Tauri command 的衔接**：扩展返回值，支持按 `gtoSessionId` 查询活动记录。
 
-### 10.3 前端活动流
+### 8.7 边界情况
 
-Station Live 时，Terminal 旁边展示结构化活动流：
-
-```text
-┌─ Terminal ──────────┐  ┌─ Activity ────────────────────┐
-│ $ claude            │  │ 📝 读取 src/main.rs            │
-│ > 修复登录 bug      │  │ ✏️ 修改 src/auth.rs            │
-│ ...                 │  │ 🔄 git commit "fix: auth..."   │
-│                     │  │ ✅ cargo test -- 3/3 passed     │
-└─────────────────────┘  └───────────────────────────────┘
-```
-
-这不是 P0，但架构上预留 `SessionObserver` 接口，P0 只用 poll。
+| 情况 | 处理 |
+|------|------|
+| 不在 git repo 中 | `git/updated` 不会触发，无通知，不影响终端 |
+| Agent 在跑但 git 没变化 | 无通知，正常——说明 Agent 在思考或读文件 |
+| 短时间大量 `git/updated` | `GitStatusCoordinator` 已有 180ms debounce，天然合并 |
+| 多个 Agent 同 workspace | 按 `gtoSessionId` 分离，每个 Session 独立追踪 |
+| Agent 做了 git 操作但没 commit | `dirty` 变化被检测，通知「修改了 N 个文件（未提交）」|
 
 ---
 
-## 11. 性能与可靠性设计
+## 9. UI：Station 三态
 
-### 11.1 启动性能目标
-
-| 场景 | 目标 | 策略 |
-|------|------|------|
-| App 打开 → 历史列表可见 | < 500ms | SQLite 先行，Discovery 后台 |
-| Discovery 完成全部扫描 | < 3s | 并行扫描 + 缓存 |
-| 点击恢复 → PTY 就绪 | < 1s | 复用已有 PTY 创建流程 |
-| 卡片展开 → 摘要加载 | < 100ms | 懒加载 + JOIN |
-
-### 11.2 Discovery 性能
-
-**Claude**：
-- `sessions-index.json` 存在时：读 1 个 JSON 文件，O(1)
-- 回退目录扫描：`read_dir` + filter `.jsonl`，通常 < 50 文件，< 10ms
-
-**Codex**：
-- 遍历 `~/.codex/sessions/YYYY/MM/DD/`，递归 `walk_jsonl_files`
-- 每个文件只读首行 `session_meta`，< 1ms/文件
-- 典型场景：100-500 个文件，总耗时 < 500ms
-
-**优化**：Codex 可先按日期目录 `stat` 跳过太久远的目录（如 > 90 天），减少遍历量。
-
-### 11.3 SQLite 可靠性
-
-- WAL 模式：读写不互相阻塞
-- 单连接 + `Mutex`：简单可靠，桌面应用不需要连接池
-- 定期 checkpoint：`PRAGMA wal_checkpoint(TRUNCATE)` 每 5 分钟
-- 备份：`.gtoffice/sessions.db` 在 workspace 内，跟随 workspace 管理
-
-### 11.4 文件 Watcher 可靠性
-
-- macOS: `FSEvents`（notify crate 默认）
-- Windows: `ReadDirectoryChangesW`
-- Linux: `inotify`
-- 降级策略：watcher 失败时回退到 poll（2s 间隔），不阻塞功能
-- 路径不存在（如 Provider 删除了 jsonl）：标记 `SessionHealth::ProviderGone`，不崩溃
-
-### 11.5 并发与线程安全
-
-```text
-UI Thread (main)          ← session.* commands（同步/异步）
-  │
-Background Thread Pool
-  ├─ Discovery Worker     ← 定期/按需扫描，结果写入 SQLite
-  ├─ Observer Workers     ← file watcher 回调 → 事件分发
-  └─ Summary Worker       ← 懒加载摘要提取，结果写入缓存
-```
-
-- SQLite 写入通过 `Mutex<Connection>` 序列化
-- 事件通过 Tauri `emit` 推送前端，天然线程安全
-- Discovery 结果通过 `tokio::sync::mpsc` 传递，非共享状态
-
----
-
-## 12. API 契约
-
-### 12.1 Tauri Commands
-
-| Command | 参数 | 返回 | 说明 |
-|---------|------|------|------|
-| `session.list` | `{workspaceId, agentId?, limit?, offset?}` | `GtoSessionCard[]` | 列表（含摘要） |
-| `session.get` | `{gtoSessionId}` | `GtoSessionDetail` | 详情 |
-| `session.timeline` | `{gtoSessionId, afterSeq?, limit?}` | `SessionEvent[]` | 时间线（分页） |
-| `session.launch` | `{workspaceId, agentId, mode: "new"\|"resume", gtoSessionId?, cwd?}` | `{gtoSessionId, terminalSessionId}` | 启动/恢复 |
-| `session.end` | `{gtoSessionId}` | `void` | 停止（不归档） |
-| `session.archive` | `{gtoSessionId}` | `void` | 归档 |
-| `session.discover` | `{workspaceId, cwd}` | `{newCount, updatedCount}` | 手动触发扫描 |
-| `session.confirm` | `{gtoSessionId}` | `void` | 用户确认绑定 |
-| `session.stats` | `{gtoSessionId}` | `SessionStats` | 统计（懒加载） |
-
-### 12.2 Tauri Events
-
-| Event | Payload | 触发时机 |
-|-------|---------|----------|
-| `gtoffice:session-state-changed` | `{gtoSessionId, lifecycle, providerSessionId?}` | 生命周期变更 |
-| `gtoffice:session-discovered` | `{gtoSessionId, provider, title}` | Discovery 发现新 Session |
-| `gtoffice:session-activity` | `{gtoSessionId, kind, data}` | 实时活动（P2+） |
-
-### 12.3 gto CLI 集成
-
-```bash
-gto session list --workspace-id <id> [--agent-id <id>]
-gto session resume --session-id <id>
-gto session info --session-id <id>
-```
-
----
-
-## 13. UI 设计
-
-### 13.1 Station Idle（P0 核心）
-
-App 打开 → Agent 未启动 → Station 显示历史 Session 列表：
+### 9.1 Idle — 历史列表
 
 ```text
 ┌─ Claude Code ─────────────────────────────────────────────┐
 │                                                            │
 │  [+ 新会话]                                                │
 │                                                            │
-│  ── 最近会话 ──────────────────────────────────────────    │
+│  ── 最近 ──────────────────────────────────────────────   │
 │                                                            │
 │  ● 修复 Git panel 崩溃                                     │
-│    2h前 · Claude · 3 文件 · 2 提交 · ✓ 测试通过           │
-│    [恢复]                                                  │
+│    2h前 · Claude · 3 文件 · +42/-8 · 2 提交               │
+│    [恢复对话]                                              │
 │                                                            │
 │  ○ 接入 webhook                                            │
 │    昨天 · Claude · 5 文件 · 1 提交                          │
-│    [恢复]                                                  │
+│    [恢复对话]                                              │
 │                                                            │
 │  ○ 实现登录功能                                             │
-│    3d前 · Codex · 12 文件 · 4 提交 · ✗ 1 测试失败         │
-│    [恢复]                                                  │
-│                                                            │
-│  ── 更早 ──                                                │
+│    3d前 · Codex · 12 文件 · +230/-45 · 4 提交              │
+│    [恢复对话]                                              │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**卡片字段**：
-- 标题：首条用户消息前 80 字符
-- 时间：相对时间（2h前、昨天、3d前）
-- Provider：Claude / Codex 图标
-- 文件变更数 + 提交数：从 `session_stats` 获取
-- 验证状态：✓ 通过 / ✗ 失败 / — 未验证
+卡片信息全部来自可靠数据源：标题来自 JSONL 首行，统计来自 git。
 
-### 13.2 Station Live
-
-Agent 运行中，Terminal + 活动指示器：
+### 9.2 Live — 终端 + Git 活动通知
 
 ```text
-┌─ Terminal ──────┐  ┌─ Status ───────────┐
-│ $ claude         │  │ Session: 修复Git... │
-│ > ...            │  │ 文件: 3  提交: 2    │
-│                  │  │ 状态: ● 活跃        │
-└──────────────────┘  └────────────────────┘
+┌─ Terminal ───────────────────────┐  ┌─ Activity ──────────────────────┐
+│ $ claude                         │  │ 📝 提交: fix: auth crash         │
+│ > 修复登录 bug                   │  │   [查看 diff →]                  │
+│ ...                              │  │                                  │
+│                                  │  │ ✏️ 修改了 3 个文件（未提交）      │
+│                                  │  │   src/auth.rs                    │
+│                                  │  │   src/login.tsx                  │
+│                                  │  │   package.json                   │
+│                                  │  │   [查看 diff →]                  │
+│                                  │  │                                  │
+│                                  │  │ 🔄 切换到分支 feature/auth       │
+│                                  │  │   [查看提交图 →]                 │
+└──────────────────────────────────┘  └──────────────────────────────────┘
 ```
 
-### 13.3 Session Detail
+**数据来源**：`git/updated` 事件差量，Provider 无关，不需要解析 JSONL。
+**跳转目标**：点击通知直接跳到已有的 DiffViewer / GitGraphView。
 
-点击 Session 卡片展开 → 完整时间线 + Diff：
+### 9.3 Detail — Git Diff + 提交记录
 
 ```text
 ┌─ 修复 Git panel 崩溃 ─────────────────────────────────────┐
 │                                                            │
-│  📋 目标: 修复 Git panel 在切换分支时的崩溃问题            │
-│  ⏱ 耗时: 23分钟  📁 文件: 3  📝 提交: 2                   │
+│  Claude · 2h前 · cwd: ~/work/GT-Office                    │
 │                                                            │
-│  ── 时间线 ──────────────────────────────────────────      │
-│                                                            │
-│  14:01  💬 用户: 修复 Git panel 崩溃                      │
-│  14:02  📖 读取 src/git/panel.tsx                         │
-│  14:05  ✏️ 修改 src/git/panel.tsx  (+42/-8)              │
-│  14:08  📝 git commit "fix: branch switch crash"          │
-│  14:10  ✅ cargo test — 12/12 passed                      │
-│  14:15  💬 Agent: 已修复，测试通过                        │
-│  14:20  📝 git commit "test: add branch switch test"      │
+│  ── 提交记录 (2) ─────────────────────────────────────    │
+│  def456  test: add branch switch test                      │
+│  abc789  fix: branch switch crash                          │
 │                                                            │
 │  ── 文件变更 ──────────────────────────────────────        │
-│  M  src/git/panel.tsx          +42  -8                     │
-│  A  src/git/__tests__/branch.test.ts  +31                 │
-│  M  package.json              +1   -0                     │
+│  M  src/git/panel.tsx                +42  -8               │
+│  A  src/git/__tests__/branch.test.ts  +31                  │
+│  M  package.json              +1   -0                       │
 │                                                            │
+│  ── 完整 Diff ────────────────────────────────────        │
+│  [展开查看 src/git/panel.tsx 的具体修改]                   │
+│                                                            │
+│  [恢复对话]                                                │
 └────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 14. 与现有模块关系
-
-| 现有模块 | Session 架构中的角色 | 改动范围 |
-|----------|---------------------|----------|
-| `gt-session-log` | Provider JSONL 解析引擎 + Discovery 底层 | 扩展 Discovery 模式（扫描所有 Session，非仅当前锚定） |
-| `gt-terminal` | PTY 管理层 | 无需改动，Resume 复用 `create_session` + `write_command` |
-| `AgentRuntimeRegistration` | 运行时绑定 | 增加 `gtoSessionId` 字段 |
-| `WorkspaceTerminalSessionDocument` | 前端 session 持久化 | 增加 `lastActiveGtoSessionIds` |
-| `tool_launch` | Agent 启动入口 | 委托 `session.launch(new)` |
-| `gt-changefeed` | 工作区变更事件源 | 升级为 SessionEvent 生产者 |
-| `app_state.rs` | 全局装配 | 仅注册 `SessionService`，不承载业务逻辑 |
+所有数据来自 `git log` 和 `git diff`，Provider 无关。
 
 ---
 
-## 15. 实施阶段（重新排序）
+## 10. 性能与可靠性
 
-| 阶段 | 交付 | 用户感知 |
+### 10.1 性能目标
+
+| 场景 | 目标 | 策略 |
+|------|------|------|
+| App 打开 → 历史列表可见 | < 500ms | SQLite 先行，扫描后台 |
+| Discovery 完成全部扫描 | < 3s | 并行扫描 + 缓存 |
+| 点击恢复 → PTY 就绪 | < 1s | 复用现有 PTY 创建 |
+| 卡片展开 → 统计加载 | < 100ms | 懒加载 + JOIN |
+
+### 10.2 SQLite
+
+- WAL 模式：读写不阻塞
+- 单连接 + Mutex：桌面应用足够
+- 路径：`.gtoffice/sessions.db`，跟随 workspace
+
+### 10.3 并发模型
+
+```text
+UI Thread (main)
+  │
+  ├─ session.* commands（同步/异步）
+  │
+  Background Thread Pool
+  ├─ ProviderScanner      ← 定期/按需扫描 → merge SQLite
+  ├─ GitSessionDiff       ← 懒加载 git 统计 → 写 session_stats
+  ├─ SessionSummary       ← 懒加载首条消息提取 → 写缓存
+  └─ SessionChangeFeed    ← 监听 git/updated → 差量检测 → emit session-activity
+```
+
+事件通过 Tauri `emit` 推送前端。SQLite 写入通过 `Mutex<Connection>` 序列化。
+`SessionChangeFeed` 订阅已有的 `git/updated` 事件流，不新增 watcher。
+
+### 10.4 降级策略
+
+| 故障场景 | 降级行为 |
+|----------|----------|
+| Provider 目录不存在 | 空列表，不崩溃 |
+| sessions-index.json 损坏 | 回退目录扫描 |
+| 首条消息解析失败 | title 显示 `(unknown)`，不崩溃 |
+| 不在 git repo 中 | 统计字段显示 `—`，不影响列表 |
+| git diff 失败 | 跳过统计，卡片只显示 title + 时间 |
+| Provider resume 失败 | fallback 到只读 git diff |
+
+---
+
+## 11. 与现有模块关系
+
+| 模块 | 角色 | 改动范围 |
 |------|------|----------|
-| **P0** | `gt-agent-session` crate + SQLite + Discovery (Claude/Codex) + Session 卡片（含摘要 + 统计） | 「我能看到每个 Agent 做了什么」 |
-| **P1** | 一键 Resume + handover 注入 + Provider resume 命令编排 | 「我能无缝接上」 |
-| **P2** | SessionObserver + 实时活动流 (file watcher → 事件) | 「我看着它在干活」 |
-| **P3** | 完整 Timeline + Session Detail 页 + 验证报告卡 | 「我完全掌握全过程」 |
-| **P4** | 跨 Session 模式识别 + Audit 统计 | 「系统越用越懂我」 |
-
-**P0 详细拆解**：
-
-| 子任务 | 依赖 | 说明 |
-|--------|------|------|
-| P0.1: `gt-agent-session` crate 骨架 | 无 | SQLite schema、基础 CRUD |
-| P0.2: `ProviderSessionDiscovery` (Claude) | P0.1 | 扫描 sessions-index.json + 目录回退 |
-| P0.3: `ProviderSessionDiscovery` (Codex) | P0.1 | 遍历 sessions/ 下 session_meta |
-| P0.4: `SessionSummaryService` | P0.1 | 首条消息提取 + git diff --stat |
-| P0.5: Tauri bridge (session.list, session.discover) | P0.2, P0.3, P0.4 | 连接前后端 |
-| P0.6: Station Idle UI（历史列表 + 卡片） | P0.5 | 前端组件 |
-| P0.7: App 启动时触发 Discovery | P0.5 | workspace 加载后自动 scan |
-
-**不做**：多 Agent 协作画布、完整 PTY scrollback 持久化作为恢复依据。
+| `gt-session-log` | Channel 消息解析（不动）+ Discovery 模式（新增） | **新增** Discovery 扫描方法；**不动**现有 poll/bind/Channel 逻辑 |
+| `gt-terminal` | PTY 管理 | 无需大改，Resume 复用 create + write |
+| `gt-git` | git 操作 | 无需改动，`GitService` 现有方法够用 |
+| `GitStatusCoordinator` | git/updated 事件推送 | 无需改动，`SessionChangeFeed` 只是订阅者 |
+| `AgentRuntimeRegistration` | 运行时绑定 | 增加 `gtoSessionId` 字段 |
+| `WorkspaceTerminalSessionDocument` | 前端持久化 | 增加 `lastActiveGtoSessionIds` |
+| `tool_launch` | 启动入口 | 委托 `session.launch`，记录 `git_start_commit` |
+| `gt-changefeed` | 空壳 stub → 实现 `SessionChangeFeed` | **从空壳变为** git/updated 差量检测 + Session 活动记录 |
+| `NotificationStore` | toast 通知 | 无需改动，直接复用 `addNotification()` |
+| `DiffViewer` / `GitGraphView` | 详情页 | 无需改动，作为通知跳转目标 |
+| `app_state.rs` | 全局装配 | 仅注册 `SessionService`，不承载业务 |
 
 ---
 
-## 16. 原则
+## 12. 实施阶段
 
-1. **对话内容以 Provider Session 为准**；GTO 以账本 + Timeline 为准
-2. **PTY 可弃、可替换**：Terminal 仅是运行时载体，不作为恢复依据
-3. **SQLite 先行，Discovery 后台**：用户打开 App 立刻看到历史，不等扫描
-4. **首次绑定用户确认**，确认后自动复用，不再设置信度等级
-5. **逻辑下沉 `gt-agent-session`**，不膨胀 `app_state`
-6. **统计独立于主表**：`session_stats` 独立，便于扩展和懒加载
+| 阶段 | 交付 | 用户感知 | 数据来源 |
+|------|------|----------|----------|
+| **P0** | SQLite + Discovery + 历史列表卡片 + 一键恢复 | 「我能看到做了什么、点一下就接上」 | 文件系统 + git |
+| **P1** | Git 活动通知（监听 `git/updated` → toast → 跳转 DiffViewer） | 「Agent 在跑时，改了什么自动弹出来，点一下看 diff」 | `git/updated` 事件 |
+| **P2** | Git Diff Detail 页 + handover 注入 | 「点进去看改了什么、恢复时有上下文」 | git |
+| **P3** | 结构化活动流 + 验证追踪 | 「看着它在干活」 | **等 Provider 提供稳定 API 后再做** |
+
+### P0 详细拆解
+
+| 子任务 | 说明 |
+|--------|------|
+| P0.1: `gt-agent-session` crate 骨架 | SQLite schema、基础 CRUD |
+| P0.2: `ProviderScanner` (Claude) | sessions-index.json + 目录回退 |
+| P0.3: `ProviderScanner` (Codex) | 遍历 sessions/ 下首行 session_meta |
+| P0.4: `SessionSummary` | 首条消息提取（仅读 1-5 行），不影响 Channel 解析 |
+| P0.5: `GitSessionDiff` | 启动时记 `git_start_commit`，结束时记 `git_end_commit`，懒加载统计 |
+| P0.6: Tauri bridge | session.list / session.discover / session.launch / session.get |
+| P0.7: Station Idle UI | 历史列表 + 卡片 |
+| P0.8: App 启动 Discovery | workspace 加载后自动 scan |
+
+### P1 详细拆解
+
+| 子任务 | 说明 |
+|--------|------|
+| P1.1: `SessionChangeFeed` | 实现 `gt-changefeed`，监听 `git/updated`，差量检测 |
+| P1.2: `SessionActivity` 事件 | 差量 → `SessionActivityItem` 枚举（BranchSwitched/NewCommits/FilesChanged） |
+| P1.3: Tauri 事件桥接 | `gtoffice:session-activity` 事件推送前端 |
+| P1.4: 前端 Activity 面板 | Station Live 时在终端旁展示活动通知，复用 NotificationStore |
+| P1.5: 跳转导航 | 点击通知 → 打开 DiffViewer 或 GitGraphView |
+
+**不做**：多 Agent 协作画布、PTY scrollback 持久化、JSONL 结构化事件解析（等 Provider API）、Gemini 路径、Channel 消息解析改动。
+
+---
+
+## 13. 原则
+
+1. **只依赖稳定的数据源**：文件系统、git、Provider 首行——不解析 Provider 内部 JSONL 格式
+2. **不动现有功能**：Channel 消息解析、`gt-session-log` poll/bind 逻辑——新增 Discovery 模式，不改动
+3. **复用已有基础设施**：`git/updated` 事件、`NotificationStore`、`DiffViewer`、`GitGraphView`——不造新组件
+4. **Provider 是对话真相**：恢复对话用 Provider 原生 /resume，GTO 只做索引
+5. **PTY 是载体**：Terminal 可弃可替换，不作为恢复依据
+6. **SQLite 先行**：打开 App 先给历史列表，扫描在后台做
 7. **三态足够**：live / stopped / archived，减少状态 = 减少边缘 bug
-8. **性能是门面**：< 500ms 首屏可见，Discovery 在后台不阻塞 UI
-9. **Handover 是安全网**：即使 Provider resume 不可用，GTO 自身记录也能重建上下文
+8. **逻辑下沉 `gt-agent-session`**：不膨胀 `app_state`
+9. **统计独立于主表**：`session_stats` 独立，且全部来自 git
+10. **降级不崩溃**：不在 git repo 中就显示 `—`，Provider 目录缺失就空列表
+11. **不猜 Provider 格式**：JSONL 只读首行取 title，不逐行解析做结构化提取
