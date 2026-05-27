@@ -1,10 +1,10 @@
-import type { SessionCard, SessionProvider, SessionLifecycle } from '@shell/integration/desktop-api'
+import type { SessionCard, SessionProvider } from '@shell/integration/desktop-api'
 import {
   normalizeStationToolKind,
   type StationToolKind,
 } from '@features/workspace-hub/station-model'
 
-export type { SessionCard, SessionProvider, SessionLifecycle }
+export type { SessionCard, SessionProvider }
 
 /** Map station tool config to the provider whose sessions should be shown. */
 export function stationToolKindToSessionProvider(toolKind: StationToolKind): SessionProvider | null {
@@ -47,14 +47,6 @@ export function providerLabel(provider: SessionProvider): string {
   switch (provider) {
     case 'claude': return 'Claude'
     case 'codex': return 'Codex'
-  }
-}
-
-export function lifecycleChipClass(lifecycle: SessionLifecycle): string {
-  switch (lifecycle) {
-    case 'live': return 'live'
-    case 'stopped': return 'stopped'
-    case 'archived': return 'archived'
   }
 }
 

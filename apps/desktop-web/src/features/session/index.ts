@@ -10,6 +10,6 @@ export {
 export type { SessionHistoryListProps } from './SessionHistoryList'
 export type { UseSessionHistoryResult, UseSessionHistoryOptions } from './use-session-history'
 export type { SessionResumeStepHandlers } from './execute-session-resume-steps'
-export type { SessionCard, SessionProvider, SessionLifecycle } from './session-history-model'
+export type { SessionCard, SessionProvider } from './session-history-model'
 export type { SessionRelaunchMode, SessionRelaunchRequest } from './session-relaunch'
 export { buildSessionRelaunchLaunchCommand } from './session-relaunch'

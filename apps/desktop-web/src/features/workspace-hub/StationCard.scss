@@ -316,6 +316,14 @@
   }
 }
 
+.station-terminal-launch-btn {
+  color: color-mix(in srgb, var(--vb-text-muted) 92%, white 8%);
+
+  &:hover {
+    color: color-mix(in srgb, var(--vb-accent) 76%, white 24%);
+  }
+}
+
 .station-drag-handle {
   cursor: grab;
 
@@ -372,17 +380,17 @@
 
 .station-terminal-idle-state {
   flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  gap: rem(18);
-  padding: rem(18);
-  background: transparent;
   min-height: 0;
+  padding: rem(18) rem(18) 0;
+  background: transparent;
 
   .session-history-list {
     flex: 1 1 auto;
-    min-height: rem(160);
+    min-height: 0;
+    height: 100%;
     overflow: hidden;
   }
 
@@ -390,54 +398,6 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-  }
-
-  .station-terminal-idle-actions {
-    flex-shrink: 0;
-    margin-top: auto;
-  }
-}
-
-.station-terminal-idle-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: rem(10);
-  align-items: center;
-}
-
-.station-terminal-idle-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: rem(6);
-  min-height: rem(28);
-  padding: 0 rem(10);
-  border-radius: rem(999);
-  border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
-  background: color-mix(in srgb, var(--vb-surface) 92%, transparent);
-  color: var(--vb-text);
-  font-size: rem(11);
-  font-weight: 650;
-  cursor: pointer;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-
-  &:hover {
-    transform: translateY(-rem(1));
-    border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
-    background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow:
-      0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 40%, transparent),
-      0 0 0 rem(4) color-mix(in srgb, var(--vb-accent) 14%, transparent);
-  }
-
-  &.primary {
-    border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
-    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
-    color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
   }
 }
 
@@ -503,9 +463,9 @@
   }
 
   .station-terminal-idle-state {
-    gap: rem(14);
-    padding: rem(14);
+    padding: rem(14) rem(14) 0;
   }
+
 }
 
 @keyframes bubble-slide-in {
@@ -547,15 +507,6 @@
 
   .station-window-action-group {
     flex-shrink: 0;
-  }
-
-  .station-terminal-idle-actions {
-    width: 100%;
-  }
-
-  .station-terminal-idle-button {
-    flex: 1 1 auto;
-    justify-content: center;
   }
 
   .station-task-ack-bubble {

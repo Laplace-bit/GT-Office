@@ -161,11 +161,6 @@
     background: color-mix(in srgb, var(--vb-glass-lighter) 80%, transparent);
     box-shadow: 0 0.0625rem 0.25rem color-mix(in srgb, var(--vb-accent) 6%, transparent);
   }
-
-  &.live {
-    border-color: color-mix(in srgb, var(--vb-success) 20%, var(--vb-border-subtle));
-    background: color-mix(in srgb, var(--vb-success) 4%, var(--vb-glass-lighter));
-  }
 }
 
 .session-history-card-header {
@@ -188,32 +183,6 @@
   .vb-icon {
     width: 0.75rem;
     height: 0.75rem;
-  }
-}
-
-.session-history-card-lifecycle {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 0.3125rem;
-  border-radius: 999rem;
-  font-size: 0.5rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-
-  &.live {
-    color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
-    background: color-mix(in srgb, var(--vb-success) 10%, transparent);
-  }
-
-  &.stopped {
-    color: var(--vb-text-muted);
-    background: color-mix(in srgb, var(--vb-border-subtle) 20%, transparent);
-  }
-
-  &.archived {
-    color: color-mix(in srgb, var(--vb-warning) 82%, white 18%);
-    background: color-mix(in srgb, var(--vb-warning) 10%, transparent);
   }
 }
 

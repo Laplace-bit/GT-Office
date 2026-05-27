@@ -4,7 +4,7 @@ import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { SessionCard } from '@shell/integration/desktop-api'
 import type { SessionRelaunchRequest } from './session-relaunch'
-import { providerIcon, providerLabel, lifecycleChipClass, formatRelativeTime, hasStats } from './session-history-model'
+import { providerIcon, providerLabel, formatRelativeTime, hasStats } from './session-history-model'
 import './SessionHistoryList.scss'
 
 export interface SessionHistoryListProps {
@@ -145,15 +145,12 @@ const SessionHistoryCardItem = memo(function SessionHistoryCardItem({
   }, [onRelaunch, relaunchPayload])
 
   return (
-    <div className={['session-history-card', lifecycleChipClass(card.lifecycle)].join(' ')} role="listitem">
+    <div className="session-history-card" role="listitem">
       <div className="session-history-card-header">
         <div className="session-history-card-provider">
           <AppIcon name={providerIcon(card.provider) as any} className="vb-icon" aria-hidden="true" />
           <span>{providerLabel(card.provider)}</span>
         </div>
-        <span className={['session-history-card-lifecycle', lifecycleChipClass(card.lifecycle)].join(' ')}>
-          {card.lifecycle}
-        </span>
       </div>
       <div className="session-history-card-title">
         {card.title ?? t(locale, '无标题', 'Untitled')}
@@ -168,7 +165,7 @@ const SessionHistoryCardItem = memo(function SessionHistoryCardItem({
             {card.deletions > 0 && <span className="stat-del">-{card.deletions}</span>}
           </span>
         ) : null}
-        {card.lifecycle === 'stopped' && onRelaunch ? (
+        {onRelaunch ? (
           <div className="session-history-card-actions">
             <button type="button" className="session-history-card-resume" onClick={handleResume}>
               <AppIcon name="rotate-ccw" className="vb-icon" aria-hidden="true" />

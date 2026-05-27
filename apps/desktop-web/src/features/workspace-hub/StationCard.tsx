@@ -589,6 +589,17 @@ function StationCardView({
                 />
               )}
             </StationIconButton>
+            <StationIconButton
+              className="station-terminal-launch-btn"
+              tooltip={t(locale, 'workbench.stationLaunchTerminal')}
+              ariaLabel={t(locale, 'workbench.stationLaunchTerminal')}
+              onClick={(event) => {
+                event.stopPropagation()
+                activateStationAndOpenTerminal()
+              }}
+            >
+              <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+            </StationIconButton>
             {draggable ? (
               <StationIconButton
                 className="station-drag-handle"
@@ -724,34 +735,6 @@ function StationCardView({
               onRelaunch={onSessionRelaunch ? handleSessionRelaunch : undefined}
             />
           ) : null}
-          <div className="station-terminal-idle-actions">
-            <button
-              type="button"
-              className="station-terminal-idle-button primary"
-              onClick={(event) => {
-                event.stopPropagation()
-                handlePrimaryLaunch()
-              }}
-            >
-              <Play
-                className="vb-icon vb-icon-station-button station-play-icon"
-                aria-hidden="true"
-                strokeWidth={1.9}
-              />
-              <span>{t(locale, 'workbench.stationLaunchAgent')}</span>
-            </button>
-            <button
-              type="button"
-              className="station-terminal-idle-button"
-              onClick={(event) => {
-                event.stopPropagation()
-                activateStationAndOpenTerminal()
-              }}
-            >
-              <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-              <span>{t(locale, 'workbench.stationLaunchTerminal')}</span>
-            </button>
-          </div>
         </div>
       )}
       <StationActionDock actions={stationActions} compact={dockCompact} onAction={handleRunAction} />

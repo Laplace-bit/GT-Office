@@ -158,7 +158,45 @@
   }
 }
 
+.terminal-station-pane-launch-terminal {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.625rem;
+  height: 1.625rem;
+  margin: 0 0 0 auto;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--vb-accent) 72%, white 28%);
+  cursor: pointer;
+  transition:
+    background 180ms var(--vb-ease-smooth),
+    color 180ms var(--vb-ease-smooth);
+
+  &:hover {
+    background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
+    color: color-mix(in srgb, var(--vb-accent) 86%, white 14%);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 44%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
+
+  .vb-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+}
+
 .terminal-station-pane[data-terminal-activation-guard='true'] {
+  .terminal-station-pane-launch-terminal,
   .terminal-station-pane-force-close {
     pointer-events: none;
   }
@@ -184,17 +222,17 @@
 
 .terminal-station-pane-idle-state {
   flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  gap: 1.125rem;
-  padding: 1.125rem;
   min-height: 0;
+  padding: 1.125rem 1.125rem 0;
   background: transparent;
 
   .session-history-list {
     flex: 1 1 auto;
-    min-height: 10rem;
+    min-height: 0;
+    height: 100%;
     overflow: hidden;
   }
 
@@ -203,29 +241,32 @@
     min-height: 0;
     overflow-y: auto;
   }
-
-  .terminal-station-pane-idle-actions {
-    flex-shrink: 0;
-    margin-top: auto;
-  }
 }
 
 .terminal-station-pane-idle-actions {
+  position: absolute;
+  right: 1.125rem;
+  bottom: 1.125rem;
+  z-index: 3;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.625rem;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  pointer-events: none;
 }
 
 .terminal-station-pane-idle-button {
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   min-height: 2.1875rem;
   padding: 0 0.875rem;
-  border-radius: 999rem;
   border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
+  border-radius: 999rem;
   background: color-mix(in srgb, var(--vb-surface) 92%, transparent);
   color: var(--vb-text);
   font-size: 0.75rem;
@@ -233,27 +274,34 @@
   cursor: pointer;
   transition:
     transform 180ms var(--vb-ease-smooth),
-    border-color 180ms var(--vb-ease-smooth),
+    color 180ms var(--vb-ease-smooth),
     background 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth);
+    border-color 180ms var(--vb-ease-smooth),
+    text-shadow 180ms var(--vb-ease-smooth);
 
   &:hover {
     transform: translateY(-0.0625rem);
+    color: color-mix(in srgb, var(--vb-text) 94%, white 6%);
     border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
     background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
+    text-shadow: 0 0.0625rem 0.625rem color-mix(in srgb, var(--vb-accent) 18%, transparent);
   }
 
   &:focus-visible {
     outline: none;
-    box-shadow:
-      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 40%, transparent),
-      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+    color: var(--vb-text);
+    text-shadow: 0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 40%, transparent);
   }
 
   &.primary {
     border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
     background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
     color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
+
+    &:hover {
+      background: color-mix(in srgb, var(--vb-accent) 18%, var(--vb-surface));
+      color: color-mix(in srgb, var(--vb-accent) 88%, white 12%);
+    }
   }
 }
 
@@ -297,9 +345,17 @@
     padding: 0.625rem 0.75rem;
   }
 
-  .terminal-station-pane-meta-row,
-  .terminal-station-pane-idle-actions {
+  .terminal-station-pane-meta-row {
     flex-wrap: wrap;
+  }
+
+  .terminal-station-pane-idle-state {
+    padding: 0.875rem 0.875rem 0;
+  }
+
+  .terminal-station-pane-idle-actions {
+    right: 0.875rem;
+    bottom: 0.875rem;
   }
 
   .terminal-station-pane-title {
@@ -316,7 +372,4 @@
     }
   }
 
-  .terminal-station-pane-idle-button {
-    width: 100%;
-  }
 }

@@ -83,7 +83,10 @@ interface TerminalStationPaneProps {
   onRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   onReturnToWorkspace?: () => void
   onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
-  onSessionRelaunch?: (request: import('@features/session').SessionRelaunchRequest) => void
+  onSessionRelaunch?: (
+    stationId: string,
+    request: import('@features/session').SessionRelaunchRequest,
+  ) => void
   commands?: ToolCommandSummary[]
 }
 
@@ -101,7 +104,6 @@ function TerminalStationPaneView({
   launchMode = 'workspace',
   onSelectStation,
   onLaunchStationTerminal,
-  onLaunchCliAgent,
   onForceCloseTerminal,
   onSendInputData,
   onResizeTerminal,
@@ -151,6 +153,12 @@ function TerminalStationPaneView({
       void sessionHistory.refresh()
     }
   }, [workspaceId, discoverCwd, sessionHistory])
+  const handleSessionRelaunch = useCallback(
+    (request: import('@features/session').SessionRelaunchRequest) => {
+      onSessionRelaunch?.(station.id, request)
+    },
+    [onSessionRelaunch, station.id],
+  )
   const recordStationUiDiagnostic = useMemo(
     () => (detail: string) => {
       if (typeof window === 'undefined') {
@@ -200,6 +208,20 @@ function TerminalStationPaneView({
               size="compact"
               className="terminal-station-pane-comet"
             />
+          ) : null}
+          {!hasTerminalSession && !detachedReadonly ? (
+            <button
+              type="button"
+              className="terminal-station-pane-launch-terminal"
+              aria-label={t(locale, 'workbench.stationLaunchTerminal')}
+              title={t(locale, 'workbench.stationLaunchTerminal')}
+              onClick={(event) => {
+                event.stopPropagation()
+                onLaunchStationTerminal(station.id)
+              }}
+            >
+              <AppIcon name="terminal" className="vb-icon" aria-hidden="true" />
+            </button>
           ) : null}
           {hasTerminalSession && onForceCloseTerminal ? (
             <button
@@ -267,12 +289,13 @@ function TerminalStationPaneView({
       ) : (
         <div className="terminal-station-pane-idle-state">
           {workspaceId && sessionProvider ? (
-            <StationSessionHistoryPanel
+            <SessionHistoryList
               locale={locale}
-              workspaceId={workspaceId}
-              discoverCwd={discoverCwd}
-              provider={sessionProvider}
-              onRelaunch={onSessionRelaunch}
+              cards={sessionHistory.cards}
+              loading={sessionHistory.loading}
+              error={sessionHistory.error}
+              onDiscover={handleSessionDiscover}
+              onRelaunch={onSessionRelaunch ? handleSessionRelaunch : undefined}
             />
           ) : null}
           <div className="terminal-station-pane-idle-actions">
@@ -283,14 +306,6 @@ function TerminalStationPaneView({
             >
               <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
               <span>{t(locale, 'workbench.stationLaunchTerminal')}</span>
-            </button>
-            <button
-              type="button"
-              className="terminal-station-pane-idle-button"
-              onClick={() => onLaunchCliAgent(station.id)}
-            >
-              <AppIcon name="sparkles" className="vb-icon vb-icon-station-button" aria-hidden="true" />
-              <span>{t(locale, 'workbench.stationLaunchAgent')}</span>
             </button>
             {detachedReadonly && onReturnToWorkspace ? (
               <button
