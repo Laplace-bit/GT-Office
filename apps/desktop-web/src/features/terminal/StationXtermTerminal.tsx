@@ -291,10 +291,10 @@ function getTerminalTheme(host?: HTMLElement | null): ITheme {
   const isDark = isDarkDataTheme(doc.documentElement.getAttribute('data-theme'))
   if (!isDark) {
     return {
-      background: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
+      background: readCssVarOr('--vb-terminal-bg', '#f4efe4', doc),
       foreground: readCssVarOr('--vb-terminal-text', '#1f2937', doc),
       cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff', doc),
-      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
+      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f4efe4', doc),
       selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#0b1b31', doc),
       selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(10, 132, 255, 0.24)', doc),
       selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(97, 138, 191, 0.18)', doc),
@@ -329,10 +329,10 @@ function getTerminalTheme(host?: HTMLElement | null): ITheme {
     }
   }
   return {
-    background: readCssVarOr('--vb-terminal-bg', '#0f141c', doc),
+    background: readCssVarOr('--vb-terminal-bg', '#1c1c1e', doc),
     foreground: readCssVarOr('--vb-terminal-text', '#e6edf7', doc),
     cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff', doc),
-    cursorAccent: readCssVarOr('--vb-terminal-bg', '#0f141c', doc),
+    cursorAccent: readCssVarOr('--vb-terminal-bg', '#1c1c1e', doc),
     selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#f7fbff', doc),
     selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(122, 168, 255, 0.34)', doc),
     selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(95, 128, 178, 0.24)', doc),
