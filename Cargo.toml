@@ -26,7 +26,7 @@ members = [
 exclude = ["tools/gto-agent-mcp-sidecar"]
 
 [workspace.package]
-version = "0.6.3"
+version = "0.7.0"
 edition = "2021"
 authors = ["GT Office Team"]
 license = "Apache-2.0"

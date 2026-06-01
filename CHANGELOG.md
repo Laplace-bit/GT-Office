@@ -1,3 +1,13 @@
+## v0.7.0 (2026-06-01)
+
+- 48abe00 fix(terminal): restore terminal background CSS rule and sync theme fallback values
+- 44dadbe Unify station launch controls in header.
+- 58eab62 Add agent session history, CLI relaunch, and faster station terminal launch.
+- 479e156 Remove Gemini CLI support across backend, frontend, and docs.
+- 578408d Fix unit tests after Gemini deprecation and restore interrupt guard helpers.
+- 9980fc3 Deprecate Gemini CLI across install, launch, and settings UI.
+- 3831135 Release v0.6.3
+
 ## v0.6.3 (2026-05-24)
 
 ### Startup and production fixes

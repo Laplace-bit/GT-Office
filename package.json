@@ -1,6 +1,6 @@
 {
   "name": "gtoffice",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "GT Office is a cross-platform AI agent desktop app and multi-agent workspace for Claude Code, Codex CLI, terminals, files, and Git.",
@@ -17,7 +17,7 @@
     "multi-agent",
     "claude-code",
     "codex-cli",
-        "tauri",
+    "tauri",
     "react",
     "rust",
     "desktop-app",
