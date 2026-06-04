@@ -1344,16 +1344,28 @@ where
 
         command.cwd(&resolved_cwd);
 
-        // Always set TERM and COLORTERM for proper color rendering.
-        // xterm.js fully supports 256-color and TrueColor regardless of
-        // how the Tauri app was launched:
-        //  - .app bundle (Finder/Spotlight): parent has no terminal env vars,
-        //    CLI programs fall back to 16-color (Claude Code orange → white).
-        //  - login shell (-l): zsh reloads /etc/zprofile which can reset TERM.
-        // Setting unconditionally ensures the PTY subprocess always advertises
-        // the correct capabilities. request.env overrides below take precedence.
+        // Always inject color capability env vars for proper rendering.
+        //
+        // Problem: The Tauri .app bundle parent process has no terminal env vars
+        // (no TERM, no COLORTERM). Even though we set them here at PTY spawn,
+        // login shells (-l) re-execute ~/.zshrc / ~/.zprofile, which may override
+        // TERM or COLORTERM (e.g. setting TERM=xterm, or not setting COLORTERM
+        // at all), causing CLI tools like Claude Code to fall back to 16-color
+        // mode and rendering the orange icon as white.
+        //
+        // Defense-in-depth with multiple color-forcing mechanisms:
+        //   TERM=xterm-256color   — advertise 256-color capability
+        //   COLORTERM=truecolor   — opt-in TrueColor for terminals that read it
+        //   FORCE_COLOR=3         — Node.js / chalk: force 24-bit regardless of detection
+        //   CLICOLOR_FORCE=1      — POSIX / BSD: force colored output unconditionally
+        //   CLICOLOR=1            — enable color even in non-interactive contexts
+        //
+        // request.env entries applied afterwards take precedence (callers can override).
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
+        command.env("FORCE_COLOR", "3");
+        command.env("CLICOLOR_FORCE", "1");
+        command.env("CLICOLOR", "1");
 
         for (key, value) in &request.env {
             command.env(key, value);
