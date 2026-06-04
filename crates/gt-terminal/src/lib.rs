@@ -1371,6 +1371,16 @@ where
             command.env(key, value);
         }
 
+        if let Ok(mut file) = std::fs::File::create("/Users/dzlin/work/GT-Office/terminal_env_debug.txt") {
+            use std::io::Write as _;
+            let _ = writeln!(file, "--- Command Builder ---");
+            let _ = writeln!(file, "{:#?}", command);
+            let _ = writeln!(file, "\n--- Parent Process Envs ---");
+            for (key, val) in std::env::vars() {
+                let _ = writeln!(file, "{}={}", key, val);
+            }
+        }
+
         let mut child =
             pair.slave
                 .spawn_command(command)
