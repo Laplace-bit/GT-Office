@@ -1344,17 +1344,16 @@ where
 
         command.cwd(&resolved_cwd);
 
-        // Ensure TERM and COLORTERM are set for proper color rendering.
-        // When launched as a macOS .app bundle the parent process has no
-        // terminal environment, so these would be absent and CLI programs
-        // fall back to basic 16-color mode (e.g. Claude Code's orange icon
-        // renders as white). xterm.js fully supports 256-color and TrueColor.
-        if std::env::var("TERM").map_or(true, |v| v.is_empty()) {
-            command.env("TERM", "xterm-256color");
-        }
-        if std::env::var("COLORTERM").map_or(true, |v| v.is_empty()) {
-            command.env("COLORTERM", "truecolor");
-        }
+        // Always set TERM and COLORTERM for proper color rendering.
+        // xterm.js fully supports 256-color and TrueColor regardless of
+        // how the Tauri app was launched:
+        //  - .app bundle (Finder/Spotlight): parent has no terminal env vars,
+        //    CLI programs fall back to 16-color (Claude Code orange → white).
+        //  - login shell (-l): zsh reloads /etc/zprofile which can reset TERM.
+        // Setting unconditionally ensures the PTY subprocess always advertises
+        // the correct capabilities. request.env overrides below take precedence.
+        command.env("TERM", "xterm-256color");
+        command.env("COLORTERM", "truecolor");
 
         for (key, value) in &request.env {
             command.env(key, value);
