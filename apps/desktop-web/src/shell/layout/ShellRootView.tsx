@@ -1,44 +1,18 @@
 import {
-  Suspense,
-  useEffect,
-  useState,
   type ComponentProps,
   type CSSProperties,
   type KeyboardEventHandler,
   type PointerEventHandler,
   type RefObject,
 } from 'react'
-import type { FileEditorPane } from '@features/file-explorer/FileEditorPane'
-import type { FileTreePane } from '@features/file-explorer/FileTreePane'
-import type { GlobalFileSearchModal } from '@features/file-explorer/GlobalFileSearchModal'
-import type { GitHistoryPane } from '@features/git/components/GitHistoryPane'
-import type { GitOperationsPane } from '@features/git/components/GitOperationsPane'
-import type { GlobalTaskDispatchOverlay } from '@features/task-center/GlobalTaskDispatchOverlay'
-import type { TaskCenterPane } from '@features/task-center/TaskCenterPane'
-import type { SettingsModal } from '@features/settings/SettingsModal'
-import type { ChannelStudio } from '@features/tool-adapter/ChannelStudio'
-import type { CommunicationChannelsPane } from '@features/tool-adapter/CommunicationChannelsPane'
-import type { StationManageModal } from '@features/workspace-hub/StationManageModal'
-import type { StationSearchModal } from '@features/workspace-hub/StationSearchModal'
-import type { WorkbenchCanvas } from '@features/workspace-hub/WorkbenchCanvas'
+import { FileEditorPane, FileTreePane, GlobalFileSearchModal } from '@features/file-explorer'
+import { GitHistoryPane, GitOperationsPane } from '@features/git'
+import { GlobalTaskDispatchOverlay, TaskCenterPane } from '@features/task-center'
+import { SettingsModal } from '@features/settings'
+import { ChannelStudio, CommunicationChannelsPane } from '@features/tool-adapter'
+import { StationManageModal, StationSearchModal, WorkbenchCanvas } from '@features/workspace-hub'
 import { StationOverviewPane } from '@features/workspace'
 import { NotificationList } from '../../components/notification/NotificationList'
-import {
-  LazyChannelStudio,
-  LazyCommunicationChannelsPane,
-  LazyFileEditorPane,
-  LazyFileTreePane,
-  LazyGitHistoryPane,
-  LazyGitOperationsPane,
-  LazyGlobalFileSearchModal,
-  LazyGlobalTaskDispatchOverlay,
-  LazySettingsModal,
-  LazyStationManageModal,
-  LazyStationSearchModal,
-  LazyTaskCenterPane,
-  LazyWorkbenchCanvas,
-  PaneLoadingFallback,
-} from './lazy-panes'
 import { t, type Locale } from '../i18n/ui-locale'
 import {
   LEFT_PANE_WIDTH_MIN,
@@ -195,9 +169,7 @@ function ShellLeftPaneContent({
     if (activeNavId === 'tasks') {
       return (
         <div className="task-center-scroll-host">
-          <Suspense fallback={<PaneLoadingFallback />}>
-            <LazyTaskCenterPane {...taskCenterPaneProps} />
-          </Suspense>
+          <TaskCenterPane {...taskCenterPaneProps} />
         </div>
       )
     }
@@ -205,18 +177,10 @@ function ShellLeftPaneContent({
       return <StationOverviewPane {...stationOverviewPaneProps} />
     }
     if (activeNavId === 'git') {
-      return (
-        <Suspense fallback={<PaneLoadingFallback />}>
-          <LazyGitOperationsPane {...gitOperationsPaneProps} />
-        </Suspense>
-      )
+      return <GitOperationsPane {...gitOperationsPaneProps} />
     }
     if (activeNavId === 'channels') {
-      return (
-        <Suspense fallback={<PaneLoadingFallback />}>
-          <LazyCommunicationChannelsPane {...communicationChannelsPaneProps} />
-        </Suspense>
-      )
+      return <CommunicationChannelsPane {...communicationChannelsPaneProps} />
     }
     return <LeftBusinessPane model={activePaneModel} />
   })()
@@ -224,9 +188,7 @@ function ShellLeftPaneContent({
   return (
     <div className="shell-left-pane-content">
       <div className={fileTreeSlotClassName} aria-hidden={!showFileTree}>
-        <Suspense fallback={<PaneLoadingFallback />}>
-          <LazyFileTreePane {...fileTreePaneProps} />
-        </Suspense>
+        <FileTreePane {...fileTreePaneProps} />
       </div>
       {showFileTree ? null : (
         <div key={activeNavId} className="shell-left-pane-slot shell-left-pane-transition">
@@ -245,42 +207,6 @@ interface ShellMainPaneContentProps {
   gitHistoryPaneProps: ComponentProps<typeof GitHistoryPane>
 }
 
-function useDeferredHeavyPanes() {
-  const [ready, setReady] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    let idleId: number | undefined
-
-    const enable = () => {
-      if (!cancelled) {
-        setReady(true)
-      }
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      if (cancelled) {
-        return
-      }
-      if (typeof window.requestIdleCallback === 'function') {
-        idleId = window.requestIdleCallback(enable, { timeout: 120 })
-        return
-      }
-      enable()
-    })
-
-    return () => {
-      cancelled = true
-      window.cancelAnimationFrame(frameId)
-      if (idleId !== undefined && typeof window.cancelIdleCallback === 'function') {
-        window.cancelIdleCallback(idleId)
-      }
-    }
-  }, [])
-
-  return ready
-}
-
 function ShellMainPaneContent({
   activeNavId,
   showWorkbenchCanvas,
@@ -288,18 +214,10 @@ function ShellMainPaneContent({
   fileEditorPaneProps,
   gitHistoryPaneProps,
 }: ShellMainPaneContentProps) {
-  const heavyPanesReady = useDeferredHeavyPanes()
-
   if (showWorkbenchCanvas) {
     return (
       <div className="shell-main-view shell-pane-transition">
-        {heavyPanesReady ? (
-          <Suspense fallback={<PaneLoadingFallback />}>
-            <LazyWorkbenchCanvas {...workbenchCanvasProps} />
-          </Suspense>
-        ) : (
-          <PaneLoadingFallback />
-        )}
+        <WorkbenchCanvas {...workbenchCanvasProps} />
       </div>
     )
   }
@@ -307,13 +225,7 @@ function ShellMainPaneContent({
   if (activeNavId === 'files') {
     return (
       <div key="files" className="shell-feature-view shell-pane-transition">
-        {heavyPanesReady ? (
-          <Suspense fallback={<PaneLoadingFallback />}>
-            <LazyFileEditorPane {...fileEditorPaneProps} />
-          </Suspense>
-        ) : (
-          <PaneLoadingFallback />
-        )}
+        <FileEditorPane {...fileEditorPaneProps} />
       </div>
     )
   }
@@ -321,13 +233,7 @@ function ShellMainPaneContent({
   if (activeNavId === 'git') {
     return (
       <div key="git" className="shell-feature-view shell-pane-transition">
-        {heavyPanesReady ? (
-          <Suspense fallback={<PaneLoadingFallback />}>
-            <LazyGitHistoryPane {...gitHistoryPaneProps} />
-          </Suspense>
-        ) : (
-          <PaneLoadingFallback />
-        )}
+        <GitHistoryPane {...gitHistoryPaneProps} />
       </div>
     )
   }
@@ -531,9 +437,7 @@ function ShellMainLayout({
       />
       {pinnedWorkbenchCanvasProps ? (
         <div className="shell-pane-shell shell-right-pane">
-          <Suspense fallback={<PaneLoadingFallback />}>
-            <LazyWorkbenchCanvas {...pinnedWorkbenchCanvasProps} />
-          </Suspense>
+          <WorkbenchCanvas {...pinnedWorkbenchCanvasProps} />
         </div>
       ) : null}
     </>
@@ -559,24 +463,12 @@ function ShellRootOverlays({
 }: ShellRootOverlaysProps) {
   return (
     <>
-      <Suspense fallback={null}>
-        <LazyGlobalTaskDispatchOverlay {...globalTaskDispatchOverlayProps} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <LazySettingsModal {...settingsModalProps} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <LazyStationManageModal {...stationManageModalProps} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <LazyChannelStudio {...channelStudioProps} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <LazyStationSearchModal {...stationSearchModalProps} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <LazyGlobalFileSearchModal {...globalFileSearchModalProps} />
-      </Suspense>
+      <GlobalTaskDispatchOverlay {...globalTaskDispatchOverlayProps} />
+      <SettingsModal {...settingsModalProps} />
+      <StationManageModal {...stationManageModalProps} />
+      <ChannelStudio {...channelStudioProps} />
+      <StationSearchModal {...stationSearchModalProps} />
+      <GlobalFileSearchModal {...globalFileSearchModalProps} />
       <NotificationList />
     </>
   )
@@ -692,11 +584,7 @@ export function ShellRootView({
         />
       </main>
 
-      {topmostWorkbenchCanvasProps ? (
-        <Suspense fallback={<PaneLoadingFallback />}>
-          <LazyWorkbenchCanvas {...topmostWorkbenchCanvasProps} />
-        </Suspense>
-      ) : null}
+      {topmostWorkbenchCanvasProps ? <WorkbenchCanvas {...topmostWorkbenchCanvasProps} /> : null}
 
       <div
         ref={shellStatusRef}

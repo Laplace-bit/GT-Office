@@ -127,14 +127,11 @@
 }
 
 /* Keep xterm's internal layout untouched. FitAddon, helper textarea, and IME geometry
-   rely on xterm-managed sizing rather than custom padding or themed sub-elements.
-   Apply terminal background via CSS so it is visible even before the xterm theme
-   inline styles take effect or during WKWebView repaints. */
+   rely on xterm-managed sizing rather than custom padding or themed sub-elements. */
 .station-terminal-shell .station-terminal-host .xterm,
 .station-terminal-shell .station-terminal-host .terminal {
   width: 100%;
   height: 100%;
-  background: var(--vb-terminal-bg);
 }
 
 .station-terminal-shell .station-terminal-host .xterm .xterm-viewport,

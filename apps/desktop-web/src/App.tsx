@@ -1,21 +1,9 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { DetachedWorkbenchWindow, type DetachedWorkbenchWindowPayload } from './features/workspace-hub'
+import { ShellRoot } from './shell/layout/ShellRoot'
+import { WorkspaceWindowRoot } from './shell/layout/WorkspaceWindowRoot'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ShellStartupFrame } from './shell/layout/ShellStartupFrame'
-const ShellRoot = lazy(() =>
-  import('./shell/layout/ShellRoot').then((module) => ({ default: module.ShellRoot })),
-)
-const WorkspaceWindowRoot = lazy(() =>
-  import('./shell/layout/WorkspaceWindowRoot').then((module) => ({
-    default: module.WorkspaceWindowRoot,
-  })),
-)
-const DetachedWorkbenchWindow = lazy(() =>
-  import('./features/workspace-hub/DetachedWorkbenchWindow').then((module) => ({
-    default: module.DetachedWorkbenchWindow,
-  })),
-)
 
-function parseDetachedPayload(): Record<string, unknown> | null {
+function parseDetachedPayload(): DetachedWorkbenchWindowPayload | null {
   if (typeof window === 'undefined') {
     return null
   }
@@ -32,7 +20,7 @@ function parseDetachedPayload(): Record<string, unknown> | null {
     const paddingLength = (4 - (normalized.length % 4)) % 4
     const binary = window.atob(`${normalized}${'='.repeat(paddingLength)}`)
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-    return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
+    return JSON.parse(new TextDecoder().decode(bytes)) as DetachedWorkbenchWindowPayload
   } catch {
     return null
   }
@@ -48,18 +36,12 @@ function parseWorkspaceWindowId(): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
-function AppSuspense({ children }: { children: ReactNode }) {
-  return <Suspense fallback={<ShellStartupFrame />}>{children}</Suspense>
-}
-
 function App() {
   const detachedPayload = parseDetachedPayload()
   if (detachedPayload) {
     return (
       <ErrorBoundary>
-        <AppSuspense>
-          <DetachedWorkbenchWindow payload={detachedPayload as never} />
-        </AppSuspense>
+        <DetachedWorkbenchWindow payload={detachedPayload} />
       </ErrorBoundary>
     )
   }
@@ -67,17 +49,13 @@ function App() {
   if (workspaceWindowId) {
     return (
       <ErrorBoundary>
-        <AppSuspense>
-          <WorkspaceWindowRoot workspaceId={workspaceWindowId} />
-        </AppSuspense>
+        <WorkspaceWindowRoot workspaceId={workspaceWindowId} />
       </ErrorBoundary>
     )
   }
   return (
     <ErrorBoundary>
-      <AppSuspense>
-        <ShellRoot />
-      </AppSuspense>
+      <ShellRoot />
     </ErrorBoundary>
   )
 }
