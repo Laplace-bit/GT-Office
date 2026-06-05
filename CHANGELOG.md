@@ -1,3 +1,19 @@
+## v0.7.1 (2026-06-05)
+
+### Production editor and terminal colors
+
+- Fix a production-only rendering regression where built macOS app windows showed Monaco syntax highlighting and xterm ANSI colors as mostly white text while dev mode was normal.
+- Root cause: fallback xterm color CSS, Monaco foreground/background overrides, startup skeleton/lazy shell chunks, and custom Vite production settings changed style injection/order in WKWebView and overrode runtime-generated color rules.
+- Solution: restore the color/rendering path to the last known-good `v0.6.2` behavior, letting xterm own ANSI colors and Monaco own token theme rules.
+- Regression note: avoid app-level overrides for xterm `.xterm-fg-*`, `.xterm-bg-*`, `.xterm-rows`, Monaco `.mtk*`, or Monaco editor foreground/background unless validated in a built `.app`.
+
+Commits:
+
+- 18981f2 Fix production editor and terminal colors
+- 28e2a12 debug(terminal): write spawned command and parent process env to workspace file
+- 9be1493 fix(terminal): add FORCE_COLOR=3 and CLICOLOR_FORCE=1 for defense-in-depth color support
+- 48717a5 fix(terminal): unconditionally set TERM/COLORTERM to prevent login shell reset
+
 ## v0.7.0 (2026-06-01)
 
 - 48abe00 fix(terminal): restore terminal background CSS rule and sync theme fallback values
