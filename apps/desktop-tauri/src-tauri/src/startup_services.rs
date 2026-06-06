@@ -4,11 +4,7 @@ use tauri::AppHandle;
 use tracing::warn;
 
 use crate::{
-    app_state::AppState,
-    channel_adapter_runtime,
-    commands::tool_adapter,
-    connectors,
-    local_bridge,
+    app_state::AppState, channel_adapter_runtime, commands::tool_adapter, connectors, local_bridge,
 };
 
 static STARTED: AtomicBool = AtomicBool::new(false);

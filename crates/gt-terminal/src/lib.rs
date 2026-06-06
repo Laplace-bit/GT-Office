@@ -1360,26 +1360,19 @@ where
         //   CLICOLOR_FORCE=1      — POSIX / BSD: force colored output unconditionally
         //   CLICOLOR=1            — enable color even in non-interactive contexts
         //
-        // request.env entries applied afterwards take precedence (callers can override).
+        for (key, value) in &request.env {
+            command.env(key, value);
+        }
+
+        // Keep renderer color capability stable even when callers provide a
+        // minimal or inherited app env. `NO_COLOR` disables many CLIs purely by
+        // presence, so remove it instead of setting it to an empty value.
+        command.env_remove("NO_COLOR");
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         command.env("FORCE_COLOR", "3");
         command.env("CLICOLOR_FORCE", "1");
         command.env("CLICOLOR", "1");
-
-        for (key, value) in &request.env {
-            command.env(key, value);
-        }
-
-        if let Ok(mut file) = std::fs::File::create("/Users/dzlin/work/GT-Office/terminal_env_debug.txt") {
-            use std::io::Write as _;
-            let _ = writeln!(file, "--- Command Builder ---");
-            let _ = writeln!(file, "{:#?}", command);
-            let _ = writeln!(file, "\n--- Parent Process Envs ---");
-            for (key, val) in std::env::vars() {
-                let _ = writeln!(file, "{}={}", key, val);
-            }
-        }
 
         let mut child =
             pair.slave

@@ -541,7 +541,10 @@ fn update_preserves_existing_prompt_file_override_through_prompt_read_and_write(
     .unwrap();
 
     let agents_prompt_path = workspace_root.join(workdir).join("AGENTS.md");
-    assert_eq!(fs::read_to_string(agents_prompt_path).unwrap(), "updated prompt");
+    assert_eq!(
+        fs::read_to_string(agents_prompt_path).unwrap(),
+        "updated prompt"
+    );
 }
 
 #[test]

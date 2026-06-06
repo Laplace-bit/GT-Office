@@ -11,7 +11,10 @@ pub struct DiscoveryCache {
 
 impl DiscoveryCache {
     pub fn new(ttl_ms: u64) -> Self {
-        Self { last_scan_at_ms: 0, ttl_ms }
+        Self {
+            last_scan_at_ms: 0,
+            ttl_ms,
+        }
     }
 
     pub fn invalidate(&mut self) {
@@ -69,7 +72,11 @@ pub fn run_discovery(
     } else {
         cards
     };
-    Ok(DiscoveryResult { cards, new_count, updated_count })
+    Ok(DiscoveryResult {
+        cards,
+        new_count,
+        updated_count,
+    })
 }
 
 fn now_ms() -> u64 {
@@ -113,7 +120,16 @@ mod tests {
         let scanner = ProviderScanner::new(PathBuf::from("/nonexistent/home"));
         let mut cache = DiscoveryCache::new(30_000);
         cache.mark_scanned();
-        let result = run_discovery(&registry, &scanner, &mut cache, "ws1", Path::new("/tmp"), None, false).unwrap();
+        let result = run_discovery(
+            &registry,
+            &scanner,
+            &mut cache,
+            "ws1",
+            Path::new("/tmp"),
+            None,
+            false,
+        )
+        .unwrap();
         assert_eq!(result.new_count, 0);
         assert_eq!(result.updated_count, 0);
         assert!(result.cards.is_empty());
@@ -124,7 +140,16 @@ mod tests {
         let registry = temp_registry();
         let scanner = ProviderScanner::new(PathBuf::from("/nonexistent/home"));
         let mut cache = DiscoveryCache::new(30_000);
-        let result = run_discovery(&registry, &scanner, &mut cache, "ws1", Path::new("/tmp"), None, false).unwrap();
+        let result = run_discovery(
+            &registry,
+            &scanner,
+            &mut cache,
+            "ws1",
+            Path::new("/tmp"),
+            None,
+            false,
+        )
+        .unwrap();
         assert_eq!(result.new_count, 0);
         assert!(cache.is_fresh());
     }

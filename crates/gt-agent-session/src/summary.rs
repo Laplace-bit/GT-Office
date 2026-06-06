@@ -150,7 +150,10 @@ fn extract_text_from_content(message: &serde_json::Value) -> Option<String> {
     if let Some(arr) = content.as_array() {
         let mut text = String::new();
         for item in arr {
-            let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+            let item_type = item
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             if matches!(
                 item_type,
                 "thinking" | "thinking_delta" | "tool_use" | "tool_result"

@@ -205,6 +205,71 @@ fn pty_provider_emits_output_event_after_write() {
 
 #[cfg(not(target_os = "windows"))]
 #[test]
+fn pty_provider_forces_color_capability_env_after_request_env() {
+    let workspace_dir = TempDir::create("gtoffice-terminal-pty-color-env");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_dir.path)
+        .expect("open workspace");
+    let provider = PtyTerminalProvider::new(workspace_service, AllowAllPolicyEvaluator);
+    let receiver = provider
+        .take_event_receiver()
+        .expect("take terminal event receiver");
+
+    let mut env = BTreeMap::new();
+    env.insert("TERM".to_string(), "dumb".to_string());
+    env.insert("COLORTERM".to_string(), String::new());
+    env.insert("FORCE_COLOR".to_string(), "0".to_string());
+    env.insert("CLICOLOR_FORCE".to_string(), "0".to_string());
+    env.insert("CLICOLOR".to_string(), "0".to_string());
+    env.insert("NO_COLOR".to_string(), "1".to_string());
+
+    let session = provider
+        .create_session(TerminalCreateRequest {
+            workspace_id: workspace.workspace_id.clone(),
+            shell: Some("/bin/bash".to_string()),
+            cwd: None,
+            cwd_mode: TerminalCwdMode::WorkspaceRoot,
+            env,
+            agent_tool_kind: None,
+            login_shell: Some(false),
+        })
+        .expect("create pty session");
+    provider
+        .set_session_visibility(&session.session_id, true)
+        .expect("set session visible");
+
+    provider
+        .write_session(
+            &session.session_id,
+            "printf '__GTO_COLOR_ENV__%s|%s|%s|%s|%s|%s\\n' \"$TERM\" \"$COLORTERM\" \"$FORCE_COLOR\" \"$CLICOLOR_FORCE\" \"$CLICOLOR\" \"${NO_COLOR-__unset__}\"\n",
+        )
+        .expect("write color env probe");
+
+    let expected = "__GTO_COLOR_ENV__xterm-256color|truecolor|3|1|1|__unset__";
+    let mut observed_output = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if let Ok(TerminalRuntimeEvent::Output(output)) =
+            receiver.recv_timeout(Duration::from_millis(300))
+        {
+            observed_output.push_str(&String::from_utf8_lossy(&output.chunk));
+            if observed_output.contains(expected) {
+                break;
+            }
+        }
+    }
+
+    let _ = provider.kill_session(&session.session_id);
+
+    assert!(
+        observed_output.contains(expected),
+        "terminal color env was not forced, got: {observed_output}"
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
 fn pty_provider_records_hidden_output_for_delta_recovery() {
     let workspace_dir = TempDir::create("gtoffice-terminal-pty-hidden-delta");
     let workspace_service = InMemoryWorkspaceService::new();

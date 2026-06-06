@@ -1,8 +1,8 @@
 use gt_agent_session::{
-    DiscoveryCache, Provider, ProviderScanner, ResumeService, SessionRelaunchMode, run_discovery,
+    run_discovery, DiscoveryCache, Provider, ProviderScanner, ResumeService, SessionRelaunchMode,
 };
 use gt_changefeed::{GitStatusSnapshot, SessionActivityEvent};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -69,7 +69,9 @@ pub fn session_discover(
     let force = force.unwrap_or(false);
     let scanner = ProviderScanner::new(home_dir());
     let cache_key = discovery_cache_key(&workspace_id, provider);
-    let mut cache_guard = DISCOVERY_CACHE.lock().map_err(|_| "discovery cache lock poisoned")?;
+    let mut cache_guard = DISCOVERY_CACHE
+        .lock()
+        .map_err(|_| "discovery cache lock poisoned")?;
     let caches = cache_guard.get_or_insert_with(HashMap::new);
     let cache = caches
         .entry(cache_key)
@@ -92,10 +94,7 @@ pub fn session_discover(
 }
 
 #[tauri::command]
-pub fn session_get(
-    gto_session_id: String,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
+pub fn session_get(gto_session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
     let detail = state
         .session_registry
         .get_detail(&gto_session_id)
@@ -107,10 +106,7 @@ pub fn session_get(
 }
 
 #[tauri::command]
-pub fn session_end(
-    gto_session_id: String,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
+pub fn session_end(gto_session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
     state
         .session_registry
         .update_lifecycle(&gto_session_id, gt_agent_session::Lifecycle::Stopped, None)
@@ -158,7 +154,12 @@ pub fn session_resume_bind(
 ) -> Result<Value, String> {
     state
         .session_registry
-        .resume_bind(&gto_session_id, &terminal_session_id, &station_id, &agent_id)
+        .resume_bind(
+            &gto_session_id,
+            &terminal_session_id,
+            &station_id,
+            &agent_id,
+        )
         .map_err(|e| e.to_string())?;
     Ok(json!({ "ok": true }))
 }
@@ -234,7 +235,10 @@ pub fn session_changefeed_query(
     workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let feed = state.session_change_feed.lock().map_err(|_| "lock poisoned")?;
+    let feed = state
+        .session_change_feed
+        .lock()
+        .map_err(|_| "lock poisoned")?;
     let snapshot = feed.last_snapshot(&workspace_id);
     Ok(json!({ "snapshot": snapshot }))
 }
@@ -265,7 +269,10 @@ pub fn session_changefeed_push(
         untracked_files,
         revision,
     };
-    let mut feed = state.session_change_feed.lock().map_err(|_| "lock poisoned")?;
+    let mut feed = state
+        .session_change_feed
+        .lock()
+        .map_err(|_| "lock poisoned")?;
     let items = feed.on_git_updated(&snapshot);
     if !items.is_empty() {
         drop(feed);
@@ -336,8 +343,12 @@ mod tests {
             revision: 2,
         });
         assert_eq!(items.len(), 2);
-        assert!(items.iter().any(|i| i.kind == SessionActivityKind::BranchSwitched));
-        assert!(items.iter().any(|i| i.kind == SessionActivityKind::NewCommits));
+        assert!(items
+            .iter()
+            .any(|i| i.kind == SessionActivityKind::BranchSwitched));
+        assert!(items
+            .iter()
+            .any(|i| i.kind == SessionActivityKind::NewCommits));
     }
 
     #[test]

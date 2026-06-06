@@ -5,7 +5,9 @@ fn catalog_without_provider_exposes_only_native_commands() {
     let commands = build_catalog_command_list(None, false, false);
     assert!(commands.iter().any(|item| item.id == "claude-clear"));
     assert!(commands.iter().any(|item| item.id == "codex-new"));
-    assert!(!commands.iter().any(|item| item.id.starts_with("legacy-removed-")));
+    assert!(!commands
+        .iter()
+        .any(|item| item.id.starts_with("legacy-removed-")));
     assert!(!commands.iter().any(|item| item.id == "launch-claude"));
     assert!(!commands.iter().any(|item| item.id == "open-providers"));
     assert!(!commands.iter().any(|item| item.id == "open-channels"));

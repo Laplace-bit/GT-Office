@@ -2,9 +2,7 @@ pub mod catalog;
 pub mod models;
 pub mod service;
 
-pub use catalog::{
-    claude_provider_presets, codex_provider_presets, codex_snapshot_template,
-};
+pub use catalog::{claude_provider_presets, codex_provider_presets, codex_snapshot_template};
 pub use models::{
     AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
     AiConfigApplyResponse, AiConfigDraftInput, AiConfigMaskedChange, AiConfigNormalizedDraft,

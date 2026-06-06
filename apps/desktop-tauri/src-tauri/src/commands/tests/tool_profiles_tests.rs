@@ -11,7 +11,10 @@ fn canonical_profile_tool_kind_supports_cli_aliases() {
         canonical_profile_tool_kind("claude-code"),
         Some(AgentToolKind::Claude)
     );
-    assert_eq!(canonical_profile_tool_kind("codex-cli"), Some(AgentToolKind::Codex));
+    assert_eq!(
+        canonical_profile_tool_kind("codex-cli"),
+        Some(AgentToolKind::Codex)
+    );
     assert_eq!(canonical_profile_tool_kind("legacy-removed"), None);
     assert_eq!(canonical_profile_tool_kind("shell"), None);
 }

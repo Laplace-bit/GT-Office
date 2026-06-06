@@ -10,7 +10,10 @@ use tracing::warn;
 use crate::{app_state::AppState, startup_services};
 
 #[tauri::command]
-pub fn system_signal_ui_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub fn system_signal_ui_ready(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     startup_services::spawn_deferred_startup_services(&app, state.inner());
     Ok(())
 }

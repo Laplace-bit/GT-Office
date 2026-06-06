@@ -12,14 +12,14 @@ mod startup_services;
 mod terminal_debug;
 
 use base64::Engine;
+use commands::{
+    agent, agentic_one, file_explorer, git, keybindings, security, session, settings, system,
+    task_center, terminal, tool_adapter, workspace,
+};
 use gt_terminal::TerminalRuntimeEvent;
 use rustls::crypto::aws_lc_rs;
 use serde_json::json;
 use tauri::{Emitter, Manager, WebviewWindowBuilder};
-use commands::{
-    agent, agentic_one, file_explorer, git, keybindings, security, session, settings, system, task_center,
-    terminal, tool_adapter, workspace,
-};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

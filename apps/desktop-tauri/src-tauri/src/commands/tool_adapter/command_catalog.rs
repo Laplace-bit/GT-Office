@@ -2250,7 +2250,6 @@ fn codex_native_commands(
     ]
 }
 
-
 fn build_catalog_command_list(
     tool_kind: Option<AgentToolKind>,
     has_terminal_session: bool,

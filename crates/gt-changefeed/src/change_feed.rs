@@ -37,7 +37,11 @@ impl SessionChangeFeed {
                 items.push(SessionActivityItem {
                     workspace_id: ws_id.clone(),
                     kind: SessionActivityKind::NewCommits,
-                    detail: format!("{} new commit{}", new_commits, if new_commits > 1 { "s" } else { "" }),
+                    detail: format!(
+                        "{} new commit{}",
+                        new_commits,
+                        if new_commits > 1 { "s" } else { "" }
+                    ),
                     revision: snapshot.revision,
                 });
             }
@@ -59,7 +63,11 @@ impl SessionChangeFeed {
                 items.push(SessionActivityItem {
                     workspace_id: ws_id.clone(),
                     kind: SessionActivityKind::DirtyChanged,
-                    detail: if snapshot.dirty { "working tree dirty".to_string() } else { "working tree clean".to_string() },
+                    detail: if snapshot.dirty {
+                        "working tree dirty".to_string()
+                    } else {
+                        "working tree clean".to_string()
+                    },
                     revision: snapshot.revision,
                 });
             }
@@ -142,7 +150,9 @@ mod tests {
         next.staged_files = 2;
         next.untracked_files = 1;
         let items = feed.on_git_updated(&next);
-        assert!(items.iter().any(|i| i.kind == SessionActivityKind::FilesChanged));
+        assert!(items
+            .iter()
+            .any(|i| i.kind == SessionActivityKind::FilesChanged));
     }
 
     #[test]
@@ -152,7 +162,9 @@ mod tests {
         let mut next = make_snapshot("ws1", "main", 0, 2);
         next.dirty = true;
         let items = feed.on_git_updated(&next);
-        assert!(items.iter().any(|i| i.kind == SessionActivityKind::DirtyChanged));
+        assert!(items
+            .iter()
+            .any(|i| i.kind == SessionActivityKind::DirtyChanged));
     }
 
     #[test]

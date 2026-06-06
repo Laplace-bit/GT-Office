@@ -2571,8 +2571,8 @@ pub(crate) fn process_external_inbound_message(
         return Ok(response);
     }
 
-    let route = route_from_hints(&message)
-        .or_else(|| state.task_service.resolve_external_route(&message));
+    let route =
+        route_from_hints(&message).or_else(|| state.task_service.resolve_external_route(&message));
     let Some(route) = route else {
         let ambiguous = state.task_service.is_external_route_ambiguous(&message);
         let (code, detail) = if ambiguous {
@@ -2691,12 +2691,7 @@ Approve this identity in Channel settings or switch policy to open."
                     pairing_code: None,
                     detail: Some(format!("WORKSPACE_RESOLVE_FAILED: {error}")),
                 };
-                emit_external_error(
-                    app,
-                    &response.trace_id,
-                    "WORKSPACE_RESOLVE_FAILED",
-                    &error,
-                );
+                emit_external_error(app, &response.trace_id, "WORKSPACE_RESOLVE_FAILED", &error);
                 state
                     .task_service
                     .store_external_idempotency(idempotency_key, response.clone());

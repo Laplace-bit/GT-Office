@@ -42,14 +42,16 @@ impl ProviderScanner {
         }
         scan_jsonl_files(&project_dir)
             .into_iter()
-            .filter_map(|p| file_mtime_ms_opt(&p).map(|ms| ProviderSessionCandidate {
-                provider: Provider::Claude,
-                provider_session_id: claude_session_id_from_path(&p),
-                log_path: p,
-                cwd: cwd.to_path_buf(),
-                modified_at_ms: ms,
-                first_user_message: None,
-            }))
+            .filter_map(|p| {
+                file_mtime_ms_opt(&p).map(|ms| ProviderSessionCandidate {
+                    provider: Provider::Claude,
+                    provider_session_id: claude_session_id_from_path(&p),
+                    log_path: p,
+                    cwd: cwd.to_path_buf(),
+                    modified_at_ms: ms,
+                    first_user_message: None,
+                })
+            })
             .collect()
     }
 
@@ -92,10 +94,12 @@ struct SessionsIndexEntry {
 fn read_sessions_index(project_dir: &Path) -> SessionResult<Vec<SessionsIndexEntry>> {
     let index_path = project_dir.join("sessions-index.json");
     let content = std::fs::read_to_string(&index_path)?;
-    let value: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| SessionError::Scan(e.to_string()))?;
+    let value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| SessionError::Scan(e.to_string()))?;
     let entries_val = value.get("entries").and_then(|v| v.as_array());
-    let Some(entries_val) = entries_val else { return Err(SessionError::Scan("no entries array".into())) };
+    let Some(entries_val) = entries_val else {
+        return Err(SessionError::Scan("no entries array".into()));
+    };
     Ok(entries_val
         .iter()
         .filter_map(|e| {
@@ -103,7 +107,10 @@ fn read_sessions_index(project_dir: &Path) -> SessionResult<Vec<SessionsIndexEnt
                 project_path: e.get("projectPath")?.as_str()?.to_string(),
                 full_path: e.get("fullPath")?.as_str()?.to_string(),
                 file_mtime: e.get("fileMtime")?.as_u64()?,
-                is_sidechain: e.get("isSidechain").and_then(|v| v.as_bool()).unwrap_or(false),
+                is_sidechain: e
+                    .get("isSidechain")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
             })
         })
         .collect())
@@ -113,7 +120,9 @@ fn claude_project_key_for_path(path: &Path) -> String {
     let abs = if path.is_absolute() {
         path.to_string_lossy().to_string()
     } else {
-        std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+        std::fs::canonicalize(path)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
     };
     abs.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -122,13 +131,17 @@ fn claude_project_key_for_path(path: &Path) -> String {
 
 fn normalize_path(path: &Path) -> String {
     let mut s = path.to_string_lossy().replace('\\', "/");
-    while s.ends_with('/') { s.pop(); }
+    while s.ends_with('/') {
+        s.pop();
+    }
     s
 }
 
 fn normalize_path_str(s: &str) -> String {
     let mut r = s.replace('\\', "/");
-    while r.ends_with('/') { r.pop(); }
+    while r.ends_with('/') {
+        r.pop();
+    }
     r
 }
 
@@ -136,20 +149,30 @@ fn paths_match(project_path: &str, cwd: &Path) -> bool {
     let a = normalize_path_str(project_path);
     let b = normalize_path(cwd);
     #[cfg(windows)]
-    { a.to_lowercase() == b.to_lowercase() }
+    {
+        a.to_lowercase() == b.to_lowercase()
+    }
     #[cfg(not(windows))]
-    { a == b }
+    {
+        a == b
+    }
 }
 
 fn paths_match_normalized(a: &str, b: &str) -> bool {
     #[cfg(windows)]
-    { a.to_lowercase() == b.to_lowercase() }
+    {
+        a.to_lowercase() == b.to_lowercase()
+    }
     #[cfg(not(windows))]
-    { a == b }
+    {
+        a == b
+    }
 }
 
 fn scan_jsonl_files(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
     entries
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
@@ -201,9 +224,14 @@ fn claude_session_id_from_path(path: &Path) -> Option<String> {
 }
 
 fn file_mtime_ms_opt(path: &Path) -> Option<u64> {
-    std::fs::metadata(path).ok().and_then(|m| m.modified().ok()).and_then(|t| {
-        t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_millis() as u64)
-    })
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_millis() as u64)
+        })
 }
 
 #[cfg(test)]
@@ -216,7 +244,11 @@ mod tests {
         let project_dir = home.join(".claude/projects").join(&project_key);
         fs::create_dir_all(&project_dir).unwrap();
         let session_file = project_dir.join("abc123.jsonl");
-        fs::write(&session_file, r#"{"type":"user","message":{"role":"user","content":"hello"}}"#).unwrap();
+        fs::write(
+            &session_file,
+            r#"{"type":"user","message":{"role":"user","content":"hello"}}"#,
+        )
+        .unwrap();
         let index = serde_json::json!({
             "entries": [{
                 "projectPath": cwd.to_string_lossy().to_string(),
@@ -225,7 +257,11 @@ mod tests {
                 "isSidechain": false
             }]
         });
-        fs::write(project_dir.join("sessions-index.json"), serde_json::to_string(&index).unwrap()).unwrap();
+        fs::write(
+            project_dir.join("sessions-index.json"),
+            serde_json::to_string(&index).unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -276,12 +312,22 @@ mod tests {
             }
         });
         let session_file = session_dir.join("rollout-test.jsonl");
-        fs::write(&session_file, format!("{}\nmore lines\n", serde_json::to_string(&meta_line).unwrap())).unwrap();
+        fs::write(
+            &session_file,
+            format!(
+                "{}\nmore lines\n",
+                serde_json::to_string(&meta_line).unwrap()
+            ),
+        )
+        .unwrap();
         let scanner = ProviderScanner::new(home.path().to_path_buf());
         let results = scanner.scan_codex(cwd.path());
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].provider, Provider::Codex);
-        assert_eq!(results[0].provider_session_id.as_deref(), Some("test-session-id"));
+        assert_eq!(
+            results[0].provider_session_id.as_deref(),
+            Some("test-session-id")
+        );
     }
 
     #[test]
@@ -299,7 +345,11 @@ mod tests {
             }
         });
         let session_file = session_dir.join("rollout-other.jsonl");
-        fs::write(&session_file, format!("{}\nmore\n", serde_json::to_string(&meta_line).unwrap())).unwrap();
+        fs::write(
+            &session_file,
+            format!("{}\nmore\n", serde_json::to_string(&meta_line).unwrap()),
+        )
+        .unwrap();
         let scanner = ProviderScanner::new(home.path().to_path_buf());
         let results = scanner.scan_codex(cwd.path());
         assert!(results.is_empty());

@@ -7,13 +7,18 @@ pub struct SharedSessionRegistry(pub SessionRegistry);
 
 impl Clone for SharedSessionRegistry {
     fn clone(&self) -> Self {
-        SharedSessionRegistry(SessionRegistry::open(self.0.db_path().clone()).expect("failed to clone session registry"))
+        SharedSessionRegistry(
+            SessionRegistry::open(self.0.db_path().clone())
+                .expect("failed to clone session registry"),
+        )
     }
 }
 
 impl std::ops::Deref for SharedSessionRegistry {
     type Target = SessionRegistry;
-    fn deref(&self) -> &Self::Target { &self.0 }
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 use gt_git::GitService;
@@ -523,7 +528,10 @@ impl AppState {
         let db_path = home.join(".gtoffice/sessions.db");
         let registry = SessionRegistry::open(db_path).expect("failed to open session registry");
         if let Err(error) = registry.mark_all_live_stopped() {
-            tracing::warn!(?error, "failed to mark live agent sessions as stopped on startup");
+            tracing::warn!(
+                ?error,
+                "failed to mark live agent sessions as stopped on startup"
+            );
         }
         registry
     }
@@ -3915,8 +3923,7 @@ fn is_placeholder_prompt_content_for_tool(content: &str, profile: ToolScreenProf
     if lower.starts_with("type your message") || lower.starts_with("type a message") {
         return true;
     }
-    if matches!(profile, ToolScreenProfile::Generic) && lower.contains("@path/to/file")
-    {
+    if matches!(profile, ToolScreenProfile::Generic) && lower.contains("@path/to/file") {
         return true;
     }
     if matches!(

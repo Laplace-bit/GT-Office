@@ -13,24 +13,37 @@ impl GitSessionDiff {
             .current_dir(cwd)
             .output()
             .ok()?;
-        if !output.status.success() { return None; }
+        if !output.status.success() {
+            return None;
+        }
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    pub fn compute_stats(cwd: &Path, start_commit: &str, end_commit: &str) -> SessionResult<Option<SessionStats>> {
+    pub fn compute_stats(
+        cwd: &Path,
+        start_commit: &str,
+        end_commit: &str,
+    ) -> SessionResult<Option<SessionStats>> {
         if start_commit == end_commit {
             return Ok(None);
         }
         let diff_output = Command::new("git")
-            .args(["diff", "--stat", &format!("{}..{}", start_commit, end_commit)])
+            .args([
+                "diff",
+                "--stat",
+                &format!("{}..{}", start_commit, end_commit),
+            ])
             .current_dir(cwd)
             .output()
             .map_err(|e| crate::error::SessionError::Git(e.to_string()))?;
-        let (files_changed, insertions, deletions) = parse_diff_stat(
-            &String::from_utf8_lossy(&diff_output.stdout),
-        );
+        let (files_changed, insertions, deletions) =
+            parse_diff_stat(&String::from_utf8_lossy(&diff_output.stdout));
         let log_output = Command::new("git")
-            .args(["log", "--oneline", &format!("{}..{}", start_commit, end_commit)])
+            .args([
+                "log",
+                "--oneline",
+                &format!("{}..{}", start_commit, end_commit),
+            ])
             .current_dir(cwd)
             .output()
             .map_err(|e| crate::error::SessionError::Git(e.to_string()))?;
@@ -54,7 +67,9 @@ impl GitSessionDiff {
             .current_dir(cwd)
             .output()
             .ok()?;
-        if !output.status.success() { return None; }
+        if !output.status.success() {
+            return None;
+        }
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 }
@@ -65,7 +80,9 @@ fn parse_diff_stat(output: &str) -> (u32, u32, u32) {
     let mut deletions: u32 = 0;
     for line in output.lines() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         if line.contains("files changed") || line.contains("file changed") {
             for part in line.split(',') {
                 let part = part.trim();
@@ -183,14 +200,24 @@ mod tests {
         Command::new("git")
             .args(["config", "user.email", "test@test.com"])
             .current_dir(dir.path())
-            .output().unwrap();
+            .output()
+            .unwrap();
         Command::new("git")
             .args(["config", "user.name", "Test"])
             .current_dir(dir.path())
-            .output().unwrap();
+            .output()
+            .unwrap();
         fs::write(dir.path().join("file.txt"), "hello").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         let commit = GitSessionDiff::capture_commit(dir.path());
         assert!(commit.is_some());
         assert!(!commit.unwrap().is_empty());
@@ -206,16 +233,35 @@ mod tests {
     #[test]
     fn test_same_commit_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        let output = Command::new("git").args(["init"]).current_dir(dir.path()).output();
+        let output = Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output();
         if output.is_err() || !output.unwrap().status.success() {
             eprintln!("Skipping: git not available");
             return;
         }
-        Command::new("git").args(["config", "user.email", "t@t.com"]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["config", "user.name", "T"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "t@t.com"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "T"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         fs::write(dir.path().join("f.txt"), "x").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         let commit = GitSessionDiff::capture_commit(dir.path()).unwrap();
         let result = GitSessionDiff::compute_stats(dir.path(), &commit, &commit).unwrap();
         assert!(result.is_none());

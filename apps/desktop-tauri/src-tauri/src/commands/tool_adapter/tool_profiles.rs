@@ -9,9 +9,7 @@ use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
 };
 use gt_agent::AgentRepository;
-use gt_ai_config::{
-    AiConfigService, AiConfigSnapshot, ClaudeConfigSnapshot, CodexConfigSnapshot,
-};
+use gt_ai_config::{AiConfigService, AiConfigSnapshot, ClaudeConfigSnapshot, CodexConfigSnapshot};
 use gt_storage::{SqliteAgentRepository, SqliteAiConfigRepository, SqliteStorage};
 use gt_task::{AgentRuntimeRegistration, AgentToolKind};
 use serde_json::{json, Value};

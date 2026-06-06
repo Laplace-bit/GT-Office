@@ -48,10 +48,7 @@ fn parse_simple_env_file_skips_comments_and_unquotes_values() {
 
     let env = parse_simple_env_file(&env_path);
 
-    assert_eq!(
-        env.get("TEST_API_KEY").map(String::as_str),
-        Some(" key-1 ")
-    );
+    assert_eq!(env.get("TEST_API_KEY").map(String::as_str), Some(" key-1 "));
     assert_eq!(
         env.get("TEST_BASE_URL").map(String::as_str),
         Some(" https://gateway.example.com/ ")

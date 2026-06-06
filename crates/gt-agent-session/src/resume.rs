@@ -1,13 +1,19 @@
 use std::path::Path;
 
-use crate::types::{GtoSession, Provider, ResumeCheck, ResumeStep, SessionRelaunchMode, SessionStats};
+use crate::types::{
+    GtoSession, Provider, ResumeCheck, ResumeStep, SessionRelaunchMode, SessionStats,
+};
 
 pub struct ResumeService;
 
 impl ResumeService {
     /// Build the shell command that starts the provider CLI in resume mode (non-interactive TUI flags).
     pub fn build_resume_launch_command(session: &GtoSession) -> Option<String> {
-        Self::build_relaunch_launch_command(Some(session), session.provider, SessionRelaunchMode::Resume)
+        Self::build_relaunch_launch_command(
+            Some(session),
+            session.provider,
+            SessionRelaunchMode::Resume,
+        )
     }
 
     pub fn build_relaunch_launch_command(
@@ -33,7 +39,8 @@ impl ResumeService {
                     Provider::Claude => resolve_provider_session_id(session)
                         .map(|id| format!("claude --fork-session --resume {id}"))
                         .or_else(|| Some("claude --fork-session --continue".to_string())),
-                    Provider::Codex => resolve_provider_session_id(session).map(|id| format!("codex fork {id}"))
+                    Provider::Codex => resolve_provider_session_id(session)
+                        .map(|id| format!("codex fork {id}"))
                         .or_else(|| Some("codex fork --last".to_string())),
                 }
             }
@@ -140,7 +147,11 @@ mod tests {
     use crate::types::{GtoSession, Lifecycle, Provider, SessionStats};
     use std::fs;
 
-    fn make_session(provider: Provider, log_path: Option<&str>, provider_session_id: Option<&str>) -> GtoSession {
+    fn make_session(
+        provider: Provider,
+        log_path: Option<&str>,
+        provider_session_id: Option<&str>,
+    ) -> GtoSession {
         GtoSession {
             gto_session_id: "s1".to_string(),
             workspace_id: "ws1".to_string(),
@@ -206,7 +217,9 @@ mod tests {
         let session = make_session(Provider::Codex, None, Some("id1"));
         let steps = ResumeService::build_resume_commands(&session);
         assert_eq!(steps.len(), 1);
-        assert!(matches!(&steps[0], ResumeStep::StartCli { command } if command == "codex resume id1"));
+        assert!(
+            matches!(&steps[0], ResumeStep::StartCli { command } if command == "codex resume id1")
+        );
     }
 
     #[test]
@@ -214,14 +227,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("session.jsonl");
         fs::write(&file, "content").unwrap();
-        let session = make_session(Provider::Claude, Some(file.to_string_lossy().as_ref()), None);
-        assert_eq!(ResumeService::validate_resumable(&session), ResumeCheck::CanResume);
+        let session = make_session(
+            Provider::Claude,
+            Some(file.to_string_lossy().as_ref()),
+            None,
+        );
+        assert_eq!(
+            ResumeService::validate_resumable(&session),
+            ResumeCheck::CanResume
+        );
     }
 
     #[test]
     fn test_validate_resumable_missing() {
         let session = make_session(Provider::Claude, Some("/nonexistent/file.jsonl"), None);
-        assert_eq!(ResumeService::validate_resumable(&session), ResumeCheck::LogFileMissing);
+        assert_eq!(
+            ResumeService::validate_resumable(&session),
+            ResumeCheck::LogFileMissing
+        );
     }
 
     #[test]
@@ -245,8 +268,12 @@ mod tests {
     #[test]
     fn test_claude_fork_last_global() {
         assert_eq!(
-            ResumeService::build_relaunch_launch_command(None, Provider::Claude, SessionRelaunchMode::ForkLast)
-                .as_deref(),
+            ResumeService::build_relaunch_launch_command(
+                None,
+                Provider::Claude,
+                SessionRelaunchMode::ForkLast
+            )
+            .as_deref(),
             Some("claude --fork-session --continue")
         );
     }
@@ -255,8 +282,12 @@ mod tests {
     fn test_codex_fork_with_id() {
         let session = make_session(Provider::Codex, None, Some("abc-uuid"));
         assert_eq!(
-            ResumeService::build_relaunch_launch_command(Some(&session), Provider::Codex, SessionRelaunchMode::Fork)
-                .as_deref(),
+            ResumeService::build_relaunch_launch_command(
+                Some(&session),
+                Provider::Codex,
+                SessionRelaunchMode::Fork
+            )
+            .as_deref(),
             Some("codex fork abc-uuid")
         );
     }
