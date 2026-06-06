@@ -90,6 +90,7 @@ const BACKGROUND_TERMINAL_INIT_TIMEOUT_MS = 1200
 const BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS = 96
 const TERMINAL_RENDERER_RECOVERY_DELAY_MS = 180
 const TERMINAL_RENDERER_RECOVERY_FRAME_COUNT = 2
+const TERMINAL_VIEWPORT_WAKE_DELAYS_MS = [0, 48, 160, 360] as const
 
 interface IdleDeadlineLike {
   didTimeout: boolean
@@ -900,6 +901,8 @@ function StationXtermTerminalView({
     let serializeTimeoutId: number | null = null
     let renderDisposable: { dispose: () => void } | null = null
     let workspaceTransitionObserver: MutationObserver | null = null
+    let viewportVisibilityObserver: IntersectionObserver | null = null
+    let ancestorVisibilityObserver: MutationObserver | null = null
     let captureLatestRestoreState: (() => void) | null = null
     let removeViewportWakeListeners: (() => void) | null = null
     let removeCompositionStartSyncListener: (() => void) | null = null
@@ -1466,31 +1469,96 @@ function StationXtermTerminalView({
         }
         const hostDocument = resolveTerminalDocument(host, document)
         const hostWindow = hostDocument.defaultView ?? window
-        const handleViewportWake = () => {
+        const handleViewportWake = (reason = 'viewport-wake') => {
           if (!active) {
             return
           }
           if (fitAndRefresh()) {
             onResizeRef.current(stationId, terminal.cols, terminal.rows)
-            scheduleRendererRecoveryCheck('viewport-wake')
+            scheduleRendererRecoveryCheck(reason)
             return
           }
           scheduleFitRetry()
-          scheduleRendererRecoveryCheck('viewport-retry')
+          scheduleRendererRecoveryCheck(`${reason}:retry`)
+        }
+        const viewportWakeTimeoutIds = new Set<number>()
+        const scheduleViewportWake = (reason: string) => {
+          if (!active) {
+            return
+          }
+          for (const delay of TERMINAL_VIEWPORT_WAKE_DELAYS_MS) {
+            const timeoutId = hostWindow.setTimeout(() => {
+              viewportWakeTimeoutIds.delete(timeoutId)
+              handleViewportWake(reason)
+            }, delay)
+            viewportWakeTimeoutIds.add(timeoutId)
+          }
         }
         const handleVisibilityChange = () => {
           if (hostDocument.visibilityState !== 'visible') {
             return
           }
-          handleViewportWake()
+          scheduleViewportWake('document-visible')
         }
-        hostWindow.addEventListener('resize', handleViewportWake)
-        hostWindow.addEventListener('focus', handleViewportWake)
+        const handlePageShow = () => {
+          scheduleViewportWake('page-show')
+        }
+        const handleTransitionSettled = (event: Event) => {
+          if (!(event.target instanceof Node)) {
+            return
+          }
+          if (event.target === host || host.contains(event.target) || event.target.contains(host)) {
+            scheduleViewportWake(event.type)
+          }
+        }
+        const handleWindowWake = () => {
+          scheduleViewportWake('window-wake')
+        }
+        hostWindow.addEventListener('resize', handleWindowWake)
+        hostWindow.addEventListener('focus', handleWindowWake)
+        hostWindow.addEventListener('pageshow', handlePageShow)
         hostDocument.addEventListener('visibilitychange', handleVisibilityChange)
+        hostDocument.addEventListener('transitionend', handleTransitionSettled, true)
+        hostDocument.addEventListener('animationend', handleTransitionSettled, true)
         removeViewportWakeListeners = () => {
-          hostWindow.removeEventListener('resize', handleViewportWake)
-          hostWindow.removeEventListener('focus', handleViewportWake)
+          for (const timeoutId of viewportWakeTimeoutIds) {
+            hostWindow.clearTimeout(timeoutId)
+          }
+          viewportWakeTimeoutIds.clear()
+          hostWindow.removeEventListener('resize', handleWindowWake)
+          hostWindow.removeEventListener('focus', handleWindowWake)
+          hostWindow.removeEventListener('pageshow', handlePageShow)
           hostDocument.removeEventListener('visibilitychange', handleVisibilityChange)
+          hostDocument.removeEventListener('transitionend', handleTransitionSettled, true)
+          hostDocument.removeEventListener('animationend', handleTransitionSettled, true)
+        }
+        if (typeof IntersectionObserver !== 'undefined') {
+          viewportVisibilityObserver = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting && entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0)) {
+              scheduleViewportWake('intersection-visible')
+            }
+          })
+          viewportVisibilityObserver.observe(host)
+        }
+        const observedAncestors: HTMLElement[] = []
+        let ancestor: HTMLElement | null = host
+        while (ancestor) {
+          observedAncestors.push(ancestor)
+          if (ancestor.classList.contains('agent-shell')) {
+            break
+          }
+          ancestor = ancestor.parentElement
+        }
+        if (observedAncestors.length > 0) {
+          ancestorVisibilityObserver = new MutationObserver(() => {
+            scheduleViewportWake('ancestor-visibility-change')
+          })
+          for (const element of observedAncestors) {
+            ancestorVisibilityObserver.observe(element, {
+              attributes: true,
+              attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+            })
+          }
         }
         const shellRoot = host.closest('.agent-shell')
         if (shellRoot) {
@@ -1498,7 +1566,7 @@ function StationXtermTerminalView({
           workspaceTransitionObserver = new MutationObserver(() => {
             const isWorkspaceSwitching = shellRoot.classList.contains('workspace-switching-active')
             if (wasWorkspaceSwitching && !isWorkspaceSwitching) {
-              handleViewportWake()
+              scheduleViewportWake('workspace-switch-complete')
             }
             wasWorkspaceSwitching = isWorkspaceSwitching
           })
@@ -1507,6 +1575,7 @@ function StationXtermTerminalView({
             attributeFilter: ['class'],
           })
         }
+        scheduleViewportWake('terminal-open')
         let replayGeneratedInputSuppressionDepth = 0
         const writeTerminalChunk = (content: string) =>
           new Promise<void>((resolve) => {
@@ -1690,6 +1759,8 @@ function StationXtermTerminalView({
       resizeObserver?.disconnect()
       appearanceObserver?.disconnect()
       workspaceTransitionObserver?.disconnect()
+      viewportVisibilityObserver?.disconnect()
+      ancestorVisibilityObserver?.disconnect()
       cancelScheduledRendererRecovery()
       if (refreshFrameId !== null) {
         window.cancelAnimationFrame(refreshFrameId)
