@@ -247,7 +247,6 @@ export interface ShellTerminalController {
   handleDetachedSurfaceBridgeMessage: (event: SurfaceBridgeEventPayload<DetachedTerminalBridgeMessage>) => void
   reportRenderedScreenSnapshot: (stationId: string, snapshot: RenderedScreenSnapshot) => void
   inspectStationSessionProcesses: (stationId: string, sessionId: string) => Promise<TerminalDescribeProcessesResponse | null>
-  shouldConfirmStationInterrupt: (stationId: string, sessionId: string) => Promise<boolean>
 
   // Batch launch & actions
   setIsBatchLaunchingAgents: Dispatch<SetStateAction<boolean>>
@@ -362,25 +361,6 @@ export function useShellTerminalController({
         return
       }
       protectedAgentSessionByStationRef.current[stationId] = normalizedSessionId
-    },
-    [],
-  )
-
-  const hasProtectedStationAgentSession = useCallback(
-    (stationId: string, sessionId: string | null | undefined) => {
-      const normalizedSessionId = sessionId?.trim() ?? ''
-      if (!normalizedSessionId) {
-        return false
-      }
-      const protectedSessionId = protectedAgentSessionByStationRef.current[stationId] ?? ''
-      if (!protectedSessionId) {
-        return false
-      }
-      if (protectedSessionId !== normalizedSessionId) {
-        delete protectedAgentSessionByStationRef.current[stationId]
-        return false
-      }
-      return true
     },
     [],
   )
@@ -2707,30 +2687,6 @@ export function useShellTerminalController({
     [],
   )
 
-  const shouldConfirmStationInterrupt = useCallback(
-    async (stationId: string, sessionId: string): Promise<boolean> => {
-      const station = stationsRef.current.find((entry) => entry.id === stationId)
-      if (!station) {
-        return false
-      }
-      if (!resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)) {
-        return false
-      }
-      if (hasProtectedStationAgentSession(stationId, sessionId)) {
-        return true
-      }
-      const processSnapshot = await inspectStationSessionProcesses(stationId, sessionId)
-      const agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
-      if (agentRunning) {
-        protectStationAgentSession(stationId, sessionId)
-      } else {
-        delete protectedAgentSessionByStationRef.current[stationId]
-      }
-      return agentRunning
-    },
-    [hasProtectedStationAgentSession, inspectStationSessionProcesses, protectStationAgentSession, stationsRef],
-  )
-
   // ── Launch tool profile for station ────────────────────────────────────
   const launchToolProfileForStation = useCallback(
     async (station: AgentStation, profileId: string = station.toolKind) => {
@@ -3797,7 +3753,6 @@ export function useShellTerminalController({
     handleDetachedSurfaceBridgeMessage,
     reportRenderedScreenSnapshot,
     inspectStationSessionProcesses,
-    shouldConfirmStationInterrupt,
 
     // Batch launch & actions
     setIsBatchLaunchingAgents,

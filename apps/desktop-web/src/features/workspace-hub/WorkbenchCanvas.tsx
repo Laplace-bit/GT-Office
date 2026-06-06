@@ -83,7 +83,6 @@ interface WorkbenchCanvasProps {
   containers: WorkbenchContainerModel[]
   activeStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
-  onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   pinnedWorkbenchContainerId?: string | null
@@ -283,7 +282,6 @@ function WorkbenchCanvasView({
   containers,
   activeStationId,
   terminalByStation,
-  onShouldConfirmInterrupt,
   taskSignalByStationId,
   channelBotBindingsByStationId = {},
   pinnedWorkbenchContainerId = null,
@@ -603,7 +601,6 @@ function WorkbenchCanvasView({
                     roleFilter={roleFilter}
                     activeGlobalStationId={activeStationId}
                     terminalByStation={terminalByStation}
-                    onShouldConfirmInterrupt={onShouldConfirmInterrupt}
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
@@ -690,7 +687,6 @@ function WorkbenchCanvasView({
                     roleFilter={roleFilter}
                     activeGlobalStationId={activeStationId}
                     terminalByStation={terminalByStation}
-                    onShouldConfirmInterrupt={onShouldConfirmInterrupt}
                     taskSignalByStationId={taskSignalByStationId}
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}

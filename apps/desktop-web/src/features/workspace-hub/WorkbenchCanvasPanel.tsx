@@ -79,7 +79,6 @@ interface WorkbenchCanvasPanelProps {
   roleFilter?: StationRole | 'all'
   activeGlobalStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
-  onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
   channelBotBindingsByStationId?: Record<string, StationChannelBotBindingSummary[]>
   dropActive?: boolean
@@ -483,7 +482,6 @@ function WorkbenchCanvasPanelView({
   roleFilter = 'all',
   activeGlobalStationId,
   terminalByStation,
-  onShouldConfirmInterrupt,
   taskSignalByStationId,
   channelBotBindingsByStationId = {},
   dropActive = false,
@@ -1337,7 +1335,6 @@ function WorkbenchCanvasPanelView({
             station={station}
             active={station.id === renderedActiveStationId}
             runtime={terminalByStation[station.id]}
-            onShouldConfirmInterrupt={onShouldConfirmInterrupt}
             taskSignal={taskSignalByStationId[station.id]}
             channelBotBindings={channelBotBindingsByStationId[station.id]}
             isFullscreen={Boolean(options?.fullscreen)}
@@ -1414,7 +1411,6 @@ function WorkbenchCanvasPanelView({
       onRestoreStateCaptured,
       onResizeTerminal,
       onSendInputData,
-      onShouldConfirmInterrupt,
       onStationDragStart,
       onStationDragPointerStart,
       onStationDragEnd,

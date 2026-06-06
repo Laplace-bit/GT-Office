@@ -115,7 +115,6 @@ interface StationCardProps {
   station: AgentStation
   active: boolean
   runtime?: StationTerminalRuntime
-  onShouldConfirmInterrupt?: (stationId: string, sessionId: string) => Promise<boolean> | boolean
   taskSignal?: StationTaskSignal
   channelBotBindings?: StationChannelBotBindingSummary[]
   isFullscreen?: boolean
@@ -162,7 +161,6 @@ function StationCardView({
   station,
   active,
   runtime,
-  onShouldConfirmInterrupt,
   taskSignal,
   isFullscreen,
   isFullscreenMode,
@@ -668,11 +666,9 @@ function StationCardView({
       {shouldRenderTerminal ? (
         <>
           <StationXtermTerminal
-            locale={locale}
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
             isActive={active}
-            onShouldConfirmInterrupt={onShouldConfirmInterrupt}
             appearanceVersion={appearanceVersion}
             performanceDebugEnabled={performanceDebugEnabled}
             onActivateStation={activateStationFromTerminal}
@@ -734,7 +730,6 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.performanceDebugEnabled === next.performanceDebugEnabled &&
     prev.station === next.station &&
     prev.active === next.active &&
-    prev.onShouldConfirmInterrupt === next.onShouldConfirmInterrupt &&
     prev.isFullscreen === next.isFullscreen &&
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&

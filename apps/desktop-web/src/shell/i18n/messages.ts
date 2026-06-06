@@ -861,21 +861,6 @@ export const messages = {
   },
   'terminal.forceClose.confirmCancel': { 'zh-CN': '取消', 'en-US': 'Cancel' },
   'terminal.forceClose.confirmAction': { 'zh-CN': '强制关闭', 'en-US': 'Force Close' },
-  'terminal.interruptConfirm.title': { 'zh-CN': '发送 {shortcut}？', 'en-US': 'Send {shortcut}?' },
-  'terminal.interruptConfirm.body.interrupt': {
-    'zh-CN': '当前 Agent 仍在运行。确认后会向终端发送 {shortcut}，中断前台 Agent 进程。',
-    'en-US': 'The current agent is still running. Confirm to send {shortcut} to the terminal and interrupt the foreground agent process.',
-  },
-  'terminal.interruptConfirm.body.suspend': {
-    'zh-CN': '当前 Agent 仍在运行。确认后会向终端发送 {shortcut}，挂起前台 Agent 进程。',
-    'en-US': 'The current agent is still running. Confirm to send {shortcut} to the terminal and suspend the foreground agent process.',
-  },
-  'terminal.interruptConfirm.hint': {
-    'zh-CN': '按 Esc 继续运行，或再次按 {shortcut} 立即确认。',
-    'en-US': 'Press Esc to keep running, or press {shortcut} again to confirm.',
-  },
-  'terminal.interruptConfirm.cancel': { 'zh-CN': '继续运行', 'en-US': 'Keep Running' },
-  'terminal.interruptConfirm.confirm': { 'zh-CN': '发送 {shortcut}', 'en-US': 'Send {shortcut}' },
   'settingsModal.title': { 'zh-CN': '系统设置', 'en-US': 'System Settings' },
   'settingsModal.subtitle': {
     'zh-CN': '集中管理显示偏好与通道接入配置',

@@ -26,7 +26,6 @@ import {
   createEmptyWorkbenchStationRuntime,
   normalizeDetachedTerminalRuntime,
 } from './detached-terminal-bridge'
-import { isStationAgentProcessRunning, resolveStationCliLaunchCommand } from './station-agent-runtime-model'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   applyUiPreferences,
@@ -235,31 +234,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         })
         .join('|'),
     [stationRuntimes, stations],
-  )
-
-  const shouldConfirmInterrupt = useCallback(
-    async (stationId: string, sessionId: string): Promise<boolean> => {
-      const station = stationsRef.current.find((entry) => entry.id === stationId)
-      if (!station) {
-        return false
-      }
-      if (!resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)) {
-        return false
-      }
-      if (!desktopApi.isTauriRuntime()) {
-        return false
-      }
-      try {
-        const processSnapshot = await desktopApi.terminalDescribeProcesses(sessionId)
-        if (stationRuntimesRef.current[stationId]?.sessionId !== sessionId) {
-          return false
-        }
-        return isStationAgentProcessRunning(station.toolKind, processSnapshot)
-      } catch {
-        return false
-      }
-    },
-    [],
   )
 
   useEffect(() => {
@@ -1176,7 +1150,6 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           onBindTerminalSink={bindSink}
           onRenderedScreenSnapshot={handleRenderedScreenSnapshot}
           onDropFilePath={handleDropFilePath}
-          onShouldConfirmInterrupt={shouldConfirmInterrupt}
           onRunStationAction={(station: AgentStation, action: StationActionDescriptor) => {
             switch (action.execution.type) {
               case 'insert_text':
