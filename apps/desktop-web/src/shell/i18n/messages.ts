@@ -1379,28 +1379,28 @@ export const messages = {
   'connection.unknown': { 'zh-CN': '连接状态: 未知', 'en-US': 'Connection: unknown' },
 
   'system.bindWorkspace': {
-    'zh-CN': '[系统] 请先绑定工作区。\n',
-    'en-US': '[system] Bind workspace first.\n',
+    'zh-CN': '[系统] 请先绑定工作区。\r\n',
+    'en-US': '[system] Bind workspace first.\r\n',
   },
   'system.webPreviewNoPty': {
-    'zh-CN': '[系统] Web 预览模式无法启动 PTY。\n',
-    'en-US': '[system] PTY unavailable in web preview.\n',
+    'zh-CN': '[系统] Web 预览模式无法启动 PTY。\r\n',
+    'en-US': '[system] PTY unavailable in web preview.\r\n',
   },
   'system.terminalLaunched': {
-    'zh-CN': '[系统] 终端已启动。\n',
-    'en-US': '[system] Terminal launched.\n',
+    'zh-CN': '[系统] 终端已启动。\r\n',
+    'en-US': '[system] Terminal launched.\r\n',
   },
   'system.terminalSessionInfo': {
-    'zh-CN': '[系统] session={sessionId}, cwd={cwd}\n',
-    'en-US': '[system] session={sessionId}, cwd={cwd}\n',
+    'zh-CN': '[系统] session={sessionId}, cwd={cwd}\r\n',
+    'en-US': '[system] session={sessionId}, cwd={cwd}\r\n',
   },
   'system.stationWorkspaceInfo': {
-    'zh-CN': '[系统] role_dir={roleDir}, agent_dir={agentDir}\n',
-    'en-US': '[system] role_dir={roleDir}, agent_dir={agentDir}\n',
+    'zh-CN': '[系统] role_dir={roleDir}, agent_dir={agentDir}\r\n',
+    'en-US': '[system] role_dir={roleDir}, agent_dir={agentDir}\r\n',
   },
   'system.launchFailed': {
-    'zh-CN': '[系统] 启动失败: {detail}\n',
-    'en-US': '[system] launch failed: {detail}\n',
+    'zh-CN': '[系统] 启动失败: {detail}\r\n',
+    'en-US': '[system] launch failed: {detail}\r\n',
   },
   'session.resumeFailed': {
     'zh-CN': '[系统] 恢复会话失败: {detail}\n',

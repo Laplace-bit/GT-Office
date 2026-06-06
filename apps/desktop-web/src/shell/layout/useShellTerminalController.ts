@@ -2015,7 +2015,7 @@ export function useShellTerminalController({
               env: terminalEnv,
               agentToolKind: normalizeStationToolKind(station.tool),
               injectProviderEnv: false,
-              loginShell: false,
+              loginShell: true,
             })
             if (
               !shouldApplyStationSessionResult(

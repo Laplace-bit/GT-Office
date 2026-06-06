@@ -922,7 +922,7 @@ function StationXtermTerminalView({
         }
 
         const terminal = new xtermModule.Terminal({
-          convertEol: true,
+          convertEol: false,
           fontFamily: readCssVar('--vb-font-mono', resolveTerminalDocument(host, document)),
           fontSize: resolveTerminalFontSize(host),
           fontWeight: '500',
