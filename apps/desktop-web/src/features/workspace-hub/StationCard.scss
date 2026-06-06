@@ -11,7 +11,9 @@
   border-radius: rem(18);
   overflow: hidden;
   position: relative;
-  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
+  transition:
+    box-shadow 160ms var(--vb-ease-smooth),
+    border-color 160ms var(--vb-ease-smooth);
   box-shadow: 0 0 0 rem(1) var(--vb-border-subtle), var(--vb-shadow-sm);
   z-index: 1;
   isolation: isolate;
@@ -37,7 +39,7 @@
     pointer-events: none;
     border-radius: inherit;
     border: rem(1) solid transparent;
-    transition: border-color 0.25s ease;
+    transition: border-color 160ms var(--vb-ease-smooth);
     z-index: 10;
   }
 
@@ -411,7 +413,8 @@
   padding: rem(10) rem(14);
   box-shadow: var(--vb-shadow-lg);
   z-index: 100;
-  animation: bubble-slide-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform-origin: top right;
+  will-change: transform, opacity;
 
   strong {
     display: block;
@@ -465,18 +468,6 @@
     padding: rem(14) rem(14) 0;
   }
 
-}
-
-@keyframes bubble-slide-in {
-  from {
-    opacity: 0;
-    transform: translateY(-rem(10)) scale(0.95);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 @container (max-width: rem(420)) {

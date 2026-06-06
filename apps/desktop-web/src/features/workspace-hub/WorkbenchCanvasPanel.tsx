@@ -54,6 +54,7 @@ import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 import { orderWorkbenchHeaderActions, type WorkbenchHeaderActionId } from './workbench-header-actions'
+import { FLUENT_MOTION_DURATION, FLUENT_MOTION_EASE, STATION_MOTION } from './station-motion-spec'
 import './WorkbenchCanvas.scss'
 
 interface WorkbenchLayoutPresetDefinition {
@@ -139,16 +140,9 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
   { id: 'custom', labelKey: 'workbench.layoutPreset.custom' },
 ]
 
-const ROLE_FILTER_EXIT_MS = 160
-const ROLE_FILTER_ENTER_MS = 180
-const STATION_RESTORE_DOCK_EXIT_MS = 190
-const STATION_RESTORE_CARD_ANIMATION_MS = 220
-const STATION_RESTORE_REVEAL_MS = 120
-const STATION_MINIMIZE_CARD_ANIMATION_MS = 180
 const STATUS_BAR_DOCK_ITEM_WIDTH_PX = 108
 const STATUS_BAR_DOCK_ITEM_HEIGHT_PX = 24
 const STATUS_BAR_DOCK_ITEM_GAP_PX = 5
-const STATION_TASKBAR_GHOST_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1]
 
 interface ExitingStationSnapshot {
   stationId: string
@@ -373,13 +367,13 @@ function StationCardSlot({
         opacity: {
           duration: transitionDisabled
             ? 0
-            : (mode === 'entering' ? ROLE_FILTER_ENTER_MS : ROLE_FILTER_EXIT_MS) / 1000,
-          ease: [0.32, 0.72, 0, 1],
+            : (mode === 'entering' ? STATION_MOTION.roleFilterEnterMs : STATION_MOTION.roleFilterExitMs) / 1000,
+          ease: mode === 'entering' ? FLUENT_MOTION_EASE.decelerate : FLUENT_MOTION_EASE.accelerate,
           delay: 0,
         },
         layout: layoutDisabled
           ? { duration: 0 }
-          : { type: 'spring', stiffness: 320, damping: 30, mass: 0.88 },
+          : STATION_MOTION.slotLayoutTransition,
       }}
       style={{
         pointerEvents: isParked || isExiting || inert ? 'none' : undefined,
@@ -418,43 +412,54 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
         y: 0,
         scaleX: 1,
         scaleY: 1,
-        opacity: animation.phase === 'restore' ? 0 : 0.62,
+        opacity: animation.phase === 'restore' ? 0 : 0.7,
       }}
       animate={{
         x: translateX,
         y: translateY,
         scaleX,
         scaleY,
-        opacity: animation.phase === 'restore' ? 0.62 : 0,
+        opacity: animation.phase === 'restore' ? [0, 0.44, 0] : [0.7, 0.44, 0],
       }}
       exit={{ opacity: 0 }}
       transition={{
         x: {
           duration: animation.phase === 'restore'
-            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
-            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
-          ease: STATION_TASKBAR_GHOST_EASE,
+            ? FLUENT_MOTION_DURATION.normal
+            : FLUENT_MOTION_DURATION.normal,
+          ease: animation.phase === 'restore'
+            ? FLUENT_MOTION_EASE.decelerate
+            : FLUENT_MOTION_EASE.accelerate,
         },
         y: {
           duration: animation.phase === 'restore'
-            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
-            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
-          ease: STATION_TASKBAR_GHOST_EASE,
+            ? FLUENT_MOTION_DURATION.normal
+            : FLUENT_MOTION_DURATION.normal,
+          ease: animation.phase === 'restore'
+            ? FLUENT_MOTION_EASE.decelerate
+            : FLUENT_MOTION_EASE.accelerate,
         },
         scaleX: {
           duration: animation.phase === 'restore'
-            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
-            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
-          ease: STATION_TASKBAR_GHOST_EASE,
+            ? FLUENT_MOTION_DURATION.normal
+            : FLUENT_MOTION_DURATION.normal,
+          ease: animation.phase === 'restore'
+            ? FLUENT_MOTION_EASE.decelerate
+            : FLUENT_MOTION_EASE.accelerate,
         },
         scaleY: {
           duration: animation.phase === 'restore'
-            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
-            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
-          ease: STATION_TASKBAR_GHOST_EASE,
+            ? FLUENT_MOTION_DURATION.normal
+            : FLUENT_MOTION_DURATION.normal,
+          ease: animation.phase === 'restore'
+            ? FLUENT_MOTION_EASE.decelerate
+            : FLUENT_MOTION_EASE.accelerate,
         },
         opacity: {
-          duration: animation.phase === 'restore' ? 0.14 : 0.1,
+          duration: animation.phase === 'restore'
+            ? FLUENT_MOTION_DURATION.normal
+            : FLUENT_MOTION_DURATION.fast,
+          times: animation.phase === 'restore' ? [0, 0.34, 1] : [0, 0.46, 1],
           ease: 'linear',
         },
       }}
@@ -704,7 +709,7 @@ function WorkbenchCanvasPanelView({
       roleFilterEnterTimerRef.current = window.setTimeout(() => {
         setEnteringStationIds([])
         roleFilterEnterTimerRef.current = null
-      }, ROLE_FILTER_ENTER_MS)
+      }, STATION_MOTION.roleFilterEnterMs)
     }
     if (enteringIds.length === 0) {
       setEnteringStationIds([])
@@ -713,7 +718,7 @@ function WorkbenchCanvasPanelView({
       roleFilterExitTimerRef.current = window.setTimeout(() => {
         setExitingStationSnapshots([])
         roleFilterExitTimerRef.current = null
-      }, ROLE_FILTER_EXIT_MS)
+      }, STATION_MOTION.roleFilterExitMs)
     } else {
       setExitingStationSnapshots([])
     }
@@ -856,17 +861,17 @@ function WorkbenchCanvasPanelView({
       restoreDockTimerRef.current = window.setTimeout(() => {
         setRestoringStationId((current) => (current === stationId ? null : current))
         restoreDockTimerRef.current = null
-      }, STATION_RESTORE_DOCK_EXIT_MS)
+      }, STATION_MOTION.taskbarDockExitMs)
       restoreCardAnimationTimerRef.current = window.setTimeout(() => {
         setTaskbarGhostAnimation((current) => (current?.stationId === stationId ? null : current))
         restoreCardAnimationTimerRef.current = null
-      }, STATION_RESTORE_CARD_ANIMATION_MS)
+      }, STATION_MOTION.taskbarRestoreMs)
       restoreRevealTimerRef.current = window.setTimeout(() => {
         setHiddenStationAnimation((current) => (
           current?.stationId === stationId && current.phase === 'restore' ? null : current
         ))
         restoreRevealTimerRef.current = null
-      }, STATION_RESTORE_REVEAL_MS)
+      }, STATION_MOTION.taskbarRestoreRevealMs)
       onSelectStation(container.id, stationId)
     },
     [container.id, minimizedStationIds, onMinimizedStationIdsChange, onSelectStation, orderStationIds, stationById],
@@ -928,7 +933,7 @@ function WorkbenchCanvasPanelView({
         setHiddenStationAnimation((current) => (current?.stationId === stationId ? null : current))
         minimizeCardAnimationTimerRef.current = null
       }
-      minimizeCardAnimationTimerRef.current = window.setTimeout(finishMinimize, STATION_MINIMIZE_CARD_ANIMATION_MS)
+      minimizeCardAnimationTimerRef.current = window.setTimeout(finishMinimize, STATION_MOTION.taskbarMinimizeMs)
     },
     [
       container.id,
@@ -1341,7 +1346,6 @@ function WorkbenchCanvasPanelView({
               Boolean(options?.focusHidden) ||
               hiddenStationAnimation?.stationId === station.id
             }
-            restoreAnimation={null}
             draggable={!detachedReadonly}
             onStationDragStart={
               onStationDragStart
@@ -1662,11 +1666,9 @@ function WorkbenchCanvasPanelView({
       {minimizedDockPortalTarget && minimizedDock
         ? createPortal(minimizedDock, minimizedDockPortalTarget)
         : minimizedDock}
-      {taskbarGhostAnimation ? (
-        <AnimatePresence>
-          <StationTaskbarGhost animation={taskbarGhostAnimation} />
-        </AnimatePresence>
-      ) : null}
+      <AnimatePresence>
+        {taskbarGhostAnimation ? <StationTaskbarGhost animation={taskbarGhostAnimation} /> : null}
+      </AnimatePresence>
     </section>
   )
 }

@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { motion } from 'motion/react'
 import { Circle, GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation } from './station-model'
 import {
@@ -36,6 +37,7 @@ import type {
 import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import { SessionHistoryList, useSessionHistory, resolveStationSessionProvider } from '@features/session'
 import { resolveAgentWorkdirAbs } from '@features/workspace/station-workdir-model'
+import { STATION_MOTION } from './station-motion-spec'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
@@ -106,16 +108,6 @@ interface StationTerminalRuntime {
   stateRaw?: string | null
 }
 
-interface StationRestoreAnimation {
-  token: number
-  fromRect: {
-    top: number
-    left: number
-    width: number
-    height: number
-  }
-}
-
 interface StationCardProps {
   locale: Locale
   appearanceVersion: string
@@ -130,7 +122,6 @@ interface StationCardProps {
   isFullscreenMode?: boolean
   isMiniature?: boolean
   isFocusHidden?: boolean
-  restoreAnimation?: StationRestoreAnimation | null
   workspaceId?: string | null
   workspaceCwd?: string | null
   onSelectStation: (stationId: string) => void
@@ -177,7 +168,6 @@ function StationCardView({
   isFullscreenMode,
   isMiniature,
   isFocusHidden,
-  restoreAnimation,
   workspaceId,
   workspaceCwd,
   onSelectStation,
@@ -207,7 +197,6 @@ function StationCardView({
   const terminalFocusFrameRef = useRef<number | null>(null)
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
-  const restoreAnimationTokenRef = useRef<number | null>(null)
   const [compactLayout, setCompactLayout] = useState(false)
 
   const recordStationUiDiagnostic = useCallback(
@@ -320,50 +309,6 @@ function StationCardView({
       observer.disconnect()
     }
   }, [])
-
-  useLayoutEffect(() => {
-    if (!restoreAnimation) {
-      return
-    }
-    if (restoreAnimationTokenRef.current === restoreAnimation.token) {
-      return
-    }
-    const element = rootRef.current
-    if (!element || typeof element.animate !== 'function') {
-      return
-    }
-    const targetRect = element.getBoundingClientRect()
-    if (targetRect.width <= 0 || targetRect.height <= 0) {
-      return
-    }
-    restoreAnimationTokenRef.current = restoreAnimation.token
-    const translateX = restoreAnimation.fromRect.left - targetRect.left
-    const translateY = restoreAnimation.fromRect.top - targetRect.top
-    const scaleX = restoreAnimation.fromRect.width / Math.max(1, targetRect.width)
-    const scaleY = restoreAnimation.fromRect.height / Math.max(1, targetRect.height)
-    const animation = element.animate(
-      [
-        {
-          transformOrigin: 'top left',
-          transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
-          opacity: 0.18,
-        },
-        {
-          transformOrigin: 'top left',
-          transform: 'translate(0px, 0px) scale(1, 1)',
-          opacity: 1,
-        },
-      ],
-      {
-        duration: 320,
-        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
-        fill: 'both',
-      },
-    )
-    return () => {
-      animation.cancel()
-    }
-  }, [restoreAnimation])
 
   const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
@@ -506,8 +451,11 @@ function StationCardView({
   }, [onEnterFullscreen, onExitFullscreen, station.id])
 
   return (
-    <article
+    <motion.article
       ref={rootRef}
+      layout="position"
+      layoutId={`station-card:${station.id}`}
+      transition={STATION_MOTION.cardLayoutTransition}
       data-station-id={station.id}
       className={[
         'station-window',
@@ -530,9 +478,17 @@ function StationCardView({
       }}
     >
       {taskSignal ? (
-        <div key={taskSignal.nonce} className="station-task-ack-bubble" role="status" aria-live="polite">
+        <motion.div
+          key={taskSignal.nonce}
+          className="station-task-ack-bubble"
+          role="status"
+          aria-live="polite"
+          initial={{ opacity: 0, y: -8, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={STATION_MOTION.taskAckTransition}
+        >
           <strong aria-label={locale === 'zh-CN' ? '任务收到' : 'Task received'}>{taskAckEmoji}</strong>
-        </div>
+        </motion.div>
       ) : null}
 
       <header className="station-window-header">
@@ -744,7 +700,7 @@ function StationCardView({
       )}
       <StationActionDock actions={stationActions} compact={dockCompact} onAction={handleRunAction} />
 
-    </article>
+    </motion.article>
   )
 }
 
@@ -783,7 +739,6 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFullscreenMode === next.isFullscreenMode &&
     prev.isMiniature === next.isMiniature &&
     prev.isFocusHidden === next.isFocusHidden &&
-    (prev.restoreAnimation?.token ?? null) === (next.restoreAnimation?.token ?? null) &&
     prev.draggable === next.draggable &&
     prev.onSelectStation === next.onSelectStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&
