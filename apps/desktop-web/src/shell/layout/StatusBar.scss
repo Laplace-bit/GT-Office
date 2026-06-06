@@ -5,6 +5,7 @@
   align-items: center;
   gap: var(--vb-space-md);
   padding: var(--vb-space-2xs) var(--vb-space-lg);
+  min-height: #{rem(36)};
   border-radius: #{rem(14)};
   background: var(--vb-glass-light);
   backdrop-filter: blur(#{rem(20)}) saturate(180%);
@@ -17,6 +18,211 @@
   transition: all 0.3s ease;
   user-select: none;
   z-index: 10;
+}
+
+.status-bar__station-dock-slot {
+  display: flex;
+  align-items: center;
+  gap: #{rem(5)};
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  &:empty {
+    display: none;
+  }
+
+  .station-minimized-dock-wrap {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    padding: 0;
+    justify-content: flex-start;
+    pointer-events: auto;
+  }
+
+  .station-minimized-dock {
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    justify-content: flex-start;
+    align-items: center;
+    gap: #{rem(5)};
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    opacity: 1;
+    transform: none;
+    transition: none;
+
+    &:hover,
+    &:focus-within {
+      gap: #{rem(5)};
+      max-width: none;
+      padding: 0;
+      transform: none;
+      box-shadow: none;
+    }
+  }
+
+  .station-minimized-dock-wrap--status-bar .station-minimized-dock-item {
+    flex: 0 0 #{rem(108)} !important;
+    flex-basis: #{rem(108)} !important;
+    width: #{rem(108)} !important;
+    min-width: #{rem(108)} !important;
+    max-width: #{rem(108)} !important;
+    height: #{rem(24)} !important;
+    min-height: #{rem(24)} !important;
+    max-height: #{rem(24)} !important;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: #{rem(5)} !important;
+    padding: #{rem(2)} #{rem(6)} #{rem(2)} #{rem(3)} !important;
+    border-radius: #{rem(7)};
+    background: color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent);
+    box-shadow: inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-border-subtle) 76%, transparent);
+    transform: none !important;
+    contain: layout paint;
+    transition:
+      background-color 140ms var(--vb-ease-smooth),
+      box-shadow 140ms var(--vb-ease-smooth),
+      color 140ms var(--vb-ease-smooth);
+
+    &:hover,
+    &:focus-visible {
+      flex: 0 0 #{rem(108)} !important;
+      flex-basis: #{rem(108)} !important;
+      width: #{rem(108)} !important;
+      min-width: #{rem(108)} !important;
+      max-width: #{rem(108)} !important;
+      height: #{rem(24)} !important;
+      min-height: #{rem(24)} !important;
+      max-height: #{rem(24)} !important;
+      gap: #{rem(5)} !important;
+      padding: #{rem(2)} #{rem(6)} #{rem(2)} #{rem(3)} !important;
+      background: color-mix(in srgb, var(--vb-accent) 9%, var(--vb-glass-lighter));
+      box-shadow:
+        inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle)),
+        0 #{rem(2)} #{rem(6)} color-mix(in srgb, black 6%, transparent);
+    }
+
+    &:hover .station-minimized-dock-icon,
+    &:focus-visible .station-minimized-dock-icon {
+      border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
+      box-shadow:
+        0 #{rem(2)} #{rem(5)} color-mix(in srgb, black 8%, transparent),
+        inset 0 rem(1) 0 rgba(255, 255, 255, 0.14);
+    }
+
+    .station-minimized-dock:hover &,
+    .station-minimized-dock:focus-within & {
+      flex: 0 0 #{rem(108)} !important;
+      flex-basis: #{rem(108)} !important;
+      width: #{rem(108)} !important;
+      min-width: #{rem(108)} !important;
+      max-width: #{rem(108)} !important;
+      height: #{rem(24)} !important;
+      min-height: #{rem(24)} !important;
+      max-height: #{rem(24)} !important;
+      gap: #{rem(5)} !important;
+      padding: #{rem(2)} #{rem(6)} #{rem(2)} #{rem(3)} !important;
+    }
+
+    &:active {
+      flex: 0 0 #{rem(108)} !important;
+      flex-basis: #{rem(108)} !important;
+      width: #{rem(108)} !important;
+      min-width: #{rem(108)} !important;
+      max-width: #{rem(108)} !important;
+      height: #{rem(24)} !important;
+      background: color-mix(in srgb, var(--vb-accent) 13%, var(--vb-glass-lighter));
+    }
+  }
+
+  .station-minimized-dock-wrap--status-bar .station-minimized-dock-icon,
+  .station-minimized-dock-wrap--status-bar .station-minimized-dock:hover .station-minimized-dock-icon,
+  .station-minimized-dock-wrap--status-bar .station-minimized-dock:focus-within .station-minimized-dock-icon,
+  .station-minimized-dock-wrap--status-bar .station-minimized-dock-item:hover .station-minimized-dock-icon,
+  .station-minimized-dock-wrap--status-bar .station-minimized-dock-item:focus-visible .station-minimized-dock-icon {
+    min-width: #{rem(18)} !important;
+    width: #{rem(18)} !important;
+    max-width: #{rem(18)} !important;
+    height: #{rem(18)} !important;
+    min-height: #{rem(18)} !important;
+    max-height: #{rem(18)} !important;
+    border-radius: #{rem(6)};
+    flex: 0 0 #{rem(18)} !important;
+    flex-basis: #{rem(18)} !important;
+    transform: none;
+    transition:
+      border-color 140ms var(--vb-ease-smooth),
+      box-shadow 140ms var(--vb-ease-smooth),
+      background-color 140ms var(--vb-ease-smooth);
+  }
+
+  .station-minimized-dock-monogram {
+    font-size: #{rem(9.5)};
+    font-weight: 700;
+  }
+
+  .station-minimized-dock-badge {
+    top: #{rem(-3)};
+    right: #{rem(-3)};
+    min-width: #{rem(10)};
+    height: #{rem(10)};
+    padding: 0 #{rem(2)};
+    font-size: #{rem(6.5)};
+  }
+
+  .station-minimized-dock-label {
+    flex: 1 1 auto;
+    align-items: flex-start;
+    max-width: none;
+    max-height: #{rem(20)};
+    opacity: 1;
+    transform: none;
+  }
+
+  .station-minimized-dock-label strong,
+  .station-minimized-dock-label span {
+    text-align: left;
+  }
+
+  .station-minimized-dock-label span {
+    display: none;
+  }
+
+  .station-minimized-dock-label strong {
+    font-size: #{rem(9.25)};
+    line-height: 1.1;
+  }
+
+  .station-minimized-dock-indicator {
+    flex: 0 0 #{rem(3)};
+    width: #{rem(3)};
+    height: #{rem(3)};
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-bar__station-dock-slot {
+    .station-minimized-dock-item,
+    .station-minimized-dock-icon {
+      transition: none;
+    }
+  }
 }
 
 .status-bar__item {

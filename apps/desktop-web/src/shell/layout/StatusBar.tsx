@@ -12,6 +12,7 @@ interface StatusBarProps {
   agentOnline: number
   agentTotal: number
   terminalSessions: number
+  stationDockRef?: (element: HTMLDivElement | null) => void
 }
 
 export function StatusBar({
@@ -24,6 +25,7 @@ export function StatusBar({
   agentOnline,
   agentTotal,
   terminalSessions,
+  stationDockRef,
 }: StatusBarProps) {
   const branchLabel = gitBranch.trim() || '-'
   const changedFilesCount = Math.max(0, gitChangedFiles)
@@ -74,6 +76,11 @@ export function StatusBar({
         <span className="status-bar__abbr">TS</span>
         <span className="status-bar__value">{terminalSessions}</span>
       </div>
+      <div
+        ref={stationDockRef}
+        className="status-bar__station-dock-slot"
+        aria-live="polite"
+      />
       <div className="status-bar__item status-bar__item--changes" title={t(locale, 'statusBar.gitChanges')}>
         <span className="status-bar__abbr">CHG</span>
         <span className="status-bar__value">{changedFilesCount}</span>

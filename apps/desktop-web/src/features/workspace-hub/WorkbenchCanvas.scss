@@ -68,6 +68,44 @@
   }
 }
 
+.station-taskbar-ghost {
+  position: fixed;
+  z-index: 2200;
+  pointer-events: none;
+  contain: layout paint style;
+  transform-origin: top left;
+  transform: translateZ(0);
+  overflow: hidden;
+  border-radius: rem(10);
+  border: rem(1) solid color-mix(in srgb, var(--vb-border-strong) 54%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 88%, transparent), transparent),
+    color-mix(in srgb, var(--vb-surface-elevated) 88%, transparent);
+  box-shadow:
+    0 rem(8) rem(20) color-mix(in srgb, black 12%, transparent),
+    inset 0 rem(1) 0 color-mix(in srgb, white 18%, transparent);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+
+.station-taskbar-ghost__bar {
+  height: rem(22);
+  background: color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent);
+  border-bottom: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 72%, transparent);
+}
+
+.station-taskbar-ghost__title {
+  padding: rem(7) rem(9);
+  font-size: rem(11);
+  font-weight: 650;
+  line-height: 1.2;
+  color: var(--vb-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateZ(0);
+}
+
 .canvas-utility-actions {
   display: flex;
   align-items: center;

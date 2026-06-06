@@ -11,7 +11,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
+import { createPortal } from 'react-dom'
 import {
   BetweenHorizontalStart,
   BringToFront,
@@ -129,6 +130,7 @@ interface WorkbenchCanvasPanelProps {
   onOpenStationSearch?: () => void
   pinned?: boolean
   onTogglePinnedWorkbenchContainer?: (containerId: string) => void
+  minimizedDockPortalTarget?: HTMLElement | null
 }
 
 const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
@@ -139,8 +141,14 @@ const WORKBENCH_LAYOUT_PRESETS: WorkbenchLayoutPresetDefinition[] = [
 
 const ROLE_FILTER_EXIT_MS = 160
 const ROLE_FILTER_ENTER_MS = 180
-const STATION_RESTORE_DOCK_EXIT_MS = 240
-const STATION_RESTORE_CARD_ANIMATION_MS = 320
+const STATION_RESTORE_DOCK_EXIT_MS = 190
+const STATION_RESTORE_CARD_ANIMATION_MS = 220
+const STATION_RESTORE_REVEAL_MS = 120
+const STATION_MINIMIZE_CARD_ANIMATION_MS = 180
+const STATUS_BAR_DOCK_ITEM_WIDTH_PX = 108
+const STATUS_BAR_DOCK_ITEM_HEIGHT_PX = 24
+const STATUS_BAR_DOCK_ITEM_GAP_PX = 5
+const STATION_TASKBAR_GHOST_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1]
 
 interface ExitingStationSnapshot {
   stationId: string
@@ -150,15 +158,38 @@ interface ExitingStationSnapshot {
   height: number
 }
 
-interface StationRestoreAnimationState {
+interface StationMinimizeAnimationState {
   stationId: string
   token: number
-  fromRect: {
+  label: string
+  sourceRect: {
     top: number
     left: number
     width: number
     height: number
   }
+  targetRect: {
+    top: number
+    left: number
+    width: number
+    height: number
+  }
+}
+
+type StationTaskbarAnimationPhase = 'minimize' | 'restore'
+
+interface StationTaskbarGhostAnimation {
+  stationId: string
+  token: number
+  label: string
+  phase: StationTaskbarAnimationPhase
+  fromRect: StationMinimizeAnimationState['sourceRect']
+  toRect: StationMinimizeAnimationState['targetRect']
+}
+
+interface HiddenStationAnimationState {
+  stationId: string
+  phase: StationTaskbarAnimationPhase
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -283,9 +314,6 @@ const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
       onClick={(event) => onRestore(station.id, event.currentTarget.getBoundingClientRect())}
       aria-label={label}
       title={label}
-      whileHover={{ y: -8, scale: 1.06 }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ type: 'spring', stiffness: 360, damping: 28, mass: 0.82 }}
     >
       <span className="station-minimized-dock-icon" aria-hidden="true">
         <span className="station-minimized-dock-monogram">{station.name.slice(0, 1).toUpperCase()}</span>
@@ -368,6 +396,76 @@ function StationCardSlot({
   )
 }
 
+function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnimation }) {
+  const scaleX = animation.toRect.width / Math.max(1, animation.fromRect.width)
+  const scaleY = animation.toRect.height / Math.max(1, animation.fromRect.height)
+  const translateX = animation.toRect.left - animation.fromRect.left
+  const translateY = animation.toRect.top - animation.fromRect.top
+
+  return createPortal(
+    <motion.div
+      key={`${animation.phase}:${animation.stationId}:${animation.token}`}
+      className="station-taskbar-ghost"
+      aria-hidden="true"
+      style={{
+        top: animation.fromRect.top,
+        left: animation.fromRect.left,
+        width: animation.fromRect.width,
+        height: animation.fromRect.height,
+      }}
+      initial={{
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        opacity: animation.phase === 'restore' ? 0 : 0.62,
+      }}
+      animate={{
+        x: translateX,
+        y: translateY,
+        scaleX,
+        scaleY,
+        opacity: animation.phase === 'restore' ? 0.62 : 0,
+      }}
+      exit={{ opacity: 0 }}
+      transition={{
+        x: {
+          duration: animation.phase === 'restore'
+            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
+            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
+          ease: STATION_TASKBAR_GHOST_EASE,
+        },
+        y: {
+          duration: animation.phase === 'restore'
+            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
+            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
+          ease: STATION_TASKBAR_GHOST_EASE,
+        },
+        scaleX: {
+          duration: animation.phase === 'restore'
+            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
+            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
+          ease: STATION_TASKBAR_GHOST_EASE,
+        },
+        scaleY: {
+          duration: animation.phase === 'restore'
+            ? STATION_RESTORE_CARD_ANIMATION_MS / 1000
+            : STATION_MINIMIZE_CARD_ANIMATION_MS / 1000,
+          ease: STATION_TASKBAR_GHOST_EASE,
+        },
+        opacity: {
+          duration: animation.phase === 'restore' ? 0.14 : 0.1,
+          ease: 'linear',
+        },
+      }}
+    >
+      <div className="station-taskbar-ghost__bar" />
+      <div className="station-taskbar-ghost__title">{animation.label}</div>
+    </motion.div>,
+    document.body,
+  )
+}
+
 function WorkbenchCanvasPanelView({
   locale,
   appearanceVersion,
@@ -425,14 +523,18 @@ function WorkbenchCanvasPanelView({
   onOpenStationSearch,
   pinned = false,
   onTogglePinnedWorkbenchContainer,
+  minimizedDockPortalTarget = null,
 }: WorkbenchCanvasPanelProps) {
   const gridRef = useRef<HTMLDivElement | null>(null)
   const roleFilterExitTimerRef = useRef<number | null>(null)
   const roleFilterEnterTimerRef = useRef<number | null>(null)
   const restoreDockTimerRef = useRef<number | null>(null)
   const restoreCardAnimationTimerRef = useRef<number | null>(null)
+  const restoreRevealTimerRef = useRef<number | null>(null)
+  const minimizeCardAnimationTimerRef = useRef<number | null>(null)
   const [restoringStationId, setRestoringStationId] = useState<string | null>(null)
-  const [restoreAnimation, setRestoreAnimation] = useState<StationRestoreAnimationState | null>(null)
+  const [taskbarGhostAnimation, setTaskbarGhostAnimation] = useState<StationTaskbarGhostAnimation | null>(null)
+  const [hiddenStationAnimation, setHiddenStationAnimation] = useState<HiddenStationAnimationState | null>(null)
   const fullscreenStationIdRaw = container.fullscreenStationId
   const minimizedStationIds = container.minimizedStationIds
   const normalizedCustomLayout = useMemo(
@@ -558,6 +660,12 @@ function WorkbenchCanvasPanelView({
       if (restoreCardAnimationTimerRef.current !== null) {
         window.clearTimeout(restoreCardAnimationTimerRef.current)
       }
+      if (restoreRevealTimerRef.current !== null) {
+        window.clearTimeout(restoreRevealTimerRef.current)
+      }
+      if (minimizeCardAnimationTimerRef.current !== null) {
+        window.clearTimeout(minimizeCardAnimationTimerRef.current)
+      }
     }
   }, [])
 
@@ -666,6 +774,31 @@ function WorkbenchCanvasPanelView({
   }, [container.mode, locale])
   const canDetach = !detachedReadonly && stations.length > 0
   const canDeleteContainer = !detachedReadonly && stations.length === 0 && typeof onDeleteContainer === 'function'
+  const resolveMinimizeTargetRect = useCallback(
+    (stationId: string, sourceRect: DOMRect): StationMinimizeAnimationState['targetRect'] => {
+      const dockSlotRect = minimizedDockPortalTarget?.getBoundingClientRect()
+      if (dockSlotRect && dockSlotRect.width > 0 && dockSlotRect.height > 0) {
+        const dockIndex = dockStations.findIndex((station) => station.id === stationId)
+        const nextIndex = dockIndex >= 0 ? dockIndex : dockStations.length
+        const maxLeft = Math.max(dockSlotRect.left, dockSlotRect.right - STATUS_BAR_DOCK_ITEM_WIDTH_PX)
+        const projectedLeft = dockSlotRect.left + nextIndex * (STATUS_BAR_DOCK_ITEM_WIDTH_PX + STATUS_BAR_DOCK_ITEM_GAP_PX)
+        return {
+          top: dockSlotRect.top + Math.max(0, (dockSlotRect.height - STATUS_BAR_DOCK_ITEM_HEIGHT_PX) / 2),
+          left: Math.min(projectedLeft, maxLeft),
+          width: STATUS_BAR_DOCK_ITEM_WIDTH_PX,
+          height: STATUS_BAR_DOCK_ITEM_HEIGHT_PX,
+        }
+      }
+
+      return {
+        top: sourceRect.bottom - Math.min(STATUS_BAR_DOCK_ITEM_HEIGHT_PX, sourceRect.height),
+        left: sourceRect.left + Math.max(0, (sourceRect.width - STATUS_BAR_DOCK_ITEM_WIDTH_PX) / 2),
+        width: STATUS_BAR_DOCK_ITEM_WIDTH_PX,
+        height: STATUS_BAR_DOCK_ITEM_HEIGHT_PX,
+      }
+    },
+    [dockStations, minimizedDockPortalTarget],
+  )
   const handleRestoreStation = useCallback(
     (stationId: string, sourceRect: DOMRect) => {
       if (restoreDockTimerRef.current !== null) {
@@ -674,17 +807,19 @@ function WorkbenchCanvasPanelView({
       if (restoreCardAnimationTimerRef.current !== null) {
         window.clearTimeout(restoreCardAnimationTimerRef.current)
       }
+      if (restoreRevealTimerRef.current !== null) {
+        window.clearTimeout(restoreRevealTimerRef.current)
+        restoreRevealTimerRef.current = null
+      }
+      if (minimizeCardAnimationTimerRef.current !== null) {
+        window.clearTimeout(minimizeCardAnimationTimerRef.current)
+        minimizeCardAnimationTimerRef.current = null
+      }
+      setTaskbarGhostAnimation(null)
+      setHiddenStationAnimation(null)
       setRestoringStationId(stationId)
-      setRestoreAnimation({
-        stationId,
-        token: Date.now(),
-        fromRect: {
-          top: sourceRect.top,
-          left: sourceRect.left,
-          width: sourceRect.width,
-          height: sourceRect.height,
-        },
-      })
+      const token = Date.now()
+      setHiddenStationAnimation({ stationId, phase: 'restore' })
       const nextDisplayedStationIds = orderStationIds([...displayedStationIdsRef.current, stationId])
       displayedStationIdsRef.current = nextDisplayedStationIds
       setDisplayedStationIds(nextDisplayedStationIds)
@@ -692,20 +827,52 @@ function WorkbenchCanvasPanelView({
         container.id,
         minimizedStationIds.filter((currentId) => currentId !== stationId),
       )
+      window.requestAnimationFrame(() => {
+        const gridElement = gridRef.current
+        const slotElement = gridElement?.querySelector<HTMLElement>(`[data-station-slot-id="${stationId}"]`)
+        const targetRect = slotElement?.getBoundingClientRect()
+        if (!targetRect || targetRect.width <= 0 || targetRect.height <= 0) {
+          return
+        }
+        setTaskbarGhostAnimation({
+          stationId,
+          token,
+          label: stationById.get(stationId)?.name ?? stationId,
+          phase: 'restore',
+          fromRect: {
+            top: sourceRect.top,
+            left: sourceRect.left,
+            width: sourceRect.width,
+            height: sourceRect.height,
+          },
+          toRect: {
+            top: targetRect.top,
+            left: targetRect.left,
+            width: targetRect.width,
+            height: targetRect.height,
+          },
+        })
+      })
       restoreDockTimerRef.current = window.setTimeout(() => {
         setRestoringStationId((current) => (current === stationId ? null : current))
         restoreDockTimerRef.current = null
       }, STATION_RESTORE_DOCK_EXIT_MS)
       restoreCardAnimationTimerRef.current = window.setTimeout(() => {
-        setRestoreAnimation((current) => (current?.stationId === stationId ? null : current))
+        setTaskbarGhostAnimation((current) => (current?.stationId === stationId ? null : current))
         restoreCardAnimationTimerRef.current = null
       }, STATION_RESTORE_CARD_ANIMATION_MS)
+      restoreRevealTimerRef.current = window.setTimeout(() => {
+        setHiddenStationAnimation((current) => (
+          current?.stationId === stationId && current.phase === 'restore' ? null : current
+        ))
+        restoreRevealTimerRef.current = null
+      }, STATION_RESTORE_REVEAL_MS)
       onSelectStation(container.id, stationId)
     },
-    [container.id, minimizedStationIds, onMinimizedStationIdsChange, onSelectStation, orderStationIds],
+    [container.id, minimizedStationIds, onMinimizedStationIdsChange, onSelectStation, orderStationIds, stationById],
   )
   const handleMinimizeStation = useCallback(
-    (stationId: string) => {
+    (stationId: string, sourceRect: DOMRect) => {
       if (restoringStationId === stationId) {
         if (restoreDockTimerRef.current !== null) {
           window.clearTimeout(restoreDockTimerRef.current)
@@ -715,24 +882,53 @@ function WorkbenchCanvasPanelView({
           window.clearTimeout(restoreCardAnimationTimerRef.current)
           restoreCardAnimationTimerRef.current = null
         }
+        if (restoreRevealTimerRef.current !== null) {
+          window.clearTimeout(restoreRevealTimerRef.current)
+          restoreRevealTimerRef.current = null
+        }
         setRestoringStationId(null)
-        setRestoreAnimation(null)
       }
-      const nextDisplayedStationIds = displayedStationIdsRef.current.filter((currentId) => currentId !== stationId)
-      displayedStationIdsRef.current = nextDisplayedStationIds
-      setDisplayedStationIds(nextDisplayedStationIds)
-      if (!minimizedStationIdSet.has(stationId)) {
+      if (minimizeCardAnimationTimerRef.current !== null) {
+        window.clearTimeout(minimizeCardAnimationTimerRef.current)
+        minimizeCardAnimationTimerRef.current = null
+      }
+      if (minimizedStationIdSet.has(stationId)) {
+        return
+      }
+      const targetRect = resolveMinimizeTargetRect(stationId, sourceRect)
+      setHiddenStationAnimation({ stationId, phase: 'minimize' })
+      setTaskbarGhostAnimation({
+        stationId,
+        token: Date.now(),
+        label: stationById.get(stationId)?.name ?? stationId,
+        phase: 'minimize',
+        fromRect: {
+          top: sourceRect.top,
+          left: sourceRect.left,
+          width: sourceRect.width,
+          height: sourceRect.height,
+        },
+        toRect: targetRect,
+      })
+      const finishMinimize = () => {
+        const nextDisplayedStationIds = displayedStationIdsRef.current.filter((currentId) => currentId !== stationId)
+        displayedStationIdsRef.current = nextDisplayedStationIds
+        setDisplayedStationIds(nextDisplayedStationIds)
         onMinimizedStationIdsChange(container.id, [...minimizedStationIds, stationId])
+        if (fullscreenStationIdRaw === stationId) {
+          onFullscreenStationChange(container.id, null)
+        }
+        const nextVisibleStation = targetVisibleStations.find(
+          (station) => station.id !== stationId && !minimizedStationIdSet.has(station.id),
+        )
+        if (nextVisibleStation) {
+          onSelectStation(container.id, nextVisibleStation.id)
+        }
+        setTaskbarGhostAnimation((current) => (current?.stationId === stationId ? null : current))
+        setHiddenStationAnimation((current) => (current?.stationId === stationId ? null : current))
+        minimizeCardAnimationTimerRef.current = null
       }
-      if (fullscreenStationIdRaw === stationId) {
-        onFullscreenStationChange(container.id, null)
-      }
-      const nextVisibleStation = targetVisibleStations.find(
-        (station) => station.id !== stationId && !minimizedStationIdSet.has(station.id),
-      )
-      if (nextVisibleStation) {
-        onSelectStation(container.id, nextVisibleStation.id)
-      }
+      minimizeCardAnimationTimerRef.current = window.setTimeout(finishMinimize, STATION_MINIMIZE_CARD_ANIMATION_MS)
     },
     [
       container.id,
@@ -742,10 +938,38 @@ function WorkbenchCanvasPanelView({
       onFullscreenStationChange,
       onMinimizedStationIdsChange,
       onSelectStation,
+      resolveMinimizeTargetRect,
       restoringStationId,
+      stationById,
       targetVisibleStations,
     ],
   )
+  const minimizedDock = dockStations.length > 0 ? (
+    <div
+      className={[
+        'station-minimized-dock-wrap',
+        minimizedDockPortalTarget ? 'station-minimized-dock-wrap--status-bar' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <div className="station-minimized-dock" role="toolbar" aria-label={t(locale, 'workbench.minimizedDock')}>
+        {dockStations.map((station) => {
+          const restoring = restoringStationId === station.id && !minimizedStationIdSet.has(station.id)
+          return (
+            <StationMinimizedDockItem
+              key={station.id}
+              station={station}
+              runtime={terminalByStation[station.id]}
+              restoring={restoring}
+              locale={locale}
+              onRestore={handleRestoreStation}
+            />
+          )
+        })}
+      </div>
+    </div>
+  ) : null
   const orderedPrimaryHeaderActions = useMemo(() => {
     const actions: Array<{ id: WorkbenchHeaderActionId; element: ReactNode }> = []
 
@@ -1099,7 +1323,7 @@ function WorkbenchCanvasPanelView({
           snapshot={exitingStationSnapshotById.get(station.id) ?? null}
           inert={Boolean(options?.inert)}
           transitionSuspended={workspaceTransitioning}
-          layoutSuspended={Boolean(restoreAnimation)}
+          layoutSuspended={Boolean(taskbarGhostAnimation)}
         >
           <StationCard
             locale={locale}
@@ -1113,8 +1337,11 @@ function WorkbenchCanvasPanelView({
             channelBotBindings={channelBotBindingsByStationId[station.id]}
             isFullscreen={Boolean(options?.fullscreen)}
             isFullscreenMode={Boolean(options?.fullscreenMode)}
-            isFocusHidden={Boolean(options?.focusHidden)}
-            restoreAnimation={restoreAnimation?.stationId === station.id ? restoreAnimation : null}
+            isFocusHidden={
+              Boolean(options?.focusHidden) ||
+              hiddenStationAnimation?.stationId === station.id
+            }
+            restoreAnimation={null}
             draggable={!detachedReadonly}
             onStationDragStart={
               onStationDragStart
@@ -1168,6 +1395,8 @@ function WorkbenchCanvasPanelView({
       handleMinimizeStation,
       handleSelectStation,
       locale,
+      hiddenStationAnimation,
+      taskbarGhostAnimation,
       onBindTerminalSink,
       onForceCloseTerminal,
       onLaunchCliAgent,
@@ -1430,24 +1659,13 @@ function WorkbenchCanvasPanelView({
           ) : null}
         </div>
       )}
-      {dockStations.length > 0 ? (
-        <div className="station-minimized-dock-wrap">
-          <div className="station-minimized-dock" role="toolbar" aria-label={t(locale, 'workbench.minimizedDock')}>
-            {dockStations.map((station) => {
-              const restoring = restoringStationId === station.id && !minimizedStationIdSet.has(station.id)
-              return (
-                <StationMinimizedDockItem
-                  key={station.id}
-                  station={station}
-                  runtime={terminalByStation[station.id]}
-                  restoring={restoring}
-                  locale={locale}
-                  onRestore={handleRestoreStation}
-                />
-              )
-            })}
-          </div>
-        </div>
+      {minimizedDockPortalTarget && minimizedDock
+        ? createPortal(minimizedDock, minimizedDockPortalTarget)
+        : minimizedDock}
+      {taskbarGhostAnimation ? (
+        <AnimatePresence>
+          <StationTaskbarGhost animation={taskbarGhostAnimation} />
+        </AnimatePresence>
       ) : null}
     </section>
   )

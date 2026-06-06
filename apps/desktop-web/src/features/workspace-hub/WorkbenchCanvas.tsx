@@ -76,6 +76,7 @@ interface WorkbenchCanvasProps {
   showStage?: boolean
   showFloatingPortal?: boolean
   floatingVisibility?: 'all' | 'topmost' | 'non_topmost'
+  minimizedDockPortalTarget?: HTMLElement | null
   workspaceTransitioning?: boolean
   stations: AgentStation[]
   roleFilter?: StationRole | 'all'
@@ -275,6 +276,7 @@ function WorkbenchCanvasView({
   showStage = true,
   showFloatingPortal = true,
   floatingVisibility = 'all',
+  minimizedDockPortalTarget = null,
   workspaceTransitioning = false,
   stations,
   roleFilter = 'all',
@@ -633,6 +635,7 @@ function WorkbenchCanvasView({
                     showUtilityBar={container.id === utilityHostContainerId}
                     pinned={pinnedWorkbenchContainerId === container.id}
                     onTogglePinnedWorkbenchContainer={onTogglePinnedWorkbenchContainer}
+                    minimizedDockPortalTarget={minimizedDockPortalTarget}
                     onCreateContainer={onCreateContainer}
                     onStationDragStart={handleStationDragStart}
                     onStationDragPointerStart={handleStationPointerDragStart}
@@ -692,6 +695,7 @@ function WorkbenchCanvasView({
                     channelBotBindingsByStationId={channelBotBindingsByStationId}
                     dropActive={dragTargetContainerId === container.id}
                     workspaceTransitioning={workspaceTransitioning}
+                    minimizedDockPortalTarget={minimizedDockPortalTarget}
                     onSelectStation={onSelectStation}
                     onLaunchStationTerminal={onLaunchStationTerminal}
                     onLaunchCliAgent={onLaunchCliAgent}

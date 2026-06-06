@@ -4,6 +4,7 @@ import {
   type KeyboardEventHandler,
   type PointerEventHandler,
   type RefObject,
+  useState,
 } from 'react'
 import { FileEditorPane, FileTreePane, GlobalFileSearchModal } from '@features/file-explorer'
 import { GitHistoryPane, GitOperationsPane } from '@features/git'
@@ -524,9 +525,26 @@ export function ShellRootView({
   workspaceSwitching,
   workspaceSwitchAnimation,
 }: ShellRootViewProps) {
+  const [stationDockPortalTarget, setStationDockPortalTarget] = useState<HTMLElement | null>(null)
   const switchingClass = workspaceSwitching && workspaceSwitchAnimation !== 'none'
     ? ` workspace-switching workspace-switching--${workspaceSwitchAnimation}`
     : ''
+  const workbenchCanvasPropsWithDock = {
+    ...workbenchCanvasProps,
+    minimizedDockPortalTarget: stationDockPortalTarget,
+  }
+  const pinnedWorkbenchCanvasPropsWithDock = pinnedWorkbenchCanvasProps
+    ? {
+        ...pinnedWorkbenchCanvasProps,
+        minimizedDockPortalTarget: stationDockPortalTarget,
+      }
+    : null
+  const topmostWorkbenchCanvasPropsWithDock = topmostWorkbenchCanvasProps
+    ? {
+        ...topmostWorkbenchCanvasProps,
+        minimizedDockPortalTarget: stationDockPortalTarget,
+      }
+    : null
 
   return (
     <div
@@ -577,21 +595,21 @@ export function ShellRootView({
           communicationChannelsPaneProps={communicationChannelsPaneProps}
           activePaneModel={activePaneModel}
           showWorkbenchCanvas={showWorkbenchCanvas}
-          workbenchCanvasProps={workbenchCanvasProps}
-          pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasProps}
+          workbenchCanvasProps={workbenchCanvasPropsWithDock}
+          pinnedWorkbenchCanvasProps={pinnedWorkbenchCanvasPropsWithDock}
           fileEditorPaneProps={fileEditorPaneProps}
           gitHistoryPaneProps={gitHistoryPaneProps}
         />
       </main>
 
-      {topmostWorkbenchCanvasProps ? <WorkbenchCanvas {...topmostWorkbenchCanvasProps} /> : null}
+      {topmostWorkbenchCanvasPropsWithDock ? <WorkbenchCanvas {...topmostWorkbenchCanvasPropsWithDock} /> : null}
 
       <div
         ref={shellStatusRef}
         className={`shell-status-wrapper relative z-10${switchingClass}`}
         data-switch-anim={workspaceSwitchAnimation !== 'none' ? workspaceSwitchAnimation : undefined}
       >
-        <StatusBar {...statusBarProps} />
+        <StatusBar {...statusBarProps} stationDockRef={setStationDockPortalTarget} />
       </div>
 
       <ShellRootOverlays

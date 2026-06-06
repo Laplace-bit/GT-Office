@@ -155,7 +155,7 @@ interface StationCardProps {
   onRemoveStation: (stationId: string) => void
   onEnterFullscreen: (stationId: string) => void
   onExitFullscreen: () => void
-  onMinimizeStation?: (stationId: string) => void
+  onMinimizeStation?: (stationId: string, sourceRect: DOMRect) => void
   onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
   commands?: ToolCommandSummary[]
   draggable?: boolean
@@ -346,7 +346,7 @@ function StationCardView({
         {
           transformOrigin: 'top left',
           transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
-          opacity: 0.86,
+          opacity: 0.18,
         },
         {
           transformOrigin: 'top left',
@@ -355,8 +355,8 @@ function StationCardView({
         },
       ],
       {
-        duration: 260,
-        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        duration: 320,
+        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
         fill: 'both',
       },
     )
@@ -650,7 +650,12 @@ function StationCardView({
               onClick={(event) => {
                 event.stopPropagation()
                 recordStationUiDiagnostic('ui-control-event', 'station-card:minimize:click')
-                onMinimizeStation?.(station.id)
+                const sourceRect = rootRef.current?.getBoundingClientRect()
+                if (sourceRect) {
+                  onMinimizeStation?.(station.id, sourceRect)
+                } else {
+                  onMinimizeStation?.(station.id, event.currentTarget.getBoundingClientRect())
+                }
               }}
             >
               <AppIcon name="minus" className="vb-icon vb-icon-station-button" aria-hidden="true" />
