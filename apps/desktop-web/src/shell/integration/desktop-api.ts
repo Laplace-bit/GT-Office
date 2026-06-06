@@ -737,6 +737,13 @@ export interface DetachedTerminalEnsureSessionMessage {
   stationId: string
 }
 
+export interface DetachedTerminalLaunchCliAgentMessage {
+  kind: 'detached_terminal_launch_cli_agent'
+  workspaceId: string
+  containerId: string
+  stationId: string
+}
+
 export interface DetachedTerminalWriteInputMessage {
   kind: 'detached_terminal_write_input'
   workspaceId: string
@@ -826,6 +833,7 @@ export type DetachedTerminalBridgeMessage =
   | DetachedTerminalHydrateRequestMessage
   | DetachedTerminalHydrateSnapshotMessage
   | DetachedTerminalEnsureSessionMessage
+  | DetachedTerminalLaunchCliAgentMessage
   | DetachedTerminalWriteInputMessage
   | DetachedTerminalWriteWithSubmitMessage
   | DetachedTerminalResizeMessage

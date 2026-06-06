@@ -353,6 +353,7 @@ export function useShellTerminalController({
   >({})
   const stationUnreadDeltaRef = useRef<Record<string, number>>({})
   const protectedAgentSessionByStationRef = useRef<Record<string, string>>({})
+  const launchStationCliAgentRef = useRef<((stationId: string) => Promise<void>) | null>(null)
 
   const protectStationAgentSession = useCallback(
     (stationId: string, sessionId: string | null | undefined) => {
@@ -2565,6 +2566,14 @@ export function useShellTerminalController({
           })
           return
         }
+        case 'detached_terminal_launch_cli_agent': {
+          const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
+          if (!container) {
+            return
+          }
+          void launchStationCliAgentRef.current?.(message.stationId)
+          return
+        }
         case 'detached_terminal_write_input': {
           const container = resolveDetachedBridgeContainer(sourceWindowLabel, message.containerId, message.stationId)
           if (!container) {
@@ -2955,7 +2964,6 @@ export function useShellTerminalController({
       options?: {
         bindGtoSessionId?: string
         sessionCwd?: string | null
-        startedMessageKey?: 'session.resumeStarted' | 'session.continueLastStarted' | 'session.forkStarted' | 'system.terminalLaunched'
       },
     ): Promise<boolean> => {
       const workspaceId = activeWorkspaceIdRef.current
@@ -3022,23 +3030,13 @@ export function useShellTerminalController({
           .catch(() => {})
       }
 
-      const startedKey = options?.startedMessageKey ?? 'system.terminalLaunched'
-      resetStationTerminalOutput(
-        stationId,
-        `${t(locale, startedKey)}${t(locale, 'system.terminalSessionInfo', {
-          sessionId,
-          cwd: stationTerminalsRef.current[stationId]?.resolvedCwd ?? options?.sessionCwd ?? station.agentWorkdirRel,
-        })}`,
-      )
       stationTerminalSinkRef.current[stationId]?.focus()
       return true
     },
     [
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
-      locale,
       protectStationAgentSession,
-      resetStationTerminalOutput,
       runStationTerminalCommand,
       setStationTerminalState,
       _setActiveStationId,
@@ -3062,17 +3060,9 @@ export function useShellTerminalController({
         request.providerSessionId,
       )
 
-      const startedMessageKey =
-        request.mode === 'fork' || request.mode === 'forkLast'
-          ? 'session.forkStarted'
-          : request.mode === 'continueLast'
-            ? 'session.continueLastStarted'
-            : 'session.resumeStarted'
-
       const ok = await launchCliInStationTerminal(stationId, launchCommand, {
         bindGtoSessionId: request.mode === 'resume' ? request.gtoSessionId : undefined,
         sessionCwd: request.cwd ?? null,
-        startedMessageKey,
       })
       if (!ok) {
         appendStationTerminalOutput(
@@ -3114,21 +3104,12 @@ export function useShellTerminalController({
       }
       const currentSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       const launchCommand = resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)
-      if (!currentSessionId) {
-        if (launchCommand) {
-          await launchCliInStationTerminal(stationId, launchCommand, {
-            startedMessageKey: 'system.terminalLaunched',
-          })
-        } else {
-          const sessionId = await launchToolProfileForStation(station)
-          if (!sessionId) {
-            return
-          }
-          stationTerminalSinkRef.current[stationId]?.focus()
+      if (!currentSessionId || !launchCommand) {
+        const sessionId = await launchToolProfileForStation(station)
+        if (!sessionId) {
+          return
         }
-        return
-      }
-      if (!launchCommand) {
+        stationTerminalSinkRef.current[stationId]?.focus()
         return
       }
 
@@ -3153,13 +3134,13 @@ export function useShellTerminalController({
     },
     [
       inspectStationSessionProcesses,
-      launchCliInStationTerminal,
       launchToolProfileForStation,
       protectStationAgentSession,
       resetStationTerminalToAgentWorkdir,
       runStationTerminalCommand,
     ],
   )
+  launchStationCliAgentRef.current = launchStationCliAgent
 
   // ── Cleanup removed station runtime state ───────────────────────────────
   const cleanupRemovedStationRuntimeState = useCallback(

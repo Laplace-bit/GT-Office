@@ -1012,21 +1012,20 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     async (stationId: string) => {
       selectStation(stationId)
       pendingFocusStationRef.current[stationId] = true
-      const station = stationsRef.current.find((entry) => entry.id === stationId)
-      const launchCommand = station ? buildStationLaunchCommand(station) : null
-      pendingLaunchCommandRef.current[stationId] = resolveNextPendingLaunchCommand('cli', launchCommand)
-      const sessionId = await ensureStationTerminalSession(stationId)
-      if (launchCommand) {
-        if (sessionId || stationRuntimesRef.current[stationId]?.sessionId) {
-          delete pendingLaunchCommandRef.current[stationId]
-          sendInput(stationId, launchCommand)
-        }
-      }
-      if (sessionId) {
-        flushPendingStationFocus(stationId)
+      delete pendingLaunchCommandRef.current[stationId]
+      try {
+        await postBridgeMessage({
+          kind: 'detached_terminal_launch_cli_agent',
+          workspaceId: payload.workspaceId,
+          containerId: payload.containerId,
+          stationId,
+        })
+      } catch {
+        delete pendingFocusStationRef.current[stationId]
+        requestHydrate()
       }
     },
-    [ensureStationTerminalSession, flushPendingStationFocus, selectStation, sendInput],
+    [payload.containerId, payload.workspaceId, postBridgeMessage, requestHydrate, selectStation],
   )
 
   const handleResize = useCallback(

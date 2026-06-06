@@ -52,7 +52,6 @@
       0 0 0 rem(7) color-mix(in srgb, var(--vb-accent) 10%, transparent),
       0 rem(18) rem(42) color-mix(in srgb, var(--vb-accent) 18%, transparent),
       var(--vb-shadow-md);
-    transform: translateZ(0);
 
     &::after {
       border-color: rgba(255, 255, 255, 0.1);
