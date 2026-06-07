@@ -5404,7 +5404,8 @@ esac\n",
         make_executable(&fake_git);
         let service = make_test_service_with_git_path(root.clone(), &fake_bin);
 
-        let cases: Vec<(&str, Box<dyn Fn() -> AbstractionResult<()>>)> = vec![
+        type GitFailureCase<'a> = (&'a str, Box<dyn Fn() -> AbstractionResult<()> + 'a>);
+        let cases: Vec<GitFailureCase<'_>> = vec![
             (
                 "GIT_COMMIT_FAILED",
                 Box::new(|| service.commit(&workspace_id, None, "message").map(|_| ())),

@@ -129,7 +129,15 @@ fn agent_create_succeeds_with_readonly_existing_root_prompt_when_content_is_unch
     let mut writable_permissions = fs::metadata(&prompt_path)
         .expect("stat readonly prompt")
         .permissions();
-    writable_permissions.set_readonly(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        writable_permissions.set_mode(writable_permissions.mode() | 0o200);
+    }
+    #[cfg(not(unix))]
+    {
+        writable_permissions.set_readonly(false);
+    }
     fs::set_permissions(&prompt_path, writable_permissions).expect("restore prompt permissions");
 
     let response = response.expect("create agent with unchanged prompt");

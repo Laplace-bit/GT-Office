@@ -928,7 +928,7 @@ export interface FsCopyResponse {
 
 export interface FsShowInFolderResponse {
   workspaceId: string
-  revealed: boolean
+  opened: boolean
 }
 
 export interface FileInfoResponse {

@@ -19,10 +19,19 @@ export function createEmptyWorkbenchStationRuntime(): WorkbenchStationRuntime {
 }
 
 export function appendDetachedTerminalOutput(previous: string | undefined, chunk: string): string {
-  const merged = `${previous ?? ''}${chunk}`
-  return merged.length > DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS
-    ? merged.slice(merged.length - DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS)
-    : merged
+  if (!chunk) {
+    return previous ?? ''
+  }
+  if (chunk.length >= DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS) {
+    return chunk.slice(chunk.length - DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS)
+  }
+  const previousText = previous ?? ''
+  const previousTailLength = DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS - chunk.length
+  const previousTail =
+    previousText.length > previousTailLength
+      ? previousText.slice(previousText.length - previousTailLength)
+      : previousText
+  return `${previousTail}${chunk}`
 }
 
 export function normalizeDetachedTerminalRuntime(

@@ -838,7 +838,7 @@ mod tests {
             modified_at_ms: now_ms(),
             first_user_message: None,
         };
-        r.merge_candidates(&[c.clone()], "ws1").unwrap();
+        r.merge_candidates(std::slice::from_ref(&c), "ws1").unwrap();
         let result = r.merge_candidates(&[c], "ws1").unwrap();
         assert_eq!(result.new_count, 0);
         assert_eq!(result.updated_count, 1);

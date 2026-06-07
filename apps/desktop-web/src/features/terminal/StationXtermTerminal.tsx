@@ -76,11 +76,16 @@ const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
 const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
 const TERMINAL_SERIALIZE_MIN_INTERVAL_MS = 1000
+const TERMINAL_SERIALIZE_IDLE_TIMEOUT_MS = 900
+const TERMINAL_SERIALIZE_IDLE_FALLBACK_DELAY_MS = 120
 const BACKGROUND_TERMINAL_INIT_TIMEOUT_MS = 1200
 const BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS = 96
 const TERMINAL_RENDERER_RECOVERY_DELAY_MS = 180
 const TERMINAL_RENDERER_RECOVERY_FRAME_COUNT = 2
 const TERMINAL_VIEWPORT_WAKE_DELAYS_MS = [0, 48, 160, 360] as const
+const TERMINAL_FIT_RETRY_FRAME_LIMIT = 6
+const TERMINAL_FIT_RETRY_BACKOFF_MIN_MS = 96
+const TERMINAL_FIT_RETRY_BACKOFF_MAX_MS = 640
 
 interface IdleDeadlineLike {
   didTimeout: boolean
@@ -820,10 +825,14 @@ function StationXtermTerminalView({
     let appearanceObserver: MutationObserver | null = null
     let refreshFrameId: number | null = null
     let readyFitFrameId: number | null = null
+    let readyFitTimeoutId: number | null = null
+    let readyFitRetryCount = 0
+    let readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
     let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
     let serializeFrameId: number | null = null
     let serializeTimeoutId: number | null = null
+    let serializeIdleHandle: { kind: 'idle' | 'timeout'; id: number } | null = null
     let renderDisposable: { dispose: () => void } | null = null
     let workspaceTransitionObserver: MutationObserver | null = null
     let viewportVisibilityObserver: IntersectionObserver | null = null
@@ -1080,11 +1089,55 @@ function StationXtermTerminalView({
           }
         }
         captureLatestRestoreState = captureSerializedRestoreState
-        const queueSerializedRestoreStateCapture = () => {
+        const cancelScheduledIdleSerializedRestoreStateCapture = () => {
+          const scheduled = serializeIdleHandle
+          if (!scheduled) {
+            return
+          }
+          serializeIdleHandle = null
+          if (scheduled.kind === 'idle') {
+            const win = window as unknown as IdleCallbackScheduler
+            win.cancelIdleCallback?.(scheduled.id)
+            return
+          }
+          window.clearTimeout(scheduled.id)
+        }
+        const queueSerializedRestoreStateCapture = (mode: 'frame' | 'idle' = 'frame') => {
           if (performanceDebugEnabled) {
             return
           }
-          if (serializeFrameId !== null) {
+          if (serializeFrameId !== null || serializeIdleHandle !== null) {
+            return
+          }
+          if (mode === 'idle') {
+            const win = window as unknown as IdleCallbackScheduler
+            const runWhenIdle = (deadline: IdleDeadlineLike) => {
+              serializeIdleHandle = null
+              if (!active) {
+                return
+              }
+              if (!deadline.didTimeout && deadline.timeRemaining() < 8) {
+                queueSerializedRestoreStateCapture('idle')
+                return
+              }
+              queueSerializedRestoreStateCapture('frame')
+            }
+            if (win.requestIdleCallback) {
+              serializeIdleHandle = {
+                kind: 'idle',
+                id: win.requestIdleCallback(runWhenIdle, {
+                  timeout: TERMINAL_SERIALIZE_IDLE_TIMEOUT_MS,
+                }),
+              }
+              return
+            }
+            serializeIdleHandle = {
+              kind: 'timeout',
+              id: window.setTimeout(
+                () => runWhenIdle({ didTimeout: true, timeRemaining: () => 0 }),
+                TERMINAL_SERIALIZE_IDLE_FALLBACK_DELAY_MS,
+              ),
+            }
             return
           }
           serializeFrameId = window.requestAnimationFrame(() => {
@@ -1101,6 +1154,7 @@ function StationXtermTerminalView({
               window.clearTimeout(serializeTimeoutId)
               serializeTimeoutId = null
             }
+            cancelScheduledIdleSerializedRestoreStateCapture()
             queueSerializedRestoreStateCapture()
             return
           }
@@ -1110,7 +1164,7 @@ function StationXtermTerminalView({
             TERMINAL_SERIALIZE_MIN_INTERVAL_MS,
           )
           if (delay === 0) {
-            queueSerializedRestoreStateCapture()
+            queueSerializedRestoreStateCapture('idle')
             return
           }
           if (serializeTimeoutId !== null) {
@@ -1118,7 +1172,7 @@ function StationXtermTerminalView({
           }
           serializeTimeoutId = window.setTimeout(() => {
             serializeTimeoutId = null
-            queueSerializedRestoreStateCapture()
+            queueSerializedRestoreStateCapture('idle')
           }, delay)
         }
         const captureRenderedScreenSnapshot = (): RenderedScreenSnapshot | null => {
@@ -1262,6 +1316,21 @@ function StationXtermTerminalView({
           refreshTerminal()
           return true
         }
+        const cancelScheduledFitRetry = () => {
+          if (readyFitFrameId !== null) {
+            window.cancelAnimationFrame(readyFitFrameId)
+            readyFitFrameId = null
+          }
+          if (readyFitTimeoutId !== null) {
+            window.clearTimeout(readyFitTimeoutId)
+            readyFitTimeoutId = null
+          }
+        }
+        const markFitSettled = () => {
+          readyFitRetryCount = 0
+          readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
+          cancelScheduledFitRetry()
+        }
         const scheduleRendererRecoveryCheck = (reason: string) => {
           if (!active) {
             return
@@ -1307,19 +1376,35 @@ function StationXtermTerminalView({
             return
           }
           if (fitAndRefresh()) {
+            markFitSettled()
             onResizeRef.current(stationId, terminal.cols, terminal.rows)
             return
           }
-          readyFitFrameId = window.requestAnimationFrame(ensureFitWhenVisible)
-        }
-        const scheduleFitRetry = () => {
-          if (readyFitFrameId !== null) {
+          readyFitRetryCount += 1
+          if (readyFitRetryCount >= TERMINAL_FIT_RETRY_FRAME_LIMIT) {
+            readyFitRetryCount = 0
+            const retryDelay = readyFitBackoffMs
+            readyFitBackoffMs = Math.min(
+              TERMINAL_FIT_RETRY_BACKOFF_MAX_MS,
+              readyFitBackoffMs * 2,
+            )
+            scheduleFitRetry('backoff', retryDelay)
             return
           }
-          readyFitFrameId = window.requestAnimationFrame(() => {
-            readyFitFrameId = null
-            ensureFitWhenVisible()
-          })
+          scheduleFitRetry()
+        }
+        const scheduleFitRetry = (mode: 'frame' | 'backoff' = 'frame', delayMs = readyFitBackoffMs) => {
+          if (!active || readyFitFrameId !== null || readyFitTimeoutId !== null) {
+            return
+          }
+          if (mode === 'backoff') {
+            readyFitTimeoutId = window.setTimeout(() => {
+              readyFitTimeoutId = null
+              scheduleFitRetry()
+            }, delayMs)
+            return
+          }
+          readyFitFrameId = window.requestAnimationFrame(ensureFitWhenVisible)
         }
         const hostDocument = resolveTerminalDocument(host, document)
         const hostWindow = hostDocument.defaultView ?? window
@@ -1327,7 +1412,10 @@ function StationXtermTerminalView({
           if (!active) {
             return
           }
+          cancelScheduledFitRetry()
+          readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
           if (fitAndRefresh()) {
+            markFitSettled()
             onResizeRef.current(stationId, terminal.cols, terminal.rows)
             scheduleRendererRecoveryCheck(reason)
             return
@@ -1499,9 +1587,6 @@ function StationXtermTerminalView({
         ensureFitWhenVisible()
 
         resizeObserver = new ResizeObserver(() => {
-          if (fitAndRefresh()) {
-            return
-          }
           scheduleFitRetry()
         })
         resizeObserver.observe(host)
@@ -1514,10 +1599,6 @@ function StationXtermTerminalView({
                 return
               }
               scheduleTerminalAppearanceSync()
-              if (fitAndRefresh()) {
-                onResizeRef.current(stationId, terminal.cols, terminal.rows)
-                return
-              }
               scheduleFitRetry()
             })
             .catch(() => {
@@ -1622,6 +1703,9 @@ function StationXtermTerminalView({
       if (readyFitFrameId !== null) {
         window.cancelAnimationFrame(readyFitFrameId)
       }
+      if (readyFitTimeoutId !== null) {
+        window.clearTimeout(readyFitTimeoutId)
+      }
       if (reportFrameId !== null) {
         window.cancelAnimationFrame(reportFrameId)
       }
@@ -1633,6 +1717,14 @@ function StationXtermTerminalView({
       }
       if (serializeTimeoutId !== null) {
         window.clearTimeout(serializeTimeoutId)
+      }
+      if (serializeIdleHandle !== null) {
+        if (serializeIdleHandle.kind === 'idle') {
+          const win = window as unknown as IdleCallbackScheduler
+          win.cancelIdleCallback?.(serializeIdleHandle.id)
+        } else {
+          window.clearTimeout(serializeIdleHandle.id)
+        }
       }
       if (focusRetryFrameRef.current !== null) {
         window.cancelAnimationFrame(focusRetryFrameRef.current)

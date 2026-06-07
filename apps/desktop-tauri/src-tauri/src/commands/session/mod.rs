@@ -244,6 +244,7 @@ pub fn session_changefeed_query(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn session_changefeed_push(
     workspace_id: String,
     branch: String,
@@ -291,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_changefeed_query_empty() {
-        let mut feed = SessionChangeFeed::new();
+        let feed = SessionChangeFeed::new();
         assert!(feed.last_snapshot("ws1").is_none());
     }
 

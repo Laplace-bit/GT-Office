@@ -85,6 +85,12 @@ impl SessionChangeFeed {
     }
 }
 
+impl Default for SessionChangeFeed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

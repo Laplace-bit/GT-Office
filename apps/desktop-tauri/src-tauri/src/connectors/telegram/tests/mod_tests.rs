@@ -163,6 +163,7 @@ fn send_and_edit_input_validation_trim_and_reject_blank_values() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn outbound_runtime_commands_reject_local_failures_before_provider_calls() {
     let _guard = telegram_store_test_lock()
         .lock()
@@ -258,6 +259,7 @@ async fn outbound_runtime_commands_reject_local_failures_before_provider_calls()
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn health_check_reports_missing_and_disabled_accounts_without_provider_calls() {
     let _guard = telegram_store_test_lock()
         .lock()
@@ -301,6 +303,7 @@ async fn health_check_reports_missing_and_disabled_accounts_without_provider_cal
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn send_text_reply_rejects_missing_and_disabled_accounts_before_provider_calls() {
     let _guard = telegram_store_test_lock()
         .lock()
@@ -528,45 +531,47 @@ fn update_id_from_item_rejects_negative_and_overflow_values() {
 
 #[test]
 fn account_id_for_webhook_secret_matches_enabled_webhook_accounts_only() {
-    let mut store = ConnectorStoreFile::default();
-    store.telegram_accounts = HashMap::from([
-        (
-            "ops".to_string(),
-            TelegramAccountRecord {
-                account_id: "ops".to_string(),
-                enabled: true,
-                mode: "webhook".to_string(),
-                bot_token_ref: "telegram/ops/bot_token".to_string(),
-                webhook_secret_ref: Some("telegram/ops/webhook_secret".to_string()),
-                webhook_path: None,
-                updated_at_ms: 1,
-            },
-        ),
-        (
-            "disabled".to_string(),
-            TelegramAccountRecord {
-                account_id: "disabled".to_string(),
-                enabled: false,
-                mode: "webhook".to_string(),
-                bot_token_ref: "telegram/disabled/bot_token".to_string(),
-                webhook_secret_ref: Some("telegram/disabled/webhook_secret".to_string()),
-                webhook_path: None,
-                updated_at_ms: 1,
-            },
-        ),
-        (
-            "polling".to_string(),
-            TelegramAccountRecord {
-                account_id: "polling".to_string(),
-                enabled: true,
-                mode: "polling".to_string(),
-                bot_token_ref: "telegram/polling/bot_token".to_string(),
-                webhook_secret_ref: Some("telegram/polling/webhook_secret".to_string()),
-                webhook_path: None,
-                updated_at_ms: 1,
-            },
-        ),
-    ]);
+    let store = ConnectorStoreFile {
+        telegram_accounts: HashMap::from([
+            (
+                "ops".to_string(),
+                TelegramAccountRecord {
+                    account_id: "ops".to_string(),
+                    enabled: true,
+                    mode: "webhook".to_string(),
+                    bot_token_ref: "telegram/ops/bot_token".to_string(),
+                    webhook_secret_ref: Some("telegram/ops/webhook_secret".to_string()),
+                    webhook_path: None,
+                    updated_at_ms: 1,
+                },
+            ),
+            (
+                "disabled".to_string(),
+                TelegramAccountRecord {
+                    account_id: "disabled".to_string(),
+                    enabled: false,
+                    mode: "webhook".to_string(),
+                    bot_token_ref: "telegram/disabled/bot_token".to_string(),
+                    webhook_secret_ref: Some("telegram/disabled/webhook_secret".to_string()),
+                    webhook_path: None,
+                    updated_at_ms: 1,
+                },
+            ),
+            (
+                "polling".to_string(),
+                TelegramAccountRecord {
+                    account_id: "polling".to_string(),
+                    enabled: true,
+                    mode: "polling".to_string(),
+                    bot_token_ref: "telegram/polling/bot_token".to_string(),
+                    webhook_secret_ref: Some("telegram/polling/webhook_secret".to_string()),
+                    webhook_path: None,
+                    updated_at_ms: 1,
+                },
+            ),
+        ]),
+        ..ConnectorStoreFile::default()
+    };
 
     let loader = |reference: &str| match reference {
         "telegram/ops/webhook_secret" => Ok(" secret-ops ".to_string()),
@@ -598,33 +603,35 @@ fn account_id_for_webhook_secret_matches_enabled_webhook_accounts_only() {
 
 #[test]
 fn account_id_for_webhook_secret_handles_missing_blank_and_failed_secret_refs() {
-    let mut store = ConnectorStoreFile::default();
-    store.telegram_accounts = HashMap::from([
-        (
-            "missing-ref".to_string(),
-            TelegramAccountRecord {
-                account_id: "missing-ref".to_string(),
-                enabled: true,
-                mode: "webhook".to_string(),
-                bot_token_ref: "telegram/missing-ref/bot_token".to_string(),
-                webhook_secret_ref: None,
-                webhook_path: None,
-                updated_at_ms: 1,
-            },
-        ),
-        (
-            "blank-secret".to_string(),
-            TelegramAccountRecord {
-                account_id: "blank-secret".to_string(),
-                enabled: true,
-                mode: "webhook".to_string(),
-                bot_token_ref: "telegram/blank-secret/bot_token".to_string(),
-                webhook_secret_ref: Some("telegram/blank-secret/webhook_secret".to_string()),
-                webhook_path: None,
-                updated_at_ms: 1,
-            },
-        ),
-    ]);
+    let mut store = ConnectorStoreFile {
+        telegram_accounts: HashMap::from([
+            (
+                "missing-ref".to_string(),
+                TelegramAccountRecord {
+                    account_id: "missing-ref".to_string(),
+                    enabled: true,
+                    mode: "webhook".to_string(),
+                    bot_token_ref: "telegram/missing-ref/bot_token".to_string(),
+                    webhook_secret_ref: None,
+                    webhook_path: None,
+                    updated_at_ms: 1,
+                },
+            ),
+            (
+                "blank-secret".to_string(),
+                TelegramAccountRecord {
+                    account_id: "blank-secret".to_string(),
+                    enabled: true,
+                    mode: "webhook".to_string(),
+                    bot_token_ref: "telegram/blank-secret/bot_token".to_string(),
+                    webhook_secret_ref: Some("telegram/blank-secret/webhook_secret".to_string()),
+                    webhook_path: None,
+                    updated_at_ms: 1,
+                },
+            ),
+        ]),
+        ..ConnectorStoreFile::default()
+    };
 
     let loader = |reference: &str| match reference {
         "telegram/blank-secret/webhook_secret" => Ok("   ".to_string()),

@@ -8,7 +8,7 @@ fn http_request_builder_get() {
         .build();
     assert_eq!(req.method, "GET");
     assert_eq!(req.url, "https://example.com/api");
-    assert_eq!(req.headers.get(0).unwrap().0, "Authorization");
+    assert_eq!(req.headers.first().unwrap().0, "Authorization");
     assert_eq!(req.timeout_secs, 8);
     assert!(req.body.is_none());
 }

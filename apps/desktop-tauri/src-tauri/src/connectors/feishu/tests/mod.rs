@@ -155,6 +155,7 @@ async fn send_text_reply_rejects_blank_peer_and_text_before_provider_lookup() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn send_text_reply_rejects_missing_and_disabled_accounts_before_provider_calls() {
     let _guard = store_test_lock();
     let app = mock_app();

@@ -482,6 +482,7 @@ fn required_context_token_reports_missing_context_before_provider_send() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn health_check_reports_missing_and_disabled_accounts_without_provider_calls() {
     let _guard = wechat_store_test_lock()
         .lock()
@@ -528,6 +529,7 @@ async fn health_check_reports_missing_and_disabled_accounts_without_provider_cal
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn send_text_reply_rejects_local_failures_before_provider_calls() {
     let _guard = wechat_store_test_lock()
         .lock()
