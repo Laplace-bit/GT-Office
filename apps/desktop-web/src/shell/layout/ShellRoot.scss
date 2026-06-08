@@ -245,7 +245,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   transition:
     opacity var(--workspace-switch-duration) var(--workspace-switch-ease),
     transform var(--workspace-switch-duration) var(--workspace-switch-ease);
-  will-change: transform;
 
   &[data-switch-anim='crossfade'] {
     --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
@@ -277,6 +276,7 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 
   &.workspace-switching {
     pointer-events: none;
+    will-change: transform, opacity;
   }
 
   &.workspace-switching--crossfade {
@@ -319,7 +319,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   transition:
     opacity var(--workspace-switch-duration) var(--workspace-switch-ease),
     transform var(--workspace-switch-duration) var(--workspace-switch-ease);
-  will-change: transform;
 
   &[data-switch-anim='crossfade'] {
     --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
@@ -350,6 +349,7 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 
   &.workspace-switching {
     pointer-events: none;
+    will-change: transform, opacity;
   }
 
   &.workspace-switching--crossfade {
@@ -652,7 +652,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
     transition:
       background-color 150ms ease,
       border-color 150ms ease,
-      box-shadow 200ms ease,
       color 150ms ease,
       opacity 150ms ease !important;
   }

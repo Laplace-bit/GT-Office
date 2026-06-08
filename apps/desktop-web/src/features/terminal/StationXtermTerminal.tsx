@@ -37,7 +37,11 @@ import {
   readTerminalFileDropPayload,
   type TerminalFileDropPayload,
 } from '@shell/utils/terminal-file-drop'
-import { resolveTerminalSerializeDelayMs } from './station-terminal-capture-policy'
+import {
+  resolveTerminalSerializeDelayMs,
+  takeNextTerminalCaptureTask,
+  type TerminalCaptureTaskKind,
+} from './station-terminal-capture-policy'
 import type {
   StationTerminalSink,
   StationTerminalSinkBindingHandler,
@@ -826,11 +830,13 @@ function StationXtermTerminalView({
     let refreshFrameId: number | null = null
     let readyFitFrameId: number | null = null
     let readyFitTimeoutId: number | null = null
+    let renderFallbackFrameId: number | null = null
+    let renderFallbackBaselineSeq = 0
     let readyFitRetryCount = 0
     let readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
-    let reportFrameId: number | null = null
     let reportTimeoutId: number | null = null
-    let serializeFrameId: number | null = null
+    let captureTaskFrameId: number | null = null
+    const pendingCaptureTasks = new Set<TerminalCaptureTaskKind>()
     let serializeTimeoutId: number | null = null
     let serializeIdleHandle: { kind: 'idle' | 'timeout'; id: number } | null = null
     let renderDisposable: { dispose: () => void } | null = null
@@ -1003,6 +1009,19 @@ function StationXtermTerminalView({
             refreshTerminal()
           })
         }
+        const scheduleRenderFallbackRefresh = (baselineRenderSeq: number) => {
+          renderFallbackBaselineSeq = baselineRenderSeq
+          if (renderFallbackFrameId !== null) {
+            return
+          }
+          renderFallbackFrameId = window.requestAnimationFrame(() => {
+            renderFallbackFrameId = null
+            if (!active || lastRenderEventSeqRef.current !== renderFallbackBaselineSeq) {
+              return
+            }
+            refreshTerminal()
+          })
+        }
         const requestTerminalFocus = (retryFrames = 8) => {
           cancelScheduledTerminalFocus()
           if (terminalHasDomFocus()) {
@@ -1089,6 +1108,56 @@ function StationXtermTerminalView({
           }
         }
         captureLatestRestoreState = captureSerializedRestoreState
+        const captureAndReportRenderedScreenSnapshot = () => {
+          if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
+            return
+          }
+          const snapshot = captureRenderedScreenSnapshot()
+          if (!snapshot) {
+            return
+          }
+          const signature = [
+            snapshot.viewportTop,
+            snapshot.viewportHeight,
+            snapshot.baseY,
+            snapshot.cursorRow ?? '',
+            snapshot.cursorCol ?? '',
+            snapshot.rows.map((row) => row.text).join('\u241e'),
+          ].join('\u241f')
+          if (signature === lastSnapshotSignatureRef.current) {
+            return
+          }
+          lastSnapshotSignatureRef.current = signature
+          screenRevisionRef.current = snapshot.screenRevision
+          lastReportAtMs = Date.now()
+          onRenderedScreenSnapshotRef.current?.(stationId, snapshot)
+        }
+        const runNextCaptureTask = () => {
+          captureTaskFrameId = null
+          if (!active) {
+            pendingCaptureTasks.clear()
+            return
+          }
+          const task = takeNextTerminalCaptureTask(pendingCaptureTasks)
+          if (task === 'screen') {
+            captureAndReportRenderedScreenSnapshot()
+          } else if (task === 'serialize') {
+            captureSerializedRestoreState()
+          }
+          if (pendingCaptureTasks.size > 0) {
+            captureTaskFrameId = window.requestAnimationFrame(runNextCaptureTask)
+          }
+        }
+        const queueTerminalCaptureTask = (task: TerminalCaptureTaskKind) => {
+          if (!active) {
+            return
+          }
+          pendingCaptureTasks.add(task)
+          if (captureTaskFrameId !== null) {
+            return
+          }
+          captureTaskFrameId = window.requestAnimationFrame(runNextCaptureTask)
+        }
         const cancelScheduledIdleSerializedRestoreStateCapture = () => {
           const scheduled = serializeIdleHandle
           if (!scheduled) {
@@ -1106,7 +1175,7 @@ function StationXtermTerminalView({
           if (performanceDebugEnabled) {
             return
           }
-          if (serializeFrameId !== null || serializeIdleHandle !== null) {
+          if (pendingCaptureTasks.has('serialize') || serializeIdleHandle !== null) {
             return
           }
           if (mode === 'idle') {
@@ -1140,10 +1209,7 @@ function StationXtermTerminalView({
             }
             return
           }
-          serializeFrameId = window.requestAnimationFrame(() => {
-            serializeFrameId = null
-            captureSerializedRestoreState()
-          })
+          queueTerminalCaptureTask('serialize')
         }
         const scheduleSerializedRestoreStateCapture = (priority: 'urgent' | 'throttled' = 'throttled') => {
           if (performanceDebugEnabled) {
@@ -1228,34 +1294,7 @@ function StationXtermTerminalView({
           if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
             return
           }
-          if (reportFrameId !== null) {
-            window.cancelAnimationFrame(reportFrameId)
-          }
-          reportFrameId = window.requestAnimationFrame(() => {
-            reportFrameId = null
-            if (!onRenderedScreenSnapshotRef.current) {
-              return
-            }
-            const snapshot = captureRenderedScreenSnapshot()
-            if (!snapshot) {
-              return
-            }
-            const signature = [
-              snapshot.viewportTop,
-              snapshot.viewportHeight,
-              snapshot.baseY,
-              snapshot.cursorRow ?? '',
-              snapshot.cursorCol ?? '',
-              snapshot.rows.map((row) => row.text).join('\u241e'),
-            ].join('\u241f')
-            if (signature === lastSnapshotSignatureRef.current) {
-              return
-            }
-            lastSnapshotSignatureRef.current = signature
-            screenRevisionRef.current = snapshot.screenRevision
-            lastReportAtMs = Date.now()
-            onRenderedScreenSnapshotRef.current?.(stationId, snapshot)
-          })
+          queueTerminalCaptureTask('screen')
         }
         const scheduleRenderedScreenSnapshot = () => {
           if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
@@ -1619,11 +1658,12 @@ function StationXtermTerminalView({
             if (!chunk) {
               return
             }
+            const renderSeqBeforeWrite = lastRenderEventSeqRef.current
             if (terminal.cols <= 0 || terminal.rows <= 0) {
               scheduleFitRetry()
             }
             await writeTerminalChunk(chunk)
-            scheduleRefresh()
+            scheduleRenderFallbackRefresh(renderSeqBeforeWrite)
             scheduleSerializedRestoreStateCapture('throttled')
             scheduleRenderedScreenSnapshot()
           },
@@ -1700,21 +1740,22 @@ function StationXtermTerminalView({
       if (refreshFrameId !== null) {
         window.cancelAnimationFrame(refreshFrameId)
       }
+      if (renderFallbackFrameId !== null) {
+        window.cancelAnimationFrame(renderFallbackFrameId)
+      }
       if (readyFitFrameId !== null) {
         window.cancelAnimationFrame(readyFitFrameId)
       }
       if (readyFitTimeoutId !== null) {
         window.clearTimeout(readyFitTimeoutId)
       }
-      if (reportFrameId !== null) {
-        window.cancelAnimationFrame(reportFrameId)
-      }
       if (reportTimeoutId !== null) {
         window.clearTimeout(reportTimeoutId)
       }
-      if (serializeFrameId !== null) {
-        window.cancelAnimationFrame(serializeFrameId)
+      if (captureTaskFrameId !== null) {
+        window.cancelAnimationFrame(captureTaskFrameId)
       }
+      pendingCaptureTasks.clear()
       if (serializeTimeoutId !== null) {
         window.clearTimeout(serializeTimeoutId)
       }
@@ -1756,6 +1797,7 @@ function StationXtermTerminalView({
   return (
     <div
       className={`station-terminal-shell${runtimeInitAllowed ? '' : ' is-runtime-pending'}`}
+      data-active={isActive ? 'true' : 'false'}
       data-file-drop-active={fileDropActive ? 'true' : 'false'}
       onPointerDownCapture={(event) => {
         if (event.button !== 0) {

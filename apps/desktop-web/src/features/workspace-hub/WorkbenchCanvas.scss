@@ -137,7 +137,6 @@
     transform 180ms var(--vb-ease-smooth),
     border-color 180ms var(--vb-ease-smooth),
     background 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth),
     color 180ms var(--vb-ease-smooth);
 
   span {
@@ -283,9 +282,8 @@
   isolation: isolate;
   container-type: inline-size;
   transition:
-    box-shadow 180ms var(--vb-ease-smooth),
     transform 180ms var(--vb-ease-smooth),
-    border-color 180ms var(--vb-ease-smooth);
+    opacity 180ms var(--vb-ease-smooth);
 
   &.is-drop-target {
     box-shadow:
@@ -341,8 +339,7 @@
   transform: translateY(rem(3));
   transition:
     opacity 180ms var(--vb-ease-smooth),
-    transform 220ms var(--vb-ease-smooth),
-    box-shadow 220ms var(--vb-ease-smooth);
+    transform 220ms var(--vb-ease-smooth);
 
   &::-webkit-scrollbar {
     display: none;
@@ -413,9 +410,7 @@
   box-shadow:
     0 rem(4) rem(10) color-mix(in srgb, black 10%, transparent),
     inset 0 rem(1) 0 rgba(255, 255, 255, 0.14);
-  transition:
-    border-color 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth);
+  transition: border-color 180ms var(--vb-ease-smooth);
 }
 
 .station-minimized-dock-monogram {
@@ -675,8 +670,7 @@
   transition:
     background 180ms var(--vb-ease-smooth),
     color 180ms var(--vb-ease-smooth),
-    transform 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth);
+    transform 180ms var(--vb-ease-smooth);
 
   &:hover {
     background: var(--vb-glass-lighter-hover);
@@ -743,8 +737,7 @@
     transform 180ms var(--vb-ease-smooth),
     border-color 180ms var(--vb-ease-smooth),
     background 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth);
+    color 180ms var(--vb-ease-smooth);
 
   &:hover {
     transform: translateY(rem(-1));
@@ -908,9 +901,7 @@
     text-align: left;
     transition:
       transform 180ms var(--vb-ease-smooth),
-      border-color 180ms var(--vb-ease-smooth),
-      box-shadow 180ms var(--vb-ease-smooth),
-      background 180ms var(--vb-ease-smooth);
+      opacity 180ms var(--vb-ease-smooth);
 
     &:hover {
       transform: translateY(rem(-1));
@@ -1163,5 +1154,22 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
     height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-taskbar-ghost,
+  .canvas-utility-action,
+  .workbench-canvas,
+  .station-minimized-dock,
+  .station-minimized-dock-item,
+  .station-minimized-dock-icon,
+  .station-minimized-dock-label,
+  .focus-rail-item,
+  .canvas-layout-preset-btn,
+  .canvas-header-icon-button {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
   }
 }

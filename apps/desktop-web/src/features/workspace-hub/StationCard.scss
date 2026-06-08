@@ -11,9 +11,7 @@
   border-radius: rem(18);
   overflow: hidden;
   position: relative;
-  transition:
-    box-shadow 160ms var(--vb-ease-smooth),
-    border-color 160ms var(--vb-ease-smooth);
+  transition: border-color 160ms var(--vb-ease-smooth);
   box-shadow: 0 0 0 rem(1) var(--vb-border-subtle), var(--vb-shadow-sm);
   z-index: 1;
   isolation: isolate;
@@ -175,7 +173,7 @@
   text-overflow: ellipsis;
   font-size: rem(12.5);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   color: var(--vb-text);
 }
 
@@ -289,7 +287,7 @@
     height: rem(5);
     border-radius: rem(999);
     background: transparent;
-    transition: background 0.2s ease, box-shadow 0.2s ease;
+    transition: background 0.2s ease;
   }
 
   &:hover {
@@ -314,6 +312,17 @@
       background: color-mix(in srgb, var(--vb-error) 82%, white 18%);
       box-shadow: 0 0 0 rem(2) color-mix(in srgb, var(--vb-error) 14%, transparent);
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station-window,
+  .station-window::after,
+  .station-icon-button,
+  .station-primary-launch-btn::after,
+  .station-task-ack-bubble {
+    transition: none !important;
+    animation: none !important;
   }
 }
 

@@ -5,15 +5,17 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
-  transition:
-    box-shadow 160ms ease,
-    transform 160ms ease;
+  contain: layout paint style;
+  transition: transform 160ms ease;
 }
 
 .station-terminal-shell[data-file-drop-active='true'] {
-  box-shadow:
-    inset 0 0 0 0.0714rem color-mix(in srgb, var(--vb-accent) 34%, transparent),
-    0 0 0 0.2143rem color-mix(in srgb, var(--vb-accent) 10%, transparent);
+  outline: 0.0714rem solid color-mix(in srgb, var(--vb-accent) 34%, transparent);
+  outline-offset: -0.0714rem;
+}
+
+.station-terminal-shell[data-active='true'] {
+  transform: translateZ(0);
 }
 
 .station-terminal-shell .station-terminal-host {
@@ -24,6 +26,10 @@
   overflow: hidden;
   position: relative;
   z-index: 1;
+}
+
+.station-terminal-shell[data-active='true'] .station-terminal-host {
+  will-change: transform;
 }
 
 .station-terminal-drop-overlay,
@@ -49,6 +55,7 @@
 .station-terminal-shell[data-file-drop-active='true'] .station-terminal-drop-overlay {
   opacity: 1;
   transform: translateY(0);
+  will-change: opacity, transform;
 }
 
 .station-terminal-drop-pill,
@@ -62,6 +69,10 @@
   border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-accent) 18%, transparent);
   background: color-mix(in srgb, var(--vb-terminal-bg) 92%, var(--vb-accent) 8%);
   color: var(--vb-terminal-text);
+}
+
+.station-terminal-shell[data-file-drop-active='true'] .station-terminal-drop-pill,
+.station-terminal-drop-pulse {
   box-shadow: 0 0.7143rem 1.4286rem color-mix(in srgb, var(--vb-shadow) 14%, transparent);
   backdrop-filter: blur(0.5714rem);
   -webkit-backdrop-filter: blur(0.5714rem);
@@ -70,6 +81,7 @@
 .station-terminal-drop-pulse {
   top: 0.7143rem;
   right: 0.7143rem;
+  will-change: opacity, transform;
   animation: station-terminal-drop-pulse 820ms cubic-bezier(0.22, 0.8, 0.2, 1) forwards;
 }
 
@@ -116,7 +128,8 @@
   }
 
   .station-terminal-drop-pulse {
-    animation-duration: 1ms;
+    animation: none;
+    opacity: 0;
   }
 }
 

@@ -42,6 +42,7 @@ import {
   shouldForwardStationTerminalInput,
   shouldMatchDetachedBridgeSession,
   queueStationTerminalOutputFlush,
+  takeStationTerminalOutputFlushFrameEntries,
   takeStationTerminalOutputFlushEntries,
   type BufferedStationInputController,
   type SessionOwnedRestoreState,
@@ -129,6 +130,8 @@ import type { ShellExternalChannelController } from './useShellExternalChannelCo
 const TERMINAL_DEBUG_RECORD_LIMIT = 0
 const BACKGROUND_TERMINAL_REPLAY_TIMEOUT_MS = 900
 const BACKGROUND_TERMINAL_REPLAY_FALLBACK_DELAY_MS = 80
+const BACKGROUND_TERMINAL_OUTPUT_FLUSH_DELAY_MS = 48
+const BACKGROUND_TERMINAL_OUTPUT_FLUSH_ENTRY_LIMIT = 2
 
 interface IdleDeadlineLike {
   didTimeout: boolean
@@ -336,6 +339,7 @@ export function useShellTerminalController({
   const stationTerminalOutputCacheRef = useRef<Record<string, string>>({})
   const stationTerminalOutputRevisionRef = useRef<Record<string, number>>({})
   const stationTerminalOutputFlushFrameRef = useRef<number | null>(null)
+  const stationTerminalBackgroundOutputFlushTimerRef = useRef<number | null>(null)
   const stationTerminalOutputFlushQueueRef = useRef<StationTerminalOutputFlushQueue>({})
   const terminalDocumentPersistFrameRef = useRef<number | null>(null)
   const stationTerminalPendingReplayRef = useRef<
@@ -692,24 +696,19 @@ export function useShellTerminalController({
   )
 
   // ── Output streaming ──────────────────────────────────────────────────
-  const flushPendingStationTerminalOutput = useCallback(
-    (stationId?: string) => {
-      const pending = stationTerminalOutputFlushQueueRef.current
-      const entries = takeStationTerminalOutputFlushEntries(pending, stationId)
-      if (entries.length === 0) {
-        return
-      }
-      if (!stationId) {
-        if (typeof window !== 'undefined' && stationTerminalOutputFlushFrameRef.current !== null) {
-          window.cancelAnimationFrame(stationTerminalOutputFlushFrameRef.current)
-        }
-        stationTerminalOutputFlushFrameRef.current = null
-      }
+  const applyStationTerminalOutputFlushEntries = useCallback(
+    (entries: ReturnType<typeof takeStationTerminalOutputFlushEntries>) => {
       entries.forEach(({ stationId: targetStationId, ...pendingOutput }) => {
         const { chunk } = pendingOutput
         if (!chunk) {
           return
         }
+        stationTerminalOutputCacheRef.current[targetStationId] = appendDetachedTerminalOutput(
+          stationTerminalOutputCacheRef.current[targetStationId],
+          chunk,
+        )
+        stationTerminalOutputRevisionRef.current[targetStationId] =
+          (stationTerminalOutputRevisionRef.current[targetStationId] ?? 0) + Math.max(1, pendingOutput.unreadDelta)
         const pendingReplay = stationTerminalPendingReplayRef.current[targetStationId]
         if (pendingReplay) {
           pendingReplay.ops.push({ kind: 'write', chunk })
@@ -726,6 +725,75 @@ export function useShellTerminalController({
     [publishDetachedOutputAppend],
   )
 
+  const cancelScheduledStationTerminalOutputFlushes = useCallback(() => {
+    if (typeof window !== 'undefined' && stationTerminalOutputFlushFrameRef.current !== null) {
+      window.cancelAnimationFrame(stationTerminalOutputFlushFrameRef.current)
+    }
+    stationTerminalOutputFlushFrameRef.current = null
+    if (typeof window !== 'undefined' && stationTerminalBackgroundOutputFlushTimerRef.current !== null) {
+      window.clearTimeout(stationTerminalBackgroundOutputFlushTimerRef.current)
+    }
+    stationTerminalBackgroundOutputFlushTimerRef.current = null
+  }, [])
+
+  const flushPendingStationTerminalOutput = useCallback(
+    (stationId?: string) => {
+      const pending = stationTerminalOutputFlushQueueRef.current
+      const entries = takeStationTerminalOutputFlushEntries(pending, stationId)
+      if (entries.length === 0) {
+        return
+      }
+      if (!stationId) {
+        if (typeof window !== 'undefined' && stationTerminalOutputFlushFrameRef.current !== null) {
+          window.cancelAnimationFrame(stationTerminalOutputFlushFrameRef.current)
+        }
+        stationTerminalOutputFlushFrameRef.current = null
+      }
+      if (!stationId && typeof window !== 'undefined' && stationTerminalBackgroundOutputFlushTimerRef.current !== null) {
+        window.clearTimeout(stationTerminalBackgroundOutputFlushTimerRef.current)
+        stationTerminalBackgroundOutputFlushTimerRef.current = null
+      }
+      applyStationTerminalOutputFlushEntries(entries)
+      scheduleTerminalDocumentPersist()
+    },
+    [applyStationTerminalOutputFlushEntries, scheduleTerminalDocumentPersist],
+  )
+
+  const scheduleBackgroundStationTerminalOutputFlush = useCallback(() => {
+    if (typeof window === 'undefined') {
+      flushPendingStationTerminalOutput()
+      return
+    }
+    if (stationTerminalBackgroundOutputFlushTimerRef.current !== null) {
+      return
+    }
+    const runBackgroundFlush = () => {
+      stationTerminalBackgroundOutputFlushTimerRef.current = null
+      const { entries, hasDeferredBackground } = takeStationTerminalOutputFlushFrameEntries(
+        stationTerminalOutputFlushQueueRef.current,
+        {
+          activeStationId: activeStationIdRef.current,
+          includeBackground: true,
+          backgroundEntryLimit: BACKGROUND_TERMINAL_OUTPUT_FLUSH_ENTRY_LIMIT,
+        },
+      )
+      applyStationTerminalOutputFlushEntries(entries)
+      if (entries.length > 0) {
+        scheduleTerminalDocumentPersist()
+      }
+      if (hasDeferredBackground) {
+        stationTerminalBackgroundOutputFlushTimerRef.current = window.setTimeout(
+          runBackgroundFlush,
+          BACKGROUND_TERMINAL_OUTPUT_FLUSH_DELAY_MS,
+        )
+      }
+    }
+    stationTerminalBackgroundOutputFlushTimerRef.current = window.setTimeout(
+      runBackgroundFlush,
+      BACKGROUND_TERMINAL_OUTPUT_FLUSH_DELAY_MS,
+    )
+  }, [applyStationTerminalOutputFlushEntries, flushPendingStationTerminalOutput, scheduleTerminalDocumentPersist])
+
   const scheduleStationTerminalOutputFlush = useCallback(() => {
     if (typeof window === 'undefined') {
       flushPendingStationTerminalOutput()
@@ -736,21 +804,33 @@ export function useShellTerminalController({
     }
     stationTerminalOutputFlushFrameRef.current = window.requestAnimationFrame(() => {
       stationTerminalOutputFlushFrameRef.current = null
-      flushPendingStationTerminalOutput()
+      const { entries, hasDeferredBackground } = takeStationTerminalOutputFlushFrameEntries(
+        stationTerminalOutputFlushQueueRef.current,
+        {
+          activeStationId: activeStationIdRef.current,
+          includeBackground: false,
+        },
+      )
+      applyStationTerminalOutputFlushEntries(entries)
+      if (entries.length > 0) {
+        scheduleTerminalDocumentPersist()
+      }
+      if (hasDeferredBackground) {
+        scheduleBackgroundStationTerminalOutputFlush()
+      }
     })
-  }, [flushPendingStationTerminalOutput])
+  }, [
+    applyStationTerminalOutputFlushEntries,
+    flushPendingStationTerminalOutput,
+    scheduleBackgroundStationTerminalOutputFlush,
+    scheduleTerminalDocumentPersist,
+  ])
 
   const appendStationTerminalOutput = useMemo(
     () => (stationId: string, chunk: string) => {
       if (!chunk) {
         return
       }
-      stationTerminalOutputCacheRef.current[stationId] = appendDetachedTerminalOutput(
-        stationTerminalOutputCacheRef.current[stationId],
-        chunk,
-      )
-      stationTerminalOutputRevisionRef.current[stationId] =
-        (stationTerminalOutputRevisionRef.current[stationId] ?? 0) + 1
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       pushStationTerminalDebugRecord(stationId, {
         sessionId,
@@ -762,9 +842,8 @@ export function useShellTerminalController({
       })
       queueStationTerminalOutputFlush(stationTerminalOutputFlushQueueRef.current, stationId, chunk)
       scheduleStationTerminalOutputFlush()
-      scheduleTerminalDocumentPersist()
     },
-    [pushStationTerminalDebugRecord, scheduleStationTerminalOutputFlush, scheduleTerminalDocumentPersist],
+    [pushStationTerminalDebugRecord, scheduleStationTerminalOutputFlush],
   )
 
   const resetStationTerminalOutput = useMemo(
@@ -2716,8 +2795,8 @@ export function useShellTerminalController({
       if (!sessionId || snapshot.sessionId !== sessionId) {
         return
       }
-      const screenBody = snapshot.rows.map((row) => row.text).join('\n')
       if (debugEnabled) {
+        const screenBody = snapshot.rows.map((row) => row.text).join('\n')
         pushStationTerminalDebugRecord(stationId, {
           atMs: snapshot.capturedAtMs,
           sessionId: snapshot.sessionId,
@@ -3714,6 +3793,9 @@ export function useShellTerminalController({
 
   // ── Terminal state reset for workspace switch ──────────────────────────
   const resetTerminalStateOnWorkspaceSwitch = useCallback(() => {
+    flushPendingStationTerminalOutput()
+    cancelScheduledStationTerminalOutputFlushes()
+    stationTerminalOutputFlushQueueRef.current = {}
     clearScheduledStationTerminalOutputRecoveries()
     cancelScheduledTerminalReplayDrain()
     scheduledTerminalReplayQueueRef.current = []
@@ -3729,7 +3811,12 @@ export function useShellTerminalController({
     stationTerminalInputControllerRef.current?.dispose()
     stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
-  }, [cancelScheduledTerminalReplayDrain, clearScheduledStationTerminalOutputRecoveries])
+  }, [
+    cancelScheduledStationTerminalOutputFlushes,
+    cancelScheduledTerminalReplayDrain,
+    clearScheduledStationTerminalOutputRecoveries,
+    flushPendingStationTerminalOutput,
+  ])
 
   // ── Cleanup effect ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -3740,6 +3827,9 @@ export function useShellTerminalController({
       }
       stationUnreadFlushTimerRef.current = null
       stationUnreadDeltaRef.current = {}
+      flushPendingStationTerminalOutput()
+      cancelScheduledStationTerminalOutputFlushes()
+      stationTerminalOutputFlushQueueRef.current = {}
       clearScheduledStationTerminalOutputRecoveries()
       cancelScheduledTerminalReplayDrain()
       scheduledTerminalReplayQueueRef.current = []
@@ -3762,7 +3852,12 @@ export function useShellTerminalController({
       }
       registeredAgentRuntimeRef.current = {}
     }
-  }, [cancelScheduledTerminalReplayDrain, clearScheduledStationTerminalOutputRecoveries])
+  }, [
+    cancelScheduledStationTerminalOutputFlushes,
+    cancelScheduledTerminalReplayDrain,
+    clearScheduledStationTerminalOutputRecoveries,
+    flushPendingStationTerminalOutput,
+  ])
 
   // ── Tool commands loading ──────────────────────────────────────────────
   useEffect(() => {

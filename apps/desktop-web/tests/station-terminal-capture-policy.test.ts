@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveTerminalSerializeDelayMs } from '../src/features/terminal/station-terminal-capture-policy.js'
+import {
+  resolveTerminalSerializeDelayMs,
+  takeNextTerminalCaptureTask,
+  type TerminalCaptureTaskKind,
+} from '../src/features/terminal/station-terminal-capture-policy.js'
 
 test('serializes immediately before the first capture', () => {
   assert.equal(resolveTerminalSerializeDelayMs(0, 5_000, 1_000), 0)
@@ -13,4 +17,12 @@ test('throttles repeated serialize requests until the minimum interval elapses',
 
 test('treats clock skew as no elapsed time instead of scheduling a negative delay', () => {
   assert.equal(resolveTerminalSerializeDelayMs(10_000, 9_500, 1_000), 1_000)
+})
+
+test('takes screen capture before serialize when both terminal capture tasks are pending', () => {
+  const pending = new Set<TerminalCaptureTaskKind>(['serialize', 'screen'])
+
+  assert.equal(takeNextTerminalCaptureTask(pending), 'screen')
+  assert.equal(takeNextTerminalCaptureTask(pending), 'serialize')
+  assert.equal(takeNextTerminalCaptureTask(pending), null)
 })

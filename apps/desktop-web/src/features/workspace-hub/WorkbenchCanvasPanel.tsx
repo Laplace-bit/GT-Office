@@ -390,10 +390,12 @@ function StationCardSlot({
 }
 
 function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnimation }) {
+  const reducedMotion = usePrefersReducedMotion()
   const scaleX = animation.toRect.width / Math.max(1, animation.fromRect.width)
   const scaleY = animation.toRect.height / Math.max(1, animation.fromRect.height)
   const translateX = animation.toRect.left - animation.fromRect.left
   const translateY = animation.toRect.top - animation.fromRect.top
+  const baseRect = reducedMotion ? animation.toRect : animation.fromRect
 
   return createPortal(
     <motion.div
@@ -401,10 +403,10 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
       className="station-taskbar-ghost"
       aria-hidden="true"
       style={{
-        top: animation.fromRect.top,
-        left: animation.fromRect.left,
-        width: animation.fromRect.width,
-        height: animation.fromRect.height,
+        top: baseRect.top,
+        left: baseRect.left,
+        width: baseRect.width,
+        height: baseRect.height,
       }}
       initial={{
         x: 0,
@@ -414,16 +416,16 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
         opacity: animation.phase === 'restore' ? 0 : 0.7,
       }}
       animate={{
-        x: translateX,
-        y: translateY,
-        scaleX,
-        scaleY,
-        opacity: animation.phase === 'restore' ? [0, 0.44, 0] : [0.7, 0.44, 0],
+        x: reducedMotion ? 0 : translateX,
+        y: reducedMotion ? 0 : translateY,
+        scaleX: reducedMotion ? 1 : scaleX,
+        scaleY: reducedMotion ? 1 : scaleY,
+        opacity: reducedMotion ? 0 : animation.phase === 'restore' ? [0, 0.44, 0] : [0.7, 0.44, 0],
       }}
       exit={{ opacity: 0 }}
       transition={{
         x: {
-          duration: animation.phase === 'restore'
+          duration: reducedMotion ? 0 : animation.phase === 'restore'
             ? FLUENT_MOTION_DURATION.normal
             : FLUENT_MOTION_DURATION.normal,
           ease: animation.phase === 'restore'
@@ -431,7 +433,7 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
             : FLUENT_MOTION_EASE.accelerate,
         },
         y: {
-          duration: animation.phase === 'restore'
+          duration: reducedMotion ? 0 : animation.phase === 'restore'
             ? FLUENT_MOTION_DURATION.normal
             : FLUENT_MOTION_DURATION.normal,
           ease: animation.phase === 'restore'
@@ -439,7 +441,7 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
             : FLUENT_MOTION_EASE.accelerate,
         },
         scaleX: {
-          duration: animation.phase === 'restore'
+          duration: reducedMotion ? 0 : animation.phase === 'restore'
             ? FLUENT_MOTION_DURATION.normal
             : FLUENT_MOTION_DURATION.normal,
           ease: animation.phase === 'restore'
@@ -447,7 +449,7 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
             : FLUENT_MOTION_EASE.accelerate,
         },
         scaleY: {
-          duration: animation.phase === 'restore'
+          duration: reducedMotion ? 0 : animation.phase === 'restore'
             ? FLUENT_MOTION_DURATION.normal
             : FLUENT_MOTION_DURATION.normal,
           ease: animation.phase === 'restore'
@@ -455,7 +457,7 @@ function StationTaskbarGhost({ animation }: { animation: StationTaskbarGhostAnim
             : FLUENT_MOTION_EASE.accelerate,
         },
         opacity: {
-          duration: animation.phase === 'restore'
+          duration: reducedMotion ? 0 : animation.phase === 'restore'
             ? FLUENT_MOTION_DURATION.normal
             : FLUENT_MOTION_DURATION.fast,
           times: animation.phase === 'restore' ? [0, 0.34, 1] : [0, 0.46, 1],
