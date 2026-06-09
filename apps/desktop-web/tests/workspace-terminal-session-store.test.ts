@@ -92,7 +92,7 @@ function cloneDocument(doc: WorkspaceTerminalSessionDocument): WorkspaceTerminal
   }
 }
 
-function normalizeWorkspaceTerminalSessionSeq(value: number | null | undefined): number {
+function normalizeWorkspaceTerminalDocumentCounter(value: number | null | undefined): number {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return 0
   }
@@ -120,9 +120,9 @@ function hydrateWorkspaceTerminalSessionDocument(
     if (!Object.prototype.hasOwnProperty.call(hydrated.outputCache, station.id)) {
       hydrated.outputCache[station.id] = ''
     }
-    if (typeof hydrated.outputRevision[station.id] !== 'number') {
-      hydrated.outputRevision[station.id] = 0
-    }
+    hydrated.outputRevision[station.id] = normalizeWorkspaceTerminalDocumentCounter(
+      hydrated.outputRevision[station.id],
+    )
   })
 
   Object.keys(hydrated.stationTerminals).forEach((stationId) => {
@@ -147,7 +147,7 @@ function hydrateWorkspaceTerminalSessionDocument(
   })
   retainedSessionStation.forEach((stationId, sessionId) => {
     hydrated.sessionStation[sessionId] = stationId
-    hydrated.sessionSeq[sessionId] = normalizeWorkspaceTerminalSessionSeq(hydrated.sessionSeq[sessionId])
+    hydrated.sessionSeq[sessionId] = normalizeWorkspaceTerminalDocumentCounter(hydrated.sessionSeq[sessionId])
     hydrated.sessionVisibility[sessionId] = hydrated.sessionVisibility[sessionId] ?? false
   })
 
@@ -290,6 +290,23 @@ test('preserves outputCache for active session', () => {
   assert.equal(result.stationTerminals['s1'].sessionId, 'session-live')
   assert.equal(result.outputCache['s1'], 'previous terminal output')
   assert.equal(result.outputRevision['s1'], 42)
+})
+
+test('normalizes cached output revisions during hydration', () => {
+  const stations = [makeStation('s1'), makeStation('s2'), makeStation('s3')]
+  const cached = createFreshDocument(stations)
+
+  cached.outputRevision['s1'] = Number.NaN
+  cached.outputRevision['s2'] = 12.7
+  cached.outputRevision['s3'] = -3
+
+  const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
+
+  assert.deepEqual(result.outputRevision, {
+    s1: 0,
+    s2: 12,
+    s3: 0,
+  })
 })
 
 test('does not alter idle station during hydration', () => {

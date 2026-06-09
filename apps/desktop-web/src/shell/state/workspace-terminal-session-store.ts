@@ -19,7 +19,7 @@ export interface WorkspaceTerminalSessionOwner {
   document: WorkspaceTerminalSessionDocument
 }
 
-function normalizeWorkspaceTerminalSessionSeq(value: number | null | undefined): number {
+function normalizeWorkspaceTerminalDocumentCounter(value: number | null | undefined): number {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return 0
   }
@@ -83,9 +83,9 @@ export function hydrateWorkspaceTerminalSessionDocument(
     if (!Object.prototype.hasOwnProperty.call(hydrated.outputCache, station.id)) {
       hydrated.outputCache[station.id] = getStationIdleBanner(station)
     }
-    if (typeof hydrated.outputRevision[station.id] !== 'number') {
-      hydrated.outputRevision[station.id] = 0
-    }
+    hydrated.outputRevision[station.id] = normalizeWorkspaceTerminalDocumentCounter(
+      hydrated.outputRevision[station.id],
+    )
   })
 
   Object.keys(hydrated.stationTerminals).forEach((stationId) => {
@@ -110,7 +110,7 @@ export function hydrateWorkspaceTerminalSessionDocument(
   })
   retainedSessionStation.forEach((stationId, sessionId) => {
     hydrated.sessionStation[sessionId] = stationId
-    hydrated.sessionSeq[sessionId] = normalizeWorkspaceTerminalSessionSeq(hydrated.sessionSeq[sessionId])
+    hydrated.sessionSeq[sessionId] = normalizeWorkspaceTerminalDocumentCounter(hydrated.sessionSeq[sessionId])
     hydrated.sessionVisibility[sessionId] = hydrated.sessionVisibility[sessionId] ?? false
   })
 

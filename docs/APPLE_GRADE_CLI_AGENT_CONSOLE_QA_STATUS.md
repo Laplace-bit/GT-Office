@@ -2,6 +2,50 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Output Revision Hydration Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:42 CST`
+- Scope: focused terminal replay revision state hardening
+
+### Changed
+
+- `apps/desktop-web/src/shell/state/workspace-terminal-session-store.ts`
+  - Workspace terminal document hydration now normalizes cached `outputRevision` values with the same non-negative integer counter used for retained session sequences.
+  - Missing, non-finite, and negative output revisions reset to `0`; fractional revisions are floored.
+- `apps/desktop-web/tests/workspace-terminal-session-store.test.ts`
+  - Added coverage for `NaN`, fractional, and negative cached output revisions during workspace terminal document hydration.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): Agent/session switching should preserve terminal output and replay state deterministically.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; persisted replay counters should be normalized before deciding restore/replay behavior.
+- `$ui-ux-pro-max`: returning to a workspace should keep CLI Agent output continuity predictable and scannable.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- workspace-terminal-session-store`
+  - Result: passed.
+  - Summary: `533` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of corrupted cached output revision state across workspace switching.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal output revision hydration gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Session Seq Hydration Guard
 
 - Commit: recorded by git history
