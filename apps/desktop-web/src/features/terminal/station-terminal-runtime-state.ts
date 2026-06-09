@@ -54,6 +54,13 @@ export function isStationTerminalFocusReportInput(input: string | null | undefin
   return input === '\x1b[I' || input === '\x1b[O'
 }
 
+export function normalizeStationTerminalMetaUnreadChunks(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
+    return 1
+  }
+  return Math.max(1, Math.min(99, Math.floor(value)))
+}
+
 export function buildStationTerminalCommandSubmitChunks(
   command: string,
   submitSequence: string | null | undefined,

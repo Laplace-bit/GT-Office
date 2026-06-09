@@ -10,6 +10,7 @@ import {
   didSessionBindingChange,
   ensureSingleFlightStationSession,
   hydrateSettlesSessionBinding,
+  normalizeStationTerminalMetaUnreadChunks,
   patchTouchesSessionBinding,
   resolveClosedStationSessionCleanup,
   resolveClosedStationRuntimeRegistrationCleanup,
@@ -98,6 +99,15 @@ test('activity signal maps unread deltas into stable speed levels', () => {
   assert.equal(resolveStationActivitySignalLevelFromDelta(5), 'medium')
   assert.equal(resolveStationActivitySignalLevelFromDelta(6), 'high')
   assert.equal(resolveStationActivitySignalLevelFromDelta(14), 'high')
+})
+
+test('normalizes terminal meta unread chunk counts for runtime status', () => {
+  assert.equal(normalizeStationTerminalMetaUnreadChunks(undefined), 1)
+  assert.equal(normalizeStationTerminalMetaUnreadChunks(Number.NaN), 1)
+  assert.equal(normalizeStationTerminalMetaUnreadChunks(-4), 1)
+  assert.equal(normalizeStationTerminalMetaUnreadChunks(0), 1)
+  assert.equal(normalizeStationTerminalMetaUnreadChunks(2.8), 2)
+  assert.equal(normalizeStationTerminalMetaUnreadChunks(120), 99)
 })
 
 test('closed session cleanup unregisters runtime only when the closed session still owns the registration', () => {

@@ -34,6 +34,7 @@ import {
   resolveDroppedStationSessionCleanup,
   resolveStationRuntimeRegistrationCleanup,
   resolveTerminalOutputSequenceAction,
+  normalizeStationTerminalMetaUnreadChunks,
   shouldReplayStationTerminalSinkBinding,
   shouldPreferSessionOwnedRestoreState,
   selectStationTerminalReplaySource,
@@ -2551,7 +2552,7 @@ export function useShellTerminalController({
               workspaceId: owner.workspaceId,
               stationId: owner.stationId,
               sessionId: payload.sessionId,
-              unreadDelta: Math.max(1, Math.min(99, payload.unreadChunks || 1)),
+              unreadDelta: normalizeStationTerminalMetaUnreadChunks(payload.unreadChunks),
             })
             return
           }
@@ -2584,7 +2585,7 @@ export function useShellTerminalController({
             appendStationTerminalOutput(stationId, tail)
           }
           if (stationId !== activeStationIdRef.current) {
-            const delta = Math.max(1, Math.min(99, payload.unreadChunks || 1))
+            const delta = normalizeStationTerminalMetaUnreadChunks(payload.unreadChunks)
             incrementStationUnread(stationId, delta)
           }
         },

@@ -2,6 +2,53 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Meta Unread Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:17 CST`
+- Scope: focused terminal meta/status hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-runtime-state.ts`
+  - Added a reusable terminal meta unread chunk normalizer for runtime status counts.
+  - Invalid, missing, zero, and negative values resolve to `1`; fractional values are floored; large values are capped at `99`.
+- `apps/desktop-web/src/shell/layout/useShellTerminalController.ts`
+  - Cached and active terminal meta event paths now use the same unread normalization before updating station status.
+  - This removes local `Math.max(1, Math.min(99, payload.unreadChunks || 1))` handling that could pass `NaN` into status state.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added coverage for terminal meta unread chunk normalization.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): CLI Agent state should remain scannable and deterministic during output streaming and session switching.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; event-derived status counts should be normalized before reaching UI runtime state.
+- `$ui-ux-pro-max`: unread/status indicators should stay valid and compact instead of showing invalid or ambiguous numeric state.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening`
+  - Result: passed.
+  - Summary: `530` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of malformed terminal meta events during live streaming.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal meta unread normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Merged Input Flush Guard
 
 - Commit: recorded by git history
