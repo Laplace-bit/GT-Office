@@ -2,6 +2,50 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Cached Terminal Output Sequence Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:33 CST`
+- Scope: focused cached terminal output ordering hardening
+
+### Changed
+
+- `apps/desktop-web/src/shell/layout/useShellTerminalController.ts`
+  - Cached workspace terminal output events now use `resolveTerminalOutputSequenceAction` before queueing cache appends.
+  - This keeps active and cached output paths aligned and prevents malformed or stale WebView sequence payloads from updating cached terminal documents.
+- `apps/desktop-web/tests/shell-terminal-controller-source.test.ts`
+  - Added a source-level controller contract that cached output payload handling must reuse the shared sequence normalizer instead of a raw `payload.seq <= seq` comparison.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): Agent/session switching should preserve terminal scroll/output state without stale or malformed events corrupting cached session state.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; background workspace event payloads should be normalized before reaching React/cache state.
+- `$ui-ux-pro-max`: cached CLI Agent state should remain predictable and scannable after switching workspaces or stations.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- shell-terminal-controller-source terminal-hardening`
+  - Result: passed.
+  - Summary: `531` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of malformed cached terminal output sequence events while switching workspaces.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow cached terminal output sequence normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Output Sequence Guard
 
 - Commit: recorded by git history

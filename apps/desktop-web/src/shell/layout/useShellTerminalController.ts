@@ -2125,7 +2125,7 @@ export function useShellTerminalController({
       payload: TerminalOutputPayload,
     ) => {
       const seq = owner.document.sessionSeq[payload.sessionId] ?? 0
-      if (payload.seq <= seq) {
+      if (resolveTerminalOutputSequenceAction(payload.seq, seq) === 'stale') {
         return
       }
       queueCachedTerminalOutputAppend({
