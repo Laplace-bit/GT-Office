@@ -202,30 +202,14 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   contain: layout style paint;
 }
 
-// ── Pane transition animations ──────────────────────────────────────────────
-// Left pane secondary content can enter softly; main content cuts to protect
-// terminal and workbench first frames from route-fade blanking.
-@keyframes shell-pane-enter {
-  from {
-    opacity: 0;
-    transform: translateY(#{rem(14)});
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-// Left pane secondary content only — file tree stays mounted so switching
-// back to Files does not rebuild the whole tree or replay the enter motion.
+// Left pane secondary content stays mounted so switching back to Files does not
+// rebuild the whole tree or replay route-enter motion beside terminal chrome.
 .shell-left-pane-transition {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   contain: layout paint;
-  animation: shell-pane-enter 0.18s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 // Main content area — each view gets key={activeNavId} + this class.
