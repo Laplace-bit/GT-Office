@@ -2,6 +2,48 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Submit Sequence Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:54 CST`
+- Scope: focused backend terminal submit contract hardening
+
+### Changed
+
+- `apps/desktop-tauri/src-tauri/src/commands/terminal/mod.rs`
+  - Terminal submit sequence resolution now treats whitespace-only values as missing.
+  - Missing, empty, and blank submit sequences resolve to carriage return so command submit requests cannot silently accept a visually blank binding.
+  - Non-blank custom submit sequences remain unchanged.
+- `apps/desktop-tauri/src-tauri/src/commands/tests/terminal_tests.rs`
+  - Added a regression assertion for whitespace-only submit sequence normalization.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal command submission should be predictable and resilient across the desktop command boundary.
+- [API_CONTRACTS.md](API_CONTRACTS.md): terminal command responses keep explicit `workspaceId`/`sessionId` contracts while command inputs are normalized before provider writes.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; backend command contracts should prevent subtle UI-to-terminal no-op submits.
+
+### Passed
+
+- `cargo test -p gtoffice-desktop-tauri commands::tests::terminal_tests`
+  - Result: passed.
+  - Summary: `19` tests passed, `0` failed.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Real Tauri WebView submit behavior with malformed frontend plugin configuration.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow backend terminal submit normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Cached Output Unread Delta Guard
 
 - Commit: recorded by git history

@@ -78,7 +78,7 @@ pub(crate) fn build_terminal_write_response(
 
 pub(crate) fn resolve_terminal_submit_sequence(submit_sequence: Option<String>) -> String {
     match submit_sequence {
-        Some(value) if !value.is_empty() => value,
+        Some(value) if !value.trim().is_empty() => value,
         _ => "\r".to_string(),
     }
 }

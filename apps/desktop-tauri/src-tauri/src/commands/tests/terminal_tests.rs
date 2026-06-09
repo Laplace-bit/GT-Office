@@ -70,6 +70,10 @@ fn resolve_terminal_submit_sequence_defaults_to_carriage_return() {
     assert_eq!(resolve_terminal_submit_sequence(None), "\r");
     assert_eq!(resolve_terminal_submit_sequence(Some(String::new())), "\r");
     assert_eq!(
+        resolve_terminal_submit_sequence(Some(" \t\n".to_string())),
+        "\r"
+    );
+    assert_eq!(
         resolve_terminal_submit_sequence(Some("\x1b[13~".to_string())),
         "\x1b[13~"
     );
