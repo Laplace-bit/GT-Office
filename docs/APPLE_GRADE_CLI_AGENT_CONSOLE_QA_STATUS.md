@@ -2,6 +2,44 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Pending Replay Coalescing Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:27:22 CST`
+- Scope: focused terminal restore pending-replay helper hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-pending-replay.ts`
+  - Bounded append-time pending replay now fills remaining capacity in the previous write op before adding new chunks.
+  - Chunking remains code-point based, so emoji/surrogate pairs are not split.
+  - Reset semantics remain unchanged and still drop stale writes.
+- `apps/desktop-web/tests/station-terminal-pending-replay.test.ts`
+  - Added a regression test for filling the previous bounded write before adding more chunks.
+
+### Passed
+
+- `cargo check --workspace`
+  - Result: passed before the focused change, as the modified path is frontend-only.
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-pending-replay`
+  - Result: passed.
+  - Summary: `519` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Real Tauri WebView station/session switching while terminal output streams into a restoring xterm sink.
+- macOS and Windows IME behavior at the terminal caret after session restore.
+- Packaged desktop focus/scroll/input preservation across station switching.
+
+### Release Decision
+
+This narrows pending-replay restore catch-up overhead by reducing unnecessary bounded write ops. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Current Automated Preflight
 
 - Commit: recorded by git history

@@ -73,9 +73,21 @@ function appendStationTerminalPendingReplayWriteChunks(
     return
   }
 
+  let pendingChunk = chunk
+  const previous = pendingReplay.ops[pendingReplay.ops.length - 1]
+  if (previous?.kind === 'write') {
+    const remainingCharacterCapacity =
+      writeChunkCharLimit - countStationTerminalPendingReplayCharacters(previous.chunk)
+    if (remainingCharacterCapacity > 0) {
+      const splitChunk = splitStationTerminalPendingReplayCharacters(pendingChunk, remainingCharacterCapacity)
+      previous.chunk += splitChunk.head
+      pendingChunk = splitChunk.tail
+    }
+  }
+
   let nextChunk = ''
   let characterCount = 0
-  for (const character of chunk) {
+  for (const character of pendingChunk) {
     nextChunk += character
     characterCount += 1
     if (characterCount >= writeChunkCharLimit) {
@@ -87,6 +99,32 @@ function appendStationTerminalPendingReplayWriteChunks(
   if (nextChunk) {
     pendingReplay.ops.push({ kind: 'write', chunk: nextChunk })
   }
+}
+
+function countStationTerminalPendingReplayCharacters(chunk: string): number {
+  let characterCount = 0
+  for (const _character of chunk) {
+    characterCount += 1
+  }
+  return characterCount
+}
+
+function splitStationTerminalPendingReplayCharacters(
+  chunk: string,
+  characterLimit: number,
+): { head: string; tail: string } {
+  let head = ''
+  let tail = ''
+  let characterCount = 0
+  for (const character of chunk) {
+    if (characterCount < characterLimit) {
+      head += character
+      characterCount += 1
+      continue
+    }
+    tail += character
+  }
+  return { head, tail }
 }
 
 export function compactStationTerminalPendingReplayOps(

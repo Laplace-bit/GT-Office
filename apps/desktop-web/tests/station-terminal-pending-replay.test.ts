@@ -68,6 +68,29 @@ test('append pending replay can split writes before restore catch-up drains', ()
   ])
 })
 
+test('append pending replay fills the previous bounded write before adding chunks', () => {
+  const pendingReplay: StationTerminalPendingReplay = {
+    version: 1,
+    ops: [],
+  }
+
+  appendStationTerminalPendingReplayOp(
+    pendingReplay,
+    { kind: 'write', chunk: 'ab' },
+    { writeChunkCharLimit: 4 },
+  )
+  appendStationTerminalPendingReplayOp(
+    pendingReplay,
+    { kind: 'write', chunk: 'cd🙂e' },
+    { writeChunkCharLimit: 4 },
+  )
+
+  assert.deepEqual(pendingReplay.ops, [
+    { kind: 'write', chunk: 'abcd' },
+    { kind: 'write', chunk: '🙂e' },
+  ])
+})
+
 test('append pending replay split keeps reset semantics and code points intact', () => {
   const pendingReplay: StationTerminalPendingReplay = {
     version: 1,
