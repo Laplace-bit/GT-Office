@@ -21,7 +21,7 @@ export async function drainStationTerminalPendingReplayOps(
     } else {
       await sink.write(op.chunk)
     }
-    if (index + 1 < ops.length && options.yieldBetweenWrites) {
+    if (index + 1 < ops.length && options.shouldContinue() && options.yieldBetweenWrites) {
       await options.yieldBetweenWrites()
     }
   }

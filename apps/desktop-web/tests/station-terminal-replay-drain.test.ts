@@ -88,3 +88,31 @@ test('stops draining terminal pending replay when the sink is no longer current'
 
   assert.deepEqual(events, ['write:one'])
 })
+
+test('skips the replay frame yield when the sink becomes stale after a write', async () => {
+  const events: string[] = []
+  let current = true
+  const sink: StationTerminalSink = {
+    ...createRecordingSink(events),
+    write: async (chunk: string) => {
+      events.push(`write:${chunk}`)
+      current = false
+    },
+  }
+
+  await drainStationTerminalPendingReplayOps(
+    sink,
+    [
+      { kind: 'write', chunk: 'one' },
+      { kind: 'write', chunk: 'stale' },
+    ],
+    {
+      shouldContinue: () => current,
+      yieldBetweenWrites: async () => {
+        events.push('yield')
+      },
+    },
+  )
+
+  assert.deepEqual(events, ['write:one'])
+})

@@ -2,6 +2,48 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Replay Stale-Yield Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:31:23 CST`
+- Scope: focused terminal restore replay drain cancellation hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-replay-drain.ts`
+  - Pending replay drain now rechecks whether the sink is still current before waiting for the next frame.
+  - Fast Agent/session switches no longer spend an extra frame wait after a write invalidates the restoring sink.
+- `apps/desktop-web/tests/station-terminal-replay-drain.test.ts`
+  - Added a regression test for the stale-after-write path.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal input/output responsiveness and Agent/session switching must avoid unnecessary React/WebView hot-path work.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T8 baseline vs margin cost; stale background restore work should cancel before consuming another frame.
+
+### Passed
+
+- `cargo check --workspace`
+  - Result: passed before the focused frontend-only change.
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-replay-drain`
+  - Result: passed.
+  - Summary: `520` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Real Tauri WebView station/session switching while terminal output streams into a restoring xterm sink.
+- Packaged desktop focus/scroll/input preservation across station switching.
+- macOS and Windows IME behavior at the terminal caret after restore.
+
+### Release Decision
+
+This removes one stale replay frame wait from fast session switching. It improves the automated performance contract but does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Pending Replay Coalescing Guard
 
 - Commit: recorded by git history
