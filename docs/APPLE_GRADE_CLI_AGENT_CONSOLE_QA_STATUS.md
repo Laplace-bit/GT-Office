@@ -2,6 +2,50 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Restore Revision Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:47 CST`
+- Scope: focused terminal restore replay state hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-restore-state.ts`
+  - Captured terminal restore revisions now normalize to non-negative integers before they are stored in session-owned restore snapshots.
+  - Missing, non-finite, and negative restore revisions reset to `0`; fractional revisions are floored.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added coverage for restore revision normalization and capture helper behavior.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): Agent/session switching should preserve terminal scroll/output state deterministically.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; replay preference counters should be normalized before cross-boundary session restore decisions.
+- `$ui-ux-pro-max`: returning to an Agent terminal should use predictable restore state rather than invalid revision-derived behavior.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening`
+  - Result: passed.
+  - Summary: `534` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of malformed restore revision state during live workspace switching.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal restore revision normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Output Revision Hydration Guard
 
 - Commit: recorded by git history

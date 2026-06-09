@@ -18,6 +18,13 @@ export function normalizeStationTerminalRestoreViewportY(viewportY?: number | nu
   return Math.floor(viewportY)
 }
 
+export function normalizeStationTerminalRestoreRevision(revision: number | null | undefined): number {
+  if (revision === null || revision === undefined || !Number.isFinite(revision)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(revision))
+}
+
 export function normalizeStationTerminalRestoreStateSnapshot(state: RestoreStateSnapshot): RestoreStateSnapshot {
   const viewportY = normalizeStationTerminalRestoreViewportY(state.viewportY)
   if (viewportY === null) {
@@ -42,7 +49,7 @@ export function captureSessionOwnedRestoreState(
   return {
     sessionId,
     state: normalizeStationTerminalRestoreStateSnapshot(state),
-    revision,
+    revision: normalizeStationTerminalRestoreRevision(revision),
   }
 }
 
@@ -59,7 +66,7 @@ export function captureMatchingSessionOwnedRestoreState(
   return {
     sessionId,
     state: normalizeStationTerminalRestoreStateSnapshot(state),
-    revision,
+    revision: normalizeStationTerminalRestoreRevision(revision),
   }
 }
 
