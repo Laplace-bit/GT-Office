@@ -19,6 +19,13 @@ export interface WorkspaceTerminalSessionOwner {
   document: WorkspaceTerminalSessionDocument
 }
 
+function normalizeWorkspaceTerminalSessionSeq(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(value))
+}
+
 export function createWorkspaceTerminalSessionDocument(
   stations: AgentStation[],
 ): WorkspaceTerminalSessionDocument {
@@ -103,7 +110,7 @@ export function hydrateWorkspaceTerminalSessionDocument(
   })
   retainedSessionStation.forEach((stationId, sessionId) => {
     hydrated.sessionStation[sessionId] = stationId
-    hydrated.sessionSeq[sessionId] = hydrated.sessionSeq[sessionId] ?? 0
+    hydrated.sessionSeq[sessionId] = normalizeWorkspaceTerminalSessionSeq(hydrated.sessionSeq[sessionId])
     hydrated.sessionVisibility[sessionId] = hydrated.sessionVisibility[sessionId] ?? false
   })
 

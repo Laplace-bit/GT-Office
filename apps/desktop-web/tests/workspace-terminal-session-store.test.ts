@@ -92,6 +92,13 @@ function cloneDocument(doc: WorkspaceTerminalSessionDocument): WorkspaceTerminal
   }
 }
 
+function normalizeWorkspaceTerminalSessionSeq(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(value))
+}
+
 function hydrateWorkspaceTerminalSessionDocument(
   document: WorkspaceTerminalSessionDocument | null | undefined,
   stations: AgentStation[],
@@ -140,7 +147,7 @@ function hydrateWorkspaceTerminalSessionDocument(
   })
   retainedSessionStation.forEach((stationId, sessionId) => {
     hydrated.sessionStation[sessionId] = stationId
-    hydrated.sessionSeq[sessionId] = hydrated.sessionSeq[sessionId] ?? 0
+    hydrated.sessionSeq[sessionId] = normalizeWorkspaceTerminalSessionSeq(hydrated.sessionSeq[sessionId])
     hydrated.sessionVisibility[sessionId] = hydrated.sessionVisibility[sessionId] ?? false
   })
 
@@ -208,6 +215,29 @@ test('preserves multiple cached sessionStation bindings during hydration', () =>
   assert.deepEqual(result.sessionSeq, {
     'session-a': 3,
     'session-b': 7,
+  })
+})
+
+test('normalizes cached session sequence values during hydration', () => {
+  const stations = [makeStation('s1'), makeStation('s2'), makeStation('s3')]
+  const cached = createFreshDocument(stations)
+
+  cached.stationTerminals['s1'] = makeRunningRuntime('session-nan')
+  cached.stationTerminals['s2'] = makeRunningRuntime('session-fractional')
+  cached.stationTerminals['s3'] = makeRunningRuntime('session-negative')
+  cached.sessionStation['session-nan'] = 's1'
+  cached.sessionStation['session-fractional'] = 's2'
+  cached.sessionStation['session-negative'] = 's3'
+  cached.sessionSeq['session-nan'] = Number.NaN
+  cached.sessionSeq['session-fractional'] = 8.9
+  cached.sessionSeq['session-negative'] = -4
+
+  const result = hydrateWorkspaceTerminalSessionDocument(cached, stations)
+
+  assert.deepEqual(result.sessionSeq, {
+    'session-nan': 0,
+    'session-fractional': 8,
+    'session-negative': 0,
   })
 })
 
