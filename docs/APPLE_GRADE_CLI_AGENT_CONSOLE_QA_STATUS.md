@@ -493,6 +493,50 @@ This closes a narrow terminal file-drop reduced-motion regression risk and exten
 
 This closes a narrow invalid-station terminal input-buffer regression risk and adds automated coverage. It does not close the broader desktop runtime QA requirement.
 
+## 2026-06-09 Terminal Input Buffer Byte-Limit Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:17:02 CST`
+- Scope: terminal input-buffer byte-limit hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-input-buffer.ts`
+  - Normalized buffered input byte limits before trimming queued input.
+  - Treated invalid or non-finite byte limits as exhausted so malformed configuration cannot create an unbounded input buffer.
+  - Preserved explicit `Number.POSITIVE_INFINITY` as the only unbounded mode for tests or deliberate call sites.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added regression coverage for invalid byte limits and explicit infinity.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) terminal requirement: terminal input echo must stay responsive while output streams.
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) architecture guardrail: high-frequency terminal paths must remain bounded and observable instead of growing hidden queues.
+- `$native-feel-cross-platform-desktop` T4/T6/T8 guidance: perceived responsiveness depends on bounded hot-path work, intentional scheduling, and avoiding margin costs from app-owned queues.
+- `$ui-ux-pro-max` UX guidance: keyboard-driven terminal actions need predictable routing with no hidden invalid input state.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening`
+  - Result: passed.
+  - Summary: `516` tests passed, `0` failed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Real Tauri WebView typing latency while output streams.
+- macOS and Windows IME behavior at the terminal caret.
+- Packaged desktop terminal input routing across detached windows and session rebinding.
+
+### Release Decision
+
+This closes a narrow malformed-config input-buffer bound regression risk. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Automated Preflight
 
 - Commit: recorded by git history

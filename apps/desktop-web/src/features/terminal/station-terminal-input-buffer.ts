@@ -15,11 +15,25 @@ interface CreateBufferedStationInputControllerOptions<TTimer> {
 
 const UTF8_TEXT_ENCODER = new TextEncoder()
 
+function normalizeStationInputBufferMaxBytes(value: number): number {
+  if (value === Number.POSITIVE_INFINITY) {
+    return Number.POSITIVE_INFINITY
+  }
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(value))
+}
+
 function trimUtf8StringToMaxBytes(input: string, maxBytes: number): string {
-  if (!input || maxBytes <= 0) {
+  const normalizedMaxBytes = normalizeStationInputBufferMaxBytes(maxBytes)
+  if (!input || normalizedMaxBytes <= 0) {
     return ''
   }
-  if (UTF8_TEXT_ENCODER.encode(input).byteLength <= maxBytes) {
+  if (normalizedMaxBytes === Number.POSITIVE_INFINITY) {
+    return input
+  }
+  if (UTF8_TEXT_ENCODER.encode(input).byteLength <= normalizedMaxBytes) {
     return input
   }
 
@@ -29,7 +43,7 @@ function trimUtf8StringToMaxBytes(input: string, maxBytes: number): string {
   for (let index = characters.length - 1; index >= 0; index -= 1) {
     const character = characters[index]
     const characterBytes = UTF8_TEXT_ENCODER.encode(character).byteLength
-    if (usedBytes + characterBytes > maxBytes) {
+    if (usedBytes + characterBytes > normalizedMaxBytes) {
       break
     }
     usedBytes += characterBytes

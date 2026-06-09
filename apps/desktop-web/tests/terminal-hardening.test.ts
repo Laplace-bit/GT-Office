@@ -372,6 +372,40 @@ test('trims buffered terminal input by utf-8 bytes without splitting characters'
   controller.dispose()
 })
 
+test('buffered terminal input treats invalid byte limits as exhausted and preserves explicit infinity', () => {
+  const sentWithInvalidLimit: Array<{ stationId: string; input: string }> = []
+  const invalidLimitController = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: Number.NaN,
+    shouldFlushImmediately: () => true,
+    scheduleTimer: () => 1,
+    clearTimer: () => undefined,
+    sendInput: async (stationId: string, input: string) => {
+      sentWithInvalidLimit.push({ stationId, input })
+    },
+  })
+
+  invalidLimitController.enqueue('station-a', 'ignored\n')
+  assert.deepEqual(sentWithInvalidLimit, [])
+  invalidLimitController.dispose()
+
+  const sentWithInfiniteLimit: Array<{ stationId: string; input: string }> = []
+  const infiniteLimitController = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: Number.POSITIVE_INFINITY,
+    shouldFlushImmediately: () => true,
+    scheduleTimer: () => 1,
+    clearTimer: () => undefined,
+    sendInput: async (stationId: string, input: string) => {
+      sentWithInfiniteLimit.push({ stationId, input })
+    },
+  })
+
+  infiniteLimitController.enqueue('station-a', 'preserved🙂\n')
+  assert.deepEqual(sentWithInfiniteLimit, [{ stationId: 'station-a', input: 'preserved🙂\n' }])
+  infiniteLimitController.dispose()
+})
+
 test('drops restore state when the station session changes', () => {
   assert.deepEqual(
     retainSessionOwnedRestoreState(
