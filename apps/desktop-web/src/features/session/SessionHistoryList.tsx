@@ -9,6 +9,7 @@ import { providerIcon, providerLabel, formatRelativeTime, hasStats } from './ses
 import './SessionHistoryList.scss'
 
 const SESSION_HISTORY_TYPEAHEAD_RESET_MS = 700
+const SESSION_HISTORY_LOADING_VISIBLE_DELAY_MS = 200
 
 export interface SessionHistoryListProps {
   locale: Locale
@@ -36,6 +37,7 @@ export const SessionHistoryList = memo(function SessionHistoryList({
   }, [onRelaunch])
 
   const [activeIndex, setActiveIndex] = useState(0)
+  const [loadingVisible, setLoadingVisible] = useState(false)
   const listRef = useRef<HTMLDivElement | null>(null)
   const typeaheadRef = useRef('')
   const typeaheadTimerRef = useRef<number | null>(null)
@@ -51,6 +53,19 @@ export const SessionHistoryList = memo(function SessionHistoryList({
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingVisible(false)
+      return undefined
+    }
+    const timerId = window.setTimeout(() => {
+      setLoadingVisible(true)
+    }, SESSION_HISTORY_LOADING_VISIBLE_DELAY_MS)
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [loading])
 
   const cardLabels = useMemo(
     () => cards.map((card) => buildSessionHistorySearchLabel(card)),
@@ -221,9 +236,9 @@ export const SessionHistoryList = memo(function SessionHistoryList({
     </div>
   )
 
-  if (loading && cards.length === 0) {
+  if (loadingVisible && cards.length === 0) {
     return (
-      <div className="session-history-list">
+      <div className="session-history-list" aria-busy={loading}>
         {listHeader(false)}
         <div className="session-history-list-empty">
           <AppIcon name="clock" className="vb-icon" aria-hidden="true" />
@@ -235,7 +250,7 @@ export const SessionHistoryList = memo(function SessionHistoryList({
 
   if (cards.length === 0) {
     return (
-      <div className="session-history-list">
+      <div className="session-history-list" aria-busy={loading}>
         {listHeader(true)}
         <div className="session-history-list-empty">
           <AppIcon name="clock" className="vb-icon" aria-hidden="true" />
@@ -251,7 +266,7 @@ export const SessionHistoryList = memo(function SessionHistoryList({
   }
 
   return (
-    <div className="session-history-list">
+    <div className="session-history-list" aria-busy={loading}>
       {listHeader(true)}
       <div
         ref={listRef}
