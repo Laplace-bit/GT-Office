@@ -2,6 +2,50 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Output Unread Delta Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:44:23 CST`
+- Scope: focused terminal output flush unread-state hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-output-flush.ts`
+  - Queued output unread deltas now normalize non-finite, negative, and fractional values before entering the React flush queue.
+  - Non-finite and negative values resolve to `0`; fractional values are floored.
+  - This prevents `NaN` or fractional unread counts from leaking into terminal station runtime UI state.
+- `apps/desktop-web/tests/station-terminal-output-flush.test.ts`
+  - Added a regression test for unread delta normalization in the output flush queue.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal output streaming should be batched before React and station state should remain clear and scannable.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T8 baseline vs margin cost; hot-path queue state must stay bounded and deterministic.
+- `$ui-ux-pro-max`: status indicators should not receive ambiguous or invalid count state.
+
+### Passed
+
+- `cargo check --workspace`
+  - Result: passed before the focused frontend-only change.
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-output-flush`
+  - Result: passed.
+  - Summary: `523` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Real Tauri WebView streaming output with concurrent station switching.
+- Visual validation of unread badges/status indicators in the packaged desktop app.
+- macOS and Windows runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal output queue state-normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Input Flush Delay Guard
 
 - Commit: recorded by git history

@@ -80,6 +80,13 @@ function ensureStationTerminalOutputFlushQueueCapacity(
   return true
 }
 
+function normalizeStationTerminalOutputUnreadDelta(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(value))
+}
+
 export function queueStationTerminalOutputFlush(
   queue: StationTerminalOutputFlushQueue,
   stationId: string,
@@ -102,7 +109,7 @@ export function queueStationTerminalOutputFlush(
   if (pending.chunks.length > STATION_TERMINAL_OUTPUT_FLUSH_PENDING_CHUNK_LIMIT) {
     pending.chunks = [pending.chunks.join('')]
   }
-  pending.unreadDelta += Math.max(0, unreadDelta)
+  pending.unreadDelta += normalizeStationTerminalOutputUnreadDelta(unreadDelta)
   queue[normalizedStationId] = pending
   return true
 }

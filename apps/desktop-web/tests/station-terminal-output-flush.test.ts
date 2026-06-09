@@ -45,6 +45,22 @@ test('normalizes queued terminal output station ids and ignores blank station id
   ])
 })
 
+test('normalizes queued terminal output unread deltas', () => {
+  const queue: StationTerminalOutputFlushQueue = {}
+
+  assert.equal(queueStationTerminalOutputFlush(queue, 'station-1', 'nan', Number.NaN), true)
+  assert.equal(queueStationTerminalOutputFlush(queue, 'station-1', 'negative', -4), true)
+  assert.equal(queueStationTerminalOutputFlush(queue, 'station-1', 'fraction', 2.8), true)
+
+  assert.deepEqual(takeStationTerminalOutputFlushEntries(queue), [
+    {
+      stationId: 'station-1',
+      chunk: 'nannegativefraction',
+      unreadDelta: 2,
+    },
+  ])
+})
+
 test('targeted terminal output drain normalizes station ids without clearing all output for blank targets', () => {
   const queue: StationTerminalOutputFlushQueue = {}
 
