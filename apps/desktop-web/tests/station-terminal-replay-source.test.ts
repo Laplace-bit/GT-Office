@@ -20,6 +20,23 @@ test('prefers restore state when it is at least as complete as the cached conten
   }
 })
 
+test('normalizes restore viewport before replaying a session-owned snapshot', () => {
+  const replay = selectStationTerminalReplaySource({
+    cachedContent: 'short cache',
+    restoreState: {
+      content: 'restore transcript',
+      cols: 120,
+      rows: 40,
+      viewportY: 18.7,
+    },
+  })
+
+  assert.equal(replay.kind, 'restore')
+  if (replay.kind === 'restore') {
+    assert.equal(replay.state.viewportY, 18)
+  }
+})
+
 test('prefers cached content when it is substantially more complete than the restore state', () => {
   const replay = selectStationTerminalReplaySource({
     cachedContent: `history:${'x'.repeat(1200)}`,

@@ -42,6 +42,7 @@ import {
   captureMatchingSessionOwnedRestoreState,
   captureReportedSessionOwnedRestoreState,
   captureSessionOwnedRestoreState,
+  normalizeStationTerminalRestoreViewportY,
   retainSessionOwnedRestoreState,
 } from '../src/features/terminal/station-terminal-restore-state.js'
 import {
@@ -547,6 +548,56 @@ test('captures restore state only for a live station session', () => {
       },
     ),
     null,
+  )
+})
+
+test('normalizes restore viewport positions for stable session switching', () => {
+  assert.equal(normalizeStationTerminalRestoreViewportY(undefined), null)
+  assert.equal(normalizeStationTerminalRestoreViewportY(Number.NaN), null)
+  assert.equal(normalizeStationTerminalRestoreViewportY(-1), null)
+  assert.equal(normalizeStationTerminalRestoreViewportY(12.8), 12)
+
+  assert.deepEqual(
+    captureSessionOwnedRestoreState(
+      {
+        sessionId: 'session-viewport',
+      },
+      {
+        content: 'screen',
+        cols: 120,
+        rows: 40,
+        viewportY: 9.9,
+      },
+    ),
+    {
+      sessionId: 'session-viewport',
+      revision: 0,
+      state: {
+        content: 'screen',
+        cols: 120,
+        rows: 40,
+        viewportY: 9,
+      },
+    },
+  )
+
+  assert.deepEqual(
+    captureSessionOwnedRestoreState(
+      {
+        sessionId: 'session-viewport',
+      },
+      {
+        content: 'screen',
+        cols: 120,
+        rows: 40,
+        viewportY: Number.NaN,
+      },
+    )?.state,
+    {
+      content: 'screen',
+      cols: 120,
+      rows: 40,
+    },
   )
 })
 

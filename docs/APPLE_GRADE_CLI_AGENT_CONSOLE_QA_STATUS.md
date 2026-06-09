@@ -2,6 +2,57 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Restore Viewport Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:06 CST`
+- Scope: focused terminal session scroll-restore hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-restore-state.ts`
+  - Added reusable restore viewport normalization for session-owned terminal restore snapshots.
+  - Fractional viewport positions are floored; invalid, missing, and negative positions are dropped.
+  - Session-owned restore captures now normalize viewport state before it can be persisted or replayed.
+- `apps/desktop-web/src/features/terminal/station-terminal-replay-source.ts`
+  - Replay-source selection now normalizes restore snapshots before returning a restore replay.
+- `apps/desktop-web/src/features/terminal/StationXtermTerminal.tsx`
+  - Xterm restore now reuses the model-level viewport normalization instead of keeping a private local rule.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added coverage for restore viewport normalization during session switching.
+- `apps/desktop-web/tests/station-terminal-replay-source.test.ts`
+  - Added coverage that restore replay snapshots return normalized viewport positions.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): Agent/session switching should preserve scroll/input/focus state with deterministic terminal restore behavior.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; session restore state should be normalized at the model boundary before WebView/xterm replay.
+- `$ui-ux-pro-max`: CLI Agent continuity should keep scroll position stable and predictable when users move between stations.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening station-terminal-replay-source`
+  - Result: passed after fixing the ESM import suffix.
+  - Summary: `528` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation that scroll position is preserved during live station switching.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal restore viewport normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Cached Output Controller Unread Guard
 
 - Commit: recorded by git history

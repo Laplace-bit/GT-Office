@@ -63,6 +63,7 @@ import {
   scheduleStationTerminalFitRetryFrame,
   type StationTerminalFitRetryFrame,
 } from './station-terminal-resize'
+import { normalizeStationTerminalRestoreViewportY } from './station-terminal-restore-state'
 import type {
   StationTerminalSink,
   StationTerminalSinkBindingHandler,
@@ -1378,12 +1379,6 @@ function StationXtermTerminalView({
             // No-op: texture atlas recovery is best effort.
           }
         }
-        const resolveRestoreViewportY = (viewportY?: number | null): number | null => {
-          if (typeof viewportY !== 'number' || !Number.isFinite(viewportY) || viewportY < 0) {
-            return null
-          }
-          return Math.floor(viewportY)
-        }
         const applyPendingRestoreViewport = (clearAfterApply: boolean) => {
           if (pendingRestoreViewportY === null) {
             return false
@@ -1766,7 +1761,7 @@ function StationXtermTerminalView({
             }
             terminal.reset()
             await writeReplayContent(content)
-            pendingRestoreViewportY = resolveRestoreViewportY(viewportY)
+            pendingRestoreViewportY = normalizeStationTerminalRestoreViewportY(viewportY)
             applyPendingRestoreViewport(false)
             scheduleRefresh()
             scheduleSerializedRestoreStateCapture('urgent')

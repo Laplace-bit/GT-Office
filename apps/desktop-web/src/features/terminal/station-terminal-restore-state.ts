@@ -11,6 +11,25 @@ export interface SessionOwnedRestoreState {
   revision: number
 }
 
+export function normalizeStationTerminalRestoreViewportY(viewportY?: number | null): number | null {
+  if (typeof viewportY !== 'number' || !Number.isFinite(viewportY) || viewportY < 0) {
+    return null
+  }
+  return Math.floor(viewportY)
+}
+
+export function normalizeStationTerminalRestoreStateSnapshot(state: RestoreStateSnapshot): RestoreStateSnapshot {
+  const viewportY = normalizeStationTerminalRestoreViewportY(state.viewportY)
+  if (viewportY === null) {
+    const { viewportY: _viewportY, ...rest } = state
+    return rest
+  }
+  return {
+    ...state,
+    viewportY,
+  }
+}
+
 export function captureSessionOwnedRestoreState(
   runtime: { sessionId: string | null } | null | undefined,
   state: RestoreStateSnapshot,
@@ -22,7 +41,7 @@ export function captureSessionOwnedRestoreState(
   }
   return {
     sessionId,
-    state,
+    state: normalizeStationTerminalRestoreStateSnapshot(state),
     revision,
   }
 }
@@ -39,7 +58,7 @@ export function captureMatchingSessionOwnedRestoreState(
   }
   return {
     sessionId,
-    state,
+    state: normalizeStationTerminalRestoreStateSnapshot(state),
     revision,
   }
 }

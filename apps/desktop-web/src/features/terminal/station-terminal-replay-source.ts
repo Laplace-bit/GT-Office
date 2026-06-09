@@ -5,6 +5,8 @@ export interface StationTerminalReplayRestoreState {
   viewportY?: number | null
 }
 
+import { normalizeStationTerminalRestoreStateSnapshot } from './station-terminal-restore-state.js'
+
 export type StationTerminalReplaySource =
   | {
       kind: 'restore'
@@ -63,6 +65,6 @@ export function selectStationTerminalReplaySource(input: {
 
   return {
     kind: 'restore',
-    state: restoreState,
+    state: normalizeStationTerminalRestoreStateSnapshot(restoreState),
   }
 }
