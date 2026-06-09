@@ -120,9 +120,10 @@ export function createBufferedStationInputController<TTimer>(
       }
       const previous = queuedInputByStation.get(normalizedStationId) ?? ''
       const merged = `${previous}${input}`
-      queuedInputByStation.set(normalizedStationId, trimUtf8StringToMaxBytes(merged, options.maxBufferBytes))
+      const queuedInput = trimUtf8StringToMaxBytes(merged, options.maxBufferBytes)
+      queuedInputByStation.set(normalizedStationId, queuedInput)
       clearStationFlushTimer(normalizedStationId)
-      if (options.shouldFlushImmediately(input)) {
+      if (options.shouldFlushImmediately(input) || options.shouldFlushImmediately(queuedInput)) {
         void flushStationInput(normalizedStationId)
         return
       }

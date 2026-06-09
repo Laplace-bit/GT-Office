@@ -2,6 +2,50 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Merged Input Flush Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:11 CST`
+- Scope: focused terminal input responsiveness hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-input-buffer.ts`
+  - Buffered station terminal input now evaluates the immediate-flush policy against both the latest input fragment and the merged queued input.
+  - This keeps short printable keystrokes batched while allowing split paste/control-like fragments to flush as soon as the merged input crosses the policy threshold.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added coverage that fragmented input flushes immediately once the merged queued input crosses the policy threshold and clears the prior delayed timer.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal input response should stay low-latency and not be delayed by output/session scheduling.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance; fragmented WebView/xterm input should not wait for a delayed timer once it behaves like a paste or submit-scale input.
+- `$ui-ux-pro-max`: CLI Agent input continuity should feel direct and predictable during typing, paste, and station switching.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening station-terminal-input-flush-policy`
+  - Result: passed.
+  - Summary: `529` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of very large pasted input under concurrent terminal output.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal input buffering responsiveness gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Restore Viewport Guard
 
 - Commit: recorded by git history

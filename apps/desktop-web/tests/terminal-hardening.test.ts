@@ -237,6 +237,43 @@ test('flushes buffered input immediately for submit-like input and drains queued
   controller.dispose()
 })
 
+test('flushes buffered input immediately once merged fragments cross the policy threshold', async () => {
+  const sent: Array<{ stationId: string; input: string }> = []
+  const timerCallbacks = new Map<number, () => void>()
+  const clearedTimers: number[] = []
+  let nextTimerId = 1
+
+  const controller = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: (input: string) => input.length >= 6,
+    scheduleTimer: (callback: () => void) => {
+      const timerId = nextTimerId
+      nextTimerId += 1
+      timerCallbacks.set(timerId, callback)
+      return timerId
+    },
+    clearTimer: (timerId: number) => {
+      clearedTimers.push(timerId)
+      timerCallbacks.delete(timerId)
+    },
+    sendInput: async (stationId: string, input: string) => {
+      sent.push({ stationId, input })
+    },
+  })
+
+  controller.enqueue('station-a', 'abc')
+  assert.deepEqual(sent, [])
+  assert.equal(timerCallbacks.size, 1)
+
+  controller.enqueue('station-a', 'def')
+  assert.deepEqual(sent, [{ stationId: 'station-a', input: 'abcdef' }])
+  assert.deepEqual(clearedTimers, [1])
+  assert.equal(timerCallbacks.size, 0)
+
+  controller.dispose()
+})
+
 test('cancels pending delayed flush when cleared', () => {
   const sent: Array<{ stationId: string; input: string }> = []
   const timerCallbacks = new Map<number, () => void>()
