@@ -28,10 +28,6 @@
   background: var(--vb-terminal-bg);
 }
 
-.station-terminal-shell[data-active='true'] .station-terminal-host {
-  will-change: transform;
-}
-
 .station-terminal-drop-overlay,
 .station-terminal-drop-pulse {
   position: absolute;
