@@ -203,8 +203,8 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 }
 
 // ── Pane transition animations ──────────────────────────────────────────────
-// Shared animation for left pane + main content switching.
-// Uses opacity + transform (GPU-composited) for 60fps.
+// Left pane secondary content can enter softly; main content cuts to protect
+// terminal and workbench first frames from route-fade blanking.
 @keyframes shell-pane-enter {
   from {
     opacity: 0;
@@ -231,7 +231,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 // Main content area — each view gets key={activeNavId} + this class.
 .shell-pane-transition {
   contain: layout paint;
-  animation: shell-pane-enter 0.18s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 // Workspace transition should keep the old view perceptible until the new one is ready.
