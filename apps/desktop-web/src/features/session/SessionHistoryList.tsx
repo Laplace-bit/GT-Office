@@ -271,7 +271,7 @@ export const SessionHistoryList = memo(function SessionHistoryList({
       <div
         ref={listRef}
         className="session-history-list-cards"
-        role="list"
+        role="listbox"
         aria-label={t(locale, '历史会话', 'Session History')}
         onKeyDown={handleListKeyDown}
       >
@@ -319,9 +319,9 @@ const SessionHistoryCardItem = memo(function SessionHistoryCardItem({
   return (
     <div
       className={['session-history-card', active ? 'is-active' : ''].filter(Boolean).join(' ')}
-      role="listitem"
+      role="option"
       tabIndex={active ? 0 : -1}
-      aria-current={active ? 'true' : undefined}
+      aria-selected={active}
       aria-label={buildSessionHistoryItemAriaLabel(locale, card)}
       aria-keyshortcuts={onRelaunch ? 'Enter Shift+Enter Space' : undefined}
       data-session-history-id={card.gtoSessionId}
