@@ -537,6 +537,52 @@ This closes a narrow invalid-station terminal input-buffer regression risk and a
 
 This closes a narrow malformed-config input-buffer bound regression risk. It does not close the broader desktop runtime QA requirement.
 
+## 2026-06-09 Terminal Pending Replay Chunking Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:22:15 CST`
+- Scope: terminal restore pending-replay catch-up hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-pending-replay.ts`
+  - Added an optional append-time write chunk limit for pending replay writes.
+  - Kept default behavior unchanged for callers that do not pass a limit.
+  - Preserved reset semantics and code-point-safe splitting.
+- `apps/desktop-web/src/shell/layout/useShellTerminalController.ts`
+  - Uses the existing terminal replay write chunk limit while a terminal sink is restoring, so output arriving during session restore is chunked before catch-up drain.
+- `apps/desktop-web/tests/station-terminal-pending-replay.test.ts`
+  - Added regression coverage for append-time chunking, reset preservation, and emoji-safe splitting.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) terminal requirement: large output must be chunked, buffered, virtualized, or delegated instead of forcing heavy UI work.
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) interaction requirement: agent/session switching should preserve scroll/input/focus and remain responsive while output catches up.
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) architecture guardrail: terminal event streams should be batched/coalesced and kept out of accidental render hot loops.
+- `$native-feel-cross-platform-desktop` T4/T6/T8 guidance: perceived responsiveness depends on bounded hot-path work and avoiding app-owned margin costs during WebView restore.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-pending-replay`
+  - Result: passed.
+  - Summary: `518` tests passed, `0` failed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Real Tauri WebView station/session switching while terminal output streams into a restoring xterm sink.
+- macOS and Windows IME behavior at the terminal caret after session restore.
+- Packaged desktop focus/scroll/input preservation across station switching.
+
+### Release Decision
+
+This closes a narrow pending-replay chunking regression risk for terminal restore catch-up. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Automated Preflight
 
 - Commit: recorded by git history

@@ -43,6 +43,56 @@ test('reset pending replay drops older writes but preserves later writes', () =>
   ])
 })
 
+test('append pending replay can split writes before restore catch-up drains', () => {
+  const pendingReplay: StationTerminalPendingReplay = {
+    version: 1,
+    ops: [],
+  }
+
+  appendStationTerminalPendingReplayOp(
+    pendingReplay,
+    { kind: 'write', chunk: 'abcdef' },
+    { writeChunkCharLimit: 2 },
+  )
+  appendStationTerminalPendingReplayOp(
+    pendingReplay,
+    { kind: 'write', chunk: 'gh' },
+    { writeChunkCharLimit: 2 },
+  )
+
+  assert.deepEqual(pendingReplay.ops, [
+    { kind: 'write', chunk: 'ab' },
+    { kind: 'write', chunk: 'cd' },
+    { kind: 'write', chunk: 'ef' },
+    { kind: 'write', chunk: 'gh' },
+  ])
+})
+
+test('append pending replay split keeps reset semantics and code points intact', () => {
+  const pendingReplay: StationTerminalPendingReplay = {
+    version: 1,
+    ops: [],
+  }
+
+  appendStationTerminalPendingReplayOp(
+    pendingReplay,
+    { kind: 'write', chunk: 'stale' },
+    { writeChunkCharLimit: 2 },
+  )
+  appendStationTerminalPendingReplayOp(pendingReplay, { kind: 'reset', content: 'fresh' })
+  appendStationTerminalPendingReplayOp(
+    pendingReplay,
+    { kind: 'write', chunk: 'a🙂b' },
+    { writeChunkCharLimit: 2 },
+  )
+
+  assert.deepEqual(pendingReplay.ops, [
+    { kind: 'reset', content: 'fresh' },
+    { kind: 'write', chunk: 'a🙂' },
+    { kind: 'write', chunk: 'b' },
+  ])
+})
+
 test('compact pending replay keeps reset semantics and ignores empty writes', () => {
   assert.deepEqual(
     compactStationTerminalPendingReplayOps([

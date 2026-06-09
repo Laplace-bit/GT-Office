@@ -1044,7 +1044,11 @@ export function useShellTerminalController({
         }
         const pendingReplay = stationTerminalPendingReplayRef.current[targetStationId]
         if (pendingReplay) {
-          appendStationTerminalPendingReplayOp(pendingReplay, { kind: 'write', chunk })
+          appendStationTerminalPendingReplayOp(
+            pendingReplay,
+            { kind: 'write', chunk },
+            { writeChunkCharLimit: TERMINAL_REPLAY_WRITE_CHUNK_CHAR_LIMIT },
+          )
         } else {
           void stationTerminalSinkRef.current[targetStationId]?.write(chunk)
         }

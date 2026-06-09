@@ -11,9 +11,14 @@ export interface StationTerminalPendingReplayCompactOptions {
   writeChunkCharLimit?: number
 }
 
+export interface AppendStationTerminalPendingReplayOptions {
+  writeChunkCharLimit?: number
+}
+
 export function appendStationTerminalPendingReplayOp(
   pendingReplay: StationTerminalPendingReplay,
   op: StationTerminalPendingReplayOp,
+  options?: AppendStationTerminalPendingReplayOptions,
 ): void {
   if (op.kind === 'reset') {
     pendingReplay.ops = [op]
@@ -21,6 +26,12 @@ export function appendStationTerminalPendingReplayOp(
   }
 
   if (!op.chunk) {
+    return
+  }
+
+  const writeChunkCharLimit = normalizeStationTerminalPendingReplayWriteChunkLimit(options?.writeChunkCharLimit)
+  if (writeChunkCharLimit !== Number.POSITIVE_INFINITY) {
+    appendStationTerminalPendingReplayWriteChunks(pendingReplay, op.chunk, writeChunkCharLimit)
     return
   }
 
