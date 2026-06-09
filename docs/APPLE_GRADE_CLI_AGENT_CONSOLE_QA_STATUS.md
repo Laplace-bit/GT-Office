@@ -236,6 +236,48 @@ This retry proves web preview reachability but does not complete browser-layer i
 
 This closes one concrete keyboard-focus styling gap in the status bar chrome and adds a regression check. It does not close the broader desktop runtime QA requirement.
 
+## 2026-06-09 Top Control Bar Reduced-Motion Hardening
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:12:18 CST`
+- Scope: shell top-control chrome reduced-motion hardening
+
+### Changed
+
+- `apps/desktop-web/src/shell/layout/TopControlBar.scss`
+  - Strengthened reduced-motion transition overrides for the top control bar, workspace badge, tab slot, top action buttons, and window action buttons to `transition: none !important`.
+  - Strengthened top action pressed/hover transform suppression to `transform: none !important` under `prefers-reduced-motion: reduce`.
+- `apps/desktop-web/tests/shell-reduced-motion-style.test.ts`
+  - Added `TopControlBar.scss` to shell reduced-motion regression coverage.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) motion requirement: shell chrome should not keep decorative transitions when users prefer reduced motion.
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) keyboard-first requirement: top shell controls sit on the console navigation path and must remain predictable under keyboard and pointer activation.
+- `$native-feel-cross-platform-desktop` T3/T4 guidance: adopt platform motion settings and avoid decorative feedback that competes with perceived responsiveness.
+- `$ui-ux-pro-max` UX guidance: reduced-motion support is required for accessibility-sensitive shell controls.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- shell-reduced-motion-style`
+  - Result: passed.
+  - Summary: `515` tests passed, `0` failed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Visual confirmation with OS-level reduced motion enabled in a running browser or Tauri WebView.
+- Packaged macOS and Windows top-control chrome behavior under each platform's reduced-motion setting.
+
+### Release Decision
+
+This closes a narrow shell top-control reduced-motion regression risk and extends static coverage. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Station Overview Reduced-Motion Pressed-State Hardening
 
 - Commit: recorded by git history

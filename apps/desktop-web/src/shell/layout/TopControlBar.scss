@@ -340,11 +340,11 @@
   .vb-workspace-tab-bar-slot,
   .vb-top-action-button,
   .vb-window-action-button {
-    transition: none;
+    transition: none !important;
   }
 
   .vb-top-action-button:hover,
   .vb-top-action-button:active {
-    transform: none;
+    transform: none !important;
   }
 }

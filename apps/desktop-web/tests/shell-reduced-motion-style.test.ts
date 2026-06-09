@@ -9,6 +9,7 @@ const testDir = dirname(fileURLToPath(import.meta.url))
 const shellReducedMotionStyleFiles = [
   'ActivityRail.scss',
   'StatusBar.scss',
+  'TopControlBar.scss',
   'WorkspaceTabBar.scss',
   'WorkspaceCloseDialog.scss',
   'ShellRoot.scss',
