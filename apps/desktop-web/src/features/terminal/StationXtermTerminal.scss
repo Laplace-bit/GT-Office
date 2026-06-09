@@ -6,16 +6,15 @@
   overflow: hidden;
   position: relative;
   contain: layout paint style;
-  transition: transform 120ms ease;
+  background: var(--vb-terminal-bg);
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: none;
 }
 
 .station-terminal-shell[data-file-drop-active='true'] {
   outline: 0.0714rem solid color-mix(in srgb, var(--vb-accent) 34%, transparent);
   outline-offset: -0.0714rem;
-}
-
-.station-terminal-shell[data-active='true'] {
-  transform: translateZ(0);
 }
 
 .station-terminal-shell .station-terminal-host {
@@ -26,6 +25,7 @@
   overflow: hidden;
   position: relative;
   z-index: 1;
+  background: var(--vb-terminal-bg);
 }
 
 .station-terminal-shell[data-active='true'] .station-terminal-host {
@@ -122,7 +122,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .station-terminal-shell,
   .station-terminal-drop-overlay {
     transition: none !important;
   }

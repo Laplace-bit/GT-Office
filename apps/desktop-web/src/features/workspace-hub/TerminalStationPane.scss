@@ -33,25 +33,7 @@
   -webkit-appearance: none;
   user-select: none;
   -webkit-user-select: none;
-
-  &:hover {
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 96%, transparent), transparent),
-      color-mix(in srgb, var(--vb-surface) 78%, transparent);
-  }
-
-  &:active {
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 84%, transparent), transparent),
-      color-mix(in srgb, var(--vb-surface) 64%, transparent);
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow:
-      inset 0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
-      inset 0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
-  }
+  -webkit-touch-callout: none;
 }
 
 .terminal-station-pane-meta-row {
@@ -85,6 +67,18 @@
   color: inherit;
   font: inherit;
   text-align: left;
+  transition:
+    background 120ms var(--vb-ease-smooth),
+    box-shadow 120ms var(--vb-ease-smooth);
+
+  &:hover {
+    background: color-mix(in srgb, var(--vb-glass-lighter) 64%, transparent);
+  }
+
+  &:active {
+    background: color-mix(in srgb, var(--vb-glass-lighter) 42%, transparent);
+    box-shadow: inset 0 0.0625rem 0.125rem color-mix(in srgb, var(--vb-shadow) 14%, transparent);
+  }
 
   &:focus-visible {
     outline: none;
@@ -462,6 +456,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .terminal-station-pane-meta,
+  .terminal-station-pane-title,
   .terminal-station-pane-force-close,
   .terminal-station-pane-launch-terminal,
   .terminal-station-pane-idle-button {

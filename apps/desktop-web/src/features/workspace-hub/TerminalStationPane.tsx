@@ -145,6 +145,9 @@ function TerminalStationPaneView({
     () => (action: StationActionDescriptor) => onRunAction(station, action),
     [onRunAction, station],
   )
+  const handleSelectStation = useCallback(() => {
+    onSelectStation(station.id)
+  }, [onSelectStation, station.id])
   const sessionProvider = resolveStationSessionProvider(station)
   const discoverCwd = useMemo(() => {
     if (!workspaceCwd) {
@@ -194,19 +197,13 @@ function TerminalStationPaneView({
         </div>
       ) : null}
 
-      <div
-        className="terminal-station-pane-meta"
-        onClick={() => onSelectStation(station.id)}
-      >
+      <div className="terminal-station-pane-meta">
         <div className="terminal-station-pane-meta-row">
           <button
             type="button"
             className="terminal-station-pane-title"
             aria-current={active ? 'true' : undefined}
-            onClick={(event) => {
-              event.stopPropagation()
-              onSelectStation(station.id)
-            }}
+            onClick={handleSelectStation}
           >
             <strong>{station.name}</strong>
             <span>{roleLabel(locale, station)}</span>
@@ -303,7 +300,7 @@ function TerminalStationPaneView({
             stateRaw={runtime?.stateRaw ?? null}
             isActive={active}
             appearanceVersion={appearanceVersion}
-            onActivateStation={() => onSelectStation(station.id)}
+            onActivateStation={handleSelectStation}
             onData={onSendInputData}
             onResize={onResizeTerminal}
             onBindSink={onBindTerminalSink}
