@@ -86,6 +86,7 @@
   border-bottom: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 82%, transparent);
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .station-window-title-wrap {
