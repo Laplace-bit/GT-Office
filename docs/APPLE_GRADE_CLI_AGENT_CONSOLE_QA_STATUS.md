@@ -2,6 +2,51 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Output Sequence Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:28 CST`
+- Scope: focused terminal output ordering hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-runtime-state.ts`
+  - Terminal output sequence routing now normalizes both payload and current sequence values before deciding stale, append, or recover behavior.
+  - Non-finite payload sequence values are treated as stale instead of forcing recovery.
+  - Fractional sequence values are floored before comparison, matching other terminal runtime counters.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added coverage for invalid and fractional terminal output sequence values.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal output should remain deterministic and avoid unnecessary recovery during live streaming.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; malformed WebView event payloads should be normalized before hot-path terminal replay decisions.
+- `$ui-ux-pro-max`: terminal output continuity should avoid visible stalls caused by avoidable recovery loops.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening`
+  - Result: passed.
+  - Summary: `530` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of malformed terminal output sequence events during live streaming.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal output sequence normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Meta Unread Guard
 
 - Commit: recorded by git history

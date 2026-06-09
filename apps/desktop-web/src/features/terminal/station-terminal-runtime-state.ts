@@ -390,11 +390,12 @@ export function resolveTerminalOutputSequenceAction(
   payloadSeq: number,
   currentSeq: number | null | undefined,
 ): 'stale' | 'append' | 'recover' {
-  const normalizedCurrentSeq = Math.max(0, Math.floor(currentSeq ?? 0))
-  if (payloadSeq <= normalizedCurrentSeq) {
+  const normalizedPayloadSeq = Number.isFinite(payloadSeq) ? Math.max(0, Math.floor(payloadSeq)) : 0
+  const normalizedCurrentSeq = Number.isFinite(currentSeq ?? 0) ? Math.max(0, Math.floor(currentSeq ?? 0)) : 0
+  if (normalizedPayloadSeq <= normalizedCurrentSeq) {
     return 'stale'
   }
-  if (payloadSeq === normalizedCurrentSeq + 1) {
+  if (normalizedPayloadSeq === normalizedCurrentSeq + 1) {
     return 'append'
   }
   return 'recover'

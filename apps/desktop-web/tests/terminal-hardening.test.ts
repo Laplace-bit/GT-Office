@@ -1128,6 +1128,10 @@ test('terminal output sequence action skips stale events before hot-path decode 
   assert.equal(resolveTerminalOutputSequenceAction(8, 7), 'append')
   assert.equal(resolveTerminalOutputSequenceAction(10, 7), 'recover')
   assert.equal(resolveTerminalOutputSequenceAction(1, undefined), 'append')
+  assert.equal(resolveTerminalOutputSequenceAction(Number.NaN, 7), 'stale')
+  assert.equal(resolveTerminalOutputSequenceAction(Number.POSITIVE_INFINITY, 7), 'stale')
+  assert.equal(resolveTerminalOutputSequenceAction(8.9, 7.2), 'append')
+  assert.equal(resolveTerminalOutputSequenceAction(1, Number.POSITIVE_INFINITY), 'append')
 })
 
 test('skips terminal sink replay when station switching rebinds the same live sink', () => {
