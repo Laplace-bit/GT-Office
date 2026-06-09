@@ -406,6 +406,54 @@ test('buffered terminal input treats invalid byte limits as exhausted and preser
   infiniteLimitController.dispose()
 })
 
+test('buffered terminal input normalizes delayed flush timers', () => {
+  const scheduledDelays: number[] = []
+
+  const invalidDelayController = createBufferedStationInputController({
+    flushDelayMs: Number.NaN,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: () => false,
+    scheduleTimer: (_callback: () => void, delayMs: number) => {
+      scheduledDelays.push(delayMs)
+      return scheduledDelays.length
+    },
+    clearTimer: () => undefined,
+    sendInput: async () => undefined,
+  })
+  invalidDelayController.enqueue('station-a', 'input')
+  invalidDelayController.dispose()
+
+  const fractionalDelayController = createBufferedStationInputController({
+    flushDelayMs: 12.8,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: () => false,
+    scheduleTimer: (_callback: () => void, delayMs: number) => {
+      scheduledDelays.push(delayMs)
+      return scheduledDelays.length
+    },
+    clearTimer: () => undefined,
+    sendInput: async () => undefined,
+  })
+  fractionalDelayController.enqueue('station-b', 'input')
+  fractionalDelayController.dispose()
+
+  const negativeDelayController = createBufferedStationInputController({
+    flushDelayMs: -4,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: () => false,
+    scheduleTimer: (_callback: () => void, delayMs: number) => {
+      scheduledDelays.push(delayMs)
+      return scheduledDelays.length
+    },
+    clearTimer: () => undefined,
+    sendInput: async () => undefined,
+  })
+  negativeDelayController.enqueue('station-c', 'input')
+  negativeDelayController.dispose()
+
+  assert.deepEqual(scheduledDelays, [0, 12, 0])
+})
+
 test('drops restore state when the station session changes', () => {
   assert.deepEqual(
     retainSessionOwnedRestoreState(

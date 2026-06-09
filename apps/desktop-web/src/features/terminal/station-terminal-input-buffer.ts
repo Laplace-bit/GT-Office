@@ -25,6 +25,13 @@ function normalizeStationInputBufferMaxBytes(value: number): number {
   return Math.max(0, Math.floor(value))
 }
 
+function normalizeStationInputBufferFlushDelayMs(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(value))
+}
+
 function trimUtf8StringToMaxBytes(input: string, maxBytes: number): string {
   const normalizedMaxBytes = normalizeStationInputBufferMaxBytes(maxBytes)
   if (!input || normalizedMaxBytes <= 0) {
@@ -55,6 +62,7 @@ function trimUtf8StringToMaxBytes(input: string, maxBytes: number): string {
 export function createBufferedStationInputController<TTimer>(
   options: CreateBufferedStationInputControllerOptions<TTimer>,
 ): BufferedStationInputController {
+  const normalizedFlushDelayMs = normalizeStationInputBufferFlushDelayMs(options.flushDelayMs)
   const queuedInputByStation = new Map<string, string>()
   const sendingTokenByStation = new Map<string, number>()
   const flushTimerByStation = new Map<string, TTimer>()
@@ -123,7 +131,7 @@ export function createBufferedStationInputController<TTimer>(
         options.scheduleTimer(() => {
           flushTimerByStation.delete(normalizedStationId)
           void flushStationInput(normalizedStationId)
-        }, options.flushDelayMs),
+        }, normalizedFlushDelayMs),
       )
     },
     clear(stationId: string) {

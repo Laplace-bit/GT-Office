@@ -2,6 +2,49 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Input Flush Delay Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:39:57 CST`
+- Scope: focused terminal input buffer scheduling hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-input-buffer.ts`
+  - Delayed input flush timers now normalize invalid, negative, and fractional delay values before scheduling.
+  - Invalid and negative delays resolve to `0`; fractional delays are floored.
+  - Existing valid delay behavior is unchanged.
+- `apps/desktop-web/tests/terminal-hardening.test.ts`
+  - Added a regression test that asserts delayed input flush scheduling receives normalized delay values.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal input responsiveness should be deterministic and avoid surprising timer behavior in the input hot path.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance; low-latency input paths should have bounded, predictable scheduling.
+
+### Passed
+
+- `cargo check --workspace`
+  - Result: passed before the focused frontend-only change.
+- `npm --workspace apps/desktop-web run test:unit -- terminal-hardening`
+  - Result: passed.
+  - Summary: `522` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Real Tauri WebView terminal typing under concurrent output streaming.
+- macOS and Windows IME behavior at the terminal caret.
+- Packaged desktop runtime latency measurement.
+
+### Release Decision
+
+This closes a narrow terminal input scheduling contract gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Debug Panel Reduced Motion Guard
 
 - Commit: recorded by git history
