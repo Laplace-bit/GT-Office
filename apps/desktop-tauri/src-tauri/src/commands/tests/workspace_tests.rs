@@ -1,9 +1,9 @@
-use super::{
+use crate::app_state::AppState;
+use crate::commands::workspace::{
     allow_workspace_asset_scope, build_window_active_response, build_workspace_close_response,
     build_workspace_open_response, build_workspace_restore_response,
     build_workspace_switch_response, workspace_reset_state_with_storage,
 };
-use crate::app_state::AppState;
 use gt_abstractions::{WorkspaceService, WorkspaceSessionSnapshot};
 use gt_agent::{AgentRepository, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WORKSPACE_ID};
 use gt_ai_config::{

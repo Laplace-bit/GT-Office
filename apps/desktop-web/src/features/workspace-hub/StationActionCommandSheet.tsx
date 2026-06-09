@@ -1,8 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { Locale } from '@shell/i18n/ui-locale'
 import { t } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { trapModalTabFocus } from '@/components/modal/modal-focus-trap'
+import { createStationTerminalFrameFlushScheduler } from '../terminal/station-terminal-frame-flush-scheduler'
 import type { AgentStation } from './station-model'
 import {
   composeStationActionCommand,
@@ -10,7 +12,10 @@ import {
   type StationActionDescriptor,
 } from './station-action-model'
 import { resolveCommandSheetInitialFocusTarget } from './station-action-command-sheet-focus'
+import { scheduleStationModalFocusFrame } from './station-modal-focus-frame'
 import './StationActionCommandSheet.scss'
+
+const STATION_COMMAND_SHEET_FOCUS_FALLBACK_DELAY_MS = 48
 
 interface StationActionCommandSheetProps {
   locale: Locale
@@ -135,6 +140,27 @@ function StationActionCommandSheetView({
   }, [action])
   const [values, setValues] = useState<Record<string, string | boolean>>(initialValues)
 
+  const handleSheetKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' && event.key !== 'Tab') {
+      return
+    }
+    if (event.nativeEvent.isComposing) {
+      return
+    }
+    if (event.key === 'Tab') {
+      const sheet = sheetRef.current
+      if (!sheet) {
+        return
+      }
+      event.stopPropagation()
+      trapModalTabFocus(event.nativeEvent, sheet)
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    onClose()
+  }
+
   useEffect(() => {
     if (!open) {
       return
@@ -147,40 +173,34 @@ function StationActionCommandSheetView({
       return
     }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
+    const focusFrame = scheduleStationModalFocusFrame({
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_COMMAND_SHEET_FOCUS_FALLBACK_DELAY_MS,
+      focus: () => {
+        const sheet = sheetRef.current
+        const firstField = sheet?.querySelector<
+          HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+        >('input:not([disabled]), select:not([disabled]), textarea:not([disabled])')
+        const target = resolveCommandSheetInitialFocusTarget({
+          hasEditableField: Boolean(firstField),
+          isSubmitDisabled: Boolean(submitButtonRef.current?.disabled),
+        })
 
-    window.addEventListener('keydown', handleKeyDown)
-    window.requestAnimationFrame(() => {
-      const sheet = sheetRef.current
-      const firstField = sheet?.querySelector<
-        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-      >('input:not([disabled]), select:not([disabled]), textarea:not([disabled])')
-      const target = resolveCommandSheetInitialFocusTarget({
-        hasEditableField: Boolean(firstField),
-        isSubmitDisabled: Boolean(submitButtonRef.current?.disabled),
-      })
+        if (target === 'field') {
+          firstField?.focus()
+          return
+        }
 
-      if (target === 'field') {
-        firstField?.focus()
-        return
-      }
+        if (target === 'submit') {
+          submitButtonRef.current?.focus()
+          return
+        }
 
-      if (target === 'submit') {
-        submitButtonRef.current?.focus()
-        return
-      }
-
-      closeButtonRef.current?.focus()
+        closeButtonRef.current?.focus()
+      },
     })
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [onClose, open])
+    return focusFrame.cancel
+  }, [open])
 
   if (!open || !action || action.execution.type !== 'open_command_sheet') {
     return null
@@ -199,7 +219,7 @@ function StationActionCommandSheetView({
   })
 
   return (
-    <div className="station-action-command-sheet-backdrop" onClick={onClose}>
+    <div className="station-action-command-sheet-backdrop" onClick={onClose} onKeyDown={handleSheetKeyDown}>
       <section
         ref={sheetRef}
         className="station-action-command-sheet"

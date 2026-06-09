@@ -24,6 +24,7 @@ import {
   DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
   appendDetachedTerminalOutput,
   createEmptyWorkbenchStationRuntime,
+  normalizeDetachedTerminalUnreadDelta,
   normalizeDetachedTerminalRuntime,
 } from './detached-terminal-bridge'
 import { t, type Locale } from '@shell/i18n/ui-locale'
@@ -55,10 +56,14 @@ import {
   formatTerminalDebugBody,
   formatTerminalDebugPreview,
   hydrateSettlesSessionBinding,
+  isStationTerminalDebugEnabled,
   patchTouchesSessionBinding,
   resolveNextPendingLaunchCommand,
   retainSessionOwnedRestoreState,
+  selectStationTerminalReplaySource,
+  normalizeStationTerminalResizeDimensions,
   shouldPreferSessionOwnedRestoreState,
+  shouldReplayStationTerminalSinkBinding,
   setStationTerminalDebugHumanLog,
   shouldClearPendingFocusIntent,
   shouldClearPendingLaunchCommand,
@@ -84,6 +89,13 @@ export interface DetachedWorkbenchWindowPayload {
   customLayout?: WorkbenchCustomLayout
   topmost: boolean
   stations: SurfaceDetachedStationPayload[]
+}
+
+function isDetachedTerminalSessionBindingInvalid(detail: string): boolean {
+  return (
+    detail.includes('TERMINAL_SESSION_NOT_FOUND') ||
+    detail.includes('TERMINAL_SESSION_WORKSPACE_MISMATCH')
+  )
 }
 
 function toStationRole(value: string): StationRole {
@@ -228,7 +240,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           return [
             station.id,
             station.toolKind,
-            runtime?.sessionId ? 'live' : 'idle',
+            runtime?.stateRaw ?? (runtime?.sessionId ? 'running' : 'idle'),
             runtime?.resolvedCwd ?? '',
           ].join(':')
         })
@@ -390,6 +402,9 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
 
   const pushStationTerminalDebugRecord = useCallback(
     (stationId: string, input: TerminalDebugRecordInput) => {
+      if (!isStationTerminalDebugEnabled(stationId)) {
+        return
+      }
       terminalDebugRecordSeqRef.current += 1
       appendStationTerminalDebugRecord(
         stationId,
@@ -419,15 +434,17 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       }
       outputCacheRef.current[stationId] = appendDetachedTerminalOutput(outputCacheRef.current[stationId], chunk)
       outputRevisionRef.current[stationId] = (outputRevisionRef.current[stationId] ?? 0) + 1
-      const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
-      pushStationTerminalDebugRecord(stationId, {
-        sessionId,
-        lane: 'xterm',
-        kind: 'write',
-        source: 'detached_terminal_output_append',
-        summary: formatTerminalDebugPreview(chunk, 84),
-        body: chunk,
-      })
+      if (isStationTerminalDebugEnabled(stationId)) {
+        const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
+        pushStationTerminalDebugRecord(stationId, {
+          sessionId,
+          lane: 'xterm',
+          kind: 'write',
+          source: 'detached_terminal_output_append',
+          summary: formatTerminalDebugPreview(chunk, 84),
+          body: chunk,
+        })
+      }
       const pendingReplay = pendingReplayRef.current[stationId]
       if (pendingReplay) {
         pendingReplay.ops.push({ kind: 'write', chunk })
@@ -442,15 +459,17 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     (stationId: string, content = '') => {
       outputCacheRef.current[stationId] = content
       outputRevisionRef.current[stationId] = (outputRevisionRef.current[stationId] ?? 0) + 1
-      const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
-      pushStationTerminalDebugRecord(stationId, {
-        sessionId,
-        lane: 'xterm',
-        kind: 'reset',
-        source: 'detached_terminal_output_reset',
-        summary: formatTerminalDebugPreview(content, 84),
-        body: content,
-      })
+      if (isStationTerminalDebugEnabled(stationId)) {
+        const sessionId = stationRuntimesRef.current[stationId]?.sessionId ?? null
+        pushStationTerminalDebugRecord(stationId, {
+          sessionId,
+          lane: 'xterm',
+          kind: 'reset',
+          source: 'detached_terminal_output_reset',
+          summary: formatTerminalDebugPreview(content, 84),
+          body: content,
+        })
+      }
       const pendingReplay = pendingReplayRef.current[stationId]
       if (pendingReplay) {
         pendingReplay.ops.push({ kind: 'reset', content })
@@ -570,10 +589,17 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       }
 
       try {
-        await desktopApi.terminalKill(sessionId, 'KILL')
+        const response = await desktopApi.terminalKill(payload.workspaceId, sessionId, 'KILL')
+        if (response.workspaceId !== payload.workspaceId || response.sessionId !== sessionId) {
+          return
+        }
+        if (!response.killed) {
+          appendStationTerminalOutput(stationId, '\r\n[terminal:kill-failed] TERMINAL_KILL_REJECTED\r\n')
+          return
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
-        if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+        if (!isDetachedTerminalSessionBindingInvalid(detail)) {
           appendStationTerminalOutput(stationId, `\r\n[terminal:kill-failed] ${detail}\r\n`)
           return
         }
@@ -705,16 +731,25 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           nextRuntimes[stationId]?.sessionId ?? null,
         )
         const outputRevision = outputRevisionRef.current[stationId] ?? 0
-        if (
-          shouldPreferSessionOwnedRestoreState(
-            restoreState,
-            nextRuntimes[stationId]?.sessionId ?? null,
-            outputRevision,
+        const shouldUseRestore = shouldPreferSessionOwnedRestoreState(
+          restoreState,
+          nextRuntimes[stationId]?.sessionId ?? null,
+          outputRevision,
+        )
+        const replaySource = selectStationTerminalReplaySource({
+          cachedContent: nextOutputs[stationId] ?? '',
+          restoreState: shouldUseRestore ? restoreState.state : null,
+        })
+        if (replaySource.kind === 'restore') {
+          void sink.restore(
+            replaySource.state.content,
+            replaySource.state.cols,
+            replaySource.state.rows,
+            replaySource.state.viewportY,
           )
-        ) {
-          void sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
         } else {
-          void sink.reset(nextOutputs[stationId] ?? '')
+          delete stationTerminalRestoreStateRef.current[stationId]
+          void sink.reset(replaySource.content)
         }
         flushPendingStationFocus(stationId)
       })
@@ -786,7 +821,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           }
           appendStationTerminalOutput(message.stationId, message.chunk)
           if (message.stationId !== activeStationIdRef.current) {
-            incrementStationUnread(message.stationId, Math.max(1, message.unreadDelta ?? 1))
+            incrementStationUnread(message.stationId, normalizeDetachedTerminalUnreadDelta(message.unreadDelta))
           }
           return
         case 'detached_terminal_output_reset':
@@ -898,6 +933,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
                 content: meta.restoreState,
                 cols: meta.restoreCols ?? 0,
                 rows: meta.restoreRows ?? 0,
+                viewportY: meta.restoreViewportY ?? null,
               },
               outputRevisionRef.current[stationId] ?? 0,
             )
@@ -908,6 +944,17 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
           delete stationTerminalRestoreStateRef.current[stationId]
         }
         delete sinkByStationRef.current[stationId]
+        return
+      }
+
+      const previousSink = sinkByStationRef.current[stationId]
+      if (
+        !shouldReplayStationTerminalSinkBinding({
+          previousSink,
+          nextSink: sink,
+          hasPendingReplay: Boolean(pendingReplayRef.current[stationId]),
+        })
+      ) {
         return
       }
 
@@ -928,10 +975,20 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         stationRuntimesRef.current[stationId]?.sessionId ?? null,
         outputRevision,
       )
-      const replay = shouldUseRestore
-        ? sink.restore(restoreState.state.content, restoreState.state.cols, restoreState.state.rows)
-        : sink.reset(outputCacheRef.current[stationId] ?? '')
-      if (!shouldUseRestore) {
+      const replaySource = selectStationTerminalReplaySource({
+        cachedContent: outputCacheRef.current[stationId] ?? '',
+        restoreState: shouldUseRestore ? restoreState.state : null,
+      })
+      const replay =
+        replaySource.kind === 'restore'
+          ? sink.restore(
+              replaySource.state.content,
+              replaySource.state.cols,
+              replaySource.state.rows,
+              replaySource.state.viewportY,
+            )
+          : sink.reset(replaySource.content)
+      if (replaySource.kind !== 'restore') {
         delete stationTerminalRestoreStateRef.current[stationId]
       }
       void replay.finally(() => {
@@ -958,7 +1015,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
         }, Promise.resolve())
       })
       if (
-        !shouldUseRestore &&
+        replaySource.kind !== 'restore' &&
         !Object.prototype.hasOwnProperty.call(outputCacheRef.current, stationId) &&
         stationRuntimesRef.current[stationId]?.sessionId
       ) {
@@ -1004,14 +1061,18 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
 
   const handleResize = useCallback(
     (stationId: string, cols: number, rows: number) => {
+      const resizeDimensions = normalizeStationTerminalResizeDimensions(cols, rows)
+      if (!resizeDimensions) {
+        return
+      }
       void postBridgeMessage({
         kind: 'detached_terminal_resize',
         workspaceId: payload.workspaceId,
         containerId: payload.containerId,
         stationId,
         sessionId: getStationSessionId(stationId),
-        cols,
-        rows,
+        cols: resizeDimensions.cols,
+        rows: resizeDimensions.rows,
       }).catch(() => {})
     },
     [getStationSessionId, payload.containerId, payload.workspaceId, postBridgeMessage],
@@ -1054,28 +1115,37 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
     if (!sessionId || snapshot.sessionId !== sessionId) {
       return
     }
-    const screenBody = snapshot.rows.map((row) => row.text).join('\n')
-    pushStationTerminalDebugRecord(stationId, {
-      atMs: snapshot.capturedAtMs,
-      sessionId,
-      screenRevision: snapshot.screenRevision,
-      lane: 'xterm',
-      kind: 'screen',
-      source: 'rendered_screen',
-      summary: formatTerminalDebugPreview(
-        snapshot.rows
-          .map((row) => row.trimmedText)
-          .filter((row) => row.length > 0)
-          .join(' | '),
-        84,
-      ),
-      body: screenBody,
-    })
+    if (isStationTerminalDebugEnabled(stationId)) {
+      const screenBody = snapshot.rows.map((row) => row.text).join('\n')
+      pushStationTerminalDebugRecord(stationId, {
+        atMs: snapshot.capturedAtMs,
+        sessionId,
+        screenRevision: snapshot.screenRevision,
+        lane: 'xterm',
+        kind: 'screen',
+        source: 'rendered_screen',
+        summary: formatTerminalDebugPreview(
+          snapshot.rows
+            .map((row) => row.trimmedText)
+            .filter((row) => row.length > 0)
+            .join(' | '),
+          84,
+        ),
+        body: screenBody,
+      })
+    }
     const station = stationsRef.current.find((item) => item.id === stationId)
     const toolKind = normalizeStationToolKind(station?.tool)
     void desktopApi
-      .terminalReportRenderedScreen(snapshot, toolKind)
+      .terminalReportRenderedScreen(payload.workspaceId, snapshot, toolKind)
       .then((response) => {
+        if (
+          response.workspaceId !== payload.workspaceId ||
+          response.sessionId !== snapshot.sessionId ||
+          (stationRuntimesRef.current[stationId]?.sessionId ?? null) !== snapshot.sessionId
+        ) {
+          return
+        }
         setStationTerminalDebugHumanLog(stationId, {
           entries: response.humanEntries,
           eventCount: response.humanEventCount,
@@ -1084,7 +1154,7 @@ function DetachedWorkbenchWindowView({ payload }: { payload: DetachedWorkbenchWi
       .catch(() => {
         // Snapshot reporting is best-effort and must not affect terminal interaction.
       })
-  }, [pushStationTerminalDebugRecord])
+  }, [payload.workspaceId, pushStationTerminalDebugRecord])
 
   const handleSubmitStationActionSheet = useCallback((values: Record<string, string | boolean>) => {
     const pending = pendingStationActionSheet

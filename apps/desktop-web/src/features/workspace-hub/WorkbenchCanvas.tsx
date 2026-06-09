@@ -27,6 +27,8 @@ import type { TerminalFileDropPayload } from '@shell/utils/terminal-file-drop'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
+import { createStationTerminalFrameFlushScheduler } from '@features/terminal/station-terminal-frame-flush-scheduler'
+import { scheduleStationScrollFrame } from './station-scroll-frame'
 import './WorkbenchCanvas.scss'
 
 interface FloatingCanvasStyle extends CSSProperties {
@@ -37,6 +39,8 @@ interface DockGridStyle extends CSSProperties {
   '--workbench-container-columns'?: string
   '--workbench-container-rows'?: string
 }
+
+const STATION_SCROLL_FRAME_FALLBACK_MS = 48
 
 type FloatingResizeDirection = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
@@ -448,11 +452,17 @@ function WorkbenchCanvasView({
     }
     onSelectStation(container.id, scrollToStationId)
     if (container.mode === 'docked') {
-      window.requestAnimationFrame(() => {
-        const target = dockGridRef.current?.querySelector<HTMLElement>(`[data-container-id="${container.id}"]`)
-        target?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+      const scrollFrame = scheduleStationScrollFrame({
+        scheduler: createStationTerminalFrameFlushScheduler(window),
+        fallbackDelayMs: STATION_SCROLL_FRAME_FALLBACK_MS,
+        scroll: () => {
+          const target = dockGridRef.current?.querySelector<HTMLElement>(`[data-container-id="${container.id}"]`)
+          target?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' })
+        },
       })
-      return
+      return () => {
+        scrollFrame.cancel()
+      }
     }
     onScrollToStationHandled?.(scrollToStationId)
   }, [containers, onReclaimDetachedContainer, onScrollToStationHandled, onSelectStation, scrollToStationId])

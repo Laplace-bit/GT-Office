@@ -1,5 +1,6 @@
 import { normalizeTaskQuickDispatchOpacity } from '@features/task-center'
 import { buildStationTerminalIdleBanner } from '@features/terminal/station-terminal-idle-banner'
+export { shouldFlushStationInputImmediately } from '@features/terminal/station-terminal-input-flush-policy'
 import {
   DEFAULT_WORKBENCH_CUSTOM_LAYOUT,
   isWorkbenchLayoutMode,
@@ -86,7 +87,6 @@ export type FileEditorCommandRequest = {
 
 export const STATION_INPUT_FLUSH_MS = 12
 export const STATION_INPUT_MAX_BUFFER_BYTES = 65536
-const STATION_INPUT_IMMEDIATE_CHUNK_BYTES = 24
 export const STATION_TASK_SUBMIT_MAX_RETRY_FRAMES = 8
 export const TASK_DISPATCH_HISTORY_LIMIT = 40
 export const TASK_DRAFT_PERSIST_DEBOUNCE_MS = 360
@@ -263,25 +263,6 @@ export function normalizeSubmitSequence(raw: string): string | null {
     return raw
   }
   return null
-}
-
-export function shouldFlushStationInputImmediately(input: string): boolean {
-  if (!input) {
-    return false
-  }
-  if (input.includes('\n') || input.includes('\r')) {
-    return true
-  }
-  if (input.length >= STATION_INPUT_IMMEDIATE_CHUNK_BYTES) {
-    return true
-  }
-  for (let index = 0; index < input.length; index += 1) {
-    const code = input.charCodeAt(index)
-    if ((code >= 0 && code < 32) || code === 127) {
-      return true
-    }
-  }
-  return input.includes('\u001b')
 }
 
 const NAV_ITEM_ID_SET = new Set<NavItemId>([

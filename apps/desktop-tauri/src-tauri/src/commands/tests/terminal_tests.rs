@@ -1,11 +1,13 @@
-use super::{
+use crate::app_state::AppState;
+use crate::commands::task_center::{
+    build_terminal_command_submit_chunks, build_terminal_submit_chunks,
+};
+use crate::commands::terminal::{
     build_terminal_create_response, build_terminal_delta_response, build_terminal_kill_response,
     build_terminal_report_rendered_screen_response, build_terminal_resize_response,
     build_terminal_snapshot_response, build_terminal_visibility_response,
-    build_terminal_write_response, parse_cwd_mode, resolve_terminal_submit_sequence,
-};
-use crate::commands::task_center::{
-    build_terminal_command_submit_chunks, build_terminal_submit_chunks,
+    build_terminal_write_response, ensure_terminal_session_workspace, parse_cwd_mode,
+    resolve_terminal_submit_sequence, validate_terminal_resize_dimensions,
 };
 use crate::terminal_debug::dev_log::{
     build_frontend_focus_log_entry, should_write_terminal_debug_log_for_build, TerminalDebugLogKind,
@@ -22,6 +24,15 @@ fn parse_cwd_mode_supports_workspace_root() {
 fn parse_cwd_mode_supports_custom() {
     let parsed = parse_cwd_mode(Some("custom".to_string())).expect("mode");
     assert_eq!(parsed, TerminalCwdMode::Custom);
+}
+
+#[test]
+fn parse_cwd_mode_trims_known_values() {
+    let parsed = parse_cwd_mode(Some(" custom ".to_string())).expect("mode");
+    assert_eq!(parsed, TerminalCwdMode::Custom);
+
+    let parsed = parse_cwd_mode(Some("\tworkspace_root\n".to_string())).expect("mode");
+    assert_eq!(parsed, TerminalCwdMode::WorkspaceRoot);
 }
 
 #[test]
@@ -48,7 +59,8 @@ fn terminal_create_response_keeps_contract_fields() {
 
 #[test]
 fn terminal_write_response_keeps_contract_fields() {
-    let payload = build_terminal_write_response("ts-1", true);
+    let payload = build_terminal_write_response("ws-1", "ts-1", true);
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["accepted"], true);
 }
@@ -93,7 +105,8 @@ fn build_terminal_command_submit_chunks_uses_single_submit_for_shell_commands() 
 
 #[test]
 fn terminal_resize_response_keeps_contract_fields() {
-    let payload = build_terminal_resize_response("ts-1", 120, 40, true);
+    let payload = build_terminal_resize_response("ws-1", "ts-1", 120, 40, true);
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["cols"], 120);
     assert_eq!(payload["rows"], 40);
@@ -101,8 +114,22 @@ fn terminal_resize_response_keeps_contract_fields() {
 }
 
 #[test]
+fn terminal_resize_dimensions_reject_zero_cols_or_rows() {
+    assert_eq!(
+        validate_terminal_resize_dimensions(0, 24).unwrap_err(),
+        "TERMINAL_RESIZE_SIZE_INVALID: cols and rows must be greater than 0 (cols=0, rows=24)"
+    );
+    assert_eq!(
+        validate_terminal_resize_dimensions(80, 0).unwrap_err(),
+        "TERMINAL_RESIZE_SIZE_INVALID: cols and rows must be greater than 0 (cols=80, rows=0)"
+    );
+    assert!(validate_terminal_resize_dimensions(80, 24).is_ok());
+}
+
+#[test]
 fn terminal_kill_response_keeps_contract_fields() {
-    let payload = build_terminal_kill_response("ts-1", "TERM", true);
+    let payload = build_terminal_kill_response("ws-1", "ts-1", "TERM", true);
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["signal"], "TERM");
     assert_eq!(payload["killed"], true);
@@ -110,7 +137,8 @@ fn terminal_kill_response_keeps_contract_fields() {
 
 #[test]
 fn terminal_visibility_response_keeps_contract_fields() {
-    let payload = build_terminal_visibility_response("ts-1", true, true);
+    let payload = build_terminal_visibility_response("ws-1", "ts-1", true, true);
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["visible"], true);
     assert_eq!(payload["updated"], true);
@@ -118,7 +146,8 @@ fn terminal_visibility_response_keeps_contract_fields() {
 
 #[test]
 fn terminal_snapshot_response_keeps_contract_fields() {
-    let payload = build_terminal_snapshot_response("ts-1", b"abc".to_vec(), 4, 9);
+    let payload = build_terminal_snapshot_response("ws-1", "ts-1", b"abc".to_vec(), 4, 9);
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["bytes"], 3);
     assert_eq!(payload["maxBytes"], 4);
@@ -129,8 +158,18 @@ fn terminal_snapshot_response_keeps_contract_fields() {
 
 #[test]
 fn terminal_delta_response_keeps_contract_fields() {
-    let payload =
-        build_terminal_delta_response("ts-1", b"abc".to_vec(), 2, Some(3), 5, 5, false, false);
+    let payload = build_terminal_delta_response(
+        "ws-1",
+        "ts-1",
+        b"abc".to_vec(),
+        2,
+        Some(3),
+        5,
+        5,
+        false,
+        false,
+    );
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["afterSeq"], 2);
     assert_eq!(payload["fromSeq"], 3);
@@ -143,13 +182,29 @@ fn terminal_delta_response_keeps_contract_fields() {
 
 #[test]
 fn terminal_report_rendered_screen_response_keeps_contract_fields() {
-    let payload =
-        build_terminal_report_rendered_screen_response("ts-1", 12, true, Some("稳定正文"), &[]);
+    let payload = build_terminal_report_rendered_screen_response(
+        "ws-1",
+        "ts-1",
+        12,
+        true,
+        Some("稳定正文"),
+        &[],
+    );
+    assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["sessionId"], "ts-1");
     assert_eq!(payload["screenRevision"], 12);
     assert_eq!(payload["accepted"], true);
     assert_eq!(payload["humanText"], "稳定正文");
     assert_eq!(payload["humanEventCount"], 0);
+}
+
+#[test]
+fn terminal_workspace_guard_rejects_missing_session() {
+    let state = AppState::default();
+    let error = ensure_terminal_session_workspace(&state, "ws-1", "term:ws-1:missing")
+        .expect_err("missing terminal session should be rejected");
+
+    assert!(error.contains("TERMINAL_SESSION_NOT_FOUND"));
 }
 
 #[test]
@@ -172,11 +227,13 @@ fn frontend_focus_terminal_debug_log_persists_in_release_builds() {
 fn frontend_focus_log_entry_keeps_contract_fields() {
     let entry = build_frontend_focus_log_entry(
         1_717_171_717,
+        Some("workspace-a"),
         "station-a",
         Some("session-a"),
         "pointerdown",
         Some("active=0"),
     );
+    assert!(entry.contains("[workspace=workspace-a]"));
     assert!(entry.contains("[station=station-a]"));
     assert!(entry.contains("[session=session-a]"));
     assert!(entry.contains("[kind=pointerdown]"));

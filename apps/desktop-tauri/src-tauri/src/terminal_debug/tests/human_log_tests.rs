@@ -1,4 +1,4 @@
-use super::{
+use crate::terminal_debug::human_log::{
     looks_incomplete, merge_human_reply_text, TerminalDebugHumanEntry, TerminalDebugHumanLogState,
     TERMINAL_DEBUG_HUMAN_LOG_LIMIT,
 };

@@ -8,22 +8,22 @@ use crate::app_state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SurfaceDetachedStationPayload {
-    station_id: String,
-    name: String,
-    role: String,
-    tool: String,
-    agent_workdir_rel: String,
-    role_workdir_rel: Option<String>,
-    workspace_id: String,
-    session_id: Option<String>,
+pub(crate) struct SurfaceDetachedStationPayload {
+    pub(crate) station_id: String,
+    pub(crate) name: String,
+    pub(crate) role: String,
+    pub(crate) tool: String,
+    pub(crate) agent_workdir_rel: String,
+    pub(crate) role_workdir_rel: Option<String>,
+    pub(crate) workspace_id: String,
+    pub(crate) session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SurfaceDetachedCustomLayoutPayload {
-    columns: u8,
-    rows: u8,
+    pub(crate) columns: u8,
+    pub(crate) rows: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,21 +43,21 @@ pub struct SurfaceOpenDetachedWindowPayload {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SurfaceDetachedWindowQueryPayload {
-    window_label: String,
-    container_id: String,
-    workspace_id: String,
-    title: String,
-    active_station_id: Option<String>,
-    fullscreen_station_id: Option<String>,
-    minimized_station_ids: Option<Vec<String>>,
-    layout_mode: Option<String>,
-    custom_layout: Option<SurfaceDetachedCustomLayoutPayload>,
-    topmost: bool,
-    stations: Vec<SurfaceDetachedStationPayload>,
+pub(crate) struct SurfaceDetachedWindowQueryPayload {
+    pub(crate) window_label: String,
+    pub(crate) container_id: String,
+    pub(crate) workspace_id: String,
+    pub(crate) title: String,
+    pub(crate) active_station_id: Option<String>,
+    pub(crate) fullscreen_station_id: Option<String>,
+    pub(crate) minimized_station_ids: Option<Vec<String>>,
+    pub(crate) layout_mode: Option<String>,
+    pub(crate) custom_layout: Option<SurfaceDetachedCustomLayoutPayload>,
+    pub(crate) topmost: bool,
+    pub(crate) stations: Vec<SurfaceDetachedStationPayload>,
 }
 
-fn sanitized_window_label(seed: &str) -> String {
+pub(crate) fn sanitized_window_label(seed: &str) -> String {
     let sanitized = seed
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
@@ -72,7 +72,7 @@ fn sanitized_window_label(seed: &str) -> String {
     format!("surface-{fallback}")
 }
 
-fn sanitized_workspace_window_label(workspace_id: &str) -> String {
+pub(crate) fn sanitized_workspace_window_label(workspace_id: &str) -> String {
     let sanitized = workspace_id
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
@@ -87,7 +87,7 @@ fn sanitized_workspace_window_label(workspace_id: &str) -> String {
     format!("workspace-{fallback}")
 }
 
-fn workspace_window_title(workspace_root: &Path, workspace_id: &str) -> String {
+pub(crate) fn workspace_window_title(workspace_root: &Path, workspace_id: &str) -> String {
     workspace_root
         .file_name()
         .and_then(|name| name.to_str())
@@ -97,7 +97,7 @@ fn workspace_window_title(workspace_root: &Path, workspace_id: &str) -> String {
         .unwrap_or_else(|| workspace_id.to_string())
 }
 
-fn build_detached_window_url(
+pub(crate) fn build_detached_window_url(
     query_payload: &SurfaceDetachedWindowQueryPayload,
 ) -> Result<WebviewUrl, String> {
     let raw = serde_json::to_vec(query_payload)
@@ -108,7 +108,7 @@ fn build_detached_window_url(
     ))
 }
 
-fn build_workspace_window_url(workspace_id: &str) -> WebviewUrl {
+pub(crate) fn build_workspace_window_url(workspace_id: &str) -> WebviewUrl {
     WebviewUrl::App(format!("index.html?workspace={workspace_id}").into())
 }
 
@@ -423,7 +423,3 @@ pub fn surface_bridge_post(
         "targetWindowLabel": target_label,
     }))
 }
-
-#[cfg(test)]
-#[path = "tests/surface_tests.rs"]
-mod tests;

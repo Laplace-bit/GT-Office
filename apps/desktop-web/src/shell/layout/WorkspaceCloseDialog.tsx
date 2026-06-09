@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { trapModalTabFocus } from '../../components/modal/modal-focus-trap'
 import { t, type Locale } from '../i18n/ui-locale'
 import { AppIcon } from '../ui/icons'
 import './WorkspaceCloseDialog.scss'
@@ -24,15 +25,15 @@ export function WorkspaceCloseDialog({
   onConfirm,
   submitting = false,
 }: WorkspaceCloseDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
   const cancelButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (open) {
-      // Auto-focus cancel button on open for keyboard users
-      const timer = setTimeout(() => {
+      const frameId = window.requestAnimationFrame(() => {
         cancelButtonRef.current?.focus()
-      }, 50)
-      return () => clearTimeout(timer)
+      })
+      return () => window.cancelAnimationFrame(frameId)
     }
   }, [open])
 
@@ -48,10 +49,27 @@ export function WorkspaceCloseDialog({
 
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) {
+      if (e.key !== 'Escape' && e.key !== 'Tab') {
+        return
+      }
+      if (e.nativeEvent.isComposing) {
+        return
+      }
+      if (e.key === 'Escape') {
+        if (submitting) {
+          return
+        }
+        e.preventDefault()
         e.stopPropagation()
         onClose()
+        return
       }
+      const dialog = dialogRef.current
+      if (!dialog) {
+        return
+      }
+      e.stopPropagation()
+      trapModalTabFocus(e.nativeEvent, dialog)
     },
     [submitting, onClose],
   )
@@ -67,14 +85,16 @@ export function WorkspaceCloseDialog({
       onKeyDown={handleKeyDown}
     >
       <div
+        ref={dialogRef}
         className="workspace-close-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={t(locale, 'workspaceTab.closeConfirm.title')}
+        aria-labelledby="workspace-close-dialog-title"
+        aria-describedby="workspace-close-dialog-description"
       >
         <div className="workspace-close-dialog-header">
           <AppIcon name="info" className="workspace-close-dialog-icon" aria-hidden="true" />
-          <h3 className="workspace-close-dialog-title">
+          <h3 id="workspace-close-dialog-title" className="workspace-close-dialog-title">
             {workspaceName
               ? `${t(locale, 'workspaceTab.closeConfirm.title')} — ${workspaceName}`
               : t(locale, 'workspaceTab.closeConfirm.title')}
@@ -82,7 +102,7 @@ export function WorkspaceCloseDialog({
         </div>
 
         <div className="workspace-close-dialog-body">
-          <p className="workspace-close-dialog-message">
+          <p id="workspace-close-dialog-description" className="workspace-close-dialog-message">
             {t(locale, 'workspaceTab.closeConfirm.message')}
           </p>
           <div className="workspace-close-dialog-path" title={workspacePath}>

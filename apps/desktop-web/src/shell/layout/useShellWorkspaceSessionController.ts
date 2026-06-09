@@ -439,6 +439,7 @@ export function useShellWorkspaceSessionController({
       externalChannelController.clearStationTaskSignals()
       taskDispatchController.setTaskDraft(createInitialTaskDraft(stationsRef.current, stationsRef.current[0]?.id ?? ''))
     }
+    presentedWorkspaceIdRef.current = nextWorkspaceId
     setPresentedWorkspaceId(nextWorkspaceId)
     logPerformanceDebug('workspace-switch', 'workspace presentation switch applied', {
       activeWorkspaceId: nextWorkspaceId,
@@ -478,7 +479,7 @@ export function useShellWorkspaceSessionController({
         const sessionIds = Object.keys(cachedDoc.sessionStation)
         const stationIds = new Set(Object.values(cachedDoc.sessionStation))
         for (const sessionId of sessionIds) {
-          desktopApi.terminalKill(sessionId, 'TERM').catch(() => {})
+          desktopApi.terminalKill(workspaceId, sessionId, 'TERM').catch(() => {})
         }
         stationIds.forEach((stationId) => {
           desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {})
@@ -884,8 +885,12 @@ export function useShellWorkspaceSessionController({
               await Promise.all(
                 restoredSessionIds.map(async (sessionId) => {
                   try {
-                    const response = await desktopApi.terminalHasSession(sessionId)
-                    return response.alive ? sessionId : null
+                    const response = await desktopApi.terminalHasSession(workspaceId, sessionId)
+                    const isExpectedSession =
+                      response.workspaceId === workspaceId &&
+                      response.sessionId === sessionId &&
+                      response.alive
+                    return isExpectedSession ? sessionId : null
                   } catch {
                     return null
                   }

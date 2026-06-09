@@ -2,6 +2,7 @@ export interface RestoreStateSnapshot {
   content: string
   cols: number
   rows: number
+  viewportY?: number | null
 }
 
 export interface SessionOwnedRestoreState {

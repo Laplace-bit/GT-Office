@@ -11,3 +11,6 @@ pub mod task_center;
 pub mod terminal;
 pub mod tool_adapter;
 pub mod workspace;
+
+#[cfg(test)]
+mod tests;

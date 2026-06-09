@@ -24,14 +24,19 @@ use crate::terminal_debug::human_log::TerminalDebugHumanEntry;
 #[serde(rename_all = "camelCase")]
 pub struct TerminalFrontendFocusLogEntry {
     pub at_ms: u64,
+    pub workspace_id: Option<String>,
     pub station_id: String,
     pub session_id: Option<String>,
     pub kind: String,
     pub detail: Option<String>,
 }
 
-fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
-    match cwd_mode.as_deref().unwrap_or("workspace_root") {
+pub(crate) fn parse_cwd_mode(cwd_mode: Option<String>) -> Result<TerminalCwdMode, String> {
+    match cwd_mode
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("workspace_root")
+    {
         "workspace_root" => Ok(TerminalCwdMode::WorkspaceRoot),
         "custom" => Ok(TerminalCwdMode::Custom),
         invalid => Err(format!(
@@ -47,7 +52,7 @@ fn mode_label(mode: &TerminalCwdMode) -> &'static str {
     }
 }
 
-fn build_terminal_create_response(
+pub(crate) fn build_terminal_create_response(
     session_id: &str,
     workspace_id: &str,
     shell: &str,
@@ -63,8 +68,12 @@ fn build_terminal_create_response(
     })
 }
 
-fn build_terminal_write_response(session_id: &str, accepted: bool) -> Value {
-    json!({ "sessionId": session_id, "accepted": accepted })
+pub(crate) fn build_terminal_write_response(
+    workspace_id: &str,
+    session_id: &str,
+    accepted: bool,
+) -> Value {
+    json!({ "workspaceId": workspace_id, "sessionId": session_id, "accepted": accepted })
 }
 
 pub(crate) fn resolve_terminal_submit_sequence(submit_sequence: Option<String>) -> String {
@@ -74,27 +83,55 @@ pub(crate) fn resolve_terminal_submit_sequence(submit_sequence: Option<String>) 
     }
 }
 
-fn build_terminal_resize_response(session_id: &str, cols: u16, rows: u16, resized: bool) -> Value {
-    json!({ "sessionId": session_id, "cols": cols, "rows": rows, "resized": resized })
+pub(crate) fn build_terminal_resize_response(
+    workspace_id: &str,
+    session_id: &str,
+    cols: u16,
+    rows: u16,
+    resized: bool,
+) -> Value {
+    json!({ "workspaceId": workspace_id, "sessionId": session_id, "cols": cols, "rows": rows, "resized": resized })
 }
 
-fn build_terminal_kill_response(session_id: &str, signal: &str, killed: bool) -> Value {
+pub(crate) fn validate_terminal_resize_dimensions(cols: u16, rows: u16) -> Result<(), String> {
+    if cols == 0 || rows == 0 {
+        return Err(format!(
+            "TERMINAL_RESIZE_SIZE_INVALID: cols and rows must be greater than 0 (cols={cols}, rows={rows})"
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn build_terminal_kill_response(
+    workspace_id: &str,
+    session_id: &str,
+    signal: &str,
+    killed: bool,
+) -> Value {
     json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "signal": signal,
         "killed": killed
     })
 }
 
-fn build_terminal_visibility_response(session_id: &str, visible: bool, updated: bool) -> Value {
+pub(crate) fn build_terminal_visibility_response(
+    workspace_id: &str,
+    session_id: &str,
+    visible: bool,
+    updated: bool,
+) -> Value {
     json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "visible": visible,
         "updated": updated
     })
 }
 
-fn build_terminal_snapshot_response(
+pub(crate) fn build_terminal_snapshot_response(
+    workspace_id: &str,
     session_id: &str,
     chunk: Vec<u8>,
     max_bytes: usize,
@@ -102,6 +139,7 @@ fn build_terminal_snapshot_response(
 ) -> Value {
     let bytes = chunk.len();
     json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "chunk": base64::engine::general_purpose::STANDARD.encode(chunk),
         "bytes": bytes,
@@ -112,7 +150,8 @@ fn build_terminal_snapshot_response(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_terminal_delta_response(
+pub(crate) fn build_terminal_delta_response(
+    workspace_id: &str,
     session_id: &str,
     chunk: Vec<u8>,
     after_seq: u64,
@@ -123,6 +162,7 @@ fn build_terminal_delta_response(
     truncated: bool,
 ) -> Value {
     json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "chunk": base64::engine::general_purpose::STANDARD.encode(chunk),
         "afterSeq": after_seq,
@@ -134,7 +174,8 @@ fn build_terminal_delta_response(
     })
 }
 
-fn build_terminal_report_rendered_screen_response(
+pub(crate) fn build_terminal_report_rendered_screen_response(
+    workspace_id: &str,
     session_id: &str,
     screen_revision: u64,
     accepted: bool,
@@ -142,6 +183,7 @@ fn build_terminal_report_rendered_screen_response(
     human_entries: &[TerminalDebugHumanEntry],
 ) -> Value {
     json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "screenRevision": screen_revision,
         "accepted": accepted,
@@ -152,12 +194,14 @@ fn build_terminal_report_rendered_screen_response(
 }
 
 fn build_terminal_debug_append_frontend_focus_log_response(
+    workspace_id: Option<&str>,
     station_id: &str,
     session_id: Option<&str>,
     kind: &str,
     log_path: &str,
 ) -> Value {
     json!({
+        "workspaceId": workspace_id,
         "stationId": station_id,
         "sessionId": session_id,
         "kind": kind,
@@ -175,6 +219,26 @@ fn to_terminal_error(error: AbstractionError) -> String {
         AbstractionError::AccessDenied { message } => message,
         AbstractionError::Conflict { message } => format!("TERMINAL_CONFLICT: {message}"),
         AbstractionError::Internal { message } => message,
+    }
+}
+
+pub(crate) fn ensure_terminal_session_workspace(
+    state: &AppState,
+    workspace_id: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    match state
+        .terminal_provider
+        .session_workspace_id(session_id)
+        .map_err(to_terminal_error)?
+    {
+        Some(owner_workspace_id) if owner_workspace_id == workspace_id => Ok(()),
+        Some(_) => Err(format!(
+            "TERMINAL_SESSION_WORKSPACE_MISMATCH: session '{session_id}' does not belong to workspace '{workspace_id}'"
+        )),
+        None => Err(format!(
+            "TERMINAL_SESSION_NOT_FOUND: session '{session_id}' does not exist"
+        )),
     }
 }
 
@@ -227,41 +291,57 @@ pub fn terminal_create(
 
 #[tauri::command]
 pub fn terminal_write(
+    workspace_id: String,
     session_id: String,
     input: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let accepted = state
         .terminal_provider
         .write_session(&session_id, &input)
         .map_err(to_terminal_error)?;
-    Ok(build_terminal_write_response(&session_id, accepted))
+    Ok(build_terminal_write_response(
+        &workspace_id,
+        &session_id,
+        accepted,
+    ))
 }
 
 #[tauri::command]
 pub fn terminal_write_with_submit(
+    workspace_id: String,
     session_id: String,
     input: String,
     submit_sequence: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let submit_sequence = resolve_terminal_submit_sequence(submit_sequence);
     write_terminal_with_submit(state.inner(), &session_id, &input, &submit_sequence)?;
-    Ok(build_terminal_write_response(&session_id, true))
+    Ok(build_terminal_write_response(
+        &workspace_id,
+        &session_id,
+        true,
+    ))
 }
 
 #[tauri::command]
 pub fn terminal_resize(
+    workspace_id: String,
     session_id: String,
     cols: u16,
     rows: u16,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
+    validate_terminal_resize_dimensions(cols, rows)?;
     let resized = state
         .terminal_provider
         .resize_session(&session_id, cols, rows)
         .map_err(to_terminal_error)?;
     Ok(build_terminal_resize_response(
+        &workspace_id,
         &session_id,
         cols,
         rows,
@@ -271,15 +351,18 @@ pub fn terminal_resize(
 
 #[tauri::command]
 pub fn terminal_kill(
+    workspace_id: String,
     session_id: String,
     signal: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let killed = state
         .terminal_provider
         .kill_session(&session_id)
         .map_err(to_terminal_error)?;
     Ok(build_terminal_kill_response(
+        &workspace_id,
         &session_id,
         signal.as_deref().unwrap_or("TERM"),
         killed,
@@ -288,15 +371,18 @@ pub fn terminal_kill(
 
 #[tauri::command]
 pub fn terminal_set_visibility(
+    workspace_id: String,
     session_id: String,
     visible: bool,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let updated = state
         .terminal_provider
         .set_session_visibility(&session_id, visible)
         .map_err(to_terminal_error)?;
     Ok(build_terminal_visibility_response(
+        &workspace_id,
         &session_id,
         visible,
         updated,
@@ -305,16 +391,19 @@ pub fn terminal_set_visibility(
 
 #[tauri::command]
 pub fn terminal_read_snapshot(
+    workspace_id: String,
     session_id: String,
     max_bytes: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let max_bytes = max_bytes.unwrap_or(262_144).clamp(1, 2_097_152) as usize;
     let snapshot = state
         .terminal_provider
         .read_session_snapshot(&session_id, max_bytes)
         .map_err(to_terminal_error)?;
     Ok(build_terminal_snapshot_response(
+        &workspace_id,
         &session_id,
         snapshot.chunk,
         max_bytes,
@@ -324,17 +413,20 @@ pub fn terminal_read_snapshot(
 
 #[tauri::command]
 pub fn terminal_read_delta(
+    workspace_id: String,
     session_id: String,
     after_seq: u64,
     max_bytes: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let max_bytes = max_bytes.unwrap_or(262_144).clamp(1, 2_097_152) as usize;
     let delta = state
         .terminal_provider
         .read_session_delta(&session_id, after_seq, max_bytes)
         .map_err(to_terminal_error)?;
     Ok(build_terminal_delta_response(
+        &workspace_id,
         &session_id,
         delta.chunk,
         after_seq,
@@ -348,11 +440,13 @@ pub fn terminal_read_delta(
 
 #[tauri::command]
 pub fn terminal_report_rendered_screen(
+    workspace_id: String,
     snapshot: RenderedScreenSnapshot,
     tool_kind: Option<String>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &snapshot.session_id)?;
     let resolved_tool_kind = agent_tool_kind_from_param(tool_kind);
     let accepted =
         state.report_external_reply_rendered_screen(&snapshot.session_id, snapshot.clone())?;
@@ -389,6 +483,7 @@ pub fn terminal_report_rendered_screen(
         ),
     );
     Ok(build_terminal_report_rendered_screen_response(
+        &workspace_id,
         &snapshot.session_id,
         snapshot.screen_revision,
         accepted,
@@ -399,11 +494,14 @@ pub fn terminal_report_rendered_screen(
 
 #[tauri::command]
 pub fn terminal_debug_clear_human_log(
+    workspace_id: String,
     session_id: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     state.clear_terminal_debug_human_log(&session_id)?;
     Ok(json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "cleared": true
     }))
@@ -413,12 +511,19 @@ pub fn terminal_debug_clear_human_log(
 pub fn terminal_debug_append_frontend_focus_log(
     entry: TerminalFrontendFocusLogEntry,
     app: AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    if let (Some(workspace_id), Some(session_id)) =
+        (entry.workspace_id.as_deref(), entry.session_id.as_deref())
+    {
+        ensure_terminal_session_workspace(state.inner(), workspace_id, session_id)?;
+    }
     let log_path = resolve_terminal_debug_log_path(&app, TerminalDebugLogKind::FrontendFocus)?
         .to_string_lossy()
         .to_string();
     let content = build_frontend_focus_log_entry(
         entry.at_ms,
+        entry.workspace_id.as_deref(),
         &entry.station_id,
         entry.session_id.as_deref(),
         &entry.kind,
@@ -435,6 +540,7 @@ pub fn terminal_debug_append_frontend_focus_log(
         error
     })?;
     Ok(build_terminal_debug_append_frontend_focus_log_response(
+        entry.workspace_id.as_deref(),
         &entry.station_id,
         entry.session_id.as_deref(),
         &entry.kind,
@@ -444,43 +550,52 @@ pub fn terminal_debug_append_frontend_focus_log(
 
 #[tauri::command]
 pub fn terminal_describe_processes(
+    workspace_id: String,
     session_id: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     let snapshot = state
         .terminal_provider
         .describe_session_processes(&session_id)
         .map_err(to_terminal_error)?;
-    serde_json::to_value(snapshot).map_err(|error| {
+    let mut payload = serde_json::to_value(snapshot).map_err(|error| {
         format!("TERMINAL_INTERNAL: failed to serialize terminal process snapshot: {error}")
-    })
+    })?;
+    if let Value::Object(ref mut object) = payload {
+        object.insert("workspaceId".to_string(), json!(workspace_id));
+    }
+    Ok(payload)
 }
 
 #[tauri::command]
 pub fn terminal_has_session(
+    workspace_id: String,
     session_id: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let alive = state.terminal_provider.has_session(&session_id);
+    let alive = state
+        .terminal_provider
+        .session_belongs_to_workspace(&workspace_id, &session_id)
+        .map_err(to_terminal_error)?;
     Ok(json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "alive": alive,
     }))
 }
 
 #[tauri::command]
-pub fn terminal_activate(session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
-    // Check session exists
-    if !state.terminal_provider.has_session(&session_id) {
-        return Err(format!(
-            "TERMINAL_NOT_FOUND: session '{}' does not exist",
-            session_id
-        ));
-    }
-
+pub fn terminal_activate(
+    workspace_id: String,
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     // For Phase 1, return a placeholder response
     // Full implementation requires OutputRouter integration
     Ok(json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "revision": 0,
         "content": "",
@@ -495,11 +610,14 @@ pub fn terminal_activate(session_id: String, state: State<'_, AppState>) -> Resu
 
 #[tauri::command]
 pub fn terminal_get_rendered_screen(
+    workspace_id: String,
     session_id: String,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     // Placeholder for Phase 1
     Ok(json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "revision": 0,
         "content": "",
@@ -514,24 +632,15 @@ pub fn terminal_get_rendered_screen(
 
 #[tauri::command]
 pub fn terminal_open_output_channel(
+    workspace_id: String,
     session_id: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    // Check session exists
-    if !state.terminal_provider.has_session(&session_id) {
-        return Err(format!(
-            "TERMINAL_NOT_FOUND: session '{}' does not exist",
-            session_id
-        ));
-    }
-
+    ensure_terminal_session_workspace(state.inner(), &workspace_id, &session_id)?;
     // Placeholder for Phase 1 - Binary Channel setup
     Ok(json!({
+        "workspaceId": workspace_id,
         "sessionId": session_id,
         "channelBound": true
     }))
 }
-
-#[cfg(test)]
-#[path = "../tests/terminal_tests.rs"]
-mod tests;

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import {
   desktopApi,
@@ -8,7 +9,9 @@ import {
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { trapModalTabFocus } from '@/components/modal/modal-focus-trap'
 import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
+import { createStationTerminalFrameFlushScheduler } from '../terminal/station-terminal-frame-flush-scheduler'
 
 import type { CreateStationInput, UpdateStationInput } from './station-model'
 import {
@@ -42,8 +45,11 @@ import type {
   StationDeleteCleanupStrategy,
 } from './station-delete-binding-cleanup-model'
 import { resolveStationManageModalCopy } from './station-manage-copy'
+import { scheduleStationModalFocusFrame } from './station-modal-focus-frame'
 
 import './StationManageModal.scss'
+
+const STATION_MANAGE_MODAL_FOCUS_FALLBACK_DELAY_MS = 48
 
 interface StationManageModalProps {
   open: boolean
@@ -101,6 +107,8 @@ function RoleManageModal({
   onClose,
   onChanged,
 }: RoleManageModalProps) {
+  const roleDialogRef = useRef<HTMLElement | null>(null)
+  const roleNameInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
   const [roleName, setRoleName] = useState('')
   const [scope, setScope] = useState<AgentRoleScope>('workspace')
@@ -143,9 +151,51 @@ function RoleManageModal({
   }, [open])
 
   useEffect(() => {
+    if (!open) {
+      return
+    }
+    const focusFrame = scheduleStationModalFocusFrame({
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_MANAGE_MODAL_FOCUS_FALLBACK_DELAY_MS,
+      focus: () => {
+        roleNameInputRef.current?.focus()
+      },
+    })
+    return focusFrame.cancel
+  }, [open])
+
+  useEffect(() => {
     setDeleteConfirmRoleId(null)
     setRoleFeedback(null)
   }, [selectedRoleId])
+
+  const handleRoleModalKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Escape' && event.key !== 'Tab') {
+        return
+      }
+      if (event.nativeEvent.isComposing) {
+        return
+      }
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        if (deleteConfirmRoleId) {
+          setDeleteConfirmRoleId(null)
+          return
+        }
+        requestStandardModalClose('escape', onClose)
+        return
+      }
+
+      const dialog = roleDialogRef.current
+      if (!dialog) {
+        return
+      }
+      event.stopPropagation()
+      trapModalTabFocus(event.nativeEvent, dialog)
+    },
+    [deleteConfirmRoleId, onClose],
+  )
 
   if (!open) {
     return null
@@ -157,16 +207,23 @@ function RoleManageModal({
   return (
     <div
       className="settings-modal-backdrop station-role-modal-backdrop"
+      onKeyDown={handleRoleModalKeyDown}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           requestStandardModalClose('backdrop', onClose)
         }
       }}
     >
-      <section className="settings-modal panel station-role-modal" role="dialog" aria-modal="true">
+      <section
+        ref={roleDialogRef}
+        className="settings-modal panel station-role-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="station-role-modal-title"
+      >
         <header className="settings-modal-header">
           <div>
-            <h2>{locale === 'zh-CN' ? '角色管理' : 'Role Management'}</h2>
+            <h2 id="station-role-modal-title">{locale === 'zh-CN' ? '角色管理' : 'Role Management'}</h2>
             <p>
               {locale === 'zh-CN'
                 ? '支持新增、编辑、删除角色；工作区角色优先覆盖全局角色。'
@@ -217,6 +274,7 @@ function RoleManageModal({
             <label className="station-form-field">
               <span>{locale === 'zh-CN' ? '角色名称' : 'Role Name'}</span>
               <input
+                ref={roleNameInputRef}
                 type="text"
                 value={roleName}
                 disabled={!canManage || saving || deleting}
@@ -489,6 +547,8 @@ export function StationManageModal({
   onDeleteCleanupConfirm,
   onRolesChanged,
 }: StationManageModalProps) {
+  const formDialogRef = useRef<HTMLElement | null>(null)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
   const [name, setName] = useState('')
   const [roleId, setRoleId] = useState('')
   const [provider, setProvider] = useState<ManagedAgentProvider>('codex')
@@ -545,6 +605,20 @@ export function StationManageModal({
     setPromptPrefillLoading(false)
     setLaunchCommandHistory(loadLaunchCommandHistory())
   }, [copy.defaultName, editingStation, effectiveRoles, open])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const focusFrame = scheduleStationModalFocusFrame({
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_MANAGE_MODAL_FOCUS_FALLBACK_DELAY_MS,
+      focus: () => {
+        nameInputRef.current?.focus()
+      },
+    })
+    return focusFrame.cancel
+  }, [open])
 
   useEffect(() => {
     if (!open || !workspaceId || !desktopApi.isTauriRuntime()) {
@@ -662,6 +736,30 @@ export function StationManageModal({
     }
   }, [activePromptWorkdir, customWorkdirEnabled, isEdit, open, promptDraftMode, provider, workspaceId])
 
+  const handleFormModalKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Escape' && event.key !== 'Tab') {
+        return
+      }
+      if (event.nativeEvent.isComposing) {
+        return
+      }
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        requestStandardModalClose('escape', onClose)
+        return
+      }
+
+      const dialog = formDialogRef.current
+      if (!dialog) {
+        return
+      }
+      event.stopPropagation()
+      trapModalTabFocus(event.nativeEvent, dialog)
+    },
+    [onClose],
+  )
+
   if (!open) {
     return null
   }
@@ -697,16 +795,23 @@ export function StationManageModal({
     <>
       <div
         className="settings-modal-backdrop"
+        onKeyDown={handleFormModalKeyDown}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
             requestStandardModalClose('backdrop', onClose)
           }
         }}
       >
-        <section className="settings-modal panel station-form-modal" role="dialog" aria-modal="true">
+        <section
+          ref={formDialogRef}
+          className="settings-modal panel station-form-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="station-form-modal-title"
+        >
           <header className="settings-modal-header">
             <div>
-              <h2>{copy.title}</h2>
+              <h2 id="station-form-modal-title">{copy.title}</h2>
               <p>{copy.subtitle}</p>
             </div>
             <button
@@ -722,6 +827,7 @@ export function StationManageModal({
             <label className="station-form-field">
               <span>{locale === 'zh-CN' ? 'Agent 名称' : 'Agent Name'}</span>
               <input
+                ref={nameInputRef}
                 type="text"
                 value={name}
                 disabled={saving || deleting}

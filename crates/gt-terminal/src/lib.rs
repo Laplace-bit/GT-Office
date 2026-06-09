@@ -43,6 +43,7 @@ fn now_ts_ms() -> u64 {
 #[derive(Debug, Clone)]
 pub struct TerminalOutputEvent {
     pub session_id: String,
+    pub workspace_id: String,
     pub chunk: Vec<u8>,
     pub seq: u64,
     pub ts_ms: u64,
@@ -51,6 +52,7 @@ pub struct TerminalOutputEvent {
 #[derive(Debug, Clone)]
 pub struct TerminalStateChangedEvent {
     pub session_id: String,
+    pub workspace_id: String,
     pub from: String,
     pub to: String,
     pub ts_ms: u64,
@@ -59,6 +61,7 @@ pub struct TerminalStateChangedEvent {
 #[derive(Debug, Clone)]
 pub struct TerminalMetaEvent {
     pub session_id: String,
+    pub workspace_id: String,
     pub unread_bytes: u64,
     pub unread_chunks: u64,
     pub tail_chunk: Vec<u8>,
@@ -592,6 +595,7 @@ impl ByteRingBuffer {
 
 #[derive(Default)]
 struct SessionFlowState {
+    workspace_id: String,
     ring: ByteRingBuffer,
     frames: VecDeque<OutputFrame>,
     frames_bytes: usize,
@@ -748,6 +752,7 @@ fn append_tail(target: &mut Vec<u8>, chunk: &[u8], cap_bytes: usize) {
 enum MuxCommand {
     RegisterSession {
         session_id: String,
+        workspace_id: String,
     },
     UnregisterSession {
         session_id: String,
@@ -791,17 +796,16 @@ async fn run_mux_loop(
                     break;
                 };
                 match command {
-                    MuxCommand::RegisterSession { session_id } => {
-                        sessions.entry(session_id).or_default();
+                    MuxCommand::RegisterSession { session_id, workspace_id } => {
+                        sessions.entry(session_id).or_default().workspace_id = workspace_id;
                     }
                     MuxCommand::UnregisterSession { session_id } => {
                         sessions.remove(&session_id);
                     }
                     MuxCommand::OutputChunk { session_id, chunk } => {
-                        sessions
-                            .entry(session_id)
-                            .or_default()
-                            .absorb_output(&chunk);
+                        if let Some(state) = sessions.get_mut(&session_id) {
+                            state.absorb_output(&chunk);
+                        }
                     }
                     MuxCommand::SetVisibility {
                         session_id,
@@ -870,6 +874,7 @@ async fn run_mux_loop(
                     state.push_frame(state.seq, payload.clone());
                     let _ = event_sender.send(TerminalRuntimeEvent::Output(TerminalOutputEvent {
                         session_id: session_id.clone(),
+                        workspace_id: state.workspace_id.clone(),
                         chunk: payload,
                         seq: state.seq,
                         ts_ms: now_ts_ms(),
@@ -883,6 +888,7 @@ async fn run_mux_loop(
                     }
                     let _ = event_sender.send(TerminalRuntimeEvent::Meta(TerminalMetaEvent {
                         session_id: session_id.clone(),
+                        workspace_id: state.workspace_id.clone(),
                         unread_bytes: state.hidden_unread_bytes,
                         unread_chunks: state.hidden_unread_chunks,
                         tail_chunk: state.hidden_tail.clone(),
@@ -925,10 +931,11 @@ where
     W: WorkspaceService + Clone,
     P: CommandPolicyEvaluator + Clone,
 {
-    fn emit_state(&self, session_id: &str, from: &str, to: &str) {
+    fn emit_state(&self, session_id: &str, workspace_id: &WorkspaceId, from: &str, to: &str) {
         let _ = self.event_sender.send(TerminalRuntimeEvent::StateChanged(
             TerminalStateChangedEvent {
                 session_id: session_id.to_string(),
+                workspace_id: workspace_id.as_str().to_string(),
                 from: from.to_string(),
                 to: to.to_string(),
                 ts_ms: now_ts_ms(),
@@ -992,6 +999,26 @@ where
             Ok(sessions) => sessions.contains_key(session_id),
             Err(_) => false,
         }
+    }
+
+    pub fn session_workspace_id(&self, session_id: &str) -> AbstractionResult<Option<String>> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| AbstractionError::Internal {
+                message: "TERMINAL_INTERNAL: terminal session lock poisoned".to_string(),
+            })?;
+        Ok(sessions
+            .get(session_id)
+            .map(|session| session.workspace_id.as_str().to_string()))
+    }
+
+    pub fn session_belongs_to_workspace(
+        &self,
+        workspace_id: &str,
+        session_id: &str,
+    ) -> AbstractionResult<bool> {
+        Ok(self.session_workspace_id(session_id)?.as_deref() == Some(workspace_id))
     }
 
     pub fn describe_session_processes(
@@ -1245,7 +1272,7 @@ where
         }
         let mut child = runtime.child;
         let _ = child.kill();
-        self.emit_state(session_id, "running", "killed");
+        self.emit_state(session_id, &runtime.workspace_id, "running", "killed");
         Ok(true)
     }
 
@@ -1403,16 +1430,23 @@ where
         };
         if let Err(error) = self.send_mux_command(MuxCommand::RegisterSession {
             session_id: session.session_id.clone(),
+            workspace_id: session.workspace_id.as_str().to_string(),
         }) {
             let _ = child.kill();
             return Err(error);
         }
-        self.emit_state(&session.session_id, "starting", "running");
+        self.emit_state(
+            &session.session_id,
+            &session.workspace_id,
+            "starting",
+            "running",
+        );
 
         let event_sender = self.event_sender.clone();
         let mux_sender = self.mux_sender.clone();
         let sessions_state = self.sessions.clone();
         let session_id = session.session_id.clone();
+        let session_workspace_id = session.workspace_id.clone();
         thread::spawn(move || {
             let mut buffer = [0_u8; 4096];
             loop {
@@ -1441,6 +1475,7 @@ where
             let _ = event_sender.send(TerminalRuntimeEvent::StateChanged(
                 TerminalStateChangedEvent {
                     session_id,
+                    workspace_id: session_workspace_id.as_str().to_string(),
                     from: "running".to_string(),
                     to: "exited".to_string(),
                     ts_ms: now_ts_ms(),

@@ -8,7 +8,7 @@ use gt_git::{
 };
 use serde_json::{json, Value};
 
-use super::{
+use crate::commands::git::{
     build_git_branches_payload, build_git_commit_detail_payload, build_git_diff_payload,
     build_git_discard_payload, build_git_log_payload, build_git_stage_payload,
     build_git_stash_list_payload, build_git_status_payload, build_git_tag_list_payload,

@@ -1,12 +1,19 @@
+import { useCallback, useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
+import { trapModalTabFocus } from '@/components/modal/modal-focus-trap'
 import { requestStandardModalClose } from '@/components/modal/standard-modal-close'
+import { createStationTerminalFrameFlushScheduler } from '../terminal/station-terminal-frame-flush-scheduler'
 
 import {
   canConfirmStationDeleteCleanup,
   type StationDeleteCleanupState,
   type StationDeleteCleanupStrategy,
 } from './station-delete-binding-cleanup-model'
+import { scheduleStationModalFocusFrame } from './station-modal-focus-frame'
+
+const STATION_DELETE_CLEANUP_DIALOG_FOCUS_FALLBACK_DELAY_MS = 48
 
 interface StationDeleteBindingCleanupDialogProps {
   open: boolean
@@ -31,6 +38,51 @@ export function StationDeleteBindingCleanupDialog({
   onReplacementAgentChange,
   onConfirm,
 }: StationDeleteBindingCleanupDialogProps) {
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (!open || !state) {
+      return
+    }
+    const focusFrame = scheduleStationModalFocusFrame({
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_DELETE_CLEANUP_DIALOG_FOCUS_FALLBACK_DELAY_MS,
+      focus: () => {
+        cancelButtonRef.current?.focus()
+      },
+    })
+    return focusFrame.cancel
+  }, [open, state])
+
+  const handleDialogKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Escape' && event.key !== 'Tab') {
+        return
+      }
+      if (event.nativeEvent.isComposing) {
+        return
+      }
+      if (event.key === 'Escape') {
+        if (submitting) {
+          return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        requestStandardModalClose('escape', onClose)
+        return
+      }
+
+      const dialog = dialogRef.current
+      if (!dialog) {
+        return
+      }
+      event.stopPropagation()
+      trapModalTabFocus(event.nativeEvent, dialog)
+    },
+    [onClose, submitting],
+  )
+
   if (!open || !state) {
     return null
   }
@@ -52,17 +104,27 @@ export function StationDeleteBindingCleanupDialog({
   return (
     <div
       className="settings-modal-backdrop station-role-modal-backdrop"
+      onKeyDown={handleDialogKeyDown}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           requestStandardModalClose('backdrop', onClose)
         }
       }}
     >
-      <section className="settings-modal panel station-role-modal" role="dialog" aria-modal="true">
+      <section
+        ref={dialogRef}
+        className="settings-modal panel station-role-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="station-delete-binding-cleanup-title"
+        aria-describedby="station-delete-binding-cleanup-description"
+      >
         <header className="settings-modal-header">
           <div>
-            <h2>{t(locale, '删除前处理通道路由', 'Resolve channel routes before deletion')}</h2>
-            <p>
+            <h2 id="station-delete-binding-cleanup-title">
+              {t(locale, '删除前处理通道路由', 'Resolve channel routes before deletion')}
+            </h2>
+            <p id="station-delete-binding-cleanup-description">
               {t(
                 locale,
                 '这个 Agent 仍被外部通道路由引用。请先选择这些绑定的处理方式。',
@@ -147,6 +209,7 @@ export function StationDeleteBindingCleanupDialog({
 
         <footer className="station-form-actions">
           <button
+            ref={cancelButtonRef}
             type="button"
             className="station-form-btn subtle"
             disabled={submitting}

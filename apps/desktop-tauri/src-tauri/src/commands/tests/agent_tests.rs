@@ -7,7 +7,7 @@ use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use gt_task::{ChannelRouteBinding, ExternalPeerKind, TaskService};
 use uuid::Uuid;
 
-use super::{
+use crate::commands::agent::{
     agent_create_with_repo, agent_delete_with_repo, agent_prompt_read_with_repo,
     agent_update_with_repo,
     binding_cleanup::{
@@ -179,6 +179,105 @@ fn agent_create_rolls_back_when_prompt_write_fails() {
 }
 
 #[test]
+fn agent_create_accepts_existing_custom_workdir_inside_workspace_without_prompt() {
+    let fixture = AgentCommandFixture::create();
+    fs::create_dir_all(fixture.workspace_root.join(".gtoffice/agent-alpha"))
+        .expect("create custom workdir");
+    let mut request = fixture.create_request("Inside Workdir Agent");
+    request.workdir = Some(".gtoffice/agent-alpha".to_string());
+    request.custom_workdir = Some(true);
+    request.prompt_enabled = Some(false);
+
+    let response = agent_create_with_repo(request, &fixture.repo, &fixture.workspace_root)
+        .expect("create agent with custom workdir");
+
+    assert_eq!(
+        response["agent"]["workdir"].as_str(),
+        Some(".gtoffice/agent-alpha")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_create_rejects_custom_workdir_symlink_outside_workspace_without_prompt() {
+    use std::os::unix::fs as unix_fs;
+
+    let fixture = AgentCommandFixture::create();
+    let outside = TempDir::create();
+    let link_path = fixture.workspace_root.join(".gtoffice/outside-link");
+    unix_fs::symlink(outside.path(), &link_path).expect("create outside symlink");
+    let mut request = fixture.create_request("Outside Link Agent");
+    request.workdir = Some(".gtoffice/outside-link".to_string());
+    request.custom_workdir = Some(true);
+    request.prompt_enabled = Some(false);
+
+    let error = agent_create_with_repo(request, &fixture.repo, &fixture.workspace_root)
+        .expect_err("symlink workdir outside workspace should be rejected");
+
+    assert_eq!(error, "AGENT_WORKDIR_OUTSIDE_WORKSPACE");
+    assert!(fixture
+        .repo
+        .list_agents(&fixture.workspace_id)
+        .expect("list agents after rejected create")
+        .is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_update_rejects_custom_workdir_symlink_outside_workspace_without_prompt() {
+    use std::os::unix::fs as unix_fs;
+
+    let fixture = AgentCommandFixture::create();
+    let create_response = agent_create_with_repo(
+        fixture.create_request("Update Outside Link Agent"),
+        &fixture.repo,
+        &fixture.workspace_root,
+    )
+    .expect("create agent before update");
+    let agent_id = create_response["agent"]["id"]
+        .as_str()
+        .expect("created agent id")
+        .to_string();
+    let original_workdir = create_response["agent"]["workdir"]
+        .as_str()
+        .map(str::to_string);
+    let outside = TempDir::create();
+    let link_path = fixture.workspace_root.join(".gtoffice/outside-link");
+    unix_fs::symlink(outside.path(), &link_path).expect("create outside symlink");
+
+    let error = agent_update_with_repo(
+        AgentUpdateRequest {
+            workspace_id: fixture.workspace_id.clone(),
+            agent_id: agent_id.clone(),
+            name: "Update Outside Link Agent".to_string(),
+            role_id: fixture.role_id.clone(),
+            tool: Some("codex".to_string()),
+            workdir: Some(".gtoffice/outside-link".to_string()),
+            custom_workdir: Some(true),
+            employee_no: None,
+            state: Some("ready".to_string()),
+            prompt_enabled: Some(false),
+            prompt_file_name: None,
+            prompt_content: None,
+            launch_command: None,
+        },
+        &fixture.repo,
+        &fixture.workspace_root,
+    )
+    .expect_err("symlink workdir outside workspace should be rejected");
+
+    assert_eq!(error, "AGENT_WORKDIR_OUTSIDE_WORKSPACE");
+    let unchanged = fixture
+        .repo
+        .list_agents(&fixture.workspace_id)
+        .expect("list agents after rejected update")
+        .into_iter()
+        .find(|agent| agent.id == agent_id)
+        .expect("agent remains after rejected update");
+    assert_eq!(unchanged.workdir, original_workdir);
+}
+
+#[test]
 fn agent_update_moves_prompt_file_and_prompt_read_returns_latest_content() {
     let fixture = AgentCommandFixture::create();
     let mut create_request = fixture.create_request("Prompt Update Agent");
@@ -295,10 +394,17 @@ fn agent_delete_removes_agent_record() {
 fn existing_agent_helpers_still_normalize_defaults() {
     assert_eq!(parse_agent_state(None).unwrap().as_str(), "ready");
     assert_eq!(
+        parse_agent_state(Some(" ready ".to_string()))
+            .unwrap()
+            .as_str(),
+        "ready"
+    );
+    assert_eq!(
         resolve_agent_tool(Some("Claude Code".to_string())),
         "claude"
     );
     assert_eq!(parse_role_scope(Some("global")).as_str(), "global");
+    assert_eq!(parse_role_scope(Some(" global ")).as_str(), "global");
     assert_eq!(
         role_scope_workspace_id(&parse_role_scope(None), "ws-1"),
         "ws-1"
@@ -308,6 +414,12 @@ fn existing_agent_helpers_still_normalize_defaults() {
 #[test]
 fn parses_role_status_values_for_cli_surface() {
     assert_eq!(parse_role_status(None).unwrap().as_str(), "active");
+    assert_eq!(
+        parse_role_status(Some(" active ".to_string()))
+            .unwrap()
+            .as_str(),
+        "active"
+    );
     assert_eq!(
         parse_role_status(Some("deprecated".to_string()))
             .unwrap()

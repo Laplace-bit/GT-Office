@@ -4,27 +4,27 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(rem(20));
-  -webkit-backdrop-filter: blur(rem(20));
+  background: color-mix(in srgb, var(--vb-bg) 40%, transparent);
+  backdrop-filter: blur(rem(12));
+  -webkit-backdrop-filter: blur(rem(12));
   display: grid;
   place-items: center;
   padding: rem(24);
-  animation: apple-fade-in 0.3s ease-out;
+  animation: apple-fade-in 140ms var(--vb-ease-out);
 }
 
 .station-search-modal {
   width: min(rem(600), calc(100vw - rem(48)));
   max-height: min(80dvh, rem(600));
   background: color-mix(in srgb, var(--vb-surface) 80%, transparent);
-  backdrop-filter: blur(rem(40));
-  -webkit-backdrop-filter: blur(rem(40));
+  backdrop-filter: blur(rem(28));
+  -webkit-backdrop-filter: blur(rem(28));
   border: rem(1) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
   border-radius: rem(24);
-  box-shadow: 0 rem(20) rem(40) rgba(0, 0, 0, 0.2);
+  box-shadow: var(--vb-shadow-lg);
   display: flex;
   flex-direction: column;
-  animation: apple-modal-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: apple-modal-in 180ms var(--vb-ease-out);
   overflow: hidden;
   container-type: inline-size;
 }
@@ -50,7 +50,10 @@
     color: var(--vb-text);
     padding: 0 rem(16);
     font-size: rem(16);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+      background 160ms var(--vb-ease-smooth),
+      border-color 160ms var(--vb-ease-smooth),
+      box-shadow 160ms var(--vb-ease-smooth);
     
     &:focus {
       outline: none;
@@ -97,7 +100,11 @@
   border: rem(1) solid transparent;
   background: color-mix(in srgb, var(--vb-surface-muted) 40%, transparent);
   text-align: left;
-  transition: all 0.2s ease;
+  transition:
+    background 160ms var(--vb-ease-smooth),
+    border-color 160ms var(--vb-ease-smooth),
+    box-shadow 160ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth);
   
   strong {
     font-size: rem(14);
@@ -114,7 +121,16 @@
   &:hover {
     background: color-mix(in srgb, var(--vb-accent-light) 15%, var(--vb-chip));
     border-color: color-mix(in srgb, var(--vb-accent) 30%, transparent);
-    transform: translateX(rem(4));
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--vb-accent) 40%, transparent);
+    box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
   }
 }
 
@@ -133,7 +149,7 @@
 @keyframes apple-modal-in {
   from { 
     opacity: 0;
-    transform: scale(0.9) translateY(rem(20));
+    transform: scale(0.98) translateY(rem(6));
   }
   to { 
     opacity: 1;
@@ -158,6 +174,16 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .settings-modal-backdrop,
+  .station-search-modal,
+  .station-search-input-wrap input,
+  .station-search-result-btn {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 @container (max-width: rem(480)) {
   .settings-modal-backdrop {
     padding: rem(16);
@@ -175,7 +201,8 @@
     padding: rem(10) rem(12);
   }
 
-  .station-search-result-btn:hover {
+  .station-search-result-btn:hover,
+  .station-search-result-btn:active {
     transform: none;
   }
 

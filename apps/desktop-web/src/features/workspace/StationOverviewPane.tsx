@@ -3,6 +3,7 @@ import { GripHorizontal } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -13,6 +14,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
   arrayMove,
+  sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable'
 import type { AgentStation, StationRole } from '@features/workspace-hub'
 import type { Locale } from '@shell/i18n/ui-locale'
@@ -84,6 +86,8 @@ const SortableRow = memo(function SortableRow({
       transition,
     }
     : { transition }
+  const reorderStationLabel = t(locale, 'quickCommands.preview.reorder')
+  const editStationLabel = t(locale, 'station.overview.editRole')
 
   return (
     <li
@@ -96,22 +100,28 @@ const SortableRow = memo(function SortableRow({
       ]
         .filter(Boolean)
         .join(' ')}
-      onClick={() => onSelectStation(station.id)}
     >
       {showDragHandle && (
-        <span
+        <button
+          type="button"
           className="station-overview-drag-handle"
-          aria-hidden="true"
+          aria-label={reorderStationLabel}
+          title={reorderStationLabel}
           {...attributes}
           {...listeners}
         >
-          <GripHorizontal className="vb-icon" strokeWidth={1.75} />
-        </span>
+          <GripHorizontal className="vb-icon" aria-hidden="true" strokeWidth={1.75} />
+        </button>
       )}
-      <div className="station-overview-select">
+      <button
+        type="button"
+        className="station-overview-select"
+        aria-current={active ? 'true' : undefined}
+        onClick={() => onSelectStation(station.id)}
+      >
         <strong>{station.name}</strong>
         <span>{roleLabel(locale, station)} · {station.agentWorkdirRel}</span>
-      </div>
+      </button>
       <button
         type="button"
         className="station-overview-edit"
@@ -119,8 +129,8 @@ const SortableRow = memo(function SortableRow({
           e.stopPropagation()
           onEditStation(station)
         }}
-        aria-label={locale === 'zh-CN' ? '编辑角色' : 'Edit Role'}
-        title={locale === 'zh-CN' ? '编辑角色' : 'Edit Role'}
+        aria-label={editStationLabel}
+        title={editStationLabel}
       >
         <AppIcon name="user-pen" className="vb-icon" aria-hidden="true" />
       </button>
@@ -159,8 +169,6 @@ export function StationOverviewPane({
     },
     [locale, stations],
   )
-
-  const localeIsZh = locale === 'zh-CN'
   const canDrag = !!onReorderStations
 
   // Local order state for optimistic reordering
@@ -175,13 +183,16 @@ export function StationOverviewPane({
     return [...reordered, ...remaining]
   }, [localOrder, filteredStations])
 
-  const sensor = useSensor(PointerSensor, {
-    activationConstraint: {
-      distance: 4,
-    },
-  })
-
-  const sensors = useSensors(sensor)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 4,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -215,10 +226,18 @@ export function StationOverviewPane({
     () => orderedStations.map((s) => s.id),
     [orderedStations],
   )
+  const metricsSummaryLabel = [
+    t(locale, 'station.metrics.totalWithCount', { count: snapshot.total }),
+    t(locale, 'station.metrics.runningWithCount', { count: snapshot.running }),
+    t(locale, 'station.metrics.blockedWithCount', { count: snapshot.blocked }),
+    t(locale, 'station.metrics.idleWithCount', { count: snapshot.idle }),
+  ].join(', ')
+  const clearRoleFilterLabel = t(locale, 'station.filter.clearRole')
+  const editStationLabel = t(locale, 'station.overview.editRole')
 
   return (
     <aside className="station-overview-pane">
-      <section className="station-overview-aggregated-metrics" aria-label={localeIsZh ? '角色状态概览' : 'Role status overview'}>
+      <section className="station-overview-aggregated-metrics" aria-label={metricsSummaryLabel}>
         <div className="metrics-summary-card">
           <div className="metrics-item">
             <strong>{snapshot.total}</strong>
@@ -231,6 +250,11 @@ export function StationOverviewPane({
           </div>
           <div className="metrics-divider" />
           <div className="metrics-item">
+            <strong className="status-blocked">{snapshot.blocked}</strong>
+            <span>{t(locale, 'station.metrics.blocked')}</span>
+          </div>
+          <div className="metrics-divider" />
+          <div className="metrics-item">
             <strong>{snapshot.idle}</strong>
             <span>{t(locale, 'station.metrics.idle')}</span>
           </div>
@@ -240,7 +264,7 @@ export function StationOverviewPane({
       <section className="station-overview-section">
         <section id="station-overview-filters" className="station-overview-filters station-overview-filters--inline">
           <label className="station-overview-inline-filter">
-            <span>{localeIsZh ? '角色' : 'Role'}</span>
+            <span>{t(locale, 'workbench.role')}</span>
             <div className="station-overview-inline-filter__select-wrap">
               <select
                 value={view.roleFilter}
@@ -256,8 +280,8 @@ export function StationOverviewPane({
               <button
                 type="button"
                 className="station-overview-inline-filter__clear"
-                aria-label={localeIsZh ? '清除角色筛选' : 'Clear role filter'}
-                title={localeIsZh ? '清除角色筛选' : 'Clear role filter'}
+                aria-label={clearRoleFilterLabel}
+                title={clearRoleFilterLabel}
                 disabled={view.roleFilter === 'all'}
                 onClick={() => {
                   onViewChange({ roleFilter: 'all' })
@@ -304,12 +328,16 @@ export function StationOverviewPane({
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => onSelectStation(station.id)}
             >
-              <div className="station-overview-select">
+              <button
+                type="button"
+                className="station-overview-select"
+                aria-current={station.id === activeStationId ? 'true' : undefined}
+                onClick={() => onSelectStation(station.id)}
+              >
                 <strong>{station.name}</strong>
                 <span>{roleLabel(locale, station)} · {station.agentWorkdirRel}</span>
-              </div>
+              </button>
               <button
                 type="button"
                 className="station-overview-edit"
@@ -317,8 +345,8 @@ export function StationOverviewPane({
                   e.stopPropagation()
                   onEditStation(station)
                 }}
-                aria-label={localeIsZh ? '编辑角色' : 'Edit Role'}
-                title={localeIsZh ? '编辑角色' : 'Edit Role'}
+                aria-label={editStationLabel}
+                title={editStationLabel}
               >
                 <AppIcon name="user-pen" className="vb-icon" aria-hidden="true" />
               </button>

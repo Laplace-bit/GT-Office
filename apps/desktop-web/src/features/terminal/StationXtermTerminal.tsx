@@ -12,7 +12,7 @@ import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
 import type { ITheme, Terminal as XtermTerminal } from '@xterm/xterm'
 import type { RenderedScreenSnapshot } from '@shell/integration/desktop-api'
-import { isDarkDataTheme } from '@shell/state/ui-preferences'
+import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   consumeDeferredMacOsXtermEcho,
   isMacOsWebKitTextInputEnvironment,
@@ -30,8 +30,17 @@ import {
   shouldContinueStationTerminalFocusAttempt,
   shouldConsumeInactiveStationTerminalMouseGesture,
   shouldFlushPendingStationTerminalFocus,
+  shouldRequestStationTerminalAutoFocus,
 } from './station-terminal-focus-runtime'
-import { shouldRecycleStationTerminalRenderer } from './station-terminal-render-recovery'
+import {
+  scheduleStationTerminalAppearanceSyncFrame,
+  scheduleStationTerminalRenderRefreshFrame,
+  scheduleStationTerminalRendererRecoveryFrameDrain,
+  shouldRecycleStationTerminalRenderer,
+  type StationTerminalAppearanceSyncFrame,
+  type StationTerminalRenderRefreshFrame,
+  type StationTerminalRendererRecoveryFrameDrain,
+} from './station-terminal-render-recovery'
 import {
   hasTerminalFileDropPayload,
   readTerminalFileDropPayload,
@@ -39,9 +48,21 @@ import {
 } from '@shell/utils/terminal-file-drop'
 import {
   resolveTerminalSerializeDelayMs,
-  takeNextTerminalCaptureTask,
+  scheduleTerminalCaptureTaskFrameDrain,
+  shouldScheduleRenderedScreenCapture,
+  type TerminalCaptureTaskFrameDrain,
   type TerminalCaptureTaskKind,
 } from './station-terminal-capture-policy'
+import {
+  cancelStationTerminalFrameFlush,
+  createStationTerminalFrameFlushScheduler,
+  scheduleStationTerminalFrameFlush,
+  type StationTerminalFrameFlushHandle,
+} from './station-terminal-frame-flush-scheduler'
+import {
+  scheduleStationTerminalFitRetryFrame,
+  type StationTerminalFitRetryFrame,
+} from './station-terminal-resize'
 import type {
   StationTerminalSink,
   StationTerminalSinkBindingHandler,
@@ -54,8 +75,11 @@ export type {
 } from './station-terminal-sink-types'
 
 interface StationXtermTerminalProps {
+  locale: Locale
+  workspaceId?: string | null
   stationId: string
   sessionId: string | null
+  stateRaw?: string | null
   isActive?: boolean
   appearanceVersion: string
   performanceDebugEnabled?: boolean
@@ -67,7 +91,7 @@ interface StationXtermTerminalProps {
   onDropFilePath?: (stationId: string, payload: TerminalFileDropPayload) => Promise<void> | void
   onRestoreStateCaptured?: (
     stationId: string,
-    state: { content: string; cols: number; rows: number },
+    state: { content: string; cols: number; rows: number; viewportY?: number | null },
     sourceSessionId: string | null,
   ) => void
 }
@@ -90,6 +114,7 @@ const TERMINAL_VIEWPORT_WAKE_DELAYS_MS = [0, 48, 160, 360] as const
 const TERMINAL_FIT_RETRY_FRAME_LIMIT = 6
 const TERMINAL_FIT_RETRY_BACKOFF_MIN_MS = 96
 const TERMINAL_FIT_RETRY_BACKOFF_MAX_MS = 640
+const TERMINAL_INTERACTION_FRAME_FALLBACK_MS = 48
 
 interface IdleDeadlineLike {
   didTimeout: boolean
@@ -288,88 +313,51 @@ function resolveTerminalFontSize(host?: HTMLElement | null): number {
 
 function getTerminalTheme(host?: HTMLElement | null): ITheme {
   const doc = resolveTerminalDocument(host, document)
-  const isDark = isDarkDataTheme(doc.documentElement.getAttribute('data-theme'))
-  if (!isDark) {
-    return {
-      background: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
-      foreground: readCssVarOr('--vb-terminal-text', '#1f2937', doc),
-      cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff', doc),
-      cursorAccent: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
-      selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#0b1b31', doc),
-      selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(10, 132, 255, 0.24)', doc),
-      selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(97, 138, 191, 0.18)', doc),
-      overviewRulerBorder: 'transparent',
-      scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(84, 106, 134, 0.34)', doc),
-      scrollbarSliderHoverBackground: readCssVarOr(
-        '--vb-terminal-scrollbar-thumb-hover',
-        'rgba(84, 106, 134, 0.52)',
-        doc,
-      ),
-      scrollbarSliderActiveBackground: readCssVarOr(
-        '--vb-terminal-scrollbar-thumb-active',
-        'rgba(84, 106, 134, 0.68)',
-        doc,
-      ),
-      black: '#455160',
-      red: '#ba4a58',
-      green: '#2d7d5b',
-      yellow: '#9b6a28',
-      blue: '#1f6fa9',
-      magenta: '#835fb8',
-      cyan: '#2e7f8a',
-      white: '#667487',
-      brightBlack: '#6a788c',
-      brightRed: '#d76170',
-      brightGreen: '#369a70',
-      brightYellow: '#b8863f',
-      brightBlue: '#2b88cb',
-      brightMagenta: '#9a74cf',
-      brightCyan: '#3f97a3',
-      brightWhite: '#1c2633',
-    }
-  }
   return {
-    background: readCssVarOr('--vb-terminal-bg', '#0f141c', doc),
-    foreground: readCssVarOr('--vb-terminal-text', '#e6edf7', doc),
+    background: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
+    foreground: readCssVarOr('--vb-terminal-text', '#1f2937', doc),
     cursor: readCssVarOr('--vb-terminal-caret', '#0a84ff', doc),
-    cursorAccent: readCssVarOr('--vb-terminal-bg', '#0f141c', doc),
-    selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#f7fbff', doc),
-    selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(122, 168, 255, 0.34)', doc),
-    selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(95, 128, 178, 0.24)', doc),
+    cursorAccent: readCssVarOr('--vb-terminal-bg', '#f5f8fd', doc),
+    selectionForeground: readCssVarOr('--vb-terminal-selection-text', '#0b1b31', doc),
+    selectionBackground: readCssVarOr('--vb-terminal-selection-bg', 'rgba(10, 132, 255, 0.24)', doc),
+    selectionInactiveBackground: readCssVarOr('--vb-terminal-selection-inactive', 'rgba(97, 138, 191, 0.18)', doc),
     overviewRulerBorder: 'transparent',
-    scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(130, 155, 186, 0.42)', doc),
+    scrollbarSliderBackground: readCssVarOr('--vb-terminal-scrollbar-thumb', 'rgba(84, 106, 134, 0.34)', doc),
     scrollbarSliderHoverBackground: readCssVarOr(
       '--vb-terminal-scrollbar-thumb-hover',
-      'rgba(156, 179, 208, 0.6)',
+      'rgba(84, 106, 134, 0.52)',
       doc,
     ),
     scrollbarSliderActiveBackground: readCssVarOr(
       '--vb-terminal-scrollbar-thumb-active',
-      'rgba(173, 196, 224, 0.74)',
+      'rgba(84, 106, 134, 0.68)',
       doc,
     ),
-    black: '#768396',
-    red: '#f08b96',
-    green: '#80e2a7',
-    yellow: '#ebcb7e',
-    blue: '#8ab8ff',
-    magenta: '#cfa0f1',
-    cyan: '#7fdce5',
-    white: '#e6edf7',
-    brightBlack: '#9aa8bc',
-    brightRed: '#ff9fab',
-    brightGreen: '#9beabc',
-    brightYellow: '#f5d993',
-    brightBlue: '#a5c9ff',
-    brightMagenta: '#ddb9f8',
-    brightCyan: '#97e9ef',
-    brightWhite: '#f5f8ff',
+    black: readCssVarOr('--vb-terminal-ansi-black', '#455160', doc),
+    red: readCssVarOr('--vb-terminal-ansi-red', '#ba4a58', doc),
+    green: readCssVarOr('--vb-terminal-ansi-green', '#2d7d5b', doc),
+    yellow: readCssVarOr('--vb-terminal-ansi-yellow', '#9b6a28', doc),
+    blue: readCssVarOr('--vb-terminal-ansi-blue', '#1f6fa9', doc),
+    magenta: readCssVarOr('--vb-terminal-ansi-magenta', '#835fb8', doc),
+    cyan: readCssVarOr('--vb-terminal-ansi-cyan', '#2e7f8a', doc),
+    white: readCssVarOr('--vb-terminal-ansi-white', '#667487', doc),
+    brightBlack: readCssVarOr('--vb-terminal-ansi-bright-black', '#6a788c', doc),
+    brightRed: readCssVarOr('--vb-terminal-ansi-bright-red', '#d76170', doc),
+    brightGreen: readCssVarOr('--vb-terminal-ansi-bright-green', '#369a70', doc),
+    brightYellow: readCssVarOr('--vb-terminal-ansi-bright-yellow', '#b8863f', doc),
+    brightBlue: readCssVarOr('--vb-terminal-ansi-bright-blue', '#2b88cb', doc),
+    brightMagenta: readCssVarOr('--vb-terminal-ansi-bright-magenta', '#9a74cf', doc),
+    brightCyan: readCssVarOr('--vb-terminal-ansi-bright-cyan', '#3f97a3', doc),
+    brightWhite: readCssVarOr('--vb-terminal-ansi-bright-white', '#1c2633', doc),
   }
 }
 
 function StationXtermTerminalView({
+  locale,
+  workspaceId = null,
   stationId,
   sessionId,
+  stateRaw = null,
   isActive = false,
   appearanceVersion,
   performanceDebugEnabled = false,
@@ -397,24 +385,25 @@ function StationXtermTerminalView({
   const onRestoreStateCapturedRef = useRef(onRestoreStateCaptured)
   const screenRevisionRef = useRef(0)
   const lastSnapshotSignatureRef = useRef('')
-  const appearanceSyncFrameRef = useRef<number | null>(null)
+  const appearanceSyncFrameRef = useRef<StationTerminalAppearanceSyncFrame | null>(null)
   const focusTerminalRequestRef = useRef<(() => void) | null>(null)
-  const focusRetryFrameRef = useRef<number | null>(null)
+  const focusRetryFrameRef = useRef<StationTerminalFrameFlushHandle | null>(null)
   const focusRuntimeReadyRef = useRef(false)
   const pendingAutoFocusRef = useRef(false)
   const pendingInactiveActivationCleanupRef = useRef<(() => void) | null>(null)
-  const pendingInactiveActivationFrameRef = useRef<number | null>(null)
+  const pendingInactiveActivationFrameRef = useRef<StationTerminalFrameFlushHandle | null>(null)
   const pendingInactiveActivationClickCleanupRef = useRef<(() => void) | null>(null)
   const pendingInactiveActivationClickTimeoutRef = useRef<number | null>(null)
   const pendingInactiveActivationGuardElementRef = useRef<HTMLElement | null>(null)
   const pendingInactiveActivationGuardTimeoutRef = useRef<number | null>(null)
   const rendererRecoveryTimerRef = useRef<number | null>(null)
-  const rendererRecoveryFrameRef = useRef<number | null>(null)
+  const rendererRecoveryFrameRef = useRef<StationTerminalRendererRecoveryFrameDrain | null>(null)
   const rendererRecoveryTokenRef = useRef(0)
   const rendererRecoveryInFlightRef = useRef(false)
   const fileDropDepthRef = useRef(0)
   const fileDropPulseTimerRef = useRef<number | null>(null)
   const sessionIdRef = useRef(sessionId)
+  const stateRawRef = useRef(stateRaw)
   const isMacOsWebKitEnvironmentRef = useRef(
     typeof window !== 'undefined'
       ? isMacOsWebKitTextInputEnvironment({
@@ -436,13 +425,14 @@ function StationXtermTerminalView({
       }
       void recordStationTerminalFocusDiagnostic({
         targetWindow: window,
+        workspaceId,
         stationId,
         sessionId,
         kind,
         detail,
       })
     },
-    [sessionId, stationId],
+    [sessionId, stationId, workspaceId],
   )
 
   const cancelPendingInactiveActivation = useCallback(() => {
@@ -451,11 +441,8 @@ function StationXtermTerminalView({
       pendingInactiveActivationCleanupRef.current = null
       cleanup()
     }
-    const frameId = pendingInactiveActivationFrameRef.current
-    if (frameId !== null) {
-      pendingInactiveActivationFrameRef.current = null
-      window.cancelAnimationFrame(frameId)
-    }
+    cancelStationTerminalFrameFlush(pendingInactiveActivationFrameRef.current)
+    pendingInactiveActivationFrameRef.current = null
   }, [])
 
   const cancelPendingInactiveActivationClickSuppression = useCallback(() => {
@@ -534,10 +521,14 @@ function StationXtermTerminalView({
         cancelPendingInactiveActivation()
         armPendingInactiveActivationClickSuppression()
         recordFocusDiagnostic('activation-consumed', `phase=${phase}`)
-        pendingInactiveActivationFrameRef.current = window.requestAnimationFrame(() => {
-          pendingInactiveActivationFrameRef.current = null
-          onActivateStation()
-        })
+        pendingInactiveActivationFrameRef.current = scheduleStationTerminalFrameFlush(
+          () => {
+            pendingInactiveActivationFrameRef.current = null
+            onActivateStation()
+          },
+          createStationTerminalFrameFlushScheduler(window),
+          TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+        )
       }
       const handlePointerUp = (event: PointerEvent) => {
         if (event.pointerId !== pointerId) {
@@ -592,10 +583,15 @@ function StationXtermTerminalView({
       if (typeof PointerEvent !== 'undefined' && nativeEvent instanceof PointerEvent) {
         armPendingInactiveActivation(nativeEvent.pointerId)
       } else {
-        pendingInactiveActivationFrameRef.current = window.requestAnimationFrame(() => {
-          pendingInactiveActivationFrameRef.current = null
-          onActivateStation()
-        })
+        cancelPendingInactiveActivation()
+        pendingInactiveActivationFrameRef.current = scheduleStationTerminalFrameFlush(
+          () => {
+            pendingInactiveActivationFrameRef.current = null
+            onActivateStation()
+          },
+          createStationTerminalFrameFlushScheduler(window),
+          TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+        )
       }
       return true
     },
@@ -631,9 +627,13 @@ function StationXtermTerminalView({
     if (appearanceSyncFrameRef.current !== null) {
       return
     }
-    appearanceSyncFrameRef.current = window.requestAnimationFrame(() => {
-      appearanceSyncFrameRef.current = null
-      syncTerminalAppearance()
+    appearanceSyncFrameRef.current = scheduleStationTerminalAppearanceSyncFrame({
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+      run: () => {
+        appearanceSyncFrameRef.current = null
+        syncTerminalAppearance()
+      },
     })
   }, [syncTerminalAppearance])
 
@@ -643,7 +643,7 @@ function StationXtermTerminalView({
       rendererRecoveryTimerRef.current = null
     }
     if (rendererRecoveryFrameRef.current !== null) {
-      window.cancelAnimationFrame(rendererRecoveryFrameRef.current)
+      rendererRecoveryFrameRef.current.cancel()
       rendererRecoveryFrameRef.current = null
     }
   }, [])
@@ -663,6 +663,10 @@ function StationXtermTerminalView({
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
+
+  useEffect(() => {
+    stateRawRef.current = stateRaw
+  }, [stateRaw])
 
   useEffect(() => {
     onDataRef.current = onData
@@ -689,11 +693,8 @@ function StationXtermTerminalView({
       setRuntimeInitAllowed(true)
       return
     }
-    const frameId = focusRetryFrameRef.current
-    if (frameId !== null) {
-      focusRetryFrameRef.current = null
-      window.cancelAnimationFrame(frameId)
-    }
+    cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
+    focusRetryFrameRef.current = null
   }, [
     cancelPendingInactiveActivation,
     cancelPendingInactiveActivationClickSuppression,
@@ -735,9 +736,12 @@ function StationXtermTerminalView({
 
   useEffect(() => {
     const previous = lastAutoFocusStateRef.current
-    const sessionChanged = previous.sessionId !== sessionId
-    const shouldAutoFocus = isActive && (!previous.active || sessionChanged)
-    lastAutoFocusStateRef.current = { active: isActive, sessionId }
+    const next = { active: isActive, sessionId }
+    const shouldAutoFocus = shouldRequestStationTerminalAutoFocus({
+      previous,
+      next,
+    })
+    lastAutoFocusStateRef.current = next
     if (!shouldAutoFocus) {
       return
     }
@@ -766,18 +770,15 @@ function StationXtermTerminalView({
       cancelPendingInactiveActivationClickSuppression()
       cancelPendingInactiveActivationGuard()
       cancelScheduledRendererRecovery()
-      const frameId = appearanceSyncFrameRef.current
-      if (frameId === null) {
+      const appearanceSyncFrame = appearanceSyncFrameRef.current
+      if (appearanceSyncFrame === null) {
         focusTerminalRequestRef.current = null
       } else {
         appearanceSyncFrameRef.current = null
-        window.cancelAnimationFrame(frameId)
+        appearanceSyncFrame.cancel()
       }
-      const focusFrameId = focusRetryFrameRef.current
-      if (focusFrameId !== null) {
-        focusRetryFrameRef.current = null
-        window.cancelAnimationFrame(focusFrameId)
-      }
+      cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
+      focusRetryFrameRef.current = null
       focusRuntimeReadyRef.current = false
       focusTerminalRequestRef.current = null
       pendingAutoFocusRef.current = false
@@ -804,7 +805,7 @@ function StationXtermTerminalView({
     fileDropPulseTimerRef.current = window.setTimeout(() => {
       fileDropPulseTimerRef.current = null
       setFileDropPulse(null)
-    }, 820)
+    }, 520)
   }, [])
 
   useEffect(() => {
@@ -827,15 +828,15 @@ function StationXtermTerminalView({
     let resizeDisposable: { dispose: () => void } | null = null
     let resizeObserver: ResizeObserver | null = null
     let appearanceObserver: MutationObserver | null = null
-    let refreshFrameId: number | null = null
-    let readyFitFrameId: number | null = null
+    let refreshFrame: StationTerminalRenderRefreshFrame | null = null
+    let readyFitFrame: StationTerminalFitRetryFrame | null = null
     let readyFitTimeoutId: number | null = null
-    let renderFallbackFrameId: number | null = null
+    let renderFallbackFrame: StationTerminalRenderRefreshFrame | null = null
     let renderFallbackBaselineSeq = 0
     let readyFitRetryCount = 0
     let readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
     let reportTimeoutId: number | null = null
-    let captureTaskFrameId: number | null = null
+    let captureTaskFrameDrain: TerminalCaptureTaskFrameDrain | null = null
     const pendingCaptureTasks = new Set<TerminalCaptureTaskKind>()
     let serializeTimeoutId: number | null = null
     let serializeIdleHandle: { kind: 'idle' | 'timeout'; id: number } | null = null
@@ -854,6 +855,8 @@ function StationXtermTerminalView({
     let serializedRestoreState: string | null = null
     let serializedRestoreCols = 0
     let serializedRestoreRows = 0
+    let serializedRestoreViewportY: number | null = null
+    let pendingRestoreViewportY: number | null = null
     void Promise.all([
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
@@ -886,6 +889,21 @@ function StationXtermTerminalView({
         fitAddonRef.current = fitAddon
         rendererRecoveryInFlightRef.current = false
         scheduleTerminalAppearanceSync()
+        let lastReportedTerminalCols = 0
+        let lastReportedTerminalRows = 0
+        const reportTerminalResize = (cols: number, rows: number) => {
+          const nextCols = Math.floor(cols)
+          const nextRows = Math.floor(rows)
+          if (!Number.isFinite(nextCols) || !Number.isFinite(nextRows) || nextCols <= 0 || nextRows <= 0) {
+            return
+          }
+          if (nextCols === lastReportedTerminalCols && nextRows === lastReportedTerminalRows) {
+            return
+          }
+          lastReportedTerminalCols = nextCols
+          lastReportedTerminalRows = nextRows
+          onResizeRef.current(stationId, nextCols, nextRows)
+        }
 
         const isMacOsWebKitImeFallbackEnabled = isMacOsWebKitEnvironmentRef.current
         let suppressedDeferredXtermEchoRef: { current: string | null } | null = null
@@ -983,12 +1001,8 @@ function StationXtermTerminalView({
         }
 
         const cancelScheduledTerminalFocus = () => {
-          const frameId = focusRetryFrameRef.current
-          if (frameId === null) {
-            return
-          }
+          cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
           focusRetryFrameRef.current = null
-          window.cancelAnimationFrame(frameId)
         }
         const terminalHasDomFocus = () => {
           const textarea = terminal.textarea
@@ -1001,25 +1015,33 @@ function StationXtermTerminalView({
           terminal.refresh(0, Math.max(0, terminal.rows - 1))
         }
         const scheduleRefresh = () => {
-          if (refreshFrameId !== null) {
+          if (refreshFrame !== null) {
             return
           }
-          refreshFrameId = window.requestAnimationFrame(() => {
-            refreshFrameId = null
-            refreshTerminal()
+          refreshFrame = scheduleStationTerminalRenderRefreshFrame({
+            scheduler: createStationTerminalFrameFlushScheduler(window),
+            fallbackDelayMs: TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+            run: () => {
+              refreshFrame = null
+              refreshTerminal()
+            },
           })
         }
         const scheduleRenderFallbackRefresh = (baselineRenderSeq: number) => {
           renderFallbackBaselineSeq = baselineRenderSeq
-          if (renderFallbackFrameId !== null) {
+          if (renderFallbackFrame !== null) {
             return
           }
-          renderFallbackFrameId = window.requestAnimationFrame(() => {
-            renderFallbackFrameId = null
-            if (!active || lastRenderEventSeqRef.current !== renderFallbackBaselineSeq) {
-              return
-            }
-            refreshTerminal()
+          renderFallbackFrame = scheduleStationTerminalRenderRefreshFrame({
+            scheduler: createStationTerminalFrameFlushScheduler(window),
+            fallbackDelayMs: TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+            run: () => {
+              renderFallbackFrame = null
+              if (!active || lastRenderEventSeqRef.current !== renderFallbackBaselineSeq) {
+                return
+              }
+              refreshTerminal()
+            },
           })
         }
         const requestTerminalFocus = (retryFrames = 8) => {
@@ -1055,10 +1077,14 @@ function StationXtermTerminalView({
               return
             }
             remainingFrames -= 1
-            focusRetryFrameRef.current = window.requestAnimationFrame(() => {
-              focusRetryFrameRef.current = null
-              attemptFocus()
-            })
+            focusRetryFrameRef.current = scheduleStationTerminalFrameFlush(
+              () => {
+                focusRetryFrameRef.current = null
+                attemptFocus()
+              },
+              createStationTerminalFrameFlushScheduler(window),
+              TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+            )
           }
           attemptFocus()
         }
@@ -1085,6 +1111,10 @@ function StationXtermTerminalView({
           if (performanceDebugEnabled) {
             return
           }
+          const currentSessionId = sessionIdRef.current?.trim() ?? ''
+          if (!currentSessionId) {
+            return
+          }
           try {
             serializedRestoreState = serializeAddon.serialize({
               scrollback: TERMINAL_SERIALIZE_SCROLLBACK_LINES,
@@ -1093,14 +1123,19 @@ function StationXtermTerminalView({
             })
             serializedRestoreCols = terminal.cols
             serializedRestoreRows = terminal.rows
+            serializedRestoreViewportY =
+              typeof terminal.buffer.active.viewportY === 'number'
+                ? terminal.buffer.active.viewportY
+                : null
             onRestoreStateCapturedRef.current?.(
               stationId,
               {
                 content: serializedRestoreState,
                 cols: serializedRestoreCols,
                 rows: serializedRestoreRows,
+                viewportY: serializedRestoreViewportY,
               },
-              sessionId ?? null,
+              currentSessionId,
             )
             lastSerializedAtMs = Date.now()
           } catch {
@@ -1108,8 +1143,14 @@ function StationXtermTerminalView({
           }
         }
         captureLatestRestoreState = captureSerializedRestoreState
+        const canScheduleRenderedScreenCapture = () =>
+          shouldScheduleRenderedScreenCapture({
+            performanceDebugEnabled,
+            isActive: isActiveRef.current,
+            hasRenderedScreenReporter: Boolean(onRenderedScreenSnapshotRef.current),
+          })
         const captureAndReportRenderedScreenSnapshot = () => {
-          if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
+          if (!canScheduleRenderedScreenCapture()) {
             return
           }
           const snapshot = captureRenderedScreenSnapshot()
@@ -1132,20 +1173,15 @@ function StationXtermTerminalView({
           lastReportAtMs = Date.now()
           onRenderedScreenSnapshotRef.current?.(stationId, snapshot)
         }
-        const runNextCaptureTask = () => {
-          captureTaskFrameId = null
+        const runTerminalCaptureTask = (task: TerminalCaptureTaskKind) => {
           if (!active) {
             pendingCaptureTasks.clear()
             return
           }
-          const task = takeNextTerminalCaptureTask(pendingCaptureTasks)
           if (task === 'screen') {
             captureAndReportRenderedScreenSnapshot()
           } else if (task === 'serialize') {
             captureSerializedRestoreState()
-          }
-          if (pendingCaptureTasks.size > 0) {
-            captureTaskFrameId = window.requestAnimationFrame(runNextCaptureTask)
           }
         }
         const queueTerminalCaptureTask = (task: TerminalCaptureTaskKind) => {
@@ -1153,10 +1189,21 @@ function StationXtermTerminalView({
             return
           }
           pendingCaptureTasks.add(task)
-          if (captureTaskFrameId !== null) {
+          if (captureTaskFrameDrain !== null) {
             return
           }
-          captureTaskFrameId = window.requestAnimationFrame(runNextCaptureTask)
+          captureTaskFrameDrain = scheduleTerminalCaptureTaskFrameDrain({
+            pending: pendingCaptureTasks,
+            scheduler: createStationTerminalFrameFlushScheduler(window),
+            fallbackDelayMs: TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+            shouldContinue: () => active,
+            runTask: (nextTask) => {
+              runTerminalCaptureTask(nextTask)
+              if (pendingCaptureTasks.size <= 0) {
+                captureTaskFrameDrain = null
+              }
+            },
+          })
         }
         const cancelScheduledIdleSerializedRestoreStateCapture = () => {
           const scheduled = serializeIdleHandle
@@ -1242,7 +1289,7 @@ function StationXtermTerminalView({
           }, delay)
         }
         const captureRenderedScreenSnapshot = (): RenderedScreenSnapshot | null => {
-          const activeSessionId = sessionId?.trim()
+          const activeSessionId = sessionIdRef.current?.trim()
           if (!activeSessionId) {
             return null
           }
@@ -1291,13 +1338,13 @@ function StationXtermTerminalView({
           }
         }
         const flushRenderedScreenSnapshot = () => {
-          if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
+          if (!canScheduleRenderedScreenCapture()) {
             return
           }
           queueTerminalCaptureTask('screen')
         }
         const scheduleRenderedScreenSnapshot = () => {
-          if (performanceDebugEnabled || !onRenderedScreenSnapshotRef.current) {
+          if (!canScheduleRenderedScreenCapture()) {
             return
           }
           const now = Date.now()
@@ -1331,6 +1378,23 @@ function StationXtermTerminalView({
             // No-op: texture atlas recovery is best effort.
           }
         }
+        const resolveRestoreViewportY = (viewportY?: number | null): number | null => {
+          if (typeof viewportY !== 'number' || !Number.isFinite(viewportY) || viewportY < 0) {
+            return null
+          }
+          return Math.floor(viewportY)
+        }
+        const applyPendingRestoreViewport = (clearAfterApply: boolean) => {
+          if (pendingRestoreViewportY === null) {
+            return false
+          }
+          const maxViewportY = Math.max(0, terminal.buffer.active.baseY)
+          terminal.scrollToLine(Math.min(pendingRestoreViewportY, maxViewportY))
+          if (clearAfterApply) {
+            pendingRestoreViewportY = null
+          }
+          return true
+        }
         const fitAndRefresh = () => {
           if (!active) {
             return false
@@ -1352,14 +1416,13 @@ function StationXtermTerminalView({
           if (!ensureTerminalMinSize()) {
             return false
           }
+          applyPendingRestoreViewport(true)
           refreshTerminal()
           return true
         }
         const cancelScheduledFitRetry = () => {
-          if (readyFitFrameId !== null) {
-            window.cancelAnimationFrame(readyFitFrameId)
-            readyFitFrameId = null
-          }
+          readyFitFrame?.cancel()
+          readyFitFrame = null
           if (readyFitTimeoutId !== null) {
             window.clearTimeout(readyFitTimeoutId)
             readyFitTimeoutId = null
@@ -1378,45 +1441,45 @@ function StationXtermTerminalView({
           const recoveryToken = rendererRecoveryTokenRef.current + 1
           rendererRecoveryTokenRef.current = recoveryToken
           const renderEventSeqAtSchedule = lastRenderEventSeqRef.current
-          let remainingFrames = TERMINAL_RENDERER_RECOVERY_FRAME_COUNT
-          const waitForFrames = () => {
-            if (!active || rendererRecoveryTokenRef.current !== recoveryToken) {
-              return
-            }
-            if (remainingFrames > 0) {
-              remainingFrames -= 1
-              rendererRecoveryFrameRef.current = window.requestAnimationFrame(waitForFrames)
-              return
-            }
-            rendererRecoveryFrameRef.current = null
-            rendererRecoveryTimerRef.current = window.setTimeout(() => {
-              rendererRecoveryTimerRef.current = null
+          rendererRecoveryFrameRef.current = scheduleStationTerminalRendererRecoveryFrameDrain(
+            () => {
+              rendererRecoveryFrameRef.current = null
               if (!active || rendererRecoveryTokenRef.current !== recoveryToken) {
                 return
               }
-              if (
-                !shouldRecycleStationTerminalRenderer({
-                  hasMeaningfulContent: bufferHasMeaningfulContent(terminal),
-                  hasSerializedRestoreState: Boolean(serializedRestoreState),
-                  renderEventSeqAtSchedule,
-                  currentRenderEventSeq: lastRenderEventSeqRef.current,
-                })
-              ) {
-                return
-              }
-              recycleTerminalRenderer(reason)
-            }, TERMINAL_RENDERER_RECOVERY_DELAY_MS)
-          }
-          rendererRecoveryFrameRef.current = window.requestAnimationFrame(waitForFrames)
+              rendererRecoveryTimerRef.current = window.setTimeout(() => {
+                rendererRecoveryTimerRef.current = null
+                if (!active || rendererRecoveryTokenRef.current !== recoveryToken) {
+                  return
+                }
+                if (
+                  !shouldRecycleStationTerminalRenderer({
+                    hasMeaningfulContent: bufferHasMeaningfulContent(terminal),
+                    hasSerializedRestoreState: Boolean(serializedRestoreState),
+                    renderEventSeqAtSchedule,
+                    currentRenderEventSeq: lastRenderEventSeqRef.current,
+                  })
+                ) {
+                  return
+                }
+                recycleTerminalRenderer(reason)
+              }, TERMINAL_RENDERER_RECOVERY_DELAY_MS)
+            },
+            {
+              frameCount: TERMINAL_RENDERER_RECOVERY_FRAME_COUNT,
+              scheduler: createStationTerminalFrameFlushScheduler(window),
+              fallbackDelayMs: TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+            },
+          )
         }
         const ensureFitWhenVisible = () => {
-          readyFitFrameId = null
+          readyFitFrame = null
           if (!active) {
             return
           }
           if (fitAndRefresh()) {
             markFitSettled()
-            onResizeRef.current(stationId, terminal.cols, terminal.rows)
+            reportTerminalResize(terminal.cols, terminal.rows)
             return
           }
           readyFitRetryCount += 1
@@ -1433,7 +1496,7 @@ function StationXtermTerminalView({
           scheduleFitRetry()
         }
         const scheduleFitRetry = (mode: 'frame' | 'backoff' = 'frame', delayMs = readyFitBackoffMs) => {
-          if (!active || readyFitFrameId !== null || readyFitTimeoutId !== null) {
+          if (!active || readyFitFrame !== null || readyFitTimeoutId !== null) {
             return
           }
           if (mode === 'backoff') {
@@ -1443,7 +1506,11 @@ function StationXtermTerminalView({
             }, delayMs)
             return
           }
-          readyFitFrameId = window.requestAnimationFrame(ensureFitWhenVisible)
+          readyFitFrame = scheduleStationTerminalFitRetryFrame({
+            scheduler: createStationTerminalFrameFlushScheduler(window),
+            fallbackDelayMs: TERMINAL_INTERACTION_FRAME_FALLBACK_MS,
+            run: ensureFitWhenVisible,
+          })
         }
         const hostDocument = resolveTerminalDocument(host, document)
         const hostWindow = hostDocument.defaultView ?? window
@@ -1455,24 +1522,27 @@ function StationXtermTerminalView({
           readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
           if (fitAndRefresh()) {
             markFitSettled()
-            onResizeRef.current(stationId, terminal.cols, terminal.rows)
+            reportTerminalResize(terminal.cols, terminal.rows)
             scheduleRendererRecoveryCheck(reason)
             return
           }
           scheduleFitRetry()
           scheduleRendererRecoveryCheck(`${reason}:retry`)
         }
-        const viewportWakeTimeoutIds = new Set<number>()
+        const viewportWakeTimeoutIdsByDelay = new Map<number, number>()
         const scheduleViewportWake = (reason: string) => {
           if (!active) {
             return
           }
           for (const delay of TERMINAL_VIEWPORT_WAKE_DELAYS_MS) {
+            if (viewportWakeTimeoutIdsByDelay.has(delay)) {
+              continue
+            }
             const timeoutId = hostWindow.setTimeout(() => {
-              viewportWakeTimeoutIds.delete(timeoutId)
+              viewportWakeTimeoutIdsByDelay.delete(delay)
               handleViewportWake(reason)
             }, delay)
-            viewportWakeTimeoutIds.add(timeoutId)
+            viewportWakeTimeoutIdsByDelay.set(delay, timeoutId)
           }
         }
         const handleVisibilityChange = () => {
@@ -1502,10 +1572,10 @@ function StationXtermTerminalView({
         hostDocument.addEventListener('transitionend', handleTransitionSettled, true)
         hostDocument.addEventListener('animationend', handleTransitionSettled, true)
         removeViewportWakeListeners = () => {
-          for (const timeoutId of viewportWakeTimeoutIds) {
+          for (const timeoutId of viewportWakeTimeoutIdsByDelay.values()) {
             hostWindow.clearTimeout(timeoutId)
           }
-          viewportWakeTimeoutIds.clear()
+          viewportWakeTimeoutIdsByDelay.clear()
           hostWindow.removeEventListener('resize', handleWindowWake)
           hostWindow.removeEventListener('focus', handleWindowWake)
           hostWindow.removeEventListener('pageshow', handlePageShow)
@@ -1571,7 +1641,12 @@ function StationXtermTerminalView({
           })
         }
         const submitFromXterm = () => {
-          if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
+          if (
+            !shouldAcceptStationTerminalLocalInput({
+              sessionId: sessionIdRef.current,
+              stateRaw: stateRawRef.current,
+            })
+          ) {
             return false
           }
           try {
@@ -1593,7 +1668,12 @@ function StationXtermTerminalView({
           if (replayGeneratedInputSuppressionDepth > 0) {
             return
           }
-          if (!shouldAcceptStationTerminalLocalInput(sessionId)) {
+          if (
+            !shouldAcceptStationTerminalLocalInput({
+              sessionId: sessionIdRef.current,
+              stateRaw: stateRawRef.current,
+            })
+          ) {
             return
           }
           if (isMacOsWebKitImeFallbackEnabled && pendingNativeTextInputRef?.current && pendingNativeTextInputXtermDataRef) {
@@ -1617,7 +1697,7 @@ function StationXtermTerminalView({
         })
         // Sync terminal size with backend PTY
         resizeDisposable = terminal.onResize(({ cols, rows }) => {
-          onResizeRef.current(stationId, cols, rows)
+          reportTerminalResize(cols, rows)
         })
         renderDisposable = terminal.onRender(() => {
           lastRenderEventSeqRef.current += 1
@@ -1668,6 +1748,7 @@ function StationXtermTerminalView({
             scheduleRenderedScreenSnapshot()
           },
           reset: async (content?: string) => {
+            pendingRestoreViewportY = null
             terminal.reset()
             if (content) {
               if (terminal.cols <= 0 || terminal.rows <= 0) {
@@ -1679,16 +1760,18 @@ function StationXtermTerminalView({
             }
             scheduleRefresh()
           },
-          restore: async (content: string, cols: number, rows: number) => {
+          restore: async (content: string, cols: number, rows: number, viewportY?: number | null) => {
             if (cols > 0 && rows > 0 && (terminal.cols !== cols || terminal.rows !== rows)) {
               terminal.resize(cols, rows)
             }
             terminal.reset()
             await writeReplayContent(content)
+            pendingRestoreViewportY = resolveRestoreViewportY(viewportY)
+            applyPendingRestoreViewport(false)
             scheduleRefresh()
             scheduleSerializedRestoreStateCapture('urgent')
             if (fitAndRefresh()) {
-              onResizeRef.current(stationId, terminal.cols, terminal.rows)
+              reportTerminalResize(terminal.cols, terminal.rows)
               return
             }
             scheduleFitRetry()
@@ -1720,10 +1803,11 @@ function StationXtermTerminalView({
       boundSinkRef.current = null
       onBindSink(stationId, null, {
         sourceSink: boundSink,
-        sourceSessionId: sessionId,
+        sourceSessionId: sessionIdRef.current,
         restoreState: serializedRestoreState,
         restoreCols: serializedRestoreCols,
         restoreRows: serializedRestoreRows,
+        restoreViewportY: serializedRestoreViewportY,
       })
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
@@ -1737,24 +1821,20 @@ function StationXtermTerminalView({
       viewportVisibilityObserver?.disconnect()
       ancestorVisibilityObserver?.disconnect()
       cancelScheduledRendererRecovery()
-      if (refreshFrameId !== null) {
-        window.cancelAnimationFrame(refreshFrameId)
-      }
-      if (renderFallbackFrameId !== null) {
-        window.cancelAnimationFrame(renderFallbackFrameId)
-      }
-      if (readyFitFrameId !== null) {
-        window.cancelAnimationFrame(readyFitFrameId)
-      }
+      refreshFrame?.cancel()
+      refreshFrame = null
+      renderFallbackFrame?.cancel()
+      renderFallbackFrame = null
+      readyFitFrame?.cancel()
+      readyFitFrame = null
       if (readyFitTimeoutId !== null) {
         window.clearTimeout(readyFitTimeoutId)
       }
       if (reportTimeoutId !== null) {
         window.clearTimeout(reportTimeoutId)
       }
-      if (captureTaskFrameId !== null) {
-        window.cancelAnimationFrame(captureTaskFrameId)
-      }
+      captureTaskFrameDrain?.cancel()
+      captureTaskFrameDrain = null
       pendingCaptureTasks.clear()
       if (serializeTimeoutId !== null) {
         window.clearTimeout(serializeTimeoutId)
@@ -1767,10 +1847,8 @@ function StationXtermTerminalView({
           window.clearTimeout(serializeIdleHandle.id)
         }
       }
-      if (focusRetryFrameRef.current !== null) {
-        window.cancelAnimationFrame(focusRetryFrameRef.current)
-        focusRetryFrameRef.current = null
-      }
+      cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
+      focusRetryFrameRef.current = null
       focusRuntimeReadyRef.current = false
       focusTerminalRequestRef.current = null
       terminalRef.current?.dispose()
@@ -1793,6 +1871,17 @@ function StationXtermTerminalView({
   useEffect(() => {
     scheduleTerminalAppearanceSync()
   }, [appearanceVersion, scheduleTerminalAppearanceSync, stationId])
+
+  const fileDropActiveStatus = fileDropLabel
+    ? t(locale, '松开以发送文件路径到终端: {label}', 'Release to send file path to terminal: {label}', {
+        label: fileDropLabel,
+      })
+    : t(locale, '松开以发送文件路径到终端', 'Release to send file path to terminal')
+  const fileDropPulseStatus = fileDropPulse
+    ? t(locale, '已发送文件路径到终端: {label}', 'Sent file path to terminal: {label}', {
+        label: fileDropPulse.label,
+      })
+    : null
 
   return (
     <div
@@ -1940,14 +2029,28 @@ function StationXtermTerminalView({
         forwardDeltaToGrid()
       }}
     >
-      <div className="station-terminal-drop-overlay" aria-hidden={!fileDropActive}>
+      <div
+        className="station-terminal-drop-overlay"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={fileDropActiveStatus}
+        aria-hidden={!fileDropActive}
+      >
         <div className="station-terminal-drop-pill">
           <span className="station-terminal-drop-marker" />
-          <span className="station-terminal-drop-label">{fileDropLabel ?? '…'}</span>
+          <span className="station-terminal-drop-label">{fileDropLabel ?? fileDropActiveStatus}</span>
         </div>
       </div>
       {fileDropPulse ? (
-        <div key={fileDropPulse.token} className="station-terminal-drop-pulse" aria-hidden="true">
+        <div
+          key={fileDropPulse.token}
+          className="station-terminal-drop-pulse"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-label={fileDropPulseStatus ?? undefined}
+        >
           <span className="station-terminal-drop-marker" />
           <span className="station-terminal-drop-label">{fileDropPulse.label}</span>
         </div>

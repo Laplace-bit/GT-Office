@@ -60,6 +60,7 @@ test('focus diagnostics keep only the newest events within the configured limit'
   const events = [
     {
       atMs: 100,
+      workspaceId: 'workspace-a',
       stationId: 'station-a',
       sessionId: 'session-a',
       kind: 'pointerdown',
@@ -67,6 +68,7 @@ test('focus diagnostics keep only the newest events within the configured limit'
     },
     {
       atMs: 200,
+      workspaceId: 'workspace-a',
       stationId: 'station-a',
       sessionId: 'session-a',
       kind: 'focus-request',
@@ -74,6 +76,7 @@ test('focus diagnostics keep only the newest events within the configured limit'
     },
     {
       atMs: 300,
+      workspaceId: 'workspace-a',
       stationId: 'station-a',
       sessionId: 'session-a',
       kind: 'focus-deferred',
@@ -113,6 +116,7 @@ test('records focus diagnostics locally and mirrors them into the system logger'
 
   await recordStationTerminalFocusDiagnostic({
     targetWindow: targetWindow as unknown as Window,
+    workspaceId: 'workspace-a',
     stationId: 'station-a',
     sessionId: 'session-a',
     kind: 'pointerdown',
@@ -123,8 +127,10 @@ test('records focus diagnostics locally and mirrors them into the system logger'
   })
 
   assert.equal(mirrored.length, 1)
+  assert.equal(mirrored[0]?.workspaceId, 'workspace-a')
   assert.equal(mirrored[0]?.kind, 'pointerdown')
   assert.equal(targetWindow.readStoredEvents().length, 1)
+  assert.equal(targetWindow.readStoredEvents()[0]?.workspaceId, 'workspace-a')
   assert.equal(targetWindow.readStoredEvents()[0]?.stationId, 'station-a')
 })
 
@@ -133,6 +139,7 @@ test('keeps local diagnostics even when the system logger append fails', async (
 
   await recordStationTerminalFocusDiagnostic({
     targetWindow: targetWindow as unknown as Window,
+    workspaceId: 'workspace-a',
     stationId: 'station-a',
     sessionId: 'session-a',
     kind: 'focus-error',
@@ -151,6 +158,7 @@ test('records viewport wake diagnostics for renderer recovery events', async () 
 
   await recordStationTerminalFocusDiagnostic({
     targetWindow: targetWindow as unknown as Window,
+    workspaceId: 'workspace-codex',
     stationId: 'station-codex',
     sessionId: 'session-codex',
     kind: 'viewport-wake',
@@ -160,6 +168,7 @@ test('records viewport wake diagnostics for renderer recovery events', async () 
   assert.equal(targetWindow.readStoredEvents().length, 1)
   assert.deepEqual(targetWindow.readStoredEvents()[0], {
     atMs: targetWindow.readStoredEvents()[0].atMs,
+    workspaceId: 'workspace-codex',
     stationId: 'station-codex',
     sessionId: 'session-codex',
     kind: 'viewport-wake',

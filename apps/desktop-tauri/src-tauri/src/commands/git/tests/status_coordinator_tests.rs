@@ -1,4 +1,4 @@
-use super::{is_not_git_repository_error, GitStatusSnapshot};
+use crate::commands::git::status_coordinator::{is_not_git_repository_error, GitStatusSnapshot};
 use gt_abstractions::{GitRepositorySummary, GitStatusFile, GitStatusSummary};
 
 fn sample_summary() -> GitStatusSummary {

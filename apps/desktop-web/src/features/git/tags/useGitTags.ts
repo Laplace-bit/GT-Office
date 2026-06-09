@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { desktopApi } from '@shell/integration/desktop-api'
 import type { GitTagEntry } from '@shell/integration/desktop-api'
 
@@ -10,15 +10,34 @@ export function useGitTags(
 ) {
   const [tags, setTags] = useState<GitTagEntry[]>([])
   const [loading, setLoading] = useState(false)
+  const refreshSeqRef = useRef(0)
+  const scopeRef = useRef({ workspaceId, repositoryPath })
+  scopeRef.current = { workspaceId, repositoryPath }
 
   const refresh = useCallback(async () => {
-    if (!enabled || !workspaceId || !isGitRepository) return
+    if (!enabled || !workspaceId || !isGitRepository) {
+      refreshSeqRef.current += 1
+      return
+    }
+    const requestWorkspaceId = workspaceId
+    const requestRepositoryPath = repositoryPath
+    const seq = refreshSeqRef.current + 1
+    refreshSeqRef.current = seq
+    const shouldApply = () =>
+      refreshSeqRef.current === seq &&
+      scopeRef.current.workspaceId === requestWorkspaceId &&
+      scopeRef.current.repositoryPath === requestRepositoryPath
     setLoading(true)
     try {
-      const result = await desktopApi.gitTagList(workspaceId, repositoryPath)
+      const result = await desktopApi.gitTagList(requestWorkspaceId, requestRepositoryPath)
+      if (!shouldApply()) {
+        return
+      }
       setTags(result.entries)
     } finally {
-      setLoading(false)
+      if (shouldApply()) {
+        setLoading(false)
+      }
     }
   }, [enabled, isGitRepository, repositoryPath, workspaceId])
 
@@ -33,7 +52,9 @@ export function useGitTags(
     if (enabled && workspaceId && isGitRepository) {
       return
     }
+    refreshSeqRef.current += 1
     setTags([])
+    setLoading(false)
   }, [enabled, isGitRepository, repositoryPath, workspaceId])
 
   const createTag = useCallback(async (name: string, target: string, annotated: boolean, message?: string) => {

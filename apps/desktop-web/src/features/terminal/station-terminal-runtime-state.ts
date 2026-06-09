@@ -35,12 +35,19 @@ export function shouldAutoLaunchStationTerminalFromSurface(
   return !runtime?.sessionId && !shouldRenderStationTerminal(runtime)
 }
 
-export function shouldForwardStationTerminalInput(sessionId: string | null | undefined): boolean {
-  return Boolean(sessionId)
+export function shouldForwardStationTerminalInput(
+  target: StationTerminalRuntimeStateLike | string | null | undefined,
+): boolean {
+  if (typeof target === 'string') {
+    return target.length > 0
+  }
+  return isStationTerminalRuntimeLive(target)
 }
 
-export function shouldAcceptStationTerminalLocalInput(sessionId: string | null | undefined): boolean {
-  return Boolean(sessionId)
+export function shouldAcceptStationTerminalLocalInput(
+  target: StationTerminalRuntimeStateLike | string | null | undefined,
+): boolean {
+  return shouldForwardStationTerminalInput(target)
 }
 
 export function isStationTerminalFocusReportInput(input: string | null | undefined): boolean {
@@ -89,6 +96,47 @@ export function buildSessionBindingRuntimePatch(
   return {
     sessionId: sessionId ?? null,
   }
+}
+
+function hasOwnRuntimePatchKey(
+  patch: Partial<StationTerminalRuntimeShape> | null | undefined,
+  key: keyof StationTerminalRuntimeShape,
+): boolean {
+  return Boolean(patch && Object.prototype.hasOwnProperty.call(patch, key))
+}
+
+export function doesStationTerminalRuntimePatchChangeState(
+  runtime: StationTerminalRuntimeShape | null | undefined,
+  patch: Partial<StationTerminalRuntimeShape> | null | undefined,
+): boolean {
+  if (!patch) {
+    return false
+  }
+  if (!runtime) {
+    return Object.keys(patch).length > 0
+  }
+  if (hasOwnRuntimePatchKey(patch, 'sessionId') && (patch.sessionId ?? null) !== (runtime.sessionId ?? null)) {
+    return true
+  }
+  if (hasOwnRuntimePatchKey(patch, 'stateRaw') && (patch.stateRaw ?? 'idle') !== runtime.stateRaw) {
+    return true
+  }
+  if (hasOwnRuntimePatchKey(patch, 'unreadCount') && (patch.unreadCount ?? 0) !== runtime.unreadCount) {
+    return true
+  }
+  if (hasOwnRuntimePatchKey(patch, 'shell') && (patch.shell ?? null) !== (runtime.shell ?? null)) {
+    return true
+  }
+  if (
+    hasOwnRuntimePatchKey(patch, 'cwdMode') &&
+    (patch.cwdMode === 'custom' ? 'custom' : 'workspace_root') !== runtime.cwdMode
+  ) {
+    return true
+  }
+  if (hasOwnRuntimePatchKey(patch, 'resolvedCwd') && (patch.resolvedCwd ?? null) !== (runtime.resolvedCwd ?? null)) {
+    return true
+  }
+  return false
 }
 
 export function resolveNextPendingLaunchCommand(
@@ -329,6 +377,31 @@ export function shouldApplyRecoveredStationOutput(
   sessionId: string | null | undefined,
 ): boolean {
   return (runtime?.sessionId ?? null) === (sessionId ?? null)
+}
+
+export function resolveTerminalOutputSequenceAction(
+  payloadSeq: number,
+  currentSeq: number | null | undefined,
+): 'stale' | 'append' | 'recover' {
+  const normalizedCurrentSeq = Math.max(0, Math.floor(currentSeq ?? 0))
+  if (payloadSeq <= normalizedCurrentSeq) {
+    return 'stale'
+  }
+  if (payloadSeq === normalizedCurrentSeq + 1) {
+    return 'append'
+  }
+  return 'recover'
+}
+
+export function shouldReplayStationTerminalSinkBinding(input: {
+  previousSink: unknown | null | undefined
+  nextSink: unknown | null | undefined
+  hasPendingReplay: boolean
+}): boolean {
+  if (!input.nextSink) {
+    return false
+  }
+  return input.previousSink !== input.nextSink || input.hasPendingReplay
 }
 
 export function shouldApplyStationSessionLaunchFailure(

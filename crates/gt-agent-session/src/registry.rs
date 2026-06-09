@@ -113,6 +113,26 @@ impl SessionRegistry {
         Ok(row)
     }
 
+    pub fn get_for_workspace(
+        &self,
+        workspace_id: &str,
+        gto_session_id: &str,
+    ) -> SessionResult<Option<GtoSession>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| SessionError::Storage(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT gto_session_id, workspace_id, agent_id, station_id, provider, provider_session_id, provider_log_path, terminal_session_id, lifecycle, title, cwd, started_at_ms, ended_at_ms, last_activity_at_ms, created_at_ms, updated_at_ms FROM gto_sessions WHERE gto_session_id = ?1 AND workspace_id = ?2"
+        )?;
+        let row = stmt
+            .query_row(params![gto_session_id, workspace_id], |row| {
+                Ok(row_to_session(row))
+            })
+            .optional()?;
+        Ok(row)
+    }
+
     pub fn list_by_workspace(
         &self,
         workspace_id: &str,
@@ -189,6 +209,19 @@ impl SessionRegistry {
         Ok(Some(SessionDetail { session, stats }))
     }
 
+    pub fn get_detail_for_workspace(
+        &self,
+        workspace_id: &str,
+        gto_session_id: &str,
+    ) -> SessionResult<Option<SessionDetail>> {
+        let session = self.get_for_workspace(workspace_id, gto_session_id)?;
+        let Some(session) = session else {
+            return Ok(None);
+        };
+        let stats = self.get_stats(gto_session_id)?;
+        Ok(Some(SessionDetail { session, stats }))
+    }
+
     pub fn update_lifecycle(
         &self,
         gto_session_id: &str,
@@ -212,6 +245,37 @@ impl SessionRegistry {
         Ok(())
     }
 
+    pub fn update_lifecycle_for_workspace(
+        &self,
+        workspace_id: &str,
+        gto_session_id: &str,
+        lifecycle: Lifecycle,
+        terminal_session_id: Option<&str>,
+    ) -> SessionResult<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| SessionError::Storage(e.to_string()))?;
+        let now = now_ms();
+        let ended_at_ms: Option<u64> = if lifecycle == Lifecycle::Stopped {
+            Some(now)
+        } else {
+            None
+        };
+        let changed = conn.execute(
+            "UPDATE gto_sessions SET lifecycle = ?1, terminal_session_id = ?2, ended_at_ms = ?3, updated_at_ms = ?4 WHERE gto_session_id = ?5 AND workspace_id = ?6",
+            params![
+                lifecycle.as_str(),
+                terminal_session_id,
+                ended_at_ms,
+                now,
+                gto_session_id,
+                workspace_id
+            ],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn update_title(&self, gto_session_id: &str, title: &str) -> SessionResult<()> {
         let conn = self
             .conn
@@ -222,6 +286,23 @@ impl SessionRegistry {
             params![title, now_ms(), gto_session_id],
         )?;
         Ok(())
+    }
+
+    pub fn update_title_for_workspace(
+        &self,
+        workspace_id: &str,
+        gto_session_id: &str,
+        title: &str,
+    ) -> SessionResult<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| SessionError::Storage(e.to_string()))?;
+        let changed = conn.execute(
+            "UPDATE gto_sessions SET title = ?1, updated_at_ms = ?2 WHERE gto_session_id = ?3 AND workspace_id = ?4",
+            params![title, now_ms(), gto_session_id, workspace_id],
+        )?;
+        Ok(changed > 0)
     }
 
     pub fn update_stats(&self, stats: &SessionStats) -> SessionResult<()> {
@@ -455,21 +536,22 @@ impl SessionRegistry {
 
     pub fn resume_bind(
         &self,
+        workspace_id: &str,
         gto_session_id: &str,
         terminal_session_id: &str,
         station_id: &str,
         agent_id: &str,
-    ) -> SessionResult<()> {
+    ) -> SessionResult<bool> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| SessionError::Storage(e.to_string()))?;
         let now = now_ms();
-        conn.execute(
-            "UPDATE gto_sessions SET lifecycle = 'live', terminal_session_id = ?1, station_id = ?2, agent_id = ?3, ended_at_ms = NULL, last_activity_at_ms = ?4, updated_at_ms = ?4 WHERE gto_session_id = ?5",
-            params![terminal_session_id, station_id, agent_id, now, gto_session_id],
+        let changed = conn.execute(
+            "UPDATE gto_sessions SET lifecycle = 'live', terminal_session_id = ?1, station_id = ?2, agent_id = ?3, ended_at_ms = NULL, last_activity_at_ms = ?4, updated_at_ms = ?4 WHERE gto_session_id = ?5 AND workspace_id = ?6",
+            params![terminal_session_id, station_id, agent_id, now, gto_session_id, workspace_id],
         )?;
-        Ok(())
+        Ok(changed > 0)
     }
 
     pub fn finalize_stopped_stats(&self, gto_session_id: &str) -> SessionResult<()> {
@@ -759,6 +841,55 @@ mod tests {
     }
 
     #[test]
+    fn test_resume_bind_requires_workspace_match() {
+        let r = temp_registry();
+        r.insert(&make_session(
+            "s1",
+            "ws1",
+            Provider::Claude,
+            Lifecycle::Stopped,
+        ))
+        .unwrap();
+
+        let rebound = r
+            .resume_bind("ws2", "s1", "term-new", "station-2", "agent-2")
+            .unwrap();
+
+        assert!(!rebound);
+        let session = r.get("s1").unwrap().unwrap();
+        assert_eq!(session.lifecycle, Lifecycle::Stopped);
+        assert_eq!(session.terminal_session_id, None);
+        assert_eq!(session.workspace_id, "ws1");
+        assert_eq!(session.station_id, "station-1");
+        assert_eq!(session.agent_id, "agent-1");
+    }
+
+    #[test]
+    fn test_resume_bind_updates_matching_workspace_session() {
+        let r = temp_registry();
+        r.insert(&make_session(
+            "s1",
+            "ws1",
+            Provider::Claude,
+            Lifecycle::Stopped,
+        ))
+        .unwrap();
+
+        let rebound = r
+            .resume_bind("ws1", "s1", "term-new", "station-2", "agent-2")
+            .unwrap();
+
+        assert!(rebound);
+        let session = r.get("s1").unwrap().unwrap();
+        assert_eq!(session.lifecycle, Lifecycle::Live);
+        assert_eq!(session.terminal_session_id.as_deref(), Some("term-new"));
+        assert_eq!(session.workspace_id, "ws1");
+        assert_eq!(session.station_id, "station-2");
+        assert_eq!(session.agent_id, "agent-2");
+        assert!(session.ended_at_ms.is_none());
+    }
+
+    #[test]
     fn test_mark_all_live_stopped() {
         let r = temp_registry();
         r.insert(&make_session(
@@ -859,6 +990,48 @@ mod tests {
     }
 
     #[test]
+    fn test_get_detail_for_workspace_requires_workspace_match() {
+        let r = temp_registry();
+        r.insert(&make_session(
+            "s1",
+            "ws1",
+            Provider::Claude,
+            Lifecycle::Stopped,
+        ))
+        .unwrap();
+
+        assert!(r.get_detail_for_workspace("ws2", "s1").unwrap().is_none());
+        let detail = r.get_detail_for_workspace("ws1", "s1").unwrap().unwrap();
+        assert_eq!(detail.session.workspace_id, "ws1");
+    }
+
+    #[test]
+    fn test_update_lifecycle_for_workspace_requires_workspace_match() {
+        let r = temp_registry();
+        r.insert(&make_session(
+            "s1",
+            "ws1",
+            Provider::Claude,
+            Lifecycle::Live,
+        ))
+        .unwrap();
+
+        let changed = r
+            .update_lifecycle_for_workspace("ws2", "s1", Lifecycle::Stopped, None)
+            .unwrap();
+
+        assert!(!changed);
+        assert_eq!(r.get("s1").unwrap().unwrap().lifecycle, Lifecycle::Live);
+
+        let changed = r
+            .update_lifecycle_for_workspace("ws1", "s1", Lifecycle::Stopped, None)
+            .unwrap();
+
+        assert!(changed);
+        assert_eq!(r.get("s1").unwrap().unwrap().lifecycle, Lifecycle::Stopped);
+    }
+
+    #[test]
     fn test_update_title() {
         let r = temp_registry();
         r.insert(&make_session(
@@ -869,6 +1042,38 @@ mod tests {
         ))
         .unwrap();
         r.update_title("s1", "new title").unwrap();
+        assert_eq!(
+            r.get("s1").unwrap().unwrap().title.as_deref(),
+            Some("new title")
+        );
+    }
+
+    #[test]
+    fn test_update_title_for_workspace_requires_workspace_match() {
+        let r = temp_registry();
+        r.insert(&make_session(
+            "s1",
+            "ws1",
+            Provider::Claude,
+            Lifecycle::Live,
+        ))
+        .unwrap();
+
+        let changed = r
+            .update_title_for_workspace("ws2", "s1", "wrong workspace")
+            .unwrap();
+
+        assert!(!changed);
+        assert_eq!(
+            r.get("s1").unwrap().unwrap().title.as_deref(),
+            Some("test session")
+        );
+
+        let changed = r
+            .update_title_for_workspace("ws1", "s1", "new title")
+            .unwrap();
+
+        assert!(changed);
         assert_eq!(
             r.get("s1").unwrap().unwrap().title.as_deref(),
             Some("new title")

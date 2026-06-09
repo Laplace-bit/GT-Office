@@ -7,6 +7,9 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  font-family: var(--vb-font-ui);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .session-history-list-header {
@@ -54,19 +57,30 @@
   color: color-mix(in srgb, var(--vb-accent) 76%, white 24%);
   font-size: 0.625rem;
   font-weight: 650;
-  cursor: pointer;
   transition:
-    border-color 180ms var(--vb-ease-smooth),
-    background 180ms var(--vb-ease-smooth);
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
 
   &:hover:not(:disabled) {
     border-color: color-mix(in srgb, var(--vb-accent) 36%, transparent);
     background: color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+    background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
+
   &:disabled {
     opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .vb-icon {
@@ -86,20 +100,31 @@
   color: var(--vb-text-muted);
   font-size: 0.625rem;
   font-weight: 650;
-  cursor: pointer;
   transition:
-    border-color 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth),
-    background 180ms var(--vb-ease-smooth);
+    border-color 140ms ease,
+    color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
 
   &:hover {
     border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
     color: var(--vb-accent);
   }
 
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+    background: color-mix(in srgb, var(--vb-accent) 8%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 46%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 12%, transparent);
+  }
+
   &:disabled {
     opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .vb-icon {
@@ -152,14 +177,24 @@
   border: 0.0625rem solid color-mix(in srgb, var(--vb-border-subtle) 72%, transparent);
   background: color-mix(in srgb, var(--vb-glass-lighter) 60%, transparent);
   transition:
-    border-color 180ms var(--vb-ease-smooth),
-    background 180ms var(--vb-ease-smooth),
-    box-shadow 180ms var(--vb-ease-smooth);
+    border-color 140ms ease,
+    background 140ms ease;
 
   &:hover {
     border-color: color-mix(in srgb, var(--vb-accent) 18%, var(--vb-border-subtle));
     background: color-mix(in srgb, var(--vb-glass-lighter) 80%, transparent);
-    box-shadow: 0 0.0625rem 0.25rem color-mix(in srgb, var(--vb-accent) 6%, transparent);
+  }
+
+  &.is-active {
+    border-color: color-mix(in srgb, var(--vb-accent) 32%, var(--vb-border-subtle));
+    background: color-mix(in srgb, var(--vb-accent) 9%, var(--vb-glass-lighter));
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 46%, transparent),
+      0 0 0 0.1875rem color-mix(in srgb, var(--vb-accent) 12%, transparent);
   }
 }
 
@@ -246,21 +281,41 @@
   color: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
   font-size: 0.5625rem;
   font-weight: 700;
-  cursor: pointer;
   transition:
-    border-color 180ms var(--vb-ease-smooth),
-    background 180ms var(--vb-ease-smooth),
-    transform 180ms var(--vb-ease-smooth);
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
 
   &:hover {
-    transform: translateY(-0.03125rem);
     border-color: color-mix(in srgb, var(--vb-accent) 40%, transparent);
     background: color-mix(in srgb, var(--vb-accent) 16%, transparent);
+  }
+
+  &:active {
+    transform: scale(0.98);
+    background: color-mix(in srgb, var(--vb-accent) 20%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 48%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 12%, transparent);
   }
 
   .vb-icon {
     width: 0.6875rem;
     height: 0.6875rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-history-quick-btn,
+  .session-history-discover-btn,
+  .session-history-card,
+  .session-history-card-resume,
+  .session-history-card-fork {
+    transition: none !important;
   }
 }
 

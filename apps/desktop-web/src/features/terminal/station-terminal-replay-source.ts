@@ -2,6 +2,7 @@ export interface StationTerminalReplayRestoreState {
   content: string
   cols: number
   rows: number
+  viewportY?: number | null
 }
 
 export type StationTerminalReplaySource =
@@ -26,13 +27,25 @@ function measureVisibleLength(text: string): number {
   return stripAnsiSequences(text).length
 }
 
+function isValidRestoreState(restoreState: StationTerminalReplayRestoreState): boolean {
+  if (measureVisibleLength(restoreState.content) === 0) {
+    return false
+  }
+  return (
+    Number.isFinite(restoreState.cols) &&
+    Number.isFinite(restoreState.rows) &&
+    restoreState.cols > 0 &&
+    restoreState.rows > 0
+  )
+}
+
 export function selectStationTerminalReplaySource(input: {
   cachedContent: string
   restoreState: StationTerminalReplayRestoreState | null
 }): StationTerminalReplaySource {
   const cachedContent = input.cachedContent
   const restoreState = input.restoreState
-  if (!restoreState) {
+  if (!restoreState || !isValidRestoreState(restoreState)) {
     return {
       kind: 'cache',
       content: cachedContent,

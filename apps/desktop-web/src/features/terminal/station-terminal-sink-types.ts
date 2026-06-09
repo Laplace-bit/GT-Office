@@ -1,7 +1,7 @@
 export interface StationTerminalSink {
   write: (chunk: string) => Promise<void>
   reset: (content?: string) => Promise<void>
-  restore: (content: string, cols: number, rows: number) => Promise<void>
+  restore: (content: string, cols: number, rows: number, viewportY?: number | null) => Promise<void>
   focus: () => void
   submit: () => boolean
 }
@@ -12,6 +12,7 @@ export interface StationTerminalSinkBindingMeta {
   restoreState?: string | null
   restoreCols?: number
   restoreRows?: number
+  restoreViewportY?: number | null
   restorePriority?: 'active' | 'background'
 }
 

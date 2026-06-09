@@ -9,7 +9,7 @@
   -webkit-backdrop-filter: blur(rem(24)) saturate(120%);
   display: grid;
   place-items: center;
-  animation: vb-close-dialog-backdrop-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: vb-close-dialog-backdrop-in 140ms var(--vb-ease-out) both;
 }
 
 @keyframes vb-close-dialog-backdrop-in {
@@ -24,7 +24,7 @@
 @keyframes vb-close-dialog-modal-in {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.98);
   }
   to {
     opacity: 1;
@@ -35,13 +35,13 @@
 .workspace-close-dialog {
   width: clamp(#{rem(340)}, 60vw, #{rem(440)});
   background: color-mix(in srgb, var(--vb-surface) 85%, transparent);
-  backdrop-filter: blur(rem(40)) saturate(180%);
-  -webkit-backdrop-filter: blur(rem(40)) saturate(180%);
+  backdrop-filter: blur(rem(28)) saturate(160%);
+  -webkit-backdrop-filter: blur(rem(28)) saturate(160%);
   border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 50%, transparent);
   border-radius: var(--vb-radius-xl);
   box-shadow: var(--vb-shadow-lg);
   padding: rem(24);
-  animation: vb-close-dialog-modal-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: vb-close-dialog-modal-in 180ms var(--vb-ease-out) both;
   outline: none;
 }
 
@@ -131,7 +131,6 @@
   font-size: rem(13);
   font-weight: 500;
   line-height: 1.3;
-  cursor: pointer;
   transition:
     background 0.15s ease,
     color 0.15s ease,
@@ -146,7 +145,6 @@
 
   &:disabled {
     opacity: 0.5;
-    cursor: not-allowed;
     transform: none;
   }
 }
@@ -168,10 +166,10 @@
 
 .workspace-close-dialog-btn-danger {
   background: var(--vb-error);
-  color: #fff;
+  color: var(--vb-color-white, white);
 
   &:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--vb-error) 85%, #fff);
+    background: color-mix(in srgb, var(--vb-error) 85%, white);
     box-shadow: 0 rem(2) rem(8) color-mix(in srgb, var(--vb-error) 30%, transparent);
   }
 
@@ -182,14 +180,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .workspace-close-dialog-backdrop {
-    animation-duration: 0.01ms !important;
+    animation: none !important;
   }
 
   .workspace-close-dialog {
-    animation-duration: 0.01ms !important;
+    animation: none !important;
   }
 
   .workspace-close-dialog-btn {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
   }
 }

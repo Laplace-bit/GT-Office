@@ -111,7 +111,10 @@ fn emit_git_remote_operation(
     );
 }
 
-fn build_git_status_payload(workspace_id: &WorkspaceId, summary: &GitStatusSummary) -> Value {
+pub(crate) fn build_git_status_payload(
+    workspace_id: &WorkspaceId,
+    summary: &GitStatusSummary,
+) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "primaryRepositoryPath": summary.primary_repository_path,
@@ -123,7 +126,7 @@ fn build_git_status_payload(workspace_id: &WorkspaceId, summary: &GitStatusSumma
     })
 }
 
-fn build_git_diff_payload(workspace_id: &WorkspaceId, path: &str, patch: &str) -> Value {
+pub(crate) fn build_git_diff_payload(workspace_id: &WorkspaceId, path: &str, patch: &str) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "path": path,
@@ -131,35 +134,41 @@ fn build_git_diff_payload(workspace_id: &WorkspaceId, path: &str, patch: &str) -
     })
 }
 
-fn build_git_stage_payload(workspace_id: &WorkspaceId, staged: usize) -> Value {
+pub(crate) fn build_git_stage_payload(workspace_id: &WorkspaceId, staged: usize) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "staged": staged
     })
 }
 
-fn build_git_unstage_payload(workspace_id: &WorkspaceId, unstaged: usize) -> Value {
+pub(crate) fn build_git_unstage_payload(workspace_id: &WorkspaceId, unstaged: usize) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "unstaged": unstaged
     })
 }
 
-fn build_git_discard_payload(workspace_id: &WorkspaceId, discarded: usize) -> Value {
+pub(crate) fn build_git_discard_payload(workspace_id: &WorkspaceId, discarded: usize) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "discarded": discarded
     })
 }
 
-fn build_git_log_payload(workspace_id: &WorkspaceId, entries: Vec<GitCommitEntry>) -> Value {
+pub(crate) fn build_git_log_payload(
+    workspace_id: &WorkspaceId,
+    entries: Vec<GitCommitEntry>,
+) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "entries": entries
     })
 }
 
-fn build_git_commit_detail_payload(workspace_id: &WorkspaceId, detail: GitCommitDetail) -> Value {
+pub(crate) fn build_git_commit_detail_payload(
+    workspace_id: &WorkspaceId,
+    detail: GitCommitDetail,
+) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "commit": detail.commit,
@@ -175,21 +184,30 @@ fn build_git_commit_detail_payload(workspace_id: &WorkspaceId, detail: GitCommit
     })
 }
 
-fn build_git_branches_payload(workspace_id: &WorkspaceId, branches: Vec<GitBranchEntry>) -> Value {
+pub(crate) fn build_git_branches_payload(
+    workspace_id: &WorkspaceId,
+    branches: Vec<GitBranchEntry>,
+) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "branches": branches
     })
 }
 
-fn build_git_stash_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitStashEntry>) -> Value {
+pub(crate) fn build_git_stash_list_payload(
+    workspace_id: &WorkspaceId,
+    entries: Vec<GitStashEntry>,
+) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "entries": entries
     })
 }
 
-fn build_git_tag_list_payload(workspace_id: &WorkspaceId, entries: Vec<GitTagEntry>) -> Value {
+pub(crate) fn build_git_tag_list_payload(
+    workspace_id: &WorkspaceId,
+    entries: Vec<GitTagEntry>,
+) -> Value {
     json!({
         "workspaceId": workspace_id.as_str(),
         "entries": entries
@@ -1549,7 +1567,3 @@ pub async fn git_unstage_hunk(
         .refresh_immediate(&app, state.inner(), &workspace_id);
     Ok(json!({ "ok": true }))
 }
-
-#[cfg(test)]
-#[path = "../tests/git_tests.rs"]
-mod tests;

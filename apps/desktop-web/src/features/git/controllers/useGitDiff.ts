@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   desktopApi,
   type GitDiffStructuredResponse,
@@ -43,23 +43,62 @@ export function useGitDiff({
   const [diffLoading, setDiffLoading] = useState(false)
 
   const { diffCacheRef, pendingPreloadsRef, diffSeqRef, preloadTimerRef } = cacheRefs
+  const activeDiffScopeRef = useRef({
+    workspaceId,
+    repositoryPath,
+    selectedPath,
+    selectedDiffScope,
+  })
+  activeDiffScopeRef.current = {
+    workspaceId,
+    repositoryPath,
+    selectedPath,
+    selectedDiffScope,
+  }
+
+  const isCurrentDiffRequest = useCallback(
+    (
+      requestWorkspaceId: string | null,
+      requestRepositoryPath: string | null,
+      requestPath: string | null,
+      requestScope: GitDiffScope,
+    ) => {
+      const current = activeDiffScopeRef.current
+      return (
+        current.workspaceId === requestWorkspaceId &&
+        current.repositoryPath === requestRepositoryPath &&
+        current.selectedPath === requestPath &&
+        current.selectedDiffScope === requestScope
+      )
+    },
+    [],
+  )
 
   // Diff fetch effect with cache logic
   useEffect(() => {
     if (!workspaceId || !isGitRepository || !selectedPath) {
+      diffSeqRef.current += 1
       setStructuredDiff(null)
+      setDiffLoading(false)
       return undefined
     }
 
+    const requestWorkspaceId = workspaceId
+    const requestRepositoryPath = repositoryPath
+    const requestPath = selectedPath
+    const requestScope = selectedDiffScope
+
     // Check cache first for instant loading
-    const cacheKey = `${workspaceId}:${repositoryPath ?? ''}:${selectedPath}:${selectedDiffScope}`
+    const cacheKey = `${requestWorkspaceId}:${requestRepositoryPath ?? ''}:${requestPath}:${requestScope}`
     const cached = diffCacheRef.current.get(cacheKey)
     if (cached) {
+      diffSeqRef.current += 1
       // Move to end of map for LRU behavior
       diffCacheRef.current.delete(cacheKey)
       diffCacheRef.current.set(cacheKey, cached)
       setStructuredDiff(cached)
       setShowDiffView(true)
+      setDiffLoading(false)
       // No loading state needed - instant
       return undefined
     }
@@ -71,13 +110,16 @@ export function useGitDiff({
     // Use high-performance structured diff API
     void desktopApi
       .gitDiffFileStructured(
-        workspaceId,
-        selectedPath,
-        selectedDiffScope === 'staged',
-        repositoryPath,
+        requestWorkspaceId,
+        requestPath,
+        requestScope === 'staged',
+        requestRepositoryPath,
       )
       .then((response) => {
-        if (diffSeqRef.current !== seq) {
+        if (
+          diffSeqRef.current !== seq ||
+          !isCurrentDiffRequest(requestWorkspaceId, requestRepositoryPath, requestPath, requestScope)
+        ) {
           return
         }
 
@@ -94,26 +136,46 @@ export function useGitDiff({
         setShowDiffView(true)
       })
       .catch(() => {
-        if (diffSeqRef.current !== seq) {
+        if (
+          diffSeqRef.current !== seq ||
+          !isCurrentDiffRequest(requestWorkspaceId, requestRepositoryPath, requestPath, requestScope)
+        ) {
           return
         }
         setStructuredDiff(null)
       })
       .finally(() => {
-        if (diffSeqRef.current === seq) {
+        if (
+          diffSeqRef.current === seq &&
+          isCurrentDiffRequest(requestWorkspaceId, requestRepositoryPath, requestPath, requestScope)
+        ) {
           setDiffLoading(false)
         }
       })
 
     return undefined
-  }, [diffCacheRef, diffSeqRef, isGitRepository, repositoryPath, selectedDiffScope, selectedPath, summaryFiles, workspaceId])
+  }, [
+    diffCacheRef,
+    diffSeqRef,
+    isCurrentDiffRequest,
+    isGitRepository,
+    repositoryPath,
+    selectedDiffScope,
+    selectedPath,
+    summaryFiles,
+    workspaceId,
+  ])
 
   // Preload diff for hover preview with debounce to avoid flooding background workers.
   const preloadDiff = useCallback(
     (path: string, scope: GitDiffScope = 'unstaged') => {
       if (!workspaceId || !isGitRepository || !path) return
 
-      const cacheKey = `${workspaceId}:${repositoryPath ?? ''}:${path}:${scope}`
+      const requestWorkspaceId = workspaceId
+      const requestRepositoryPath = repositoryPath
+      const requestPath = path
+      const requestScope = scope
+      const cacheKey = `${requestWorkspaceId}:${requestRepositoryPath ?? ''}:${requestPath}:${requestScope}`
       // Skip if already cached or pending
       if (diffCacheRef.current.has(cacheKey) || pendingPreloadsRef.current.has(cacheKey)) return
 
@@ -124,8 +186,19 @@ export function useGitDiff({
       preloadTimerRef.current = window.setTimeout(() => {
         pendingPreloadsRef.current.add(cacheKey)
         void desktopApi
-          .gitDiffFileStructured(workspaceId, path, scope === 'staged', repositoryPath)
+          .gitDiffFileStructured(
+            requestWorkspaceId,
+            requestPath,
+            requestScope === 'staged',
+            requestRepositoryPath,
+          )
           .then((response) => {
+            if (
+              activeDiffScopeRef.current.workspaceId !== requestWorkspaceId ||
+              activeDiffScopeRef.current.repositoryPath !== requestRepositoryPath
+            ) {
+              return
+            }
             const cache = diffCacheRef.current
             if (cache.size >= DIFF_CACHE_SIZE) {
               const firstKey = cache.keys().next().value

@@ -14,10 +14,10 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   padding: 0;
   overflow: hidden;
   position: relative;
-  --workspace-switch-crossfade-duration: 420ms;
-  --workspace-switch-crossfade-exit-duration: 240ms;
-  --workspace-switch-slide-duration: 460ms;
-  --workspace-switch-slide-exit-duration: 260ms;
+  --workspace-switch-crossfade-duration: 160ms;
+  --workspace-switch-crossfade-exit-duration: 120ms;
+  --workspace-switch-slide-duration: 170ms;
+  --workspace-switch-slide-exit-duration: 120ms;
   --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
   --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration);
   --workspace-switch-ease: #{$workspace-switch-ease};
@@ -526,7 +526,11 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   position: relative;
   z-index: 20;
   touch-action: none;
-  transition: background-color 0.2s ease;
+  transition: background-color 150ms var(--vb-ease-smooth);
+
+  &:focus {
+    outline: none;
+  }
 
   &::before {
     content: '';
@@ -542,8 +546,15 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   }
 
   &:hover::before,
+  &:focus-visible::before,
   &.active::before {
     background: var(--vb-accent-muted);
+  }
+
+  &:focus-visible::before {
+    width: #{rem(3)};
+    background: color-mix(in srgb, var(--vb-accent) 72%, var(--vb-accent-muted));
+    box-shadow: 0 0 0 #{rem(3)} color-mix(in srgb, var(--vb-accent) 18%, transparent);
   }
 
   &.active::before {
@@ -634,13 +645,18 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 @media (prefers-reduced-motion: reduce) {
   .shell-main-layout,
   .shell-status-wrapper {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
     transform: none !important;
   }
 
   .shell-main-layout::after,
   .shell-status-wrapper::after {
     opacity: 0 !important;
+    transition: none !important;
+  }
+
+  .shell-column-resizer,
+  .shell-column-resizer::before {
     transition: none !important;
   }
 }

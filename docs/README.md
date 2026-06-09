@@ -5,6 +5,7 @@ Technical documentation for the GT Office project.
 ## Architecture
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture, monorepo layout, and data flow
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) — Native-feel quality target for the CLI agent and terminal console
 
 ## Development
 

@@ -14,6 +14,9 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   overflow: visible;
+  font-family: var(--vb-font-ui);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .station-action-dock-shell {
@@ -66,22 +69,24 @@
   background: color-mix(in srgb, var(--vb-surface) 90%, transparent);
   color: var(--vb-text);
   white-space: nowrap;
-  cursor: pointer;
   transition:
-    transform 160ms var(--vb-ease-smooth),
-    border-color 160ms var(--vb-ease-smooth),
-    background 160ms var(--vb-ease-smooth),
-    color 160ms var(--vb-ease-smooth);
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
 
   &:hover {
-    transform: translateY(rem(-1));
     border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
     background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
   }
 
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
+  }
+
   &:focus-visible {
     outline: none;
-    transform: translateY(rem(-1));
     border-color: color-mix(in srgb, var(--vb-accent) 42%, transparent);
     box-shadow:
       0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 42%, transparent),
@@ -89,7 +94,6 @@
   }
 
   &:disabled {
-    cursor: not-allowed;
     opacity: 0.42;
     transform: none;
     background: color-mix(in srgb, var(--vb-surface) 76%, transparent);
@@ -118,7 +122,7 @@
   max-width: rem(120);
   font-size: rem(10);
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .station-action-dock.is-compact {
@@ -153,11 +157,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .station-action-dock-button {
-    transition: none;
+    transition: none !important;
   }
 
   .station-action-dock-button:hover,
   .station-action-dock-button:focus-visible {
-    transform: none;
+    transform: none !important;
   }
 }

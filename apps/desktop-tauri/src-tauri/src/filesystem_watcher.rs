@@ -55,9 +55,9 @@ struct PendingWatchEvents {
 }
 
 impl WorkspaceWatcherRegistry {
-    pub fn ensure_workspace(
+    pub fn ensure_workspace<R: tauri::Runtime>(
         &self,
-        app: &AppHandle,
+        app: &AppHandle<R>,
         workspace_id: &str,
         root: &Path,
         settings: FilesystemWatcherSettings,
@@ -134,8 +134,8 @@ impl WorkspaceWatcherRegistry {
     }
 }
 
-fn spawn_watch_batcher(
-    app: AppHandle,
+fn spawn_watch_batcher<R: tauri::Runtime>(
+    app: AppHandle<R>,
     workspace_id: String,
     root: PathBuf,
     settings: FilesystemWatcherSettings,
@@ -212,8 +212,8 @@ fn accumulate_watch_batch_message(
     }
 }
 
-fn flush_pending_watch_events(
-    app: &AppHandle,
+fn flush_pending_watch_events<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     workspace_id: &str,
     pending: &mut PendingWatchEvents,
 ) {

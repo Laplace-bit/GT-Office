@@ -1,9 +1,9 @@
-use super::{
+use crate::app_state::{RenderedScreenSnapshot, RenderedScreenSnapshotRow};
+use crate::terminal_debug::dev_log::{
     build_frontend_focus_log_entry, build_rendered_screen_parsed_log_entry,
     build_rendered_screen_raw_log_entry, should_write_terminal_debug_log_for_build,
     TerminalDebugLogKind,
 };
-use crate::app_state::{RenderedScreenSnapshot, RenderedScreenSnapshotRow};
 use crate::terminal_debug::human_log::TerminalDebugHumanEntry;
 use gt_task::AgentToolKind;
 
@@ -103,17 +103,18 @@ fn parsed_log_entry_renders_none_or_human_entries() {
 #[test]
 fn frontend_focus_log_entry_uses_defaults_for_optional_fields() {
     assert_eq!(
-        build_frontend_focus_log_entry(42, "station-1", None, "focus", None),
-        "[atMs=42] [station=station-1] [session=none] [kind=focus]\n[none]\n\n"
+        build_frontend_focus_log_entry(42, None, "station-1", None, "focus", None),
+        "[atMs=42] [workspace=none] [station=station-1] [session=none] [kind=focus]\n[none]\n\n"
     );
     assert_eq!(
         build_frontend_focus_log_entry(
             43,
+            Some("workspace-2"),
             "station-2",
             Some("session-2"),
             "blur",
             Some("lost focus")
         ),
-        "[atMs=43] [station=station-2] [session=session-2] [kind=blur]\nlost focus\n\n"
+        "[atMs=43] [workspace=workspace-2] [station=station-2] [session=session-2] [kind=blur]\nlost focus\n\n"
     );
 }

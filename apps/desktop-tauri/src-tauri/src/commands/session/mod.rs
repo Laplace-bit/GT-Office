@@ -4,7 +4,7 @@ use gt_agent_session::{
 use gt_changefeed::{GitStatusSnapshot, SessionActivityEvent};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
@@ -12,7 +12,7 @@ use crate::app_state::AppState;
 
 static DISCOVERY_CACHE: Mutex<Option<HashMap<String, DiscoveryCache>>> = Mutex::new(None);
 
-fn discovery_cache_key(workspace_id: &str, provider: Option<Provider>) -> String {
+pub(crate) fn discovery_cache_key(workspace_id: &str, provider: Option<Provider>) -> String {
     match provider {
         Some(provider) => format!("{workspace_id}:{}", provider.as_str()),
         None => workspace_id.to_string(),
@@ -28,11 +28,62 @@ fn parse_provider(provider: Option<String>) -> Result<Option<Provider>, String> 
     }
 }
 
-fn home_dir() -> PathBuf {
+pub(crate) fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"))
+}
+
+fn normalize_existing_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+pub(crate) fn resolve_workspace_session_cwd_path(
+    workspace_root: &Path,
+    cwd: &str,
+) -> Result<PathBuf, String> {
+    let normalized_workspace_root = normalize_existing_path(workspace_root);
+    let cwd = cwd.trim();
+    if cwd.is_empty() {
+        return Err("SESSION_CWD_INVALID: cwd is required".to_string());
+    }
+    let raw_cwd = Path::new(cwd);
+    let candidate = if raw_cwd.is_absolute() {
+        raw_cwd.to_path_buf()
+    } else {
+        normalized_workspace_root.join(raw_cwd)
+    };
+    let metadata = candidate.metadata().map_err(|error| {
+        format!(
+            "SESSION_CWD_INVALID: cwd '{}' is not accessible: {error}",
+            candidate.display()
+        )
+    })?;
+    if !metadata.is_dir() {
+        return Err(format!(
+            "SESSION_CWD_INVALID: cwd '{}' must be a directory",
+            candidate.display()
+        ));
+    }
+    let normalized_candidate = normalize_existing_path(&candidate);
+    if !normalized_candidate.starts_with(&normalized_workspace_root) {
+        return Err(format!(
+            "SESSION_CWD_OUTSIDE_WORKSPACE: cwd '{}' is outside workspace '{}'",
+            normalized_candidate.display(),
+            normalized_workspace_root.display()
+        ));
+    }
+    Ok(normalized_candidate)
+}
+
+fn resolve_workspace_session_cwd(
+    state: &AppState,
+    workspace_id: &str,
+    cwd: &str,
+) -> Result<PathBuf, String> {
+    let workspace_root = state.workspace_root_path(workspace_id)?;
+    resolve_workspace_session_cwd_path(&workspace_root, cwd)
 }
 
 #[tauri::command]
@@ -67,6 +118,7 @@ pub fn session_discover(
 ) -> Result<Value, String> {
     let provider = parse_provider(provider)?;
     let force = force.unwrap_or(false);
+    let resolved_cwd = resolve_workspace_session_cwd(state.inner(), &workspace_id, &cwd)?;
     let scanner = ProviderScanner::new(home_dir());
     let cache_key = discovery_cache_key(&workspace_id, provider);
     let mut cache_guard = DISCOVERY_CACHE
@@ -81,7 +133,7 @@ pub fn session_discover(
         &scanner,
         cache,
         &workspace_id,
-        PathBuf::from(&cwd).as_path(),
+        resolved_cwd.as_path(),
         provider,
         force,
     )
@@ -94,10 +146,14 @@ pub fn session_discover(
 }
 
 #[tauri::command]
-pub fn session_get(gto_session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
+pub fn session_get(
+    workspace_id: String,
+    gto_session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
     let detail = state
         .session_registry
-        .get_detail(&gto_session_id)
+        .get_detail_for_workspace(&workspace_id, &gto_session_id)
         .map_err(|e| e.to_string())?;
     match detail {
         Some(d) => Ok(json!({ "session": d.session, "stats": d.stats })),
@@ -106,11 +162,23 @@ pub fn session_get(gto_session_id: String, state: State<'_, AppState>) -> Result
 }
 
 #[tauri::command]
-pub fn session_end(gto_session_id: String, state: State<'_, AppState>) -> Result<Value, String> {
-    state
+pub fn session_end(
+    workspace_id: String,
+    gto_session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let updated = state
         .session_registry
-        .update_lifecycle(&gto_session_id, gt_agent_session::Lifecycle::Stopped, None)
+        .update_lifecycle_for_workspace(
+            &workspace_id,
+            &gto_session_id,
+            gt_agent_session::Lifecycle::Stopped,
+            None,
+        )
         .map_err(|e| e.to_string())?;
+    if !updated {
+        return Err("SESSION_END_NOT_FOUND".to_string());
+    }
     state
         .session_registry
         .finalize_stopped_stats(&gto_session_id)
@@ -130,6 +198,7 @@ pub fn session_launch(
 ) -> Result<Value, String> {
     let provider = Provider::from_str_opt(&provider)
         .ok_or_else(|| format!("unsupported provider: {provider}"))?;
+    let resolved_cwd = resolve_workspace_session_cwd(state.inner(), &workspace_id, &cwd)?;
     let gto_session_id = state
         .session_registry
         .launch_session(
@@ -137,7 +206,7 @@ pub fn session_launch(
             &station_id,
             &agent_id,
             provider,
-            &cwd,
+            resolved_cwd.to_string_lossy().as_ref(),
             terminal_session_id.as_deref(),
         )
         .map_err(|e| e.to_string())?;
@@ -146,26 +215,32 @@ pub fn session_launch(
 
 #[tauri::command]
 pub fn session_resume_bind(
+    workspace_id: String,
     gto_session_id: String,
     terminal_session_id: String,
     station_id: String,
     agent_id: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
+    let rebound = state
         .session_registry
         .resume_bind(
+            &workspace_id,
             &gto_session_id,
             &terminal_session_id,
             &station_id,
             &agent_id,
         )
         .map_err(|e| e.to_string())?;
+    if !rebound {
+        return Err("SESSION_RESUME_BIND_NOT_FOUND".to_string());
+    }
     Ok(json!({ "ok": true }))
 }
 
 #[tauri::command]
 pub fn session_resume_check(
+    workspace_id: Option<String>,
     gto_session_id: Option<String>,
     relaunch_mode: Option<String>,
     expected_provider: Option<String>,
@@ -183,12 +258,19 @@ pub fn session_resume_check(
     );
 
     if needs_session {
+        let Some(workspace_id) = workspace_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        else {
+            return Ok(json!({ "check": "not_found" }));
+        };
         let Some(gto_session_id) = gto_session_id.filter(|id| !id.trim().is_empty()) else {
             return Ok(json!({ "check": "not_found" }));
         };
         let session = state
             .session_registry
-            .get(&gto_session_id)
+            .get_for_workspace(workspace_id, &gto_session_id)
             .map_err(|e| e.to_string())?;
         let Some(session) = session else {
             return Ok(json!({ "check": "not_found" }));
@@ -219,14 +301,18 @@ pub fn session_resume_check(
 
 #[tauri::command]
 pub fn session_update_title(
+    workspace_id: String,
     gto_session_id: String,
     title: String,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    state
+    let updated = state
         .session_registry
-        .update_title(&gto_session_id, &title)
+        .update_title_for_workspace(&workspace_id, &gto_session_id, &title)
         .map_err(|e| e.to_string())?;
+    if !updated {
+        return Err("SESSION_UPDATE_TITLE_NOT_FOUND".to_string());
+    }
     Ok(json!({ "ok": true }))
 }
 
@@ -282,79 +368,5 @@ pub fn session_changefeed_push(
         Ok(json!({ "emitted": true }))
     } else {
         Ok(json!({ "emitted": false }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gt_changefeed::{SessionActivityKind, SessionChangeFeed};
-
-    #[test]
-    fn test_changefeed_query_empty() {
-        let feed = SessionChangeFeed::new();
-        assert!(feed.last_snapshot("ws1").is_none());
-    }
-
-    #[test]
-    fn test_changefeed_process_update() {
-        let mut feed = SessionChangeFeed::new();
-        let snapshot = GitStatusSnapshot {
-            workspace_id: "ws1".to_string(),
-            available: true,
-            branch: "main".to_string(),
-            dirty: false,
-            ahead: 0,
-            behind: 0,
-            staged_files: 0,
-            unstaged_files: 0,
-            untracked_files: 0,
-            revision: 1,
-        };
-        let items = feed.on_git_updated(&snapshot);
-        assert!(items.is_empty());
-        assert!(feed.last_snapshot("ws1").is_some());
-    }
-
-    #[test]
-    fn test_changefeed_branch_switch() {
-        let mut feed = SessionChangeFeed::new();
-        feed.on_git_updated(&GitStatusSnapshot {
-            workspace_id: "ws1".to_string(),
-            available: true,
-            branch: "main".to_string(),
-            dirty: false,
-            ahead: 0,
-            behind: 0,
-            staged_files: 0,
-            unstaged_files: 0,
-            untracked_files: 0,
-            revision: 1,
-        });
-        let items = feed.on_git_updated(&GitStatusSnapshot {
-            workspace_id: "ws1".to_string(),
-            available: true,
-            branch: "feature".to_string(),
-            dirty: false,
-            ahead: 2,
-            behind: 0,
-            staged_files: 0,
-            unstaged_files: 0,
-            untracked_files: 0,
-            revision: 2,
-        });
-        assert_eq!(items.len(), 2);
-        assert!(items
-            .iter()
-            .any(|i| i.kind == SessionActivityKind::BranchSwitched));
-        assert!(items
-            .iter()
-            .any(|i| i.kind == SessionActivityKind::NewCommits));
-    }
-
-    #[test]
-    fn test_home_dir_returns_path() {
-        let path = home_dir();
-        assert!(!path.as_os_str().is_empty());
     }
 }

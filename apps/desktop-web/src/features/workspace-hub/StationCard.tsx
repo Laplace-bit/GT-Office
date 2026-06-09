@@ -8,6 +8,7 @@ import {
   handleStationCardPrimaryLaunch,
   resolveStationCardLaunchIcon,
   resolveStationCardLaunchState,
+  resolveStationCardStatusMeta,
 } from './station-card-header-model'
 import { StationActionDock } from './StationActionDock'
 import { resolveStationActions } from './station-action-registry'
@@ -22,6 +23,11 @@ import {
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
+import { createStationTerminalFrameFlushScheduler } from '@features/terminal/station-terminal-frame-flush-scheduler'
+import {
+  scheduleStationTerminalFocusRetryFrame,
+  type StationTerminalFocusRetryFrame,
+} from '@features/terminal/station-terminal-focus-runtime'
 import { recordStationTerminalFocusDiagnostic } from '@features/terminal/station-terminal-focus-diagnostics'
 import {
   didStationTerminalRenderabilityChange,
@@ -41,6 +47,7 @@ import { STATION_MOTION } from './station-motion-spec'
 import './StationCard.scss'
 
 const TERMINAL_FOCUS_MAX_RETRY_FRAMES = 4
+const TERMINAL_FOCUS_RETRY_FRAME_FALLBACK_MS = 48
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
 
@@ -192,7 +199,7 @@ function StationCardView({
   const rootRef = useRef<HTMLElement | null>(null)
   const terminalSinkRef = useRef<StationTerminalSink | null>(null)
   const pendingTerminalFocusRef = useRef(false)
-  const terminalFocusFrameRef = useRef<number | null>(null)
+  const terminalFocusRetryFrameRef = useRef<StationTerminalFocusRetryFrame | null>(null)
   const terminalFocusRetryBudgetRef = useRef(0)
   const activeRef = useRef(active)
   const [compactLayout, setCompactLayout] = useState(false)
@@ -204,22 +211,23 @@ function StationCardView({
       }
       void recordStationTerminalFocusDiagnostic({
         targetWindow: window,
+        workspaceId,
         stationId: station.id,
         sessionId: runtime?.sessionId ?? null,
         kind,
         detail,
       })
     },
-    [runtime?.sessionId, station.id],
+    [runtime?.sessionId, station.id, workspaceId],
   )
 
   const cancelScheduledTerminalFocus = useCallback(() => {
-    const frameId = terminalFocusFrameRef.current
-    if (frameId === null) {
+    const retryFrame = terminalFocusRetryFrameRef.current
+    if (retryFrame === null) {
       return
     }
-    terminalFocusFrameRef.current = null
-    window.cancelAnimationFrame(frameId)
+    terminalFocusRetryFrameRef.current = null
+    retryFrame.cancel()
   }, [])
 
   const terminalHasDomFocus = useCallback(() => {
@@ -254,14 +262,18 @@ function StationCardView({
         return
       }
 
-      if (terminalFocusFrameRef.current !== null) {
+      if (terminalFocusRetryFrameRef.current !== null) {
         return
       }
 
       terminalFocusRetryBudgetRef.current -= 1
-      terminalFocusFrameRef.current = window.requestAnimationFrame(() => {
-        terminalFocusFrameRef.current = null
-        retryFocus()
+      terminalFocusRetryFrameRef.current = scheduleStationTerminalFocusRetryFrame({
+        scheduler: createStationTerminalFrameFlushScheduler(window),
+        fallbackDelayMs: TERMINAL_FOCUS_RETRY_FRAME_FALLBACK_MS,
+        retry: () => {
+          terminalFocusRetryFrameRef.current = null
+          retryFocus()
+        },
       })
     },
     [cancelScheduledTerminalFocus, terminalHasDomFocus],
@@ -348,6 +360,18 @@ function StationCardView({
     sessionId: runtime?.sessionId ?? null,
     stateRaw: runtime?.stateRaw ?? null,
     agentRunning: agentRunningForDisplay,
+  })
+  const statusMeta = resolveStationCardStatusMeta({
+    sessionId: runtime?.sessionId ?? null,
+    stateRaw: runtime?.stateRaw ?? null,
+    stationState: station.state,
+  })
+  const statusLabel = t(locale, statusMeta.labelKey)
+  const statusDescription = t(locale, statusMeta.descriptionKey)
+  const statusTitle = t(locale, '{agent}：{status}。{detail}', '{agent}: {status}. {detail}', {
+    agent: station.name,
+    status: statusLabel,
+    detail: statusDescription,
   })
   const launchIcon = resolveStationCardLaunchIcon(launchState)
   const primaryLaunchButtonLabel =
@@ -515,6 +539,15 @@ function StationCardView({
                 </span>
               ))}
             </div>
+            <span
+              className={['station-runtime-status', `is-${statusMeta.tone}`].join(' ')}
+              title={statusTitle}
+              aria-label={statusTitle}
+              data-status-key={statusMeta.key}
+            >
+              <span className="station-runtime-status-dot" aria-hidden="true" />
+              <span className="station-runtime-status-label">{statusLabel}</span>
+            </span>
           </div>
         </div>
         <div className="station-window-header-actions">
@@ -666,8 +699,11 @@ function StationCardView({
       {shouldRenderTerminal ? (
         <>
           <StationXtermTerminal
+            locale={locale}
+            workspaceId={workspaceId}
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
+            stateRaw={runtime?.stateRaw ?? null}
             isActive={active}
             appearanceVersion={appearanceVersion}
             performanceDebugEnabled={performanceDebugEnabled}

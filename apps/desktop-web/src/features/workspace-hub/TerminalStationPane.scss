@@ -11,6 +11,7 @@
   overflow: hidden;
   isolation: isolate;
   container-type: inline-size;
+  font-family: var(--vb-font-ui);
 }
 
 .terminal-station-pane-meta {
@@ -28,9 +29,22 @@
     linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 92%, transparent), transparent),
     color-mix(in srgb, var(--vb-surface) 72%, transparent);
   text-align: left;
-  cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
+  user-select: none;
+  -webkit-user-select: none;
+
+  &:hover {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 96%, transparent), transparent),
+      color-mix(in srgb, var(--vb-surface) 78%, transparent);
+  }
+
+  &:active {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 84%, transparent), transparent),
+      color-mix(in srgb, var(--vb-surface) 64%, transparent);
+  }
 
   &:focus-visible {
     outline: none;
@@ -55,12 +69,29 @@
 }
 
 .terminal-station-pane-title {
+  appearance: none;
+  -webkit-appearance: none;
   display: flex;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
   flex: 1 1 auto;
   flex-wrap: wrap;
+  margin: 0;
+  padding: 0.125rem 0.25rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
 
   strong {
     flex: 1 1 auto;
@@ -72,7 +103,7 @@
     font-size: 0.8125rem;
     font-weight: 700;
     color: var(--vb-text);
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 
   span {
@@ -88,6 +119,7 @@
 .terminal-station-pane-chip {
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
   max-width: 100%;
   min-height: 1.125rem;
   padding: 0 0.38rem;
@@ -99,21 +131,58 @@
   font-weight: 600;
   white-space: nowrap;
 
-  &.live {
+  &.is-live {
     color: color-mix(in srgb, var(--vb-success) 82%, white 18%);
     border-color: color-mix(in srgb, var(--vb-success) 26%, transparent);
     background: color-mix(in srgb, var(--vb-success) 10%, transparent);
   }
 
-  &.idle {
-    color: color-mix(in srgb, var(--vb-warning) 82%, white 18%);
-    border-color: color-mix(in srgb, var(--vb-warning) 26%, transparent);
-    background: color-mix(in srgb, var(--vb-warning) 10%, transparent);
+  &.is-busy {
+    color: color-mix(in srgb, var(--vb-accent) 76%, white 24%);
+    border-color: color-mix(in srgb, var(--vb-accent) 24%, transparent);
+    background: color-mix(in srgb, var(--vb-accent) 8%, transparent);
+  }
+
+  &.is-waiting {
+    color: color-mix(in srgb, var(--vb-warning) 74%, white 26%);
+    border-color: color-mix(in srgb, var(--vb-warning) 24%, transparent);
+    background: color-mix(in srgb, var(--vb-warning) 8%, transparent);
+  }
+
+  &.is-blocked {
+    color: color-mix(in srgb, var(--vb-error) 76%, white 24%);
+    border-color: color-mix(in srgb, var(--vb-error) 34%, transparent);
+    background: color-mix(in srgb, var(--vb-error) 9%, transparent);
+  }
+
+  &.is-error {
+    color: color-mix(in srgb, var(--vb-error) 82%, white 18%);
+    border-color: color-mix(in srgb, var(--vb-error) 30%, transparent);
+    background: color-mix(in srgb, var(--vb-error) 10%, transparent);
   }
 
   &.muted {
     opacity: 0.88;
   }
+}
+
+.terminal-station-pane-chip.is-blocked .terminal-station-pane-chip-dot,
+.terminal-station-pane-chip.is-error .terminal-station-pane-chip-dot {
+  box-shadow: 0 0 0 0.125rem color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.terminal-station-pane-chip-dot {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  flex: 0 0 auto;
+  border-radius: 999rem;
+  background: currentColor;
+}
+
+.terminal-station-pane-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .terminal-station-pane-comet {
@@ -135,14 +204,19 @@
   border-radius: 0.5rem;
   background: transparent;
   color: var(--vb-text-muted);
-  cursor: pointer;
   transition:
-    background 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth);
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
 
   &:hover {
     background: color-mix(in srgb, var(--vb-danger) 12%, transparent);
     color: color-mix(in srgb, var(--vb-danger) 82%, white 18%);
+  }
+
+  &:active {
+    transform: scale(0.94);
+    background: color-mix(in srgb, var(--vb-danger) 18%, transparent);
   }
 
   &:focus-visible {
@@ -172,14 +246,19 @@
   border-radius: 0.5rem;
   background: transparent;
   color: color-mix(in srgb, var(--vb-accent) 72%, white 28%);
-  cursor: pointer;
   transition:
-    background 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth);
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
 
   &:hover {
     background: color-mix(in srgb, var(--vb-accent) 12%, transparent);
     color: color-mix(in srgb, var(--vb-accent) 86%, white 14%);
+  }
+
+  &:active {
+    transform: scale(0.94);
+    background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
   }
 
   &:focus-visible {
@@ -211,8 +290,8 @@
   position: relative;
   z-index: 1;
   border-top: 0.0625rem solid color-mix(in srgb, var(--vb-terminal-border) 88%, transparent);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: inset 0 0.0625rem 0 rgba(255, 255, 255, 0.06);
+  background: var(--vb-terminal-shell-bg);
+  box-shadow: inset 0 0.0625rem 0 var(--vb-terminal-shell-shadow);
 }
 
 .terminal-station-pane :where(.station-terminal-host) {
@@ -255,6 +334,8 @@
   justify-content: flex-end;
   gap: 0.75rem;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .terminal-station-pane-idle-button {
@@ -271,26 +352,29 @@
   color: var(--vb-text);
   font-size: 0.75rem;
   font-weight: 650;
-  cursor: pointer;
   transition:
-    transform 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth),
-    background 180ms var(--vb-ease-smooth),
-    border-color 180ms var(--vb-ease-smooth),
-    text-shadow 180ms var(--vb-ease-smooth);
+    transform 140ms ease,
+    color 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease;
 
   &:hover {
-    transform: translateY(-0.0625rem);
     color: color-mix(in srgb, var(--vb-text) 94%, white 6%);
     border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
     background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
-    text-shadow: 0 0.0625rem 0.625rem color-mix(in srgb, var(--vb-accent) 18%, transparent);
+  }
+
+  &:active {
+    transform: scale(0.98);
+    background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
   }
 
   &:focus-visible {
     outline: none;
     color: var(--vb-text);
-    text-shadow: 0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 40%, transparent);
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 50%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
   }
 
   &.primary {
@@ -316,6 +400,8 @@
   border: 0.0625rem solid var(--vb-border-strong);
   background: var(--vb-surface-elevated);
   box-shadow: var(--vb-shadow-lg);
+  user-select: none;
+  -webkit-user-select: none;
 
   strong {
     display: block;
@@ -372,4 +458,19 @@
     }
   }
 
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-station-pane-meta,
+  .terminal-station-pane-force-close,
+  .terminal-station-pane-launch-terminal,
+  .terminal-station-pane-idle-button {
+    transition: none !important;
+  }
+
+  .terminal-station-pane-force-close:active,
+  .terminal-station-pane-launch-terminal:active,
+  .terminal-station-pane-idle-button:active {
+    transform: none;
+  }
 }

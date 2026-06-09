@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-const TERMINAL_DEBUG_HUMAN_LOG_LIMIT: usize = 160;
+pub(super) const TERMINAL_DEBUG_HUMAN_LOG_LIMIT: usize = 160;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -73,13 +73,13 @@ impl TerminalDebugHumanLogState {
     }
 }
 
-fn looks_incomplete(text: &str) -> bool {
+pub(super) fn looks_incomplete(text: &str) -> bool {
     !text
         .trim_end()
         .ends_with(['.', '!', '?', '。', '！', '？', ')'])
 }
 
-fn merge_human_reply_text(previous: &str, next: &str) -> Option<String> {
+pub(super) fn merge_human_reply_text(previous: &str, next: &str) -> Option<String> {
     if previous == next {
         return Some(previous.to_string());
     }
@@ -94,7 +94,3 @@ fn merge_human_reply_text(previous: &str, next: &str) -> Option<String> {
     }
     None
 }
-
-#[cfg(test)]
-#[path = "tests/human_log_tests.rs"]
-mod tests;

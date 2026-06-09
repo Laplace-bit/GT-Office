@@ -23,6 +23,7 @@ import {
   buildSessionBindingRuntimePatch,
   captureMatchingSessionOwnedRestoreState,
   captureSessionOwnedRestoreState,
+  doesStationTerminalRuntimePatchChangeState,
   createBufferedStationInputController,
   ensureSingleFlightStationSession,
   resolveStationSessionRebindCleanup,
@@ -32,6 +33,8 @@ import {
   resolveDroppedStationRuntimeCleanup,
   resolveDroppedStationSessionCleanup,
   resolveStationRuntimeRegistrationCleanup,
+  resolveTerminalOutputSequenceAction,
+  shouldReplayStationTerminalSinkBinding,
   shouldPreferSessionOwnedRestoreState,
   selectStationTerminalReplaySource,
   isStationTerminalFocusReportInput,
@@ -41,9 +44,23 @@ import {
   shouldApplyStationToolLaunchResult,
   shouldForwardStationTerminalInput,
   shouldMatchDetachedBridgeSession,
+  appendStationTerminalPendingReplayOp,
+  compactStationTerminalPendingReplayOps,
+  drainStationTerminalPendingReplayOps,
+  buildStationTerminalCachedOutputQueueKey,
+  queueStationTerminalCachedOutputAppend,
+  cancelStationTerminalFrameFlush,
+  createStationTerminalFrameFlushScheduler,
+  focusStationTerminalSinkWithFrameRetry,
   queueStationTerminalOutputFlush,
+  normalizeStationTerminalResizeDimensions,
+  scheduleStationTerminalFrameFlush,
+  shouldReportRenderedScreenSnapshot,
+  submitStationTerminalWithFrameRetry,
+  STATION_TERMINAL_OUTPUT_FLUSH_ACTIVE_CHAR_LIMIT,
   takeStationTerminalOutputFlushFrameEntries,
   takeStationTerminalOutputFlushEntries,
+  waitForStationTerminalFrameFlush,
   type BufferedStationInputController,
   type SessionOwnedRestoreState,
   type TerminalChunkDecoder,
@@ -51,6 +68,9 @@ import {
   type StationTerminalSink,
   type StationTerminalSinkBindingHandler,
   type StationTerminalOutputFlushQueue,
+  type StationTerminalPendingReplay,
+  type StationTerminalCachedOutputAppendQueue,
+  type StationTerminalFrameFlushHandle,
 } from '@features/terminal/runtime'
 import {
   recordStationTerminalFocusDiagnostic,
@@ -75,8 +95,12 @@ import {
   createEmptyWorkbenchStationRuntime,
   DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
   composeStationActionCommand,
+  normalizeDetachedTerminalUnreadDelta,
+  queueDetachedTerminalOutputAppendDraft,
   stripDetachedTerminalRuntimeProjectionPatch,
+  takeDetachedTerminalOutputAppendDrafts,
   type AgentStation,
+  type DetachedTerminalOutputAppendDraft,
   type DetachedTerminalRuntimeProjectionPatch,
   type StationActionDescriptor,
   type UpdateStationInput,
@@ -90,7 +114,6 @@ import {
   type RenderedScreenSnapshot,
   type DetachedTerminalBridgeMessage,
   type DetachedTerminalHydrateSnapshotMessage,
-  type DetachedTerminalOutputAppendMessage,
   type DetachedTerminalOutputResetMessage,
   type DetachedTerminalRuntimeUpdatedMessage,
   type TerminalDescribeProcessesResponse,
@@ -132,6 +155,36 @@ const BACKGROUND_TERMINAL_REPLAY_TIMEOUT_MS = 900
 const BACKGROUND_TERMINAL_REPLAY_FALLBACK_DELAY_MS = 80
 const BACKGROUND_TERMINAL_OUTPUT_FLUSH_DELAY_MS = 48
 const BACKGROUND_TERMINAL_OUTPUT_FLUSH_ENTRY_LIMIT = 2
+const BACKGROUND_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT = 12 * 1024
+const ACTIVE_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT = STATION_TERMINAL_OUTPUT_FLUSH_ACTIVE_CHAR_LIMIT
+const TERMINAL_REPLAY_WRITE_CHUNK_CHAR_LIMIT = ACTIVE_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT
+const CACHED_TERMINAL_OUTPUT_FLUSH_DELAY_MS = 96
+const TERMINAL_DOCUMENT_PERSIST_DELAY_MS = 180
+const TERMINAL_WRITE_REJECTED_DETAIL = 'TERMINAL_WRITE_REJECTED'
+const TERMINAL_KILL_REJECTED_DETAIL = 'TERMINAL_KILL_REJECTED'
+const STATION_TERMINAL_FOCUS_MAX_RETRY_FRAMES = 8
+const STATION_TERMINAL_FOCUS_RETRY_FALLBACK_DELAY_MS = 48
+const STATION_TASK_SUBMIT_RETRY_FALLBACK_DELAY_MS = 48
+
+function isTerminalSessionBindingInvalid(detail: string): boolean {
+  return (
+    detail.includes('TERMINAL_SESSION_NOT_FOUND') ||
+    detail.includes('TERMINAL_SESSION_WORKSPACE_MISMATCH')
+  )
+}
+
+interface TerminalWorkspaceSessionResponse {
+  workspaceId: string
+  sessionId: string
+}
+
+function isMatchingTerminalWorkspaceSessionResponse(
+  response: TerminalWorkspaceSessionResponse,
+  workspaceId: string,
+  sessionId: string,
+): boolean {
+  return response.workspaceId === workspaceId && response.sessionId === sessionId
+}
 
 interface IdleDeadlineLike {
   didTimeout: boolean
@@ -274,7 +327,7 @@ export interface ShellTerminalController {
   terminalOutputQueueRef: MutableRefObject<Record<string, Promise<void>>>
   ensureStationTerminalSessionInFlightRef: MutableRefObject<Record<string, Promise<string | null>>>
   stationTerminalRestoreStateRef: MutableRefObject<Record<string, SessionOwnedRestoreState>>
-  stationTerminalPendingReplayRef: MutableRefObject<Record<string, { version: number; ops: Array<{ kind: 'write'; chunk: string } | { kind: 'reset'; content: string }> }>>
+  stationTerminalPendingReplayRef: MutableRefObject<Record<string, StationTerminalPendingReplay>>
   stationTerminalInputControllerRef: MutableRefObject<BufferedStationInputController | null>
   stationTerminalSinkRef: MutableRefObject<Record<string, StationTerminalSink>>
   stationTerminalOutputRevisionRef: MutableRefObject<Record<string, number>>
@@ -333,30 +386,35 @@ export function useShellTerminalController({
   const sessionStationRef = useRef<Record<string, string>>({})
   const terminalSessionSeqRef = useRef<Record<string, number>>({})
   const terminalOutputQueueRef = useRef<Record<string, Promise<void>>>({})
+  const cachedTerminalOutputAppendQueueRef = useRef<StationTerminalCachedOutputAppendQueue>({})
+  const cachedTerminalOutputAppendTimerRef = useRef<number | null>(null)
   const ensureStationTerminalSessionInFlightRef = useRef<Record<string, Promise<string | null>>>({})
   const stationToolLaunchSeqRef = useRef<Record<string, number>>({})
   const stationTerminalSinkRef = useRef<Record<string, StationTerminalSink>>({})
   const stationTerminalOutputCacheRef = useRef<Record<string, string>>({})
   const stationTerminalOutputRevisionRef = useRef<Record<string, number>>({})
-  const stationTerminalOutputFlushFrameRef = useRef<number | null>(null)
+  const stationTerminalOutputFlushFrameRef = useRef<StationTerminalFrameFlushHandle | null>(null)
   const stationTerminalBackgroundOutputFlushTimerRef = useRef<number | null>(null)
   const stationTerminalOutputFlushQueueRef = useRef<StationTerminalOutputFlushQueue>({})
-  const terminalDocumentPersistFrameRef = useRef<number | null>(null)
-  const stationTerminalPendingReplayRef = useRef<
-    Record<string, { version: number; ops: Array<{ kind: 'write'; chunk: string } | { kind: 'reset'; content: string }> }>
-  >({})
+  const terminalDocumentPersistTimerRef = useRef<number | null>(null)
+  const stationTerminalPendingReplayRef = useRef<Record<string, StationTerminalPendingReplay>>({})
   const scheduledTerminalReplayQueueRef = useRef<ScheduledTerminalReplayTask[]>([])
   const scheduledTerminalReplayHandleRef = useRef<{ kind: 'idle' | 'timeout'; id: number } | null>(null)
   const scheduledTerminalReplayRunningRef = useRef(false)
   const stationTerminalRestoreStateRef = useRef<Record<string, SessionOwnedRestoreState>>({})
   const stationTerminalInputControllerRef = useRef<BufferedStationInputController | null>(null)
   const stationSubmitSequenceRef = useRef<Record<string, string>>({})
+  const renderedScreenReportRevisionRef = useRef<Map<string, number>>(new Map())
   const terminalSessionVisibilityRef = useRef<Record<string, boolean>>({})
   const terminalChunkDecoderBySessionRef = useRef<Record<string, TerminalChunkDecoder>>({})
   const terminalDebugRecordSeqRef = useRef(0)
   const workspaceTerminalCacheRef = useRef<Record<string, WorkspaceTerminalSessionDocument>>({})
   const detachedProjectionSeqRef = useRef<Record<string, number>>({})
   const detachedProjectionDispatchQueueRef = useRef<Record<string, Promise<void>>>({})
+  const detachedProjectionOutputAppendQueueRef = useRef<
+    Record<string, Record<string, DetachedTerminalOutputAppendDraft>>
+  >({})
+  const detachedProjectionOutputAppendFlushRef = useRef<StationTerminalFrameFlushHandle | null>(null)
   const registeredAgentRuntimeRef = useRef<
     Record<string, { workspaceId: string; sessionId: string; toolKind: string; resolvedCwd: string | null }>
   >({})
@@ -394,42 +452,74 @@ export function useShellTerminalController({
       if (typeof window === 'undefined') {
         return
       }
+      const owner =
+        sessionId !== null
+          ? findWorkspaceTerminalSessionOwner(workspaceTerminalCacheRef.current, sessionId)
+          : null
+      const workspaceId = owner?.workspaceId ?? activeWorkspaceIdRef.current ?? null
       void recordStationTerminalFocusDiagnostic({
         targetWindow: window,
+        workspaceId,
         stationId,
         sessionId,
         kind,
         detail,
       })
     },
-    [],
+    [activeWorkspaceIdRef],
   )
   const recordStationRuntimeDiagnosticBySession = useCallback(
     (sessionId: string, kind: StationTerminalFocusDiagnosticKind, detail?: string) => {
       if (typeof window === 'undefined') {
         return
       }
+      const owner = findWorkspaceTerminalSessionOwner(workspaceTerminalCacheRef.current, sessionId)
       const mappedStationId =
         sessionStationRef.current[sessionId]
-        ?? findWorkspaceTerminalSessionOwner(workspaceTerminalCacheRef.current, sessionId)?.stationId
+        ?? owner?.stationId
         ?? null
       void recordStationTerminalFocusDiagnostic({
         targetWindow: window,
+        workspaceId: owner?.workspaceId ?? activeWorkspaceIdRef.current ?? null,
         stationId: mappedStationId ?? 'session',
         sessionId,
         kind,
         detail,
       })
     },
-    [],
+    [activeWorkspaceIdRef],
   )
   const stationUnreadFlushTimerRef = useRef<number | null>(null)
   const activeStationIdRef = useRef(activeStationId)
   const presentedWorkspaceIdRef = useRef<string | null>(null)
   const scheduledStationOutputRecoveryRef = useRef<Record<string, number>>({})
 
+  const isDetachedProjectionMessageCurrent = useCallback(
+    (windowLabel: string, payload: DetachedTerminalBridgeMessage) => {
+      if (
+        payload.workspaceId !== activeWorkspaceIdRef.current ||
+        payload.workspaceId !== presentedWorkspaceIdRef.current
+      ) {
+        return false
+      }
+      const container = workbenchContainersRef.current.find(
+        (candidate) => candidate.id === payload.containerId && candidate.mode === 'detached',
+      )
+      if (container?.detachedWindowLabel !== windowLabel) {
+        return false
+      }
+      return !('stationId' in payload) || container.stationIds.includes(payload.stationId)
+    },
+    [activeWorkspaceIdRef, workbenchContainersRef],
+  )
+
   // ── Ref sync effects ──────────────────────────────────────────────────
   useEffect(() => {
+    const previousWorkspaceId = activeWorkspaceIdRef.current
+    if (previousWorkspaceId && previousWorkspaceId !== activeWorkspaceId) {
+      stationTerminalInputControllerRef.current?.dispose()
+      stationTerminalInputControllerRef.current = null
+    }
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId, activeWorkspaceIdRef])
 
@@ -456,6 +546,9 @@ export function useShellTerminalController({
         next[station.id] = initialRuntimeById[station.id]
         changed = true
       })
+      if (changed) {
+        stationTerminalsRef.current = next
+      }
       return changed ? next : prev
     })
     stations.forEach((station) => {
@@ -467,8 +560,17 @@ export function useShellTerminalController({
   }, [stations])
 
   // ── Detached projection helpers ───────────────────────────────────────
+  const hasDetachedProjectionTargets = useCallback(() => {
+    return workbenchContainersRef.current.some(
+      (container) =>
+        container.mode === 'detached' &&
+        Boolean(container.detachedWindowLabel) &&
+        container.stationIds.length > 0,
+    )
+  }, [])
+
   const findDetachedProjectionTargetsByStationId = useCallback((stationId: string): DetachedProjectionTarget[] => {
-    if (!stationId) {
+    if (!stationId || !hasDetachedProjectionTargets()) {
       return []
     }
     return workbenchContainersRef.current.reduce<DetachedProjectionTarget[]>((acc, container) => {
@@ -485,22 +587,28 @@ export function useShellTerminalController({
       })
       return acc
     }, [])
-  }, [])
+  }, [hasDetachedProjectionTargets])
 
-  const queueDetachedProjectionMessage = useCallback(
+  const enqueueDetachedProjectionMessage = useCallback(
     (windowLabel: string, payload: DetachedTerminalBridgeMessage) => {
       if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      if (!isDetachedProjectionMessageCurrent(windowLabel, payload)) {
         return
       }
       const previous = detachedProjectionDispatchQueueRef.current[windowLabel] ?? Promise.resolve()
       detachedProjectionDispatchQueueRef.current[windowLabel] = previous
         .catch(() => undefined)
         .then(async () => {
+          if (!isDetachedProjectionMessageCurrent(windowLabel, payload)) {
+            return
+          }
           await desktopApi.surfaceBridgePost(windowLabel, payload)
         })
         .catch(() => undefined)
     },
-    [],
+    [isDetachedProjectionMessageCurrent],
   )
 
   const nextDetachedProjectionSeq = useCallback((windowLabel: string, stationId: string) => {
@@ -510,24 +618,92 @@ export function useShellTerminalController({
     return nextSeq
   }, [])
 
+  const cancelDetachedProjectionOutputAppendFlush = useCallback(() => {
+    cancelStationTerminalFrameFlush(detachedProjectionOutputAppendFlushRef.current)
+    detachedProjectionOutputAppendFlushRef.current = null
+  }, [])
+
+  const flushDetachedProjectionOutputAppends = useCallback(() => {
+    cancelDetachedProjectionOutputAppendFlush()
+    const pendingByWindow = detachedProjectionOutputAppendQueueRef.current
+    detachedProjectionOutputAppendQueueRef.current = {}
+    Object.entries(pendingByWindow).forEach(([windowLabel, queue]) => {
+      const messages = takeDetachedTerminalOutputAppendDrafts(queue, {
+        nextProjectionSeq: (stationId) => nextDetachedProjectionSeq(windowLabel, stationId),
+      })
+      messages.forEach((message) => {
+        enqueueDetachedProjectionMessage(windowLabel, message)
+      })
+    })
+  }, [
+    cancelDetachedProjectionOutputAppendFlush,
+    enqueueDetachedProjectionMessage,
+    nextDetachedProjectionSeq,
+  ])
+
+  const scheduleDetachedProjectionOutputAppendFlush = useCallback(() => {
+    if (typeof window === 'undefined') {
+      flushDetachedProjectionOutputAppends()
+      return
+    }
+    if (detachedProjectionOutputAppendFlushRef.current !== null) {
+      return
+    }
+    detachedProjectionOutputAppendFlushRef.current = scheduleStationTerminalFrameFlush(
+      () => {
+        detachedProjectionOutputAppendFlushRef.current = null
+        flushDetachedProjectionOutputAppends()
+      },
+      {
+        requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
+        cancelAnimationFrame: (id) => window.cancelAnimationFrame(id),
+        setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        clearTimeout: (id) => window.clearTimeout(id),
+      },
+    )
+  }, [flushDetachedProjectionOutputAppends])
+
+  const queueDetachedProjectionMessage = useCallback(
+    (windowLabel: string, payload: DetachedTerminalBridgeMessage) => {
+      flushDetachedProjectionOutputAppends()
+      enqueueDetachedProjectionMessage(windowLabel, payload)
+    },
+    [enqueueDetachedProjectionMessage, flushDetachedProjectionOutputAppends],
+  )
+
   const publishDetachedRuntimePatch = useCallback(
     (stationId: string, runtimePatch: DetachedTerminalRuntimeProjectionPatch) => {
       if (!runtimePatch || Object.keys(runtimePatch).length === 0) {
         return
       }
-      findDetachedProjectionTargetsByStationId(stationId).forEach(({ containerId, windowLabel }) => {
+      const workspaceId = presentedWorkspaceIdRef.current
+      if (!workspaceId || workspaceId !== activeWorkspaceIdRef.current) {
+        return
+      }
+      const targets = findDetachedProjectionTargetsByStationId(stationId)
+      if (targets.length === 0) {
+        return
+      }
+      flushDetachedProjectionOutputAppends()
+      targets.forEach(({ containerId, windowLabel }) => {
         const message: DetachedTerminalRuntimeUpdatedMessage = {
           kind: 'detached_terminal_runtime_updated',
-          workspaceId: activeWorkspaceIdRef.current ?? '',
+          workspaceId,
           containerId,
           stationId,
           runtimePatch,
           projectionSeq: nextDetachedProjectionSeq(windowLabel, stationId),
         }
-        queueDetachedProjectionMessage(windowLabel, message)
+        enqueueDetachedProjectionMessage(windowLabel, message)
       })
     },
-    [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
+    [
+      activeWorkspaceIdRef,
+      enqueueDetachedProjectionMessage,
+      findDetachedProjectionTargetsByStationId,
+      flushDetachedProjectionOutputAppends,
+      nextDetachedProjectionSeq,
+    ],
   )
 
   const publishDetachedOutputAppend = useCallback(
@@ -535,37 +711,67 @@ export function useShellTerminalController({
       if (!chunk) {
         return
       }
-      findDetachedProjectionTargetsByStationId(stationId).forEach(({ containerId, windowLabel }) => {
-        const message: DetachedTerminalOutputAppendMessage = {
-          kind: 'detached_terminal_output_append',
-          workspaceId: activeWorkspaceIdRef.current ?? '',
+      const workspaceId = presentedWorkspaceIdRef.current
+      if (!workspaceId || workspaceId !== activeWorkspaceIdRef.current) {
+        return
+      }
+      const targets = findDetachedProjectionTargetsByStationId(stationId)
+      if (targets.length === 0) {
+        return
+      }
+      targets.forEach(({ containerId, windowLabel }) => {
+        const queue =
+          detachedProjectionOutputAppendQueueRef.current[windowLabel] ??
+          (detachedProjectionOutputAppendQueueRef.current[windowLabel] = {})
+        const queuedKey = queueDetachedTerminalOutputAppendDraft(queue, {
+          workspaceId,
           containerId,
           stationId,
           chunk,
-          projectionSeq: nextDetachedProjectionSeq(windowLabel, stationId),
           unreadDelta,
+        })
+        if (queuedKey) {
+          scheduleDetachedProjectionOutputAppendFlush()
         }
-        queueDetachedProjectionMessage(windowLabel, message)
       })
     },
-    [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
+    [
+      activeWorkspaceIdRef,
+      findDetachedProjectionTargetsByStationId,
+      scheduleDetachedProjectionOutputAppendFlush,
+    ],
   )
 
   const publishDetachedOutputReset = useCallback(
     (stationId: string, content: string) => {
-      findDetachedProjectionTargetsByStationId(stationId).forEach(({ containerId, windowLabel }) => {
+      const workspaceId = presentedWorkspaceIdRef.current
+      if (!workspaceId || workspaceId !== activeWorkspaceIdRef.current) {
+        return
+      }
+      const targets = findDetachedProjectionTargetsByStationId(stationId)
+      if (targets.length === 0) {
+        return
+      }
+      flushDetachedProjectionOutputAppends()
+      targets.forEach(({ containerId, windowLabel }) => {
         const message: DetachedTerminalOutputResetMessage = {
           kind: 'detached_terminal_output_reset',
-          workspaceId: activeWorkspaceIdRef.current ?? '',
+          workspaceId,
           containerId,
           stationId,
           content,
           projectionSeq: nextDetachedProjectionSeq(windowLabel, stationId),
         }
-        queueDetachedProjectionMessage(windowLabel, message)
+        enqueueDetachedProjectionMessage(windowLabel, message)
       })
     },
-    [findDetachedProjectionTargetsByStationId, nextDetachedProjectionSeq, queueDetachedProjectionMessage],
+    [
+      activeWorkspaceIdRef,
+      enqueueDetachedProjectionMessage,
+      findDetachedProjectionTargetsByStationId,
+      flushDetachedProjectionOutputAppends,
+      nextDetachedProjectionSeq,
+    ],
   )
 
   // ── Terminal debug ─────────────────────────────────────────────────────
@@ -591,6 +797,154 @@ export function useShellTerminalController({
       appendStationTerminalDebugStoreRecord(stationId, record, TERMINAL_DEBUG_RECORD_LIMIT)
     },
     [],
+  )
+
+  const flushCachedTerminalOutputAppendQueue = useCallback(() => {
+    if (typeof window !== 'undefined' && cachedTerminalOutputAppendTimerRef.current !== null) {
+      window.clearTimeout(cachedTerminalOutputAppendTimerRef.current)
+    }
+    cachedTerminalOutputAppendTimerRef.current = null
+    const pendingQueue = cachedTerminalOutputAppendQueueRef.current
+    cachedTerminalOutputAppendQueueRef.current = {}
+    Object.values(pendingQueue).forEach((pending) => {
+      const document = workspaceTerminalCacheRef.current[pending.workspaceId]
+      if (!document || document.sessionStation[pending.sessionId] !== pending.stationId) {
+        return
+      }
+      const textChunks: string[] = []
+      const decoder =
+        terminalChunkDecoderBySessionRef.current[pending.sessionId] ??
+        (terminalChunkDecoderBySessionRef.current[pending.sessionId] = createTerminalChunkDecoder())
+      pending.base64Chunks.forEach((base64Chunk) => {
+        const text = decodeTerminalBase64Chunk(decoder, base64Chunk, true)
+        if (text) {
+          textChunks.push(text)
+        }
+      })
+      const chunk = textChunks.length === 1 ? textChunks[0] : textChunks.join('')
+      if (chunk) {
+        document.outputCache[pending.stationId] = appendDetachedTerminalOutput(
+          document.outputCache[pending.stationId],
+          chunk,
+        )
+        document.outputRevision[pending.stationId] =
+          (document.outputRevision[pending.stationId] ?? 0) + Math.max(1, textChunks.length)
+      }
+      const runtime = document.stationTerminals[pending.stationId]
+      if (runtime && pending.unreadDelta > 0) {
+        document.stationTerminals[pending.stationId] = {
+          ...runtime,
+          unreadCount: Math.min(999, runtime.unreadCount + pending.unreadDelta),
+        }
+      }
+    })
+  }, [])
+
+  const scheduleCachedTerminalOutputAppendFlush = useCallback(() => {
+    if (typeof window === 'undefined') {
+      flushCachedTerminalOutputAppendQueue()
+      return
+    }
+    if (cachedTerminalOutputAppendTimerRef.current !== null) {
+      return
+    }
+    cachedTerminalOutputAppendTimerRef.current = window.setTimeout(
+      flushCachedTerminalOutputAppendQueue,
+      CACHED_TERMINAL_OUTPUT_FLUSH_DELAY_MS,
+    )
+  }, [flushCachedTerminalOutputAppendQueue])
+
+  const resolveActiveCachedTerminalOutputQueueKey = useCallback((workspaceId: string): string | null => {
+    const activeStationId = activeStationIdRef.current
+    if (!activeStationId) {
+      return null
+    }
+    const document = workspaceTerminalCacheRef.current[workspaceId]
+    if (!document) {
+      return null
+    }
+    const activeSessionId =
+      stationTerminalsRef.current[activeStationId]?.sessionId ??
+      document.stationTerminals[activeStationId]?.sessionId ??
+      null
+    if (!activeSessionId || document.sessionStation[activeSessionId] !== activeStationId) {
+      return null
+    }
+    return buildStationTerminalCachedOutputQueueKey(workspaceId, activeStationId, activeSessionId)
+  }, [])
+
+  const queueCachedTerminalOutputAppend = useCallback(
+    (input: {
+      workspaceId: string
+      stationId: string
+      sessionId: string
+      seq: number
+      base64Chunk: string
+      unreadDelta: number
+    }) => {
+      const document = workspaceTerminalCacheRef.current[input.workspaceId]
+      if (!document || document.sessionStation[input.sessionId] !== input.stationId) {
+        return
+      }
+      document.sessionSeq[input.sessionId] = input.seq
+      const unreadDelta = Math.max(0, input.unreadDelta)
+      const result = queueStationTerminalCachedOutputAppend(
+        cachedTerminalOutputAppendQueueRef.current,
+        {
+          workspaceId: input.workspaceId,
+          stationId: input.stationId,
+          sessionId: input.sessionId,
+          base64Chunk: input.base64Chunk,
+          unreadDelta,
+        },
+        {
+          protectedQueueKey: resolveActiveCachedTerminalOutputQueueKey(input.workspaceId),
+        },
+      )
+      if (!result.queued) {
+        return
+      }
+      if (result.shouldFlush) {
+        flushCachedTerminalOutputAppendQueue()
+        return
+      }
+      scheduleCachedTerminalOutputAppendFlush()
+    },
+    [
+      flushCachedTerminalOutputAppendQueue,
+      resolveActiveCachedTerminalOutputQueueKey,
+      scheduleCachedTerminalOutputAppendFlush,
+    ],
+  )
+
+  const queueCachedTerminalUnreadDelta = useCallback(
+    (input: { workspaceId: string; stationId: string; sessionId: string; unreadDelta: number }) => {
+      const document = workspaceTerminalCacheRef.current[input.workspaceId]
+      if (!document || document.sessionStation[input.sessionId] !== input.stationId) {
+        return
+      }
+      const unreadDelta = Math.max(0, input.unreadDelta)
+      if (unreadDelta === 0) {
+        return
+      }
+      const result = queueStationTerminalCachedOutputAppend(
+        cachedTerminalOutputAppendQueueRef.current,
+        {
+          workspaceId: input.workspaceId,
+          stationId: input.stationId,
+          sessionId: input.sessionId,
+          unreadDelta,
+        },
+        {
+          protectedQueueKey: resolveActiveCachedTerminalOutputQueueKey(input.workspaceId),
+        },
+      )
+      if (!result.queued) {
+        return
+      }
+      scheduleCachedTerminalOutputAppendFlush()
+    },
+    [resolveActiveCachedTerminalOutputQueueKey, scheduleCachedTerminalOutputAppendFlush],
   )
 
   // ── Terminal document persistence ──────────────────────────────────────
@@ -620,6 +974,7 @@ export function useShellTerminalController({
       if (!workspaceId) {
         return createWorkspaceTerminalSessionDocument(stationsForWorkspace)
       }
+      flushCachedTerminalOutputAppendQueue()
       const hydrated = hydrateWorkspaceTerminalSessionDocument(
         workspaceTerminalCacheRef.current[workspaceId],
         stationsForWorkspace,
@@ -627,7 +982,7 @@ export function useShellTerminalController({
       workspaceTerminalCacheRef.current[workspaceId] = hydrated
       return hydrated
     },
-    [],
+    [flushCachedTerminalOutputAppendQueue],
   )
 
   const persistActiveWorkspaceTerminalDocument = useCallback(() => {
@@ -639,64 +994,29 @@ export function useShellTerminalController({
       persistActiveWorkspaceTerminalDocument()
       return
     }
-    if (terminalDocumentPersistFrameRef.current !== null) {
+    if (terminalDocumentPersistTimerRef.current !== null) {
       return
     }
-    terminalDocumentPersistFrameRef.current = window.requestAnimationFrame(() => {
-      terminalDocumentPersistFrameRef.current = null
+    terminalDocumentPersistTimerRef.current = window.setTimeout(() => {
+      terminalDocumentPersistTimerRef.current = null
       persistActiveWorkspaceTerminalDocument()
-    })
+    }, TERMINAL_DOCUMENT_PERSIST_DELAY_MS)
   }, [persistActiveWorkspaceTerminalDocument])
+
+  const cancelScheduledTerminalDocumentPersist = useCallback(() => {
+    if (typeof window !== 'undefined' && terminalDocumentPersistTimerRef.current !== null) {
+      window.clearTimeout(terminalDocumentPersistTimerRef.current)
+    }
+    terminalDocumentPersistTimerRef.current = null
+  }, [])
 
   const flushScheduledTerminalDocumentPersist = useCallback(() => {
-    if (typeof window !== 'undefined' && terminalDocumentPersistFrameRef.current !== null) {
-      window.cancelAnimationFrame(terminalDocumentPersistFrameRef.current)
-    }
-    terminalDocumentPersistFrameRef.current = null
+    cancelScheduledTerminalDocumentPersist()
     persistActiveWorkspaceTerminalDocument()
-  }, [persistActiveWorkspaceTerminalDocument])
-
-  const suspendWorkspaceTerminalSessions = useCallback(
-    (workspaceId: string | null) => {
-      if (!workspaceId) {
-        return
-      }
-      captureActiveWorkspaceTerminalDocument(workspaceId)
-      if (!desktopApi.isTauriRuntime()) {
-        return
-      }
-      const document = workspaceTerminalCacheRef.current[workspaceId]
-      if (!document) {
-        return
-      }
-      const sessionIds = setWorkspaceTerminalSessionVisibility(document, false)
-      sessionIds.forEach((sessionId) => {
-        void desktopApi
-          .terminalSetVisibility(sessionId, false)
-          .catch((error) => {
-            const detail = describeError(error)
-            recordStationRuntimeDiagnosticBySession(
-              sessionId,
-              'visibility-sync-miss',
-              `visible=false;detail=${detail}`,
-            )
-            if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
-              return
-            }
-            const stationId = removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
-            if (stationId) {
-              void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
-                // Runtime sync will be refreshed when the workspace is presented again.
-              })
-            }
-          })
-      })
-    },
-    [captureActiveWorkspaceTerminalDocument, recordStationRuntimeDiagnosticBySession],
-  )
+  }, [cancelScheduledTerminalDocumentPersist, persistActiveWorkspaceTerminalDocument])
 
   // ── Output streaming ──────────────────────────────────────────────────
-  const applyStationTerminalOutputFlushEntries = useCallback(
+  const applyStationTerminalOutputCacheEntries = useCallback(
     (entries: ReturnType<typeof takeStationTerminalOutputFlushEntries>) => {
       entries.forEach(({ stationId: targetStationId, ...pendingOutput }) => {
         const { chunk } = pendingOutput
@@ -709,32 +1029,52 @@ export function useShellTerminalController({
         )
         stationTerminalOutputRevisionRef.current[targetStationId] =
           (stationTerminalOutputRevisionRef.current[targetStationId] ?? 0) + Math.max(1, pendingOutput.unreadDelta)
+      })
+    },
+    [],
+  )
+
+  const applyStationTerminalOutputFlushEntries = useCallback(
+    (entries: ReturnType<typeof takeStationTerminalOutputFlushEntries>) => {
+      applyStationTerminalOutputCacheEntries(entries)
+      entries.forEach(({ stationId: targetStationId, ...pendingOutput }) => {
+        const { chunk } = pendingOutput
+        if (!chunk) {
+          return
+        }
         const pendingReplay = stationTerminalPendingReplayRef.current[targetStationId]
         if (pendingReplay) {
-          pendingReplay.ops.push({ kind: 'write', chunk })
+          appendStationTerminalPendingReplayOp(pendingReplay, { kind: 'write', chunk })
         } else {
           void stationTerminalSinkRef.current[targetStationId]?.write(chunk)
         }
         publishDetachedOutputAppend(
           targetStationId,
           chunk,
-          Math.max(1, pendingOutput.unreadDelta),
+          normalizeDetachedTerminalUnreadDelta(pendingOutput.unreadDelta),
         )
       })
     },
-    [publishDetachedOutputAppend],
+    [applyStationTerminalOutputCacheEntries, publishDetachedOutputAppend],
   )
 
   const cancelScheduledStationTerminalOutputFlushes = useCallback(() => {
-    if (typeof window !== 'undefined' && stationTerminalOutputFlushFrameRef.current !== null) {
-      window.cancelAnimationFrame(stationTerminalOutputFlushFrameRef.current)
-    }
+    cancelStationTerminalFrameFlush(stationTerminalOutputFlushFrameRef.current)
     stationTerminalOutputFlushFrameRef.current = null
     if (typeof window !== 'undefined' && stationTerminalBackgroundOutputFlushTimerRef.current !== null) {
       window.clearTimeout(stationTerminalBackgroundOutputFlushTimerRef.current)
     }
     stationTerminalBackgroundOutputFlushTimerRef.current = null
   }, [])
+
+  const flushPendingStationTerminalOutputToCache = useCallback(() => {
+    const entries = takeStationTerminalOutputFlushEntries(stationTerminalOutputFlushQueueRef.current)
+    if (entries.length === 0) {
+      return
+    }
+    cancelScheduledStationTerminalOutputFlushes()
+    applyStationTerminalOutputCacheEntries(entries)
+  }, [applyStationTerminalOutputCacheEntries, cancelScheduledStationTerminalOutputFlushes])
 
   const flushPendingStationTerminalOutput = useCallback(
     (stationId?: string) => {
@@ -744,9 +1084,7 @@ export function useShellTerminalController({
         return
       }
       if (!stationId) {
-        if (typeof window !== 'undefined' && stationTerminalOutputFlushFrameRef.current !== null) {
-          window.cancelAnimationFrame(stationTerminalOutputFlushFrameRef.current)
-        }
+        cancelStationTerminalFrameFlush(stationTerminalOutputFlushFrameRef.current)
         stationTerminalOutputFlushFrameRef.current = null
       }
       if (!stationId && typeof window !== 'undefined' && stationTerminalBackgroundOutputFlushTimerRef.current !== null) {
@@ -757,6 +1095,52 @@ export function useShellTerminalController({
       scheduleTerminalDocumentPersist()
     },
     [applyStationTerminalOutputFlushEntries, scheduleTerminalDocumentPersist],
+  )
+
+  const suspendWorkspaceTerminalSessions = useCallback(
+    (workspaceId: string | null) => {
+      if (!workspaceId) {
+        return
+      }
+      flushPendingStationTerminalOutputToCache()
+      captureActiveWorkspaceTerminalDocument(workspaceId)
+      cancelScheduledTerminalDocumentPersist()
+      if (!desktopApi.isTauriRuntime()) {
+        return
+      }
+      const document = workspaceTerminalCacheRef.current[workspaceId]
+      if (!document) {
+        return
+      }
+      const sessionIds = setWorkspaceTerminalSessionVisibility(document, false)
+      sessionIds.forEach((sessionId) => {
+        void desktopApi
+          .terminalSetVisibility(workspaceId, sessionId, false)
+          .catch((error) => {
+            const detail = describeError(error)
+            recordStationRuntimeDiagnosticBySession(
+              sessionId,
+              'visibility-sync-miss',
+              `visible=false;detail=${detail}`,
+            )
+            if (!isTerminalSessionBindingInvalid(detail)) {
+              return
+            }
+            const stationId = removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
+            if (stationId) {
+              void desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {
+                // Runtime sync will be refreshed when the workspace is presented again.
+              })
+            }
+          })
+      })
+    },
+    [
+      cancelScheduledTerminalDocumentPersist,
+      captureActiveWorkspaceTerminalDocument,
+      flushPendingStationTerminalOutputToCache,
+      recordStationRuntimeDiagnosticBySession,
+    ],
   )
 
   const scheduleBackgroundStationTerminalOutputFlush = useCallback(() => {
@@ -773,8 +1157,10 @@ export function useShellTerminalController({
         stationTerminalOutputFlushQueueRef.current,
         {
           activeStationId: activeStationIdRef.current,
+          includeActive: false,
           includeBackground: true,
           backgroundEntryLimit: BACKGROUND_TERMINAL_OUTPUT_FLUSH_ENTRY_LIMIT,
+          backgroundCharLimit: BACKGROUND_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT,
         },
       )
       applyStationTerminalOutputFlushEntries(entries)
@@ -802,23 +1188,35 @@ export function useShellTerminalController({
     if (stationTerminalOutputFlushFrameRef.current !== null) {
       return
     }
-    stationTerminalOutputFlushFrameRef.current = window.requestAnimationFrame(() => {
-      stationTerminalOutputFlushFrameRef.current = null
-      const { entries, hasDeferredBackground } = takeStationTerminalOutputFlushFrameEntries(
-        stationTerminalOutputFlushQueueRef.current,
-        {
-          activeStationId: activeStationIdRef.current,
-          includeBackground: false,
-        },
-      )
-      applyStationTerminalOutputFlushEntries(entries)
-      if (entries.length > 0) {
-        scheduleTerminalDocumentPersist()
-      }
-      if (hasDeferredBackground) {
-        scheduleBackgroundStationTerminalOutputFlush()
-      }
-    })
+    stationTerminalOutputFlushFrameRef.current = scheduleStationTerminalFrameFlush(
+      () => {
+        stationTerminalOutputFlushFrameRef.current = null
+        const { entries, hasDeferredActive, hasDeferredBackground } = takeStationTerminalOutputFlushFrameEntries(
+          stationTerminalOutputFlushQueueRef.current,
+          {
+            activeStationId: activeStationIdRef.current,
+            activeCharLimit: ACTIVE_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT,
+            includeBackground: false,
+          },
+        )
+        applyStationTerminalOutputFlushEntries(entries)
+        if (entries.length > 0) {
+          scheduleTerminalDocumentPersist()
+        }
+        if (hasDeferredActive) {
+          scheduleStationTerminalOutputFlush()
+        }
+        if (hasDeferredBackground) {
+          scheduleBackgroundStationTerminalOutputFlush()
+        }
+      },
+      {
+        requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
+        cancelAnimationFrame: (id) => window.cancelAnimationFrame(id),
+        setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        clearTimeout: (id) => window.clearTimeout(id),
+      },
+    )
   }, [
     applyStationTerminalOutputFlushEntries,
     flushPendingStationTerminalOutput,
@@ -831,20 +1229,34 @@ export function useShellTerminalController({
       if (!chunk) {
         return
       }
-      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      pushStationTerminalDebugRecord(stationId, {
-        sessionId,
-        lane: 'xterm',
-        kind: 'write',
-        source: 'append',
-        summary: formatTerminalDebugPreview(chunk, 84),
-        body: chunk,
+      if (isStationTerminalDebugEnabled(stationId)) {
+        const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+        pushStationTerminalDebugRecord(stationId, {
+          sessionId,
+          lane: 'xterm',
+          kind: 'write',
+          source: 'append',
+          summary: formatTerminalDebugPreview(chunk, 84),
+          body: chunk,
+        })
+      }
+      queueStationTerminalOutputFlush(stationTerminalOutputFlushQueueRef.current, stationId, chunk, 1, {
+        protectedStationId: activeStationIdRef.current,
       })
-      queueStationTerminalOutputFlush(stationTerminalOutputFlushQueueRef.current, stationId, chunk)
       scheduleStationTerminalOutputFlush()
     },
     [pushStationTerminalDebugRecord, scheduleStationTerminalOutputFlush],
   )
+
+  useEffect(() => {
+    if (!activeStationId) {
+      return
+    }
+    if (!stationTerminalOutputFlushQueueRef.current[activeStationId]) {
+      return
+    }
+    scheduleStationTerminalOutputFlush()
+  }, [activeStationId, scheduleStationTerminalOutputFlush])
 
   const resetStationTerminalOutput = useMemo(
     () => (stationId: string, content?: string) => {
@@ -859,18 +1271,20 @@ export function useShellTerminalController({
       stationTerminalOutputCacheRef.current[stationId] = nextContent
       stationTerminalOutputRevisionRef.current[stationId] =
         (stationTerminalOutputRevisionRef.current[stationId] ?? 0) + 1
-      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      pushStationTerminalDebugRecord(stationId, {
-        sessionId,
-        lane: 'xterm',
-        kind: 'reset',
-        source: content == null ? 'fallback' : 'explicit',
-        summary: formatTerminalDebugPreview(nextContent, 84),
-        body: nextContent,
-      })
+      if (isStationTerminalDebugEnabled(stationId)) {
+        const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
+        pushStationTerminalDebugRecord(stationId, {
+          sessionId,
+          lane: 'xterm',
+          kind: 'reset',
+          source: content == null ? 'fallback' : 'explicit',
+          summary: formatTerminalDebugPreview(nextContent, 84),
+          body: nextContent,
+        })
+      }
       const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
       if (pendingReplay) {
-        pendingReplay.ops.push({ kind: 'reset', content: nextContent })
+        appendStationTerminalPendingReplayOp(pendingReplay, { kind: 'reset', content: nextContent })
       } else {
         void stationTerminalSinkRef.current[stationId]?.reset(nextContent)
       }
@@ -889,6 +1303,7 @@ export function useShellTerminalController({
     () => (stationId: string, patch: Partial<StationTerminalRuntime>) => {
       const projectionPatch = stripDetachedTerminalRuntimeProjectionPatch(patch)
       const previousRuntime = stationTerminalsRef.current[stationId] ?? null
+      const changesRuntimeState = doesStationTerminalRuntimePatchChangeState(previousRuntime, patch)
       const nextRuntimePreview =
         previousRuntime == null
           ? ({
@@ -920,32 +1335,32 @@ export function useShellTerminalController({
           ].join(';'),
         )
       }
-      setStationTerminals((prev) => {
-        const current = prev[stationId] ?? {
-          sessionId: null,
-          stateRaw: 'idle',
-          unreadCount: 0,
-          shell: null,
-          cwdMode: 'workspace_root',
-          resolvedCwd: null,
-        }
-        const nextRuntime = {
-          ...current,
-          ...patch,
-        }
-        if ((current.sessionId ?? null) !== (nextRuntime.sessionId ?? null)) {
-          delete stationTerminalRestoreStateRef.current[stationId]
-        }
-        const next = {
-          ...prev,
-          [stationId]: nextRuntime,
-        }
-        stationTerminalsRef.current = next
-        return {
-          ...next,
-        }
-      })
-      persistActiveWorkspaceTerminalDocument()
+      if (changesRuntimeState) {
+        setStationTerminals((prev) => {
+          const current = prev[stationId] ?? {
+            sessionId: null,
+            stateRaw: 'idle',
+            unreadCount: 0,
+            shell: null,
+            cwdMode: 'workspace_root',
+            resolvedCwd: null,
+          }
+          const nextRuntime = {
+            ...current,
+            ...patch,
+          }
+          if ((current.sessionId ?? null) !== (nextRuntime.sessionId ?? null)) {
+            delete stationTerminalRestoreStateRef.current[stationId]
+          }
+          const next = {
+            ...prev,
+            [stationId]: nextRuntime,
+          }
+          stationTerminalsRef.current = next
+          return next
+        })
+        persistActiveWorkspaceTerminalDocument()
+      }
       if (projectionPatch) {
         publishDetachedRuntimePatch(stationId, projectionPatch)
       }
@@ -961,6 +1376,10 @@ export function useShellTerminalController({
   const clearStationUnread = useMemo(
     () => (stationId: string) => {
       delete stationUnreadDeltaRef.current[stationId]
+      const runtime = stationTerminalsRef.current[stationId]
+      if (!runtime || runtime.unreadCount === 0) {
+        return
+      }
       setStationTerminals((prev) => {
         const current = prev[stationId]
         if (!current || current.unreadCount === 0) {
@@ -990,10 +1409,20 @@ export function useShellTerminalController({
       if (entries.length === 0) {
         return
       }
+      const changedEntries = entries.filter(([stationId, delta]) => {
+        const current = stationTerminalsRef.current[stationId]
+        if (!current) {
+          return false
+        }
+        return Math.min(999, current.unreadCount + delta) !== current.unreadCount
+      })
+      if (changedEntries.length === 0) {
+        return
+      }
       setStationTerminals((prev) => {
         let changed = false
         const next = { ...prev }
-        entries.forEach(([stationId, delta]) => {
+        changedEntries.forEach(([stationId, delta]) => {
           const current = next[stationId]
           if (!current) {
             return
@@ -1130,6 +1559,18 @@ export function useShellTerminalController({
     [drainScheduledTerminalReplayQueue],
   )
 
+  const waitForNextTerminalReplayFrame = useCallback((): Promise<void> => {
+    if (typeof window === 'undefined') {
+      return Promise.resolve()
+    }
+    return waitForStationTerminalFrameFlush({
+      requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
+      cancelAnimationFrame: (id) => window.cancelAnimationFrame(id),
+      setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearTimeout: (id) => window.clearTimeout(id),
+    })
+  }, [])
+
   // ── Sink binding ───────────────────────────────────────────────────────
   const bindStationTerminalSink = useMemo<StationTerminalSinkBindingHandler>(
     () => (stationId, sink, meta) => {
@@ -1147,6 +1588,7 @@ export function useShellTerminalController({
                 content: meta.restoreState,
                 cols: meta.restoreCols ?? 0,
                 rows: meta.restoreRows ?? 0,
+                viewportY: meta.restoreViewportY ?? null,
               },
               stationTerminalOutputRevisionRef.current[stationId] ?? 0,
             )
@@ -1160,7 +1602,13 @@ export function useShellTerminalController({
         return
       }
       const previousSink = stationTerminalSinkRef.current[stationId]
-      if (previousSink === sink && !stationTerminalPendingReplayRef.current[stationId]) {
+      if (
+        !shouldReplayStationTerminalSinkBinding({
+          previousSink,
+          nextSink: sink,
+          hasPendingReplay: Boolean(stationTerminalPendingReplayRef.current[stationId]),
+        })
+      ) {
         return
       }
       stationTerminalSinkRef.current[stationId] = sink
@@ -1188,14 +1636,16 @@ export function useShellTerminalController({
         ops: [],
       }
       if (replaySource.kind === 'restore') {
-        pushStationTerminalDebugRecord(stationId, {
-          sessionId: stationTerminalsRef.current[stationId]?.sessionId ?? null,
-          lane: 'xterm',
-          kind: 'restore',
-          source: 'session_restore',
-          summary: formatTerminalDebugPreview(replaySource.state.content, 84),
-          body: replaySource.state.content,
-        })
+        if (isStationTerminalDebugEnabled(stationId)) {
+          pushStationTerminalDebugRecord(stationId, {
+            sessionId: stationTerminalsRef.current[stationId]?.sessionId ?? null,
+            lane: 'xterm',
+            kind: 'restore',
+            source: 'session_restore',
+            summary: formatTerminalDebugPreview(replaySource.state.content, 84),
+            body: replaySource.state.content,
+          })
+        }
       } else {
         delete stationTerminalRestoreStateRef.current[stationId]
       }
@@ -1213,7 +1663,12 @@ export function useShellTerminalController({
             }
             const replay =
               replaySource.kind === 'restore'
-                ? sink.restore(replaySource.state.content, replaySource.state.cols, replaySource.state.rows)
+                ? sink.restore(
+                    replaySource.state.content,
+                    replaySource.state.cols,
+                    replaySource.state.rows,
+                    replaySource.state.viewportY,
+                  )
                 : sink.reset(replaySource.content)
             await replay
             const pendingReplay = stationTerminalPendingReplayRef.current[stationId]
@@ -1224,29 +1679,29 @@ export function useShellTerminalController({
             ) {
               return
             }
-            const pendingOps = pendingReplay.ops.slice()
+            const pendingOps = compactStationTerminalPendingReplayOps(pendingReplay.ops, {
+              writeChunkCharLimit: TERMINAL_REPLAY_WRITE_CHUNK_CHAR_LIMIT,
+            })
             delete stationTerminalPendingReplayRef.current[stationId]
-            await pendingOps.reduce<Promise<void>>((chain, op) => {
-              return chain.then(() => {
-                if (stationTerminalSinkRef.current[stationId] !== sink) {
-                  return
-                }
-                if (op.kind === 'reset') {
-                  return sink.reset(op.content)
-                }
-                return sink.write(op.chunk)
-              })
-            }, Promise.resolve())
+            await drainStationTerminalPendingReplayOps(sink, pendingOps, {
+              shouldContinue: () => stationTerminalSinkRef.current[stationId] === sink,
+              yieldBetweenWrites: waitForNextTerminalReplayFrame,
+            })
           },
         },
         meta?.restorePriority === 'active' ? 'active' : 'background',
       )
     },
-    [flushPendingStationTerminalOutput, pushStationTerminalDebugRecord, scheduleTerminalReplay],
+    [
+      flushPendingStationTerminalOutput,
+      pushStationTerminalDebugRecord,
+      scheduleTerminalReplay,
+      waitForNextTerminalReplayFrame,
+    ],
   )
 
   // ── Session visibility ────────────────────────────────────────────────
-  const ensureTerminalSessionVisible = useCallback((sessionId: string) => {
+  const ensureTerminalSessionVisible = useCallback((workspaceId: string, sessionId: string) => {
     if (!desktopApi.isTauriRuntime()) {
       return
     }
@@ -1254,19 +1709,26 @@ export function useShellTerminalController({
       return
     }
     void desktopApi
-      .terminalSetVisibility(sessionId, true)
-      .then(() => {
+      .terminalSetVisibility(workspaceId, sessionId, true)
+      .then((response) => {
+        if (
+          !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId) ||
+          response.visible !== true ||
+          activeWorkspaceIdRef.current !== workspaceId
+        ) {
+          return
+        }
         terminalSessionVisibilityRef.current[sessionId] = true
       })
       .catch((error) => {
         recordStationRuntimeDiagnosticBySession(
           sessionId,
           'visibility-sync-miss',
-          `visible=true;detail=${describeError(error)}`,
+          `visible=true;workspace=${workspaceId};detail=${describeError(error)}`,
         )
         // Ignore transient sync failure; next render cycle will retry.
       })
-  }, [recordStationRuntimeDiagnosticBySession])
+  }, [activeWorkspaceIdRef, recordStationRuntimeDiagnosticBySession])
 
   const requestTerminalKill = useCallback(
     (input: {
@@ -1287,7 +1749,12 @@ export function useShellTerminalController({
           `mappedStation=${sessionStationRef.current[input.sessionId] ?? 'none'}`,
         ].join(';'),
       )
-      return desktopApi.terminalKill(input.sessionId, input.signal)
+      if (!input.workspaceId) {
+        return Promise.reject(
+          new Error(`TERMINAL_WORKSPACE_REQUIRED: workspace_id is required to kill session '${input.sessionId}'`),
+        )
+      }
+      return desktopApi.terminalKill(input.workspaceId, input.sessionId, input.signal)
     },
     [recordStationLifecycleDiagnostic],
   )
@@ -1303,12 +1770,17 @@ export function useShellTerminalController({
   )
 
   const cleanupMissingWorkspaceTerminalSession = useCallback(
-    (workspaceId: string, stationId: string, sessionId: string) => {
+    (
+      workspaceId: string,
+      stationId: string,
+      sessionId: string,
+      detail: string = 'TERMINAL_SESSION_NOT_FOUND',
+    ) => {
       recordStationLifecycleDiagnostic(
         stationId,
         sessionId,
         'missing-session-cleanup',
-        `workspace=${workspaceId};detail=TERMINAL_SESSION_NOT_FOUND`,
+        `workspace=${workspaceId};detail=${detail}`,
       )
       const document = workspaceTerminalCacheRef.current[workspaceId]
       if (document) {
@@ -1351,16 +1823,24 @@ export function useShellTerminalController({
 
       const previousSeq = terminalSessionSeqRef.current[sessionId] ?? 0
       try {
-        const delta = await desktopApi.terminalReadDelta(sessionId, previousSeq)
-        if (activeWorkspaceIdRef.current !== workspaceId || sessionStationRef.current[sessionId] !== stationId) {
+        const delta = await desktopApi.terminalReadDelta(workspaceId, sessionId, previousSeq)
+        if (
+          !isMatchingTerminalWorkspaceSessionResponse(delta, workspaceId, sessionId) ||
+          activeWorkspaceIdRef.current !== workspaceId ||
+          sessionStationRef.current[sessionId] !== stationId
+        ) {
           return false
         }
         if (delta.gap || delta.truncated) {
-          const snapshot = await desktopApi.terminalReadSnapshot(sessionId).catch(() => null)
+          const snapshot = await desktopApi.terminalReadSnapshot(workspaceId, sessionId).catch(() => null)
           if (!snapshot) {
             return true
           }
-          if (activeWorkspaceIdRef.current !== workspaceId || sessionStationRef.current[sessionId] !== stationId) {
+          if (
+            !isMatchingTerminalWorkspaceSessionResponse(snapshot, workspaceId, sessionId) ||
+            activeWorkspaceIdRef.current !== workspaceId ||
+            sessionStationRef.current[sessionId] !== stationId
+          ) {
             return false
           }
           const decoder =
@@ -1387,8 +1867,8 @@ export function useShellTerminalController({
         return true
       } catch (error) {
         const detail = describeError(error)
-        if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
-          cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId)
+        if (isTerminalSessionBindingInvalid(detail)) {
+          cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId, detail)
         }
         return false
       }
@@ -1415,8 +1895,13 @@ export function useShellTerminalController({
             return
           }
           try {
-            await desktopApi.terminalSetVisibility(sessionId, true)
-            if (activeWorkspaceIdRef.current !== workspaceId || sessionStationRef.current[sessionId] !== stationId) {
+            const response = await desktopApi.terminalSetVisibility(workspaceId, sessionId, true)
+            if (
+              !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId) ||
+              response.visible !== true ||
+              activeWorkspaceIdRef.current !== workspaceId ||
+              sessionStationRef.current[sessionId] !== stationId
+            ) {
               return
             }
             terminalSessionVisibilityRef.current[sessionId] = true
@@ -1431,8 +1916,8 @@ export function useShellTerminalController({
               'visibility-sync-miss',
               `visible=true;detail=${detail}`,
             )
-            if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
-              cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId)
+            if (isTerminalSessionBindingInvalid(detail)) {
+              cleanupMissingWorkspaceTerminalSession(workspaceId, stationId, sessionId, detail)
             }
             return
           }
@@ -1538,7 +2023,7 @@ export function useShellTerminalController({
       document.outputRevision[input.station.id] = (document.outputRevision[input.station.id] ?? 0) + 1
 
       void desktopApi
-        .terminalSetVisibility(sessionId, false)
+        .terminalSetVisibility(input.workspaceId, sessionId, false)
         .catch((error) => {
           const detail = describeError(error)
           recordStationLifecycleDiagnostic(
@@ -1547,7 +2032,7 @@ export function useShellTerminalController({
             'visibility-sync-miss',
             `visible=false;detail=${detail};context=background-cache`,
           )
-          if (detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+          if (isTerminalSessionBindingInvalid(detail)) {
             removeWorkspaceTerminalSessionBinding(document, sessionId, 'exited')
           }
         })
@@ -1580,86 +2065,224 @@ export function useShellTerminalController({
     // listeners on every active-station switch can drop live terminal events.
     let disposed = false
     let cleanup: (() => void) | null = null
+    type TerminalEventTarget =
+      | { kind: 'active'; stationId: string }
+      | {
+          kind: 'cached'
+          owner: { workspaceId: string; stationId: string; document: WorkspaceTerminalSessionDocument }
+        }
+    const terminalEventTargetCache = new Map<string, TerminalEventTarget>()
+    const resolveTerminalEventTarget = (payload: { workspaceId: string; sessionId: string }) => {
+      const cacheKey = `${payload.workspaceId}:${payload.sessionId}`
+      const cachedTarget = terminalEventTargetCache.get(cacheKey)
+      if (cachedTarget?.kind === 'active') {
+        if (
+          payload.workspaceId === activeWorkspaceIdRef.current &&
+          sessionStationRef.current[payload.sessionId] === cachedTarget.stationId
+        ) {
+          return cachedTarget
+        }
+        terminalEventTargetCache.delete(cacheKey)
+      } else if (cachedTarget?.kind === 'cached') {
+        const { owner } = cachedTarget
+        if (
+          owner.workspaceId === payload.workspaceId &&
+          workspaceTerminalCacheRef.current[owner.workspaceId] === owner.document &&
+          owner.document.sessionStation[payload.sessionId] === owner.stationId
+        ) {
+          return cachedTarget
+        }
+        terminalEventTargetCache.delete(cacheKey)
+      }
+      if (payload.workspaceId === activeWorkspaceIdRef.current) {
+        const stationId = sessionStationRef.current[payload.sessionId]
+        if (stationId) {
+          const target = { kind: 'active' as const, stationId }
+          terminalEventTargetCache.set(cacheKey, target)
+          return target
+        }
+      }
+      const owner = findWorkspaceTerminalSessionOwner(
+        workspaceTerminalCacheRef.current,
+        payload.sessionId,
+      )
+      if (owner?.workspaceId === payload.workspaceId) {
+        const target = { kind: 'cached' as const, owner }
+        terminalEventTargetCache.set(cacheKey, target)
+        return target
+      }
+      terminalEventTargetCache.delete(cacheKey)
+      return null
+    }
+    const queueCachedTerminalOutputPayload = (
+      owner: { workspaceId: string; stationId: string; document: WorkspaceTerminalSessionDocument },
+      payload: TerminalOutputPayload,
+    ) => {
+      const seq = owner.document.sessionSeq[payload.sessionId] ?? 0
+      if (payload.seq <= seq) {
+        return
+      }
+      queueCachedTerminalOutputAppend({
+        workspaceId: owner.workspaceId,
+        stationId: owner.stationId,
+        sessionId: payload.sessionId,
+        seq: payload.seq,
+        base64Chunk: payload.chunk,
+        unreadDelta: 1,
+      })
+    }
     void desktopApi
       .subscribeTerminalEvents({
         onOutput: (payload: TerminalOutputPayload) => {
-          const previous = terminalOutputQueueRef.current[payload.sessionId] ?? Promise.resolve()
-          terminalOutputQueueRef.current[payload.sessionId] = previous
-            .catch(() => undefined)
-            .then(async () => {
-              if (disposed) {
-                return
-              }
-              const stationId = sessionStationRef.current[payload.sessionId]
-              if (!stationId) {
-                const owner = findWorkspaceTerminalSessionOwner(
-                  workspaceTerminalCacheRef.current,
-                  payload.sessionId,
-                )
-                if (!owner) {
-                  return
-                }
-                const seq = owner.document.sessionSeq[payload.sessionId] ?? 0
-                if (payload.seq <= seq) {
-                  return
-                }
-                const directText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
-                if (directText) {
-                  owner.document.outputCache[owner.stationId] = appendDetachedTerminalOutput(
-                    owner.document.outputCache[owner.stationId],
-                    directText,
-                  )
-                  owner.document.outputRevision[owner.stationId] =
-                    (owner.document.outputRevision[owner.stationId] ?? 0) + 1
-                }
-                owner.document.sessionSeq[payload.sessionId] = payload.seq
-                const runtime = owner.document.stationTerminals[owner.stationId]
-                if (runtime) {
-                  owner.document.stationTerminals[owner.stationId] = {
-                    ...runtime,
-                    unreadCount: Math.min(999, runtime.unreadCount + 1),
-                  }
-                }
-                return
-              }
-              const directText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
+          const initialTarget = resolveTerminalEventTarget(payload)
+          if (!initialTarget) {
+            return
+          }
+          if (disposed) {
+            return
+          }
+          if (initialTarget.kind === 'cached') {
+            queueCachedTerminalOutputPayload(initialTarget.owner, payload)
+            return
+          }
+          if (!terminalOutputQueueRef.current[payload.sessionId]) {
+            const stationId = initialTarget.stationId
+            const seq = terminalSessionSeqRef.current[payload.sessionId] ?? 0
+            const sequenceAction = resolveTerminalOutputSequenceAction(payload.seq, seq)
+            if (sequenceAction === 'stale') {
+              return
+            }
+            const terminalDebugEnabled = isStationTerminalDebugEnabled(stationId)
+            let debugDirectText = ''
+            if (terminalDebugEnabled) {
+              debugDirectText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
               pushStationTerminalDebugRecord(stationId, {
                 atMs: payload.tsMs,
                 sessionId: payload.sessionId,
                 lane: 'event',
                 kind: 'output',
                 source: 'terminal/output',
-                summary: `seq ${payload.seq} · ${formatTerminalDebugPreview(directText || payload.chunk, 72)}`,
+                summary: `seq ${payload.seq} · ${formatTerminalDebugPreview(debugDirectText || payload.chunk, 72)}`,
                 body: [
+                  `workspace=${payload.workspaceId}`,
                   `seq=${payload.seq}`,
                   `tsMs=${payload.tsMs}`,
                   `base64=${payload.chunk}`,
                   '',
                   'decoded:',
-                  directText,
+                  debugDirectText,
                 ].join('\n'),
               })
-              const unread = stationId !== activeStationIdRef.current
-              const seq = terminalSessionSeqRef.current[payload.sessionId] ?? 0
-              if (payload.seq <= seq) {
+            }
+            if (sequenceAction === 'append') {
+              const text = terminalDebugEnabled
+                ? debugDirectText
+                : decodeBase64Chunk(payload.sessionId, payload.chunk, true)
+              if (text) {
+                appendStationTerminalOutput(stationId, text)
+              }
+              terminalSessionSeqRef.current[payload.sessionId] = payload.seq
+              if (!text) {
+                scheduleTerminalDocumentPersist()
+              }
+              if (stationId !== activeStationIdRef.current) {
+                incrementStationUnread(stationId, 1)
+              }
+              return
+            }
+          }
+          const previous = terminalOutputQueueRef.current[payload.sessionId] ?? Promise.resolve()
+          let queuedOutput: Promise<void>
+          queuedOutput = previous
+            .catch(() => undefined)
+            .then(async () => {
+              if (disposed) {
                 return
               }
-              if (payload.seq === seq + 1) {
-                const text = directText
+              const target = resolveTerminalEventTarget(payload)
+              if (!target) {
+                return
+              }
+              if (target.kind === 'cached') {
+                queueCachedTerminalOutputPayload(target.owner, payload)
+                return
+              }
+              const stationId = target.stationId
+              const seq = terminalSessionSeqRef.current[payload.sessionId] ?? 0
+              const sequenceAction = resolveTerminalOutputSequenceAction(payload.seq, seq)
+              if (sequenceAction === 'stale') {
+                return
+              }
+              const terminalDebugEnabled = isStationTerminalDebugEnabled(stationId)
+              let debugDirectText = ''
+              if (terminalDebugEnabled) {
+                debugDirectText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
+                pushStationTerminalDebugRecord(stationId, {
+                  atMs: payload.tsMs,
+                  sessionId: payload.sessionId,
+                  lane: 'event',
+                  kind: 'output',
+                  source: 'terminal/output',
+                  summary: `seq ${payload.seq} · ${formatTerminalDebugPreview(debugDirectText || payload.chunk, 72)}`,
+                  body: [
+                    `workspace=${payload.workspaceId}`,
+                    `seq=${payload.seq}`,
+                    `tsMs=${payload.tsMs}`,
+                    `base64=${payload.chunk}`,
+                    '',
+                    'decoded:',
+                    debugDirectText,
+                  ].join('\n'),
+                })
+              }
+              const unread = stationId !== activeStationIdRef.current
+              if (sequenceAction === 'append') {
+                const text = terminalDebugEnabled
+                  ? debugDirectText
+                  : decodeBase64Chunk(payload.sessionId, payload.chunk, true)
                 if (text) {
                   appendStationTerminalOutput(stationId, text)
                 }
                 terminalSessionSeqRef.current[payload.sessionId] = payload.seq
-                scheduleTerminalDocumentPersist()
+                if (!text) {
+                  scheduleTerminalDocumentPersist()
+                }
                 if (unread) {
                   incrementStationUnread(stationId, 1)
                 }
                 return
               }
 
+              const workspaceId = payload.workspaceId
+              if (activeWorkspaceIdRef.current !== workspaceId) {
+                return
+              }
               const delta = await desktopApi
-                .terminalReadDelta(payload.sessionId, seq)
-                .catch(() => null)
+                .terminalReadDelta(workspaceId, payload.sessionId, seq)
+                .catch((error) => {
+                  const detail = describeError(error)
+                  if (isTerminalSessionBindingInvalid(detail)) {
+                    cleanupMissingWorkspaceTerminalSession(
+                      workspaceId,
+                      stationId,
+                      payload.sessionId,
+                      detail,
+                    )
+                  }
+                  return null
+                })
+              if (
+                delta &&
+                !isMatchingTerminalWorkspaceSessionResponse(delta, workspaceId, payload.sessionId)
+              ) {
+                return
+              }
+              if (
+                activeWorkspaceIdRef.current !== workspaceId ||
+                sessionStationRef.current[payload.sessionId] !== stationId
+              ) {
+                return
+              }
               if (
                 delta &&
                 !delta.gap &&
@@ -1676,38 +2299,63 @@ export function useShellTerminalController({
                   return
                 }
                 const text = decodeBase64Chunk(payload.sessionId, delta.chunk, true)
-                pushStationTerminalDebugRecord(stationId, {
-                  sessionId: payload.sessionId,
-                  lane: 'recovery',
-                  kind: 'delta',
-                  source: 'terminal_read_delta',
-                  summary: `delta ${delta.fromSeq ?? '?'}-${delta.toSeq} · ${formatTerminalDebugPreview(text || delta.chunk, 72)}`,
-                  body: [
-                    `afterSeq=${delta.afterSeq}`,
-                    `fromSeq=${delta.fromSeq ?? 'null'}`,
-                    `toSeq=${delta.toSeq}`,
-                    `currentSeq=${delta.currentSeq}`,
-                    `gap=${delta.gap}`,
-                    `truncated=${delta.truncated}`,
-                    `base64=${delta.chunk}`,
-                    '',
-                    'decoded:',
-                    text,
-                  ].join('\n'),
-                })
+                if (terminalDebugEnabled) {
+                  pushStationTerminalDebugRecord(stationId, {
+                    sessionId: payload.sessionId,
+                    lane: 'recovery',
+                    kind: 'delta',
+                    source: 'terminal_read_delta',
+                    summary: `delta ${delta.fromSeq ?? '?'}-${delta.toSeq} · ${formatTerminalDebugPreview(text || delta.chunk, 72)}`,
+                    body: [
+                      `workspace=${workspaceId}`,
+                      `afterSeq=${delta.afterSeq}`,
+                      `fromSeq=${delta.fromSeq ?? 'null'}`,
+                      `toSeq=${delta.toSeq}`,
+                      `currentSeq=${delta.currentSeq}`,
+                      `gap=${delta.gap}`,
+                      `truncated=${delta.truncated}`,
+                      `base64=${delta.chunk}`,
+                      '',
+                      'decoded:',
+                      text,
+                    ].join('\n'),
+                  })
+                }
                 if (text) {
                   appendStationTerminalOutput(stationId, text)
                 }
                 terminalSessionSeqRef.current[payload.sessionId] = delta.toSeq
-                scheduleTerminalDocumentPersist()
+                if (!text) {
+                  scheduleTerminalDocumentPersist()
+                }
                 if (unread) {
                   incrementStationUnread(stationId, 1)
                 }
                 return
               }
 
-              const snapshot = await desktopApi.terminalReadSnapshot(payload.sessionId).catch(() => null)
+              const snapshot = await desktopApi
+                .terminalReadSnapshot(workspaceId, payload.sessionId)
+                .catch((error) => {
+                  const detail = describeError(error)
+                  if (isTerminalSessionBindingInvalid(detail)) {
+                    cleanupMissingWorkspaceTerminalSession(
+                      workspaceId,
+                      stationId,
+                      payload.sessionId,
+                      detail,
+                    )
+                  }
+                  return null
+                })
               if (!snapshot) {
+                return
+              }
+              if (
+                !isMatchingTerminalWorkspaceSessionResponse(snapshot, workspaceId, payload.sessionId) ||
+                activeWorkspaceIdRef.current !== workspaceId ||
+                sessionStationRef.current[payload.sessionId] !== stationId
+              ) {
                 return
               }
               if (
@@ -1723,23 +2371,26 @@ export function useShellTerminalController({
                 (terminalChunkDecoderBySessionRef.current[payload.sessionId] = createTerminalChunkDecoder())
               resetTerminalChunkDecoder(decoder)
               const snapshotText = decodeTerminalBase64Chunk(decoder, snapshot.chunk, false)
-              pushStationTerminalDebugRecord(stationId, {
-                sessionId: payload.sessionId,
-                lane: 'recovery',
-                kind: 'snapshot',
-                source: 'terminal_read_snapshot',
-                summary: `snapshot @${snapshot.currentSeq} · ${formatTerminalDebugPreview(snapshotText || snapshot.chunk, 72)}`,
-                body: [
-                  `currentSeq=${snapshot.currentSeq}`,
-                  `bytes=${snapshot.bytes}`,
-                  `maxBytes=${snapshot.maxBytes}`,
-                  `truncated=${snapshot.truncated}`,
-                  `base64=${snapshot.chunk}`,
-                  '',
-                  'decoded:',
-                  snapshotText,
-                ].join('\n'),
-              })
+              if (terminalDebugEnabled) {
+                pushStationTerminalDebugRecord(stationId, {
+                  sessionId: payload.sessionId,
+                  lane: 'recovery',
+                  kind: 'snapshot',
+                  source: 'terminal_read_snapshot',
+                  summary: `snapshot @${snapshot.currentSeq} · ${formatTerminalDebugPreview(snapshotText || snapshot.chunk, 72)}`,
+                  body: [
+                    `workspace=${workspaceId}`,
+                    `currentSeq=${snapshot.currentSeq}`,
+                    `bytes=${snapshot.bytes}`,
+                    `maxBytes=${snapshot.maxBytes}`,
+                    `truncated=${snapshot.truncated}`,
+                    `base64=${snapshot.chunk}`,
+                    '',
+                    'decoded:',
+                    snapshotText,
+                  ].join('\n'),
+                })
+              }
               resetStationTerminalOutput(stationId, snapshotText)
               terminalSessionSeqRef.current[payload.sessionId] = snapshot.currentSeq
               scheduleTerminalDocumentPersist()
@@ -1747,31 +2398,33 @@ export function useShellTerminalController({
                 incrementStationUnread(stationId, 1)
               }
             })
+            .finally(() => {
+              if (terminalOutputQueueRef.current[payload.sessionId] === queuedOutput) {
+                delete terminalOutputQueueRef.current[payload.sessionId]
+              }
+            })
+          terminalOutputQueueRef.current[payload.sessionId] = queuedOutput
         },
         onStateChanged: (payload: TerminalStatePayload) => {
-          const stationId = sessionStationRef.current[payload.sessionId]
-          if (stationId) {
-            recordStationLifecycleDiagnostic(
-              stationId,
-              payload.sessionId,
-              'terminal-state-event',
-              [`from=${payload.from}`, `to=${payload.to}`, `tsMs=${payload.tsMs}`].join(';'),
-            )
-          } else {
-            recordStationRuntimeDiagnosticBySession(
-              payload.sessionId,
-              'terminal-state-event',
-              [`from=${payload.from}`, `to=${payload.to}`, `tsMs=${payload.tsMs}`].join(';'),
-            )
+          const target = resolveTerminalEventTarget(payload)
+          if (!target) {
+            return
           }
-          if (!stationId) {
-            const owner = findWorkspaceTerminalSessionOwner(
-              workspaceTerminalCacheRef.current,
+          const stateDetail = [
+            `workspace=${payload.workspaceId}`,
+            `from=${payload.from}`,
+            `to=${payload.to}`,
+            `tsMs=${payload.tsMs}`,
+          ].join(';')
+          if (target.kind === 'cached') {
+            flushCachedTerminalOutputAppendQueue()
+            const { owner } = target
+            recordStationLifecycleDiagnostic(
+              owner.stationId,
               payload.sessionId,
+              'terminal-state-event',
+              stateDetail,
             )
-            if (!owner) {
-              return
-            }
             const runtime = owner.document.stationTerminals[owner.stationId]
             if (runtime) {
               owner.document.stationTerminals[owner.stationId] = {
@@ -1803,15 +2456,29 @@ export function useShellTerminalController({
             }
             return
           }
-          pushStationTerminalDebugRecord(stationId, {
-            atMs: payload.tsMs,
-            sessionId: payload.sessionId,
-            lane: 'event',
-            kind: 'state',
-            source: 'terminal/state_changed',
-            summary: `${payload.from} -> ${payload.to}`,
-            body: [`from=${payload.from}`, `to=${payload.to}`, `tsMs=${payload.tsMs}`].join('\n'),
-          })
+          const stationId = target.stationId
+          recordStationLifecycleDiagnostic(
+            stationId,
+            payload.sessionId,
+            'terminal-state-event',
+            stateDetail,
+          )
+          if (isStationTerminalDebugEnabled(stationId)) {
+            pushStationTerminalDebugRecord(stationId, {
+              atMs: payload.tsMs,
+              sessionId: payload.sessionId,
+              lane: 'event',
+              kind: 'state',
+              source: 'terminal/state_changed',
+              summary: `${payload.from} -> ${payload.to}`,
+              body: [
+                `workspace=${payload.workspaceId}`,
+                `from=${payload.from}`,
+                `to=${payload.to}`,
+                `tsMs=${payload.tsMs}`,
+              ].join('\n'),
+            })
+          }
           const nextClosedRuntime =
             payload.to === 'exited' || payload.to === 'killed' || payload.to === 'failed'
               ? buildClosedStationTerminalRuntime(
@@ -1869,40 +2536,45 @@ export function useShellTerminalController({
           persistActiveWorkspaceTerminalDocument()
         },
         onMeta: (payload: TerminalMetaPayload) => {
-          const stationId = sessionStationRef.current[payload.sessionId]
-          if (!stationId) {
-            const owner = findWorkspaceTerminalSessionOwner(
-              workspaceTerminalCacheRef.current,
-              payload.sessionId,
-            )
-            const runtime = owner?.document.stationTerminals[owner.stationId]
-            if (owner && runtime) {
-              const delta = Math.max(1, Math.min(99, payload.unreadChunks || 1))
-              owner.document.stationTerminals[owner.stationId] = {
-                ...runtime,
-                unreadCount: Math.min(999, runtime.unreadCount + delta),
-              }
-            }
+          const target = resolveTerminalEventTarget(payload)
+          if (!target) {
             return
           }
-          const tail = decodeBase64Chunk(payload.sessionId, payload.tailChunk, true)
-          pushStationTerminalDebugRecord(stationId, {
-            atMs: payload.tsMs,
-            sessionId: payload.sessionId,
-            lane: 'event',
-            kind: 'meta',
-            source: 'terminal/meta',
-            summary: `chunks ${payload.unreadChunks} · ${formatTerminalDebugPreview(tail || payload.tailChunk, 72)}`,
-            body: [
-              `unreadBytes=${payload.unreadBytes}`,
-              `unreadChunks=${payload.unreadChunks}`,
-              `tsMs=${payload.tsMs}`,
-              `base64=${payload.tailChunk}`,
-              '',
-              'decoded:',
-              tail,
-            ].join('\n'),
-          })
+          if (target.kind === 'cached') {
+            const { owner } = target
+            queueCachedTerminalUnreadDelta({
+              workspaceId: owner.workspaceId,
+              stationId: owner.stationId,
+              sessionId: payload.sessionId,
+              unreadDelta: Math.max(1, Math.min(99, payload.unreadChunks || 1)),
+            })
+            return
+          }
+          const stationId = target.stationId
+          const terminalDebugEnabled = isStationTerminalDebugEnabled(stationId)
+          const tail = terminalDebugEnabled
+            ? decodeBase64Chunk(payload.sessionId, payload.tailChunk, true)
+            : ''
+          if (terminalDebugEnabled) {
+            pushStationTerminalDebugRecord(stationId, {
+              atMs: payload.tsMs,
+              sessionId: payload.sessionId,
+              lane: 'event',
+              kind: 'meta',
+              source: 'terminal/meta',
+              summary: `chunks ${payload.unreadChunks} · ${formatTerminalDebugPreview(tail || payload.tailChunk, 72)}`,
+              body: [
+                `workspace=${payload.workspaceId}`,
+                `unreadBytes=${payload.unreadBytes}`,
+                `unreadChunks=${payload.unreadChunks}`,
+                `tsMs=${payload.tsMs}`,
+                `base64=${payload.tailChunk}`,
+                '',
+                'decoded:',
+                tail,
+              ].join('\n'),
+            })
+          }
           if (tail) {
             appendStationTerminalOutput(stationId, tail)
           }
@@ -1925,15 +2597,21 @@ export function useShellTerminalController({
       if (cleanup) {
         cleanup()
       }
+      flushCachedTerminalOutputAppendQueue()
       flushPendingStationTerminalOutput()
       flushScheduledTerminalDocumentPersist()
     }
   }, [
     appendStationTerminalOutput,
+    cleanupMissingWorkspaceTerminalSession,
     decodeBase64Chunk,
+    flushCachedTerminalOutputAppendQueue,
     flushPendingStationTerminalOutput,
     flushScheduledTerminalDocumentPersist,
     incrementStationUnread,
+    queueCachedTerminalOutputAppend,
+    queueCachedTerminalUnreadDelta,
+    persistActiveWorkspaceTerminalDocument,
     pushStationTerminalDebugRecord,
     recordStationLifecycleDiagnostic,
     recordStationRuntimeDiagnosticBySession,
@@ -2035,7 +2713,7 @@ export function useShellTerminalController({
 
   // ── Terminal session visibility ────────────────────────────────────────
   useEffect(() => {
-    if (!desktopApi.isTauriRuntime()) {
+    if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {
       return
     }
 
@@ -2053,7 +2731,7 @@ export function useShellTerminalController({
       if (terminalSessionVisibilityRef.current[sessionId]) {
         return
       }
-      ensureTerminalSessionVisible(sessionId)
+      ensureTerminalSessionVisible(activeWorkspaceId, sessionId)
     })
 
     Object.keys(terminalSessionVisibilityRef.current).forEach((sessionId) => {
@@ -2061,7 +2739,7 @@ export function useShellTerminalController({
         delete terminalSessionVisibilityRef.current[sessionId]
       }
     })
-  }, [ensureTerminalSessionVisible, stationTerminals])
+  }, [activeWorkspaceId, ensureTerminalSessionVisible, stationTerminals])
 
   // ── Input controller dispose ───────────────────────────────────────────
   useEffect(() => {
@@ -2197,9 +2875,8 @@ export function useShellTerminalController({
             }
             sessionStationRef.current[session.sessionId] = stationId
             terminalSessionSeqRef.current[session.sessionId] = 0
-            terminalOutputQueueRef.current[session.sessionId] = Promise.resolve()
             delete stationTerminalRestoreStateRef.current[stationId]
-            ensureTerminalSessionVisible(session.sessionId)
+            ensureTerminalSessionVisible(launchWorkspaceId, session.sessionId)
             const currentRuntime = stationTerminalsRef.current[stationId] ?? {
               sessionId: null,
               stateRaw: 'idle',
@@ -2269,12 +2946,35 @@ export function useShellTerminalController({
     ],
   )
 
+  const focusStationTerminal = useCallback(async (stationId: string): Promise<boolean> => {
+    return focusStationTerminalSinkWithFrameRetry({
+      maxRetryFrames: STATION_TERMINAL_FOCUS_MAX_RETRY_FRAMES,
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_TERMINAL_FOCUS_RETRY_FALLBACK_DELAY_MS,
+      focus: () => {
+        const sink = stationTerminalSinkRef.current[stationId]
+        if (!sink) {
+          return false
+        }
+        sink.focus()
+        return true
+      },
+    })
+  }, [])
+
+  const refocusStationTerminal = useCallback(
+    (stationId: string) => {
+      void focusStationTerminal(stationId)
+    },
+    [focusStationTerminal],
+  )
+
   const launchStationTerminal = useMemo(
     () => async (stationId: string) => {
       await ensureStationTerminalSession(stationId)
-      stationTerminalSinkRef.current[stationId]?.focus()
+      await focusStationTerminal(stationId)
     },
-    [ensureStationTerminalSession],
+    [ensureStationTerminalSession, focusStationTerminal],
   )
 
   // ── Send station terminal input ────────────────────────────────────────
@@ -2294,17 +2994,31 @@ export function useShellTerminalController({
             }
 
             try {
-              const sessionId = stationTerminalsRef.current[targetStationId]?.sessionId ?? null
-              if (!sessionId || !shouldForwardStationTerminalInput(sessionId)) {
+              const runtime = stationTerminalsRef.current[targetStationId]
+              const sessionId = runtime?.sessionId ?? null
+              const workspaceId = activeWorkspaceIdRef.current
+              if (!workspaceId || !sessionId || !shouldForwardStationTerminalInput(runtime)) {
                 return
               }
-              ensureTerminalSessionVisible(sessionId)
-              await desktopApi.terminalWrite(sessionId, queuedInput)
-              scheduleStationTerminalOutputRecovery(
-                activeWorkspaceIdRef.current,
-                targetStationId,
-                sessionId,
-              )
+              ensureTerminalSessionVisible(workspaceId, sessionId)
+              const response = await desktopApi.terminalWrite(workspaceId, sessionId, queuedInput)
+              if (
+                !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId) ||
+                activeWorkspaceIdRef.current !== workspaceId ||
+                stationTerminalsRef.current[targetStationId]?.sessionId !== sessionId
+              ) {
+                return
+              }
+              if (!response.accepted) {
+                appendStationTerminalOutput(
+                  targetStationId,
+                  t(locale, 'system.sendFailed', {
+                    detail: TERMINAL_WRITE_REJECTED_DETAIL,
+                  }),
+                )
+                return
+              }
+              scheduleStationTerminalOutputRecovery(workspaceId, targetStationId, sessionId)
             } catch (error) {
               appendStationTerminalOutput(
                 targetStationId,
@@ -2329,21 +3043,12 @@ export function useShellTerminalController({
 
   // ── Submit station terminal ────────────────────────────────────────────
   const submitStationTerminal = useCallback(async (stationId: string): Promise<boolean> => {
-    for (let attempt = 0; attempt <= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES; attempt += 1) {
-      const submittedByTerminal = stationTerminalSinkRef.current[stationId]?.submit?.() ?? false
-      if (submittedByTerminal) {
-        return true
-      }
-      if (attempt >= STATION_TASK_SUBMIT_MAX_RETRY_FRAMES) {
-        return false
-      }
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-          resolve()
-        })
-      })
-    }
-    return false
+    return submitStationTerminalWithFrameRetry({
+      maxRetryFrames: STATION_TASK_SUBMIT_MAX_RETRY_FRAMES,
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_TASK_SUBMIT_RETRY_FALLBACK_DELAY_MS,
+      submit: () => stationTerminalSinkRef.current[stationId]?.submit?.() ?? false,
+    })
   }, [])
 
   // ── Write station terminal with submit ──────────────────────────────────
@@ -2356,6 +3061,11 @@ export function useShellTerminalController({
         return false
       }
 
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!workspaceId) {
+        return false
+      }
+
       try {
         let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
         if (!sessionId) {
@@ -2364,13 +3074,33 @@ export function useShellTerminalController({
             return false
           }
         }
-        ensureTerminalSessionVisible(sessionId)
-        await desktopApi.terminalWriteWithSubmit(
+        if (!shouldForwardStationTerminalInput(stationTerminalsRef.current[stationId])) {
+          return false
+        }
+        ensureTerminalSessionVisible(workspaceId, sessionId)
+        const response = await desktopApi.terminalWriteWithSubmit(
+          workspaceId,
           sessionId,
           input,
           stationSubmitSequenceRef.current[stationId] ?? '\r',
         )
-        scheduleStationTerminalOutputRecovery(activeWorkspaceIdRef.current, stationId, sessionId)
+        if (
+          !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId) ||
+          activeWorkspaceIdRef.current !== workspaceId ||
+          stationTerminalsRef.current[stationId]?.sessionId !== sessionId
+        ) {
+          return false
+        }
+        if (!response.accepted) {
+          appendStationTerminalOutput(
+            stationId,
+            t(locale, 'system.sendFailed', {
+              detail: TERMINAL_WRITE_REJECTED_DETAIL,
+            }),
+          )
+          return false
+        }
+        scheduleStationTerminalOutputRecovery(workspaceId, stationId, sessionId)
         return true
       } catch (error) {
         appendStationTerminalOutput(
@@ -2398,6 +3128,11 @@ export function useShellTerminalController({
         return false
       }
 
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!workspaceId) {
+        return false
+      }
+
       try {
         let sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
         if (!sessionId) {
@@ -2406,7 +3141,10 @@ export function useShellTerminalController({
             return false
           }
         }
-        ensureTerminalSessionVisible(sessionId)
+        if (!shouldForwardStationTerminalInput(stationTerminalsRef.current[stationId])) {
+          return false
+        }
+        ensureTerminalSessionVisible(workspaceId, sessionId)
         const chunks = buildStationTerminalCommandSubmitChunks(
           command,
           stationSubmitSequenceRef.current[stationId] ?? '\r',
@@ -2414,14 +3152,30 @@ export function useShellTerminalController({
         for (let index = 0; index < chunks.length; index += 1) {
           // Shell launch commands should submit once; the extra hard-Enter path is reserved for
           // interactive prompt submission after the tool is already running.
-          await desktopApi.terminalWrite(sessionId, chunks[index])
+          const response = await desktopApi.terminalWrite(workspaceId, sessionId, chunks[index])
+          if (
+            !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId) ||
+            activeWorkspaceIdRef.current !== workspaceId ||
+            stationTerminalsRef.current[stationId]?.sessionId !== sessionId
+          ) {
+            return false
+          }
+          if (!response.accepted) {
+            appendStationTerminalOutput(
+              stationId,
+              t(locale, 'system.sendFailed', {
+                detail: TERMINAL_WRITE_REJECTED_DETAIL,
+              }),
+            )
+            return false
+          }
           if (index + 1 < chunks.length) {
             await new Promise<void>((resolve) => {
               window.setTimeout(resolve, 5)
             })
           }
         }
-        scheduleStationTerminalOutputRecovery(activeWorkspaceIdRef.current, stationId, sessionId)
+        scheduleStationTerminalOutputRecovery(workspaceId, stationId, sessionId)
         return true
       } catch (error) {
         appendStationTerminalOutput(
@@ -2452,7 +3206,12 @@ export function useShellTerminalController({
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       const workspaceId = activeWorkspaceIdRef.current
       const station = stationsRef.current.find((entry) => entry.id === stationId)
-      if (!sessionId || !workspaceId || !station) {
+      if (
+        !sessionId ||
+        !workspaceId ||
+        !station ||
+        !shouldForwardStationTerminalInput(stationTerminalsRef.current[stationId])
+      ) {
         return false
       }
 
@@ -2465,13 +3224,30 @@ export function useShellTerminalController({
       const resetCommand = `cd "${agentWorkspaceCwd.replace(/"/g, '\\"')}"`
 
       try {
-        ensureTerminalSessionVisible(sessionId)
-        await desktopApi.terminalWriteWithSubmit(
+        ensureTerminalSessionVisible(workspaceId, sessionId)
+        const response = await desktopApi.terminalWriteWithSubmit(
+          workspaceId,
           sessionId,
           resetCommand,
           stationSubmitSequenceRef.current[stationId] ?? '\r',
         )
-        scheduleStationTerminalOutputRecovery(activeWorkspaceIdRef.current, stationId, sessionId)
+        if (
+          !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId) ||
+          activeWorkspaceIdRef.current !== workspaceId ||
+          stationTerminalsRef.current[stationId]?.sessionId !== sessionId
+        ) {
+          return false
+        }
+        if (!response.accepted) {
+          appendStationTerminalOutput(
+            stationId,
+            t(locale, 'system.sendFailed', {
+              detail: TERMINAL_WRITE_REJECTED_DETAIL,
+            }),
+          )
+          return false
+        }
+        scheduleStationTerminalOutputRecovery(workspaceId, stationId, sessionId)
         return true
       } catch (error) {
         appendStationTerminalOutput(
@@ -2583,14 +3359,24 @@ export function useShellTerminalController({
       if (!desktopApi.isTauriRuntime()) {
         return
       }
-      const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      if (!sessionId) {
+      const runtime = stationTerminalsRef.current[stationId]
+      const sessionId = runtime?.sessionId ?? null
+      const workspaceId = activeWorkspaceIdRef.current
+      const resizeDimensions = normalizeStationTerminalResizeDimensions(cols, rows)
+      if (
+        !workspaceId ||
+        !sessionId ||
+        !resizeDimensions ||
+        !shouldForwardStationTerminalInput(runtime)
+      ) {
         return
       }
       // Fire and forget - resize is best effort
-      void desktopApi.terminalResize(sessionId, cols, rows).catch(() => {
-        // Resize failures are non-critical
-      })
+      void desktopApi
+        .terminalResize(workspaceId, sessionId, resizeDimensions.cols, resizeDimensions.rows)
+        .catch(() => {
+          // Resize failures are non-critical
+        })
     },
     [],
   )
@@ -2687,6 +3473,7 @@ export function useShellTerminalController({
           if (!container) {
             return
           }
+          flushDetachedProjectionOutputAppends()
           const snapshot = buildDetachedHydrateSnapshotMessage(sourceWindowLabel, container.id)
           if (!snapshot) {
             return
@@ -2775,6 +3562,7 @@ export function useShellTerminalController({
     [
       buildDetachedHydrateSnapshotMessage,
       ensureStationTerminalSession,
+      flushDetachedProjectionOutputAppends,
       handleStationTerminalInput,
       matchesDetachedBridgeSession,
       queueDetachedProjectionMessage,
@@ -2792,7 +3580,19 @@ export function useShellTerminalController({
       }
       const debugEnabled = isStationTerminalDebugEnabled(stationId)
       const sessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
-      if (!sessionId || snapshot.sessionId !== sessionId) {
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!workspaceId || !sessionId || snapshot.sessionId !== sessionId) {
+        return
+      }
+      if (
+        !shouldReportRenderedScreenSnapshot({
+          lastReported: renderedScreenReportRevisionRef.current,
+          workspaceId,
+          stationId,
+          sessionId,
+          screenRevision: snapshot.screenRevision,
+        })
+      ) {
         return
       }
       if (debugEnabled) {
@@ -2817,8 +3617,15 @@ export function useShellTerminalController({
       const station = stationsRef.current.find((item) => item.id === stationId)
       const toolKind = normalizeStationToolKind(station?.tool)
       void desktopApi
-        .terminalReportRenderedScreen(snapshot, toolKind)
+        .terminalReportRenderedScreen(workspaceId, snapshot, toolKind)
         .then((response) => {
+          if (
+            !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, snapshot.sessionId) ||
+            activeWorkspaceIdRef.current !== workspaceId ||
+            (stationTerminalsRef.current[stationId]?.sessionId ?? null) !== snapshot.sessionId
+          ) {
+            return
+          }
           setStationTerminalDebugHumanLog(stationId, {
             entries: response.humanEntries,
             eventCount: response.humanEventCount,
@@ -2839,8 +3646,16 @@ export function useShellTerminalController({
       }
 
       try {
-        const snapshot = await desktopApi.terminalDescribeProcesses(sessionId)
-        if (stationTerminalsRef.current[stationId]?.sessionId !== sessionId) {
+        const workspaceId = activeWorkspaceIdRef.current
+        if (!workspaceId) {
+          return null
+        }
+        const snapshot = await desktopApi.terminalDescribeProcesses(workspaceId, sessionId)
+        if (
+          !isMatchingTerminalWorkspaceSessionResponse(snapshot, workspaceId, sessionId) ||
+          activeWorkspaceIdRef.current !== workspaceId ||
+          stationTerminalsRef.current[stationId]?.sessionId !== sessionId
+        ) {
           return null
         }
         return snapshot
@@ -2992,7 +3807,6 @@ export function useShellTerminalController({
 
         sessionStationRef.current[terminalSessionId] = station.id
         terminalSessionSeqRef.current[terminalSessionId] = 0
-        terminalOutputQueueRef.current[terminalSessionId] = Promise.resolve()
         delete stationTerminalRestoreStateRef.current[station.id]
 
         if (response.submitSequence) {
@@ -3002,7 +3816,7 @@ export function useShellTerminalController({
           }
         }
 
-        ensureTerminalSessionVisible(terminalSessionId)
+        ensureTerminalSessionVisible(workspaceId, terminalSessionId)
         resetStationTerminalOutput(
           station.id,
           `${t(locale, 'system.terminalLaunched')}${t(locale, 'system.terminalSessionInfo', {
@@ -3116,7 +3930,7 @@ export function useShellTerminalController({
       }
 
       sessionStationRef.current[sessionId] = stationId
-      ensureTerminalSessionVisible(sessionId)
+      ensureTerminalSessionVisible(workspaceId, sessionId)
 
       void desktopApi
         .agentRuntimeRegister({
@@ -3142,6 +3956,7 @@ export function useShellTerminalController({
       if (options?.bindGtoSessionId) {
         void desktopApi
           .sessionResumeBind({
+            workspaceId,
             gtoSessionId: options.bindGtoSessionId,
             terminalSessionId: sessionId,
             stationId: station.id,
@@ -3150,12 +3965,13 @@ export function useShellTerminalController({
           .catch(() => {})
       }
 
-      stationTerminalSinkRef.current[stationId]?.focus()
+      await focusStationTerminal(stationId)
       return true
     },
     [
       ensureStationTerminalSession,
       ensureTerminalSessionVisible,
+      focusStationTerminal,
       protectStationAgentSession,
       runStationTerminalCommand,
       setStationTerminalState,
@@ -3229,7 +4045,7 @@ export function useShellTerminalController({
         if (!sessionId) {
           return
         }
-        stationTerminalSinkRef.current[stationId]?.focus()
+        await focusStationTerminal(stationId)
         return
       }
 
@@ -3237,7 +4053,7 @@ export function useShellTerminalController({
       const agentRunning = isStationAgentProcessRunning(station.toolKind, processSnapshot)
       if (agentRunning) {
         protectStationAgentSession(stationId, currentSessionId)
-        stationTerminalSinkRef.current[stationId]?.focus()
+        await focusStationTerminal(stationId)
         return
       }
 
@@ -3250,9 +4066,10 @@ export function useShellTerminalController({
         return
       }
       protectStationAgentSession(stationId, currentSessionId)
-      stationTerminalSinkRef.current[stationId]?.focus()
+      await focusStationTerminal(stationId)
     },
     [
+      focusStationTerminal,
       inspectStationSessionProcesses,
       launchToolProfileForStation,
       protectStationAgentSession,
@@ -3272,16 +4089,28 @@ export function useShellTerminalController({
       const targetSessionId = runtime?.sessionId ?? mappedSessionId
       if (targetSessionId && desktopApi.isTauriRuntime()) {
         try {
-          await requestTerminalKill({
+          const response = await requestTerminalKill({
             sessionId: targetSessionId,
             signal: 'TERM',
             reason: 'removed-station-runtime-cleanup',
             stationId,
             workspaceId,
           })
+          if (!workspaceId || !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, targetSessionId)) {
+            return false
+          }
+          if (!response.killed) {
+            appendStationTerminalOutput(
+              stationId,
+              t(locale, 'system.killFailed', {
+                detail: TERMINAL_KILL_REJECTED_DETAIL,
+              }),
+            )
+            return false
+          }
         } catch (error) {
           const detail = describeError(error)
-          if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+          if (!isTerminalSessionBindingInvalid(detail)) {
             appendStationTerminalOutput(
               stationId,
               t(locale, 'system.killFailed', {
@@ -3339,6 +4168,7 @@ export function useShellTerminalController({
       setStationTerminals((prev) => {
         const next = { ...prev }
         delete next[stationId]
+        stationTerminalsRef.current = next
         return next
       })
       delete stationTerminalOutputCacheRef.current[stationId]
@@ -3453,17 +4283,29 @@ export function useShellTerminalController({
     const workspaceId = activeWorkspaceIdRef.current
     try {
       if (desktopApi.isTauriRuntime()) {
-        await requestTerminalKill({
+        const response = await requestTerminalKill({
           sessionId,
           signal: 'KILL',
           reason: 'force-close-confirmed',
           stationId,
           workspaceId,
         })
+        if (!workspaceId || !isMatchingTerminalWorkspaceSessionResponse(response, workspaceId, sessionId)) {
+          return
+        }
+        if (!response.killed) {
+          appendStationTerminalOutput(
+            stationId,
+            t(locale, 'system.killFailed', {
+              detail: TERMINAL_KILL_REJECTED_DETAIL,
+            }),
+          )
+          return
+        }
       }
     } catch (error) {
       const detail = describeError(error)
-      if (!detail.includes('TERMINAL_SESSION_NOT_FOUND')) {
+      if (!isTerminalSessionBindingInvalid(detail)) {
         appendStationTerminalOutput(
           stationId,
           t(locale, 'system.killFailed', {
@@ -3677,19 +4519,19 @@ export function useShellTerminalController({
       switch (execution.type) {
         case 'insert_text':
           handleStationTerminalInput(station.id, execution.text)
-          stationTerminalSinkRef.current[station.id]?.focus()
+          refocusStationTerminal(station.id)
           return
         case 'insert_and_submit':
           await writeStationTerminalWithSubmit(station.id, execution.text)
-          stationTerminalSinkRef.current[station.id]?.focus()
+          refocusStationTerminal(station.id)
           return
         case 'submit_terminal':
           await submitStationTerminal(station.id)
-          stationTerminalSinkRef.current[station.id]?.focus()
+          refocusStationTerminal(station.id)
           return
         case 'launch_cli':
           await launchStationCliAgent(station.id)
-          stationTerminalSinkRef.current[station.id]?.focus()
+          refocusStationTerminal(station.id)
           return
         case 'open_command_sheet':
           setPendingStationActionSheet({ station, action })
@@ -3709,7 +4551,14 @@ export function useShellTerminalController({
           return
       }
     },
-    [handleStationTerminalInput, launchStationCliAgent, launchToolProfileForStation, submitStationTerminal, writeStationTerminalWithSubmit],
+    [
+      handleStationTerminalInput,
+      launchStationCliAgent,
+      launchToolProfileForStation,
+      refocusStationTerminal,
+      submitStationTerminal,
+      writeStationTerminalWithSubmit,
+    ],
   )
 
   // ── Handle submit station action sheet ──────────────────────────────────
@@ -3731,9 +4580,9 @@ export function useShellTerminalController({
       if (pending.action.execution.submit) {
         await submitStationTerminal(pending.station.id)
       }
-      stationTerminalSinkRef.current[pending.station.id]?.focus()
+      await focusStationTerminal(pending.station.id)
     },
-    [handleStationTerminalInput, pendingStationActionSheet, submitStationTerminal],
+    [focusStationTerminal, handleStationTerminalInput, pendingStationActionSheet, submitStationTerminal],
   )
 
   // ── Computed values ────────────────────────────────────────────────────
@@ -3783,7 +4632,7 @@ export function useShellTerminalController({
           return [
             station.id,
             station.toolKind,
-            runtime?.sessionId ? 'live' : 'idle',
+            runtime?.stateRaw ?? (runtime?.sessionId ? 'running' : 'idle'),
             runtime?.resolvedCwd ?? '',
           ].join(':')
         })
@@ -3793,29 +4642,48 @@ export function useShellTerminalController({
 
   // ── Terminal state reset for workspace switch ──────────────────────────
   const resetTerminalStateOnWorkspaceSwitch = useCallback(() => {
-    flushPendingStationTerminalOutput()
+    flushCachedTerminalOutputAppendQueue()
     cancelScheduledStationTerminalOutputFlushes()
     stationTerminalOutputFlushQueueRef.current = {}
+    cancelScheduledTerminalDocumentPersist()
     clearScheduledStationTerminalOutputRecoveries()
     cancelScheduledTerminalReplayDrain()
     scheduledTerminalReplayQueueRef.current = []
     scheduledTerminalReplayRunningRef.current = false
+    cancelDetachedProjectionOutputAppendFlush()
+    detachedProjectionOutputAppendQueueRef.current = {}
     detachedProjectionSeqRef.current = {}
     detachedProjectionDispatchQueueRef.current = {}
+    stationTerminalSinkRef.current = {}
+    stationTerminalPendingReplayRef.current = {}
+    stationTerminalOutputCacheRef.current = {}
+    stationTerminalOutputRevisionRef.current = {}
+    stationTerminalRestoreStateRef.current = {}
     sessionStationRef.current = {}
     terminalSessionSeqRef.current = {}
     terminalOutputQueueRef.current = {}
     ensureStationTerminalSessionInFlightRef.current = {}
     stationToolLaunchSeqRef.current = {}
+    renderedScreenReportRevisionRef.current.clear()
     terminalSessionVisibilityRef.current = {}
+    terminalChunkDecoderBySessionRef.current = {}
     stationTerminalInputControllerRef.current?.dispose()
     stationTerminalInputControllerRef.current = null
     stationSubmitSequenceRef.current = {}
+    stationUnreadDeltaRef.current = {}
+    protectedAgentSessionByStationRef.current = {}
+    const unreadTimerId = stationUnreadFlushTimerRef.current
+    if (typeof unreadTimerId === 'number') {
+      window.clearTimeout(unreadTimerId)
+    }
+    stationUnreadFlushTimerRef.current = null
   }, [
     cancelScheduledStationTerminalOutputFlushes,
+    cancelScheduledTerminalDocumentPersist,
     cancelScheduledTerminalReplayDrain,
+    cancelDetachedProjectionOutputAppendFlush,
     clearScheduledStationTerminalOutputRecoveries,
-    flushPendingStationTerminalOutput,
+    flushCachedTerminalOutputAppendQueue,
   ])
 
   // ── Cleanup effect ─────────────────────────────────────────────────────
@@ -3827,13 +4695,17 @@ export function useShellTerminalController({
       }
       stationUnreadFlushTimerRef.current = null
       stationUnreadDeltaRef.current = {}
+      flushCachedTerminalOutputAppendQueue()
       flushPendingStationTerminalOutput()
+      flushScheduledTerminalDocumentPersist()
       cancelScheduledStationTerminalOutputFlushes()
       stationTerminalOutputFlushQueueRef.current = {}
       clearScheduledStationTerminalOutputRecoveries()
       cancelScheduledTerminalReplayDrain()
       scheduledTerminalReplayQueueRef.current = []
       scheduledTerminalReplayRunningRef.current = false
+      cancelDetachedProjectionOutputAppendFlush()
+      detachedProjectionOutputAppendQueueRef.current = {}
 
       if (desktopApi.isTauriRuntime()) {
         Object.entries(registeredAgentRuntimeRef.current).forEach(([agentId, runtime]) => {
@@ -3855,8 +4727,11 @@ export function useShellTerminalController({
   }, [
     cancelScheduledStationTerminalOutputFlushes,
     cancelScheduledTerminalReplayDrain,
+    cancelDetachedProjectionOutputAppendFlush,
     clearScheduledStationTerminalOutputRecoveries,
+    flushCachedTerminalOutputAppendQueue,
     flushPendingStationTerminalOutput,
+    flushScheduledTerminalDocumentPersist,
   ])
 
   // ── Tool commands loading ──────────────────────────────────────────────

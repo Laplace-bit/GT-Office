@@ -2,6 +2,7 @@ import { memo, useMemo, useCallback } from 'react'
 import type { AgentStation } from './station-model'
 import { StationActionDock } from './StationActionDock'
 import { StationActivityComet } from './StationActivityComet'
+import { resolveStationCardStatusMeta } from './station-card-header-model'
 import { resolveStationActions } from './station-action-registry'
 import type { StationActionDescriptor } from './station-action-model'
 import { resolveStationTaskAckEmoji } from './station-task-ack-emoji'
@@ -55,10 +56,6 @@ function stationChannelLabel(locale: Locale, channel: string): string {
     return t(locale, '飞书', 'Feishu')
   }
   return channel
-}
-
-function sessionStateLabel(locale: Locale, hasTerminalSession: boolean): string {
-  return hasTerminalSession ? t(locale, '实时会话', 'Live session') : t(locale, '待启动', 'Ready')
 }
 
 interface TerminalStationPaneProps {
@@ -117,7 +114,22 @@ function TerminalStationPaneView({
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
   const visibleChannelBindingSummaries = (channelBotBindings ?? []).slice(0, 2)
   const hiddenChannelBindingCount = Math.max(0, (channelBotBindings ?? []).length - visibleChannelBindingSummaries.length)
-  const sessionLabel = sessionStateLabel(locale, hasTerminalSession)
+  const hiddenChannelBindingLabel =
+    hiddenChannelBindingCount > 0
+      ? t(locale, 'station.channelBindings.more', { count: hiddenChannelBindingCount })
+      : ''
+  const statusMeta = resolveStationCardStatusMeta({
+    sessionId: runtime?.sessionId ?? null,
+    stateRaw: runtime?.stateRaw ?? null,
+    stationState: station.state,
+  })
+  const statusLabel = t(locale, statusMeta.labelKey)
+  const statusDescription = t(locale, statusMeta.descriptionKey)
+  const statusTitle = t(locale, '{agent}：{status}。{detail}', '{agent}: {status}. {detail}', {
+    agent: station.name,
+    status: statusLabel,
+    detail: statusDescription,
+  })
   const detachedReadonly = launchMode === 'detached-readonly'
   const stationActions = useMemo(
     () =>
@@ -164,13 +176,14 @@ function TerminalStationPaneView({
       }
       void recordStationTerminalFocusDiagnostic({
         targetWindow: window,
+        workspaceId,
         stationId: station.id,
         sessionId: runtime?.sessionId ?? null,
         kind: 'ui-control-event',
         detail,
       })
     },
-    [runtime?.sessionId, station.id],
+    [runtime?.sessionId, station.id, workspaceId],
   )
 
   return (
@@ -182,23 +195,22 @@ function TerminalStationPaneView({
       ) : null}
 
       <div
-        role="button"
-        tabIndex={0}
         className="terminal-station-pane-meta"
         onClick={() => onSelectStation(station.id)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') {
-            return
-          }
-          event.preventDefault()
-          onSelectStation(station.id)
-        }}
       >
         <div className="terminal-station-pane-meta-row">
-          <div className="terminal-station-pane-title">
+          <button
+            type="button"
+            className="terminal-station-pane-title"
+            aria-current={active ? 'true' : undefined}
+            onClick={(event) => {
+              event.stopPropagation()
+              onSelectStation(station.id)
+            }}
+          >
             <strong>{station.name}</strong>
             <span>{roleLabel(locale, station)}</span>
-          </div>
+          </button>
           {activitySignal ? (
             <StationActivityComet
               locale={locale}
@@ -244,25 +256,38 @@ function TerminalStationPaneView({
           <span className="terminal-station-pane-chip" title={station.tool}>
             {station.tool}
           </span>
-          <span className={['terminal-station-pane-chip', hasTerminalSession ? 'live' : 'idle'].join(' ')}>
-            {sessionLabel}
+          <span
+            className={['terminal-station-pane-chip', `is-${statusMeta.tone}`].join(' ')}
+            title={statusTitle}
+            aria-label={statusTitle}
+            data-status-key={statusMeta.key}
+          >
+            <span className="terminal-station-pane-chip-dot" aria-hidden="true" />
+            <span className="terminal-station-pane-chip-label">{statusLabel}</span>
           </span>
-          {visibleChannelBindingSummaries.map((summary) => (
-            <span
-              key={`${station.id}:${summary.channel}:${summary.accountId}`}
-              className="terminal-station-pane-chip muted"
-              title={t(locale, 'station.channelBindings.botRoute', {
-                channel: stationChannelLabel(locale, summary.channel),
-                accountId: summary.accountId,
-                count: summary.routeCount,
-              })}
-            >
-              {summary.accountId}
-            </span>
-          ))}
+          {visibleChannelBindingSummaries.map((summary) => {
+            const routeLabel = t(locale, 'station.channelBindings.botRoute', {
+              channel: stationChannelLabel(locale, summary.channel),
+              accountId: summary.accountId,
+              count: summary.routeCount,
+            })
+            return (
+              <span
+                key={`${station.id}:${summary.channel}:${summary.accountId}`}
+                className="terminal-station-pane-chip muted"
+                title={routeLabel}
+                aria-label={routeLabel}
+              >
+                {summary.accountId}
+              </span>
+            )
+          })}
           {hiddenChannelBindingCount > 0 ? (
-            <span className="terminal-station-pane-chip muted">
-              {t(locale, 'station.channelBindings.more', { count: hiddenChannelBindingCount })}
+            <span
+              className="terminal-station-pane-chip muted"
+              aria-label={hiddenChannelBindingLabel}
+            >
+              {hiddenChannelBindingLabel}
             </span>
           ) : null}
         </div>
@@ -271,8 +296,11 @@ function TerminalStationPaneView({
       {hasTerminalSession ? (
         <>
           <StationXtermTerminal
+            locale={locale}
+            workspaceId={workspaceId}
             stationId={station.id}
             sessionId={runtime?.sessionId ?? null}
+            stateRaw={runtime?.stateRaw ?? null}
             isActive={active}
             appearanceVersion={appearanceVersion}
             onActivateStation={() => onSelectStation(station.id)}

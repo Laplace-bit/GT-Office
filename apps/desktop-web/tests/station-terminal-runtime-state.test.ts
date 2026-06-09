@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  doesStationTerminalRuntimePatchChangeState,
   isStationTerminalRuntimeLive,
   shouldRenderStationTerminal,
 } from '../src/features/terminal/station-terminal-runtime-state.js'
@@ -43,5 +44,42 @@ test('keeps exited sessions renderable for transcript playback', () => {
       stateRaw: 'idle',
     }),
     false,
+  )
+})
+
+test('detects no-op runtime patches before shell React state updates', () => {
+  const runtime = {
+    sessionId: 'session-1',
+    stateRaw: 'running',
+    unreadCount: 2,
+    shell: 'zsh',
+    cwdMode: 'custom' as const,
+    resolvedCwd: '/workspace/agent',
+  }
+
+  assert.equal(
+    doesStationTerminalRuntimePatchChangeState(runtime, {
+      sessionId: 'session-1',
+      stateRaw: 'running',
+      unreadCount: 2,
+      shell: 'zsh',
+      cwdMode: 'custom',
+      resolvedCwd: '/workspace/agent',
+    }),
+    false,
+  )
+
+  assert.equal(
+    doesStationTerminalRuntimePatchChangeState(runtime, {
+      unreadCount: 3,
+    }),
+    true,
+  )
+
+  assert.equal(
+    doesStationTerminalRuntimePatchChangeState(runtime, {
+      cwdMode: undefined,
+    }),
+    true,
   )
 })

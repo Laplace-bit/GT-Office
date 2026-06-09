@@ -4,29 +4,27 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(rem(20));
-  -webkit-backdrop-filter: blur(rem(20));
+  background: color-mix(in srgb, var(--vb-bg) 40%, transparent);
+  backdrop-filter: blur(rem(12));
+  -webkit-backdrop-filter: blur(rem(12));
   display: grid;
   place-items: center;
   padding: rem(24);
-  animation: apple-fade-in 0.3s ease-out;
+  animation: apple-fade-in 140ms var(--vb-ease-out);
 }
 
 .station-form-modal {
   width: min(rem(600), calc(100vw - rem(48)));
   max-height: min(90dvh, rem(800));
   background: color-mix(in srgb, var(--vb-surface) 80%, transparent);
-  backdrop-filter: blur(rem(40));
-  -webkit-backdrop-filter: blur(rem(40));
+  backdrop-filter: blur(rem(28));
+  -webkit-backdrop-filter: blur(rem(28));
   border: rem(1) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
   border-radius: rem(24);
-  box-shadow: 
-    0 rem(20) rem(40) rgba(0, 0, 0, 0.2),
-    0 0 0 rem(1) rgba(255, 255, 255, 0.05);
+  box-shadow: var(--vb-shadow-lg), var(--vb-shadow-inset);
   display: flex;
   flex-direction: column;
-  animation: apple-modal-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: apple-modal-in 180ms var(--vb-ease-out);
   overflow: hidden;
   container-type: inline-size;
 }
@@ -41,7 +39,6 @@
     margin: 0;
     font-size: rem(20);
     font-weight: 700;
-    letter-spacing: -0.02em;
     color: var(--vb-text);
   }
   
@@ -62,12 +59,25 @@
     border: rem(1) solid transparent;
     background: color-mix(in srgb, var(--vb-surface-muted) 50%, transparent);
     color: var(--vb-text-muted);
-    transition: all 0.2s ease;
+    transition:
+      background 160ms var(--vb-ease-smooth),
+      border-color 160ms var(--vb-ease-smooth),
+      color 160ms var(--vb-ease-smooth),
+      box-shadow 160ms var(--vb-ease-smooth),
+      transform 160ms var(--vb-ease-smooth);
     
     &:hover {
       background: var(--vb-chip);
       color: var(--vb-text);
-      transform: rotate(90deg);
+    }
+
+    &:active {
+      transform: scale(0.94);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
     }
     
     .vb-icon {
@@ -103,7 +113,10 @@
     color: var(--vb-text);
     padding: rem(10) rem(12);
     font-size: rem(14);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+      background 160ms var(--vb-ease-smooth),
+      border-color 160ms var(--vb-ease-smooth),
+      box-shadow 160ms var(--vb-ease-smooth);
     
     &:focus {
       outline: none;
@@ -180,6 +193,25 @@
   color: var(--vb-text);
   font-size: rem(13);
   font-weight: 600;
+  transition:
+    background 160ms var(--vb-ease-smooth),
+    border-color 160ms var(--vb-ease-smooth),
+    color 160ms var(--vb-ease-smooth),
+    box-shadow 160ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth);
+
+  &:hover:not(:disabled) {
+    background: var(--vb-chip);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
+  }
 
   &.active {
     border-color: color-mix(in srgb, var(--vb-accent) 48%, transparent);
@@ -274,8 +306,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    color 150ms var(--vb-ease-smooth),
+    background 150ms var(--vb-ease-smooth),
+    box-shadow 150ms var(--vb-ease-smooth);
 
   &:hover:not(:disabled) {
     color: var(--vb-text);
@@ -283,7 +317,6 @@
 
   &:disabled {
     opacity: 0.4;
-    cursor: not-allowed;
   }
 }
 
@@ -297,10 +330,12 @@
   border-left: rem(1) solid color-mix(in srgb, var(--vb-border) 30%, transparent);
   background: none;
   color: var(--vb-text-muted);
-  cursor: pointer;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition:
+    color 150ms var(--vb-ease-smooth),
+    opacity 150ms var(--vb-ease-smooth),
+    box-shadow 150ms var(--vb-ease-smooth);
   padding: 0;
 
   .vb-icon {
@@ -314,7 +349,12 @@
 
   &:disabled {
     opacity: 0;
-    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: none;
+    opacity: 1;
+    box-shadow: inset 0 0 0 rem(2) var(--vb-accent-light);
   }
 }
 
@@ -345,12 +385,26 @@
   border: rem(1) solid color-mix(in srgb, var(--vb-border) 60%, transparent);
   background: color-mix(in srgb, var(--vb-chip) 60%, transparent);
   color: var(--vb-text-muted);
-  transition: all 0.2s ease;
+  transition:
+    background 160ms var(--vb-ease-smooth),
+    border-color 160ms var(--vb-ease-smooth),
+    color 160ms var(--vb-ease-smooth),
+    box-shadow 160ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth);
   
   &:hover {
     background: var(--vb-chip);
     color: var(--vb-text);
     border-color: var(--vb-border-strong);
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
   }
   
   .vb-icon {
@@ -539,7 +593,12 @@
   display: flex;
   align-items: center;
   gap: rem(8);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background 160ms var(--vb-ease-smooth),
+    border-color 160ms var(--vb-ease-smooth),
+    color 160ms var(--vb-ease-smooth),
+    box-shadow 160ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth);
   
   &.subtle {
     background: color-mix(in srgb, var(--vb-surface-muted) 60%, transparent);
@@ -559,7 +618,7 @@
 
     &:hover:not(:disabled) {
       background: var(--vb-error);
-      color: #fff;
+      color: var(--vb-color-white, white);
       transform: translateY(-rem(1));
     }
 
@@ -570,12 +629,12 @@
 
   &:not(.subtle):not(.danger) {
     background: var(--vb-accent);
-    color: white;
+    color: var(--vb-color-white, white);
     border: none;
     box-shadow: 0 rem(4) rem(12) color-mix(in srgb, var(--vb-accent) 40%, transparent);
 
     &:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--vb-accent) 90%, #fff);
+      background: color-mix(in srgb, var(--vb-accent) 90%, white);
       transform: translateY(-rem(1));
       box-shadow: 0 rem(6) rem(16) color-mix(in srgb, var(--vb-accent) 50%, transparent);
     }
@@ -592,9 +651,13 @@
 
   &:disabled {
     opacity: 0.55;
-    cursor: not-allowed;
     transform: none;
     box-shadow: none;
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
   }
 }
 
@@ -606,7 +669,7 @@
 @keyframes apple-modal-in {
   from { 
     opacity: 0;
-    transform: scale(0.9) translateY(rem(20));
+    transform: scale(0.98) translateY(rem(6));
   }
   to { 
     opacity: 1;
@@ -624,6 +687,24 @@
 
   .station-form-actions {
     background: var(--vb-chip);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-modal-backdrop,
+  .station-form-modal,
+  .settings-modal-header button,
+  .station-form-grid input,
+  .station-form-grid select,
+  .station-form-grid textarea,
+  .station-form-inline-action,
+  .station-form-tag-chip-text,
+  .station-form-tag-chip-delete,
+  .station-form-workdir-picker,
+  .station-role-modal__list-item,
+  .station-form-btn {
+    transition: none !important;
+    animation: none !important;
   }
 }
 

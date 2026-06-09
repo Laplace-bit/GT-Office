@@ -233,6 +233,7 @@ export const messages = {
   'workbench.removeContainer': { 'zh-CN': '删除容器', 'en-US': 'Delete Container' },
   'workbench.removeStation': { 'zh-CN': '删除角色', 'en-US': 'Delete Role' },
   'workbench.dragStation': { 'zh-CN': '拖动到其他容器', 'en-US': 'Drag to Another Container' },
+  'station.overview.editRole': { 'zh-CN': '编辑角色', 'en-US': 'Edit Role' },
   'workbench.emptyStations': {
     'zh-CN': '当前没有角色，点击下方按钮创建一个终端角色。',
     'en-US': 'No roles yet. Create one terminal role below.',
@@ -534,6 +535,7 @@ export const messages = {
     'zh-CN': '阻塞/待处理: {count}',
     'en-US': 'Blocked/Pending: {count}',
   },
+  'station.metrics.idleWithCount': { 'zh-CN': '空闲: {count}', 'en-US': 'Idle: {count}' },
   'station.filter.search': { 'zh-CN': '搜索角色', 'en-US': 'Search' },
   'station.filter.searchPlaceholder': {
     'zh-CN': '按名称/目录/角色/工具过滤',
@@ -545,11 +547,57 @@ export const messages = {
   'station.filter.allRoles': { 'zh-CN': '全部角色', 'en-US': 'All Roles' },
   'station.filter.allStates': { 'zh-CN': '全部状态', 'en-US': 'All States' },
   'station.filter.allDepartments': { 'zh-CN': '全部部门', 'en-US': 'All Departments' },
+  'station.filter.clearRole': { 'zh-CN': '清除角色筛选', 'en-US': 'Clear role filter' },
   'station.filter.reset': { 'zh-CN': '重置筛选', 'en-US': 'Reset Filters' },
   'station.role.orchestrator': { 'zh-CN': '管理', 'en-US': 'Orchestrator' },
   'station.role.analyst': { 'zh-CN': '分析', 'en-US': 'Analyst' },
   'station.role.generator': { 'zh-CN': '生成', 'en-US': 'Generator' },
   'station.role.evaluator': { 'zh-CN': '评估', 'en-US': 'Evaluator' },
+  'station.status.idle': { 'zh-CN': '空闲', 'en-US': 'Idle' },
+  'station.status.launching': { 'zh-CN': '启动中', 'en-US': 'Launching' },
+  'station.status.live': { 'zh-CN': '运行中', 'en-US': 'Live' },
+  'station.status.busy': { 'zh-CN': '忙碌', 'en-US': 'Busy' },
+  'station.status.waiting': { 'zh-CN': '等待', 'en-US': 'Waiting' },
+  'station.status.blocked': { 'zh-CN': '阻塞', 'en-US': 'Blocked' },
+  'station.status.errored': { 'zh-CN': '异常', 'en-US': 'Errored' },
+  'station.status.recovering': { 'zh-CN': '恢复中', 'en-US': 'Recovering' },
+  'station.status.stopped': { 'zh-CN': '已停止', 'en-US': 'Stopped' },
+  'station.status.description.idle': {
+    'zh-CN': '尚未连接终端会话',
+    'en-US': 'No terminal session is connected',
+  },
+  'station.status.description.launching': {
+    'zh-CN': '正在启动 CLI Agent',
+    'en-US': 'CLI agent is launching',
+  },
+  'station.status.description.live': {
+    'zh-CN': '终端会话已连接',
+    'en-US': 'Terminal session is connected',
+  },
+  'station.status.description.busy': {
+    'zh-CN': 'Agent 正在处理任务',
+    'en-US': 'Agent is processing work',
+  },
+  'station.status.description.waiting': {
+    'zh-CN': 'Agent 正在等待输入',
+    'en-US': 'Agent is waiting for input',
+  },
+  'station.status.description.blocked': {
+    'zh-CN': 'Agent 遇到阻塞条件',
+    'en-US': 'Agent is blocked',
+  },
+  'station.status.description.errored': {
+    'zh-CN': '终端或 Agent 出现异常',
+    'en-US': 'Terminal or agent reported an error',
+  },
+  'station.status.description.recovering': {
+    'zh-CN': '正在恢复会话上下文',
+    'en-US': 'Session context is recovering',
+  },
+  'station.status.description.stopped': {
+    'zh-CN': '终端会话已停止',
+    'en-US': 'Terminal session has stopped',
+  },
   'station.scope.global': { 'zh-CN': '全局', 'en-US': 'Global' },
   'station.scope.workspace': { 'zh-CN': '工作区', 'en-US': 'Workspace' },
   'station.department.orchestration': {

@@ -531,8 +531,23 @@ export interface TerminalCreateResponse {
   resolvedCwd: string
 }
 
+export interface TerminalWriteResponse {
+  workspaceId: string
+  sessionId: string
+  accepted: boolean
+}
+
+export interface TerminalResizeResponse {
+  workspaceId: string
+  sessionId: string
+  cols: number
+  rows: number
+  resized: boolean
+}
+
 export interface TerminalOutputPayload {
   sessionId: string
+  workspaceId: string
   chunk: string
   seq: number
   tsMs: number
@@ -540,6 +555,7 @@ export interface TerminalOutputPayload {
 
 export interface TerminalStatePayload {
   sessionId: string
+  workspaceId: string
   from: string
   to: string
   tsMs: number
@@ -547,6 +563,7 @@ export interface TerminalStatePayload {
 
 export interface TerminalMetaPayload {
   sessionId: string
+  workspaceId: string
   unreadBytes: number
   unreadChunks: number
   tailChunk: string
@@ -554,23 +571,46 @@ export interface TerminalMetaPayload {
 }
 
 export interface TerminalKillResponse {
+  workspaceId: string
   sessionId: string
   signal: string
   killed: boolean
 }
 
 export interface TerminalHasSessionResponse {
+  workspaceId: string
   sessionId: string
   alive: boolean
 }
 
 export interface TerminalVisibilityResponse {
+  workspaceId: string
   sessionId: string
   visible: boolean
   updated: boolean
 }
 
+export interface TerminalRenderedScreenResponse {
+  workspaceId: string
+  sessionId: string
+  revision: number
+  content: string
+  cols: number
+  rows: number
+  cursorRow: number
+  cursorCol: number
+  scrollbackLines: number
+  title: string | null
+}
+
+export interface TerminalOpenOutputChannelResponse {
+  workspaceId: string
+  sessionId: string
+  channelBound: boolean
+}
+
 export interface TerminalSnapshotResponse {
+  workspaceId: string
   sessionId: string
   chunk: string
   bytes: number
@@ -580,6 +620,7 @@ export interface TerminalSnapshotResponse {
 }
 
 export interface TerminalDeltaResponse {
+  workspaceId: string
   sessionId: string
   chunk: string
   afterSeq: number
@@ -599,6 +640,7 @@ export interface TerminalSessionProcessInfo {
 }
 
 export interface TerminalDescribeProcessesResponse {
+  workspaceId: string
   sessionId: string
   rootPid: number | null
   currentProcess: TerminalSessionProcessInfo | null
@@ -630,6 +672,7 @@ export interface TerminalDebugHumanEntry {
 }
 
 export interface TerminalReportRenderedScreenResponse {
+  workspaceId: string
   sessionId: string
   screenRevision: number
   accepted: boolean
@@ -639,11 +682,13 @@ export interface TerminalReportRenderedScreenResponse {
 }
 
 export interface TerminalDebugClearHumanLogResponse {
+  workspaceId: string
   sessionId: string
   cleared: boolean
 }
 
 export interface TerminalDebugAppendFrontendFocusLogResponse {
+  workspaceId: string | null
   stationId: string
   sessionId: string | null
   kind: string
@@ -702,6 +747,7 @@ export interface StationTerminalRestoreStatePayload {
   content: string
   cols: number
   rows: number
+  viewportY?: number | null
 }
 
 export interface DetachedTerminalSurfaceRuntime {
@@ -3012,66 +3058,100 @@ export const desktopApi = {
       payload,
     })
   },
-  terminalWrite(sessionId: string, input: string) {
-    return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write', {
+  terminalWrite(workspaceId: string, sessionId: string, input: string) {
+    return invokeCommand<TerminalWriteResponse>('terminal_write', {
+      workspaceId,
       sessionId,
       input,
     })
   },
-  terminalWriteWithSubmit(sessionId: string, input: string, submitSequence?: string | null) {
-    return invokeCommand<{ sessionId: string; accepted: boolean }>('terminal_write_with_submit', {
+  terminalWriteWithSubmit(
+    workspaceId: string,
+    sessionId: string,
+    input: string,
+    submitSequence?: string | null,
+  ) {
+    return invokeCommand<TerminalWriteResponse>('terminal_write_with_submit', {
+      workspaceId,
       sessionId,
       input,
       submitSequence: submitSequence ?? null,
     })
   },
-  terminalResize(sessionId: string, cols: number, rows: number) {
-    return invokeCommand<{ sessionId: string; cols: number; rows: number; resized: boolean }>(
-      'terminal_resize',
-      {
-        sessionId,
-        cols,
-        rows,
-      },
-    )
+  terminalResize(workspaceId: string, sessionId: string, cols: number, rows: number) {
+    return invokeCommand<TerminalResizeResponse>('terminal_resize', {
+      workspaceId,
+      sessionId,
+      cols,
+      rows,
+    })
   },
-  terminalKill(sessionId: string, signal?: string) {
+  terminalKill(workspaceId: string, sessionId: string, signal?: string) {
     return invokeCommand<TerminalKillResponse>('terminal_kill', {
+      workspaceId,
       sessionId,
       signal: signal ?? null,
     })
   },
-  terminalHasSession(sessionId: string) {
+  terminalHasSession(workspaceId: string, sessionId: string) {
     return invokeCommand<TerminalHasSessionResponse>('terminal_has_session', {
+      workspaceId,
       sessionId,
     })
   },
-  terminalSetVisibility(sessionId: string, visible: boolean) {
+  terminalSetVisibility(workspaceId: string, sessionId: string, visible: boolean) {
     return invokeCommand<TerminalVisibilityResponse>('terminal_set_visibility', {
+      workspaceId,
       sessionId,
       visible,
     })
   },
-  terminalReadSnapshot(sessionId: string, maxBytes?: number) {
+  terminalReadSnapshot(workspaceId: string, sessionId: string, maxBytes?: number) {
     return invokeCommand<TerminalSnapshotResponse>('terminal_read_snapshot', {
+      workspaceId,
       sessionId,
       maxBytes: maxBytes ?? null,
     })
   },
-  terminalReadDelta(sessionId: string, afterSeq: number, maxBytes?: number) {
+  terminalReadDelta(workspaceId: string, sessionId: string, afterSeq: number, maxBytes?: number) {
     return invokeCommand<TerminalDeltaResponse>('terminal_read_delta', {
+      workspaceId,
       sessionId,
       afterSeq,
       maxBytes: maxBytes ?? null,
     })
   },
-  terminalDescribeProcesses(sessionId: string) {
+  terminalDescribeProcesses(workspaceId: string, sessionId: string) {
     return invokeCommand<TerminalDescribeProcessesResponse>('terminal_describe_processes', {
+      workspaceId,
       sessionId,
     })
   },
-  terminalReportRenderedScreen(snapshot: RenderedScreenSnapshot, toolKind?: string | null) {
+  terminalActivate(workspaceId: string, sessionId: string) {
+    return invokeCommand<TerminalRenderedScreenResponse>('terminal_activate', {
+      workspaceId,
+      sessionId,
+    })
+  },
+  terminalGetRenderedScreen(workspaceId: string, sessionId: string) {
+    return invokeCommand<TerminalRenderedScreenResponse>('terminal_get_rendered_screen', {
+      workspaceId,
+      sessionId,
+    })
+  },
+  terminalOpenOutputChannel(workspaceId: string, sessionId: string) {
+    return invokeCommand<TerminalOpenOutputChannelResponse>('terminal_open_output_channel', {
+      workspaceId,
+      sessionId,
+    })
+  },
+  terminalReportRenderedScreen(
+    workspaceId: string,
+    snapshot: RenderedScreenSnapshot,
+    toolKind?: string | null,
+  ) {
     return invokeCommand<TerminalReportRenderedScreenResponse>('terminal_report_rendered_screen', {
+      workspaceId,
       snapshot: {
         sessionId: snapshot.sessionId,
         screenRevision: snapshot.screenRevision,
@@ -3091,13 +3171,15 @@ export const desktopApi = {
       toolKind: toolKind ?? null,
     })
   },
-  terminalDebugClearHumanLog(sessionId: string) {
+  terminalDebugClearHumanLog(workspaceId: string, sessionId: string) {
     return invokeCommand<TerminalDebugClearHumanLogResponse>('terminal_debug_clear_human_log', {
+      workspaceId,
       sessionId,
     })
   },
   terminalDebugAppendFrontendFocusLog(entry: {
     atMs: number
+    workspaceId?: string | null
     stationId: string
     sessionId?: string | null
     kind: string
@@ -3108,6 +3190,7 @@ export const desktopApi = {
       {
         entry: {
           atMs: entry.atMs,
+          workspaceId: entry.workspaceId ?? null,
           stationId: entry.stationId,
           sessionId: entry.sessionId ?? null,
           kind: entry.kind,
@@ -3868,8 +3951,9 @@ export const desktopApi = {
       force,
     })
   },
-  sessionGet(gtoSessionId: string) {
+  sessionGet(workspaceId: string, gtoSessionId: string) {
     return invokeCommand<SessionDetailResponse>('session_get', {
+      workspaceId,
       gtoSessionId,
     })
   },
@@ -3891,6 +3975,7 @@ export const desktopApi = {
     })
   },
   sessionResumeBind(params: {
+    workspaceId: string
     gtoSessionId: string
     terminalSessionId: string
     stationId: string
@@ -3898,24 +3983,28 @@ export const desktopApi = {
   }) {
     return invokeCommand<{ ok: boolean }>('session_resume_bind', params)
   },
-  sessionEnd(gtoSessionId: string) {
+  sessionEnd(workspaceId: string, gtoSessionId: string) {
     return invokeCommand<{ ok: boolean }>('session_end', {
+      workspaceId,
       gtoSessionId,
     })
   },
   sessionResumeCheck(params: {
+    workspaceId?: string | null
     gtoSessionId?: string | null
     relaunchMode?: SessionRelaunchMode
     expectedProvider?: SessionProvider | null
   }) {
     return invokeCommand<SessionResumeCheckResponse>('session_resume_check', {
+      workspaceId: params.workspaceId ?? null,
       gtoSessionId: params.gtoSessionId ?? null,
       relaunchMode: params.relaunchMode ?? 'resume',
       expectedProvider: params.expectedProvider ?? null,
     })
   },
-  sessionUpdateTitle(gtoSessionId: string, title: string) {
+  sessionUpdateTitle(workspaceId: string, gtoSessionId: string, title: string) {
     return invokeCommand<{ ok: boolean }>('session_update_title', {
+      workspaceId,
       gtoSessionId,
       title,
     })

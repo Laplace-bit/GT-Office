@@ -1,4 +1,4 @@
-use super::{
+use crate::commands::workspace::surface::{
     build_detached_window_url, build_workspace_window_url, sanitized_window_label,
     sanitized_workspace_window_label, workspace_window_title, SurfaceDetachedCustomLayoutPayload,
     SurfaceDetachedStationPayload, SurfaceDetachedWindowQueryPayload,

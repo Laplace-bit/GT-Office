@@ -66,6 +66,7 @@ pub fn run() {
                                 "terminal/output",
                                 json!({
                                     "sessionId": output.session_id,
+                                    "workspaceId": output.workspace_id,
                                     "chunk": base64::engine::general_purpose::STANDARD.encode(output.chunk),
                                     "seq": output.seq,
                                     "tsMs": output.ts_ms,
@@ -83,6 +84,7 @@ pub fn run() {
                                 "terminal/state_changed",
                                 json!({
                                     "sessionId": terminal_state.session_id,
+                                    "workspaceId": terminal_state.workspace_id,
                                     "from": terminal_state.from,
                                     "to": terminal_state.to,
                                     "tsMs": terminal_state.ts_ms,
@@ -94,6 +96,7 @@ pub fn run() {
                                 "terminal/meta",
                                 json!({
                                     "sessionId": meta.session_id,
+                                    "workspaceId": meta.workspace_id,
                                     "unreadBytes": meta.unread_bytes,
                                     "unreadChunks": meta.unread_chunks,
                                     "tailChunk": base64::engine::general_purpose::STANDARD.encode(meta.tail_chunk),

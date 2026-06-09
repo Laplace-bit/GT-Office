@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { StationCard } from './StationCard'
 import { StationActivityComet } from './StationActivityComet'
+import { resolveStationCardStatusMeta } from './station-card-header-model'
 import type { AgentStation, StationRole } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
@@ -54,6 +55,8 @@ import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { StationActionDescriptor } from './station-action-model'
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 import { orderWorkbenchHeaderActions, type WorkbenchHeaderActionId } from './workbench-header-actions'
+import { createStationTerminalFrameFlushScheduler } from '@features/terminal/station-terminal-frame-flush-scheduler'
+import { scheduleStationScrollFrame } from './station-scroll-frame'
 import { FLUENT_MOTION_DURATION, FLUENT_MOTION_EASE, STATION_MOTION } from './station-motion-spec'
 import './WorkbenchCanvas.scss'
 
@@ -66,6 +69,8 @@ interface WorkbenchGridStyle extends CSSProperties {
   '--station-grid-columns'?: string
   '--station-grid-rows'?: string
 }
+
+const STATION_SCROLL_FRAME_FALLBACK_MS = 48
 
 interface WorkbenchCanvasPanelProps {
   locale: Locale
@@ -185,6 +190,23 @@ interface HiddenStationAnimationState {
   phase: StationTaskbarAnimationPhase
 }
 
+function shouldIgnoreWorkbenchFullscreenEscape(event: KeyboardEvent): boolean {
+  if (event.isComposing) {
+    return true
+  }
+  const target = event.target
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+  if (target.closest('.station-terminal-shell')) {
+    return true
+  }
+  if (target.isContentEditable) {
+    return true
+  }
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
 function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -296,17 +318,23 @@ const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
   locale: Locale
   onRestore: (stationId: string, sourceRect: DOMRect) => void
 }) {
-  const isLive = Boolean(runtime?.sessionId)
+  const statusMeta = resolveStationCardStatusMeta({
+    sessionId: runtime?.sessionId ?? null,
+    stateRaw: runtime?.stateRaw ?? null,
+    stationState: station.state,
+  })
   const unreadCount = runtime?.unreadCount ?? 0
   const label = t(locale, 'workbench.restoreStationNamed', { name: station.name })
+  const statusLabel = t(locale, statusMeta.labelKey)
+  const accessibleLabel = `${label}: ${statusLabel}`
 
   return (
     <motion.button
       type="button"
       className={['station-minimized-dock-item', restoring ? 'is-restoring' : ''].join(' ')}
       onClick={(event) => onRestore(station.id, event.currentTarget.getBoundingClientRect())}
-      aria-label={label}
-      title={label}
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
     >
       <span className="station-minimized-dock-icon" aria-hidden="true">
         <span className="station-minimized-dock-monogram">{station.name.slice(0, 1).toUpperCase()}</span>
@@ -317,8 +345,9 @@ const StationMinimizedDockItem = memo(function StationMinimizedDockItem({
         <span>{station.tool}</span>
       </span>
       <span
-        className={['station-minimized-dock-indicator', isLive ? 'is-live' : ''].join(' ')}
+        className={['station-minimized-dock-indicator', `is-${statusMeta.tone}`].join(' ')}
         aria-hidden="true"
+        title={statusLabel}
       />
     </motion.button>
   )
@@ -1254,16 +1283,24 @@ function WorkbenchCanvasPanelView({
   }, [container.id, onFullscreenStationChange])
 
   useEffect(() => {
+    if (!fullscreenStationIdRaw) {
+      return
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onFullscreenStationChange(container.id, null)
+      if (event.key !== 'Escape') {
+        return
       }
+      if (shouldIgnoreWorkbenchFullscreenEscape(event)) {
+        return
+      }
+      event.preventDefault()
+      onFullscreenStationChange(container.id, null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [container.id, onFullscreenStationChange])
+  }, [container.id, fullscreenStationIdRaw, onFullscreenStationChange])
 
   useEffect(() => {
     if (!scrollToStationId || fullscreenStationIdRaw) {
@@ -1272,18 +1309,25 @@ function WorkbenchCanvasPanelView({
     if (!stations.some((station) => station.id === scrollToStationId)) {
       return
     }
-    window.requestAnimationFrame(() => {
-      const target = gridRef.current?.querySelector<HTMLElement>(`.station-window[data-station-id="${scrollToStationId}"]`)
-      if (!target) {
-        return
-      }
-      target.scrollIntoView({
-        block: 'center',
-        inline: 'nearest',
-        behavior: 'smooth',
-      })
-      onScrollToStationHandled?.(scrollToStationId)
+    const scrollFrame = scheduleStationScrollFrame({
+      scheduler: createStationTerminalFrameFlushScheduler(window),
+      fallbackDelayMs: STATION_SCROLL_FRAME_FALLBACK_MS,
+      scroll: () => {
+        const target = gridRef.current?.querySelector<HTMLElement>(`.station-window[data-station-id="${scrollToStationId}"]`)
+        if (!target) {
+          return
+        }
+        target.scrollIntoView({
+          block: 'center',
+          inline: 'nearest',
+          behavior: 'auto',
+        })
+        onScrollToStationHandled?.(scrollToStationId)
+      },
     })
+    return () => {
+      scrollFrame.cancel()
+    }
   }, [fullscreenStationIdRaw, onScrollToStationHandled, scrollToStationId, stations])
 
   useEffect(() => {

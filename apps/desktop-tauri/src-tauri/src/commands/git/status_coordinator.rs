@@ -43,7 +43,12 @@ pub struct GitStatusCoordinator {
 }
 
 impl GitStatusCoordinator {
-    pub fn schedule_refresh(&self, app: &AppHandle, state: &AppState, workspace_id: &str) {
+    pub fn schedule_refresh<R: tauri::Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        state: &AppState,
+        workspace_id: &str,
+    ) {
         let should_spawn = {
             let mut workspaces = match self.inner.lock() {
                 Ok(guard) => guard,
@@ -75,7 +80,12 @@ impl GitStatusCoordinator {
     }
 
     #[allow(dead_code)]
-    pub fn refresh_now(&self, app: &AppHandle, state: &AppState, workspace_id: &WorkspaceId) {
+    pub fn refresh_now<R: tauri::Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        state: &AppState,
+        workspace_id: &WorkspaceId,
+    ) {
         self.schedule_refresh(app, state, workspace_id.as_str());
     }
 
@@ -83,7 +93,12 @@ impl GitStatusCoordinator {
     /// mutations (stage, unstage, commit, etc.) where perceived latency matters.
     /// If a debounced refresh is already scheduled or inflight, it is marked dirty
     /// so it will reconcile any file-watcher changes when it completes.
-    pub fn refresh_immediate(&self, app: &AppHandle, state: &AppState, workspace_id: &str) {
+    pub fn refresh_immediate<R: tauri::Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        state: &AppState,
+        workspace_id: &str,
+    ) {
         {
             let mut workspaces = match self.inner.lock() {
                 Ok(guard) => guard,
@@ -106,9 +121,9 @@ impl GitStatusCoordinator {
         });
     }
 
-    async fn run_scheduled_refresh_loop(
+    async fn run_scheduled_refresh_loop<R: tauri::Runtime>(
         &self,
-        app: AppHandle,
+        app: AppHandle<R>,
         state: AppState,
         workspace_id: String,
     ) {
@@ -155,9 +170,9 @@ impl GitStatusCoordinator {
         }
     }
 
-    async fn refresh_once(
+    async fn refresh_once<R: tauri::Runtime>(
         &self,
-        app: &AppHandle,
+        app: &AppHandle<R>,
         state: &AppState,
         workspace_id: &str,
     ) -> Result<(), String> {
@@ -188,13 +203,13 @@ impl GitStatusCoordinator {
     }
 }
 
-enum GitStatusSnapshot {
+pub(crate) enum GitStatusSnapshot {
     Available(GitStatusSummary),
     Unavailable,
 }
 
 impl GitStatusSnapshot {
-    fn fingerprint(&self) -> String {
+    pub(crate) fn fingerprint(&self) -> String {
         match self {
             Self::Available(summary) => serde_json::to_string(summary).unwrap_or_else(|_| {
                 format!(
@@ -208,7 +223,7 @@ impl GitStatusSnapshot {
         }
     }
 
-    fn into_payload(self, workspace_id: String, revision: u64) -> GitUpdatedPayload {
+    pub(crate) fn into_payload(self, workspace_id: String, revision: u64) -> GitUpdatedPayload {
         match self {
             Self::Available(summary) => GitUpdatedPayload {
                 workspace_id,
@@ -260,13 +275,9 @@ async fn read_git_status(
     .map_err(|error| format!("GIT_STATUS_FAILED: git worker join failed: {error}"))?
 }
 
-fn is_not_git_repository_error(message: &str) -> bool {
+pub(crate) fn is_not_git_repository_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     normalized.contains("git_repo_invalid")
         || normalized.contains("not a git repository")
         || normalized.contains("must be run in a work tree")
 }
-
-#[cfg(test)]
-#[path = "tests/status_coordinator_tests.rs"]
-mod tests;

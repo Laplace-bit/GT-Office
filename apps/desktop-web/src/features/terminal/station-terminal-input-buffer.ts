@@ -13,13 +13,39 @@ interface CreateBufferedStationInputControllerOptions<TTimer> {
   sendInput: (stationId: string, input: string) => Promise<void>
 }
 
+const UTF8_TEXT_ENCODER = new TextEncoder()
+
+function trimUtf8StringToMaxBytes(input: string, maxBytes: number): string {
+  if (!input || maxBytes <= 0) {
+    return ''
+  }
+  if (UTF8_TEXT_ENCODER.encode(input).byteLength <= maxBytes) {
+    return input
+  }
+
+  let usedBytes = 0
+  const keptCharacters: string[] = []
+  const characters = Array.from(input)
+  for (let index = characters.length - 1; index >= 0; index -= 1) {
+    const character = characters[index]
+    const characterBytes = UTF8_TEXT_ENCODER.encode(character).byteLength
+    if (usedBytes + characterBytes > maxBytes) {
+      break
+    }
+    usedBytes += characterBytes
+    keptCharacters.push(character)
+  }
+  return keptCharacters.reverse().join('')
+}
+
 export function createBufferedStationInputController<TTimer>(
   options: CreateBufferedStationInputControllerOptions<TTimer>,
 ): BufferedStationInputController {
   const queuedInputByStation = new Map<string, string>()
-  const sendingByStation = new Map<string, boolean>()
+  const sendingTokenByStation = new Map<string, number>()
   const flushTimerByStation = new Map<string, TTimer>()
   let disposed = false
+  let nextSendingToken = 1
 
   const clearStationFlushTimer = (stationId: string) => {
     const timerId = flushTimerByStation.get(stationId)
@@ -34,7 +60,7 @@ export function createBufferedStationInputController<TTimer>(
       return
     }
     clearStationFlushTimer(stationId)
-    if (sendingByStation.get(stationId)) {
+    if (sendingTokenByStation.has(stationId)) {
       return
     }
     const queuedInput = queuedInputByStation.get(stationId) ?? ''
@@ -42,11 +68,20 @@ export function createBufferedStationInputController<TTimer>(
       return
     }
     queuedInputByStation.delete(stationId)
-    sendingByStation.set(stationId, true)
+    const sendingToken = nextSendingToken
+    nextSendingToken += 1
+    sendingTokenByStation.set(stationId, sendingToken)
     try {
       await options.sendInput(stationId, queuedInput)
     } finally {
-      sendingByStation.set(stationId, false)
+      if (disposed) {
+        sendingTokenByStation.delete(stationId)
+        return
+      }
+      if (sendingTokenByStation.get(stationId) !== sendingToken) {
+        return
+      }
+      sendingTokenByStation.delete(stationId)
       if (!disposed && (queuedInputByStation.get(stationId) ?? '')) {
         queueMicrotask(() => {
           void flushStationInput(stationId)
@@ -57,33 +92,34 @@ export function createBufferedStationInputController<TTimer>(
 
   return {
     enqueue(stationId: string, input: string) {
-      if (disposed || !input) {
+      const normalizedStationId = stationId.trim()
+      if (disposed || !normalizedStationId || !input) {
         return
       }
-      const previous = queuedInputByStation.get(stationId) ?? ''
+      const previous = queuedInputByStation.get(normalizedStationId) ?? ''
       const merged = `${previous}${input}`
-      queuedInputByStation.set(
-        stationId,
-        merged.length > options.maxBufferBytes
-          ? merged.slice(merged.length - options.maxBufferBytes)
-          : merged,
-      )
-      clearStationFlushTimer(stationId)
+      queuedInputByStation.set(normalizedStationId, trimUtf8StringToMaxBytes(merged, options.maxBufferBytes))
+      clearStationFlushTimer(normalizedStationId)
       if (options.shouldFlushImmediately(input)) {
-        void flushStationInput(stationId)
+        void flushStationInput(normalizedStationId)
         return
       }
       flushTimerByStation.set(
-        stationId,
+        normalizedStationId,
         options.scheduleTimer(() => {
-          flushTimerByStation.delete(stationId)
-          void flushStationInput(stationId)
+          flushTimerByStation.delete(normalizedStationId)
+          void flushStationInput(normalizedStationId)
         }, options.flushDelayMs),
       )
     },
     clear(stationId: string) {
-      clearStationFlushTimer(stationId)
-      queuedInputByStation.delete(stationId)
+      const normalizedStationId = stationId.trim()
+      if (!normalizedStationId) {
+        return
+      }
+      clearStationFlushTimer(normalizedStationId)
+      queuedInputByStation.delete(normalizedStationId)
+      sendingTokenByStation.delete(normalizedStationId)
     },
     dispose() {
       if (disposed) {

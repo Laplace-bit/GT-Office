@@ -69,8 +69,12 @@ $indicator-step: rem(44);
   background: transparent;
   border-radius: var(--vb-radius-md);
   color: var(--vb-text-muted);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 140ms var(--vb-ease-smooth),
+    border-color 140ms var(--vb-ease-smooth),
+    box-shadow 140ms var(--vb-ease-smooth),
+    color 140ms var(--vb-ease-smooth),
+    transform 100ms var(--vb-ease-smooth);
   flex-shrink: 0;
 
   &:hover {
@@ -84,6 +88,11 @@ $indicator-step: rem(44);
     color: var(--vb-accent);
     background: var(--vb-accent-light);
     border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-accent) 20%, transparent);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 #{rem(2)} color-mix(in srgb, var(--vb-accent) 28%, transparent);
   }
 
   .activity-rail-icon {
@@ -118,7 +127,10 @@ $indicator-step: rem(44);
   box-shadow: var(--vb-shadow-md);
   opacity: 0;
   visibility: hidden;
-  transition: all 0.15s ease;
+  transition:
+    opacity 120ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth),
+    visibility 120ms var(--vb-ease-smooth);
   white-space: nowrap;
   pointer-events: none;
   z-index: 1000;
@@ -137,5 +149,18 @@ $indicator-step: rem(44);
     -webkit-backdrop-filter: none;
     box-shadow: 0 0 0 var(--vb-border-width) var(--vb-border-subtle),
     0 #{rem(10)} #{rem(22)} rgba(15, 23, 42, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-rail,
+  .activity-rail-indicator,
+  .activity-rail-icon-btn,
+  .activity-rail-icon-btn[data-tooltip]::before {
+    transition: none !important;
+  }
+
+  .activity-rail-icon-btn:hover {
+    transform: none;
   }
 }

@@ -57,30 +57,39 @@ function StationActionDockView({ actions, compact = false, onAction }: StationAc
   const handleRailKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const currentButton = event.currentTarget
     const buttons = Array.from(
-      railRef.current?.querySelectorAll<HTMLButtonElement>('[data-station-action-rail-button="true"]') ?? [],
+      railRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[data-station-action-rail-button="true"]:not(:disabled)',
+      ) ?? [],
     )
     const currentIndex = buttons.indexOf(currentButton)
     if (currentIndex < 0) {
       return
+    }
+    const focusButton = (button: HTMLButtonElement | undefined) => {
+      if (!button) {
+        return
+      }
+      button.focus()
+      button.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     }
 
     if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
       event.preventDefault()
       const direction = event.key === 'ArrowRight' ? 1 : -1
       const nextButton = buttons[(currentIndex + direction + buttons.length) % buttons.length]
-      nextButton?.focus()
+      focusButton(nextButton)
       return
     }
 
     if (event.key === 'Home') {
       event.preventDefault()
-      buttons[0]?.focus()
+      focusButton(buttons[0])
       return
     }
 
     if (event.key === 'End') {
       event.preventDefault()
-      buttons[buttons.length - 1]?.focus()
+      focusButton(buttons[buttons.length - 1])
       return
     }
   }, [])

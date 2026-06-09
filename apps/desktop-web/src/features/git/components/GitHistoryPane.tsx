@@ -58,12 +58,60 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
   const expandedDiffFileCacheRef = useRef<Map<string, GitDiffExpansionResponse>>(new Map())
   const commitDetailSeqRef = useRef(0)
   const expandedDiffFileSeqRef = useRef(0)
+  const scopeRef = useRef({
+    workspaceId,
+    currentRepositoryPath,
+    selectedPath,
+    selectedDiffScope,
+    selectedOldPath: null as string | null,
+    selectedCommit: null as string | null,
+  })
   const diffSwitchDisabled = !isGitRepository || (!selectedPath && !showDiffView)
   const currentViewLabel = showDiffView
     ? t(locale, 'git.history.view.diff')
     : t(locale, 'git.history.view.latest')
   const selectedOldPath = structuredDiff?.oldPath ?? null
+  scopeRef.current = {
+    workspaceId,
+    currentRepositoryPath,
+    selectedPath,
+    selectedDiffScope,
+    selectedOldPath,
+    selectedCommit,
+  }
   const openInEditorDisabled = !selectedPath || structuredDiff?.isDeleted || !onOpenInEditor
+
+  const isCurrentExpandedDiffRequest = useCallback(
+    (
+      requestWorkspaceId: string,
+      requestRepositoryPath: string | null,
+      requestPath: string,
+      requestScope: typeof selectedDiffScope,
+      requestOldPath: string | null,
+    ) => {
+      const current = scopeRef.current
+      return (
+        current.workspaceId === requestWorkspaceId &&
+        current.currentRepositoryPath === requestRepositoryPath &&
+        current.selectedPath === requestPath &&
+        current.selectedDiffScope === requestScope &&
+        current.selectedOldPath === requestOldPath
+      )
+    },
+    [],
+  )
+
+  const isCurrentCommitDetailRequest = useCallback(
+    (requestWorkspaceId: string, requestRepositoryPath: string | null, requestCommit: string) => {
+      const current = scopeRef.current
+      return (
+        current.workspaceId === requestWorkspaceId &&
+        current.currentRepositoryPath === requestRepositoryPath &&
+        current.selectedCommit === requestCommit
+      )
+    },
+    [],
+  )
 
   const handleToggleView = useCallback(() => {
     if (diffSwitchDisabled) {
@@ -103,6 +151,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
 
   useEffect(() => {
     if (!workspaceId || !selectedPath || !showDiffView || !fullFileExpanded) {
+      expandedDiffFileSeqRef.current += 1
       if (!selectedPath) {
         setExpandedDiffFile(null)
       }
@@ -117,9 +166,15 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       setExpandedDiffFile(cached)
       setExpandedDiffFileError(null)
       setExpandedDiffFileLoading(false)
+      expandedDiffFileSeqRef.current += 1
       return
     }
 
+    const requestWorkspaceId = workspaceId
+    const requestRepositoryPath = currentRepositoryPath
+    const requestPath = selectedPath
+    const requestScope = selectedDiffScope
+    const requestOldPath = selectedOldPath
     const seq = expandedDiffFileSeqRef.current + 1
     expandedDiffFileSeqRef.current = seq
     setExpandedDiffFile(null)
@@ -128,21 +183,39 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
 
     void desktopApi
       .gitDiffFileExpansion(
-        workspaceId,
-        selectedPath,
-        selectedOldPath,
-        selectedDiffScope === 'staged',
-        currentRepositoryPath,
+        requestWorkspaceId,
+        requestPath,
+        requestOldPath,
+        requestScope === 'staged',
+        requestRepositoryPath,
       )
       .then((response) => {
-        if (expandedDiffFileSeqRef.current !== seq) {
+        if (
+          expandedDiffFileSeqRef.current !== seq ||
+          !isCurrentExpandedDiffRequest(
+            requestWorkspaceId,
+            requestRepositoryPath,
+            requestPath,
+            requestScope,
+            requestOldPath,
+          )
+        ) {
           return
         }
         expandedDiffFileCacheRef.current.set(cacheKey, response)
         setExpandedDiffFile(response)
       })
       .catch((error) => {
-        if (expandedDiffFileSeqRef.current !== seq) {
+        if (
+          expandedDiffFileSeqRef.current !== seq ||
+          !isCurrentExpandedDiffRequest(
+            requestWorkspaceId,
+            requestRepositoryPath,
+            requestPath,
+            requestScope,
+            requestOldPath,
+          )
+        ) {
           return
         }
         setExpandedDiffFile(null)
@@ -153,12 +226,22 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
         )
       })
       .finally(() => {
-        if (expandedDiffFileSeqRef.current === seq) {
+        if (
+          expandedDiffFileSeqRef.current === seq &&
+          isCurrentExpandedDiffRequest(
+            requestWorkspaceId,
+            requestRepositoryPath,
+            requestPath,
+            requestScope,
+            requestOldPath,
+          )
+        ) {
           setExpandedDiffFileLoading(false)
         }
       })
   }, [
     fullFileExpanded,
+    isCurrentExpandedDiffRequest,
     locale,
     selectedDiffScope,
     currentRepositoryPath,
@@ -176,6 +259,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
 
       if (selectedCommit === hash) {
         setSelectedCommit(null)
+        scopeRef.current = { ...scopeRef.current, selectedCommit: null }
         setSelectedCommitDetail(null)
         setCommitDetailLoading(false)
         setCommitDetailError(null)
@@ -184,11 +268,15 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       }
 
       setSelectedCommit(hash)
+      scopeRef.current = { ...scopeRef.current, selectedCommit: hash }
       setCommitDetailError(null)
       commitDetailSeqRef.current += 1
       const seq = commitDetailSeqRef.current
+      const requestWorkspaceId = workspaceId
+      const requestRepositoryPath = currentRepositoryPath
+      const requestCommit = hash
 
-      const cacheKey = `${workspaceId}:${currentRepositoryPath ?? ''}:${hash}`
+      const cacheKey = `${requestWorkspaceId}:${requestRepositoryPath ?? ''}:${requestCommit}`
       const cached = commitDetailCacheRef.current.get(cacheKey)
       if (cached) {
         setSelectedCommitDetail(cached)
@@ -200,16 +288,22 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       setCommitDetailLoading(true)
 
       void desktopApi
-        .gitCommitDetail(workspaceId, hash, currentRepositoryPath)
+        .gitCommitDetail(requestWorkspaceId, requestCommit, requestRepositoryPath)
         .then((detail) => {
-          if (commitDetailSeqRef.current !== seq) {
+          if (
+            commitDetailSeqRef.current !== seq ||
+            !isCurrentCommitDetailRequest(requestWorkspaceId, requestRepositoryPath, requestCommit)
+          ) {
             return
           }
           commitDetailCacheRef.current.set(cacheKey, detail)
           setSelectedCommitDetail(detail)
         })
         .catch((error) => {
-          if (commitDetailSeqRef.current !== seq) {
+          if (
+            commitDetailSeqRef.current !== seq ||
+            !isCurrentCommitDetailRequest(requestWorkspaceId, requestRepositoryPath, requestCommit)
+          ) {
             return
           }
           setCommitDetailError(
@@ -220,12 +314,15 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
           setSelectedCommitDetail(null)
         })
         .finally(() => {
-          if (commitDetailSeqRef.current === seq) {
+          if (
+            commitDetailSeqRef.current === seq &&
+            isCurrentCommitDetailRequest(requestWorkspaceId, requestRepositoryPath, requestCommit)
+          ) {
             setCommitDetailLoading(false)
           }
         })
     },
-    [currentRepositoryPath, locale, selectedCommit, workspaceId],
+    [currentRepositoryPath, isCurrentCommitDetailRequest, locale, selectedCommit, workspaceId],
   )
 
   if (!workspaceId) {

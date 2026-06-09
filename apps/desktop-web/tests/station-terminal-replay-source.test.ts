@@ -9,12 +9,14 @@ test('prefers restore state when it is at least as complete as the cached conten
       content: '\u001b[32mlonger restore\u001b[0m',
       cols: 120,
       rows: 40,
+      viewportY: 18,
     },
   })
 
   assert.equal(replay.kind, 'restore')
   if (replay.kind === 'restore') {
     assert.equal(replay.state.cols, 120)
+    assert.equal(replay.state.viewportY, 18)
   }
 })
 
@@ -43,6 +45,58 @@ test('falls back to cached content when no restore state exists', () => {
     {
       kind: 'cache',
       content: 'plain output cache',
+    },
+  )
+})
+
+test('falls back to cached content when restore dimensions cannot preserve scroll position', () => {
+  assert.deepEqual(
+    selectStationTerminalReplaySource({
+      cachedContent: 'cached transcript',
+      restoreState: {
+        content: 'restore transcript',
+        cols: 0,
+        rows: 30,
+        viewportY: 12,
+      },
+    }),
+    {
+      kind: 'cache',
+      content: 'cached transcript',
+    },
+  )
+
+  assert.deepEqual(
+    selectStationTerminalReplaySource({
+      cachedContent: 'cached transcript',
+      restoreState: {
+        content: 'restore transcript',
+        cols: 100,
+        rows: Number.NaN,
+        viewportY: 12,
+      },
+    }),
+    {
+      kind: 'cache',
+      content: 'cached transcript',
+    },
+  )
+})
+
+test('falls back to cached content when restore state has no visible terminal content', () => {
+  assert.deepEqual(
+    selectStationTerminalReplaySource({
+      cachedContent: 'cached transcript',
+      restoreState: {
+        content: '\u001b[31m\u001b[0m',
+        cols: 100,
+        rows: 30,
+        viewportY: 12,
+      },
+    }),
+    {
+      kind: 'cache',
+      content: 'cached transcript',
     },
   )
 })

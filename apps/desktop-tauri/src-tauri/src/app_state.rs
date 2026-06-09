@@ -607,9 +607,9 @@ impl AppState {
         Ok(bindings.clone())
     }
 
-    pub fn ensure_workspace_watcher(
+    pub fn ensure_workspace_watcher<R: tauri::Runtime>(
         &self,
-        app: &tauri::AppHandle,
+        app: &tauri::AppHandle<R>,
         workspace_id: &str,
         root: &str,
     ) -> Result<(), String> {
@@ -629,9 +629,9 @@ impl AppState {
         self.workspace_watchers.remove_workspace(workspace_id)
     }
 
-    pub fn reload_workspace_watcher(
+    pub fn reload_workspace_watcher<R: tauri::Runtime>(
         &self,
-        app: &tauri::AppHandle,
+        app: &tauri::AppHandle<R>,
         workspace_id: &str,
     ) -> Result<(), String> {
         let root = self.workspace_root_path(workspace_id)?;
@@ -640,7 +640,10 @@ impl AppState {
         self.ensure_workspace_watcher(app, workspace_id, &root_display)
     }
 
-    pub fn reload_all_workspace_watchers(&self, app: &tauri::AppHandle) -> Result<(), String> {
+    pub fn reload_all_workspace_watchers<R: tauri::Runtime>(
+        &self,
+        app: &tauri::AppHandle<R>,
+    ) -> Result<(), String> {
         let workspaces = self
             .workspace_service
             .list()
@@ -813,24 +816,14 @@ impl AppState {
         Ok(())
     }
 
-    #[cfg(not(test))]
-    pub fn invalidate_workspace_reset_state(
+    pub fn invalidate_workspace_reset_state<R: tauri::Runtime>(
         &self,
-        app: &tauri::AppHandle,
+        app: &tauri::AppHandle<R>,
         workspace_id: &str,
     ) -> Result<(), String> {
         self.invalidate_ai_config_snapshot_cache(workspace_id)?;
         self.clear_mcp_directory_snapshot(workspace_id)?;
         self.reload_workspace_watcher(app, workspace_id)
-    }
-
-    #[cfg(test)]
-    pub fn invalidate_workspace_reset_state_caches(
-        &self,
-        workspace_id: &str,
-    ) -> Result<(), String> {
-        self.invalidate_ai_config_snapshot_cache(workspace_id)?;
-        self.clear_mcp_directory_snapshot(workspace_id)
     }
 
     pub fn invalidate_all_ai_config_snapshot_cache(&self) -> Result<(), String> {

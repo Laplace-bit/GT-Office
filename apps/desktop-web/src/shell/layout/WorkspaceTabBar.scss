@@ -2,7 +2,7 @@
 
 // ──────────────────────────────────────────────
 // Workspace Tab Bar — Premium Arc/Linear-inspired
-// Glass morphism + ambient accent + spring curves
+// Glass morphism + ambient accent + restrained native motion
 // ──────────────────────────────────────────────
 
 .vb-workspace-tab-bar {
@@ -17,21 +17,21 @@
   padding: 0;
   transform: translate3d(0, 0, 0);
   transition:
-    opacity var(--workspace-switch-duration, 420ms) var(--workspace-switch-ease, cubic-bezier(0.16, 1, 0.3, 1)),
-    transform var(--workspace-switch-duration, 420ms) var(--workspace-switch-ease, cubic-bezier(0.16, 1, 0.3, 1));
+    opacity var(--workspace-switch-duration, 160ms) var(--workspace-switch-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+    transform var(--workspace-switch-duration, 160ms) var(--workspace-switch-ease, cubic-bezier(0.16, 1, 0.3, 1));
 
   &::-webkit-scrollbar {
     display: none;
   }
 
   &[data-switch-anim='crossfade'] {
-    --workspace-switch-duration: var(--workspace-switch-crossfade-duration, 420ms);
-    --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration, 240ms);
+    --workspace-switch-duration: var(--workspace-switch-crossfade-duration, 160ms);
+    --workspace-switch-exit-duration: var(--workspace-switch-crossfade-exit-duration, 120ms);
   }
 
   &[data-switch-anim='slide'] {
-    --workspace-switch-duration: var(--workspace-switch-slide-duration, 460ms);
-    --workspace-switch-exit-duration: var(--workspace-switch-slide-exit-duration, 260ms);
+    --workspace-switch-duration: var(--workspace-switch-slide-duration, 170ms);
+    --workspace-switch-exit-duration: var(--workspace-switch-slide-exit-duration, 120ms);
   }
 
   &.workspace-switching {
@@ -41,16 +41,16 @@
   &.workspace-switching--crossfade {
     opacity: 0.98;
     transition:
-      opacity var(--workspace-switch-exit-duration, 240ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
-      transform var(--workspace-switch-exit-duration, 240ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
+      opacity var(--workspace-switch-exit-duration, 120ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
+      transform var(--workspace-switch-exit-duration, 120ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
   }
 
   &.workspace-switching--slide {
     opacity: 0.97;
     transform: translate3d(#{rem(-4)}, 0, 0);
     transition:
-      opacity var(--workspace-switch-slide-exit-duration, 260ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
-      transform var(--workspace-switch-slide-exit-duration, 260ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
+      opacity var(--workspace-switch-slide-exit-duration, 120ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0)),
+      transform var(--workspace-switch-slide-exit-duration, 120ms) var(--workspace-switch-exit-ease, cubic-bezier(0.32, 0, 0.67, 0));
   }
 
   &.workspace-tab-drop-active {
@@ -88,7 +88,6 @@
   font-size: rem(12);
   line-height: 1.35;
   white-space: nowrap;
-  cursor: pointer;
   user-select: none;
   border: none;
   background: transparent;
@@ -96,12 +95,12 @@
   max-width: rem(200);
   min-width: rem(80);
   flex: 0 0 auto;
-  // Apple spring curve for all state transitions
+  // Restrained native motion for repeated workspace switching.
   transition:
-    background 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
-    color 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-    opacity 0.15s ease;
+    background-color 140ms var(--vb-ease-smooth),
+    color 140ms var(--vb-ease-smooth),
+    transform 100ms var(--vb-ease-smooth),
+    opacity 120ms var(--vb-ease-smooth);
 
   // Ambient glow behind tab on hover/active
   &::before {
@@ -115,7 +114,7 @@
       color-mix(in srgb, var(--vb-accent) 6%, transparent),
       transparent 70%
     );
-    transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: opacity 140ms var(--vb-ease-smooth);
     pointer-events: none;
   }
 
@@ -129,7 +128,7 @@
     height: rem(1);
     background: color-mix(in srgb, var(--vb-border) 60%, transparent);
     border-radius: rem(0.5);
-    transition: background 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: background 140ms var(--vb-ease-smooth);
   }
 
   &:hover {
@@ -269,6 +268,13 @@
       transform: scale(0.98);
     }
   }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      inset 0 0 0 rem(1) color-mix(in srgb, var(--vb-accent) 48%, transparent),
+      0 0 0 rem(2) color-mix(in srgb, var(--vb-accent) 22%, transparent);
+  }
 }
 
 @keyframes vb-tab-pending-pulse {
@@ -283,7 +289,7 @@
   height: rem(13);
   flex-shrink: 0;
   color: var(--vb-text-subtle);
-  transition: color 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: color 140ms var(--vb-ease-smooth);
 
   .vb-workspace-tab:hover & {
     color: var(--vb-text-muted);
@@ -300,7 +306,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 // ── Close Button ──
@@ -315,7 +321,6 @@
   border: none;
   background: transparent;
   color: var(--vb-text-subtle);
-  cursor: pointer;
   padding: 0;
   flex-shrink: 0;
   opacity: 0;
@@ -343,6 +348,12 @@
   &:active {
     transform: scale(0.85);
   }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 rem(2) color-mix(in srgb, var(--vb-accent) 28%, transparent);
+    opacity: 1;
+  }
 }
 
 // ── Add Button ──
@@ -357,15 +368,14 @@
   border: none;
   background: transparent;
   color: var(--vb-text-muted);
-  cursor: pointer;
   padding: 0;
   flex-shrink: 0;
   align-self: flex-end;
   margin-bottom: rem(1);
   transition:
-    background 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    color 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    background 140ms var(--vb-ease-smooth),
+    color 140ms var(--vb-ease-smooth),
+    transform 100ms var(--vb-ease-smooth);
 
   &:hover {
     background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-hover-overlay));
@@ -375,6 +385,13 @@
 
   &:active {
     transform: scale(0.92);
+  }
+
+  &:focus-visible {
+    outline: none;
+    background: color-mix(in srgb, var(--vb-accent) 10%, var(--vb-hover-overlay));
+    box-shadow: 0 0 0 rem(2) color-mix(in srgb, var(--vb-accent) 28%, transparent);
+    color: var(--vb-accent);
   }
 
   .vb-icon {
@@ -387,7 +404,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .vb-workspace-tab-bar {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
     transform: none !important;
   }
 
@@ -395,7 +412,7 @@
   .vb-workspace-tab-close,
   .vb-workspace-tab-add,
   .vb-workspace-tab-icon {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
   }
 
   .vb-workspace-tab.pending {
@@ -407,7 +424,7 @@
   }
 
   .vb-workspace-tab.closing {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
   }
 
   .vb-workspace-tab-add:hover,
@@ -419,6 +436,6 @@
 
   .vb-workspace-tab::before,
   .vb-workspace-tab::after {
-    transition-duration: 0.01ms !important;
+    transition: none !important;
   }
 }

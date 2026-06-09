@@ -17,6 +17,8 @@ import {
   resolveDroppedStationRuntimeCleanup,
   resolveStationRuntimeRegistrationCleanup,
   resolveNextPendingLaunchCommand,
+  resolveTerminalOutputSequenceAction,
+  shouldReplayStationTerminalSinkBinding,
   shouldApplyRecoveredStationOutput,
   shouldApplyStationSessionLaunchFailure,
   shouldApplyStationToolLaunchResult,
@@ -153,6 +155,38 @@ test('layout preset visual resolves auto to the A glyph', () => {
   })
 })
 
+test('buffered input ignores blank station ids and normalizes valid station ids', () => {
+  const sent: Array<{ stationId: string; input: string }> = []
+  const timerCallbacks = new Map<number, () => void>()
+  let nextTimerId = 1
+
+  const controller = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: (input: string) => input.includes('\n'),
+    scheduleTimer: (callback: () => void) => {
+      const timerId = nextTimerId
+      nextTimerId += 1
+      timerCallbacks.set(timerId, callback)
+      return timerId
+    },
+    clearTimer: (timerId: number) => {
+      timerCallbacks.delete(timerId)
+    },
+    sendInput: async (stationId: string, input: string) => {
+      sent.push({ stationId, input })
+    },
+  })
+
+  controller.enqueue('', 'ignored\n')
+  controller.enqueue('   ', 'also ignored')
+  controller.enqueue(' station-a ', 'echo ok\n')
+
+  assert.deepEqual(sent, [{ stationId: 'station-a', input: 'echo ok\n' }])
+  assert.equal(timerCallbacks.size, 0)
+  controller.dispose()
+})
+
 test('flushes buffered input immediately for submit-like input and drains queued tail after in-flight send', async () => {
   const sent: Array<{ stationId: string; input: string }> = []
   let releaseFirstSend: (() => void) | undefined
@@ -231,6 +265,110 @@ test('cancels pending delayed flush when cleared', () => {
   controller.clear('station-a')
   assert.equal(timerCallbacks.size, 0)
   assert.deepEqual(sent, [])
+  controller.dispose()
+})
+
+test('dispose drops queued input tail after an in-flight send completes', async () => {
+  const sent: Array<{ stationId: string; input: string }> = []
+  let releaseFirstSend: (() => void) | undefined
+
+  const controller = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: (input: string) => input.includes('\n'),
+    scheduleTimer: () => 1,
+    clearTimer: () => undefined,
+    sendInput: async (stationId: string, input: string) => {
+      sent.push({ stationId, input })
+      if (sent.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSend = resolve
+        })
+      }
+    },
+  })
+
+  controller.enqueue('station-a', 'first\n')
+  controller.enqueue('station-a', 'stale tail')
+  controller.dispose()
+
+  const finishFirstSend = releaseFirstSend
+  if (!finishFirstSend) {
+    throw new Error('expected first send to be pending')
+  }
+  finishFirstSend()
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.deepEqual(sent, [{ stationId: 'station-a', input: 'first\n' }])
+})
+
+test('clear unblocks new station input while an old send is still in flight', async () => {
+  const sent: Array<{ stationId: string; input: string }> = []
+  let releaseFirstSend: (() => void) | undefined
+
+  const controller = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: 64,
+    shouldFlushImmediately: (input: string) => input.includes('\n'),
+    scheduleTimer: () => 1,
+    clearTimer: () => undefined,
+    sendInput: async (stationId: string, input: string) => {
+      sent.push({ stationId, input })
+      if (sent.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSend = resolve
+        })
+      }
+    },
+  })
+
+  controller.enqueue('station-a', 'old session\n')
+  controller.clear('station-a')
+  controller.enqueue('station-a', 'new session\n')
+
+  assert.deepEqual(sent, [
+    { stationId: 'station-a', input: 'old session\n' },
+    { stationId: 'station-a', input: 'new session\n' },
+  ])
+
+  releaseFirstSend?.()
+  await new Promise((resolve) => setImmediate(resolve))
+  controller.dispose()
+})
+
+test('trims buffered terminal input by utf-8 bytes without splitting characters', () => {
+  const sent: Array<{ stationId: string; input: string }> = []
+  const timerCallbacks = new Map<number, () => void>()
+  let nextTimerId = 1
+
+  const controller = createBufferedStationInputController({
+    flushDelayMs: 12,
+    maxBufferBytes: 8,
+    shouldFlushImmediately: () => false,
+    scheduleTimer: (callback: () => void) => {
+      const timerId = nextTimerId
+      nextTimerId += 1
+      timerCallbacks.set(timerId, callback)
+      return timerId
+    },
+    clearTimer: (timerId: number) => {
+      timerCallbacks.delete(timerId)
+    },
+    sendInput: async (stationId: string, input: string) => {
+      sent.push({ stationId, input })
+    },
+  })
+
+  controller.enqueue('station-a', 'abcdef')
+  controller.enqueue('station-a', '你好🙂')
+  const flush = timerCallbacks.get(nextTimerId - 1)
+  if (!flush) {
+    throw new Error('expected delayed flush to be scheduled')
+  }
+  flush()
+
+  assert.deepEqual(sent, [{ stationId: 'station-a', input: '好🙂' }])
   controller.dispose()
 })
 
@@ -801,6 +939,54 @@ test('applies recovered terminal output only while the session still owns the st
       'session-1',
     ),
     true,
+  )
+})
+
+test('terminal output sequence action skips stale events before hot-path decode work', () => {
+  assert.equal(resolveTerminalOutputSequenceAction(7, 7), 'stale')
+  assert.equal(resolveTerminalOutputSequenceAction(6, 7), 'stale')
+  assert.equal(resolveTerminalOutputSequenceAction(8, 7), 'append')
+  assert.equal(resolveTerminalOutputSequenceAction(10, 7), 'recover')
+  assert.equal(resolveTerminalOutputSequenceAction(1, undefined), 'append')
+})
+
+test('skips terminal sink replay when station switching rebinds the same live sink', () => {
+  const sink = { id: 'sink-1' }
+
+  assert.equal(
+    shouldReplayStationTerminalSinkBinding({
+      previousSink: sink,
+      nextSink: sink,
+      hasPendingReplay: false,
+    }),
+    false,
+  )
+
+  assert.equal(
+    shouldReplayStationTerminalSinkBinding({
+      previousSink: sink,
+      nextSink: sink,
+      hasPendingReplay: true,
+    }),
+    true,
+  )
+
+  assert.equal(
+    shouldReplayStationTerminalSinkBinding({
+      previousSink: sink,
+      nextSink: { id: 'sink-2' },
+      hasPendingReplay: false,
+    }),
+    true,
+  )
+
+  assert.equal(
+    shouldReplayStationTerminalSinkBinding({
+      previousSink: sink,
+      nextSink: null,
+      hasPendingReplay: false,
+    }),
+    false,
   )
 })
 

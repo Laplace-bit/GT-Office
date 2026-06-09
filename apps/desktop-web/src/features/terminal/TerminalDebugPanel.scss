@@ -10,8 +10,11 @@
     color-mix(in srgb, var(--vb-surface) 92%, transparent);
   backdrop-filter: blur(1.25rem) saturate(1.1);
   box-shadow:
-    0 1.25rem 2.5rem color-mix(in srgb, black 20%, transparent),
+    0 0.75rem 1.75rem color-mix(in srgb, black 16%, transparent),
     inset 0 0.0625rem 0 color-mix(in srgb, white 12%, transparent);
+  font-family: var(--vb-font-ui);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .terminal-debug-panel {
@@ -37,7 +40,28 @@
   color: var(--vb-text);
   font-size: 0.75rem;
   font-weight: 650;
-  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--vb-accent) 24%, var(--vb-border-subtle));
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--vb-surface-elevated) 98%, transparent), color-mix(in srgb, var(--vb-surface) 96%, transparent)),
+      color-mix(in srgb, var(--vb-surface) 94%, transparent);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 48%, transparent),
+      0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 14%, transparent);
+  }
 
   strong {
     display: inline-flex;
@@ -71,7 +95,7 @@
   strong {
     font-size: 0.8125rem;
     color: var(--vb-text);
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 
   span {
@@ -95,7 +119,29 @@
     color: var(--vb-text-muted);
     font-size: 0.6875rem;
     font-weight: 650;
-    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      transform 140ms ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--vb-accent) 22%, var(--vb-border-subtle));
+      background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-glass-light));
+      color: var(--vb-text);
+    }
+
+    &:active {
+      transform: scale(0.98);
+      background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-glass-light));
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 46%, transparent),
+        0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 12%, transparent);
+    }
   }
 }
 
@@ -129,7 +175,29 @@
     color: var(--vb-text-muted);
     font-size: 0.6875rem;
     font-weight: 700;
-    cursor: pointer;
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      transform 140ms ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--vb-accent) 20%, var(--vb-border-subtle));
+      background: color-mix(in srgb, var(--vb-accent) 7%, var(--vb-glass-light));
+      color: var(--vb-text);
+    }
+
+    &:active {
+      transform: scale(0.98);
+      background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-glass-light));
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 0.0625rem color-mix(in srgb, var(--vb-accent) 46%, transparent),
+        0 0 0 0.25rem color-mix(in srgb, var(--vb-accent) 12%, transparent);
+    }
 
     &.active {
       border-color: color-mix(in srgb, var(--vb-accent) 28%, var(--vb-border-subtle));
@@ -176,14 +244,28 @@
   }
 
   &.human {
-    border-color: color-mix(in srgb, #4f8f6b 24%, var(--vb-border-subtle));
+    border-color: color-mix(in srgb, var(--vb-success) 24%, var(--vb-border-subtle));
     color: var(--vb-text);
     background:
-      linear-gradient(180deg, color-mix(in srgb, #dff3e6 14%, var(--vb-surface-elevated)), color-mix(in srgb, var(--vb-surface) 80%, transparent)),
+      linear-gradient(180deg, color-mix(in srgb, var(--vb-success) 10%, var(--vb-surface-elevated)), color-mix(in srgb, var(--vb-surface) 80%, transparent)),
       color-mix(in srgb, var(--vb-surface) 78%, transparent);
   }
 
   &.raw {
     color: var(--vb-text-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-debug-launcher,
+  .terminal-debug-panel-actions button,
+  .terminal-debug-panel-tabs button {
+    transition: none !important;
+  }
+
+  .terminal-debug-launcher:active,
+  .terminal-debug-panel-actions button:active,
+  .terminal-debug-panel-tabs button:active {
+    transform: none;
   }
 }

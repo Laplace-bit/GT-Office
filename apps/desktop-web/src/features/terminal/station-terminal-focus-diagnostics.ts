@@ -37,6 +37,7 @@ export type StationTerminalFocusDiagnosticKind =
 
 export interface StationTerminalFocusDiagnosticEvent {
   atMs: number
+  workspaceId: string | null
   stationId: string
   sessionId: string | null
   kind: StationTerminalFocusDiagnosticKind
@@ -55,6 +56,7 @@ type DiagnosticsWindow = Window & {
 
 export interface RecordStationTerminalFocusDiagnosticInput {
   targetWindow: Window
+  workspaceId?: string | null
   stationId: string
   sessionId: string | null
   kind: StationTerminalFocusDiagnosticKind
@@ -112,6 +114,7 @@ function readStationTerminalFocusDiagnosticEvents(
       })
       .map((item) => ({
         atMs: item.atMs,
+        workspaceId: typeof item.workspaceId === 'string' ? item.workspaceId : null,
         stationId: item.stationId,
         sessionId: item.sessionId ?? null,
         kind: item.kind,
@@ -139,6 +142,7 @@ export function persistStationTerminalFocusDiagnosticEvent(
 
 export async function recordStationTerminalFocusDiagnostic({
   targetWindow,
+  workspaceId = null,
   stationId,
   sessionId,
   kind,
@@ -148,6 +152,7 @@ export async function recordStationTerminalFocusDiagnostic({
 }: RecordStationTerminalFocusDiagnosticInput): Promise<StationTerminalFocusDiagnosticEvent> {
   const record: StationTerminalFocusDiagnosticEvent = {
     atMs,
+    workspaceId,
     stationId,
     sessionId,
     kind,

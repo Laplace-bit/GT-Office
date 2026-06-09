@@ -7,9 +7,7 @@
   display: grid;
   place-items: center;
   padding: rem(20);
-  background: color-mix(in srgb, var(--vb-surface) 32%, rgba(5, 8, 18, 0.52));
-  backdrop-filter: blur(rem(18)) saturate(140%);
-  -webkit-backdrop-filter: blur(rem(18)) saturate(140%);
+  background: color-mix(in srgb, var(--vb-bg) 56%, transparent);
 }
 
 .station-action-command-sheet {
@@ -20,13 +18,13 @@
   border-radius: rem(22);
   border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--vb-accent) 16%, transparent), transparent 44%),
     linear-gradient(180deg, color-mix(in srgb, var(--vb-glass-lighter) 94%, transparent), transparent 24%),
     color-mix(in srgb, var(--vb-surface) 92%, transparent);
   box-shadow:
-    0 rem(22) rem(42) color-mix(in srgb, black 24%, transparent),
-    inset 0 rem(1) 0 rgba(255, 255, 255, 0.08);
+    var(--vb-shadow-lg),
+    var(--vb-shadow-inset);
   overflow: hidden;
+  font-family: var(--vb-font-ui);
 }
 
 .station-action-command-sheet-header {
@@ -35,6 +33,8 @@
   justify-content: space-between;
   gap: rem(16);
   padding: rem(18) rem(18) rem(12);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .station-action-command-sheet-header-copy {
@@ -46,7 +46,7 @@
     margin: 0;
     font-size: rem(20);
     line-height: 1.15;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     color: var(--vb-text);
   }
 
@@ -76,7 +76,18 @@
   border-radius: rem(999);
   background: color-mix(in srgb, var(--vb-glass-light) 72%, transparent);
   color: var(--vb-text);
-  cursor: pointer;
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent);
+  }
+
+  &:active {
+    transform: scale(0.94);
+    background: color-mix(in srgb, var(--vb-glass-lighter) 68%, transparent);
+  }
 
   &:focus-visible {
     outline: none;
@@ -113,7 +124,9 @@
   font-size: rem(11);
   font-weight: 700;
   color: var(--vb-text);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .station-action-command-sheet-control {
@@ -152,6 +165,8 @@
   color: var(--vb-text);
   font-size: rem(12);
   font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .station-action-command-sheet-empty {
@@ -162,6 +177,8 @@
   border-radius: rem(16);
   border: rem(1) solid color-mix(in srgb, var(--vb-border-subtle) 88%, transparent);
   background: color-mix(in srgb, var(--vb-glass-light) 68%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
 
   strong {
     color: var(--vb-text);
@@ -200,6 +217,8 @@
     color: var(--vb-text);
     white-space: pre-wrap;
     word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
   }
 }
 
@@ -219,7 +238,22 @@
   color: var(--vb-text);
   font-size: rem(12);
   font-weight: 700;
-  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vb-glass-lighter) 82%, transparent);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.98);
+    background: color-mix(in srgb, var(--vb-glass-lighter) 68%, transparent);
+  }
 
   &:focus-visible {
     outline: none;
@@ -231,23 +265,31 @@
 
 .station-action-command-sheet-primary {
   border-color: transparent;
-  background: color-mix(in srgb, var(--vb-accent) 88%, black 12%);
-  color: white;
+  background: color-mix(in srgb, var(--vb-accent) 88%, var(--vb-bg) 12%);
+  color: color-mix(in srgb, var(--vb-surface) 90%, var(--vb-text) 10%);
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vb-accent) 82%, var(--vb-bg) 18%);
+  }
 
   &.is-confirm {
-    background: color-mix(in srgb, var(--vb-warning) 84%, black 16%);
+    background: color-mix(in srgb, var(--vb-warning) 84%, var(--vb-bg) 16%);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--vb-warning) 78%, var(--vb-bg) 22%);
+    }
   }
 
   &.is-expensive {
-    background: linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--vb-accent) 84%, black 16%),
-      color-mix(in srgb, var(--vb-warning) 44%, var(--vb-accent))
-    );
+    border-color: color-mix(in srgb, var(--vb-warning) 28%, transparent);
+    background: color-mix(in srgb, var(--vb-accent) 76%, var(--vb-warning));
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--vb-accent) 70%, var(--vb-warning));
+    }
   }
 
   &:disabled {
-    cursor: not-allowed;
     opacity: 0.56;
   }
 }
@@ -259,6 +301,12 @@
   .station-action-command-sheet-control,
   .station-action-command-sheet-secondary,
   .station-action-command-sheet-primary {
-    transition: none;
+    transition: none !important;
+  }
+
+  .station-action-command-sheet-close:active,
+  .station-action-command-sheet-secondary:active:not(:disabled),
+  .station-action-command-sheet-primary:active:not(:disabled) {
+    transform: none !important;
   }
 }

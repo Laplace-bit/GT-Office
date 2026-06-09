@@ -13,14 +13,17 @@ fn to_command_error(error: impl ToString) -> String {
     error.to_string()
 }
 
-fn build_window_active_response(window_label: &str, workspace_id: Option<String>) -> Value {
+pub(crate) fn build_window_active_response(
+    window_label: &str,
+    workspace_id: Option<String>,
+) -> Value {
     json!({
         "windowLabel": window_label,
         "workspaceId": workspace_id,
     })
 }
 
-fn build_workspace_open_response(workspace_id: &str, name: &str, root: &str) -> Value {
+pub(crate) fn build_workspace_open_response(workspace_id: &str, name: &str, root: &str) -> Value {
     json!({
         "workspaceId": workspace_id,
         "name": name,
@@ -28,14 +31,14 @@ fn build_workspace_open_response(workspace_id: &str, name: &str, root: &str) -> 
     })
 }
 
-fn build_workspace_close_response(workspace_id: &str, closed: bool) -> Value {
+pub(crate) fn build_workspace_close_response(workspace_id: &str, closed: bool) -> Value {
     json!({
         "workspaceId": workspace_id,
         "closed": closed,
     })
 }
 
-fn build_workspace_restore_response(
+pub(crate) fn build_workspace_restore_response(
     workspace_id: &str,
     session: &WorkspaceSessionSnapshot,
 ) -> Value {
@@ -47,7 +50,7 @@ fn build_workspace_restore_response(
     })
 }
 
-fn build_workspace_switch_response(active_workspace_id: &str) -> Value {
+pub(crate) fn build_workspace_switch_response(active_workspace_id: &str) -> Value {
     json!({ "activeWorkspaceId": active_workspace_id })
 }
 
@@ -70,7 +73,7 @@ fn detached_workspace_window_label(
         })
 }
 
-fn allow_workspace_asset_scope<R: tauri::Runtime, M: Manager<R>>(
+pub(crate) fn allow_workspace_asset_scope<R: tauri::Runtime, M: Manager<R>>(
     manager: &M,
     root: &Path,
 ) -> Result<(), String> {
@@ -203,24 +206,6 @@ fn reset_workspace_state_storage(
     Ok(())
 }
 
-#[cfg(not(test))]
-pub(crate) fn workspace_reset_state_with_storage(
-    workspace_id: String,
-    confirmation_text: String,
-    state: &AppState,
-    app: &AppHandle,
-    storage: SqliteStorage,
-) -> Result<Value, String> {
-    reset_workspace_state_storage(&workspace_id, &confirmation_text, state, &storage)?;
-    state.invalidate_workspace_reset_state(app, &workspace_id)?;
-    emit_workspace_updated(app, &workspace_id, "reset")?;
-    emit_settings_updated(app, &workspace_id)?;
-    emit_ai_config_changed(app, &workspace_id)?;
-
-    Ok(build_workspace_reset_response(&workspace_id))
-}
-
-#[cfg(test)]
 pub(crate) fn workspace_reset_state_with_storage<R: tauri::Runtime>(
     workspace_id: String,
     confirmation_text: String,
@@ -229,7 +214,7 @@ pub(crate) fn workspace_reset_state_with_storage<R: tauri::Runtime>(
     storage: SqliteStorage,
 ) -> Result<Value, String> {
     reset_workspace_state_storage(&workspace_id, &confirmation_text, state, &storage)?;
-    state.invalidate_workspace_reset_state_caches(&workspace_id)?;
+    state.invalidate_workspace_reset_state(app, &workspace_id)?;
     emit_workspace_updated(app, &workspace_id, "reset")?;
     emit_settings_updated(app, &workspace_id)?;
     emit_ai_config_changed(app, &workspace_id)?;
@@ -438,7 +423,3 @@ pub fn workspace_reset_state(
         resolve_workspace_storage(&app)?,
     )
 }
-
-#[cfg(test)]
-#[path = "../tests/workspace_tests.rs"]
-mod tests;

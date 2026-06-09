@@ -8,22 +8,22 @@
   padding: #{rem(10)};
   min-height: 0;
   overflow-y: auto;
-  
+
   h2 {
     font-size: #{rem(16)};
     font-weight: 700;
     margin: 0;
     color: var(--vb-text);
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
-  
+
   p {
     font-size: #{rem(12)};
     color: var(--vb-text-muted);
     margin: var(--vb-space-2xs) 0 0;
     line-height: 1.5;
   }
-  
+
   ul {
     list-style: none;
     padding: 0;
@@ -32,7 +32,7 @@
     flex-direction: column;
     gap: var(--vb-space-sm);
   }
-  
+
   li {
     font-size: #{rem(13)};
     padding: #{rem(10)} #{rem(14)};
@@ -40,12 +40,25 @@
     border: var(--vb-border-width) solid var(--vb-border-subtle);
     border-radius: #{rem(10)};
     color: var(--vb-text);
-    transition: all 0.2s ease;
-    
+    transition:
+      background-color 140ms var(--vb-ease-smooth),
+      border-color 140ms var(--vb-ease-smooth),
+      transform 100ms var(--vb-ease-smooth);
+
     &:hover {
       background: var(--vb-glass-lighter-hover);
       transform: translateX(#{rem(2)});
       border-color: var(--vb-border-strong);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .left-pane li {
+    transition: none;
+
+    &:hover {
+      transform: none;
     }
   }
 }

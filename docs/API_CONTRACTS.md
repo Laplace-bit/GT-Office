@@ -79,11 +79,37 @@ Error example:
 
 | Command | Key Request Fields | Key Response Fields |
 |---------|-------------------|-------------------|
-| `terminal.create` | `workspaceId, cwd?, shell?` | `sessionId` |
-| `terminal.destroy` | `sessionId` | `destroyed` |
-| `terminal.resize` | `sessionId, cols, rows` | `resized` |
-| `terminal.write` | `sessionId, data` | `written` |
-| `terminal.read_output` | `sessionId` | `output[]` |
+| `terminal_create` | `workspaceId, cwd?, shell?` | `sessionId, workspaceId, shell, cwdMode, resolvedCwd` |
+| `terminal_write` | `workspaceId, sessionId, input` | `workspaceId, sessionId, accepted` |
+| `terminal_write_with_submit` | `workspaceId, sessionId, input, submitSequence?` | `workspaceId, sessionId, accepted` |
+| `terminal_resize` | `workspaceId, sessionId, cols, rows` | `workspaceId, sessionId, cols, rows, resized` |
+| `terminal_kill` | `workspaceId, sessionId, signal?` | `workspaceId, sessionId, signal, killed` |
+| `terminal_set_visibility` | `workspaceId, sessionId, visible` | `workspaceId, sessionId, visible, updated` |
+| `terminal_read_snapshot` | `workspaceId, sessionId, maxBytes?` | `workspaceId, sessionId, chunk, bytes, maxBytes, truncated, currentSeq` |
+| `terminal_read_delta` | `workspaceId, sessionId, afterSeq, maxBytes?` | `workspaceId, sessionId, chunk, fromSeq?, toSeq, currentSeq, gap, truncated` |
+| `terminal_describe_processes` | `workspaceId, sessionId` | `workspaceId` + process snapshot |
+| `terminal_report_rendered_screen` | `workspaceId, snapshot, toolKind?` | `workspaceId, sessionId, screenRevision, accepted, humanText?, humanEntries[]` |
+| `terminal_has_session` | `workspaceId, sessionId` | `workspaceId, sessionId, alive` |
+| `terminal_activate` | `workspaceId, sessionId` | `workspaceId` + rendered terminal placeholder |
+| `terminal_get_rendered_screen` | `workspaceId, sessionId` | `workspaceId` + rendered terminal placeholder |
+| `terminal_open_output_channel` | `workspaceId, sessionId` | `workspaceId, sessionId, channelBound` |
+| `terminal_debug_clear_human_log` | `workspaceId, sessionId` | `workspaceId, sessionId, cleared` |
+| `terminal_debug_append_frontend_focus_log` | `entry.workspaceId?, entry.stationId, entry.sessionId?, entry.kind, entry.detail?` | `workspaceId?, stationId, sessionId?, kind, accepted, logPath` |
+
+### Session
+
+| Command | Key Request Fields | Key Response Fields |
+|---------|-------------------|-------------------|
+| `session_list` | `workspaceId, provider?, limit?, offset?` | `cards[], limit, offset` |
+| `session_discover` | `workspaceId, cwd, provider?, force?` | `cards[], stats, cached` |
+| `session_get` | `workspaceId, gtoSessionId` | `session, stats` |
+| `session_launch` | `workspaceId, stationId, agentId, provider, cwd, terminalSessionId?` | `gtoSessionId` |
+| `session_resume_bind` | `workspaceId, gtoSessionId, terminalSessionId, stationId, agentId` | `ok` |
+| `session_end` | `workspaceId, gtoSessionId` | `ok` |
+| `session_resume_check` | `workspaceId?, gtoSessionId?, relaunchMode?, expectedProvider?` | `check, session?, stats?, providerMismatch?` |
+| `session_update_title` | `workspaceId, gtoSessionId, title` | `ok` |
+| `session_changefeed_query` | `workspaceId` | `snapshot` |
+| `session_changefeed_push` | `workspaceId, branch, dirty, ahead, behind, stagedFiles, unstagedFiles, untrackedFiles, revision` | `emitted` |
 
 ### Git
 
@@ -134,14 +160,16 @@ Error example:
 
 ## Event Contracts
 
-Events use the `gtoffice:` namespace and are broadcast from the backend to all subscribed frontend listeners.
+Events are broadcast from the backend to all subscribed frontend listeners. Workspace-scoped events include `workspaceId` so listeners can reject stale events before mutating active UI state.
 
 | Event | Payload | Trigger |
 |-------|---------|---------|
 | `gtoffice:workspace-opened` | `{ workspaceId, name, root }` | Workspace opened |
 | `gtoffice:workspace-closed` | `{ workspaceId }` | Workspace closed |
 | `gtoffice:file-changed` | `{ workspaceId, path, kind }` | File system change detected |
-| `gtoffice:terminal-output` | `{ sessionId, data }` | Terminal produced output |
+| `terminal/output` | `{ workspaceId, sessionId, chunk, seq, tsMs }` | Terminal produced output |
+| `terminal/state_changed` | `{ workspaceId, sessionId, from, to, tsMs }` | Terminal lifecycle changed |
+| `terminal/meta` | `{ workspaceId, sessionId, unreadBytes, unreadChunks, tailChunk, tsMs }` | Hidden terminal produced summarized output |
 | `gtoffice:git-status-changed` | `{ workspaceId }` | Git status needs refresh |
 | `gtoffice:ui-preferences-updated` | `{ preferences }` | UI preferences changed |
 

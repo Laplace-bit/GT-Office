@@ -142,14 +142,23 @@
   span {
     font-size: rem(12.5);
     font-weight: 600;
-    letter-spacing: -0.01em;
   }
 
   &:hover {
-    transform: translateY(rem(-1));
     border-color: var(--vb-border-strong);
     background: var(--vb-glass-lighter-hover);
     box-shadow: var(--vb-shadow-md);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      var(--vb-shadow-sm),
+      0 0 0 rem(2) var(--vb-accent-light);
   }
 
   &.is-primary {
@@ -368,7 +377,6 @@
   min-width: rem(34);
   max-width: rem(40);
   padding: 0;
-  cursor: pointer;
   transition: opacity 160ms var(--vb-ease-smooth);
 
   &:hover .station-minimized-dock-icon,
@@ -382,6 +390,10 @@
 
   &:focus-visible {
     outline: none;
+  }
+
+  &:active .station-minimized-dock-icon {
+    transform: scale(0.96);
   }
 
   .station-minimized-dock:hover &,
@@ -410,7 +422,10 @@
   box-shadow:
     0 rem(4) rem(10) color-mix(in srgb, black 10%, transparent),
     inset 0 rem(1) 0 rgba(255, 255, 255, 0.14);
-  transition: border-color 180ms var(--vb-ease-smooth);
+  transition:
+    border-color 180ms var(--vb-ease-smooth),
+    box-shadow 180ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth);
 }
 
 .station-minimized-dock-monogram {
@@ -429,7 +444,7 @@
   padding: 0 rem(3);
   border-radius: rem(999);
   background: color-mix(in srgb, var(--vb-danger) 90%, white 10%);
-  color: white;
+  color: color-mix(in srgb, var(--vb-text) 14%, var(--vb-surface) 86%);
   font-size: rem(7);
   font-weight: 700;
   display: inline-flex;
@@ -484,6 +499,22 @@
   &.is-live {
     background: color-mix(in srgb, var(--vb-success) 82%, white 18%);
     box-shadow: 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-success) 16%, transparent);
+  }
+
+  &.is-busy {
+    background: color-mix(in srgb, var(--vb-accent) 78%, white 22%);
+    box-shadow: 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-accent) 15%, transparent);
+  }
+
+  &.is-waiting,
+  &.is-blocked {
+    background: color-mix(in srgb, var(--vb-warning) 80%, white 20%);
+    box-shadow: 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-warning) 16%, transparent);
+  }
+
+  &.is-error {
+    background: color-mix(in srgb, var(--vb-error) 82%, white 18%);
+    box-shadow: 0 0 0 rem(1.5) color-mix(in srgb, var(--vb-error) 16%, transparent);
   }
 }
 
@@ -546,7 +577,6 @@
     flex: 1 1 auto;
     font-size: rem(13.5);
     font-weight: 700;
-    letter-spacing: -0.02em;
     color: var(--vb-text);
     white-space: nowrap;
     overflow: hidden;
@@ -677,6 +707,15 @@
     color: var(--vb-text);
   }
 
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
+  }
+
   &.active {
     background: var(--vb-surface);
     color: var(--vb-accent);
@@ -697,7 +736,6 @@
   font-size: rem(12.5);
   font-weight: 700;
   line-height: 1;
-  letter-spacing: -0.02em;
 }
 
 .canvas-layout-custom-controls {
@@ -734,20 +772,28 @@
   background: var(--vb-surface);
   color: var(--vb-text-muted);
   transition:
-    transform 180ms var(--vb-ease-smooth),
     border-color 180ms var(--vb-ease-smooth),
     background 180ms var(--vb-ease-smooth),
-    color 180ms var(--vb-ease-smooth);
+    color 180ms var(--vb-ease-smooth),
+    box-shadow 180ms var(--vb-ease-smooth),
+    transform 120ms var(--vb-ease-smooth);
 
   &:hover {
-    transform: translateY(rem(-1));
     border-color: var(--vb-border-strong);
     color: var(--vb-text);
   }
 
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 rem(2) var(--vb-accent-light);
+  }
+
   &:disabled {
     opacity: 0.45;
-    cursor: not-allowed;
     transform: none;
   }
 
@@ -758,12 +804,12 @@
   }
 
   &.is-danger {
-    color: color-mix(in srgb, #ff453a 72%, var(--vb-text-muted));
+    color: color-mix(in srgb, var(--vb-danger) 72%, var(--vb-text-muted));
 
     &:hover {
-      border-color: color-mix(in srgb, #ff453a 36%, transparent);
-      background: color-mix(in srgb, #ff453a 10%, var(--vb-surface));
-      color: #ff453a;
+      border-color: color-mix(in srgb, var(--vb-danger) 36%, transparent);
+      background: color-mix(in srgb, var(--vb-danger) 10%, var(--vb-surface));
+      color: var(--vb-danger);
     }
   }
 }

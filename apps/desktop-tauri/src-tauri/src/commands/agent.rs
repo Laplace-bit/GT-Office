@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::app_state::AppState;
 
-mod binding_cleanup;
+pub(crate) mod binding_cleanup;
 
 use binding_cleanup::{
     apply_direct_agent_binding_cleanup, collect_direct_agent_binding_dependencies,
@@ -57,14 +57,17 @@ fn resolve_agent_repository<R: tauri::Runtime>(
     Ok(SqliteAgentRepository::new(storage))
 }
 
-fn seed_agent_defaults(repo: &SqliteAgentRepository, workspace_id: &str) -> Result<(), String> {
+pub(crate) fn seed_agent_defaults(
+    repo: &SqliteAgentRepository,
+    workspace_id: &str,
+) -> Result<(), String> {
     repo.seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
         .map_err(to_command_error)?;
     repo.seed_defaults(workspace_id).map_err(to_command_error)
 }
 
-fn parse_agent_state(value: Option<String>) -> Result<AgentState, String> {
-    match value.as_deref() {
+pub(crate) fn parse_agent_state(value: Option<String>) -> Result<AgentState, String> {
+    match value.as_deref().map(str::trim) {
         None => Ok(AgentState::Ready),
         Some("ready") => Ok(AgentState::Ready),
         Some("paused") => Ok(AgentState::Paused),
@@ -74,15 +77,15 @@ fn parse_agent_state(value: Option<String>) -> Result<AgentState, String> {
     }
 }
 
-fn parse_role_scope(value: Option<&str>) -> AgentRoleScope {
-    match value {
+pub(crate) fn parse_role_scope(value: Option<&str>) -> AgentRoleScope {
+    match value.map(str::trim) {
         Some("global") => AgentRoleScope::Global,
         _ => AgentRoleScope::Workspace,
     }
 }
 
-fn parse_role_status(value: Option<String>) -> Result<gt_agent::RoleStatus, String> {
-    match value.as_deref() {
+pub(crate) fn parse_role_status(value: Option<String>) -> Result<gt_agent::RoleStatus, String> {
+    match value.as_deref().map(str::trim) {
         None => Ok(gt_agent::RoleStatus::Active),
         Some("active") => Ok(gt_agent::RoleStatus::Active),
         Some("deprecated") => Ok(gt_agent::RoleStatus::Deprecated),
@@ -124,7 +127,7 @@ fn parse_direct_binding_cleanup_mode(
     }
 }
 
-fn role_scope_workspace_id(scope: &AgentRoleScope, workspace_id: &str) -> String {
+pub(crate) fn role_scope_workspace_id(scope: &AgentRoleScope, workspace_id: &str) -> String {
     match scope {
         AgentRoleScope::Global => GLOBAL_ROLE_WORKSPACE_ID.to_string(),
         AgentRoleScope::Workspace => workspace_id.to_string(),
@@ -139,7 +142,7 @@ struct RestorableSystemRoleSummary {
     role_name: String,
 }
 
-fn normalize_relative_workdir(value: &str) -> Option<String> {
+pub(crate) fn normalize_relative_workdir(value: &str) -> Option<String> {
     let normalized = value.trim().replace('\\', "/").replace("/./", "/");
     if normalized.starts_with('/') || normalized.starts_with('~') || normalized.contains(':') {
         return None;
@@ -158,7 +161,7 @@ fn normalize_relative_workdir(value: &str) -> Option<String> {
     Some(segments.join("/"))
 }
 
-fn resolve_agent_tool(tool: Option<String>) -> String {
+pub(crate) fn resolve_agent_tool(tool: Option<String>) -> String {
     let normalized = tool.unwrap_or_else(|| "codex".to_string());
     let lowered = normalized.trim().to_ascii_lowercase();
     if lowered.contains("claude") {
@@ -168,7 +171,10 @@ fn resolve_agent_tool(tool: Option<String>) -> String {
     }
 }
 
-fn resolve_update_agent_tool(existing_tool: &str, requested_tool: Option<String>) -> String {
+pub(crate) fn resolve_update_agent_tool(
+    existing_tool: &str,
+    requested_tool: Option<String>,
+) -> String {
     match requested_tool
         .as_deref()
         .map(str::trim)
@@ -179,7 +185,7 @@ fn resolve_update_agent_tool(existing_tool: &str, requested_tool: Option<String>
     }
 }
 
-fn resolve_update_agent_prompt_file_name(
+pub(crate) fn resolve_update_agent_prompt_file_name(
     existing_tool: &str,
     requested_tool: Option<&str>,
     existing_prompt_file_name: Option<&str>,
@@ -208,7 +214,7 @@ fn resolve_update_agent_prompt_file_name(
     }
 }
 
-fn should_write_prompt_file_on_update(
+pub(crate) fn should_write_prompt_file_on_update(
     existing_tool: &str,
     requested_tool: Option<&str>,
     _existing_prompt_file_name: Option<&str>,
@@ -306,7 +312,7 @@ fn ordered_prompt_file_candidates(tool: &str) -> Vec<&'static str> {
     candidates
 }
 
-fn resolve_prompt_file_name(
+pub(crate) fn resolve_prompt_file_name(
     tool: &str,
     prompt_file_name: Option<&str>,
 ) -> Result<Option<String>, String> {
@@ -316,14 +322,12 @@ fn resolve_prompt_file_name(
         .filter(|value| !value.is_empty())
     {
         None => Ok(default),
-        Some("CLAUDE.md") | Some("AGENTS.md") => {
-            Ok(Some(prompt_file_name.unwrap().trim().to_string()))
-        }
+        Some(file_name @ ("CLAUDE.md" | "AGENTS.md")) => Ok(Some(file_name.to_string())),
         Some(other) => Err(format!("AGENT_PROMPT_FILE_INVALID: {other}")),
     }
 }
 
-fn write_prompt_file(
+pub(crate) fn write_prompt_file(
     workspace_root: &Path,
     workdir: &str,
     tool: &str,
@@ -364,7 +368,7 @@ fn delete_prompt_file(workspace_root: &Path, relative_path: &str) -> Result<(), 
     }
 }
 
-fn read_prompt_file(
+pub(crate) fn read_prompt_file(
     workspace_root: &Path,
     agent: &AgentProfile,
 ) -> Result<(String, Option<String>, Option<String>), String> {
@@ -405,10 +409,6 @@ fn find_agent(
         .find(|agent| agent.id == agent_id)
         .ok_or_else(|| "AGENT_NOT_FOUND".to_string())
 }
-
-#[cfg(test)]
-#[path = "tests/agent_tests.rs"]
-mod tests;
 
 #[tauri::command]
 pub fn agent_department_list(
@@ -650,7 +650,7 @@ pub struct AgentCreateRequest {
     pub launch_command: Option<String>,
 }
 
-fn agent_create_with_repo(
+pub(crate) fn agent_create_with_repo(
     request: AgentCreateRequest,
     repo: &SqliteAgentRepository,
     workspace_root: &Path,
@@ -664,6 +664,7 @@ fn agent_create_with_repo(
         request.workdir,
         request.custom_workdir.unwrap_or(false),
     )?;
+    ensure_path_within_workspace(workspace_root, &workdir)?;
 
     let input = CreateAgentInput {
         workspace_id: request.workspace_id.clone(),
@@ -739,7 +740,7 @@ pub struct AgentUpdateRequest {
     pub launch_command: Option<String>,
 }
 
-fn agent_update_with_repo(
+pub(crate) fn agent_update_with_repo(
     request: AgentUpdateRequest,
     repo: &SqliteAgentRepository,
     workspace_root: &Path,
@@ -753,6 +754,7 @@ fn agent_update_with_repo(
         request.workdir,
         request.custom_workdir.unwrap_or(false),
     )?;
+    ensure_path_within_workspace(workspace_root, &workdir)?;
     let (existing_prompt_content, existing_prompt_file_name, existing_prompt_file_relative_path) =
         read_prompt_file(workspace_root, &existing_agent)?;
     let prompt_enabled = request
@@ -849,7 +851,7 @@ pub struct AgentDeleteRequest {
     pub replacement_agent_id: Option<String>,
 }
 
-fn agent_delete_with_repo<F>(
+pub(crate) fn agent_delete_with_repo<F>(
     request: AgentDeleteRequest,
     state: &AppState,
     repo: &SqliteAgentRepository,
@@ -951,7 +953,7 @@ pub struct AgentPromptReadRequest {
     pub agent_id: String,
 }
 
-fn agent_prompt_read_with_repo(
+pub(crate) fn agent_prompt_read_with_repo(
     request: AgentPromptReadRequest,
     repo: &SqliteAgentRepository,
     workspace_root: &Path,

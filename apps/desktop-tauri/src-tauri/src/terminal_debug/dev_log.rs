@@ -16,7 +16,7 @@ pub enum TerminalDebugLogKind {
 }
 
 impl TerminalDebugLogKind {
-    fn file_name(self) -> &'static str {
+    pub(crate) fn file_name(self) -> &'static str {
         match self {
             Self::Raw => "raw.log",
             Self::Parsed => "parsed.log",
@@ -148,16 +148,16 @@ pub fn build_rendered_screen_parsed_log_entry(
 
 pub fn build_frontend_focus_log_entry(
     at_ms: u64,
+    workspace_id: Option<&str>,
     station_id: &str,
     session_id: Option<&str>,
     kind: &str,
     detail: Option<&str>,
 ) -> String {
+    let workspace = workspace_id.unwrap_or("none");
     let session = session_id.unwrap_or("none");
     let detail = detail.unwrap_or("[none]");
-    format!("[atMs={at_ms}] [station={station_id}] [session={session}] [kind={kind}]\n{detail}\n\n")
+    format!(
+        "[atMs={at_ms}] [workspace={workspace}] [station={station_id}] [session={session}] [kind={kind}]\n{detail}\n\n"
+    )
 }
-
-#[cfg(test)]
-#[path = "tests/dev_log_tests.rs"]
-mod tests;

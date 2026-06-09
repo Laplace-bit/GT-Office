@@ -18,6 +18,8 @@
 
 GT Office 的核心使命是成为 Claude Code、Codex CLI 等 AI 编程 Agent 在真实代码库里**最稳定、最懂 workspace、最有记忆**的桌面运行环境。
 
+CLI Agent 与 Terminal Console 的体验质量目标见 [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md)。该目标以 `$native-feel-cross-platform-desktop` 为评审模型：优先兑现 macOS 官方生产力应用级的原生感、低延迟、键盘优先和平台一致性，同时保持 Windows parity。
+
 在全球市场，官方工具（Claude Agent View、Codex Desktop）正在蚕食第三方 GUI wrapper 的空间。但**在中国市场，官方工具不可用或受限**，GT Office 是连接中国开发者和世界级 AI Agent 的桥梁。
 
 ### 核心市场洞察

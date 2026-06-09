@@ -55,11 +55,16 @@ export {
 } from './workbench-container-layout-state'
 export {
   DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL,
+  DETACHED_TERMINAL_OUTPUT_APPEND_MESSAGE_CHAR_LIMIT,
   DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS,
   appendDetachedTerminalOutput,
+  buildDetachedTerminalOutputAppendKey,
   createEmptyWorkbenchStationRuntime,
+  normalizeDetachedTerminalUnreadDelta,
   normalizeDetachedTerminalRuntime,
+  queueDetachedTerminalOutputAppendDraft,
   stripDetachedTerminalRuntimeProjectionPatch,
+  takeDetachedTerminalOutputAppendDrafts,
 } from './detached-terminal-bridge'
 export type {
   WorkbenchContainer as WorkbenchContainerModel,
@@ -68,6 +73,10 @@ export type {
   WorkbenchContainerResumeMode,
   WorkbenchContainerSnapshot,
 } from './workbench-container-model'
-export type { DetachedTerminalRuntimeProjectionPatch } from './detached-terminal-bridge'
+export type {
+  DetachedTerminalOutputAppendDraft,
+  DetachedTerminalOutputAppendProjectionMessage,
+  DetachedTerminalRuntimeProjectionPatch,
+} from './detached-terminal-bridge'
 export * from './station-model'
 export { resolveRolePromptTemplate } from './role-prompt-templates'
