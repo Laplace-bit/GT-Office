@@ -266,6 +266,6 @@
   .terminal-debug-launcher:active,
   .terminal-debug-panel-actions button:active,
   .terminal-debug-panel-tabs button:active {
-    transform: none;
+    transform: none !important;
   }
 }

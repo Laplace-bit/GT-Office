@@ -2,6 +2,49 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Debug Panel Reduced Motion Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:35:42 CST`
+- Scope: focused terminal debug chrome reduced-motion hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/TerminalDebugPanel.scss`
+  - Reduced-motion active states now force `transform: none !important` for the launcher, action buttons, and tabs.
+  - This keeps the terminal debug chrome from showing pressed scale movement when the OS requests reduced motion.
+- `apps/desktop-web/tests/station-terminal-style.test.ts`
+  - Added a static regression test for the debug panel reduced-motion pressed-state override.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): macOS-native terminal chrome should be visually restrained and honor `prefers-reduced-motion`.
+- `$native-feel-cross-platform-desktop`: T3 adopt the platform; respect OS-level motion preferences instead of competing with them.
+- `$ui-ux-pro-max`: accessibility guidance for reduced motion and visible, stable control states.
+
+### Passed
+
+- `cargo check --workspace`
+  - Result: passed before the focused frontend-only change.
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-style`
+  - Result: passed.
+  - Summary: `521` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Manual reduced-motion visual inspection in the real Tauri WebView.
+- VoiceOver/Narrator traversal of terminal debug controls.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal debug chrome reduced-motion gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Replay Stale-Yield Guard
 
 - Commit: recorded by git history

@@ -9,6 +9,10 @@ const stationTerminalScss = readFileSync(
   resolve(testDir, '../../src/features/terminal/StationXtermTerminal.scss'),
   'utf8',
 )
+const terminalDebugPanelScss = readFileSync(
+  resolve(testDir, '../../src/features/terminal/TerminalDebugPanel.scss'),
+  'utf8',
+)
 
 function reducedMotionBlock(content: string): string {
   return content.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/)?.[0] ?? ''
@@ -23,4 +27,15 @@ test('station terminal reduced motion keeps file drop feedback visible without a
   assert.match(block, /\.station-terminal-drop-pulse \{[\s\S]*opacity: 1;/)
   assert.match(block, /\.station-terminal-drop-pulse \{[\s\S]*transform: none !important;/)
   assert.doesNotMatch(block, /\.station-terminal-drop-pulse \{[\s\S]*opacity: 0;/)
+})
+
+test('terminal debug panel reduced motion removes pressed scale movement', () => {
+  const block = reducedMotionBlock(terminalDebugPanelScss)
+
+  assert.notEqual(block, '', 'TerminalDebugPanel.scss should define a reduced-motion block')
+  assert.match(block, /transition: none !important;/)
+  assert.match(
+    block,
+    /\.terminal-debug-launcher:active,[\s\S]*\.terminal-debug-panel-tabs button:active \{[\s\S]*transform: none !important;/,
+  )
 })
