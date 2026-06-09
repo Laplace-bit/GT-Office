@@ -238,12 +238,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 .shell-main-layout {
   position: relative;
   isolation: isolate;
-  transform: translate3d(0, 0, 0);
-  transform-origin: center center;
-  backface-visibility: hidden;
-  transition:
-    opacity var(--workspace-switch-duration) var(--workspace-switch-ease),
-    transform var(--workspace-switch-duration) var(--workspace-switch-ease);
 
   &[data-switch-anim='crossfade'] {
     --workspace-switch-duration: var(--workspace-switch-crossfade-duration);
@@ -275,15 +269,10 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 
   &.workspace-switching {
     pointer-events: none;
-    will-change: transform, opacity;
   }
 
   &.workspace-switching--crossfade {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(0.992);
-    transition:
-      opacity var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease),
-      transform var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease);
 
     &::after {
       opacity: 0.28;
@@ -294,10 +283,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
 
   &.workspace-switching--slide {
     opacity: 1;
-    transform: translate3d(-#{rem(14)}, 0, 0) scale(0.994);
-    transition:
-      opacity var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease),
-      transform var(--workspace-switch-exit-duration) var(--workspace-switch-exit-ease);
 
     &::after {
       opacity: 0.24;
