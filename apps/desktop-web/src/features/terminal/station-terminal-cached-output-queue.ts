@@ -53,7 +53,7 @@ function normalizeStationTerminalCachedOutputQueueKeyLimit(value: number | null 
   return Math.max(0, Math.floor(value))
 }
 
-function normalizeStationTerminalCachedOutputUnreadDelta(value: number | null | undefined): number {
+export function normalizeStationTerminalCachedOutputUnreadDelta(value: number | null | undefined): number {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return 0
   }

@@ -2,6 +2,54 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Cached Output Controller Unread Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 22:00 CST`
+- Scope: focused terminal controller unread-state hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-cached-output-queue.ts`
+  - Exported the cached output unread delta normalization helper for controller-level reuse.
+- `apps/desktop-web/src/shell/layout/useShellTerminalController.ts`
+  - Cached output append and unread-only controller paths now normalize deltas before queueing.
+  - This removes local `Math.max(0, input.unreadDelta)` handling that could pass `NaN` into runtime/cache state.
+- `apps/desktop-web/tests/station-terminal-cached-output-queue.test.ts`
+  - Added direct coverage for reusable unread delta normalization.
+- `apps/desktop-web/tests/shell-terminal-controller-source.test.ts`
+  - Added a static regression guard that the shell terminal controller reuses the normalization helper before queueing.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal output and session recovery should keep status state deterministic and scannable during workspace/session switching.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T6 cross boundaries intentionally; controller boundaries should normalize event-derived state before it reaches UI runtime caches.
+- `$ui-ux-pro-max`: CLI Agent status counts should remain valid and easy to scan instead of inheriting invalid numeric state.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-cached-output-queue shell-terminal-controller-source`
+  - Result: passed after fixing the new static test path.
+  - Summary: `526` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `cargo check --workspace`
+  - Result: passed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Manual Tauri WebView validation of unread counts during prolonged background streaming.
+- macOS and Windows packaged desktop runtime QA.
+
+### Release Decision
+
+This closes a narrow terminal controller unread normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Submit Sequence Guard
 
 - Commit: recorded by git history

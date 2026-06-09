@@ -48,6 +48,7 @@ import {
   compactStationTerminalPendingReplayOps,
   drainStationTerminalPendingReplayOps,
   buildStationTerminalCachedOutputQueueKey,
+  normalizeStationTerminalCachedOutputUnreadDelta,
   queueStationTerminalCachedOutputAppend,
   cancelStationTerminalFrameFlush,
   createStationTerminalFrameFlushScheduler,
@@ -887,7 +888,7 @@ export function useShellTerminalController({
         return
       }
       document.sessionSeq[input.sessionId] = input.seq
-      const unreadDelta = Math.max(0, input.unreadDelta)
+      const unreadDelta = normalizeStationTerminalCachedOutputUnreadDelta(input.unreadDelta)
       const result = queueStationTerminalCachedOutputAppend(
         cachedTerminalOutputAppendQueueRef.current,
         {
@@ -923,7 +924,7 @@ export function useShellTerminalController({
       if (!document || document.sessionStation[input.sessionId] !== input.stationId) {
         return
       }
-      const unreadDelta = Math.max(0, input.unreadDelta)
+      const unreadDelta = normalizeStationTerminalCachedOutputUnreadDelta(input.unreadDelta)
       if (unreadDelta === 0) {
         return
       }

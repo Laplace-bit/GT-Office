@@ -2,12 +2,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildStationTerminalCachedOutputQueueKey,
+  normalizeStationTerminalCachedOutputUnreadDelta,
   queueStationTerminalCachedOutputAppend,
   STATION_TERMINAL_CACHED_OUTPUT_PENDING_BASE64_CHAR_LIMIT,
   STATION_TERMINAL_CACHED_OUTPUT_PENDING_CHUNK_LIMIT,
   STATION_TERMINAL_CACHED_OUTPUT_PENDING_QUEUE_KEY_LIMIT,
   type StationTerminalCachedOutputAppendQueue,
 } from '../src/features/terminal/station-terminal-cached-output-queue.js'
+
+test('cached terminal output unread delta normalization is reusable by controllers', () => {
+  assert.equal(normalizeStationTerminalCachedOutputUnreadDelta(undefined), 0)
+  assert.equal(normalizeStationTerminalCachedOutputUnreadDelta(Number.NaN), 0)
+  assert.equal(normalizeStationTerminalCachedOutputUnreadDelta(-2), 0)
+  assert.equal(normalizeStationTerminalCachedOutputUnreadDelta(2.8), 2)
+})
 
 test('cached terminal output queue ignores empty work', () => {
   const queue: StationTerminalCachedOutputAppendQueue = {}
