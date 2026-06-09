@@ -236,6 +236,48 @@ This retry proves web preview reachability but does not complete browser-layer i
 
 This closes one concrete keyboard-focus styling gap in the status bar chrome and adds a regression check. It does not close the broader desktop runtime QA requirement.
 
+## 2026-06-09 Station Overview Reduced-Motion Pressed-State Hardening
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:08:22 CST`
+- Scope: small workspace/session overview reduced-motion hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/workspace/StationOverviewPane.scss`
+  - Removed nonessential pressed-state scale transforms from station overview clear, edit, and remove controls under `prefers-reduced-motion: reduce`.
+  - Kept drag-handle and focused remove-control affordances visible under reduced motion without relying on opacity transition.
+- `apps/desktop-web/tests/station-overview-style.test.ts`
+  - Strengthened the reduced-motion style regression test to require `transform: none !important` and visible chrome affordances.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) motion requirement: nonessential motion must become instant or near-instant under `prefers-reduced-motion`.
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md) workspace/session adjacency requirement: station/session controls should stay compact, keyboard-readable, and platform-consistent.
+- `$native-feel-cross-platform-desktop` T3/T4 guidance: adopt platform motion preferences and optimize perceived responsiveness over decorative pressed feedback.
+- `$ui-ux-pro-max` UX guidance: reduced-motion coverage and visible control states are accessibility-sensitive requirements.
+
+### Passed
+
+- `npm --workspace apps/desktop-web run test:unit -- station-overview-style`
+  - Result: passed.
+  - Summary: `515` tests passed, `0` failed.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+- `git diff --check`
+  - Result: passed.
+
+### Not Covered
+
+- Visual confirmation with OS-level reduced motion enabled in a running browser or Tauri WebView.
+- Packaged macOS and Windows station overview behavior under each platform's reduced-motion setting.
+
+### Release Decision
+
+This closes a narrow reduced-motion pressed-state regression risk in the workspace/session overview. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Shell Reduced-Motion Hardening
 
 - Commit: recorded by git history

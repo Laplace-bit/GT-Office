@@ -515,4 +515,15 @@
     transition: none !important;
     animation: none !important;
   }
+
+  .station-overview-inline-filter__clear:active:not(:disabled),
+  .station-overview-edit:active,
+  .station-overview-remove:active {
+    transform: none !important;
+  }
+
+  .station-overview-drag-handle,
+  .station-overview-remove:focus-visible {
+    opacity: 1;
+  }
 }

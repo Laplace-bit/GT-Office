@@ -24,4 +24,6 @@ test('station overview reduced motion disables nonessential transitions', () => 
   assert.doesNotMatch(reducedMotionBlock, /0\.01ms/)
   assert.match(reducedMotionBlock, /transition: none !important/)
   assert.match(reducedMotionBlock, /animation: none !important/)
+  assert.match(reducedMotionBlock, /transform: none !important/)
+  assert.match(reducedMotionBlock, /\.station-overview-drag-handle,[\s\S]*opacity: 1;/)
 })
