@@ -53,6 +53,13 @@ function normalizeStationTerminalCachedOutputQueueKeyLimit(value: number | null 
   return Math.max(0, Math.floor(value))
 }
 
+function normalizeStationTerminalCachedOutputUnreadDelta(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 0
+  }
+  return Math.max(0, Math.floor(value))
+}
+
 function ensureStationTerminalCachedOutputQueueCapacity(
   queue: StationTerminalCachedOutputAppendQueue,
   queueKey: string,
@@ -97,7 +104,7 @@ export function queueStationTerminalCachedOutputAppend(
   }
 
   const base64Chunk = input.base64Chunk ?? ''
-  const unreadDelta = Math.max(0, Math.floor(input.unreadDelta ?? 0))
+  const unreadDelta = normalizeStationTerminalCachedOutputUnreadDelta(input.unreadDelta)
   if (!base64Chunk && unreadDelta === 0) {
     return { queued: false, shouldFlush: false, queueKey: null }
   }

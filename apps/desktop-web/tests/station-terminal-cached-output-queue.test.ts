@@ -49,6 +49,41 @@ test('cached terminal output queue accumulates unread-only deltas', () => {
   })
 })
 
+test('cached terminal output queue normalizes unread deltas', () => {
+  const queue: StationTerminalCachedOutputAppendQueue = {}
+
+  assert.deepEqual(
+    queueStationTerminalCachedOutputAppend(queue, {
+      workspaceId: 'workspace-1',
+      stationId: 'station-1',
+      sessionId: 'session-1',
+      unreadDelta: Number.NaN,
+    }),
+    {
+      queued: false,
+      shouldFlush: false,
+      queueKey: null,
+    },
+  )
+  const result = queueStationTerminalCachedOutputAppend(queue, {
+    workspaceId: 'workspace-1',
+    stationId: 'station-1',
+    sessionId: 'session-1',
+    base64Chunk: 'abc',
+    unreadDelta: 2.8,
+  })
+  assert.equal(result.queued, true)
+  queueStationTerminalCachedOutputAppend(queue, {
+    workspaceId: 'workspace-1',
+    stationId: 'station-1',
+    sessionId: 'session-1',
+    base64Chunk: 'def',
+    unreadDelta: -3,
+  })
+
+  assert.equal(queue[result.queueKey ?? '']?.unreadDelta, 2)
+})
+
 test('cached terminal output queue requests flush at the chunk count limit', () => {
   const queue: StationTerminalCachedOutputAppendQueue = {}
   let result = queueStationTerminalCachedOutputAppend(queue, {

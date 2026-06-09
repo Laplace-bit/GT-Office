@@ -2,6 +2,50 @@
 
 > Status record for [APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md](APPLE_GRADE_CLI_AGENT_CONSOLE_QA.md)
 
+## 2026-06-09 Terminal Cached Output Unread Delta Guard
+
+- Commit: recorded by git history
+- Workspace: `/Users/dzlin/work/GT-Office`
+- Recorded at: `2026-06-09 21:49:03 CST`
+- Scope: focused cached terminal output unread-state hardening
+
+### Changed
+
+- `apps/desktop-web/src/features/terminal/station-terminal-cached-output-queue.ts`
+  - Cached terminal output append unread deltas now normalize non-finite, negative, and fractional values before entering persistence/recovery queue state.
+  - Non-finite and negative values resolve to `0`; fractional values are floored.
+  - Empty unread-only work with invalid deltas is ignored instead of creating a `NaN` pending state.
+- `apps/desktop-web/tests/station-terminal-cached-output-queue.test.ts`
+  - Added a regression test for cached output unread delta normalization.
+
+### Requirement Mapping
+
+- [APPLE_GRADE_CLI_AGENT_CONSOLE.md](APPLE_GRADE_CLI_AGENT_CONSOLE.md): terminal output and session recovery should keep status state deterministic and scannable.
+- `$native-feel-cross-platform-desktop`: T4 perceived performance and T8 baseline vs margin cost; background/persistence queues should remain bounded and valid.
+- `$ui-ux-pro-max`: user-facing station status counts should not inherit invalid data from model queues.
+
+### Passed
+
+- `cargo check --workspace`
+  - Result: passed before the focused frontend-only change.
+- `npm --workspace apps/desktop-web run test:unit -- station-terminal-cached-output-queue`
+  - Result: passed.
+  - Summary: `524` tests passed, `0` failed.
+  - Note: the script still runs the full compiled web unit test set.
+- `npm run typecheck`
+  - Result: passed.
+  - Note: Vite reported existing chunk-size and `@tauri-apps/api/core.js` dynamic/static import warnings.
+
+### Not Covered
+
+- Real Tauri WebView terminal recovery after prolonged background output.
+- Visual validation of recovered unread/status counts in the packaged desktop app.
+- macOS and Windows runtime QA.
+
+### Release Decision
+
+This closes a narrow cached terminal output state-normalization gap. It does not close the broader desktop runtime QA requirement.
+
 ## 2026-06-09 Terminal Output Unread Delta Guard
 
 - Commit: recorded by git history
