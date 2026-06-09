@@ -375,6 +375,7 @@ function StationCardSlot({
   const isExiting = mode === 'exiting'
   const transitionDisabled = reducedMotion || transitionSuspended
   const layoutDisabled = transitionDisabled || layoutSuspended
+  const hidden = isParked || isExiting
 
   return (
     <motion.div
@@ -390,22 +391,15 @@ function StationCardSlot({
         .join(' ')}
       layout={!layoutDisabled && !isParked && !isExiting}
       initial={false}
-      animate={isParked || mode === 'exiting' ? { opacity: 0 } : { opacity: 1 }}
       transition={{
-        opacity: {
-          duration: transitionDisabled
-            ? 0
-            : (mode === 'entering' ? STATION_MOTION.roleFilterEnterMs : STATION_MOTION.roleFilterExitMs) / 1000,
-          ease: mode === 'entering' ? FLUENT_MOTION_EASE.decelerate : FLUENT_MOTION_EASE.accelerate,
-          delay: 0,
-        },
         layout: layoutDisabled
           ? { duration: 0 }
           : STATION_MOTION.slotLayoutTransition,
       }}
       style={{
-        pointerEvents: isParked || isExiting || inert ? 'none' : undefined,
-        willChange: isParked ? undefined : 'transform, opacity',
+        opacity: hidden ? 0 : 1,
+        pointerEvents: hidden || inert ? 'none' : undefined,
+        willChange: hidden ? undefined : 'transform',
         top: isExiting ? snapshot?.top : undefined,
         left: isExiting ? snapshot?.left : undefined,
         width: isExiting ? snapshot?.width : undefined,
