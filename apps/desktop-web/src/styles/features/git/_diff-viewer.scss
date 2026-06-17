@@ -395,49 +395,59 @@
 
 .diff-viewer__body {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   font-family: var(--vb-font-mono);
   font-size: var(--vb-git-diff-font-sm);
   line-height: var(--vb-git-diff-line-height);
   background: color-mix(in srgb, var(--vb-input-bg) 28%, var(--vb-surface));
   contain: strict;
+}
+
+.simple-diff {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  overflow: auto;
   overscroll-behavior: contain;
   scroll-behavior: auto;
   -webkit-overflow-scrolling: touch;
 }
 
-.diff-viewer__body::-webkit-scrollbar {
+.simple-diff::-webkit-scrollbar {
   width: var(--vb-space-xs);
   height: var(--vb-space-xs);
 }
 
-.diff-viewer__body::-webkit-scrollbar-track {
+.simple-diff::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.diff-viewer__body::-webkit-scrollbar-thumb {
+.simple-diff::-webkit-scrollbar-thumb {
   background: var(--vb-border);
   border-radius: var(--vb-radius-xs);
 }
 
-.diff-viewer__body::-webkit-scrollbar-thumb:hover {
+.simple-diff::-webkit-scrollbar-thumb:hover {
   background: var(--vb-border-strong);
 }
 
-.diff-viewer__body::-webkit-scrollbar-corner {
+.simple-diff::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-.simple-diff {
+.simple-diff__virtual-inner {
+  position: relative;
   min-width: 100%;
 }
 
-.simple-diff__hunk {
-  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 58%, transparent);
-}
-
-.simple-diff__hunk:last-child {
-  border-bottom: none;
+.simple-diff__virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 38%, transparent);
 }
 
 .simple-diff__hunk-header {
@@ -445,7 +455,8 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--vb-space-xs);
-  min-height: #{rem(28)};
+  min-height: #{rem(30)};
+  height: 100%;
   padding: var(--vb-space-xs) #{rem(14)};
   background: color-mix(in srgb, var(--vb-accent) 8%, var(--vb-surface));
   border-bottom: var(--vb-border-width) solid var(--vb-border);
@@ -453,7 +464,15 @@
   font-family: var(--vb-font-mono);
   font-size: var(--vb-git-diff-font-xs);
   font-weight: 500;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.simple-diff__hunk-header > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .simple-diff__hunk-actions {
@@ -491,14 +510,10 @@
   }
 }
 
-.simple-diff__hunk-content {
-  display: flex;
-  flex-direction: column;
-}
-
 .simple-diff--split .simple-diff__row {
   display: flex;
   width: 100%;
+  height: 100%;
   min-width: 0;
 }
 
@@ -508,7 +523,8 @@
   width: 50%;
   max-width: 50%;
   min-width: 0;
-  min-height: var(--vb-git-diff-line-height);
+  min-height: #{rem(22)};
+  height: 100%;
   overflow: hidden;
 }
 
@@ -546,7 +562,7 @@
   color: var(--vb-text-muted);
   font-family: var(--vb-font-mono);
   font-size: var(--vb-git-diff-font-xs);
-  line-height: var(--vb-git-diff-line-height);
+  line-height: #{rem(22)};
   text-align: right;
   user-select: none;
 }
@@ -560,7 +576,7 @@
   font-family: var(--vb-font-mono);
   font-size: var(--vb-git-diff-font-sm);
   font-variant-ligatures: none;
-  line-height: var(--vb-git-diff-line-height);
+  line-height: #{rem(22)};
   tab-size: 4;
   text-overflow: ellipsis;
 }
@@ -568,8 +584,9 @@
 .simple-diff--unified .simple-diff__line {
   display: flex;
   width: 100%;
+  height: 100%;
   min-width: 0;
-  min-height: var(--vb-git-diff-line-height);
+  min-height: #{rem(22)};
   overflow: hidden;
 }
 
@@ -685,7 +702,7 @@
   }
 
   .simple-diff__hunk-header {
-    align-items: flex-start;
+    align-items: center;
   }
 }
 
@@ -694,21 +711,9 @@
     padding-inline: var(--vb-space-md);
   }
 
-  .simple-diff--split .simple-diff__row {
-    flex-direction: column;
-  }
-
-  .simple-diff--split .simple-diff__side {
-    width: 100%;
-    max-width: none;
-    flex-basis: auto;
-    height: auto;
-    min-height: #{rem(22)};
-  }
-
   .simple-diff--split .simple-diff__side--left {
-    border-right: none;
-    border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 82%, transparent);
+    border-right: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 82%, transparent);
+    border-bottom: none;
   }
 
   .simple-diff--split .simple-diff__side--right {

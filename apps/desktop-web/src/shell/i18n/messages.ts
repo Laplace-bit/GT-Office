@@ -1207,6 +1207,16 @@ export const messages = {
   'git.graph.column.author': { 'zh-CN': '作者', 'en-US': 'Author' },
   'git.graph.column.commit': { 'zh-CN': '提交', 'en-US': 'Commit' },
   'git.graph.empty': { 'zh-CN': '暂无提交记录', 'en-US': 'No commits yet' },
+  'git.graph.search.placeholder': {
+    'zh-CN': '查找提交、作者、Hash、分支或标签',
+    'en-US': 'Find commits, authors, hashes, branches or tags',
+  },
+  'git.graph.search.ariaLabel': { 'zh-CN': '查找提交图谱', 'en-US': 'Find in commit graph' },
+  'git.graph.search.count': { 'zh-CN': '{current}/{total}', 'en-US': '{current}/{total}' },
+  'git.graph.search.noResults': { 'zh-CN': '无结果', 'en-US': 'No results' },
+  'git.graph.search.clear': { 'zh-CN': '清除查找', 'en-US': 'Clear search' },
+  'git.graph.search.previous': { 'zh-CN': '上一个结果', 'en-US': 'Previous result' },
+  'git.graph.search.next': { 'zh-CN': '下一个结果', 'en-US': 'Next result' },
   'git.history.count': { 'zh-CN': '{count} 条提交', 'en-US': '{count} commits' },
   'git.history.loadOlder': { 'zh-CN': '加载更早提交', 'en-US': 'Load Older Commits' },
   'git.history.backToLatest': {
@@ -1352,6 +1362,11 @@ export const messages = {
   'git.graph.resetSoft': { 'zh-CN': '重置（Soft）', 'en-US': 'Reset (Soft)' },
   'git.graph.resetMixed': { 'zh-CN': '重置（Mixed）', 'en-US': 'Reset (Mixed)' },
   'git.graph.resetHard': { 'zh-CN': '重置（Hard）', 'en-US': 'Reset (Hard)' },
+  'git.graph.resetHardTitle': { 'zh-CN': '确认 Hard Reset', 'en-US': 'Confirm Hard Reset' },
+  'git.graph.resetHardWarning': {
+    'zh-CN': '这会永久丢弃未提交的工作区和暂存区改动，无法撤销。',
+    'en-US': 'This will permanently discard uncommitted working tree and index changes. It cannot be undone.',
+  },
   'git.graph.createBranch': { 'zh-CN': '从此创建分支', 'en-US': 'Create Branch from here' },
   'git.graph.copyHash': { 'zh-CN': '复制 Hash', 'en-US': 'Copy Hash' },
 

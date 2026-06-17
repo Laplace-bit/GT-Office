@@ -231,6 +231,7 @@ export interface GitStatusFile {
   status: string
   repositoryPath: string
   repoRelativePath: string
+  contentSignature?: string
 }
 
 export interface GitRepositorySummary {

@@ -153,6 +153,8 @@ pub struct GitStatusFile {
     pub repository_path: String,
     #[serde(default)]
     pub repo_relative_path: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub content_signature: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

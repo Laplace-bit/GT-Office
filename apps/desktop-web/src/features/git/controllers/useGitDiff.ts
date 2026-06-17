@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   desktopApi,
+  type GitStatusFile,
   type GitDiffStructuredResponse,
 } from '@shell/integration/desktop-api'
 import type { GitDiffScope } from './types'
@@ -14,8 +15,7 @@ interface UseGitDiffInput {
   isGitRepository: boolean
   selectedPath: string | null
   selectedDiffScope: GitDiffScope
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  summaryFiles: any[] | undefined
+  summaryFiles: GitStatusFile[] | undefined
   cacheRefs: DiffCacheRefs
 }
 
@@ -27,6 +27,19 @@ interface UseGitDiffResult {
   setShowDiffView: (show: boolean) => void
   diffLoading: boolean
   preloadDiff: (path: string, scope?: GitDiffScope) => void
+}
+
+function buildStatusFileFingerprint(file: GitStatusFile | null | undefined): string {
+  if (!file) {
+    return 'missing'
+  }
+  return [
+    file.status,
+    file.staged ? 'staged' : 'unstaged',
+    file.repositoryPath,
+    file.repoRelativePath,
+    file.contentSignature ?? '',
+  ].join(':')
 }
 
 export function useGitDiff({
@@ -44,17 +57,23 @@ export function useGitDiff({
   const [diffLoading, setDiffLoading] = useState(false)
 
   const { diffCacheRef, pendingPreloadsRef, diffSeqRef, preloadTimerRef } = cacheRefs
+  const selectedFileFingerprint = selectedPath
+    ? summaryFiles?.find((file) => file.path === selectedPath)
+    : null
+  const selectedDiffFingerprint = buildStatusFileFingerprint(selectedFileFingerprint)
   const activeDiffScopeRef = useRef({
     workspaceId,
     repositoryPath,
     selectedPath,
     selectedDiffScope,
+    selectedDiffFingerprint,
   })
   activeDiffScopeRef.current = {
     workspaceId,
     repositoryPath,
     selectedPath,
     selectedDiffScope,
+    selectedDiffFingerprint,
   }
 
   const isCurrentDiffRequest = useCallback(
@@ -63,13 +82,15 @@ export function useGitDiff({
       requestRepositoryPath: string | null,
       requestPath: string | null,
       requestScope: GitDiffScope,
+      requestFingerprint: string,
     ) => {
       const current = activeDiffScopeRef.current
       return (
         current.workspaceId === requestWorkspaceId &&
         current.repositoryPath === requestRepositoryPath &&
         current.selectedPath === requestPath &&
-        current.selectedDiffScope === requestScope
+        current.selectedDiffScope === requestScope &&
+        current.selectedDiffFingerprint === requestFingerprint
       )
     },
     [],
@@ -88,9 +109,10 @@ export function useGitDiff({
     const requestRepositoryPath = repositoryPath
     const requestPath = selectedPath
     const requestScope = selectedDiffScope
+    const requestFingerprint = selectedDiffFingerprint
 
     // Check cache first for instant loading
-    const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}`
+    const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}:${requestFingerprint}`
     const cached = diffCacheRef.current.get(cacheKey)
     if (cached) {
       diffSeqRef.current += 1
@@ -119,7 +141,13 @@ export function useGitDiff({
       .then((response) => {
         if (
           diffSeqRef.current !== seq ||
-          !isCurrentDiffRequest(requestWorkspaceId, requestRepositoryPath, requestPath, requestScope)
+          !isCurrentDiffRequest(
+            requestWorkspaceId,
+            requestRepositoryPath,
+            requestPath,
+            requestScope,
+            requestFingerprint,
+          )
         ) {
           return
         }
@@ -139,7 +167,13 @@ export function useGitDiff({
       .catch(() => {
         if (
           diffSeqRef.current !== seq ||
-          !isCurrentDiffRequest(requestWorkspaceId, requestRepositoryPath, requestPath, requestScope)
+          !isCurrentDiffRequest(
+            requestWorkspaceId,
+            requestRepositoryPath,
+            requestPath,
+            requestScope,
+            requestFingerprint,
+          )
         ) {
           return
         }
@@ -148,7 +182,13 @@ export function useGitDiff({
       .finally(() => {
         if (
           diffSeqRef.current === seq &&
-          isCurrentDiffRequest(requestWorkspaceId, requestRepositoryPath, requestPath, requestScope)
+          isCurrentDiffRequest(
+            requestWorkspaceId,
+            requestRepositoryPath,
+            requestPath,
+            requestScope,
+            requestFingerprint,
+          )
         ) {
           setDiffLoading(false)
         }
@@ -162,6 +202,7 @@ export function useGitDiff({
     isGitRepository,
     repositoryPath,
     selectedDiffScope,
+    selectedDiffFingerprint,
     selectedPath,
     summaryFiles,
     workspaceId,
@@ -176,7 +217,9 @@ export function useGitDiff({
       const requestRepositoryPath = repositoryPath
       const requestPath = path
       const requestScope = scope
-      const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}`
+      const requestFile = summaryFiles?.find((file) => file.path === requestPath)
+      const requestFingerprint = buildStatusFileFingerprint(requestFile)
+      const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}:${requestFingerprint}`
       // Skip if already cached or pending
       if (diffCacheRef.current.has(cacheKey) || pendingPreloadsRef.current.has(cacheKey)) return
 
@@ -215,7 +258,15 @@ export function useGitDiff({
           })
       }, DIFF_PRELOAD_DELAY_MS)
     },
-    [diffCacheRef, isGitRepository, pendingPreloadsRef, preloadTimerRef, repositoryPath, workspaceId],
+    [
+      diffCacheRef,
+      isGitRepository,
+      pendingPreloadsRef,
+      preloadTimerRef,
+      repositoryPath,
+      summaryFiles,
+      workspaceId,
+    ],
   )
 
   // Cleanup preload timer on unmount

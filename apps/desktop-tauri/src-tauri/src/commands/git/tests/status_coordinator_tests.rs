@@ -8,6 +8,7 @@ fn sample_summary() -> GitStatusSummary {
         status: "modified".to_string(),
         repository_path: "/repo".to_string(),
         repo_relative_path: "src/main.rs".to_string(),
+        content_signature: "12:34".to_string(),
     };
     GitStatusSummary {
         primary_repository_path: "/repo".to_string(),

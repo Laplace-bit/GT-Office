@@ -13,7 +13,7 @@ use std::{
     path::{Component, Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Instant, UNIX_EPOCH},
 };
 use tracing::{debug, instrument, warn};
 
@@ -597,6 +597,7 @@ where
                 staged: index != ' ' && index != '?',
                 status: format!("{index}{worktree}").trim().to_string(),
                 repository_path: context.repository_path.to_string(),
+                content_signature: Self::content_signature(context, &repo_relative_path),
                 repo_relative_path,
             });
         }
@@ -642,6 +643,23 @@ where
 
         let compact = format!("{index}{worktree}");
         compact.trim().to_string()
+    }
+
+    fn content_signature(context: &GitRepoContext, repo_relative_path: &str) -> String {
+        let path = context.repo_root.join(repo_relative_path);
+        let Ok(metadata) = std::fs::metadata(path) else {
+            return String::new();
+        };
+        if !metadata.is_file() {
+            return String::new();
+        }
+        let modified_ns = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        format!("{}:{modified_ns}", metadata.len())
     }
 
     fn status_with_git2(&self, context: &GitRepoContext) -> AbstractionResult<GitStatusSummary> {
@@ -691,7 +709,7 @@ where
             // high-frequency status refresh. Diff/commit detail paths still resolve renames.
             .renames_head_to_index(false)
             .renames_index_to_workdir(false)
-            .recurse_untracked_dirs(false);
+            .recurse_untracked_dirs(true);
         if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
             options.pathspec(prefix);
         }
@@ -728,6 +746,7 @@ where
                 ),
                 status: Self::resolve_status_string(status),
                 repository_path: context.repository_path.to_string(),
+                content_signature: Self::content_signature(context, &repo_relative_path),
                 repo_relative_path,
             });
         }
@@ -952,6 +971,7 @@ where
             "status".to_string(),
             "--porcelain".to_string(),
             "--branch".to_string(),
+            "--untracked-files=all".to_string(),
         ];
         if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
             args.push("--".to_string());
@@ -6461,6 +6481,67 @@ esac\n",
         assert!(status.files.iter().all(|file| file.path != "scratch.txt"));
 
         fs::remove_dir_all(parent_root).expect("parent repo root should be removed");
+    }
+
+    #[test]
+    fn status_reports_untracked_files_inside_directories() {
+        let (workspace_id, root, service) = create_temp_repo();
+        fs::create_dir_all(root.join("new-dir")).expect("create untracked directory");
+        fs::write(root.join("new-dir/note.txt"), "draft\n").expect("write untracked nested file");
+
+        let status = service
+            .status_repo(&workspace_id, None)
+            .expect("status should include untracked nested file");
+
+        assert!(
+            status.files.iter().any(|file| {
+                file.path == "new-dir/note.txt"
+                    && file.repo_relative_path == "new-dir/note.txt"
+                    && file.status == "?"
+                    && !file.content_signature.is_empty()
+            }),
+            "untracked file inside directory should be reported as a file entry"
+        );
+        assert!(
+            status
+                .files
+                .iter()
+                .all(|file| file.path != "new-dir" && file.path != "new-dir/"),
+            "untracked directory should not be reported as a change item"
+        );
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn status_content_signature_changes_when_modified_file_changes() {
+        let (workspace_id, root, service) = create_temp_repo();
+        fs::write(root.join("tracked.txt"), "changed once\n").expect("modify tracked file once");
+        let first = service
+            .status_repo(&workspace_id, None)
+            .expect("first status should succeed");
+        let first_file = first
+            .files
+            .iter()
+            .find(|file| file.path == "tracked.txt")
+            .expect("tracked file should be dirty");
+        assert_eq!(first_file.status, "M");
+        assert!(!first_file.content_signature.is_empty());
+
+        fs::write(root.join("tracked.txt"), "changed twice with more bytes\n")
+            .expect("modify tracked file again");
+        let second = service
+            .status_repo(&workspace_id, None)
+            .expect("second status should succeed");
+        let second_file = second
+            .files
+            .iter()
+            .find(|file| file.path == "tracked.txt")
+            .expect("tracked file should still be dirty");
+        assert_eq!(second_file.status, "M");
+        assert_ne!(first_file.content_signature, second_file.content_signature);
+
+        fs::remove_dir_all(root).expect("temp repo should be removed");
     }
 
     #[test]

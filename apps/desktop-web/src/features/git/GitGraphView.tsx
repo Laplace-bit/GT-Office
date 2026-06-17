@@ -97,6 +97,21 @@ function resolveGraphLayoutMode(width: number, rootFontSizePx: number): GraphLay
   return 'full'
 }
 
+function buildGraphSearchText(row: GraphRow): string {
+  return [
+    row.entry.summary,
+    row.entry.authorName,
+    row.entry.authorEmail,
+    row.entry.commit,
+    row.entry.shortCommit,
+    row.entry.authoredAt,
+    row.refLabels.map((label) => label.name).join(' '),
+  ]
+    .map((value) => sanitizeText(value))
+    .join(' ')
+    .toLocaleLowerCase()
+}
+
 
 
 // ============================================
@@ -256,6 +271,8 @@ interface GraphRowComponentProps {
   isSelected: boolean
   isFirst: boolean
   isLast: boolean
+  isSearchMatch: boolean
+  isActiveSearchMatch: boolean
   onSelect: (commitHash: string) => void
 }
 
@@ -271,6 +288,8 @@ const GraphRowComponent = memo(function GraphRowComponent({
   isSelected,
   isFirst,
   isLast,
+  isSearchMatch,
+  isActiveSearchMatch,
   onSelect,
 }: GraphRowComponentProps) {
   const handleClick = useCallback(() => {
@@ -286,7 +305,14 @@ const GraphRowComponent = memo(function GraphRowComponent({
 
   return (
     <div
-      className={`git-graph-row ${isSelected ? 'git-graph-row--selected' : ''}`}
+      className={[
+        'git-graph-row',
+        isSelected ? 'git-graph-row--selected' : '',
+        isSearchMatch ? 'git-graph-row--search-match' : '',
+        isActiveSearchMatch ? 'git-graph-row--search-active' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={{
         display: 'grid',
         gridTemplateColumns: columnTemplate,
@@ -299,6 +325,7 @@ const GraphRowComponent = memo(function GraphRowComponent({
       onClick={handleClick}
       role="row"
       tabIndex={0}
+      aria-current={isActiveSearchMatch ? 'true' : undefined}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
@@ -456,10 +483,26 @@ export const GitGraphView = memo(function GitGraphView({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('full')
   const [resetConfirmTarget, setResetConfirmTarget] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState(0)
   const rootFontSizePx = useRootFontSizePx()
 
   // Build graph layout (memoized, only recalculates when entries change)
   const graphRows = useMemo(() => buildGraphLayout(entries), [entries])
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase()
+  const searchMatches = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return []
+    }
+    return graphRows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => buildGraphSearchText(row).includes(normalizedSearchQuery))
+  }, [graphRows, normalizedSearchQuery])
+  const searchMatchCommits = useMemo(
+    () => new Set(searchMatches.map(({ row }) => row.entry.commit)),
+    [searchMatches],
+  )
+  const activeSearchCommit = searchMatches[activeSearchMatchIndex]?.row.entry.commit ?? null
 
   // Calculate max lanes needed for any row
   const maxLanes = useMemo(() => {
@@ -537,10 +580,53 @@ export const GitGraphView = memo(function GitGraphView({
   useEffect(() => {
     virtualizer.measure()
   }, [graphRowHeight, virtualizer])
+
+  useEffect(() => {
+    setActiveSearchMatchIndex(0)
+  }, [normalizedSearchQuery])
+
+  useEffect(() => {
+    if (activeSearchMatchIndex < searchMatches.length) {
+      return
+    }
+    setActiveSearchMatchIndex(Math.max(0, searchMatches.length - 1))
+  }, [activeSearchMatchIndex, searchMatches.length])
+
+  useEffect(() => {
+    if (!normalizedSearchQuery || searchMatches.length === 0) {
+      return
+    }
+    const rowIndex = searchMatches[activeSearchMatchIndex]?.index
+    if (typeof rowIndex === 'number') {
+      virtualizer.scrollToIndex(rowIndex, { align: 'center' })
+    }
+  }, [activeSearchMatchIndex, normalizedSearchQuery, searchMatches, virtualizer])
+
+  const moveSearchMatch = useCallback(
+    (direction: 1 | -1) => {
+      if (searchMatches.length === 0) {
+        return
+      }
+      setActiveSearchMatchIndex((current) => {
+        const next = (current + direction + searchMatches.length) % searchMatches.length
+        return next
+      })
+    },
+    [searchMatches.length],
+  )
+
   const detailDate = selectedCommitDetail
     ? formatGitTimestamp(selectedCommitDetail.authoredAt, locale)
     : ''
   const detailBody = selectedCommitDetail?.body.trim() ?? ''
+  const searchStatus = !normalizedSearchQuery
+    ? ''
+    : searchMatches.length > 0
+      ? t(locale, 'git.graph.search.count', {
+          current: activeSearchMatchIndex + 1,
+          total: searchMatches.length,
+        })
+      : t(locale, 'git.graph.search.noResults')
 
   return (
     <div
@@ -550,6 +636,59 @@ export const GitGraphView = memo(function GitGraphView({
       aria-label={t(locale, 'git.graph.ariaHistory')}
       style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
     >
+      <div className="git-graph-search" role="search">
+        <AppIcon name="search" className="git-graph-search__icon" aria-hidden="true" />
+        <input
+          className="git-graph-search__input"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              moveSearchMatch(event.shiftKey ? -1 : 1)
+            } else if (event.key === 'Escape') {
+              setSearchQuery('')
+            }
+          }}
+          placeholder={t(locale, 'git.graph.search.placeholder')}
+          aria-label={t(locale, 'git.graph.search.ariaLabel')}
+        />
+        <span className="git-graph-search__status" aria-live="polite">
+          {searchStatus}
+        </span>
+        {searchQuery ? (
+          <button
+            type="button"
+            className="git-graph-search__btn"
+            onClick={() => setSearchQuery('')}
+            title={t(locale, 'git.graph.search.clear')}
+            aria-label={t(locale, 'git.graph.search.clear')}
+          >
+            <AppIcon name="close" className="git-graph-search__btn-icon" aria-hidden="true" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="git-graph-search__btn"
+          onClick={() => moveSearchMatch(-1)}
+          disabled={searchMatches.length === 0}
+          title={t(locale, 'git.graph.search.previous')}
+          aria-label={t(locale, 'git.graph.search.previous')}
+        >
+          <AppIcon name="chevron-up" className="git-graph-search__btn-icon" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="git-graph-search__btn"
+          onClick={() => moveSearchMatch(1)}
+          disabled={searchMatches.length === 0}
+          title={t(locale, 'git.graph.search.next')}
+          aria-label={t(locale, 'git.graph.search.next')}
+        >
+          <AppIcon name="chevron-down" className="git-graph-search__btn-icon" aria-hidden="true" />
+        </button>
+      </div>
+
       {/* Table header */}
       <div
         className="git-graph-header"
@@ -624,6 +763,8 @@ export const GitGraphView = memo(function GitGraphView({
                   isSelected={selectedCommit === row.entry.commit}
                   isFirst={virtualItem.index === 0}
                   isLast={virtualItem.index === graphRows.length - 1}
+                  isSearchMatch={searchMatchCommits.has(row.entry.commit)}
+                  isActiveSearchMatch={activeSearchCommit === row.entry.commit}
                   onSelect={onSelectCommit}
                   style={{
                     position: 'absolute',
@@ -761,22 +902,45 @@ export const GitGraphView = memo(function GitGraphView({
 
       {/* Hard reset confirmation dialog */}
       {resetConfirmTarget && (
-        <div className="git-confirm-overlay">
-          <div className="git-confirm-dialog git-confirm-dialog--danger">
-            <p>This will permanently discard all uncommitted changes. This cannot be undone.</p>
-            <div className="git-confirm-actions">
-              <button onClick={() => setResetConfirmTarget(null)}>Cancel</button>
+        <div className="git-confirm-modal-overlay" onClick={() => setResetConfirmTarget(null)}>
+          <section
+            className="git-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="git-reset-hard-confirm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="git-confirm-modal__header">
+              <span className="git-confirm-modal__eyebrow">{t(locale, 'git.graph.resetHard')}</span>
+              <h3 id="git-reset-hard-confirm-title">{t(locale, 'git.graph.resetHardTitle')}</h3>
+            </header>
+            <div className="git-confirm-modal__body">
+              <p>{t(locale, 'git.graph.resetHardWarning')}</p>
+              <div className="git-confirm-modal__path-card" title={resetConfirmTarget}>
+                <strong className="git-confirm-modal__path-name">{resetConfirmTarget}</strong>
+              </div>
+            </div>
+            <footer className="git-confirm-modal__footer">
               <button
-                className="git-confirm-danger"
+                type="button"
+                className="v-btn v-btn-secondary"
+                onClick={() => setResetConfirmTarget(null)}
+              >
+                {t(locale, 'git.action.cancel')}
+              </button>
+              <button
+                type="button"
+                className="v-btn v-btn-danger git-confirm-modal__danger-btn"
                 onClick={() => {
                   onReset?.(resetConfirmTarget, 'hard')
                   setResetConfirmTarget(null)
                 }}
               >
+                <span className="git-confirm-modal__danger-signal" aria-hidden="true" />
                 {t(locale, 'git.graph.resetHard')}
               </button>
-            </div>
-          </div>
+            </footer>
+          </section>
         </div>
       )}
 

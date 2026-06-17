@@ -2003,6 +2003,83 @@
   contain: layout;
 }
 
+.git-graph-search {
+  display: flex;
+  align-items: center;
+  gap: var(--vb-space-xs);
+  min-height: #{rem(34)};
+  padding: var(--vb-space-xs) var(--vb-space-sm);
+  border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 78%, transparent);
+  background: color-mix(in srgb, var(--vb-surface) 88%, var(--vb-bg) 12%);
+  flex-shrink: 0;
+}
+
+.git-graph-search__icon,
+.git-graph-search__btn-icon {
+  width: #{rem(14)};
+  height: #{rem(14)};
+  flex-shrink: 0;
+}
+
+.git-graph-search__icon {
+  color: var(--vb-text-muted);
+}
+
+.git-graph-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: #{rem(24)};
+  padding: 0 var(--vb-space-xs);
+  border: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 72%, transparent);
+  border-radius: var(--vb-radius-sm);
+  background: color-mix(in srgb, var(--vb-input-bg) 72%, transparent);
+  color: var(--vb-text);
+  font: inherit;
+  font-size: var(--vb-git-font-xs);
+  outline: none;
+}
+
+.git-graph-search__input:focus-visible {
+  border-color: color-mix(in srgb, var(--vb-accent) 54%, var(--vb-border));
+  box-shadow: 0 0 0 #{rem(2)} color-mix(in srgb, var(--vb-accent) 18%, transparent);
+}
+
+.git-graph-search__status {
+  min-width: #{rem(52)};
+  color: var(--vb-text-muted);
+  font-size: var(--vb-git-font-2xs);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.git-graph-search__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: #{rem(24)};
+  height: #{rem(24)};
+  border: var(--vb-border-width) solid transparent;
+  border-radius: var(--vb-radius-sm);
+  background: transparent;
+  color: var(--vb-text-muted);
+  flex: 0 0 auto;
+}
+
+.git-graph-search__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--vb-hover-overlay) 82%, transparent);
+  color: var(--vb-text);
+}
+
+.git-graph-search__btn:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--vb-accent) 42%, var(--vb-border));
+  box-shadow: 0 0 0 #{rem(2)} color-mix(in srgb, var(--vb-accent) 16%, transparent);
+}
+
+.git-graph-search__btn:disabled {
+  opacity: 0.38;
+}
+
 /* Header */
 .git-graph-header {
   display: flex;
@@ -2126,7 +2203,6 @@
   border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 50%, transparent);
   background: transparent;
   transition: background-color 100ms ease-out;
-  cursor: pointer;
   width: 100%;
   outline: none;
 }
@@ -2146,6 +2222,24 @@
 
 .git-graph-row--selected:hover {
   background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
+}
+
+.git-graph-row--search-match {
+  background: color-mix(in srgb, var(--vb-warning) 8%, transparent);
+}
+
+.git-graph-row--search-match:hover {
+  background: color-mix(in srgb, var(--vb-warning) 12%, var(--vb-hover-overlay));
+}
+
+.git-graph-row--search-active {
+  box-shadow:
+    inset 0 0 0 #{rem(1)} color-mix(in srgb, var(--vb-warning) 72%, transparent),
+    inset #{rem(3)} 0 0 color-mix(in srgb, var(--vb-warning) 88%, var(--vb-accent));
+}
+
+.git-graph-row--selected.git-graph-row--search-active {
+  background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-warning) 10%);
 }
 
 /* Graph column */

@@ -128,6 +128,7 @@ fn git_status_payload_keeps_contract_fields() {
             status: "M".to_string(),
             repository_path: String::new(),
             repo_relative_path: "src/main.rs".to_string(),
+            content_signature: "12:34".to_string(),
         }],
         repositories: Vec::new(),
     };
