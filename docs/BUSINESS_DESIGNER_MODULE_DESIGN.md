@@ -50,6 +50,17 @@
 
 v1 的 schema 改动是**加法**：旧文档加载即正常，零迁移。
 
+### 5.0 跨语言 schema 同步策略（T2）
+
+v1 引入 4 个新数据结构横跨 Rust ↔ TS：`DesignerGap` / `DesignerRuleRun` / `DesignerAgentTaskRequest` / `DesignerPatchApplyResult.gapResolution`。Tauri 项目不能用 UniFFI 自动生成，沿用项目既有约束：
+
+- **Source of truth**：TS-first（`packages/shared-types`），Rust 侧手写 serde 镜像（沿用 v0 既定路线）。
+- **防漂移机制**：
+  1. 每个新 struct 在 PR 中**必须同时改两侧**；CI 跑 `npm run typecheck` + `cargo check --workspace`，schema 不一致一侧编译断 → PR 红。
+  2. 在 `packages/shared-types/src/business-designer/` 加 contract 测试：构造每种新对象的样例 JSON，前端 parse 通过 + 后端 serde deserialize 通过——roundtrip 等价。
+  3. Rust serde struct 加 `#[serde(deny_unknown_fields)]`：TS 加字段、Rust 没跟上 → 反序列化失败、立即可见。
+- **变更纪律**：改 schema 视同改 IPC 公共 API，不允许"先改一侧、之后再补另一侧"。这是 v1 防漂移的硬约束。
+
 ### 5.1 Gap 与 RuleRun（新增）
 
 ```ts
@@ -190,6 +201,44 @@ unresolved/introduced 在 UI 上高亮，**不**自动接受为成功。
 
 ## 7. 用户体验
 
+### 7.0 Phase 6 → v1 身份连续性（T7）
+
+T7 「身份即肌肉记忆」要求 v1 不能借机"现代化"破坏 Phase 6 用户已建立的肌肉记忆。审计如下：
+
+**必须 100% 保留的快捷键与入口**（v0 Phase 6 已落地，用户已用）：
+
+| 行为 | Phase 6 实现 | v1 处理 |
+|---|---|---|
+| 保存 | `⌘S` / `Ctrl+S` | 保留，在 brief 与新结构表单都生效 |
+| 撤销 / 重做 | 浏览器原生（textarea 内） | 在 brief 内保留浏览器原生；图层面 v1 暂不做全局 undo（明示） |
+| Checkpoint | toolbar 按钮 | 保留按钮；新增 v1 入口不替换 |
+| 历史浮层 | toolbar `时钟`图标 | 保留 |
+| 导出（4 格式） | toolbar 下拉 | 保留 |
+| 让 Agent 补全 | toolbar accent 按钮（mock） | **行为升级**：在 brief 上点击仍走 mock 全文补全（兼容旧路径），新增 inspector 内的 host-anchored 补全（新行为） |
+| `Esc` 关闭浮层 | history sheet / patch sheet 已支持 | 保留；新增的下钻 side panel 也用 `Esc` |
+| 切换文档 | sidebar 点击 | 保留 |
+
+**v1 新快捷键**（不与现有冲突）：
+
+| 快捷键 | 行为 | 冲突检查 |
+|---|---|---|
+| `⌘N` / `Ctrl+N` | 画布空处时新建块 | 与"新建文档"（在 sidebar 上下文）不冲突——按当前焦点上下文路由 |
+| `⌘0` / `Ctrl+0` | 画布缩放重置到 100% | 浏览器默认是缩放页面，但 WebView 内禁用浏览器缩放后可占用 |
+| `⌘=` / `⌘-` | 画布步进缩放 | 同上 |
+| `Space` + 拖拽 | 画布平移 | 与 brief 内空格输入冲突时按"焦点是否在文本框"分流 |
+| 双击节点 | 打开下钻面板 | 新行为 |
+
+**初始视觉连续性**：用户首次升级到 v1 打开旧 Phase 6 文档：
+1. 文档加载后默认聚焦在 brief 节点（图根），下钻面板自动展开显示 brief 文本框 → **视觉上与 Phase 6 几乎一致**（"打开就是文本框"的肌肉记忆保留）。
+2. 图画布在右半边可见但不抢焦点。
+3. 用户继续按 Phase 6 的方式编辑 brief 即可，结构是"长出来的"不是"必须先建的"。
+
+**禁止借升级"现代化"的事项**：
+- 不改 i18n key（`designer.*` 已发布）。
+- 不改文档落盘格式（manifest / blocks / generated 路径不变）。
+- 不改 sidebar 视觉密度。
+- 不引入 onboarding tour（native 不做这种 web idiom）。
+
 ### 7.1 侧栏入口
 
 复用 Phase 6 已建：
@@ -227,11 +276,11 @@ unresolved/introduced 在 UI 上高亮，**不**自动接受为成功。
 - **节点**：圆角矩形，显示 kind 图标 + 标题。有缺口时右上角 ⚠ 徽章（数字=缺口数），未满足规则的块用细虚线描边。
 - **边**：有向箭头，标签 = relation，颜色按 relation 分。**用户不画边**，断裂即变 dangling-ref 缺口。
 - **缩放/平移**：trackpad 双指缩放、空格+拖拽平移；`⌘0` 重置；`⌘=`/`⌘-` 步进缩放。
-- **双击节点 → 下钻**：进入该块的内部结构视图（覆盖层 modal-like，不是 inspector 内嵌——字段表/迁移表需要纵向空间）。下钻视图里有：
+- **双击节点 → 下钻**：从画布右侧滑入"下钻面板"（slide-in side panel，**非 modal**、**无 backdrop blur**、**不暗化背景画布**——这三条是反 web idiom 的硬约束）。下钻面板宽度约 480px，与右栏 inspector 并排不重叠；面板存在期间用户仍能看到画布全貌（保 T3：原生 split-view 信息密度，不模仿 web 的"全屏对话框"）。面板内容：
   - 极简结构化表单（字段表 / 状态迁移表 / 端点表）
   - 该块的缺口清单（与右栏 inspector 同步）
   - Agent 入口
-  - `Esc` / 点击空白关闭
+  - 关闭：`Esc` / 标题栏 close 按钮 / 点击画布空白处
 
 ### 7.5 Agent 补全交互（范式硬约束在 UI 上的体现）
 
@@ -256,6 +305,36 @@ unresolved/introduced 在 UI 上高亮，**不**自动接受为成功。
 - 系统 focus ring，深浅色与 accent color 跟随系统。
 - 危险操作（删块、删边引用、丢弃 patch）显示明确影响范围。
 - 完整键盘操作：节点选中、下钻、缩放、保存、Agent 派发、accept/reject。
+
+### 7.8 原生交互细则（T3 收口）
+
+参考 `references/06-native-conventions.md`，把 v1 容易"网页化"的细节写死：
+
+**Loading**：
+- < 200ms 操作 → 显示**无任何 loading 反馈**，结果到达直接 commit（save、validate、节点创建、inspector 切换都属此类）。
+- 200ms ~ 2s → spinner（小型，靠近触发处，不全屏）。Agent dispatch、export 属此类。
+- \> 2s → 进度反馈（如"正在生成 patch..."文字 + spinner）。
+- **绝不**用 skeleton 占位符——这是纯 web idiom，与原生应用感冲突。
+
+**Empty state**（每种状态一个图标 + 一句话 + 一个主操作，不解释、不教学）：
+- workspace 未选 → 现状 i18n `designer.workspaceRequired` 保留。
+- workspace 已选但 docs repo 未初始化 → "初始化 docs 仓库"（现状保留）。
+- docs 仓库已就绪但无文档 → "创建第一个需求包"。
+- 文档已选但图为空（仅 brief 根节点，无任何业务块） → "在 brief 中选中实体名建模" + brief 文本框光标自动聚焦。
+- 块已选但无缺口 → inspector 显示"该块结构完整 ✓"，不显示 Agent 入口（避免无目标补全）。
+
+**Hover 规则**（参考 `references/06-native-conventions.md` § Edge cases）：
+- **节点（list-row 类）**：可有 subtle 背景 hover 高亮，但 `cursor: default`，**不**显示 pointer 手势。
+- **toolbar 图标按钮**：可有 subtle 背景 tint hover，`cursor: default`。
+- **缺口列表项（list-row 类）**：subtle 背景 hover，`cursor: default`。
+- **plain push button**（如"创建文档"、"让 Agent 补"）：**无** hover 视觉变化（按 macOS native button 规范）；只有 `:active` pressed 态。
+- **brief 文本中的"建模为实体"浮按钮**：作为内容区按钮，可有 hover 背景，`cursor: default`。
+
+**Pressed 态**：所有按钮必须有 `:active` 视觉下沉 / 颜色加深，与 hover 区分。
+
+**Onboarding**：v1 **不做**多步引导教程；空状态的一句话 + 主操作即引导。如需教学，靠首次悬停时的 tooltip（一次性，不重复）。
+
+**Toast / 通知**：v1 **不引入**自画 toast；状态条已承担轻量反馈（"已保存"），破坏性反馈（错误）走 inline error banner（已有 `.designer-error-banner`）。
 
 ## 8. 后端模块边界与命令变更
 
@@ -427,7 +506,10 @@ apps/desktop-web/src/features/business-designer/
 - 保留 `DesignerDocument`，重命名为 `DesignerBriefRoot`，作为图根 brief 块的下钻面板。
 - 三种创作入口：brief 选中文本浮"建模为实体" / 缺口反推按钮 / 画布右键加块。
 - 边由前端从 `validate_document` 返回的隐含引用 + 后端推导结果二者合并渲染（v1 完全信任后端推导）。
-- 节点位置存 `manifest.layout`，拖拽时 throttle 保存。
+- 节点位置存 `manifest.layout`，**拖拽期间纯前端 `transform: translate3d`，mouseup 才 IPC**（§12.3 / §12.5 硬约束）。
+- 新增 `styles/tokens/_designer.scss`（§14.2 token 清单），深浅色双套，所有节点 / 边 / 缺口色走 token。
+- 实现 §7.0 身份连续性：打开旧 Phase 6 文档 → 默认聚焦 brief 节点、下钻面板自动展开、视觉与 Phase 6 一致。
+- 实现 §7.8 原生交互细则：loading 三档、empty 一图标一句话、hover 按节点/按钮分类、pressed 态。
 
 **验证**：
 - `npm run typecheck`
@@ -468,12 +550,62 @@ apps/desktop-web/src/features/business-designer/
 
 ## 12. 性能
 
-- 点击 `业务设计器` 后，缓存返回 200ms 内出现文档列表（v0 已达成，v1 保持）。
-- 图画布初次绘制 < 16ms（节点 < 50 个的常规需求包）；超过 50 个节点用 viewport culling。
-- 节点拖拽 60fps，位置保存 debounce 300ms。
-- 输入热路径不调 Tauri：brief 文本编辑、字段表编辑均在前端 in-memory，autosave 触发后端。
-- 验证不在热输入路径阻塞：`validate_document` 在 save 后异步触发，结果 patch 到画布。
-- Markdown / HTML 输出保持稳定，避免无意义 diff（v0 已达成）。
+### 12.1 用户感知目标（绑定具体击键/帧/延迟）
+
+T4 「性能即感知」要求性能目标绑定具体动作，不写抽象 fps/MB：
+
+| 用户动作 | 感知目标 | 验证方式 |
+|---|---|---|
+| 点击侧栏文档 → 图出现 | 缓存命中 < 200ms 出首帧 | `performance.mark` + DevTools Performance |
+| brief 输入字符 → 屏幕显示 | < 50ms（输入热路径不阻塞） | 输入延迟测量；不允许 IPC 同步等待 |
+| 拖拽节点 | 60fps 持续，松手到落位 < 50ms | Chrome DevTools Performance 录制 |
+| `validate_document` 跑完 | < 300ms（常规需求包，节点数 < 50） | trace；超 300ms 则降级为 debounce |
+| Agent 派发 → patch sheet 出现 | mock provider < 100ms；真实 provider 受 Agent 端制约（不计入预算） | trace |
+| 接受 patch → 三态显示 | < 300ms（含 validate 重跑） | trace |
+| 节点选中 → inspector 切换 | < 16ms（一帧内） | 纯前端，无 IPC |
+
+### 12.2 实现策略
+
+- 图画布初次绘制：常规节点数 < 50 直接全画；> 50 用 viewport culling（只画可视区 + 1 屏 buffer）。
+- 节点拖拽：拖拽期间用 `transform: translate3d()` 改 wrapper（GPU 合成层，不触发 layout / paint），mouseup 时一次性写回坐标到 manifest。**严禁**每帧改 SVG `<g transform>` attribute，会触发 SVG re-rasterize。
+- 输入热路径不调 Tauri：brief 文本编辑、字段表编辑均在前端 in-memory state，autosave 触发后端（见 §12.5）。
+- 验证不阻塞热输入：`validate_document` 在 save commit 后异步触发，结果到达后 patch 到画布。
+- Markdown / HTML 输出保持稳定，避免无意义 diff（v0 已达成，v1 保持）。
+
+### 12.3 节点拖拽性能细则
+
+```text
+mousedown:  记录起始 (x0, y0)
+mousemove:  wrapper.style.transform = `translate3d(${dx}px, ${dy}px, 0)`  // GPU only
+mouseup:    一次性 IPC: save_document(manifest with new layout)
+            清空 transform, 让 React 用真实 manifest 坐标重渲染
+```
+
+拖拽期间零 IPC，60fps 由 GPU 合成保证。这是 T6 在拖拽场景的具体落地。
+
+### 12.4 响应式单位 vs SVG 坐标
+
+CLAUDE.md 规定不用 `px`，但 SVG 内部坐标是 viewBox 数学单位无法 rem。约定：
+
+- DOM wrapper / 节点尺寸 / 文字 / 边距 / 图标：`rem`
+- SVG viewBox 内部布局坐标：unitless（纯数学）
+- SVG 整体跟随系统字体缩放：通过 wrapper 的 `font-size: 1rem` + viewBox 等比例 + `width: 100%` / `height: 100%`
+- 节点尺寸由 `<foreignObject>` 内 DOM 决定（用 rem），SVG 边连线坐标根据 `<foreignObject>` 实际 bbox 计算
+
+### 12.5 IPC 节流契约（T6 跨边界刻意化的硬约束）
+
+以下 4 条 IPC 路径**必须**按此节流，违反即视为 PR 阻断：
+
+| 路径 | 节流策略 | 理由 |
+|---|---|---|
+| brief textarea 输入 → `save_document` | debounce **1500ms**（人类输入停顿阈值） | 每键击 IPC 是 ShellRoot.tsx 灾难的同型问题（PRODUCT_VISION P0 警告过） |
+| 字段表 / 迁移表 / 端点表编辑 → `save_document` | onBlur **或** debounce 1500ms（取先到） | 表单字段编辑同上原则；blur 比 debounce 更符合用户"我编辑完了"心智 |
+| 节点拖拽 → `save_document`（layout） | **mouseup 触发一次**（拖拽期间纯前端 transform） | 见 §12.3；拖拽中 60fps × 300ms 节流 = 200 次 IPC，灾难 |
+| `save_document` 完成 → `validate_document` | save 成功后跑一次，与 save 同 debounce 链 | validate 跟随 save 而非独立节流，避免双轨 |
+
+- **任何**新引入的"前端 effect → Tauri command"必须在 PR 中说明触发频率、payload 大小、batch 策略。
+- Tracing 强制：每条 IPC 携带 `traceId`，前端在 dev 模式下打 console 显示触发频率（开发期发现"一秒跑了 30 次"立即可见）。
+- 这一节是 v1 防"网页化滑坡"的最关键 guard，不是 nice-to-have。
 
 ## 13. 安全与隐私
 
@@ -495,25 +627,129 @@ apps/desktop-web/src/features/business-designer/
 - Agent 调度：复用现有 terminal/session/task 基础设施，支持 `codex` / `claude`。
 - 样式：仅 SCSS；响应式单位（`rem`），不用 `px`。
 
+### 14.1 原生 API 使用边界（T1 / T3 收口）
+
+T1 「seam at rendering surface」明确分工——以下行为强制走 Tauri 原生 API，**不**用 DOM 自画：
+
+| 行为 | 实现 | 原因 |
+|---|---|---|
+| 导出文件保存对话框 | `dialog::save` (Tauri) | 已落地（v0 Phase 4/5），保留 |
+| 文档导入文件选择 | `dialog::open` (Tauri) | 同上 |
+| 删除文档 / 丢弃 patch 等破坏性确认 | `dialog::ask` / `confirm` (Tauri) | 不用自画 modal；OS 原生对话框是 native-feel 关键 |
+| 错误提示（崩溃级） | inline banner（现状）+ 严重时 `dialog::message` | 不用自画 toast |
+
+以下行为受 Tauri WebView 限制，**只能** in-WebView 实现，但需按 native 风格收口：
+
+| 行为 | 限制 | 应对 |
+|---|---|---|
+| 画布右键菜单（加块） | Tauri 的 native context menu API 受限于版本/平台一致性 | 用 DOM 浮层模拟，但视觉严格按平台风格：macOS 圆角 + 系统字体 + 系统 accent；无 hover cursor pointer；Esc 关闭 |
+| 缺口 / 节点 tooltip | Tauri 无独立 tooltip API | 用 DOM tooltip，延迟 500ms 出现，匹配系统 tooltip 风格；不用 popper.js |
+| 下钻面板 | side panel 必须在 WebView 内（不是独立 NSPanel） | 见 §7.4：side-slide、无 backdrop、不 modal |
+
+### 14.2 Design tokens 清单
+
+所有 v1 新增视觉元素颜色 / 尺寸必须走 `--vb-*` token 体系，不允许硬编码：
+
+```scss
+// Designer-specific tokens (新增到 styles/tokens 体系)
+--designer-node-bg              // 节点背景, 跟随深浅色
+--designer-node-border          // 节点边框
+--designer-node-border-selected // 选中节点边框, 用 system accent
+--designer-node-shadow          // 节点阴影
+--designer-edge-color           // 默认边色
+--designer-edge-dependsOn       // dependsOn 关系色
+--designer-edge-produces        // produces 关系色
+--designer-edge-consumes        // consumes 关系色
+--designer-edge-uses            // uses 关系色
+--designer-edge-extends         // extends 关系色
+--designer-gap-warning          // ⚠ 缺口色 (warning)
+--designer-gap-error            // 缺口色 (error)
+--designer-gap-resolved         // resolved ✓ 色
+--designer-gap-introduced       // introduced ⚠ 色
+--designer-canvas-bg            // 画布底色
+--designer-canvas-grid          // 画布栅格(若实现)
+--designer-focus-ring           // 焦点环, 用系统 accent
+```
+
+token 定义在 `styles/tokens/_designer.scss`，深浅色双套，与 system accent color 通过 CSS `accent-color` 或 OS 提供的变量同步。
+
+### 14.3 Cost classification（T8 baseline vs margin）
+
+T8 要求显式分类成本：
+
+**Baseline（架构选择带来、不可减）**：
+- Tauri WebView + WRY runtime（macOS WKWebView / Windows WebView2 内存）
+- React 19 + 现有 React 树渲染（已有，v1 不增）
+- SVG 图画布的 GPU 合成层（节点数 × 拖拽帧）
+- `gap_rules` 在每次 validate 跑全图（O(blocks × rules)，可接受）
+
+**Margin（v1 自己引入、必须 attack 满）**：
+- 图画布拖拽 → 必须 transform-only 不触发 layout（§12.3）
+- IPC 频率 → 必须按 §12.5 节流契约
+- schema 漂移 → 必须按 §5.0 防漂移
+- 重渲染 → React.memo / useMemo 节点列表，inspector 切换不重画图
+- token 体系 → 不硬编码颜色，避免深浅色切换重画
+
+明确分类后，v1 性能优化精力全部投入 margin，不在 baseline 上空转。
+
+### 14.4 WebView 已知坑预防（继承 v0 shell 已处理项 + v1 新增）
+
+v0 shell 层已经按 `references/03-webview-survival.md` 处理了启动闪白、视图切换闪烁等公共项，v1 在 designer 范围内额外注意：
+
+- **路由切换不要 fade**：`features` 之间切换沿用项目现有 cut 切换（无 route fade，已合规）。designer 内部 sidebar / canvas / inspector / drill panel 之间也是 cut 切换，不加 fade。
+- **滚动行为**：缺口长列表用 `overscroll-behavior: contain` 杀掉橡皮筋；不调 `scrollIntoView({ behavior: 'smooth' })`，用 `behavior: 'auto'`（瞬时跳转）。
+- **CSS View Transitions**：v1 **禁用** View Transitions API（默认含中间淡出帧，违反 native cut 切换）。
+- **字体 fallback prewarming**：图节点会出现中英混排（"订单"/"Order"），首次渲染中文 fallback 可能 stutter。在 `BusinessDesignerPane` 挂载时执行 prewarm（隐藏 span 含中英文 + 常用标点），与项目现有 prewarm 链路对齐。
+- **拖拽期间不能触发 React state 频繁更新**：拖拽位置存在 ref / wrapper.style.transform，不进入 React 状态树，避免每帧 reconcile。
+
 ## 15. 待确认决策（v1 范围内）
 
 以下决策 v1 已按倾向落定，记录在此供后续修订时回看：
 
 1. **图节点位置存哪里？** 选 manifest.layout（B 方案）。
 2. **brief 实体识别策略**：用户选中浮按钮，**不**自动 NLP（最小方案）。
-3. **下钻视图**：覆盖层 modal-like，不是 inspector 内嵌。
+3. **下钻视图**：右侧滑入式 side panel（与 inspector 并排），无 backdrop、不 modal——避免 web idiom 的全屏对话框感；保留画布上下文。
 4. **relation 词表**：固定 5 种 `dependsOn` / `produces` / `consumes` / `uses` / `extends`，封闭。
 
 ## 16. 成功标准
 
 v1 闭环完成的标志：
 
+**范式硬约束**：
 - 用户从一句「订单系统」brief 出发，经几次 Agent 补缺口，得到结构完备、规则全绿、可导出的需求包。
 - 任何 AI 输出都被规则验证为 resolved/unresolved/introduced，无人为评分环节。
 - `apply_agent_patch` 对 host 不命中的 patch 整体拒绝，不部分应用。
+
+**身份连续性（T7）**：
 - 现有 Phase 6 的 brief 文本入口、checkpoint 历史、导出、docs Git 全部保持可用。
+- 旧文档加载即默认聚焦 brief 节点 + 自动展开下钻面板，视觉接近 Phase 6（迁移时无重建肌肉记忆成本）。
+- v0 已发布的 i18n key、文档落盘格式、sidebar 信息密度不变。
+
+**架构边界**：
 - 实现不破坏 GT Office 现有模块边界（前端 features 边界、后端 commands 入口最小化）。
 - 范式可扩展：后续加新 block kind 的 gap 规则只需加规则 struct + 注册一行，不动 command 表面。
+
+**性能感知（T4）**：
+- §12.1 表格中所有"用户动作 → 感知目标"必须实测达标；超标项必须有降级路径。
+- 拖拽 60fps（DevTools Performance 录制确认）。
+- 输入热路径无 IPC 阻塞（trace 显示输入到首屏 < 50ms）。
+
+**IPC 纪律（T6）**：
+- §12.5 4 条节流契约在代码 review 阶段全部 enforce；dev 模式 trace 不出现"一秒 30+ IPC"的红警。
+
+**Native feel（T3 / T8）**：
+- 通过 `references/06-native-conventions.md` 30 项中与 designer 相关的至少 25 项。
+- 无 `cursor: pointer` 在 list-row（grep PR 检查）。
+- 无 skeleton 占位符。
+- 无 backdrop blur modal。
+- 无 route fade transition。
+- 颜色 100% 走 token，无硬编码 hex。
+
+**Schema 防漂移（T2）**：
+- `packages/shared-types` 含 v1 新增的 4 个数据结构 contract 测试。
+- Rust serde struct 加 `#[serde(deny_unknown_fields)]`。
+- CI 跑 typecheck + cargo check 双侧验证，单侧改 schema 即编译断。
+
 
 ---
 
