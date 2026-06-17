@@ -1,885 +1,602 @@
 # 业务设计器模块方案
 
-**日期**：2026-06-10  
-**状态**：方案草案，暂不进入编码实现  
-**范围**：为 GT Office 新增“业务设计器”功能，用于可视化需求设计、Agent 辅助补全、生成适合 AI Coding Agent 使用的专业需求文档，并通过本地 Git 管理需求变更历史。
+**当前版本**：v1 — 图范式 + Gap 引擎  
+**首次起草**：2026-06-10  
+**最近迭代**：2026-06-17  
+**适用范围**：GT Office 业务设计器；Phase 6 极简底座之上的范式重写
 
-## 1. 目标
+> v0（Phase 1–6）的进度记录与历史决策保留在文末「附录 A：历史进度（v0）」，本节起的章节描述的是 v1 当前生效设计。
 
-业务设计器的目标是把模糊的业务想法，逐步整理成结构化、可审阅、可版本对比，并且能直接交给 Codex、Claude Code 等 Coding Agent 执行的需求包。
+---
 
-它不是一个普通 Markdown 编辑器，也不是让用户直接写 HTML 或 JSON。用户看到的是可视化工作台：文本块、业务流程、实体字段、伪代码、面向对象设计、API 契约、技术栈、验收标准、开放问题、Agent 指令等内容都以结构化模块呈现。系统在后台把这些模块编译为 Markdown、HTML 和 JSON，让人能读、Agent 也能稳定消费。
+## 1. 一句话核心
 
-典型流程：
+> **需求是一张以 block 为节点、以 link 为边的关系图；每个 block kind 有一套确定性健全性规则，规则未满足处即「缺口」（Gap）；AI 的唯一职责是补一个被命名的、锚定到宿主 block 的缺口；补完后同一套规则重跑验证 — AI 永远不自我评分。**
 
-1. 用户从左侧侧栏进入 `业务设计器`。
-2. 用户在 `.gtoffice/docs` 下创建一个需求包，例如 `order-system`。
-3. 用户在实体模块里输入 `订单`。
-4. 用户点击 `让 Agent 补全`。
-5. GT Office 按固定 JSON 输出协议，把上下文发送给用户选择的 Codex 或 Claude Code 会话。
-6. Agent 返回字段、状态流转、校验规则、API、事件、测试点和开放问题。
-7. 用户在可视化 diff 中逐项接受或拒绝 Agent 的建议。
-8. 用户确认后，系统编译输出需求文档，并在 `.gtoffice/docs/.git` 中创建一次需求 checkpoint。
-9. 后续 Coding Agent 可基于这份需求包开始编码，而不是基于一段模糊口头描述行动。
+这一句话决定了之后的所有结构。范式的「惊艳」不在视觉炫技，而在三条机器可执行的铁律：
 
-## 2. 产品原则
+1. **AI 任务必须有宿主 block**。不存在「帮我补全整个需求」这类无锚任务。任务 prompt 写死 `hostBlockId` + `gapCodes`，AI 返回的 patch 只能修改宿主 block 或为它显式声明的相邻新 block。
+2. **缺口是机器算的，不是 AI 说的**。`gap_rules` 是纯 Rust 函数集，输入 block payload + 图，输出 `Gap[]`。AI 不能发明 gap code，只能补规则发现的 gap。
+3. **验证 = 重跑规则**。AI patch 应用后，`validate_document` 重跑 `gap_rules`：目标 gap 消失 = resolved；仍在 = unresolved；新出现 = introduced。**AI 永远无法假装成功**，判定权在规则手里。
 
-- **可视化优先，源码可携带**：用户主要编辑块、表格、流程和表单；落盘文件仍是 Markdown、HTML、JSON 等通用格式。
-- **默认面向 Agent 可读**：每个设计块都能编译为确定性的 JSON schema 和 Agent brief。
-- **Agent 不直接改需求**：Agent 只能返回建议补丁，必须由用户审阅后应用。
-- **工作区内闭环**：所有文件默认放在当前 workspace 的 `.gtoffice/docs` 下。
-- **需求可版本化**：每次用户确认的重要改动都可形成本地 Git checkpoint，便于对比历史。
-- **模块化而不是一份巨型文档**：需求按业务模块拆分，通过统一 manifest 串联。
-- **不为了方便新增依赖**：第一版优先使用现有技术栈和依赖；确实需要新依赖时，先更新 `docs/DEPENDENCIES.md` 并说明取舍。
+「让 AI 有迹可循而不是猜测」在代码层即此三条；其余章节是把它们落到代码与界面。
 
-## 3. 与当前架构的关系
+## 2. 与前序版本的关系
 
-当前项目是 Tauri v2 + React/TypeScript + Rust crates。`$native-feel-cross-platform-desktop` skill 推荐的完整四层原生架构，不作为这个功能的一次性重写目标。本方案采用其中的原则，但实现必须服从当前仓库边界。
+- **v0 Phase 1–5**：16 种块的全功能表格编辑器 + 5 模式切换器。结构严谨但用户被迫先做「元数据架构师」。废弃。
+- **v0 Phase 6**：折叠为单一 brief 文本块 + AI 返回的只读结构化块。低门槛但结构折回自然语言，AI 又得猜。废弃为「v1 的图根入口」。
+- **v1（本设计）**：图范式 + 规则驱动的缺口 + 锚定到宿主块的 AI 补全。把 Phase 6 的 brief 文本块**保留为图根**，新结构从图根上"长出来"，不丢低门槛。
 
-相关原则：
+## 3. 产品原则（v1 收口）
 
-- `T1 - Place the seam at the rendering surface`：可视化编辑留在 React WebView；文件系统、Git、Agent 进程控制、路径安全和系统能力留在 Tauri/Rust。代价是没有完全自研 Swift/WPF shell 的控制力，但能保持当前项目速度和边界稳定。
-- `T2 - One schema, many languages`：前端、后端、落盘 JSON、Agent patch 共享一套文档/块 schema。代价是前期需要更严格地定义数据结构。
-- `T3 - Adopt the platform; don't compete with it`：UI 使用系统字体、系统滚动、Tauri 原生对话框、现有窗口行为，不做网页式炫技。代价是品牌视觉更克制。
-- `T4 - Performance is a property of perception`：优先保证输入、选中块、切换视图、预览和 checkpoint 的主观速度，而不是追求抽象性能指标。
-- `T6 - Cross boundaries intentionally`：autosave、compile、Git checkpoint、Agent completion 都必须批处理、可追踪、可取消，避免 React effect 高频跨 IPC 调用。
+- **可视化优先，源码可携带**：用户主要操作图与下钻表单；落盘文件仍是 JSON / Markdown / HTML。
+- **结构从语义中长出**：用户不手画连线、不填表格元数据；图的节点从 brief 实体识别 / 缺口反推 / 直接加块产生，边由 payload 引用自动推导。
+- **AI 不直接改需求**：Agent 只能返回锚定到 hostBlockId 的 typed patch，必须由用户审阅后选择性应用。
+- **机器先于 AI**：能用规则确定的事情绝不让 AI 决定；能用规则验证的事情绝不让 AI 自评。
+- **工作区内闭环**：所有文件默认在 `.gtoffice/docs` 下；needs Git 是独立嵌套 repo。
+- **不为了便利新增依赖**：v1 不引入第三方 graph / diagram 库；如确实需要，先更新 `docs/DEPENDENCIES.md`。
 
-## 4. 用户体验设计
+## 4. 与现有架构的关系
 
-### 4.1 侧栏入口
+继续遵循 `$native-feel-cross-platform-desktop` 的四层原则：
 
-新增侧栏菜单：
+- **T1 — 边界在渲染面**：可视化编辑留在 React WebView；文件系统、Git、Agent 进程控制、规则引擎留在 Tauri/Rust。
+- **T2 — 一份 schema、多种语言**：`DesignerBlock` / `DesignerGap` / `DesignerRuleRun` / `DesignerAgentTaskRequest` 在前端 TS 与 Rust serde 之间双向对齐。
+- **T3 — 拥抱平台**：苹果风格 split-view，系统字体，无 `cursor:pointer`，pressed 态，原生 save dialog，深浅色 token。
+- **T4 — 性能即感知**：缺口规则在后端跑，前端拿结果即画；图画布用 SVG + CSS transform，避免阻塞输入；下钻表单仅在双击时挂载。
+- **T6 — 跨边界要刻意**：autosave、validate、compile、Git checkpoint、Agent dispatch 都批处理、可追踪、可取消。
 
-- 中文名称：`业务设计器`
-- 英文名称：`Designer`
-- 建议 ID：`designer`
-- 建议位置：放在 `文件管理` 之后、`Git 协作` 之前。原因是它产出需求文件，并且通常发生在编码和 Git 审阅之前。
+## 5. 数据模型
 
-建议前后端目录：
+v1 的 schema 改动是**加法**：旧文档加载即正常，零迁移。
+
+### 5.1 Gap 与 RuleRun（新增）
+
+```ts
+interface DesignerGap {
+  id: string                 // 稳定 id：hash(blockId + code + 定位参数)
+  code: string               // 'no-pk' | 'dead-state' | 'no-errors' | ...
+  blockId: string            // 宿主块（hostBlockId 必须等于此值）
+  layer: 'intra' | 'inter'   // 块内规则缺口 / 块间拓扑缺口
+  severity: 'warning' | 'error'
+  message: string             // 给人看的描述
+  fixableByAgent: boolean    // false 表示需人决定（如缺名字）
+  locator?: Record<string, string> // 定位参数，如 { state: 'paid' }
+}
+
+interface DesignerRuleRun {
+  kind: DesignerBlockKind
+  code: string
+  blockId: string
+  passed: boolean
+}
+```
+
+Gap id 稳定算法保证规则重跑后能匹配到同一缺口，进而判断 resolved/unresolved。
+
+### 5.2 validate_document 返回扩展
+
+```ts
+interface DesignerValidationResult {
+  workspaceId: string
+  documentId: string
+  diagnostics: DesignerDiagnostic[]   // 仅 lint / 格式 / schema 错误
+  gaps: DesignerGap[]                 // 新增：一等公民
+  rulesRun: DesignerRuleRun[]         // 新增：审计追踪
+}
+```
+
+`diagnostics` 不再混 gap，前端按对象类型分流，不靠 code 前缀猜。
+
+### 5.3 Agent 任务锚定（新增字段，可选）
+
+```ts
+interface DesignerAgentTaskRequest {
+  hostBlockId: string        // 必填（v1 前端永远填）
+  gapCodes: string[]         // 必填
+  scope: 'single' | 'block'
+  documentId: string
+  baseRevision: string
+}
+```
+
+`preview_agent_task` / `run_agent_completion` 入参增加这三个字段，**可选**——后端不强制非空，新画布永远填、走范式约束；旧路径不破坏。
+
+### 5.4 Patch 应用三态（新增返回字段）
+
+```ts
+interface DesignerPatchApplyResult {
+  // 现有字段保留
+  gapResolution: {
+    targetGapIds: string[]
+    resolved: string[]
+    unresolved: string[]
+    introduced: DesignerGap[]
+  }
+}
+```
+
+### 5.5 图节点位置
+
+存于 `manifest.layout: { [blockId]: { x: number; y: number } }`。manifest 是文档级视图元数据的天然归属，已存在 `tags`。位置是显示状态、不影响语义，存 manifest 不污染 block payload。
+
+### 5.6 边的 relation 词表
+
+v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`。封闭词表是图范式可读性的关键；自由文本会让 AI 又得猜。如未来需要扩词，先更新本节，不允许 ad hoc 引入。
+
+### 5.7 边的来源
+
+边**不**由用户手画，由后端在校验时基于 payload 引用自动推导：
+- 字段 type 指向另一实体名 → `entityModel A — uses → entityModel B`
+- API 端点的 request/response shape 引用实体 → `apiContract A — dependsOn → entityModel B`
+- 业务流程引用实体 → `businessFlow A — consumes → entityModel B`
+
+引用断裂 → `dangling-ref` 缺口。这种「边是派生的」让用户改字段名导致边消失是可见的、可补的。
+
+## 6. Gap 规则集（v1 三种块）
+
+收口原则：**仅做机器能确定的事实**——零主观判断、零业务启发式。「订单该不该有取消路径」是人的决定，归 `openQuestions` 块，不归规则。
+
+### 6.1 entityModel
+
+| code | 规则 | severity | fixable |
+|---|---|---|---|
+| `no-fields` | 字段数 < 1 | error | ✓ |
+| `no-pk` | 无字段标 `isPrimaryKey` 且无名为 `id`/`<entity>Id` 的字段 | warning | ✓ |
+| `field-no-type` | 任一字段缺 `type` | error | ✓ |
+| `field-no-name` | 任一字段缺 `name` | error | ✗ |
+| `enum-no-values` | type=`enum` 的字段 `values` 为空 | error | ✓ |
+| `dangling-ref` | 字段 type 指向另一实体但图内无该实体节点 | warning | ✓ |
+
+### 6.2 businessFlow
+
+| code | 规则 | severity | fixable |
+|---|---|---|---|
+| `no-states` | `states` 为空 | error | ✓ |
+| `no-transitions` | `transitions` 为空 | error | ✓ |
+| `transition-unknown-state` | 迁移的 `from`/`to` 不在 states 中 | error | ✓ |
+| `dead-state` | 状态无出迁且未标 `terminal:true` | warning | ✓ |
+| `unreachable-state` | 状态无入迁且非 `initial` | warning | ✓ |
+| `no-terminal` | 全图无任何 terminal 状态 | warning | ✓ |
+
+### 6.3 apiContract
+
+| code | 规则 | severity | fixable |
+|---|---|---|---|
+| `no-endpoints` | `endpoints` 为空 | error | ✓ |
+| `endpoint-no-path` | 端点缺 `path` | error | ✓ |
+| `endpoint-no-method` | 端点缺 `method` | error | ✓ |
+| `no-response` | 端点缺 `response` 或 `responseShape` | warning | ✓ |
+| `no-errors` | 端点无 `errors` / `errorCodes` | warning | ✓ |
+| `orphan-contract` | 块无任何 `dependsOn` 边到 entityModel | warning | ✓ |
+
+### 6.4 其余 13 种块（text / glossary / ruleTable / pseudocode / objectModel / dataContract / uiWorkflow / technicalStack / nonFunctional / acceptanceCriteria / openQuestions / agentInstruction / decisionRecord）
+
+v1 **不产 gap**，只做 lint（schema 格式 / 字段类型）。它们存在于图中、可作为引用目标（被三种 gap-rule kind 通过 `dependsOn`/`uses` 等指向），但 **AI 任务永远不以它们为 host**——AI 不会被派去补这 13 种块的内容。规则集留扩展位，后续按需加入。
+
+特殊情况：图根 `brief`（kind=`text`，id=`brief`）虽属此 13 种，但作为图入口节点存在，下钻时使用 `DesignerBriefRoot` 面板，不通过画布右键新建。
+
+### 6.5 三态判定语义
+
+```text
+patch 应用 → 重跑 gap_rules → 与应用前 rulesRun 快照对比
+
+resolved      = 应用前在 targetGapIds 且应用后不在
+unresolved    = 应用前在 targetGapIds 且应用后仍在
+introduced    = 应用后新出现的 gap（不限于本次目标）
+```
+
+unresolved/introduced 在 UI 上高亮，**不**自动接受为成功。
+
+## 7. 用户体验
+
+### 7.1 侧栏入口
+
+复用 Phase 6 已建：
+- 中文：`业务设计器`，英文：`Designer`，ID：`designer`
+- 位置：文件管理之后、Git 协作之前。
+
+### 7.2 主界面布局
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ 顶部 workspace tabs                                        │
+├────────────┬──────────────────────────────┬───────────────┤
+│ 文档列表    │ 关系图画布                    │ 选中块检查器   │
+│ (薄侧栏)    │ 节点=块, 边=link, ⚠=缺口       │ + 缺口清单     │
+│            │ 缩放/平移, 双击下钻             │ + Agent 入口   │
+├────────────┴──────────────────────────────┴───────────────┤
+│ 状态条: 草稿/缺口数/校验/checkpoint/导出                    │
+└──────────────────────────────────────────────────────────┘
+```
+
+三栏，但右栏职责清晰单一：选中块的属性 + 该块的缺口 + 针对缺口的 Agent 入口。**不**回到 v0 Phase 1–5 的「检查器/Agent/Patch 三面板堆叠」。
+
+### 7.3 创作动作（低门槛入口）
+
+用户**不**需要先想「我要建一个 entityModel 块」。三种自然入口：
+
+1. **从 brief 根节点长出**：brief 是图的根节点（kind=`text`，id=`brief`，沿用 Phase 6 落地）。用户在 brief 选中文本如「订单」→ 浮按钮 `↗ 建模为实体` → 一键生成 entityModel 节点入图。**不做**自动 NLP 识别，避免误导。
+2. **从缺口反推**：`dangling-ref` 缺口旁直接有 `+ 建 Customer 实体` 按钮——这是图范式区别于「单块编辑器」的核心，跨块补全发生在缺口反推时。
+3. **直接加块**：画布空处右键 / 快捷键 `⌘N` → 选 kind → 新建空块。v1 加块菜单仅列 §6 的三种 gap-rule kind（`entityModel` / `businessFlow` / `apiContract`），新块自动带缺口（如 `no-fields`）。其余 13 种 kind 在 v1 不能从画布新建，仅作为图根 brief 的子结构存在或后续版本扩展。
+
+三种入口的共同点：**结构是创作的副产品，不是元数据填报**。
+
+### 7.4 图画布
+
+- **节点**：圆角矩形，显示 kind 图标 + 标题。有缺口时右上角 ⚠ 徽章（数字=缺口数），未满足规则的块用细虚线描边。
+- **边**：有向箭头，标签 = relation，颜色按 relation 分。**用户不画边**，断裂即变 dangling-ref 缺口。
+- **缩放/平移**：trackpad 双指缩放、空格+拖拽平移；`⌘0` 重置；`⌘=`/`⌘-` 步进缩放。
+- **双击节点 → 下钻**：进入该块的内部结构视图（覆盖层 modal-like，不是 inspector 内嵌——字段表/迁移表需要纵向空间）。下钻视图里有：
+  - 极简结构化表单（字段表 / 状态迁移表 / 端点表）
+  - 该块的缺口清单（与右栏 inspector 同步）
+  - Agent 入口
+  - `Esc` / 点击空白关闭
+
+### 7.5 Agent 补全交互（范式硬约束在 UI 上的体现）
+
+- 选中有缺口的块 → 右栏列缺口（每条 gap code + message + fixable 标）。
+- 每条缺口旁：`[让 Agent 补]`（scope=single）。块顶部：`[补全本块全部缺口]`（scope=block）。
+- 派发前 **preview**：右栏展示将发送的 prompt 与上下文（host block payload + 邻接边 + 当前 gapCodes），符合 `preview → validate → confirm → dispatch` 生命周期。
+- Agent 返回 → **Patch Sheet** 浮层逐条 accept/reject（复用 Phase 6 已建的 `DesignerPatchSheet` 与 `apply_agent_patch.acceptedChangeIndices` 协议）。破坏性变更默认不勾。
+- 应用后自动重跑 validate → Patch Sheet 尾部三态对比区显示 resolved ✓ / unresolved ⚠ / introduced ⚠。
+
+### 7.6 不做的（避免回到伪 CMS）
+
+- ❌ 每种块的全功能表格编辑器（v0 的 716 行 `DesignerBlockEditorFields` 不复活）。
+- ❌ 5 模式切换器（设计/流程/契约/Agent Brief/预览）。模式消失，画布即一切。
+- ❌ 手画连线。
+- ❌ JSON textarea 作为主编辑面（仅在下钻视图的「源码」标签给高级用户，默认隐藏）。
+
+### 7.7 原生桌面风格
+
+继续遵循 `$native-feel-cross-platform-desktop`：
+- macOS `-apple-system` / Windows `Segoe UI Variable`。
+- 列表行、节点、缺口条目无 `cursor:pointer`，pressed 态明确。
+- 系统 focus ring，深浅色与 accent color 跟随系统。
+- 危险操作（删块、删边引用、丢弃 patch）显示明确影响范围。
+- 完整键盘操作：节点选中、下钻、缩放、保存、Agent 派发、accept/reject。
+
+## 8. 后端模块边界与命令变更
+
+### 8.1 文件结构
+
+```text
+apps/desktop-tauri/src-tauri/src/commands/business_designer/
+├── mod.rs              # Tauri command 入口绑定（命令清单不变）
+├── gap_rules/          # 新增：规则引擎
+│   ├── mod.rs          # GapRule trait + 注册表 + run_all(graph)
+│   ├── entity.rs       # entityModel 规则
+│   ├── flow.rs         # businessFlow 规则
+│   ├── api.rs          # apiContract 规则
+│   └── tests.rs        # 规则单测（每条规则一组 fixture）
+├── validation.rs       # 现有 validate 逻辑外提 + 调 gap_rules::run_all
+└── tests/mod_tests.rs  # 现有测试（命令级）
+```
+
+`gap_rules` 是纯函数模块——无 IO、无 Tauri、无 state，可独立单测。规则集稳定后整个 `business_designer/` 可沉淀为 `crates/gt-business-designer`，v1 不做。
+
+### 8.2 命令清单变更
+
+| 命令 | v1 改动 |
+|---|---|
+| `business_designer.list_documents` | 不动 |
+| `business_designer.create_document` | 不动 |
+| `business_designer.read_document` | 不动 |
+| `business_designer.save_document` | 不动 |
+| `business_designer.compile_document` | 不动 |
+| **`business_designer.validate_document`** | **返回新增 `gaps` / `rulesRun`** |
+| `business_designer.init_docs_repo` | 不动 |
+| `business_designer.create_checkpoint` | 不动 |
+| `business_designer.diff_checkpoint` | 不动 |
+| `business_designer.list_checkpoints` | 不动 |
+| `business_designer.compare_checkpoints` | 不动 |
+| `business_designer.preview_agent_task` | 入参增 `hostBlockId`/`gapCodes`/`scope`（可选，缺省退现行行为） |
+| `business_designer.run_agent_completion` | 同上（可选） |
+| `business_designer.validate_agent_patch` | 校验加：每个 change 必须命中 hostBlockId（若 patch metadata 有 host） |
+| `business_designer.apply_agent_patch` | 应用后自动 validate 并附 `gapResolution` |
+| `business_designer.export_document` | 不动 |
+| `business_designer.list_handoffs` 等 handoff 链 | 不动 |
+
+新增**零**命令；扩展 4 个返回 / 入参；其余不动。
+
+### 8.3 Patch 校验铁律（host 命中）
+
+`apply_agent_patch` 在校验阶段：
+
+```text
+host = patch.metadata.hostBlockId
+if host is some:
+    for change in patch.changes:
+        target =
+          change.targetBlockId      if op in {updateBlock, deleteBlock}
+          change.afterBlockId        if op == addBlock
+        if target != host:
+            reject_patch("change targets {target}, host is {host}")
+            return  # 不部分应用
+```
+
+`hostBlockId` 写入归档 patch 的 metadata（`run_agent_completion` 派发时记录），不靠前端再传——避免前端绕过范式。
+
+### 8.4 三态对比实现
+
+```text
+fn apply_agent_patch(...) -> ApplyResult:
+    before = gap_rules::run_all(load_graph())
+    apply_changes(...)
+    save_graph()
+    after = gap_rules::run_all(load_graph())
+    
+    target = patch.metadata.gapCodes
+    target_ids = before.gaps where code in target
+    
+    resolved   = target_ids - after.gap_ids
+    unresolved = target_ids ∩ after.gap_ids
+    introduced = after.gaps - before.gaps
+    
+    return ApplyResult { ..., gap_resolution: { ... } }
+```
+
+### 8.5 Rust 模块职责（接口形状，不是实现）
+
+```rust
+// gap_rules/mod.rs
+pub trait GapRule {
+    fn code(&self) -> &'static str;
+    fn applies_to(&self) -> DesignerBlockKind;
+    fn check(&self, block: &DesignerBlock, graph: &DesignerDesignGraph) -> Vec<DesignerGap>;
+}
+
+pub fn run_all(graph: &DesignerDesignGraph) -> GapRunResult {
+    // 注册表里取所有 rule，按 block 分发，聚合 gaps + ruleRuns
+}
+```
+
+每条规则一个独立 struct 实现 `GapRule`，注册到 `register_rules()` 函数，`mod.rs` 的注册表是 v1 的扩展点：未来加规则只需加 struct + 注册一行。
+
+## 9. 前端模块边界
 
 ```text
 apps/desktop-web/src/features/business-designer/
-apps/desktop-tauri/src-tauri/src/commands/business_designer/
-crates/gt-business-designer/       # 后端逻辑稳定后再沉淀
-```
-
-后端 command 入口只做绑定和参数校验。文档解析、编译、路径校验、Git checkpoint、Agent patch 校验等逻辑不能堆在 command 根目录。
-
-### 4.2 主界面布局
-
-业务设计器应该像一个原生生产力工具，而不是网页 CMS 或营销页。
-
-```text
-┌──────────────────────────────────────────────────────────────┐
-│ 顶部控制栏 / workspace tabs                                   │
-├──────┬────────────────┬─────────────────────────┬────────────┤
-│ 侧栏 │ 文档列表/大纲   │ 可视化设计画布            │ 属性/Agent │
-│      │ 模块树/最近文档 │ 块、流程、表格、契约       │ 审阅面板    │
-├──────┴────────────────┴─────────────────────────┴────────────┤
-│ 版本条：保存状态、checkpoint、diff、导出、校验状态             │
-└──────────────────────────────────────────────────────────────┘
-```
-
-左侧面板：
-
-- 展示 `.gtoffice/docs` 下的需求文档库。
-- 展示业务模块树、最近编辑文档、当前文档大纲。
-- 展示状态徽章：草稿、可交给 Agent、缺少契约、有开放问题等。
-
-中间画布：
-
-- 以块为单位编辑需求。
-- 支持文本、实体模型、流程泳道、规则表、伪代码、API 契约、UI 流程、测试用例、决策记录等。
-- 顶部提供模式切换：`设计`、`流程`、`契约`、`Agent Brief`、`预览`。
-- 源码视图可以提供给高级用户，但不能成为主体验。
-
-右侧检查器：
-
-- 展示当前选中块的属性。
-- 展示 Agent 操作面板。
-- 支持选择补全模式：实体补全、流程扩展、API 生成、测试生成、风险审查、编码简报生成。
-- 支持选择 Agent provider：Codex、Claude Code，未来可扩展到其他 Agent。
-- 展示即将发送给 Agent 的上下文、输出 schema、置信度和开放问题。
-
-底部版本条：
-
-- 显示最近保存时间。
-- 显示当前 docs repo 的分支/checkpoint。
-- 显示相对上次 checkpoint 的 diff 状态。
-- 显示校验状态。
-- 提供导出 Markdown、HTML、JSON、Agent bundle 的入口。
-
-### 4.3 原生桌面 UI 风格
-
-按 `$native-feel-cross-platform-desktop` 的规则约束：
-
-- 使用系统字体：macOS 使用 `-apple-system` / `BlinkMacSystemFont`，Windows 使用 `Segoe UI Variable` / `Segoe UI`。
-- 列表行、大纲行、侧栏项不要使用 `cursor: pointer`，避免网页感。
-- 使用紧凑 source list、分栏、工具栏图标按钮，不做卡片堆叠式 SaaS 页面。
-- 导入、导出、选择目录使用 Tauri 原生对话框。
-- 跟随系统深色/浅色模式和 accent color，不硬编码大面积紫色、蓝紫色、米色或深蓝主题。
-- 主视图切换不做网页式 route fade，动画应短、轻、功能性明确。
-- 支持完整键盘操作：文档切换、块移动、搜索、Agent 命令、接受/拒绝 patch。
-- 导出不模拟浏览器下载条，使用原生 save panel。
-- 空状态保持克制：一个图标、一句话、一个主操作。
-- 危险操作必须显示明确影响范围，例如会影响哪个文档、哪个 checkpoint、哪个路径。
-
-`ui-ux-pro-max` 查询给出的方向是专业、信息密度高、实时协作型企业工具。落到 GT Office 中，应转化为 Apple 风格 split-view 工作台：密度适中、层级清晰、focus ring 明确、颜色来自 token，不使用装饰性渐变和大 hero。
-
-## 5. 核心功能
-
-### 5.1 文档库
-
-- 从模板创建需求包：
-  - 产品需求
-  - 业务模块
-  - 领域模型
-  - API 契约
-  - Agent 编码简报
-  - 现有代码分析简报
-- 浏览 `.gtoffice/docs` 下的结构化文档。
-- 支持置顶关键需求包。
-- 支持搜索标题、标签、实体、API、决策记录和生成的 JSON。
-- 展示每个需求包是否已经足够交给 Agent 编码。
-
-### 5.2 可视化需求块
-
-第一版建议支持以下块类型：
-
-| 块类型 | 用途 | 对 Agent 的价值 |
-|---|---|---|
-| 文本段落 | 目标、背景、约束 | 提供自然语言意图 |
-| 业务词汇表 | 术语、同义词、禁用词 | 避免命名漂移 |
-| 实体模型 | 字段、类型、是否必填、示例、校验 | 生成类型、schema、迁移 |
-| 业务流程 | 状态、泳道、触发器、异常路径 | 生成 workflow 和测试 |
-| 规则表 | 条件、动作、优先级 | 生成确定性分支逻辑 |
-| 伪代码 | 算法轮廓 | 指导实现但不绑定语言 |
-| 对象模型 | 类、接口、服务、聚合根 | 指导模块边界 |
-| API 契约 | 请求、响应、错误、权限、事件 | 指导前后端契约 |
-| 数据契约 | JSON schema、数据库提示、索引 | 指导持久化设计 |
-| UI 流程 | 页面、用户动作、加载和错误状态 | 指导前端实现 |
-| 技术栈 | runtime、库、限制、禁用依赖 | 防止 Agent 自行发散 |
-| 非功能需求 | 性能、可靠性、可访问性、安全 | 明确质量门槛 |
-| 验收标准 | Given/When/Then、手工验证 | 驱动测试和验收 |
-| 开放问题 | 未决业务点 | 防止 Agent 假装确定 |
-| Agent 指令 | provider 相关执行说明 | 控制 Codex/Claude handoff |
-| 决策记录 | ADR 式选择和取舍 | 保留设计原因 |
-
-后续可扩展：
-
-- 事件风暴视图。
-- 权限矩阵。
-- 数据流向图。
-- 错误码体系。
-- 可观测性计划。
-- 迁移计划。
-- 灰度和回滚计划。
-- 风险清单。
-- 测试矩阵。
-- 可追溯矩阵：目标 -> 需求 -> 契约 -> 任务 -> 改动文件。
-
-### 5.3 Agent 辅助补全
-
-Agent 操作应该是上下文动作，而不是一个泛泛的“问 AI”输入框。
-
-建议动作：
-
-- 根据短词补全实体字段，例如用户输入 `订单`。
-- 根据用户故事扩展业务流程。
-- 根据实体生命周期生成状态机。
-- 根据流程和实体生成 API 契约。
-- 根据实体模型生成 JSON schema。
-- 生成验收标准。
-- 审查需求歧义。
-- 找缺失的边界情况。
-- 把需求包转换成 Agent 编码简报。
-- 把大模块拆成小的编码任务。
-- 在业务规则不明确时生成“需要人确认的问题”，而不是硬猜。
-
-Agent 输出必须是 typed patch，例如：
-
-```json
-{
-  "schemaVersion": 1,
-  "documentId": "order-system",
-  "baseRevision": "rev_20260610_001",
-  "summary": "补全订单实体和生命周期",
-  "changes": [
-    {
-      "op": "addBlock",
-      "afterBlockId": "entity-order",
-      "block": {
-        "id": "entity-order-fields",
-        "kind": "entityModel",
-        "title": "订单字段",
-        "payload": {
-          "entityName": "Order",
-          "fields": [
-            { "name": "id", "type": "string", "required": true, "description": "订单唯一标识" },
-            { "name": "customerId", "type": "string", "required": true, "description": "下单客户" },
-            { "name": "status", "type": "enum", "required": true, "values": ["draft", "submitted", "paid", "fulfilled", "cancelled"] }
-          ]
-        }
-      }
-    }
-  ],
-  "openQuestions": [
-    "订单是否需要支持部分退款？",
-    "订单号是否由外部支付系统生成？"
-  ]
-}
-```
-
-UI 必须把 patch 渲染成可视化 diff，并提供逐块接受/拒绝。
-
-### 5.4 专业输出包
-
-每个需求包应能编译出：
-
-- `README.md`：面向人的需求概览。
-- `agent-brief.md`：给 Coding Agent 的简洁执行说明。
-- `requirements.md`：产品和业务需求。
-- `domain.md`：词汇表、实体、生命周期、业务规则。
-- `flows.md`：业务流程和异常路径。
-- `contracts.md`：API、事件、JSON schema、错误码。
-- `architecture.md`：模块边界、技术栈、依赖约束。
-- `acceptance.md`：验收标准、测试矩阵、验证路径。
-- `open-questions.md`：未决问题。
-- `design.json`：完整机器可读块图。
-- `agent-input.json`：紧凑、校验后的 Agent 输入 JSON。
-- `preview.html`：GT Office 生成的本地可视化预览。
-
-生成文件必须稳定、确定，避免 Git diff 每次出现无意义变动。
-
-### 5.5 本地需求 Git 历史
-
-业务设计器应在以下目录初始化并管理一个独立本地 Git 仓库：
-
-```text
-<workspace>/.gtoffice/docs/.git
-```
-
-规则：
-
-- 第一次进入业务设计器或第一次创建文档时初始化。
-- 只跟踪 `.gtoffice/docs` 下的文件。
-- 默认不配置 remote。
-- 不存储 credentials、provider secrets、原始终端日志。
-- 不在每次键入时自动 commit，只在用户确认 checkpoint 时提交。
-- 建议 commit message：
-
-```text
-designer: checkpoint <document-title> <short-revision>
-```
-
-支持对比：
-
-- 当前视觉状态 vs 上次 checkpoint。
-- checkpoint vs checkpoint。
-- Agent patch vs 当前视觉状态。
-- 新旧 Agent brief 对比。
-
-如果 workspace 本身已经是 Git 仓库，`.gtoffice/docs` 仍然是独立嵌套仓库。UI 必须明确提示，避免用户把“需求历史”和“源码历史”混淆。
-
-## 6. 存储模型
-
-### 6.1 目录结构
-
-```text
-.gtoffice/
-└── docs/
-    ├── .git/
-    ├── index.json
-    ├── templates/
-    │   ├── product-requirement.template.json
-    │   └── agent-brief.template.json
-    └── documents/
-        └── order-system/
-            ├── manifest.json
-            ├── README.md
-            ├── design.json
-            ├── blocks/
-            │   ├── 001-overview.json
-            │   ├── 010-domain-order.json
-            │   ├── 020-flow-order-submit.json
-            │   └── 090-agent-instructions.json
-            ├── generated/
-            │   ├── agent-brief.md
-            │   ├── agent-input.json
-            │   ├── contracts.md
-            │   └── preview.html
-            └── patches/
-                └── agent-patch-20260610-001.json
-```
-
-### 6.2 标准源文件
-
-采用混合模型：
-
-- `manifest.json` 是需求包入口。
-- `design.json` 是完整标准块图，便于可靠解析。
-- `blocks/*.json` 支持局部加载和更小 diff。
-- 生成的 `.md` 和 `.html` 是可携带输出，不是唯一真相来源。
-
-这样既满足用户能导出、阅读 Markdown/HTML，也保证应用能安全进行可视化编辑，而不是靠脆弱的 Markdown 解析反推结构。
-
-### 6.3 manifest 示例
-
-```json
-{
-  "schemaVersion": 1,
-  "documentId": "order-system",
-  "title": "订单系统需求设计",
-  "module": "commerce",
-  "createdAt": "2026-06-10T00:00:00.000Z",
-  "updatedAt": "2026-06-10T00:00:00.000Z",
-  "entry": "design.json",
-  "generated": {
-    "readme": "README.md",
-    "agentBrief": "generated/agent-brief.md",
-    "agentInput": "generated/agent-input.json",
-    "previewHtml": "generated/preview.html"
-  },
-  "tags": ["order", "commerce"],
-  "status": "draft"
-}
-```
-
-### 6.4 块 schema 草案
-
-```ts
-type DesignerBlockKind =
-  | 'text'
-  | 'glossary'
-  | 'entityModel'
-  | 'businessFlow'
-  | 'ruleTable'
-  | 'pseudocode'
-  | 'objectModel'
-  | 'apiContract'
-  | 'dataContract'
-  | 'uiWorkflow'
-  | 'technicalStack'
-  | 'nonFunctional'
-  | 'acceptanceCriteria'
-  | 'openQuestions'
-  | 'agentInstruction'
-  | 'decisionRecord'
-
-interface DesignerBlock<TPayload = unknown> {
-  id: string
-  kind: DesignerBlockKind
-  title: string
-  order: number
-  payload: TPayload
-  links: Array<{ targetBlockId: string; relation: string }>
-  validation: Array<{ code: string; severity: 'info' | 'warning' | 'error'; message: string }>
-  updatedAt: string
-}
-```
-
-## 7. 后端与 API 设计
-
-所有命令都必须携带 `workspaceId`。
-
-### 7.1 Tauri commands
-
-| Command | 用途 |
-|---|---|
-| `business_designer.list_documents` | 列出 `.gtoffice/docs/documents` 下的需求包 |
-| `business_designer.create_document` | 创建 manifest、标准块图和初始 checkpoint |
-| `business_designer.read_document` | 读取 manifest 和指定 blocks |
-| `business_designer.save_document` | 原子保存变更 blocks |
-| `business_designer.compile_document` | 生成 Markdown、HTML、JSON |
-| `business_designer.validate_document` | 返回 schema、完整性、Agent 可读性诊断 |
-| `business_designer.init_docs_repo` | 初始化 `.gtoffice/docs/.git` |
-| `business_designer.create_checkpoint` | 用用户可见 message 提交当前 docs 状态 |
-| `business_designer.diff_checkpoint` | 返回 checkpoint 或 working tree 的结构化 diff |
-| `business_designer.preview_agent_task` | 调度前生成 prompt 和 JSON 合约预览 |
-| `business_designer.run_agent_completion` | 把补全任务发送给选中的 provider/session |
-| `business_designer.apply_agent_patch` | 校验并应用用户接受的 patch 操作 |
-| `business_designer.export_document` | 通过原生 save flow 导出指定文件 |
-
-### 7.2 Events
-
-| Event | Payload | 触发时机 |
-|---|---|---|
-| `business-designer/document-changed` | `{ workspaceId, documentId, revision }` | 保存或外部文件变化 |
-| `business-designer/validation-updated` | `{ workspaceId, documentId, diagnostics }` | 校验完成 |
-| `business-designer/agent-progress` | `{ workspaceId, requestId, stage, detail }` | Agent 补全过程推进 |
-| `business-designer/agent-patch-ready` | `{ workspaceId, requestId, patchPath }` | patch 已写入待审阅 |
-| `business-designer/checkpoint-created` | `{ workspaceId, documentId, commit }` | docs repo commit 完成 |
-
-### 7.3 Rust 模块边界
-
-MVP 可先在 `apps/desktop-tauri/src-tauri/src/commands/business_designer/` 下放一个小 service。逻辑稳定后，沉淀为 `crates/gt-business-designer`。
-
-建议 crate 职责：
-
-- 解析 `.gtoffice/docs` 下路径。
-- 校验 manifest 和 block schema。
-- 原子读写文档。
-- 将 block graph 稳定编译为 Markdown/HTML/JSON。
-- 管理 docs repo 的 Git checkpoint。
-- 校验 Agent patch。
-- 提供样例文档 fixture 和测试。
-
-不要把 UI 渲染细节放进 Rust crate。Rust 负责语义输出，前端负责视觉呈现。
-
-### 7.4 前端模块边界
-
-```text
-features/business-designer/
-├── BusinessDesignerPane.tsx
+├── BusinessDesignerPane.tsx          # 三栏组合
 ├── BusinessDesignerPane.scss
 ├── components/
-│   ├── DesignerDocumentList.tsx
-│   ├── DesignerOutline.tsx
-│   ├── DesignerCanvas.tsx
-│   ├── DesignerInspector.tsx
-│   ├── DesignerAgentPanel.tsx
-│   ├── DesignerPatchReview.tsx
-│   └── DesignerVersionStrip.tsx
+│   ├── DesignerSidebar.tsx           # 文档列表（保留）
+│   ├── DesignerGraphCanvas.tsx       # 新：图画布
+│   ├── DesignerInspector.tsx         # 新：选中块检查器 + 缺口清单 + Agent
+│   ├── DesignerBlockDrillSheet.tsx   # 新：双击下钻覆盖层
+│   ├── DesignerBriefRoot.tsx         # 新：图根 brief 的下钻面板（沿用 DesignerDocument 语义）
+│   ├── DesignerPatchSheet.tsx        # 升级：尾部加三态对比区
+│   ├── DesignerToolbar.tsx           # 保留
+│   ├── DesignerHistorySheet.tsx      # 保留
+│   └── DesignerStatusbar.tsx         # 升级：缺口数显示
 ├── controllers/
-│   ├── useDesignerDocuments.ts
-│   ├── useDesignerDocumentState.ts
-│   ├── useDesignerAgentCompletion.ts
-│   ├── useDesignerValidation.ts
-│   └── useDesignerVersioning.ts
-├── model/
-│   ├── designer-blocks.ts
-│   ├── designer-document.ts
-│   ├── designer-patch.ts
-│   └── designer-validation.ts
-└── index.ts
+│   ├── designerDesktopApi.ts         # 升级：新返回字段
+│   ├── useDesignerDocuments.ts       # 保留
+│   ├── useDesignerDocumentState.ts   # 升级：携带 gaps/rulesRun/gapResolution
+│   ├── useDesignerHistory.ts         # 保留
+│   ├── useDesignerGraph.ts           # 新：节点位置、邻接、推导边
+│   └── useDesignerAgentTask.ts       # 新：host/gap 锚定、preview/dispatch
+└── model/
+    ├── designer-blocks.ts            # 不动
+    ├── designer-document.ts          # 加 layout 字段
+    ├── designer-patch.ts             # 加 hostBlockId/gapCodes/gapResolution
+    ├── designer-validation.ts        # 加 gaps/rulesRun
+    └── designer-graph.ts             # 新：边推导、布局类型
 ```
 
-Shell 层只做最小改动：
+不引入新依赖：节点定位用 SVG + CSS transform，缩放/平移用现有事件。布局用网格初始 + 用户拖拽位置。
 
-- `NavItemId` 增加 `designer`。
-- 增加 i18n 文案。
-- 增加图标映射。
-- 主区域渲染 `BusinessDesignerPane`。
-- 如需要，左侧面板接入文档列表和大纲。
+## 10. 实施路径
 
-## 8. Agent 协作模型
+每个里程碑独立验证、独立 commit、独立证明范式有效。
 
-### 8.1 Provider 选择
+### M1 — 后端 Gap 引擎 + validate 扩展
 
-第一版支持现有 session provider：
+- 新增 `gap_rules/` 模块，实现三种块的全部规则（§6 收口清单）。
+- 扩展 `validate_document` 返回 `gaps` / `rulesRun`，`diagnostics` 退回纯 lint。
+- 边推导逻辑（§5.7）放在 `validation.rs`，跑在 `gap_rules::run_all` 之前。
+- 每条规则一组 fixture 单测（满足 / 不满足）。
+- inter 层规则（`dangling-ref` / `orphan-contract`）需要图遍历，`run_all` 接收完整 `DesignerDesignGraph`。
 
-- `codex`
-- `claude`
+**验证**：
+- `cargo test -p gtoffice-desktop-tauri business_designer`（旧测试 + 新规则测试全绿）
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- 手工：`validate_document` 一份带已知缺口的 fixture，确认 gaps 数量与定位正确。
 
-UI 不应假设它们是 API chat model，而应视为 GT Office 已管理的本地 Coding Agent 会话。这与当前 `SessionProvider = 'claude' | 'codex'` 保持一致。
+完成时，「AI 有迹可循」在后端已成立——命令行即可验证缺口检测。
 
-### 8.2 请求生命周期
+### M2 — Patch 锚定铁律 + 三态对比
 
-```text
-preview -> validate -> confirm -> dispatch -> receive patch -> validate patch -> review -> apply -> compile -> checkpoint
-```
+- `run_agent_completion` 接受 `hostBlockId` / `gapCodes` / `scope`，写入归档 patch metadata。
+- `apply_agent_patch` 校验：每个 change 命中 host，否则整体拒绝（不部分应用）。
+- 应用成功后重跑 `gap_rules`，返回 `gapResolution`。
+- mock provider patch 生成器升级为按 `hostBlockId` + `gapCodes` 生成确定性补丁。
 
-这与项目现有 AI 配置的安全流程一致：先预览、校验、确认，再应用，并留审计痕迹。
+**验证**：
+- 单测覆盖：host 命中通过、host 不命中拒绝、resolved/unresolved/introduced 三态。
+- `cargo test` 绿。
+- 手工：mock provider 端到端跑一次 `no-pk` 缺口，确认三态返回。
 
-### 8.3 Agent prompt 合约
+完成时，**整个范式硬约束已在后端生效**，前端任何后续实现自动获得「AI 有迹可循」的强制力。
 
-每次 Agent 任务必须包含：
+### M3 — 前端图画布 + 检查器
 
-- workspace ID。
-- 文档路径。
-- 被选中的 block IDs。
-- 当前 schema version。
-- 允许的输出 JSON schema。
-- 明确要求只返回 JSON patch。
-- 开放问题策略：核心业务规则不清楚时，提出问题，不要编造。
-- 文件变更策略：Agent 只提议，GT Office 负责应用用户接受的 patch。
+- 新建 `DesignerGraphCanvas` / `DesignerInspector` / `DesignerBlockDrillSheet`。
+- `BusinessDesignerPane` 切换为三栏：sidebar / canvas / inspector。
+- 保留 `DesignerDocument`，重命名为 `DesignerBriefRoot`，作为图根 brief 块的下钻面板。
+- 三种创作入口：brief 选中文本浮"建模为实体" / 缺口反推按钮 / 画布右键加块。
+- 边由前端从 `validate_document` 返回的隐含引用 + 后端推导结果二者合并渲染（v1 完全信任后端推导）。
+- 节点位置存 `manifest.layout`，拖拽时 throttle 保存。
 
-### 8.4 Agent 输出校验
-
-校验步骤：
-
-1. 解析 JSON。
-2. 检查 schema version。
-3. 检查 base revision。
-4. 检查所有引用的 block ID 是否存在，或是否声明为新 block。
-5. 拒绝未知 block kind。
-6. 按 block kind 校验 payload。
-7. 对破坏性替换要求用户明确确认。
-8. 原始 patch 保存到 `.gtoffice/docs/documents/<id>/patches/`。
-9. 渲染可视化 diff。
-
-Agent 输出无效时，应展示错误或发起修复请求，不能静默进行“尽力而为”的部分应用。
-
-## 9. 可靠性
-
-- **原子写入**：先写 `.gtoffice/docs` 内的临时文件，必要时 fsync，再 rename。
-- **路径安全**：所有路径必须同时限制在 workspace root 和 `.gtoffice/docs` 内。
-- **schema 迁移**：所有文档带 `schemaVersion`；未来不兼容版本先进入只读模式。
-- **Autosave**：视觉编辑可以 debounce 保存，但不能每次 autosave 都生成 Git commit。
-- **崩溃恢复**：保存未提交草稿状态，重启后与标准文件对比。
-- **Git 错误处理**：缺少 git binary、repo lock、嵌套 repo 混淆等都要给出可操作提示。
-- **Agent 超时**：支持取消，并保存 request 状态。
-- **Patch 幂等**：拒绝的 patch 仍归档；接受的 patch 记录 applied revision。
-- **Tracing**：后端命令带 traceId；Agent task 带 request ID 和 document ID。
-- **可 mock**：filesystem、Git、Agent dispatch 都应可替换，方便测试。
-- **HTML 安全**：生成 HTML 来自内部 renderer；导入 HTML 第一版应只作为源码查看，除非实现保守 allowlist sanitize。
-
-## 10. 性能
-
-用户感知目标：
-
-- 点击 `业务设计器` 后，缓存数据返回后 200ms 内出现文档列表。
-- 文本类块输入时不能每个 keystroke 调 Tauri。
-- 选中块、切换块、展开大纲应即时。
-- 常规文档的 Agent 任务预览应在 500ms 内完成。
-- 编译应尽量增量执行，不能阻塞热输入路径。
-
-实现策略：
-
-- 源码预览、Monaco 等重组件懒加载。
-- 长文档块列表和文档库使用已有 `@tanstack/react-virtual` 虚拟化。
-- blocks 分文件存储，支持局部读取和较小 diff。
-- 保存操作批处理。
-- Markdown/HTML 输出保持稳定，避免无意义 diff。
-- 避免 React effect 形成 IPC 热循环。
-- 校验结果按 document revision 缓存。
-- 文档变大后，compile/diff 可放到 Rust 后台任务。
-
-## 11. 安全与隐私
-
-- `.gtoffice/docs` 不得存放 API key、provider secret。
-- Agent prompt 默认只包含当前选中文档上下文，除非用户主动扩大范围。
-- 发送给 Agent 前，UI 必须展示将发送的上下文。
-- 导出的 Agent bundle 应可检查。
-- Agent session 的自定义 cwd 必须仍在 workspace 内。
-- HTML preview 不允许执行任意脚本。
-- 文档支持 redaction 标记，便于导出时隐藏敏感业务词。
-
-## 12. 技术栈
-
-优先使用当前已批准技术栈：
-
-- 前端：React 19、TypeScript、SCSS、现有 shell layout、现有 design tokens。
-- 编辑面：源码预览使用现有 Monaco；可视化模式使用自研 React block editor。
-- Markdown：现有 `react-markdown`、`remark-gfm`、`rehype-highlight`。
-- JSON/schema：`packages/shared-types` 中定义 TypeScript 类型，Rust 侧用 serde struct 对齐。
-- 后端：Tauri v2 commands、Rust service module，未来沉淀为 `gt-business-designer` crate。
-- 文件系统：沿用 workspace-scoped file API 和 Rust path validation。
-- Git：沿用 `gt-git` 模式或在 `.gtoffice/docs` 范围内调用 git CLI。
-- Agent 调度：复用现有 terminal/session/task 基础设施，支持 `codex` 和 `claude`。
-- 样式：只使用 SCSS，不新增原始 CSS 文件。
-- 图标：复用 `lucide-react` 和项目已有 icon wrapper。
-
-第一版不要新增图形编辑器、流程图库或复杂富文本依赖。流程可以先用结构化表单、SVG 连线、泳道/表格视图实现。未来若确实需要第三方 diagram 库，必须先在 `docs/DEPENDENCIES.md` 记录用途、备选方案和影响范围。
-
-## 13. 实现路径
-
-### Phase 0 - 方案确认
-
-- 评审本文档。
-- 确定文档 schema 命名和第一批模板。
-- 确认 `.gtoffice/docs/.git` 是首次进入自动初始化，还是用户确认后初始化。
-- 确认第一批模板：`业务模块`、`Agent Brief`、`API 契约`。
-
-### Phase 1 - 只读原型
-
-- 新增侧栏入口和空的业务设计器 shell。
-- 列出 `.gtoffice/docs/documents`。
-- 加载一个样例需求包。
-- 渲染 block 大纲和只读画布。
-- 展示 schema 校验诊断。
-
-验证：
-
+**验证**：
 - `npm run typecheck`
-- 手工验证打开、切换 nav、切换 workspace 不异常。
+- `npm run build:tauri` 产物可启动
+- 手工：打开样例文档 → 看到图、缺口徽章、双击下钻、改字段名让边消失、加块让边出现。
 
-### Phase 2 - 可编辑块和编译
+### M4 — Agent 派发 UI + Patch Sheet 升级
 
-- 支持创建/保存需求包。
-- 实现核心块类型：文本、实体模型、业务流程、API 契约、验收标准、Agent 指令。
-- 编译生成 Markdown 和 `agent-input.json`。
-- 增加源码预览。
+- Inspector 缺口清单加 `[让 Agent 补]` / `[补全本块全部缺口]`。
+- Preview 面板：展示 host + gapCodes + payload + 邻接 prompt。
+- `DesignerPatchSheet` 尾部三态对比区。
+- `DesignerStatusbar` 显示文档级缺口总数。
 
-验证：
+**验证**：
+- `npm run typecheck` + `cargo check --workspace` + `cargo clippy`
+- 手工端到端：写 brief「订单」→ 选中"订单"建 Order 实体（自动有 no-pk 缺口）→ 让 Agent 补 → patch sheet → 接受 → 三态显示 resolved → checkpoint。
+- mock provider 验通后，**用 Codex 真实 session 跑一次完整端到端**——v0 全程未做的端到端验证，v1 必须补上。
 
-- schema validation 和 compiler 单元测试。
+### 全局验证（每个 M 都跑）
+
 - `npm run typecheck`
 - `cargo check --workspace`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test -p gtoffice-desktop-tauri business_designer`
+- `git diff --check`
 
-### Phase 3 - 本地 docs Git
+## 11. 可靠性
 
-- 初始化 `.gtoffice/docs/.git`。
-- 创建 checkpoint。
-- 展示当前状态与上次 checkpoint 的 diff。
-- 支持历史 checkpoint 列表。
+- **原子写入**：先写临时文件、必要时 fsync、再 rename，沿用现有约束。
+- **路径安全**：所有路径限制在 workspace root 与 `.gtoffice/docs` 双重边界内。
+- **schema 迁移**：`schemaVersion` 已存在；v1 加字段不动版本号（向后兼容加法），下一次破坏性改动再升级。
+- **Autosave**：debounce 保存，不每次 autosave 触发 Git commit。
+- **Git 错误**：缺 git binary / repo lock / 嵌套 repo 混淆给可操作提示，沿用 v0 处理。
+- **Agent 超时**：支持取消并保存 request 状态（沿用现有 task center 集成）。
+- **Patch 幂等**：拒绝的 patch 仍归档；接受的 patch 记录 applied revision；host 不命中即整体拒绝、不部分应用。
+- **Tracing**：后端命令带 traceId；Agent task 带 request id + document id + hostBlockId + gapCodes，便于审计「AI 改了哪个 host 的哪个 gap」。
+- **可 mock**：filesystem / Git / Agent dispatch / gap_rules 都可替换。
 
-验证：
+## 12. 性能
 
-- Rust 临时 workspace 测试。
-- 手工验证 workspace 已是 Git 仓库时的嵌套 repo 场景。
+- 点击 `业务设计器` 后，缓存返回 200ms 内出现文档列表（v0 已达成，v1 保持）。
+- 图画布初次绘制 < 16ms（节点 < 50 个的常规需求包）；超过 50 个节点用 viewport culling。
+- 节点拖拽 60fps，位置保存 debounce 300ms。
+- 输入热路径不调 Tauri：brief 文本编辑、字段表编辑均在前端 in-memory，autosave 触发后端。
+- 验证不在热输入路径阻塞：`validate_document` 在 save 后异步触发，结果 patch 到画布。
+- Markdown / HTML 输出保持稳定，避免无意义 diff（v0 已达成）。
 
-### Phase 4 - Agent 补全
+## 13. 安全与隐私
 
-- 增加 provider 选择。
-- 生成 task preview。
-- 向 Codex/Claude session 发送补全请求。
-- 校验返回 patch。
-- 渲染可视化 patch review。
-- 应用用户选择的变更。
-- 编译并在用户确认后 checkpoint。
+- `.gtoffice/docs` 不存 API key、provider secret。
+- Agent prompt 默认只含选中 host block 与其邻接 1 跳；用户可主动扩大。
+- 派发前 UI 必须展示将发送的上下文。
+- Agent session cwd 仍在 workspace 内。
+- HTML preview 不允许执行任意脚本（沿用 v0）。
+- 文档支持 redaction 标记，导出时隐藏敏感业务词（沿用 v0 设计意图）。
 
-验证：
+## 14. 技术栈
 
-- Mock agent 返回合法 patch。
-- Mock agent 返回非法 JSON。
-- Mock agent 返回过期 base revision。
-- 手工用 Codex 和 Claude Code session 跑通一次。
+继续使用 v0 已批准技术栈，不引新依赖：
 
-### Phase 5 - 专业输出和编码 handoff
+- 前端：React 19、TypeScript、SCSS、`@tanstack/react-virtual`（缺口列表虚拟化）、现有 `lucide-react` 图标。
+- Markdown 渲染：现有 `react-markdown` + `remark-gfm` + `rehype-highlight`（用于 brief 与 Agent 产出的只读块）。
+- 图画布：**v1 不引第三方 graph 库**。SVG + CSS transform + 自研节点/边/拖拽。如 M3 实施中确认自研负担过大，先在 `docs/DEPENDENCIES.md` 记录用途、备选方案与影响范围，再讨论。
+- 后端：Tauri v2 commands、Rust serde、现有 `gt-git` 模式（用于 `.gtoffice/docs` 的独立 docs repo）。
+- Agent 调度：复用现有 terminal/session/task 基础设施，支持 `codex` / `claude`。
+- 样式：仅 SCSS；响应式单位（`rem`），不用 `px`。
 
-- 增加完整 Agent bundle 导出。
-- 增加可追溯矩阵。
-- 增加面向 Coding Agent 的任务拆分。
-- 接入 Task Center，实现“把该需求发送给 Agent 编码”。
+## 15. 待确认决策（v1 范围内）
 
-验证：
+以下决策 v1 已按倾向落定，记录在此供后续修订时回看：
 
-- 生成的需求包可以被 Coding Agent 在无额外口头补充的情况下使用。
-- 用户可以对比 Agent 补全前后的需求 checkpoint。
+1. **图节点位置存哪里？** 选 manifest.layout（B 方案）。
+2. **brief 实体识别策略**：用户选中浮按钮，**不**自动 NLP（最小方案）。
+3. **下钻视图**：覆盖层 modal-like，不是 inspector 内嵌。
+4. **relation 词表**：固定 5 种 `dependsOn` / `produces` / `consumes` / `uses` / `extends`，封闭。
 
-## 14. 初始模板
+## 16. 成功标准
 
-### 14.1 业务模块模板
+v1 闭环完成的标志：
 
-章节：
+- 用户从一句「订单系统」brief 出发，经几次 Agent 补缺口，得到结构完备、规则全绿、可导出的需求包。
+- 任何 AI 输出都被规则验证为 resolved/unresolved/introduced，无人为评分环节。
+- `apply_agent_patch` 对 host 不命中的 patch 整体拒绝，不部分应用。
+- 现有 Phase 6 的 brief 文本入口、checkpoint 历史、导出、docs Git 全部保持可用。
+- 实现不破坏 GT Office 现有模块边界（前端 features 边界、后端 commands 入口最小化）。
+- 范式可扩展：后续加新 block kind 的 gap 规则只需加规则 struct + 注册一行，不动 command 表面。
 
-1. 目标和范围。
-2. 参与者和角色。
-3. 业务词汇表。
-4. 实体模型。
-5. 业务生命周期。
-6. 业务规则。
-7. 用户流程。
-8. API / 事件。
-9. 数据持久化说明。
-10. 边界情况和异常路径。
-11. 非功能需求。
-12. 验收标准。
-13. Agent 编码简报。
-14. 开放问题。
+---
 
-### 14.2 Agent 编码简报模板
+## 附录 A：历史进度（v0）
 
-章节：
-
-1. 目标模块。
-2. 可能影响的文件。
-3. 现有架构约束。
-4. 必须实现的行为。
-5. API 契约。
-6. 数据契约。
-7. UI 预期。
-8. 需要新增或运行的测试。
-9. 禁止的捷径。
-10. 完成检查清单。
-
-### 14.3 API 契约模板
-
-章节：
-
-1. Endpoint / command / event 名称。
-2. 请求字段。
-3. 响应字段。
-4. 错误码。
-5. 权限和安全约束。
-6. 幂等性。
-7. 可观测性。
-8. 示例请求和响应。
-9. 验收测试。
-
-## 15. 示例：输入 `订单`
-
-用户输入：
-
-```text
-订单
-```
-
-Agent 应补全：
-
-- 实体：`Order`。
-- 字段：id、orderNo、customerId、status、currency、subtotal、discountTotal、taxTotal、grandTotal、paymentStatus、fulfillmentStatus、createdAt、updatedAt、cancelledAt。
-- 枚举：订单状态、支付状态、履约状态。
-- 校验：金额不能为负，`grandTotal = subtotal - discountTotal + taxTotal`，取消规则。
-- 流程：draft -> submitted -> paid -> fulfilled，另有 cancelled/refunded 异常路径。
-- API：create order、submit order、cancel order、get order、list orders。
-- 事件：order.created、order.submitted、order.paid、order.cancelled。
-- 验收标准：创建订单、提交订单、支付订单、取消限制、非法金额拒绝。
-- 开放问题：是否支持部分退款、是否需要库存预占、订单号由谁生成、是否需要发票。
-
-## 16. 待确认决策
-
-1. `.gtoffice/docs/.git` 是自动初始化，还是用户首次确认后初始化？
-2. 第一版是否支持导入 HTML，还是只支持生成 HTML preview？
-3. document ID 使用用户可读 slug，还是 UUID + slug alias？
-4. Agent 补全使用新 terminal session，还是复用用户选择的 station/session？
-5. 业务设计器未来是否需要独立 detached window？
-6. `.gtoffice/docs` 是否默认加入 workspace 源码 Git 的 ignore，还是交给用户决定？
-
-## 17. 成功标准
-
-功能成功的标准：
-
-- 用户能把一句简短业务想法整理为结构化需求包，而不需要手写原始 Markdown。
-- 需求包能稳定编译出 Markdown、HTML preview 和 Agent-ready JSON。
-- 用户可选择 Codex 或 Claude Code session，让 Agent 返回结构化补全建议。
-- 用户能审阅并选择性应用 Agent patch。
-- 需求变更会在 `.gtoffice/docs/.git` 中形成 checkpoint，并且可视化对比。
-- 生成的 Agent brief 包含领域模型、业务流程、契约、测试、约束和开放问题，能显著减少 Coding Agent 的歧义。
-- 实现不破坏 GT Office 现有模块边界，并保持原生桌面应用体验。
-
-## 18. 开发进度记录
+> 以下为 v0 Phase 1–6 的开发进度记录，保留作为历史参考。v1 起的实现进度独立记录（建议另起 `BUSINESS_DESIGNER_V1_PROGRESS.md`）。
 
 ### 2026-06-11 Phase 1 底座
 
 已完成：
 
 - 新增业务设计器侧栏入口 `designer`，位置在文件管理之后、Git 协作之前。
-- 新增 `apps/desktop-web/src/features/business-designer/` 前端 feature 骨架，包含文档库、块大纲、只读画布、检查器、Agent 面板、Patch 审阅占位和底部版本条。
-- 新增 `apps/desktop-tauri/src-tauri/src/commands/business_designer/` 后端命令底座，提供 `business_designer_list_documents` 和 `business_designer_init_docs_repo`。
-- `business_designer_init_docs_repo` 会在 workspace 内创建 `.gtoffice/docs`、`documents/`、`templates/`、`index.json` 和第一批模板，并初始化独立 docs Git 仓库。
-- `business_designer_list_documents` 会列出 `.gtoffice/docs/documents/*/manifest.json`，返回文档摘要、块数量、诊断和 docs repo 初始化状态。
-- 增加 Rust 单元测试覆盖未初始化文档库、脚手架初始化、manifest 摘要读取和 manifest JSON 诊断。
-- 前端通过 `desktopApi` 使用 typed contract 访问后端，避免组件直接拼 Tauri invoke。
-
-刻意未做：
-
-- 未实现创建/保存需求包。
-- 未实现 block 编辑器、编译器、源码预览。
-- 未实现 checkpoint commit、diff、历史列表。
-- 未实现 Agent prompt preview、任务派发、patch 校验和可视化审阅应用。
-
-明日继续建议：
-
-1. 实现 `create_document`，生成 `manifest.json`、`design.json`、初始 blocks 和 README。
-2. 实现 `read_document`，让只读画布渲染真实 block graph。
-3. 增加 schema validation 单元测试，并把核心 TypeScript schema 同步到 Rust serde struct。
-4. 进入 Phase 2 前确认首次进入是否自动初始化 docs repo，还是必须用户点击初始化。
+- 新增 `apps/desktop-web/src/features/business-designer/` 前端 feature 骨架。
+- 新增 `apps/desktop-tauri/src-tauri/src/commands/business_designer/` 后端命令底座。
+- `business_designer_init_docs_repo` 在 workspace 内创建 `.gtoffice/docs` 与初始模板，并初始化独立 docs Git 仓库。
+- `business_designer_list_documents` 列出文档并返回摘要、块数、诊断、docs repo 状态。
+- 增加 Rust 单测覆盖未初始化、脚手架初始化、manifest 摘要读取与 manifest JSON 诊断。
+- 前端通过 `desktopApi` 使用 typed contract 访问后端。
 
 ### 2026-06-14 Phase 2/3 可编辑底座
 
 已完成：
 
-- 扩展 `business_designer` Tauri command：新增 `create_document`、`read_document`、`save_document`、`validate_document`、`compile_document`、`create_checkpoint`、`diff_checkpoint`、`preview_agent_task`。
-- Rust 侧新增结构化 manifest、design graph、block、generated paths、compile/checkpoint/diff 返回类型，command 入口只做 workspace 参数、状态装配和序列化。
-- 新增文档落盘约定：`.gtoffice/docs/documents/<documentId>/manifest.json`、`design.json`、`blocks/*.json`、`generated/*`、`patches/`。
-- 新增编译器底座，生成 `README.md`、`generated/agent-brief.md`、`generated/agent-input.json`、`generated/preview.html`、`generated/contracts.md`、`generated/acceptance.md`。
-- 新增 schema 校验：schema version、document id 一致性、block id 唯一性、block kind、payload 对象、验收标准和 Agent 指令完整性。
-- 新增 docs repo Git checkpoint 与 working tree diff，checkpoint 使用 `.gtoffice/docs/.git`，不影响 workspace 主 Git。
-- 前端 Business Designer 从只读原型升级为可编辑工作台：支持初始化 docs repo、创建需求包、选择文档、读取详情、编辑 block title/payload、保存、校验、编译、checkpoint、diff refresh、Agent task preview。
-- 前端新增 feature 内 API adapter，兼容新旧命名的 coarse IPC 方法，不让组件直接拼 Tauri invoke。
-- 使用 `$ui-ux-pro-max` 做 UI/UX 收口，并按 `$native-feel-cross-platform-desktop` 覆盖网页化建议：保留系统字体、split-view 信息密度、键盘焦点、pressed state、深浅色 token，不添加 `cursor:pointer`。
-- 新增 Rust 单元测试覆盖 scaffold/list/create/read/save/compile/checkpoint/diff。
-
-仍未完成：
-
-- `run_agent_completion`、`apply_agent_patch`、`export_document` 仍是明确错误的 stub，等待 Phase 4/5 接入真实 Agent 任务、patch 校验与导出。
-- 历史 checkpoint 列表和 checkpoint-to-checkpoint 对比尚未实现。
-- 复杂 block 类型仍以 JSON textarea 为主，后续需要逐步升级为专用编辑器。
+- 扩展 `business_designer` 命令：`create_document`、`read_document`、`save_document`、`validate_document`、`compile_document`、`create_checkpoint`、`diff_checkpoint`、`preview_agent_task`。
+- 新增文档落盘约定：`manifest.json` / `design.json` / `blocks/*.json` / `generated/*` / `patches/`。
+- 新增编译器底座，生成 `README.md` / `agent-brief.md` / `agent-input.json` / `preview.html` / `contracts.md` / `acceptance.md`。
+- 新增 schema 校验：schema version、document id 一致性、block id 唯一性、block kind、payload 对象、验收标准与 Agent 指令完整性。
+- 新增 docs repo Git checkpoint 与 working tree diff（独立嵌套 repo，不影响 workspace 主 Git）。
+- 前端从只读原型升级为可编辑工作台。
+- 新增 Rust 单测覆盖 scaffold/list/create/read/save/compile/checkpoint/diff。
 
 ### 2026-06-14 Phase 4/5 Agent patch 与输出底座
 
 已完成：
 
-- 后端补齐 `run_agent_completion`、`validate_agent_patch`、`apply_agent_patch`、`export_document`、`list_checkpoints` command，保持 Tauri command 入口只做装配，核心逻辑沉在 `business_designer` feature 模块内。
-- 新增 typed Agent patch 协议：`addBlock`、`updateBlock`、`deleteBlock` 三类变更，包含 `schemaVersion`、`documentId`、`baseRevision`、`summary`、`openQuestions`，并在应用前做文档 id、revision、block id、block kind、payload object 校验。
-- 新增 Agent patch 预览与归档：Agent 建议先进入 `documents/<documentId>/patches/agent-patch-*.json`，UI 显示结构化 diff，用户可选择性应用变更，Agent 不直接改需求。
-- 新增 patch 应用流程：UI 支持逐项接受/拒绝 patch，删除类变更默认不勾选并显示破坏性提示；接受的变更写回 `design.json` 和 block 文件，拒绝的变更保留在结果里，应用后的 detail 立即刷新。
-- 新增 checkpoint history 查询，支持按文档过滤最近 50 次 docs repo commit；空 Git repo 返回空历史，避免首启 UI 报错。
-- 新增 checkpoint-to-checkpoint 对比：后端支持在 `.gtoffice/docs/.git` 内按文档范围执行 `base..head` 结构化 diff，前端 Inspector 可选择两个 checkpoint 并在 Patch Review 中展示差异。
-- 新增导出底座，支持 `markdown`、`html`、`json`、`agentBundle` 四种格式；UI 导出入口使用 Rust/Tauri 调用系统原生 save dialog 并写入文件，保留纯内容导出接口用于自动化和测试。
-- 新增编码 handoff 底座：后端生成可审阅的 Task Center dispatch request、三段式任务拆分、附件引用和 Agent brief；前端 Agent 面板支持预览 handoff、输入目标 agent id 并发送到 Task Center。
-- 新增真实 task reply patch 回收底座：从 Task Center thread 的 status/handover 消息中提取 fenced JSON 或裸 JSON，归档原始 patch，并复用 typed patch 校验/审阅/应用链路；Handoff 发送结果直接展示每个目标的 task id 和 Recover 操作，减少真实 Codex/Claude 验证时的手工复制。
-- 前端工作台接入 Phase 4/5：Agent 面板可生成 mock/Codex patch preview、预览/发送 Coding Handoff、按 task id 回收真实 Agent patch，Patch Review 可显示诊断和应用建议，Version Strip 支持 history refresh 和 Agent bundle export，Inspector 展示 checkpoint history、导出结果和 recovered patch 来源。
-- 样式按 `$ui-ux-pro-max` 与 `$native-feel-cross-platform-desktop` 收口：维持 macOS 风格 split-view、系统字体、深浅色 token、焦点态、紧凑工具栏和原生桌面密度，不引入网页式 hover/cursor 行为。
-- 新增 Rust 单元测试覆盖 checkpoint history、空 repo history、mock agent patch preview、stale revision 校验、选择性 patch 应用、Agent bundle 导出。
+- 后端补齐 `run_agent_completion`、`validate_agent_patch`、`apply_agent_patch`、`export_document`、`list_checkpoints`。
+- 新增 typed Agent patch 协议（`addBlock` / `updateBlock` / `deleteBlock`），含 `schemaVersion` / `documentId` / `baseRevision` / `summary` / `openQuestions`。
+- Agent 建议先进入 `documents/<id>/patches/agent-patch-*.json`，UI 显示结构化 diff，用户选择性应用。
+- 新增 checkpoint history 查询与 checkpoint-to-checkpoint 对比。
+- 新增导出底座（`markdown` / `html` / `json` / `agentBundle`）。
+- 新增编码 handoff 底座（Task Center dispatch + 任务拆分 + 附件引用）。
+- 新增真实 task reply patch 回收底座。
 
-已验证：
-
-- `cargo test -p gtoffice-desktop-tauri business_designer`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `npm run typecheck`
-- `git diff --check`
+已验证：`cargo test -p gtoffice-desktop-tauri business_designer`、`cargo clippy --workspace --all-targets -- -D warnings`、`npm run typecheck`、`git diff --check`。
 
 仍未完成：
 
-- `codex` / `claude` provider 的 `run_agent_completion` 按钮仍复用 mock patch 生成器；真实链路已通过 Coding Handoff + task reply patch recovery 接入，但仍需要手工用 Codex 和 Claude Code session 做一次端到端验证。
-- 仍需手工验证 checkpoint-to-checkpoint 对比在真实 docs repo 历史中的视觉效果和大列表滚动体验。
+- `codex` / `claude` 真实端到端验证未做（v1 M4 必须补上）。
+- 复杂 block 类型仍以 JSON textarea 为主。
 
-### 2026-06-15 Phase 6 前端极简重写（Jobs 式）
+### 2026-06-15 Phase 6 前端极简重写
 
-**问题诊断**：此前 Phase 1–5 的前端是一个“伪装成桌面应用的网页 CMS”——16 种块类型、每块带表格编辑器、3 栏布局（文档列表 + 画布 + 检查器/Agent/补丁堆叠）、5 模式切换器（设计/流程/契约/Agent Brief/预览）、JSON textarea、实体字段表、API 端点表、流程迁移表。用户在“思考业务”之前必须先做“元数据架构师”，认知负担极重，违反 `$native-feel-cross-platform-desktop` 的 T3（拥抱平台）与 T4（感知即性能）。
+**问题诊断**：v0 Phase 1–5 的前端是「伪装成桌面应用的网页 CMS」——16 块/3 栏/5 模式认知负担极重。
 
-**重写核心思想**：文档即画布，Agent 是助手，按钮很少。用户只有一件事——把模糊想法变成结构化可交付需求包：写下来 → Agent 补全 → 审阅建议 → 导出 / 留存。
+**重写核心思想**：文档即画布，Agent 是助手，按钮很少。
 
 **已完成**：
 
-- **后端完全不动**：20 个 Tauri command、存储模型、编译器、docs Git checkpoint、Agent patch 校验/应用、导出引擎全部保留。前端只调用核心 4 子集（save / run_agent_completion / apply_agent_patch / export_document_to_file）+ compile / validate / create_checkpoint / list / init / create / read。
-- **数据模型映射（不动后端）**：整个需求正文压缩为单个 `text` 块（id=`brief`），用户编辑的就是它的 `payload.markdown`；Agent 返回的结构化块（entityModel / apiContract / acceptanceCriteria / openQuestions 等）在画布上渲染为只读内联段落。`save_document` 持久化前端传入的完整 detail，后端不校验结构，故无需改后端即可实现“单一文档”体验。`ensureBriefBlock` 在加载/保存往返中把后端 seed 的首个 text 块归一为 `brief`，保持契约稳定。
-- **删除旧的 16 块/3 栏整套**：移除 `DesignerCanvas`、`DesignerBlockEditorFields`（716 行表格编辑器）、`DesignerOutline`、`DesignerInspector`、`DesignerAgentPanel`、`DesignerPatchReview`、`DesignerVersionStrip`、`DesignerDocumentList`、`model/designer-payload.ts`（162 行表格 payload helpers）。
-- **新建 6 个极简组件**：
-  - `DesignerSidebar`：薄文档列表 + 内联新建 + 初始化文档库（147 行）。
-  - `DesignerDocument`：标题输入 + 单一 Markdown 正文 textarea + Agent 产出块的只读 Markdown 渲染（用现有 `MarkdownRenderer`），含 16 种块到稳定 Markdown 的编译器（308 行）。
-  - `DesignerToolbar`：单行工具栏，保存 / Agent 补全（accent）/ 导出（下拉，4 格式）/ Checkpoint，全部按钮带 pressed 态与 focus ring，无 hover cursor:pointer（137 行）。
-  - `DesignerPatchSheet`：浮动审阅 sheet，逐条 accept/reject，破坏性变更默认不勾并告警，复用 `apply_agent_patch` 的 acceptedChangeIndices 协议（149 行）。
-  - `DesignerStatusbar`：底部单行状态条，保存/草稿/Schema/诊断数/docs 就绪（99 行）。
-  - `BusinessDesignerPane`：组合两栏 + 工具栏 + 状态条 + 工作区绑定/空状态（174 行）。
-- **controller 精简**：`useDesignerDocumentState` 重写为 core-4 子集（load/save/validate/compile/checkpoint/agent/apply/export），去掉 diff/compare/history/handoff/recover 等暂缓项；`useDesignerDocuments` 保留；`designerDesktopApi` 同步精简。
-- **i18n**：新增 `designer.*` 文案键（中英双语），删除废弃的 16 块/模式/检查器文案引用；`nav.designer*` 与 `pane.designer.*` 保留供 shell 使用。
-- **样式**：全新极简 SCSS（729 行），两栏 + 工具栏 + 状态条，全程 `--vb-*` token、`rem()` 单位、深浅色自适应、无 `cursor:pointer`、pressed 态、系统 focus ring，遵循苹果风格 split-view 与 native-feel 约束。
+- 后端完全不动（20 个命令、存储模型、编译器、checkpoint、patch、导出全部保留）。
+- 整个需求正文压缩为单个 `text` 块（id=`brief`）。
+- 删除旧 16 块/3 栏整套：`DesignerCanvas`、`DesignerBlockEditorFields`（716 行）、`DesignerOutline`、`DesignerInspector`、`DesignerAgentPanel`、`DesignerPatchReview`、`DesignerVersionStrip`、`DesignerDocumentList`、`model/designer-payload.ts`。
+- 新建 6 个极简组件：`DesignerSidebar` / `DesignerDocument` / `DesignerToolbar` / `DesignerPatchSheet` / `DesignerStatusbar` / `BusinessDesignerPane`。
+- 前端 TS/TSX 从 ~3700 行降到 ~2034 行，SCSS 从 1375 行降到 729 行。
 
-**已验证**：
+已验证：`npm run typecheck`、`cargo check --workspace`、`cargo clippy`、`cargo test`（19 passed）、`git diff --check`。
 
-- `npm run typecheck`（tsc -b + vite build + shared-types tsc 全绿，SCSS 编译通过）
-- `cargo check --workspace`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test -p gtoffice-desktop-tauri business_designer`（19 passed）
-- `git diff --check`
-
-**瘦身**：前端 TS/TSX 从 ~3700 行降到 ~2034 行（SCSS 从 1375 行降到 729 行），且消除全部表格编辑器、模式切换器、3 栏堆叠。
-
-**刻意未做（与 core-4 范围一致）**：
-
-- checkpoint 历史列表、checkpoint-vs-checkpoint diff、Coding Handoff dispatch、task-patch recovery 的 UI 暂不接入（后端 command 保留，前端后续可加）。
-- `codex` / `claude` 真实 provider 链路仍走 mock patch；端到端验证待后续手工跑通。
-- 正文 textarea 后续可升级为 Monaco（当前用原生 textarea 保证零加载延迟与感知速度，符合 T4）。
+**v1 视角的反思**：Phase 6 解决了「认知负担」，但把结构折回自然语言后，AI 又得猜。v1 在保留 Phase 6 brief 文本入口的前提下，把结构以「图节点 + 缺口」的形式请回来，让低门槛与可循结构两者并存。
 
 ### 2026-06-17 Phase 6 补全：checkpoint 历史与差异 UI
 
-**背景**：设计文档 §5.5「本地需求 Git 历史」要求支持「历史 checkpoint 列表」与「checkpoint vs checkpoint / 当前视觉状态」的对比。Phase 6 极简重写时这两项 UI 被刻意延后（后端 `list_checkpoints` / `diff_checkpoint` / `compare_checkpoints` 已实现并有测试）。本轮按 `$native-feel-cross-platform-desktop` 收口，补齐这块 UI，使其不回到 3 栏/检查器堆叠。
+已完成：
 
-**已完成**：
+- 新增 model 类型 `DesignerCheckpointEntry` / `DesignerCheckpointHistoryResult` / `DesignerDiffEntry` / `DesignerDiffResult`。
+- `designerDesktopApi` 新增 `listDesignerCheckpoints` / `diffDesignerWorkingTree` / `compareDesignerCheckpoints`。
+- 新增 `useDesignerHistory` controller 与 `DesignerHistorySheet` 浮动面板。
+- `DesignerToolbar` 增加「历史」按钮。
+- 新增 `designer.history.*` 中英 i18n。
+- 后端零改动。
 
-- 新增 model 类型 `DesignerCheckpointEntry`、`DesignerCheckpointHistoryResult`、`DesignerDiffEntry`、`DesignerDiffResult`，对齐 Rust serde 结构。
-- `designerDesktopApi` 新增 `listDesignerCheckpoints`、`diffDesignerWorkingTree`、`compareDesignerCheckpoints`，沿用现有 coarse-name fallback 模式，按 desktop-api 的 `params` 对象契约调用。
-- 新增 `controllers/useDesignerHistory.ts`：管理历史列表加载、模式（对比工作区 / 对比两次 checkpoint）、base/head 选择与 diff 计算，带 operation/error 状态；切文档时重置。
-- 新增 `components/DesignerHistorySheet.tsx`：浮动面板，列出最近 50 次 docs repo checkpoint，模式切换 + base/head 下拉 + 对比按钮 + 结构化 diff 列表（added/modified/deleted/renamed/untracked 着色）。Escape 关闭，符合 native-feel「Escape 永远有意义」。
-- `DesignerToolbar` 增加「历史」按钮（`clock` 图标），`BusinessDesignerPane` 绑定 `useDesignerHistory` 并渲染 sheet。
-- 新增 `designer.history.*` 中英 i18n 文案；SCSS 复用 `--vb-*` token、`rem()` 单位、无 `cursor:pointer`、pressed/focus 态、深浅色自适应。
-- 后端零改动：复用既有 20 个 command 与 docs Git checkpoint/diff 实现。
+已验证：`npm run typecheck`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test -p gtoffice-desktop-tauri business_designer`（19 passed）、`npm run build:tauri`。
 
-**已验证**：
+仍刻意未做（v1 接管）：
 
-- `npm run typecheck`（tsc -b + vite build + shared-types tsc 全绿）
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test -p gtoffice-desktop-tauri business_designer`（19 passed）
-- `npm run build:tauri`（产出 `GT Office.app`）
-
-**仍刻意未做**：
-
-- `codex` / `claude` 真实 provider 链路仍走 mock patch；端到端验证待后续手工跑通。
-- Coding Handoff dispatch、task-patch recovery 的 UI 仍按 core-4 范围延后（后端 command 保留）。
-- 正文 textarea 升级 Monaco 仍延后（保持 T4 感知速度）。
-
-
+- `codex` / `claude` 真实端到端验证（v1 M4 必须）。
+- Coding Handoff dispatch / task-patch recovery UI（v1 暂不进入 v1 范围，后续独立设计）。
+- 正文 textarea 升级 Monaco（v1 仍延后；brief 文本是图根，保持 native textarea 的 T4 感知速度）。
