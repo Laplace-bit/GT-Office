@@ -6426,6 +6426,44 @@ esac\n",
     }
 
     #[test]
+    fn parent_repository_scope_discards_untracked_workspace_files() {
+        let parent_root =
+            std::env::temp_dir().join(format!("gt-git-parent-discard-{}", Uuid::new_v4()));
+        fs::create_dir_all(&parent_root).expect("create parent repo root");
+        init_repo(&parent_root);
+        fs::create_dir_all(parent_root.join("YYGL/code/assessment-management"))
+            .expect("create nested workspace");
+        fs::write(
+            parent_root.join("YYGL/code/assessment-management/tracked.txt"),
+            "base\n",
+        )
+        .expect("write tracked file");
+        run_git(&parent_root, &["add", "."]);
+        run_git(&parent_root, &["commit", "-m", "init parent"]);
+
+        let workspace_root = parent_root.join("YYGL/code/assessment-management");
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+
+        fs::write(workspace_root.join("scratch.txt"), "draft\n")
+            .expect("write untracked workspace file");
+        let discarded = service
+            .discard(&workspace_id, Some(""), &["scratch.txt".to_string()], true)
+            .expect("discard should remove parent-scoped untracked file");
+        assert_eq!(discarded, 1);
+        assert!(!workspace_root.join("scratch.txt").exists());
+
+        let status = service
+            .status_repo(&workspace_id, Some(""))
+            .expect("status should succeed after discard");
+        assert!(status.files.iter().all(|file| file.path != "scratch.txt"));
+
+        fs::remove_dir_all(parent_root).expect("parent repo root should be removed");
+    }
+
+    #[test]
     fn repository_cache_invalidation_discovers_new_nested_repository() {
         let (workspace_id, root, service) = create_temp_repo();
 
