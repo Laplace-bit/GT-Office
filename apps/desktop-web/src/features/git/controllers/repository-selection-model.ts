@@ -6,13 +6,22 @@ export function resolveActiveRepositoryPath(
   primaryRepositoryPath: string | null | undefined,
 ): string | null {
   if (
-    currentRepositoryPath &&
+    currentRepositoryPath !== null &&
     repositories.some((item) => item.repositoryPath === currentRepositoryPath)
   ) {
     return currentRepositoryPath
   }
 
   return primaryRepositoryPath ?? repositories[0]?.repositoryPath ?? null
+}
+
+export function buildRepositoryScopeKey(
+  workspaceId: string | null,
+  repositoryPath: string | null,
+): string {
+  const workspaceScope = workspaceId ?? '<no-workspace>'
+  const repositoryScope = repositoryPath === null ? '<auto>' : repositoryPath
+  return `${workspaceScope}:${repositoryScope}`
 }
 
 export function restoreScopedRepositorySelection(

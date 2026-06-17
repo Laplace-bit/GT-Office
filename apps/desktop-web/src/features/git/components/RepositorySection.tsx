@@ -72,7 +72,7 @@ export const RepositorySection = memo(function RepositorySection({
                   key={repository.repositoryPath}
                   type="button"
                   className={`git-repo-row ${isActive ? 'git-repo-row--active' : ''}`}
-                  onClick={() => setCurrentRepositoryPath(repository.repositoryPath || null)}
+                  onClick={() => setCurrentRepositoryPath(repository.repositoryPath)}
                   title={repository.repositoryPath || '.'}
                 >
                   <span className="git-repo-row__main">

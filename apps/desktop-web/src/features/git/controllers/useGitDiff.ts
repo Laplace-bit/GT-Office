@@ -6,6 +6,7 @@ import {
 import type { GitDiffScope } from './types'
 import { DIFF_CACHE_SIZE, DIFF_PRELOAD_DELAY_MS } from './types'
 import type { DiffCacheRefs } from './useGitShared'
+import { buildRepositoryScopeKey } from './repository-selection-model'
 
 interface UseGitDiffInput {
   workspaceId: string | null
@@ -89,7 +90,7 @@ export function useGitDiff({
     const requestScope = selectedDiffScope
 
     // Check cache first for instant loading
-    const cacheKey = `${requestWorkspaceId}:${requestRepositoryPath ?? ''}:${requestPath}:${requestScope}`
+    const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}`
     const cached = diffCacheRef.current.get(cacheKey)
     if (cached) {
       diffSeqRef.current += 1
@@ -175,7 +176,7 @@ export function useGitDiff({
       const requestRepositoryPath = repositoryPath
       const requestPath = path
       const requestScope = scope
-      const cacheKey = `${requestWorkspaceId}:${requestRepositoryPath ?? ''}:${requestPath}:${requestScope}`
+      const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}`
       // Skip if already cached or pending
       if (diffCacheRef.current.has(cacheKey) || pendingPreloadsRef.current.has(cacheKey)) return
 

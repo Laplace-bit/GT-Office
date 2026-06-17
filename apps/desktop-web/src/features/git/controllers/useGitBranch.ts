@@ -69,6 +69,7 @@ export function useGitBranch({
     invalidateDiffCache,
     isGitRepository,
     onRefreshAll,
+    repositoryPath,
     runAction,
     setCheckoutTarget,
     workspaceId,

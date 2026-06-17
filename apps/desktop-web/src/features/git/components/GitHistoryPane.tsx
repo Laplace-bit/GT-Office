@@ -7,10 +7,11 @@ import {
   type GitDiffExpansionResponse,
 } from '@shell/integration/desktop-api'
 import type { GitWorkspaceController } from '../useGitWorkspaceController'
+import { buildRepositoryScopeKey } from '../controllers/repository-selection-model'
 import { DiffViewer } from '../DiffViewer'
 import { GitGraphView } from '../GitGraphView'
 import { MergeConflictPanel } from './MergeConflictPanel'
-import { describeUnknownError, getCompactRepoLabel } from './git-helpers'
+import { describeUnknownError, getRepositoryDisplayLabel } from './git-helpers'
 
 interface GitHistoryPaneProps {
   controller: GitWorkspaceController
@@ -71,6 +72,17 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     ? t(locale, 'git.history.view.diff')
     : t(locale, 'git.history.view.latest')
   const selectedOldPath = structuredDiff?.oldPath ?? null
+  const activeRepository = summary?.repositories.find(
+    (repository) => repository.repositoryPath === currentRepositoryPath,
+  ) ?? null
+  const repositoryLabel = activeRepository
+    ? getRepositoryDisplayLabel(
+        activeRepository.repositoryPath,
+        activeRepository.root,
+        t(locale, 'git.repositories.workspaceRoot'),
+      )
+    : null
+  const showRepositoryLabel = (summary?.repositories.length ?? 0) > 1 && Boolean(repositoryLabel)
   scopeRef.current = {
     workspaceId,
     currentRepositoryPath,
@@ -160,7 +172,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       return
     }
 
-    const cacheKey = `${workspaceId}:${currentRepositoryPath ?? ''}:${selectedPath}:${selectedDiffScope}:${selectedOldPath ?? ''}`
+    const cacheKey = `${buildRepositoryScopeKey(workspaceId, currentRepositoryPath)}:${selectedPath}:${selectedDiffScope}:${selectedOldPath ?? ''}`
     const cached = expandedDiffFileCacheRef.current.get(cacheKey)
     if (cached) {
       setExpandedDiffFile(cached)
@@ -276,7 +288,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       const requestRepositoryPath = currentRepositoryPath
       const requestCommit = hash
 
-      const cacheKey = `${requestWorkspaceId}:${requestRepositoryPath ?? ''}:${requestCommit}`
+      const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestCommit}`
       const cached = commitDetailCacheRef.current.get(cacheKey)
       if (cached) {
         setSelectedCommitDetail(cached)
@@ -359,9 +371,9 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
           <span className="git-pane__commit-count">
             {t(locale, 'git.history.count', { count: logEntries.length })}
           </span>
-          {currentRepositoryPath ? (
-            <span className="git-pane__repo-chip" title={currentRepositoryPath}>
-              {getCompactRepoLabel(currentRepositoryPath)}
+          {showRepositoryLabel && repositoryLabel ? (
+            <span className="git-pane__repo-chip" title={currentRepositoryPath ?? repositoryLabel}>
+              {repositoryLabel}
             </span>
           ) : null}
         </div>

@@ -587,12 +587,21 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     )
   }, [canvasCustomLayout, canvasLayoutMode, leftPaneWidth, rightPaneWidth])
 
+  const gitController = useGitWorkspaceController({
+    locale,
+    workspaceId: activeWorkspaceId,
+    summary: gitSummary,
+    onRefreshSummary: refreshGit,
+  })
+
+  const activeGitSummary = gitController.summary
+
   const activePaneModel = useMemo(() => {
     if (activeNavId !== 'git') {
       return paneModels[activeNavId]
     }
 
-    if (!gitSummary) {
+    if (!activeGitSummary) {
       return {
         title: t(locale, 'pane.git.title'),
         subtitle: t(locale, 'shell.git.statusMissing'),
@@ -607,16 +616,16 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     return {
       title: t(locale, 'pane.git.title'),
       subtitle: t(locale, 'shell.git.summaryStatus', {
-        branch: gitSummary.branch,
-        ahead: gitSummary.ahead,
-        behind: gitSummary.behind,
+        branch: activeGitSummary.branch,
+        ahead: activeGitSummary.ahead,
+        behind: activeGitSummary.behind,
       }),
       items:
-        gitSummary.files.length > 0
-          ? gitSummary.files.slice(0, 8).map((file) => `${file.status} ${file.path}`)
+        activeGitSummary.files.length > 0
+          ? activeGitSummary.files.slice(0, 8).map((file) => `${file.status} ${file.path}`)
           : [t(locale, 'shell.git.workspaceClean')],
     }
-  }, [activeNavId, gitSummary, locale, paneModels])
+  }, [activeGitSummary, activeNavId, locale, paneModels])
 
   const filteredStations = useMemo(
     () => filterStationsForOverview(stations, runtimeStateByStationId, stationOverviewState),
@@ -712,13 +721,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         return t(locale, 'connection.unknown')
     }
   }, [activeWorkspaceRoot, connectionState, locale])
-
-  const gitController = useGitWorkspaceController({
-    locale,
-    workspaceId: activeWorkspaceId,
-    summary: gitSummary,
-    onRefreshSummary: refreshGit,
-  })
 
   const togglePinnedWorkbenchContainer = useCallback(
     (containerId: string) => {
@@ -1413,9 +1415,9 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     topmostWorkbenchCanvasProps,
     statusBarProps: {
       locale,
-      gitBranch: gitSummary?.branch ?? '-',
+      gitBranch: activeGitSummary?.branch ?? '-',
       gitBranches: gitController.branches,
-      gitChangedFiles: gitSummary?.files.length ?? 0,
+      gitChangedFiles: activeGitSummary?.files.length ?? 0,
       onCheckoutBranch: gitController.checkoutTo,
       checkoutLoading: gitController.actionLoading === 'checkout',
       agentOnline: 6,

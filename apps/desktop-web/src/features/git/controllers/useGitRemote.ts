@@ -89,7 +89,8 @@ export function useGitRemote({
       if (disposed || payload.workspaceId !== workspaceId) {
         return
       }
-      if ((payload.repositoryPath ?? null) !== (repositoryPath ?? null)) {
+      const payloadRepositoryPath = payload.repositoryPath === undefined ? null : payload.repositoryPath
+      if (payloadRepositoryPath !== repositoryPath) {
         return
       }
       if (payload.status === 'started') {

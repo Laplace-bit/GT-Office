@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildRepositoryScopeKey,
   resolveActiveRepositoryPath,
   restoreScopedRepositorySelection,
   shouldAdoptResolvedRepositorySelection,
@@ -33,6 +34,18 @@ test('prefers the remembered repository when it still exists in the workspace su
   assert.equal(
     resolveActiveRepositoryPath('packages/beta', repositories, ''),
     'packages/beta',
+  )
+})
+
+test('keeps an explicit workspace-root repository selection as a valid scope', () => {
+  const repositories = [
+    buildRepositorySummary(''),
+    buildRepositorySummary('packages/alpha'),
+  ]
+
+  assert.equal(
+    resolveActiveRepositoryPath('', repositories, 'packages/alpha'),
+    '',
   )
 })
 
@@ -90,5 +103,14 @@ test('adopts the resolved repository only when controller state is out of sync',
       repositories: [],
     }),
     true,
+  )
+})
+
+test('repository scope keys distinguish auto resolution from explicit workspace root', () => {
+  assert.equal(buildRepositoryScopeKey('ws-a', null), 'ws-a:<auto>')
+  assert.equal(buildRepositoryScopeKey('ws-a', ''), 'ws-a:')
+  assert.notEqual(
+    buildRepositoryScopeKey('ws-a', null),
+    buildRepositoryScopeKey('ws-a', ''),
   )
 })

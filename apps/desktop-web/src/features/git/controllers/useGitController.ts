@@ -16,6 +16,7 @@ import { HISTORY_PAGE_SIZE, STASH_LIMIT } from './types'
 import { buildGraphCommits, describeUnknownError } from './helpers'
 import { useGitShared, useDiffCacheRefs } from './useGitShared'
 import {
+  buildRepositoryScopeKey,
   resolveActiveRepositoryPath,
   restoreScopedRepositorySelection,
   shouldAdoptResolvedRepositorySelection,
@@ -36,10 +37,6 @@ interface GitMetaCacheEntry {
   hasMoreHistory: boolean
   historySkip: number
   checkoutTarget: string
-}
-
-function buildRepositoryScopeKey(workspaceId: string | null, repositoryPath: string | null): string {
-  return `${workspaceId ?? ''}:${repositoryPath ?? ''}`
 }
 
 function isSameRepositoryScope(
