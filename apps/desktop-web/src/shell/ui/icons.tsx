@@ -18,6 +18,7 @@ import {
   Link,
   PanelRightClose,
   PanelRightOpen,
+  PanelsTopLeft,
   Scissors,
   CloudDownload,
   Command,
@@ -62,6 +63,7 @@ export type AppIconName =
   | 'stations'
   | 'tasks'
   | 'files'
+  | 'designer'
   | 'git'
   | 'hooks'
   | 'channels'
@@ -122,6 +124,7 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
   tasks: ListTodo,
   files: FolderTree,
+  designer: PanelsTopLeft,
   git: GitBranch,
   hooks: Link2,
   channels: Workflow,

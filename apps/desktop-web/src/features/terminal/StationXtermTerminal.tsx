@@ -842,6 +842,10 @@ function StationXtermTerminalView({
     let serializeTimeoutId: number | null = null
     let serializeIdleHandle: { kind: 'idle' | 'timeout'; id: number } | null = null
     let renderDisposable: { dispose: () => void } | null = null
+    // Hoisted so the teardown closure can reach them: they are assigned inside the
+    // async xterm loader below, but must be disposed alongside the other resources.
+    let webglAddon: import('@xterm/addon-webgl').WebglAddon | null = null
+    let webglContextLossDisposable: { dispose: () => void } | null = null
     let workspaceTransitionObserver: MutationObserver | null = null
     let viewportVisibilityObserver: IntersectionObserver | null = null
     let ancestorVisibilityObserver: MutationObserver | null = null
@@ -862,8 +866,9 @@ function StationXtermTerminalView({
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
       import('@xterm/addon-serialize'),
+      import('@xterm/addon-webgl'),
     ]).then(
-      ([xtermModule, fitModule, serializeModule]) => {
+      ([xtermModule, fitModule, serializeModule, webglModule]) => {
         if (!active) {
           return
         }
@@ -885,6 +890,36 @@ function StationXtermTerminalView({
         terminal.loadAddon(fitAddon)
         terminal.loadAddon(serializeAddon)
         terminal.open(host)
+
+        // Prefer the GPU-accelerated WebGL renderer for native-grade scroll and output
+        // throughput. It replaces the default DOM renderer, which repays layout/paint
+        // costs on every frame and is the main source of "this feels like a web app."
+        // Fall back silently to the DOM renderer when the GPU context is unavailable.
+        try {
+          webglAddon = new webglModule.WebglAddon()
+          webglContextLossDisposable = webglAddon.onContextLoss(() => {
+            webglContextLossDisposable?.dispose()
+            webglContextLossDisposable = null
+            try {
+              webglAddon?.dispose()
+            } catch {
+              // No-op: dispose should never block terminal lifecycle.
+            }
+            webglAddon = null
+            // The DOM renderer takes over automatically once the addon is disposed;
+            // force a refresh so the recovered surface paints immediately.
+            refreshTerminal()
+          })
+          // loadAddon wires the WebGL surface as the active renderer after open();
+          // the addon self-registers internally — there is no separate register() call.
+          terminal.loadAddon(webglAddon)
+        } catch (error) {
+          webglContextLossDisposable?.dispose()
+          webglContextLossDisposable = null
+          webglAddon = null
+          const message = error instanceof Error ? error.message : String(error)
+          recordFocusDiagnostic('webgl-unavailable', message)
+        }
 
         terminalRef.current = terminal
         fitAddonRef.current = fitAddon
@@ -1807,6 +1842,14 @@ function StationXtermTerminalView({
       dataDisposable?.dispose()
       resizeDisposable?.dispose()
       renderDisposable?.dispose()
+      webglContextLossDisposable?.dispose()
+      webglContextLossDisposable = null
+      try {
+        webglAddon?.dispose()
+      } catch {
+        // No-op: addon disposal is best-effort during teardown.
+      }
+      webglAddon = null
       removeViewportWakeListeners?.()
       removeCompositionStartSyncListener?.()
       removeMacOsImeFallbackListeners?.()

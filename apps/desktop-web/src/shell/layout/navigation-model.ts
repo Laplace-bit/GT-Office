@@ -5,6 +5,7 @@ export type NavItemId =
   | 'stations'
   | 'tasks'
   | 'files'
+  | 'designer'
   | 'git'
   | 'hooks'
   | 'channels'
@@ -25,6 +26,7 @@ export interface PaneModel {
 export function getNavItems(locale: Locale): NavItem[] {
   return [
     { id: 'files', label: t(locale, 'nav.files'), short: t(locale, 'nav.filesShort') },
+    { id: 'designer', label: t(locale, 'nav.designer'), short: t(locale, 'nav.designerShort') },
     { id: 'git', label: t(locale, 'nav.git'), short: 'Git' },
     { id: 'tasks', label: t(locale, 'nav.tasks'), short: t(locale, 'nav.tasksShort') },
     { id: 'channels', label: t(locale, 'nav.channels'), short: t(locale, 'nav.channelsShort') },
@@ -53,6 +55,15 @@ export function getPaneModels(locale: Locale): Record<NavItemId, PaneModel> {
       title: t(locale, 'fileTree.title'),
       subtitle: t(locale, 'pane.files.subtitle'),
       items: ['src/', 'crates/', 'docs/', '.gtoffice/', t(locale, 'pane.files.recentChanges')],
+    },
+    designer: {
+      title: t(locale, 'pane.designer.title'),
+      subtitle: t(locale, 'pane.designer.subtitle'),
+      items: [
+        t(locale, 'pane.designer.docsRoot'),
+        t(locale, 'pane.designer.schema'),
+        t(locale, 'pane.designer.agentReview'),
+      ],
     },
     git: {
       title: t(locale, 'pane.git.title'),

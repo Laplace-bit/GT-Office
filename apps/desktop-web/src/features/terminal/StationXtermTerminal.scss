@@ -127,6 +127,16 @@
     opacity: 1;
     transform: none !important;
   }
+
+  // Keep the scrollbar thumb readable without the fade animation.
+  .station-terminal-shell
+    .station-terminal-host
+    .xterm
+    .xterm-scrollable-element
+    > .scrollbar.vertical
+    > .slider {
+    transition: none !important;
+  }
 }
 
 .station-terminal-shell.is-runtime-pending .station-terminal-host {
@@ -160,7 +170,8 @@
   width: var(--station-terminal-scrollbar-hit-size) !important;
   right: var(--station-terminal-scrollbar-edge-gap) !important;
   border-radius: 999rem !important;
-  background: var(--vb-terminal-scrollbar-track);
+  // Native macOS overlay scrollbars have no visible track — only the thumb paints.
+  background: transparent;
   overflow: hidden;
 }
 
@@ -171,6 +182,30 @@
   padding-inline: calc((var(--station-terminal-scrollbar-hit-size) - var(--vb-terminal-scrollbar-size)) / 2);
   border-radius: 999rem !important;
   background-clip: content-box;
+}
+
+// macOS overlay scrollbar feel: the thumb fades out when idle and only returns
+// while scrolling. xterm toggles .visible (active) / .invisible.fade (idle) on
+// the scrollbar element; we drive the slider opacity from those states so the
+// thumb matches the system's "appears only while scrolling" policy.
+.station-terminal-shell
+  .station-terminal-host
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar.vertical.invisible
+  > .slider {
+  opacity: 0;
+  transition: opacity 420ms var(--vb-ease-smooth);
+}
+
+.station-terminal-shell
+  .station-terminal-host
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar.vertical.visible
+  > .slider {
+  opacity: 1;
+  transition: opacity 120ms var(--vb-ease-smooth);
 }
 
 .station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element > .shadow {

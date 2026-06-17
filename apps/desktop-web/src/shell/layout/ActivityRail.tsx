@@ -19,6 +19,8 @@ function activityIconName(id: NavItemId) {
       return 'tasks' as const
     case 'files':
       return 'files' as const
+    case 'designer':
+      return 'designer' as const
     case 'git':
       return 'git' as const
     case 'hooks':

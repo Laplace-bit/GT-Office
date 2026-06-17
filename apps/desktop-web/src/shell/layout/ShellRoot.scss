@@ -124,20 +124,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   color: var(--vb-text-subtle);
 }
 
-
-// ── Left pane show/hide animation ──────────────────────────────────────────
-@keyframes shell-left-pane-slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(-#{rem(24)});
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 .shell-left-pane {
   width: var(--shell-left-pane-width, #{rem(270)});
   min-width: var(--vb-platform-pane-min-width);
@@ -155,11 +141,6 @@ $workspace-switch-exit-ease: cubic-bezier(0.32, 0, 0.67, 0);
   transition: background-color 0.3s ease;
   contain: layout style;
   z-index: 5;
-
-  // ── Expanded state — slide in from left ────────────────────────────────
-  &.shell-left-pane--visible {
-    animation: shell-left-pane-slide-in 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-  }
 
   // ── Collapsed state ──────────────────────────────────────────────────
   &.shell-left-pane--collapsed {

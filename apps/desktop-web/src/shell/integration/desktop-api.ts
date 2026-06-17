@@ -1035,6 +1035,279 @@ export interface FsSearchStreamCancelResponse {
   cancelled: boolean
 }
 
+export interface BusinessDesignerDiagnostic {
+  code: string
+  severity: 'info' | 'warning' | 'error'
+  message: string
+  path?: string | null
+}
+
+export interface BusinessDesignerDocumentSummary {
+  documentId: string
+  title: string
+  module?: string | null
+  status: string
+  path: string
+  updatedAt?: string | null
+  blockCount: number
+  tags: string[]
+}
+
+export interface BusinessDesignerListDocumentsResponse {
+  workspaceId: string
+  docsRoot: string
+  scaffoldInitialized: boolean
+  repoInitialized: boolean
+  documents: BusinessDesignerDocumentSummary[]
+  diagnostics: BusinessDesignerDiagnostic[]
+}
+
+export interface BusinessDesignerInitDocsRepoResponse {
+  workspaceId: string
+  docsRoot: string
+  scaffoldCreated: boolean
+  repoInitialized: boolean
+  gitInitialized: boolean
+  templatesWritten: boolean
+}
+
+export interface BusinessDesignerGeneratedPaths {
+  readme: string
+  agentBrief: string
+  agentInput: string
+  previewHtml: string
+}
+
+export interface BusinessDesignerManifest {
+  schemaVersion: number
+  documentId: string
+  title: string
+  module?: string | null
+  createdAt: string
+  updatedAt: string
+  entry: string
+  generated: BusinessDesignerGeneratedPaths
+  tags: string[]
+  status: string
+}
+
+export interface BusinessDesignerBlockLink {
+  targetBlockId: string
+  relation: string
+}
+
+export interface BusinessDesignerBlock {
+  id: string
+  kind: string
+  title: string
+  order: number
+  payload: unknown
+  links: BusinessDesignerBlockLink[]
+  validation: BusinessDesignerDiagnostic[]
+  updatedAt: string
+}
+
+export interface BusinessDesignerDesignGraph {
+  schemaVersion: number
+  documentId: string
+  revision: string
+  title: string
+  blocks: BusinessDesignerBlock[]
+}
+
+export interface BusinessDesignerDocumentDetail {
+  workspaceId: string
+  docsRoot: string
+  manifest: BusinessDesignerManifest
+  design: BusinessDesignerDesignGraph
+  diagnostics: BusinessDesignerDiagnostic[]
+}
+
+export interface BusinessDesignerCreateDocumentParams {
+  documentId: string
+  title: string
+  module?: string | null
+}
+
+export interface BusinessDesignerValidationResult {
+  workspaceId: string
+  documentId: string
+  revision: string
+  diagnostics: BusinessDesignerDiagnostic[]
+}
+
+export interface BusinessDesignerCompileResult {
+  workspaceId: string
+  documentId: string
+  revision: string
+  generated: BusinessDesignerGeneratedPaths
+  files: string[]
+  diagnostics: BusinessDesignerDiagnostic[]
+}
+
+export interface BusinessDesignerCheckpointResult {
+  workspaceId: string
+  documentId: string
+  commit?: string | null
+  committed: boolean
+  message: string
+}
+
+export interface BusinessDesignerDiffEntry {
+  status: string
+  path: string
+}
+
+export interface BusinessDesignerDiffResult {
+  workspaceId: string
+  documentId?: string | null
+  base?: string | null
+  head?: string | null
+  entries: BusinessDesignerDiffEntry[]
+}
+
+export interface BusinessDesignerCheckpointEntry {
+  commit: string
+  shortCommit: string
+  authoredAt: string
+  summary: string
+}
+
+export interface BusinessDesignerCheckpointHistoryResult {
+  workspaceId: string
+  documentId?: string | null
+  entries: BusinessDesignerCheckpointEntry[]
+}
+
+export interface BusinessDesignerAgentTaskPreview {
+  workspaceId: string
+  documentId: string
+  provider: string
+  schemaVersion: number
+  selectedBlockIds: string[]
+  revision: string
+  contextPath: string
+  outputContract: string
+  lifecycle: string
+}
+
+export type BusinessDesignerPatchOperation =
+  | {
+      op: 'addBlock'
+      afterBlockId?: string | null
+      block: {
+        id: string
+        kind: string
+        title: string
+        order?: number | null
+        payload: unknown
+        links?: BusinessDesignerBlockLink[]
+      }
+    }
+  | {
+      op: 'updateBlock'
+      blockId: string
+      patch: {
+        kind?: string | null
+        title?: string | null
+        order?: number | null
+        payload?: unknown
+        links?: BusinessDesignerBlockLink[] | null
+      }
+    }
+  | {
+      op: 'deleteBlock'
+      blockId: string
+    }
+
+export interface BusinessDesignerAgentPatch {
+  schemaVersion: number
+  documentId: string
+  baseRevision: string
+  summary: string
+  changes: BusinessDesignerPatchOperation[]
+  openQuestions: string[]
+}
+
+export interface BusinessDesignerPatchPreviewChange {
+  op: string
+  blockId: string
+  title?: string | null
+  kind?: string | null
+  destructive: boolean
+  summary: string
+}
+
+export interface BusinessDesignerPatchValidationResult {
+  workspaceId: string
+  documentId: string
+  patchPath?: string | null
+  patch: BusinessDesignerAgentPatch
+  diagnostics: BusinessDesignerDiagnostic[]
+  changes: BusinessDesignerPatchPreviewChange[]
+  valid: boolean
+}
+
+export interface BusinessDesignerRecoveredAgentPatchResult {
+  workspaceId: string
+  documentId: string
+  taskId: string
+  sourceMessageId: string
+  sourceAgentId: string
+  sourceMessageType: string
+  validation: BusinessDesignerPatchValidationResult
+}
+
+export interface BusinessDesignerPatchApplyResult {
+  workspaceId: string
+  documentId: string
+  appliedRevision: string
+  patchPath: string
+  acceptedChanges: number[]
+  skippedChanges: number[]
+  detail: BusinessDesignerDocumentDetail
+  diagnostics: BusinessDesignerDiagnostic[]
+}
+
+export interface BusinessDesignerExportResult {
+  workspaceId: string
+  documentId: string
+  format: string
+  suggestedFileName: string
+  mimeType: string
+  content: string
+  sourcePath: string
+  savedPath?: string | null
+  cancelled?: boolean | null
+}
+
+export interface BusinessDesignerCodingTask {
+  id: string
+  title: string
+  markdown: string
+  acceptanceRefs: string[]
+  contractRefs: string[]
+  riskRefs: string[]
+}
+
+export interface BusinessDesignerCodingHandoffPreview {
+  workspaceId: string
+  documentId: string
+  title: string
+  revision: string
+  request: TaskDispatchBatchRequest
+  tasks: BusinessDesignerCodingTask[]
+  attachments: TaskDispatchAttachmentPayload[]
+  diagnostics: BusinessDesignerDiagnostic[]
+}
+
+export interface BusinessDesignerCodingHandoffDispatchResult {
+  workspaceId: string
+  documentId: string
+  preview: BusinessDesignerCodingHandoffPreview
+  dispatch: TaskDispatchBatchResponse
+}
+
 export interface DaemonSearchItemPayload {
   path: string
   line: number
@@ -2812,6 +3085,366 @@ export const desktopApi = {
   },
   fsShowInFolder(workspaceId: string, path: string) {
     return invokeCommand<FsShowInFolderResponse>('fs_show_in_folder', { workspaceId, path })
+  },
+  businessDesignerListDocuments(workspaceId: string) {
+    return invokeCommand<BusinessDesignerListDocumentsResponse>('business_designer_list_documents', {
+      workspaceId,
+    })
+  },
+  listBusinessDesignerDocuments(workspaceId: string) {
+    return invokeCommand<BusinessDesignerListDocumentsResponse>('business_designer_list_documents', {
+      workspaceId,
+    })
+  },
+  businessDesignerInitDocsRepo(workspaceId: string) {
+    return invokeCommand<BusinessDesignerInitDocsRepoResponse>('business_designer_init_docs_repo', {
+      workspaceId,
+    })
+  },
+  initBusinessDesignerDocsRepo(workspaceId: string) {
+    return invokeCommand<BusinessDesignerInitDocsRepoResponse>('business_designer_init_docs_repo', {
+      workspaceId,
+    })
+  },
+  businessDesignerCreateDocument(
+    workspaceId: string,
+    params: BusinessDesignerCreateDocumentParams,
+  ) {
+    return invokeCommand<BusinessDesignerDocumentDetail>('business_designer_create_document', {
+      workspaceId,
+      documentId: params.documentId,
+      title: params.title,
+      module: params.module ?? null,
+    })
+  },
+  createBusinessDesignerDocument(
+    workspaceId: string,
+    params: BusinessDesignerCreateDocumentParams,
+  ) {
+    return invokeCommand<BusinessDesignerDocumentDetail>('business_designer_create_document', {
+      workspaceId,
+      documentId: params.documentId,
+      title: params.title,
+      module: params.module ?? null,
+    })
+  },
+  businessDesignerReadDocument(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerDocumentDetail>('business_designer_read_document', {
+      workspaceId,
+      documentId,
+    })
+  },
+  readBusinessDesignerDocument(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerDocumentDetail>('business_designer_read_document', {
+      workspaceId,
+      documentId,
+    })
+  },
+  businessDesignerSaveDocument(workspaceId: string, detail: BusinessDesignerDocumentDetail) {
+    return invokeCommand<BusinessDesignerDocumentDetail>('business_designer_save_document', {
+      workspaceId,
+      detail,
+    })
+  },
+  saveBusinessDesignerDocument(workspaceId: string, detail: BusinessDesignerDocumentDetail) {
+    return invokeCommand<BusinessDesignerDocumentDetail>('business_designer_save_document', {
+      workspaceId,
+      detail,
+    })
+  },
+  businessDesignerValidateDocument(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerValidationResult>('business_designer_validate_document', {
+      workspaceId,
+      documentId,
+    })
+  },
+  validateBusinessDesignerDocument(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerValidationResult>('business_designer_validate_document', {
+      workspaceId,
+      documentId,
+    })
+  },
+  businessDesignerCompileDocument(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerCompileResult>('business_designer_compile_document', {
+      workspaceId,
+      documentId,
+    })
+  },
+  compileBusinessDesignerDocument(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerCompileResult>('business_designer_compile_document', {
+      workspaceId,
+      documentId,
+    })
+  },
+  businessDesignerCreateCheckpoint(workspaceId: string, documentId: string, message: string) {
+    return invokeCommand<BusinessDesignerCheckpointResult>('business_designer_create_checkpoint', {
+      workspaceId,
+      documentId,
+      message,
+    })
+  },
+  createBusinessDesignerCheckpoint(workspaceId: string, documentId: string, message: string) {
+    return invokeCommand<BusinessDesignerCheckpointResult>('business_designer_create_checkpoint', {
+      workspaceId,
+      documentId,
+      message,
+    })
+  },
+  businessDesignerDiffCheckpoint(
+    workspaceId: string,
+    params?: { documentId?: string | null; base?: string | null },
+  ) {
+    return invokeCommand<BusinessDesignerDiffResult>('business_designer_diff_checkpoint', {
+      workspaceId,
+      documentId: params?.documentId ?? null,
+      base: params?.base ?? null,
+    })
+  },
+  diffBusinessDesignerCheckpoint(
+    workspaceId: string,
+    params?: { documentId?: string | null; base?: string | null },
+  ) {
+    return invokeCommand<BusinessDesignerDiffResult>('business_designer_diff_checkpoint', {
+      workspaceId,
+      documentId: params?.documentId ?? null,
+      base: params?.base ?? null,
+    })
+  },
+  businessDesignerCompareCheckpoints(
+    workspaceId: string,
+    params: { documentId?: string | null; base: string; head: string },
+  ) {
+    return invokeCommand<BusinessDesignerDiffResult>('business_designer_compare_checkpoints', {
+      workspaceId,
+      documentId: params.documentId ?? null,
+      base: params.base,
+      head: params.head,
+    })
+  },
+  compareBusinessDesignerCheckpoints(
+    workspaceId: string,
+    params: { documentId?: string | null; base: string; head: string },
+  ) {
+    return invokeCommand<BusinessDesignerDiffResult>('business_designer_compare_checkpoints', {
+      workspaceId,
+      documentId: params.documentId ?? null,
+      base: params.base,
+      head: params.head,
+    })
+  },
+  businessDesignerListCheckpoints(
+    workspaceId: string,
+    params?: { documentId?: string | null },
+  ) {
+    return invokeCommand<BusinessDesignerCheckpointHistoryResult>('business_designer_list_checkpoints', {
+      workspaceId,
+      documentId: params?.documentId ?? null,
+    })
+  },
+  listBusinessDesignerCheckpoints(
+    workspaceId: string,
+    params?: { documentId?: string | null },
+  ) {
+    return invokeCommand<BusinessDesignerCheckpointHistoryResult>('business_designer_list_checkpoints', {
+      workspaceId,
+      documentId: params?.documentId ?? null,
+    })
+  },
+  businessDesignerPreviewAgentTask(
+    workspaceId: string,
+    params: { documentId: string; selectedBlockIds: string[]; provider: string },
+  ) {
+    return invokeCommand<BusinessDesignerAgentTaskPreview>('business_designer_preview_agent_task', {
+      workspaceId,
+      documentId: params.documentId,
+      selectedBlockIds: params.selectedBlockIds,
+      provider: params.provider,
+    })
+  },
+  previewBusinessDesignerAgentTask(
+    workspaceId: string,
+    params: { documentId: string; selectedBlockIds: string[]; provider: string },
+  ) {
+    return invokeCommand<BusinessDesignerAgentTaskPreview>('business_designer_preview_agent_task', {
+      workspaceId,
+      documentId: params.documentId,
+      selectedBlockIds: params.selectedBlockIds,
+      provider: params.provider,
+    })
+  },
+  businessDesignerRunAgentCompletion(
+    workspaceId: string,
+    params: { documentId: string; selectedBlockIds: string[]; provider: string },
+  ) {
+    return invokeCommand<BusinessDesignerPatchValidationResult>('business_designer_run_agent_completion', {
+      workspaceId,
+      documentId: params.documentId,
+      selectedBlockIds: params.selectedBlockIds,
+      provider: params.provider,
+    })
+  },
+  runBusinessDesignerAgentCompletion(
+    workspaceId: string,
+    params: { documentId: string; selectedBlockIds: string[]; provider: string },
+  ) {
+    return invokeCommand<BusinessDesignerPatchValidationResult>('business_designer_run_agent_completion', {
+      workspaceId,
+      documentId: params.documentId,
+      selectedBlockIds: params.selectedBlockIds,
+      provider: params.provider,
+    })
+  },
+  businessDesignerValidateAgentPatch(
+    workspaceId: string,
+    documentId: string,
+    patch: BusinessDesignerAgentPatch,
+  ) {
+    return invokeCommand<BusinessDesignerPatchValidationResult>('business_designer_validate_agent_patch', {
+      workspaceId,
+      documentId,
+      patch,
+    })
+  },
+  validateBusinessDesignerAgentPatch(
+    workspaceId: string,
+    documentId: string,
+    patch: BusinessDesignerAgentPatch,
+  ) {
+    return invokeCommand<BusinessDesignerPatchValidationResult>('business_designer_validate_agent_patch', {
+      workspaceId,
+      documentId,
+      patch,
+    })
+  },
+  businessDesignerRecoverAgentPatchFromTask(
+    workspaceId: string,
+    documentId: string,
+    taskId: string,
+  ) {
+    return invokeCommand<BusinessDesignerRecoveredAgentPatchResult>('business_designer_recover_agent_patch_from_task', {
+      workspaceId,
+      documentId,
+      taskId,
+    })
+  },
+  recoverBusinessDesignerAgentPatchFromTask(
+    workspaceId: string,
+    documentId: string,
+    taskId: string,
+  ) {
+    return invokeCommand<BusinessDesignerRecoveredAgentPatchResult>('business_designer_recover_agent_patch_from_task', {
+      workspaceId,
+      documentId,
+      taskId,
+    })
+  },
+  businessDesignerApplyAgentPatch(
+    workspaceId: string,
+    documentId: string,
+    patch: BusinessDesignerAgentPatch,
+    acceptedChangeIndices?: number[] | null,
+  ) {
+    return invokeCommand<BusinessDesignerPatchApplyResult>('business_designer_apply_agent_patch', {
+      workspaceId,
+      documentId,
+      patch,
+      acceptedChangeIndices: acceptedChangeIndices ?? null,
+    })
+  },
+  applyBusinessDesignerAgentPatch(
+    workspaceId: string,
+    documentId: string,
+    patch: BusinessDesignerAgentPatch,
+    acceptedChangeIndices?: number[] | null,
+  ) {
+    return invokeCommand<BusinessDesignerPatchApplyResult>('business_designer_apply_agent_patch', {
+      workspaceId,
+      documentId,
+      patch,
+      acceptedChangeIndices: acceptedChangeIndices ?? null,
+    })
+  },
+  businessDesignerExportDocument(
+    workspaceId: string,
+    documentId: string,
+    format: string,
+  ) {
+    return invokeCommand<BusinessDesignerExportResult>('business_designer_export_document', {
+      workspaceId,
+      documentId,
+      format,
+    })
+  },
+  exportBusinessDesignerDocument(
+    workspaceId: string,
+    documentId: string,
+    format: string,
+  ) {
+    return invokeCommand<BusinessDesignerExportResult>('business_designer_export_document', {
+      workspaceId,
+      documentId,
+      format,
+    })
+  },
+  businessDesignerExportDocumentToFile(
+    workspaceId: string,
+    documentId: string,
+    format: string,
+  ) {
+    return invokeCommand<BusinessDesignerExportResult>('business_designer_export_document_to_file', {
+      workspaceId,
+      documentId,
+      format,
+    })
+  },
+  exportBusinessDesignerDocumentToFile(
+    workspaceId: string,
+    documentId: string,
+    format: string,
+  ) {
+    return invokeCommand<BusinessDesignerExportResult>('business_designer_export_document_to_file', {
+      workspaceId,
+      documentId,
+      format,
+    })
+  },
+  businessDesignerPreviewCodingHandoff(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerCodingHandoffPreview>('business_designer_preview_coding_handoff', {
+      workspaceId,
+      documentId,
+    })
+  },
+  previewBusinessDesignerCodingHandoff(workspaceId: string, documentId: string) {
+    return invokeCommand<BusinessDesignerCodingHandoffPreview>('business_designer_preview_coding_handoff', {
+      workspaceId,
+      documentId,
+    })
+  },
+  businessDesignerDispatchCodingHandoff(
+    workspaceId: string,
+    documentId: string,
+    targetAgentIds: string[],
+  ) {
+    return invokeCommand<BusinessDesignerCodingHandoffDispatchResult>('business_designer_dispatch_coding_handoff', {
+      request: {
+        workspaceId,
+        documentId,
+        targetAgentIds,
+      },
+    })
+  },
+  dispatchBusinessDesignerCodingHandoff(
+    workspaceId: string,
+    documentId: string,
+    targetAgentIds: string[],
+  ) {
+    return invokeCommand<BusinessDesignerCodingHandoffDispatchResult>('business_designer_dispatch_coding_handoff', {
+      request: {
+        workspaceId,
+        documentId,
+        targetAgentIds,
+      },
+    })
   },
   fsSearchText(workspaceId: string, query: string, glob?: string | null) {
     return invokeCommand<FsSearchTextResponse>('fs_search_text', {

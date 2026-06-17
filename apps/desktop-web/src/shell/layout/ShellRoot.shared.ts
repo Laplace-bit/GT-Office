@@ -269,6 +269,7 @@ const NAV_ITEM_ID_SET = new Set<NavItemId>([
   'stations',
   'tasks',
   'files',
+  'designer',
   'git',
   'hooks',
   'channels',

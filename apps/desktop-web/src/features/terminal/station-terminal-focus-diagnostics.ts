@@ -34,6 +34,7 @@ export type StationTerminalFocusDiagnosticKind =
   | 'window-error'
   | 'unhandled-rejection'
   | 'xterm-init-failed'
+  | 'webgl-unavailable'
 
 export interface StationTerminalFocusDiagnosticEvent {
   atMs: number

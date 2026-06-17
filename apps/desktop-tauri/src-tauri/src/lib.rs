@@ -13,8 +13,8 @@ mod terminal_debug;
 
 use base64::Engine;
 use commands::{
-    agent, agentic_one, file_explorer, git, keybindings, security, session, settings, system,
-    task_center, terminal, tool_adapter, workspace,
+    agent, agentic_one, business_designer, file_explorer, git, keybindings, security, session,
+    settings, system, task_center, terminal, tool_adapter, workspace,
 };
 use gt_terminal::TerminalRuntimeEvent;
 use rustls::crypto::aws_lc_rs;
@@ -157,6 +157,26 @@ pub fn run() {
             file_explorer::preview::fs_image_thumbnail,
             file_explorer::preview::fs_pdf_get_info,
             file_explorer::preview::fs_pdf_render_page,
+            business_designer::business_designer_list_documents,
+            business_designer::business_designer_init_docs_repo,
+            business_designer::business_designer_create_document,
+            business_designer::business_designer_read_document,
+            business_designer::business_designer_save_document,
+            business_designer::business_designer_validate_document,
+            business_designer::business_designer_compile_document,
+            business_designer::business_designer_create_checkpoint,
+            business_designer::business_designer_diff_checkpoint,
+            business_designer::business_designer_compare_checkpoints,
+            business_designer::business_designer_list_checkpoints,
+            business_designer::business_designer_preview_agent_task,
+            business_designer::business_designer_run_agent_completion,
+            business_designer::business_designer_validate_agent_patch,
+            business_designer::business_designer_recover_agent_patch_from_task,
+            business_designer::business_designer_apply_agent_patch,
+            business_designer::business_designer_export_document,
+            business_designer::business_designer_export_document_to_file,
+            business_designer::business_designer_preview_coding_handoff,
+            business_designer::business_designer_dispatch_coding_handoff,
             terminal::terminal_create,
             terminal::terminal_write,
             terminal::terminal_write_with_submit,
