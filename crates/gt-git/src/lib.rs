@@ -236,6 +236,7 @@ enum GitSnapshotContent {
 struct GitRepoContext {
     workspace_root: PathBuf,
     repo_root: PathBuf,
+    workspace_relative_prefix: Option<String>,
     repository_path: String,
 }
 
@@ -294,6 +295,7 @@ where
         Ok(GitRepoContext {
             repo_root: workspace_root.clone(),
             workspace_root,
+            workspace_relative_prefix: None,
             repository_path: String::new(),
         })
     }
@@ -306,22 +308,15 @@ where
         let workspace_root = self.workspace_root(workspace_id)?;
         let normalized = repository_path.unwrap_or("").trim();
         if normalized.is_empty() {
-            let repo_root = Repository::discover(&workspace_root)
-                .map_err(|_| AbstractionError::InvalidArgument {
-                    message: "GIT_REPO_INVALID: not a git repository".to_string(),
-                })?
-                .workdir()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| AbstractionError::InvalidArgument {
-                    message: "GIT_REPO_INVALID: bare repositories are not supported".to_string(),
-                })?;
-            let repository_path =
-                Self::path_to_workspace_relative(repo_root.as_path(), workspace_root.as_path())?;
-            return Ok(GitRepoContext {
-                workspace_root,
-                repo_root,
-                repository_path,
-            });
+            return self.default_repo_context(workspace_root);
+        }
+
+        if let Some(context) = self
+            .discover_workspace_repositories(&workspace_root)?
+            .into_iter()
+            .find(|repository| repository.repository_path == normalized)
+        {
+            return Ok(context);
         }
 
         let relative = Path::new(normalized);
@@ -363,7 +358,55 @@ where
         Ok(GitRepoContext {
             workspace_root,
             repo_root,
+            workspace_relative_prefix: None,
             repository_path: normalized.replace('\\', "/"),
+        })
+    }
+
+    fn default_repo_context(&self, workspace_root: PathBuf) -> AbstractionResult<GitRepoContext> {
+        if workspace_root.join(".git").exists() {
+            return Ok(GitRepoContext {
+                repo_root: workspace_root.clone(),
+                workspace_root,
+                workspace_relative_prefix: None,
+                repository_path: String::new(),
+            });
+        }
+
+        let repository = Repository::discover(&workspace_root).map_err(|_| {
+            AbstractionError::InvalidArgument {
+                message: "GIT_REPO_INVALID: not a git repository".to_string(),
+            }
+        })?;
+        let repo_root = repository.workdir().map(Path::to_path_buf).ok_or_else(|| {
+            AbstractionError::InvalidArgument {
+                message: "GIT_REPO_INVALID: bare repositories are not supported".to_string(),
+            }
+        })?;
+        Self::context_for_repo_root(workspace_root, repo_root)
+    }
+
+    fn context_for_repo_root(
+        workspace_root: PathBuf,
+        repo_root: PathBuf,
+    ) -> AbstractionResult<GitRepoContext> {
+        let workspace_relative_prefix =
+            match Self::path_to_repo_relative(workspace_root.as_path(), repo_root.as_path()) {
+                Ok(prefix) if !prefix.is_empty() => Some(prefix),
+                Ok(_) => None,
+                Err(_) => None,
+            };
+        let repository_path = if workspace_relative_prefix.is_some() {
+            String::new()
+        } else {
+            Self::path_to_workspace_relative(repo_root.as_path(), workspace_root.as_path())?
+        };
+
+        Ok(GitRepoContext {
+            workspace_root,
+            repo_root,
+            workspace_relative_prefix,
+            repository_path,
         })
     }
 
@@ -403,6 +446,42 @@ where
         Ok(relative.to_string_lossy().replace('\\', "/"))
     }
 
+    fn path_to_repo_relative(path: &Path, repo_root: &Path) -> AbstractionResult<String> {
+        let relative = match path.strip_prefix(repo_root) {
+            Ok(relative) => relative.to_path_buf(),
+            Err(_) => {
+                let canonical_path =
+                    std::fs::canonicalize(path).map_err(|_| AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_REPOSITORY_PATH_INVALID: path is outside repository '{}'",
+                            path.display()
+                        ),
+                    })?;
+                let canonical_root = std::fs::canonicalize(repo_root).map_err(|_| {
+                    AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_REPOSITORY_PATH_INVALID: path is outside repository '{}'",
+                            path.display()
+                        ),
+                    }
+                })?;
+                canonical_path
+                    .strip_prefix(&canonical_root)
+                    .map(Path::to_path_buf)
+                    .map_err(|_| AbstractionError::InvalidArgument {
+                        message: format!(
+                            "GIT_REPOSITORY_PATH_INVALID: path is outside repository '{}'",
+                            path.display()
+                        ),
+                    })?
+            }
+        };
+        if relative.as_os_str().is_empty() {
+            return Ok(String::new());
+        }
+        Ok(relative.to_string_lossy().replace('\\', "/"))
+    }
+
     fn join_workspace_relative_path(repository_path: &str, repo_relative_path: &str) -> String {
         if repository_path.is_empty() {
             return repo_relative_path.to_string();
@@ -410,9 +489,45 @@ where
         format!("{repository_path}/{repo_relative_path}")
     }
 
-    fn parse_porcelain_status(stdout: &str, repository_path: &str) -> GitStatusSummary {
+    fn repo_relative_to_workspace_path(
+        context: &GitRepoContext,
+        repo_relative_path: &str,
+    ) -> Option<String> {
+        let normalized = repo_relative_path.trim().replace('\\', "/");
+        if normalized.is_empty() {
+            return None;
+        }
+
+        if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
+            let prefix = prefix.trim_matches('/');
+            if normalized == prefix {
+                return None;
+            }
+            let workspace_relative = normalized.strip_prefix(&format!("{prefix}/"))?;
+            if workspace_relative.is_empty() {
+                return None;
+            }
+            Some(workspace_relative.to_string())
+        } else {
+            Some(Self::join_workspace_relative_path(
+                &context.repository_path,
+                &normalized,
+            ))
+        }
+    }
+
+    fn map_diff_to_workspace_paths(context: &GitRepoContext, diff: &mut GitDiffStructured) {
+        if let Some(path) = Self::repo_relative_to_workspace_path(context, &diff.path) {
+            diff.path = path;
+        }
+        if let Some(old_path) = diff.old_path.as_deref() {
+            diff.old_path = Self::repo_relative_to_workspace_path(context, old_path);
+        }
+    }
+
+    fn parse_porcelain_status(stdout: &str, context: &GitRepoContext) -> GitStatusSummary {
         let mut summary = GitStatusSummary {
-            primary_repository_path: repository_path.to_string(),
+            primary_repository_path: context.repository_path.to_string(),
             ..GitStatusSummary::default()
         };
 
@@ -472,11 +587,16 @@ where
             }
 
             let repo_relative_path = path.to_string();
+            let Some(workspace_path) =
+                Self::repo_relative_to_workspace_path(context, &repo_relative_path)
+            else {
+                continue;
+            };
             summary.files.push(GitStatusFile {
-                path: Self::join_workspace_relative_path(repository_path, &repo_relative_path),
+                path: workspace_path,
                 staged: index != ' ' && index != '?',
                 status: format!("{index}{worktree}").trim().to_string(),
-                repository_path: repository_path.to_string(),
+                repository_path: context.repository_path.to_string(),
                 repo_relative_path,
             });
         }
@@ -524,17 +644,14 @@ where
         compact.trim().to_string()
     }
 
-    fn status_with_git2(
-        &self,
-        root: &Path,
-        repository_path: &str,
-    ) -> AbstractionResult<GitStatusSummary> {
-        let repo = Repository::discover(root).map_err(|err| AbstractionError::Internal {
-            message: format!("GIT_STATUS_GIT2_FAILED: repository discovery failed: {err}"),
-        })?;
+    fn status_with_git2(&self, context: &GitRepoContext) -> AbstractionResult<GitStatusSummary> {
+        let repo =
+            Repository::discover(&context.repo_root).map_err(|err| AbstractionError::Internal {
+                message: format!("GIT_STATUS_GIT2_FAILED: repository discovery failed: {err}"),
+            })?;
 
         let mut summary = GitStatusSummary {
-            primary_repository_path: repository_path.to_string(),
+            primary_repository_path: context.repository_path.to_string(),
             branch: "HEAD".to_string(),
             ..GitStatusSummary::default()
         };
@@ -575,6 +692,9 @@ where
             .renames_head_to_index(false)
             .renames_index_to_workdir(false)
             .recurse_untracked_dirs(false);
+        if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
+            options.pathspec(prefix);
+        }
 
         let statuses =
             repo.statuses(Some(&mut options))
@@ -592,8 +712,13 @@ where
             };
 
             let repo_relative_path = path.to_string();
+            let Some(workspace_path) =
+                Self::repo_relative_to_workspace_path(context, &repo_relative_path)
+            else {
+                continue;
+            };
             summary.files.push(GitStatusFile {
-                path: Self::join_workspace_relative_path(repository_path, &repo_relative_path),
+                path: workspace_path,
                 staged: status.intersects(
                     Status::INDEX_NEW
                         | Status::INDEX_MODIFIED
@@ -602,7 +727,7 @@ where
                         | Status::INDEX_TYPECHANGE,
                 ),
                 status: Self::resolve_status_string(status),
-                repository_path: repository_path.to_string(),
+                repository_path: context.repository_path.to_string(),
                 repo_relative_path,
             });
         }
@@ -821,15 +946,20 @@ where
 
     fn status_with_system_git(
         &self,
-        root: &Path,
-        repository_path: &str,
+        context: &GitRepoContext,
     ) -> AbstractionResult<GitStatusSummary> {
-        let output = self.run_git(
-            root,
-            &["status", "--porcelain", "--branch"],
-            "GIT_STATUS_FAILED",
-        )?;
-        Ok(Self::parse_porcelain_status(&output, repository_path))
+        let mut args = vec![
+            "status".to_string(),
+            "--porcelain".to_string(),
+            "--branch".to_string(),
+        ];
+        if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
+            args.push("--".to_string());
+            args.push(prefix.to_string());
+        }
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = self.run_git(&context.repo_root, &arg_refs, "GIT_STATUS_FAILED")?;
+        Ok(Self::parse_porcelain_status(&output, context))
     }
 
     fn discover_workspace_repositories(
@@ -847,8 +977,16 @@ where
             repositories.push(GitRepoContext {
                 workspace_root: workspace_root.to_path_buf(),
                 repo_root: workspace_root.to_path_buf(),
+                workspace_relative_prefix: None,
                 repository_path: String::new(),
             });
+        } else if let Ok(repository) = Repository::discover(workspace_root) {
+            if let Some(repo_root) = repository.workdir().map(Path::to_path_buf) {
+                repositories.push(Self::context_for_repo_root(
+                    workspace_root.to_path_buf(),
+                    repo_root,
+                )?);
+            }
         }
 
         self.collect_nested_repositories(
@@ -901,6 +1039,7 @@ where
                     repositories.push(GitRepoContext {
                         workspace_root: workspace_root.to_path_buf(),
                         repo_root: path.clone(),
+                        workspace_relative_prefix: None,
                         repository_path,
                     });
                 }
@@ -924,16 +1063,23 @@ where
         for path in paths {
             Self::validate_relative_repo_path(path)?;
             let workspace_relative = Path::new(path.trim());
-            let repo_relative = match repository_relative_root {
-                Some(repo_root) => workspace_relative.strip_prefix(repo_root).map_err(|_| {
-                    AbstractionError::InvalidArgument {
-                        message: format!(
-                            "GIT_PATH_INVALID: path '{}' is outside repository '{}'",
-                            path, context.repository_path
-                        ),
+            let repo_relative = if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
+                Path::new(prefix).join(workspace_relative)
+            } else {
+                match repository_relative_root {
+                    Some(repo_root) => {
+                        workspace_relative.strip_prefix(repo_root).map_err(|_| {
+                            AbstractionError::InvalidArgument {
+                                message: format!(
+                                    "GIT_PATH_INVALID: path '{}' is outside repository '{}'",
+                                    path, context.repository_path
+                                ),
+                            }
+                        })?
                     }
-                })?,
-                None => workspace_relative,
+                    None => workspace_relative,
+                }
+                .to_path_buf()
             };
             normalized.push(repo_relative.to_string_lossy().replace('\\', "/"));
         }
@@ -1042,12 +1188,10 @@ where
         repository_path: Option<&str>,
     ) -> AbstractionResult<GitStatusSummary> {
         let context = self.resolve_repo_context(workspace_id, repository_path)?;
-        match self.status_with_git2(&context.repo_root, &context.repository_path) {
+        match self.status_with_git2(&context) {
             Ok(mut summary) => {
                 if summary.branch == "HEAD" {
-                    if let Ok(fallback) =
-                        self.status_with_system_git(&context.repo_root, &context.repository_path)
-                    {
+                    if let Ok(fallback) = self.status_with_system_git(&context) {
                         if fallback.branch != "HEAD" {
                             summary.branch = fallback.branch;
                             summary.ahead = fallback.ahead;
@@ -1057,20 +1201,18 @@ where
                 }
                 Ok(summary)
             }
-            Err(_) => {
-                match self.status_with_system_git(&context.repo_root, &context.repository_path) {
-                    Ok(summary) => Ok(summary),
-                    Err(error) => {
-                        let message = error.to_string();
-                        if Self::is_not_git_repository_message(&message) {
-                            return Err(AbstractionError::InvalidArgument {
-                                message: "GIT_REPO_INVALID: not a git repository".to_string(),
-                            });
-                        }
-                        Err(error)
+            Err(_) => match self.status_with_system_git(&context) {
+                Ok(summary) => Ok(summary),
+                Err(error) => {
+                    let message = error.to_string();
+                    if Self::is_not_git_repository_message(&message) {
+                        return Err(AbstractionError::InvalidArgument {
+                            message: "GIT_REPO_INVALID: not a git repository".to_string(),
+                        });
                     }
+                    Err(error)
                 }
-            }
+            },
         }
     }
 
@@ -1122,8 +1264,8 @@ where
                 .collect::<AbstractionResult<Vec<_>>>()
         })?;
 
-        for summary in repo_statuses {
-            if aggregated.primary_repository_path.is_empty() {
+        for (index, summary) in repo_statuses.into_iter().enumerate() {
+            if index == 0 {
                 aggregated.primary_repository_path = summary.primary_repository_path.clone();
                 aggregated.branch = summary.branch.clone();
                 aggregated.ahead = summary.ahead;
@@ -1181,6 +1323,7 @@ where
             GitRepoContext {
                 workspace_root,
                 repo_root,
+                workspace_relative_prefix: None,
                 repository_path,
             }
         } else {
@@ -1249,11 +1392,16 @@ where
 
         // Try git2 first for performance, fallback to git command
         match self.diff_file_with_git2(&context.repo_root, &normalized_path, diff_mode) {
-            Ok(result) => Ok(result),
+            Ok(mut result) => {
+                Self::map_diff_to_workspace_paths(&context, &mut result);
+                Ok(result)
+            }
             Err(_) => {
                 // Fallback to git command and parse the output
                 let patch = self.run_git_diff(&context.repo_root, &normalized_path, diff_mode)?;
-                Ok(self.parse_diff_patch(&patch, &normalized_path))
+                let mut result = self.parse_diff_patch(&patch, &normalized_path);
+                Self::map_diff_to_workspace_paths(&context, &mut result);
+                Ok(result)
             }
         }
     }
@@ -1317,19 +1465,26 @@ where
                 GitSnapshotContent::Missing => "",
                 GitSnapshotContent::Binary => "",
             };
-            Some(Self::build_full_structured_diff(
+            let mut diff = Self::build_full_structured_diff(
                 &normalized_path,
                 normalized_previous_path.clone(),
                 before_text,
                 after_text,
                 old_exists,
                 new_exists,
-            ))
+            );
+            Self::map_diff_to_workspace_paths(&context, &mut diff);
+            Some(diff)
         };
+        let path = Self::repo_relative_to_workspace_path(&context, &normalized_path)
+            .unwrap_or_else(|| normalized_path.clone());
+        let old_path = normalized_previous_path
+            .as_deref()
+            .and_then(|path| Self::repo_relative_to_workspace_path(&context, path));
 
         Ok(GitExpandedCompare {
-            path: normalized_path,
-            old_path: normalized_previous_path,
+            path,
+            old_path,
             is_binary,
             old_exists,
             new_exists,
@@ -2233,20 +2388,22 @@ where
         let context = self.resolve_repo_context(workspace_id, repository_path)?;
         let max_count = effective_limit.to_string();
         let skip_count = effective_skip.to_string();
-        let output = self.run_git(
-            &context.repo_root,
-            &[
-                "log",
-                "--date=iso-strict",
-                "--decorate=short",
-                "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e",
-                "--max-count",
-                &max_count,
-                "--skip",
-                &skip_count,
-            ],
-            "GIT_LOG_FAILED",
-        )?;
+        let mut args = vec![
+            "log".to_string(),
+            "--date=iso-strict".to_string(),
+            "--decorate=short".to_string(),
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ae%x1f%ad%x1f%s%x1e".to_string(),
+            "--max-count".to_string(),
+            max_count,
+            "--skip".to_string(),
+            skip_count,
+        ];
+        if let Some(prefix) = context.workspace_relative_prefix.as_deref() {
+            args.push("--".to_string());
+            args.push(prefix.to_string());
+        }
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = self.run_git(&context.repo_root, &arg_refs, "GIT_LOG_FAILED")?;
 
         let records = Self::parse_structured_output(&output, 8);
         let mut entries = Vec::with_capacity(records.len());
@@ -2363,10 +2520,20 @@ where
                     if path.is_empty() {
                         continue;
                     }
+                    let Some(workspace_path) =
+                        Self::repo_relative_to_workspace_path(&context, &path)
+                    else {
+                        continue;
+                    };
+                    let workspace_previous_path = if previous_path.is_empty() {
+                        None
+                    } else {
+                        Self::repo_relative_to_workspace_path(&context, &previous_path)
+                    };
                     files.push(GitCommitFileEntry {
                         status,
-                        path,
-                        previous_path: (!previous_path.is_empty()).then_some(previous_path),
+                        path: workspace_path,
+                        previous_path: workspace_previous_path,
                     });
                 }
                 _ => {
@@ -2374,9 +2541,14 @@ where
                     if path.is_empty() {
                         continue;
                     }
+                    let Some(workspace_path) =
+                        Self::repo_relative_to_workspace_path(&context, &path)
+                    else {
+                        continue;
+                    };
                     files.push(GitCommitFileEntry {
                         status,
-                        path,
+                        path: workspace_path,
                         previous_path: None,
                     });
                 }
@@ -2970,7 +3142,7 @@ where
 
         let conflicts: Vec<ConflictFile> = output
             .lines()
-            .filter_map(|line| Self::parse_conflict_file(&context.repository_path, line))
+            .filter_map(|line| Self::parse_conflict_file(&context, line))
             .collect();
 
         Ok(conflicts)
@@ -3121,7 +3293,7 @@ where
         Ok(())
     }
 
-    fn parse_conflict_file(repository_path: &str, line: &str) -> Option<ConflictFile> {
+    fn parse_conflict_file(context: &GitRepoContext, line: &str) -> Option<ConflictFile> {
         if line.len() < 4 {
             return None;
         }
@@ -3148,8 +3320,9 @@ where
             return None;
         }
 
+        let workspace_path = Self::repo_relative_to_workspace_path(context, path)?;
         Some(ConflictFile {
-            path: Self::join_workspace_relative_path(repository_path, path),
+            path: workspace_path,
             status: conflict_status,
         })
     }
@@ -3419,11 +3592,40 @@ mod tests {
         repo_root
     }
 
+    fn test_repo_context(
+        workspace_root: &Path,
+        repo_root: &Path,
+        repository_path: &str,
+    ) -> GitRepoContext {
+        GitRepoContext {
+            workspace_root: workspace_root.to_path_buf(),
+            repo_root: repo_root.to_path_buf(),
+            workspace_relative_prefix: None,
+            repository_path: repository_path.to_string(),
+        }
+    }
+
+    fn test_parent_repo_context(
+        workspace_root: &Path,
+        repo_root: &Path,
+        workspace_relative_prefix: &str,
+    ) -> GitRepoContext {
+        GitRepoContext {
+            workspace_root: workspace_root.to_path_buf(),
+            repo_root: repo_root.to_path_buf(),
+            workspace_relative_prefix: Some(workspace_relative_prefix.to_string()),
+            repository_path: String::new(),
+        }
+    }
+
     #[test]
     fn parse_porcelain_status_tracks_branch_ahead_behind_and_renames() {
+        let workspace_root = PathBuf::from("/workspace");
+        let repo_root = workspace_root.join("packages/app");
+        let context = test_repo_context(&workspace_root, &repo_root, "packages/app");
         let summary = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## feature...origin/feature [ahead 2, behind 1]\nM  staged.txt\n D removed.txt\nR  old.txt -> renamed.txt\n?? new.txt\n",
-            "packages/app",
+            &context,
         );
 
         assert_eq!(summary.branch, "feature");
@@ -3439,8 +3641,10 @@ mod tests {
 
     #[test]
     fn parse_porcelain_status_defaults_head_when_branch_header_missing() {
+        let workspace_root = PathBuf::from("/workspace");
+        let context = test_repo_context(&workspace_root, &workspace_root, "");
         let summary =
-            GitService::<TestWorkspaceService>::parse_porcelain_status("?? loose.txt\n", "");
+            GitService::<TestWorkspaceService>::parse_porcelain_status("?? loose.txt\n", &context);
         assert_eq!(summary.branch, "HEAD");
         assert_eq!(summary.files[0].path, "loose.txt");
     }
@@ -3663,7 +3867,7 @@ esac\n",
         let diff = service
             .diff_file_structured(&workspace_id, Some("badrepo"), "badrepo/file.txt", false)
             .expect("structured diff should fall back to system git");
-        assert_eq!(diff.path, "file.txt");
+        assert_eq!(diff.path, "badrepo/file.txt");
         assert_eq!(diff.additions, 1);
         assert_eq!(diff.deletions, 1);
         assert_eq!(diff.hunks.len(), 1);
@@ -3859,9 +4063,13 @@ esac\n",
 
     #[test]
     fn parse_porcelain_status_handles_plain_branch_detached_head_and_short_lines() {
+        let workspace_root = PathBuf::from("/workspace");
+        let app_root = workspace_root.join("packages/app");
+        let app_context = test_repo_context(&workspace_root, &app_root, "packages/app");
+        let root_context = test_repo_context(&workspace_root, &workspace_root, "");
         let plain = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## feature/test\n?? scratch.txt\n",
-            "packages/app",
+            &app_context,
         );
         assert_eq!(plain.branch, "feature/test");
         assert_eq!(plain.files.len(), 1);
@@ -3869,7 +4077,7 @@ esac\n",
 
         let detached = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## HEAD (no branch)\nXY\nR  old.txt -> renamed.txt\n",
-            "",
+            &root_context,
         );
         assert_eq!(detached.branch, "HEAD (no branch)");
         assert_eq!(detached.files.len(), 1);
@@ -3877,7 +4085,7 @@ esac\n",
 
         let tracking = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## main...origin/main [ahead nope, behind nope]\n M tracked.txt\n",
-            "",
+            &root_context,
         );
         assert_eq!(tracking.branch, "main");
         assert_eq!(tracking.ahead, 0);
@@ -4117,8 +4325,9 @@ esac\n",
         let service = GitService::new(TestWorkspaceService {
             root: temp_root.clone(),
         });
+        let context = test_repo_context(&temp_root, &temp_root, "packages/app");
         let summary = service
-            .status_with_git2(&temp_root, "packages/app")
+            .status_with_git2(&context)
             .expect("git2 status should succeed");
 
         assert_eq!(summary.branch, "main");
@@ -4143,7 +4352,7 @@ esac\n",
         }
 
         let summary = service
-            .status_with_git2(&root, "")
+            .status_with_git2(&test_repo_context(&root, &root, ""))
             .expect("git2 status should succeed");
         assert_eq!(summary.files.len(), MAX_STATUS_FILES);
     }
@@ -4249,8 +4458,9 @@ esac\n",
         let service = GitService::new(TestWorkspaceService {
             root: workspace_root.clone(),
         });
+        let root_context = test_repo_context(&workspace_root, &workspace_root, "");
         let root_status = service
-            .status_with_system_git(&workspace_root, "")
+            .status_with_system_git(&root_context)
             .expect("root status");
         assert_eq!(root_status.branch, "main");
         assert!(root_status.files.iter().any(|file| file.path == "root.txt"));
@@ -4327,16 +4537,23 @@ esac\n",
 
     #[test]
     fn parse_porcelain_status_and_status_helpers_cover_remaining_error_shapes() {
+        let workspace_root = PathBuf::from("/workspace");
+        let root_context = test_repo_context(&workspace_root, &workspace_root, "");
+        let app_context = test_repo_context(
+            &workspace_root,
+            &workspace_root.join("packages/app"),
+            "packages/app",
+        );
         let summary = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## No commits yet on feature/no-commits\nA  added.txt\n",
-            "",
+            &root_context,
         );
         assert_eq!(summary.branch, "feature/no-commits");
         assert_eq!(summary.files[0].status, "A");
 
         let tracking = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## topic...origin/topic [ahead 2, behind 3]\nR  old.txt -> new.txt\n?? \n",
-            "packages/app",
+            &app_context,
         );
         assert_eq!(tracking.ahead, 2);
         assert_eq!(tracking.behind, 3);
@@ -4366,7 +4583,7 @@ esac\n",
         });
 
         let status_error = service
-            .status_with_git2(&plain_root, "")
+            .status_with_git2(&test_repo_context(&plain_root, &plain_root, ""))
             .expect_err("git2 status should fail for non-repo");
         assert!(status_error.to_string().contains("GIT_STATUS_GIT2_FAILED"));
 
@@ -4399,12 +4616,10 @@ esac\n",
             .expect("init repo in plain workspace");
         assert_eq!(branch, "main");
 
-        let empty_status_error = GitService::<TestWorkspaceService>::status_with_system_git(
-            &service,
-            &workspace_root.join("missing"),
-            "",
-        )
-        .expect_err("missing repo status should fail");
+        let missing_repo_root = workspace_root.join("missing");
+        let empty_status_error = service
+            .status_with_system_git(&test_repo_context(&workspace_root, &missing_repo_root, ""))
+            .expect_err("missing repo status should fail");
         assert!(empty_status_error.to_string().contains("GIT_STATUS_FAILED"));
 
         let aggregate_status = service.status(&workspace_id).expect("aggregate status");
@@ -4442,6 +4657,7 @@ esac\n",
         let repo_context = GitRepoContext {
             workspace_root: workspace_root.clone(),
             repo_root: workspace_root.clone(),
+            workspace_relative_prefix: None,
             repository_path: "packages/app".to_string(),
         };
         let outside_repo_error = service
@@ -4786,16 +5002,23 @@ esac\n",
         let parser_service = GitService::new(TestWorkspaceService {
             root: std::env::temp_dir(),
         });
+        let workspace_root = PathBuf::from("/workspace");
+        let root_context = test_repo_context(&workspace_root, &workspace_root, "");
+        let app_context = test_repo_context(
+            &workspace_root,
+            &workspace_root.join("packages/app"),
+            "packages/app",
+        );
         let initial_commit = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## Initial commit on feature\nA  staged.txt\n",
-            "",
+            &root_context,
         );
         assert_eq!(initial_commit.branch, "feature");
         assert_eq!(initial_commit.files.len(), 1);
 
         let ahead_behind = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## topic...origin/topic [ahead 2, behind 3]\nR  old.txt -> new.txt\nM  \n?\n",
-            "packages/app",
+            &app_context,
         );
         assert_eq!(ahead_behind.branch, "topic");
         assert_eq!(ahead_behind.ahead, 2);
@@ -4803,8 +5026,10 @@ esac\n",
         assert_eq!(ahead_behind.files.len(), 1);
         assert_eq!(ahead_behind.files[0].path, "packages/app/new.txt");
 
-        let detached =
-            GitService::<TestWorkspaceService>::parse_porcelain_status("M  file.txt\n", "");
+        let detached = GitService::<TestWorkspaceService>::parse_porcelain_status(
+            "M  file.txt\n",
+            &root_context,
+        );
         assert_eq!(detached.branch, "HEAD");
 
         let delete_patch = "\
@@ -5640,11 +5865,7 @@ esac\n",
         let service = GitService::new(TestWorkspaceService {
             root: workspace_root.clone(),
         });
-        let context = super::GitRepoContext {
-            workspace_root: workspace_root.clone(),
-            repo_root,
-            repository_path: "packages/app".to_string(),
-        };
+        let context = test_repo_context(&workspace_root, &repo_root, "packages/app");
 
         let normalized = service
             .normalize_workspace_paths_for_repo(
@@ -5686,45 +5907,47 @@ esac\n",
 
     #[test]
     fn parse_conflict_file_maps_supported_statuses_and_renames() {
+        let workspace_root = PathBuf::from("/workspace");
+        let context = test_repo_context(
+            &workspace_root,
+            &workspace_root.join("packages/app"),
+            "packages/app",
+        );
         let both_added =
-            GitService::<TestWorkspaceService>::parse_conflict_file("packages/app", "AA added.txt")
+            GitService::<TestWorkspaceService>::parse_conflict_file(&context, "AA added.txt")
                 .expect("both added conflict");
         assert_eq!(both_added.path, "packages/app/added.txt");
         assert!(matches!(both_added.status, ConflictStatus::BothAdded));
 
         let renamed = GitService::<TestWorkspaceService>::parse_conflict_file(
-            "packages/app",
+            &context,
             "DU old.txt -> renamed.txt",
         )
         .expect("renamed conflict");
         assert_eq!(renamed.path, "packages/app/renamed.txt");
         assert!(matches!(renamed.status, ConflictStatus::DeletedByUs));
 
-        assert!(GitService::<TestWorkspaceService>::parse_conflict_file(
-            "packages/app",
-            "M  plain.txt"
-        )
-        .is_none());
         assert!(
-            GitService::<TestWorkspaceService>::parse_conflict_file("packages/app", "AA ")
+            GitService::<TestWorkspaceService>::parse_conflict_file(&context, "M  plain.txt")
                 .is_none()
         );
-        assert!(
-            GitService::<TestWorkspaceService>::parse_conflict_file("packages/app", "x").is_none()
-        );
+        assert!(GitService::<TestWorkspaceService>::parse_conflict_file(&context, "AA ").is_none());
+        assert!(GitService::<TestWorkspaceService>::parse_conflict_file(&context, "x").is_none());
     }
 
     #[test]
     fn parse_porcelain_status_handles_initial_commit_headers() {
+        let workspace_root = PathBuf::from("/workspace");
+        let context = test_repo_context(&workspace_root, &workspace_root, "");
         let no_commits = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## No commits yet on main\n",
-            "",
+            &context,
         );
         assert_eq!(no_commits.branch, "main");
 
         let initial_commit = GitService::<TestWorkspaceService>::parse_porcelain_status(
             "## Initial commit on trunk\n",
-            "",
+            &context,
         );
         assert_eq!(initial_commit.branch, "trunk");
     }
@@ -5736,8 +5959,14 @@ esac\n",
             porcelain.push_str(&format!("?? file-{index}.txt\n"));
         }
 
+        let workspace_root = PathBuf::from("/workspace");
+        let context = test_repo_context(
+            &workspace_root,
+            &workspace_root.join("packages/app"),
+            "packages/app",
+        );
         let summary =
-            GitService::<TestWorkspaceService>::parse_porcelain_status(&porcelain, "packages/app");
+            GitService::<TestWorkspaceService>::parse_porcelain_status(&porcelain, &context);
         assert_eq!(summary.files.len(), MAX_STATUS_FILES);
     }
 
@@ -6007,6 +6236,193 @@ esac\n",
         assert_eq!(nested_summary.files[0].path, "packages/alpha/nested.txt");
 
         fs::remove_dir_all(root).expect("temp repo should be removed");
+    }
+
+    #[test]
+    fn status_supports_workspace_nested_inside_parent_repository() {
+        let parent_root =
+            std::env::temp_dir().join(format!("gt-git-parent-worktree-{}", Uuid::new_v4()));
+        fs::create_dir_all(&parent_root).expect("create parent repo root");
+        init_repo(&parent_root);
+
+        fs::create_dir_all(parent_root.join("outside")).expect("create outside dir");
+        fs::write(parent_root.join("outside/outside.txt"), "outside base\n")
+            .expect("write outside file");
+        fs::create_dir_all(parent_root.join("YYGL/code/assessment-management"))
+            .expect("create nested workspace");
+        fs::write(
+            parent_root.join("YYGL/code/assessment-management/tracked.txt"),
+            "workspace base\n",
+        )
+        .expect("write workspace tracked file");
+        run_git(&parent_root, &["add", "."]);
+        run_git(&parent_root, &["commit", "-m", "init parent"]);
+
+        let workspace_root = parent_root.join("YYGL/code/assessment-management");
+        let nested_root = create_nested_repo(&workspace_root, "modules/child", "child.txt");
+        fs::write(
+            parent_root.join("YYGL/code/assessment-management/tracked.txt"),
+            "workspace changed\n",
+        )
+        .expect("modify workspace tracked file");
+        fs::write(parent_root.join("outside/outside.txt"), "outside changed\n")
+            .expect("modify outside file");
+        fs::write(nested_root.join("child.txt"), "child changed\n").expect("modify child file");
+
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+
+        let default_context = service
+            .resolve_repo_context(&workspace_id, None)
+            .expect("parent repository context should resolve");
+        assert_eq!(
+            fs::canonicalize(&default_context.repo_root).expect("canonical context repo root"),
+            fs::canonicalize(&parent_root).expect("canonical parent repo root")
+        );
+        assert_eq!(default_context.repository_path, "");
+        assert_eq!(
+            default_context.workspace_relative_prefix.as_deref(),
+            Some("YYGL/code/assessment-management")
+        );
+
+        let repositories = service
+            .discover_workspace_repositories(&workspace_root)
+            .expect("discover parent and child repositories");
+        let repository_paths = repositories
+            .iter()
+            .map(|repository| repository.repository_path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(repository_paths, vec!["", "modules/child"]);
+
+        let summary = service.status(&workspace_id).expect("aggregate status");
+        assert_eq!(summary.primary_repository_path, "");
+        assert_eq!(summary.repositories.len(), 2);
+        assert!(summary
+            .repositories
+            .iter()
+            .any(|repository| repository.repository_path.is_empty()));
+        assert!(summary
+            .repositories
+            .iter()
+            .any(|repository| repository.repository_path == "modules/child"));
+        assert!(summary.files.iter().any(|file| {
+            file.path == "tracked.txt"
+                && file.repository_path.is_empty()
+                && file.repo_relative_path == "YYGL/code/assessment-management/tracked.txt"
+        }));
+        assert!(
+            !summary
+                .files
+                .iter()
+                .any(|file| file.path.contains("outside/outside.txt")),
+            "parent repository status should be scoped to the workspace subtree"
+        );
+        assert!(summary.files.iter().any(|file| {
+            file.path == "modules/child/child.txt"
+                && file.repository_path == "modules/child"
+                && file.repo_relative_path == "child.txt"
+        }));
+
+        let parent_summary = service
+            .status_repo(&workspace_id, Some(""))
+            .expect("selected parent repository status should succeed");
+        assert_eq!(parent_summary.primary_repository_path, "");
+        assert!(parent_summary
+            .files
+            .iter()
+            .any(|file| file.path == "tracked.txt"));
+        assert!(!parent_summary
+            .files
+            .iter()
+            .any(|file| file.path.contains("outside/outside.txt")));
+
+        let nested_summary = service
+            .status_repo(&workspace_id, Some("modules/child"))
+            .expect("nested repository status should succeed");
+        assert_eq!(nested_summary.primary_repository_path, "modules/child");
+        assert_eq!(nested_summary.files[0].path, "modules/child/child.txt");
+
+        fs::remove_dir_all(parent_root).expect("parent repo root should be removed");
+    }
+
+    #[test]
+    fn parent_repository_scope_normalizes_paths_and_diff_to_workspace_subtree() {
+        let parent_root =
+            std::env::temp_dir().join(format!("gt-git-parent-paths-{}", Uuid::new_v4()));
+        fs::create_dir_all(&parent_root).expect("create parent repo root");
+        init_repo(&parent_root);
+        fs::create_dir_all(parent_root.join("YYGL/code/assessment-management"))
+            .expect("create nested workspace");
+        fs::write(
+            parent_root.join("YYGL/code/assessment-management/tracked.txt"),
+            "base\n",
+        )
+        .expect("write tracked file");
+        run_git(&parent_root, &["add", "."]);
+        run_git(&parent_root, &["commit", "-m", "init parent"]);
+
+        let workspace_root = parent_root.join("YYGL/code/assessment-management");
+        let workspace_id = WorkspaceId::new(format!("ws-test-{}", Uuid::new_v4()));
+        let service = GitService::new(TestWorkspaceService {
+            root: workspace_root.clone(),
+        });
+        let context = test_parent_repo_context(
+            &workspace_root,
+            &parent_root,
+            "YYGL/code/assessment-management",
+        );
+
+        let normalized = service
+            .normalize_workspace_paths_for_repo(
+                &context,
+                &["tracked.txt".to_string(), "nested/new.txt".to_string()],
+            )
+            .expect("workspace paths should map into parent repo paths");
+        assert_eq!(
+            normalized,
+            vec![
+                "YYGL/code/assessment-management/tracked.txt".to_string(),
+                "YYGL/code/assessment-management/nested/new.txt".to_string()
+            ]
+        );
+
+        fs::write(
+            parent_root.join("YYGL/code/assessment-management/tracked.txt"),
+            "base\nchanged\n",
+        )
+        .expect("modify tracked file");
+        let diff = service
+            .diff_file_structured(&workspace_id, Some(""), "tracked.txt", false)
+            .expect("parent scoped diff should succeed");
+        assert_eq!(diff.path, "tracked.txt");
+        assert!(diff.patch.contains("+changed"));
+
+        service
+            .stage(&workspace_id, Some(""), &["tracked.txt".to_string()])
+            .expect("stage parent scoped workspace path");
+        let staged_status = run_git_output(
+            &parent_root,
+            &[
+                "diff",
+                "--cached",
+                "--name-only",
+                "--",
+                "YYGL/code/assessment-management/tracked.txt",
+            ],
+        );
+        assert_eq!(
+            staged_status.trim(),
+            "YYGL/code/assessment-management/tracked.txt"
+        );
+
+        let outside_error = service
+            .stage(&workspace_id, Some(""), &["../outside.txt".to_string()])
+            .expect_err("parent traversal should still be rejected");
+        assert!(outside_error.to_string().contains("GIT_PATH_INVALID"));
+
+        fs::remove_dir_all(parent_root).expect("parent repo root should be removed");
     }
 
     #[test]

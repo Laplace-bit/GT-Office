@@ -473,8 +473,11 @@ fn diff_file_expansion_handles_binary_rename_and_nested_repository_paths() {
         )
         .expect("binary rename expansion");
     assert!(expansion.is_binary);
-    assert_eq!(expansion.path, "after.bin");
-    assert_eq!(expansion.old_path.as_deref(), Some("before.bin"));
+    assert_eq!(expansion.path, "packages/app/after.bin");
+    assert_eq!(
+        expansion.old_path.as_deref(),
+        Some("packages/app/before.bin")
+    );
     assert!(expansion.full_diff.is_none());
 }
 
