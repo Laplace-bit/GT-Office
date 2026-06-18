@@ -164,3 +164,17 @@
 - 改动已实现
 - 相关行为满足要求
 - 模块边界和目录职责未被破坏
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues for `Laplace-bit/GT-Office`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage labels use the default five-label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain docs use a single-context layout: root `CONTEXT.md` plus root `docs/adr/` when they exist. See `docs/agents/domain.md`.
