@@ -66,6 +66,14 @@ export interface DesignerManifest {
   generated: DesignerGeneratedPaths
   tags: string[]
   status: DesignerDocumentStatus
+  /** v1: per-block coordinates for the graph canvas. */
+  layout?: Record<string, DesignerLayoutPosition> | null
+}
+
+/** v1: 2D position used by the graph canvas. Stored under manifest.layout. */
+export interface DesignerLayoutPosition {
+  x: number
+  y: number
 }
 
 export interface DesignerDesignGraph {

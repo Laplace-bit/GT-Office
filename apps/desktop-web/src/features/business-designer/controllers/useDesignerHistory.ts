@@ -9,6 +9,7 @@ import {
   isBusinessDesignerRuntime,
   listDesignerCheckpoints,
 } from './designerDesktopApi'
+import { traceDesignerIpc } from './designerIpcTrace'
 
 /** What the history sheet compares against. */
 export type DesignerHistoryMode = 'workingTree' | 'checkpoints'
@@ -30,6 +31,7 @@ export interface UseDesignerHistoryResult {
   headCommit: string | null
   /** Open the sheet and refresh history for the active document. */
   open: () => void
+  openDiffFromCheckpoint: (checkpoint: string) => void
   close: () => void
   isOpen: boolean
   setMode: (mode: DesignerHistoryMode) => void
@@ -66,7 +68,9 @@ export function useDesignerHistory({
     setLoading(true)
     setError(null)
     try {
-      const result = await listDesignerCheckpoints(workspaceId, documentId)
+      const result = await traceDesignerIpc('business_designer.list_checkpoints.history', (traceId) =>
+        listDesignerCheckpoints(workspaceId, documentId, traceId),
+      )
       setEntries(result.entries)
       // Default base = most recent checkpoint; head stays null = working tree.
       const latest = result.entries[0]?.commit ?? null
@@ -83,6 +87,31 @@ export function useDesignerHistory({
     setIsOpen(true)
     setDiff(null)
   }, [])
+
+  const openDiffFromCheckpoint = useCallback((checkpoint: string) => {
+    setMode('workingTree')
+    setBaseCommit(checkpoint)
+    setHeadCommit(null)
+    setIsOpen(true)
+    setDiff(null)
+    if (!workspaceId || !documentId || !isBusinessDesignerRuntime()) {
+      return
+    }
+    setDiffLoading(true)
+    setError(null)
+    void traceDesignerIpc('business_designer.diff_checkpoint.history', (traceId) =>
+      diffDesignerWorkingTree(workspaceId, documentId, checkpoint, traceId),
+    )
+      .then((result) => {
+        setDiff(result)
+      })
+      .catch((err: unknown) => {
+        setError(getErrorMessage(err))
+      })
+      .finally(() => {
+        setDiffLoading(false)
+      })
+  }, [documentId, workspaceId])
 
   const close = useCallback(() => {
     setIsOpen(false)
@@ -116,8 +145,12 @@ export function useDesignerHistory({
     try {
       const result =
         mode === 'checkpoints' && baseCommit && headCommit
-          ? await compareDesignerCheckpoints(workspaceId, documentId, baseCommit, headCommit)
-          : await diffDesignerWorkingTree(workspaceId, documentId, baseCommit)
+          ? await traceDesignerIpc('business_designer.compare_checkpoints.history', (traceId) =>
+              compareDesignerCheckpoints(workspaceId, documentId, baseCommit, headCommit, traceId),
+            )
+          : await traceDesignerIpc('business_designer.diff_checkpoint.history', (traceId) =>
+              diffDesignerWorkingTree(workspaceId, documentId, baseCommit, traceId),
+            )
       setDiff(result)
     } catch (err) {
       setError(getErrorMessage(err))
@@ -136,6 +169,7 @@ export function useDesignerHistory({
     baseCommit,
     headCommit,
     open,
+    openDiffFromCheckpoint,
     close,
     isOpen,
     setMode,

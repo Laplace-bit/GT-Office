@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { DesignerExportFormat } from '../model/designer-document'
 import { DESIGNER_EXPORT_FORMATS } from '../model/designer-document'
 import type { DesignerOperation } from '../controllers/useDesignerDocumentState'
+
+export type DesignerCreateKind = 'entityModel' | 'businessFlow' | 'apiContract'
 
 interface DesignerToolbarProps {
   locale: Locale
@@ -11,10 +13,11 @@ interface DesignerToolbarProps {
   dirty: boolean
   operation: DesignerOperation | null
   onSave: () => void
-  onRunAgent: () => void
   onExport: (format: DesignerExportFormat) => void
   onCheckpoint: () => void
   onOpenHistory: () => void
+  onCreateBlock: (kind: DesignerCreateKind) => void
+  onExpandCanvas: (userPrompt?: string | null) => void
 }
 
 function busy(operation: DesignerOperation | null, target: DesignerOperation): boolean {
@@ -31,12 +34,15 @@ export function DesignerToolbar({
   dirty,
   operation,
   onSave,
-  onRunAgent,
   onExport,
   onCheckpoint,
   onOpenHistory,
+  onCreateBlock,
+  onExpandCanvas,
 }: DesignerToolbarProps) {
   const [exportOpen, setExportOpen] = useState(false)
+  const [expandPrompt, setExpandPrompt] = useState('')
+  const exportButtonRef = useRef<HTMLButtonElement>(null)
   const exportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,6 +57,45 @@ export function DesignerToolbar({
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
   }, [exportOpen])
+
+  useEffect(() => {
+    if (!exportOpen) {
+      return
+    }
+    exportRef.current?.querySelector<HTMLButtonElement>('.designer-export-option')?.focus()
+  }, [exportOpen])
+
+  const handleExportMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key !== 'ArrowDown' &&
+      event.key !== 'ArrowUp' &&
+      event.key !== 'Home' &&
+      event.key !== 'End' &&
+      event.key !== 'Escape'
+    ) {
+      return
+    }
+    event.preventDefault()
+    if (event.key === 'Escape') {
+      setExportOpen(false)
+      exportButtonRef.current?.focus({ preventScroll: true })
+      return
+    }
+    const buttons = Array.from(
+      exportRef.current?.querySelectorAll<HTMLButtonElement>('.designer-export-option') ?? [],
+    )
+    if (buttons.length === 0) return
+    const currentIndex = buttons.findIndex((button) => button === document.activeElement)
+    const nextIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : event.key === 'ArrowDown'
+            ? (Math.max(0, currentIndex) + 1) % buttons.length
+            : (currentIndex <= 0 ? buttons.length : currentIndex) - 1
+    buttons[nextIndex]?.focus()
+  }
 
   return (
     <header className="designer-toolbar" role="toolbar" aria-label={t(locale, 'designer.toolbar')}>
@@ -68,23 +113,71 @@ export function DesignerToolbar({
 
       <button
         type="button"
+        className="designer-tool-button"
+        onClick={() => onCreateBlock('entityModel')}
+        disabled={!canEdit}
+        title={t(locale, 'designer.create.entity')}
+      >
+        <AppIcon name="database" aria-hidden="true" />
+        <span>{t(locale, 'designer.create.entity')}</span>
+      </button>
+      <button
+        type="button"
+        className="designer-tool-button"
+        onClick={() => onCreateBlock('businessFlow')}
+        disabled={!canEdit}
+        title={t(locale, 'designer.create.flow')}
+      >
+        <AppIcon name="route" aria-hidden="true" />
+        <span>{t(locale, 'designer.create.flow')}</span>
+      </button>
+      <button
+        type="button"
+        className="designer-tool-button"
+        onClick={() => onCreateBlock('apiContract')}
+        disabled={!canEdit}
+        title={t(locale, 'designer.create.api')}
+      >
+        <AppIcon name="braces" aria-hidden="true" />
+        <span>{t(locale, 'designer.create.api')}</span>
+      </button>
+      <button
+        type="button"
         className="designer-tool-button designer-tool-button--accent"
-        onClick={onRunAgent}
+        onClick={() => {
+          onExpandCanvas(expandPrompt.trim() || null)
+          setExpandPrompt('')
+        }}
         disabled={!canEdit || anyBusy(operation)}
-        title={t(locale, 'designer.agentHint')}
+        title={t(locale, 'designer.freeform.expandCanvas')}
       >
         <AppIcon name="sparkles" aria-hidden="true" />
-        <span>
-          {busy(operation, 'agent')
-            ? t(locale, 'designer.agentRunning')
-            : t(locale, 'designer.agent')}
-        </span>
+        <span>{t(locale, 'designer.freeform.expandCanvas')}</span>
       </button>
+      <input
+        className="designer-toolbar-prompt"
+        value={expandPrompt}
+        disabled={!canEdit || anyBusy(operation)}
+        aria-label={t(locale, 'designer.freeform.userPrompt')}
+        placeholder={t(locale, 'designer.freeform.toolbarPromptPlaceholder')}
+        onChange={(event) => setExpandPrompt(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || !canEdit || anyBusy(operation)) {
+            return
+          }
+          event.preventDefault()
+          onExpandCanvas(expandPrompt.trim() || null)
+          setExpandPrompt('')
+        }}
+      />
+
+      <span className="designer-tool-divider" aria-hidden="true" />
 
       <span className="designer-tool-spacer" />
 
       <div className="designer-export-menu" ref={exportRef}>
         <button
+          ref={exportButtonRef}
           type="button"
           className="designer-tool-button"
           onClick={() => setExportOpen((open) => !open)}
@@ -99,7 +192,11 @@ export function DesignerToolbar({
           <AppIcon name="chevron-down" aria-hidden="true" />
         </button>
         {exportOpen ? (
-          <div className="designer-export-popover" role="menu">
+          <div
+            className="designer-export-popover"
+            role="menu"
+            onKeyDown={handleExportMenuKeyDown}
+          >
             {DESIGNER_EXPORT_FORMATS.map((format) => (
               <button
                 key={format}

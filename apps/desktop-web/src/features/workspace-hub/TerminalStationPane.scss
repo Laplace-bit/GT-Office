@@ -463,4 +463,10 @@
     transition: none !important;
   }
 
+  .terminal-station-pane-force-close:active,
+  .terminal-station-pane-launch-terminal:active,
+  .terminal-station-pane-idle-button:active {
+    transform: none;
+  }
+
 }

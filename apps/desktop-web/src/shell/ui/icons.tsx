@@ -2,17 +2,22 @@ import type { SVGProps } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowDown,
   ArrowUp,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleAlert,
   Clock3,
   ClipboardPaste,
   Copy,
+  Database,
+  Braces,
   FilePlus,
   FolderPlus,
   Link,
@@ -51,6 +56,7 @@ import {
   ShieldCheck,
   Sparkles,
   SquareTerminal,
+  Route,
   Trash2,
   Undo2,
   UserPen,
@@ -78,6 +84,9 @@ export type AppIconName =
   | 'plus'
   | 'folder-open'
   | 'file-text'
+  | 'database'
+  | 'braces'
+  | 'route'
   | 'chevron-right'
   | 'chevron-down'
   | 'chevron-up'
@@ -119,6 +128,9 @@ export type AppIconName =
   | 'panel-right-close'
   | 'panel-right-open'
   | 'ellipsis'
+  | 'alert-triangle'
+  | 'alert-circle'
+  | 'check-circle'
 
 const iconMap: Record<AppIconName, LucideIcon> = {
   stations: LayoutGrid,
@@ -139,6 +151,9 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   plus: Plus,
   'folder-open': FolderOpen,
   'file-text': FileText,
+  database: Database,
+  braces: Braces,
+  route: Route,
   'chevron-right': ChevronRight,
   'chevron-down': ChevronDown,
   'chevron-up': ChevronUp,
@@ -180,6 +195,9 @@ const iconMap: Record<AppIconName, LucideIcon> = {
   'panel-right-close': PanelRightClose,
   'panel-right-open': PanelRightOpen,
   ellipsis: MoreHorizontal,
+  'alert-triangle': AlertTriangle,
+  'alert-circle': CircleAlert,
+  'check-circle': CheckCircle2,
 }
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {

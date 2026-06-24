@@ -410,40 +410,46 @@ function ShellMainLayout({
   fileEditorPaneProps,
   gitHistoryPaneProps,
 }: ShellMainLayoutProps) {
+  const usesIntegratedLeftPane = activeNavId === 'designer'
+
   return (
     <>
       <div ref={shellRailRef} className="shell-rail-slot">
         <ActivityRail {...activityRailProps} />
       </div>
 
-      <div
-        ref={shellLeftPaneRef}
-        className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''} ${!leftPaneVisible ? 'shell-left-pane--collapsed' : 'shell-left-pane--visible'}`}
-      >
-        <ShellLeftPaneContent
-          activeNavId={activeNavId}
-          fileTreePaneProps={fileTreePaneProps}
-          taskCenterPaneProps={taskCenterPaneProps}
-          stationOverviewPaneProps={stationOverviewPaneProps}
-          gitOperationsPaneProps={gitOperationsPaneProps}
-          communicationChannelsPaneProps={communicationChannelsPaneProps}
-          activePaneModel={activePaneModel}
-        />
-      </div>
+      {usesIntegratedLeftPane ? null : (
+        <>
+          <div
+            ref={shellLeftPaneRef}
+            className={`shell-pane-shell shell-left-pane ${activeNavId === 'tasks' ? 'is-task-center' : ''} ${!leftPaneVisible ? 'shell-left-pane--collapsed' : 'shell-left-pane--visible'}`}
+          >
+            <ShellLeftPaneContent
+              activeNavId={activeNavId}
+              fileTreePaneProps={fileTreePaneProps}
+              taskCenterPaneProps={taskCenterPaneProps}
+              stationOverviewPaneProps={stationOverviewPaneProps}
+              gitOperationsPaneProps={gitOperationsPaneProps}
+              communicationChannelsPaneProps={communicationChannelsPaneProps}
+              activePaneModel={activePaneModel}
+            />
+          </div>
 
-      <div
-        ref={shellResizerRef}
-        className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''} ${!leftPaneVisible ? 'shell-column-resizer--collapsed' : ''}`}
-        role="separator"
-        aria-label="Resize left panel"
-        aria-orientation="vertical"
-        aria-valuemin={LEFT_PANE_WIDTH_MIN}
-        aria-valuemax={leftPaneWidthMax}
-        aria-valuenow={leftPaneWidth}
-        tabIndex={0}
-        onPointerDown={onLeftPaneResizePointerDown}
-        onKeyDown={onLeftPaneResizeKeyDown}
-      />
+          <div
+            ref={shellResizerRef}
+            className={`shell-column-resizer ${leftPaneResizing ? 'active' : ''} ${!leftPaneVisible ? 'shell-column-resizer--collapsed' : ''}`}
+            role="separator"
+            aria-label="Resize left panel"
+            aria-orientation="vertical"
+            aria-valuemin={LEFT_PANE_WIDTH_MIN}
+            aria-valuemax={leftPaneWidthMax}
+            aria-valuenow={leftPaneWidth}
+            tabIndex={0}
+            onPointerDown={onLeftPaneResizePointerDown}
+            onKeyDown={onLeftPaneResizeKeyDown}
+          />
+        </>
+      )}
 
       <ShellMainArea
         shellMainPaneRef={shellMainPaneRef}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { t, type Locale, type TranslationKey } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { DesignerDiffEntry } from '../model/designer-document'
@@ -46,6 +46,7 @@ function entryIcon(status: string): TranslationKey {
 export function DesignerHistorySheet({ locale, history }: DesignerHistorySheetProps) {
   const { isOpen, close, entries, loading, error, diff, diffLoading } = history
   const panelRef = useRef<HTMLDivElement>(null)
+  const modeGroupRef = useRef<HTMLDivElement>(null)
 
   // Close on Escape — Escape always does something meaningful (native feel).
   useEffect(() => {
@@ -68,6 +69,32 @@ export function DesignerHistorySheet({ locale, history }: DesignerHistorySheetPr
     history.mode === 'checkpoints'
       ? Boolean(history.baseCommit && history.headCommit)
       : true
+
+  const setHistoryMode = (mode: UseDesignerHistoryResult['mode']) => {
+    history.setMode(mode)
+    window.requestAnimationFrame(() => {
+      modeGroupRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-history-mode="${mode}"]`)
+        ?.focus()
+    })
+  }
+
+  const handleModeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.key !== 'ArrowLeft' &&
+      event.key !== 'ArrowRight' &&
+      event.key !== 'Home' &&
+      event.key !== 'End'
+    ) {
+      return
+    }
+    event.preventDefault()
+    const nextMode =
+      event.key === 'ArrowLeft' || event.key === 'Home'
+        ? 'workingTree'
+        : 'checkpoints'
+    setHistoryMode(nextMode)
+  }
 
   if (!isOpen) {
     return null
@@ -94,13 +121,20 @@ export function DesignerHistorySheet({ locale, history }: DesignerHistorySheetPr
         </button>
       </header>
 
-      <div className="designer-history-mode" role="radiogroup" aria-label={t(locale, 'designer.history.mode')}>
+      <div
+        className="designer-history-mode"
+        role="radiogroup"
+        aria-label={t(locale, 'designer.history.mode')}
+        ref={modeGroupRef}
+        onKeyDown={handleModeKeyDown}
+      >
         <button
           type="button"
           role="radio"
           aria-checked={history.mode === 'workingTree'}
+          data-history-mode="workingTree"
           className={`designer-history-mode-option ${history.mode === 'workingTree' ? 'is-active' : ''}`}
-          onClick={() => history.setMode('workingTree')}
+          onClick={() => setHistoryMode('workingTree')}
         >
           {t(locale, 'designer.history.modeWorkingTree')}
         </button>
@@ -108,8 +142,9 @@ export function DesignerHistorySheet({ locale, history }: DesignerHistorySheetPr
           type="button"
           role="radio"
           aria-checked={history.mode === 'checkpoints'}
+          data-history-mode="checkpoints"
           className={`designer-history-mode-option ${history.mode === 'checkpoints' ? 'is-active' : ''}`}
-          onClick={() => history.setMode('checkpoints')}
+          onClick={() => setHistoryMode('checkpoints')}
         >
           {t(locale, 'designer.history.modeCheckpoints')}
         </button>

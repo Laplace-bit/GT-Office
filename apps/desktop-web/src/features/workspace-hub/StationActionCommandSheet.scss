@@ -306,4 +306,10 @@
     transition: none !important;
   }
 
+  .station-action-command-sheet-close:active,
+  .station-action-command-sheet-secondary:active:not(:disabled),
+  .station-action-command-sheet-primary:active:not(:disabled) {
+    transform: none !important;
+  }
+
 }

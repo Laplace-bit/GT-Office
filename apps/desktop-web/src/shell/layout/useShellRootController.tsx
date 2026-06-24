@@ -1385,6 +1385,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       workspaceId: presentedWorkspaceId,
       workspaceRoot: presentedWorkspaceRoot,
       active: activeNavId === 'designer',
+      libraryPanelVisible: leftPaneVisible,
+      onLibraryPanelVisibleChange: setLeftPaneVisible,
     },
     activePaneModel,
     showWorkbenchCanvas,

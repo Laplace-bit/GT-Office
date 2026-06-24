@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { t, type Locale, type TranslationKey } from '@shell/i18n/ui-locale'
+import { t, type Locale } from '@shell/i18n/ui-locale'
 import { MarkdownRenderer } from '@/components/editor'
-import type { DesignerBlock, DesignerBlockKind } from '../model/designer-blocks'
+import type { DesignerBlock } from '../model/designer-blocks'
+import { designerBlockKindLabel } from '../model/designer-block-labels'
 
 interface DesignerDocumentProps {
   locale: Locale
@@ -13,25 +14,6 @@ interface DesignerDocumentProps {
   agentBlocks: DesignerBlock[]
   /** When true the editor is mounted read-only (e.g. while a document loads). */
   readOnly?: boolean
-}
-
-const BLOCK_TITLE_KEYS: Partial<Record<DesignerBlockKind, TranslationKey>> = {
-  entityModel: 'designer.section.entityModel',
-  apiContract: 'designer.section.apiContract',
-  businessFlow: 'designer.section.businessFlow',
-  acceptanceCriteria: 'designer.section.acceptanceCriteria',
-  openQuestions: 'designer.section.openQuestions',
-  glossary: 'designer.section.glossary',
-  ruleTable: 'designer.section.ruleTable',
-  objectModel: 'designer.section.objectModel',
-  dataContract: 'designer.section.dataContract',
-  technicalStack: 'designer.section.technicalStack',
-  nonFunctional: 'designer.section.nonFunctional',
-  decisionRecord: 'designer.section.decisionRecord',
-  pseudocode: 'designer.section.pseudocode',
-  uiWorkflow: 'designer.section.uiWorkflow',
-  agentInstruction: 'designer.section.agentInstruction',
-  text: 'designer.section.text',
 }
 
 type JsonRecord = Record<string, unknown>
@@ -88,7 +70,7 @@ function boolField(record: JsonRecord, key: string): boolean {
 /** Compile an Agent-produced structured block into stable Markdown so it can be
  * rendered read-only inline. The block's title drives the heading. */
 function blockToMarkdown(locale: Locale, block: DesignerBlock): string {
-  const heading = block.title || sectionTitle(locale, block.kind)
+  const heading = block.title || designerBlockKindLabel(locale, block.kind)
   const lines: string[] = [`### ${heading}`]
   switch (block.kind) {
     case 'text':
@@ -239,15 +221,6 @@ function blockToMarkdown(locale: Locale, block: DesignerBlock): string {
       break
   }
   return lines.join('\n')
-}
-
-function sectionTitle(locale: Locale, kind: DesignerBlockKind | string): string {
-  const key = BLOCK_TITLE_KEYS[kind as DesignerBlockKind]
-  if (key) {
-    return t(locale, key)
-  }
-  // Inline mode: identical zh/en so an unknown kind renders verbatim.
-  return t(locale, kind, kind)
 }
 
 export function DesignerDocument({

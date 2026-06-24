@@ -14,3 +14,5 @@ export interface WorkspaceContext {
   permissions: Record<string, unknown>;
   terminalDefaultCwd: "workspace_root" | "custom";
 }
+
+export type * from "./business-designer.js";

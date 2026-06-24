@@ -1,0 +1,42 @@
+@use 'responsive' as *;
+
+:root {
+  --designer-canvas-bg: color-mix(in srgb, var(--vb-bg) 92%, var(--vb-surface-muted) 8%);
+  --designer-canvas-grid: color-mix(in srgb, var(--vb-border) 38%, transparent);
+
+  --designer-node-bg: var(--vb-surface);
+  --designer-node-border: var(--vb-border);
+  --designer-node-border-selected: var(--vb-accent);
+  --designer-node-shadow: var(--vb-shadow-sm);
+  --designer-node-shadow-elevated: var(--vb-shadow-md);
+  --designer-popover-shadow: var(--vb-shadow-md);
+  --designer-floating-panel-shadow: var(--vb-shadow-lg);
+  --designer-pressed-shadow: var(--vb-shadow-sm);
+  --designer-side-panel-shadow: var(--vb-shadow-lg);
+  --designer-linux-panel-shadow: var(--vb-shadow-sm);
+
+  --designer-edge-color: color-mix(in srgb, var(--vb-text-muted) 56%, transparent);
+  --designer-edge-dependsOn: color-mix(in srgb, var(--vb-accent) 78%, transparent);
+  --designer-edge-produces: color-mix(in srgb, var(--vb-success) 70%, transparent);
+  --designer-edge-consumes: color-mix(in srgb, var(--vb-warning) 70%, transparent);
+  --designer-edge-uses: color-mix(in srgb, var(--vb-text-muted) 64%, transparent);
+  --designer-edge-extends: color-mix(in srgb, var(--vb-accent) 50%, transparent);
+
+  --designer-gap-warning: var(--vb-warning);
+  --designer-gap-error: var(--vb-error);
+  --designer-gap-resolved: var(--vb-success);
+  --designer-gap-introduced: var(--vb-warning);
+  --designer-danger: var(--vb-error);
+  --designer-danger-border: color-mix(in srgb, var(--designer-danger) 32%, var(--vb-border));
+  --designer-danger-border-hover: color-mix(in srgb, var(--designer-danger) 28%, var(--vb-border));
+  --designer-danger-bg: color-mix(in srgb, var(--designer-danger) 7%, var(--vb-surface));
+  --designer-danger-bg-hover: color-mix(in srgb, var(--designer-danger) 8%, var(--vb-surface));
+  --designer-danger-ring: color-mix(in srgb, var(--designer-danger) 18%, transparent);
+
+  --designer-focus-ring: color-mix(in srgb, var(--vb-accent) 40%, transparent);
+}
+
+:root[data-theme$='-dark'] {
+  --designer-canvas-bg: color-mix(in srgb, var(--vb-bg) 86%, var(--vb-surface) 14%);
+  --designer-canvas-grid: color-mix(in srgb, var(--vb-border) 24%, transparent);
+}

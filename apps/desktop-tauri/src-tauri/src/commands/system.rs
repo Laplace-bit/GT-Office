@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rfd::FileDialog;
+use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{Manager, State};
@@ -61,6 +61,24 @@ pub fn system_pick_directory(default_path: Option<String>) -> Result<Option<Stri
     Ok(dialog
         .pick_folder()
         .map(|path| path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub fn system_confirm(title: String, message: String) -> Result<bool, String> {
+    let title = title.trim();
+    let message = message.trim();
+    let title = if title.is_empty() { "Confirm" } else { title };
+    let message = if message.is_empty() { title } else { message };
+
+    Ok(matches!(
+        MessageDialog::new()
+            .set_level(MessageLevel::Warning)
+            .set_title(title)
+            .set_description(message)
+            .set_buttons(MessageButtons::OkCancel)
+            .show(),
+        MessageDialogResult::Ok | MessageDialogResult::Yes
+    ))
 }
 
 #[tauri::command]

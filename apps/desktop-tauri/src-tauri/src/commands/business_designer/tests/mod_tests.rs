@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -15,10 +16,21 @@ use crate::app_state::AppState;
 use super::{
     apply_agent_patch_at, compare_checkpoints_at, compile_document_at, create_checkpoint_at,
     create_document_at, diff_checkpoint_at, ensure_docs_git_repository, ensure_docs_scaffold_at,
-    export_document_at, list_checkpoints_at, list_documents_at, preview_coding_handoff_at,
-    read_document_at, recover_agent_patch_from_task_at, run_agent_completion_at, save_document_at,
-    validate_agent_patch_at,
+    export_document_at, list_checkpoints_at, list_documents_at, preview_agent_task_at,
+    preview_coding_handoff_at, read_document_at, recover_agent_patch_from_task_at,
+    render_design_completion_markdown_with_host, run_mock_agent_completion_at, save_document_at,
+    validate_agent_patch_at, validate_document_at, AgentTaskPreviewRequest,
+    DesignerAgentTaskPreviewCommandRequest, DesignerAgentTaskScope,
+    DesignerApplyAgentPatchCommandRequest, DesignerBlock, DesignerBlockLink,
+    DesignerFreeformCompletionProvider, DesignerFreeformCompletionRun,
+    DesignerFreeformCompletionRunStatus, DesignerFreeformCompletionScenario,
+    DesignerLayoutPosition, DesignerMockAgentCompletionCommandRequest,
+    DesignerRecoverAgentPatchCommandRequest, DesignerValidateAgentPatchCommandRequest,
+    MockAgentCompletionRequest,
 };
+
+#[path = "gap_rules_tests.rs"]
+mod gap_rules_tests;
 
 struct TempWorkspace {
     root: PathBuf,
@@ -44,6 +56,28 @@ impl Drop for TempWorkspace {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+fn replace_with_dangling_ref_entity(
+    mut detail: super::DesignerDocumentDetail,
+) -> super::DesignerDocumentDetail {
+    detail.design.blocks = vec![DesignerBlock {
+        id: "order".to_string(),
+        kind: "entityModel".to_string(),
+        title: "Order".to_string(),
+        order: 10,
+        payload: json!({
+            "entityName": "Order",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "customer", "type": "Customer" }
+            ]
+        }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: detail.design.revision.clone(),
+    }];
+    detail
 }
 
 #[test]
@@ -139,6 +173,38 @@ fn list_documents_returns_manifest_parse_diagnostic() {
 }
 
 #[test]
+fn validate_document_result_carries_schema_identity() {
+    let temp = TempWorkspace::new("validate-schema-identity");
+    let detail = create_document_at("ws-1", temp.root(), "identity", "Identity", None)
+        .expect("create document");
+
+    let result = validate_document_at("ws-1", temp.root(), "identity").expect("validate document");
+
+    assert_eq!(result["schemaVersion"], json!(1));
+    assert_eq!(result["workspaceId"], json!("ws-1"));
+    assert_eq!(result["documentId"], json!("identity"));
+    assert_eq!(result["revision"], json!(detail.design.revision));
+    assert!(result["diagnostics"].is_array());
+    assert!(result["gaps"].is_array());
+    assert!(result["rulesRun"].is_array());
+    assert!(result["graphProjection"]["links"].is_array());
+}
+
+#[test]
+fn document_detail_rejects_unknown_contract_fields() {
+    let temp = TempWorkspace::new("document-detail-unknown-fields");
+    let detail = create_document_at("ws-1", temp.root(), "strict-doc", "Strict Doc", None)
+        .expect("create document");
+    let mut value = serde_json::to_value(detail).expect("serialize detail");
+    value["unexpectedField"] = json!(true);
+
+    let error = serde_json::from_value::<super::DesignerDocumentDetail>(value)
+        .expect_err("document detail should reject unknown fields");
+
+    assert!(error.to_string().contains("unknown field"));
+}
+
+#[test]
 fn create_document_writes_manifest_design_blocks_and_index() {
     let temp = TempWorkspace::new("create");
 
@@ -186,6 +252,54 @@ fn read_and_save_document_round_trip_blocks() {
             .and_then(|value| value.as_str()),
         Some("Billing handles invoices and payments.")
     );
+}
+
+#[test]
+fn save_document_removes_deleted_block_layout_and_authored_links() {
+    let temp = TempWorkspace::new("save-cleanup");
+    let mut detail = create_document_at("ws-1", temp.root(), "cleanup", "Cleanup", None)
+        .expect("create document");
+    let document_root = temp.root().join(".gtoffice/docs/documents/cleanup");
+
+    detail.manifest.layout = Some(HashMap::from([
+        (
+            "overview".to_string(),
+            DesignerLayoutPosition { x: 1.0, y: 2.0 },
+        ),
+        (
+            "deleted-block".to_string(),
+            DesignerLayoutPosition { x: 3.0, y: 4.0 },
+        ),
+    ]));
+    detail.design.blocks[0].links = vec![
+        DesignerBlockLink {
+            target_block_id: "domain-model".to_string(),
+            relation: "uses".to_string(),
+        },
+        DesignerBlockLink {
+            target_block_id: "deleted-block".to_string(),
+            relation: "uses".to_string(),
+        },
+    ];
+    fs::write(
+        document_root.join("blocks/deleted-block.json"),
+        r#"{"id":"deleted-block"}"#,
+    )
+    .expect("write stale block file");
+
+    let saved = save_document_at("ws-1", temp.root(), detail).expect("save document");
+    let read_back = read_document_at("ws-1", temp.root(), "cleanup").expect("read document");
+
+    for detail in [&saved, &read_back] {
+        let layout = detail.manifest.layout.as_ref().expect("layout retained");
+        assert!(layout.contains_key("overview"));
+        assert!(!layout.contains_key("deleted-block"));
+        assert!(
+            detail.design.blocks[0].links.is_empty(),
+            "semantic links are validation-derived and must not be persisted"
+        );
+    }
+    assert!(!document_root.join("blocks/deleted-block.json").exists());
 }
 
 #[test]
@@ -351,13 +465,17 @@ fn mock_agent_completion_archives_valid_patch_preview() {
     let detail = create_document_at("ws-1", temp.root(), "agent-doc", "Agent Doc", None)
         .expect("create document");
 
-    let preview = run_agent_completion_at(
-        "ws-1",
-        temp.root(),
-        "agent-doc",
-        "mock",
-        &[detail.design.blocks[0].id.clone()],
-    )
+    let selected_block_ids = [detail.design.blocks[1].id.clone()];
+    let preview = run_mock_agent_completion_at(MockAgentCompletionRequest {
+        workspace_id: "ws-1",
+        workspace_root: temp.root(),
+        document_id: "agent-doc",
+        host_block_id: &detail.design.blocks[1].id,
+        gap_codes: Vec::new(),
+        scope: Some(DesignerAgentTaskScope::Block),
+        base_revision: &detail.design.revision,
+        selected_block_ids: &selected_block_ids,
+    })
     .expect("mock completion");
 
     assert!(preview.valid);
@@ -369,6 +487,259 @@ fn mock_agent_completion_archives_valid_patch_preview() {
 }
 
 #[test]
+fn preview_agent_task_rejects_stale_base_revision() {
+    let temp = TempWorkspace::new("stale-preview");
+    create_document_at("ws-1", temp.root(), "preview-doc", "Preview Doc", None)
+        .expect("create document");
+
+    let error = preview_agent_task_at(AgentTaskPreviewRequest {
+        workspace_id: "ws-1",
+        workspace_root: temp.root(),
+        document_id: "preview-doc",
+        selected_block_ids: Vec::new(),
+        provider: "mock",
+        host_block_id: "overview",
+        gap_codes: Vec::new(),
+        scope: DesignerAgentTaskScope::Block,
+        base_revision: "old-revision",
+    })
+    .expect_err("stale preview should be rejected");
+
+    assert!(error.contains("baseRevision"));
+}
+
+#[test]
+fn preview_agent_task_returns_noop_for_block_scope_without_agent_fixable_gaps() {
+    let temp = TempWorkspace::new("noop-preview");
+    let detail = create_document_at("ws-1", temp.root(), "noop-doc", "Noop Doc", None)
+        .expect("create document");
+    let detail = replace_with_dangling_ref_entity(detail);
+    let saved = save_document_at("ws-1", temp.root(), detail).expect("save dangling-ref doc");
+
+    let preview = preview_agent_task_at(AgentTaskPreviewRequest {
+        workspace_id: "ws-1",
+        workspace_root: temp.root(),
+        document_id: "noop-doc",
+        selected_block_ids: Vec::new(),
+        provider: "mock",
+        host_block_id: "order",
+        gap_codes: Vec::new(),
+        scope: DesignerAgentTaskScope::Block,
+        base_revision: &saved.design.revision,
+    })
+    .expect("block preview");
+
+    assert_eq!(preview["status"], "no_agent_fixable_gaps");
+    assert!(preview["requestId"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("bdreq_") && value.len() == 22));
+    assert_eq!(
+        preview["targetGaps"].as_array().expect("target gaps").len(),
+        0
+    );
+    assert_eq!(
+        preview["targetGapKeys"]
+            .as_array()
+            .expect("target keys")
+            .len(),
+        0
+    );
+    assert!(preview["contextGaps"]
+        .as_array()
+        .expect("context gaps")
+        .iter()
+        .any(|gap| gap["code"] == "dangling-ref" && gap["fixableByAgent"] == false));
+
+    let preview_again = preview_agent_task_at(AgentTaskPreviewRequest {
+        workspace_id: "ws-1",
+        workspace_root: temp.root(),
+        document_id: "noop-doc",
+        selected_block_ids: Vec::new(),
+        provider: "mock",
+        host_block_id: "order",
+        gap_codes: Vec::new(),
+        scope: DesignerAgentTaskScope::Block,
+        base_revision: &saved.design.revision,
+    })
+    .expect("repeat block preview");
+    assert_eq!(preview["requestId"], preview_again["requestId"]);
+}
+
+#[test]
+fn mock_agent_completion_rejects_block_scope_without_agent_fixable_gaps() {
+    let temp = TempWorkspace::new("noop-completion");
+    let detail = create_document_at("ws-1", temp.root(), "noop-completion-doc", "Noop", None)
+        .expect("create document");
+    let detail = replace_with_dangling_ref_entity(detail);
+    let saved = save_document_at("ws-1", temp.root(), detail).expect("save dangling-ref doc");
+
+    let error = run_mock_agent_completion_at(MockAgentCompletionRequest {
+        workspace_id: "ws-1",
+        workspace_root: temp.root(),
+        document_id: "noop-completion-doc",
+        host_block_id: "order",
+        gap_codes: Vec::new(),
+        scope: Some(DesignerAgentTaskScope::Block),
+        base_revision: &saved.design.revision,
+        selected_block_ids: &[],
+    })
+    .expect_err("completion should reject no-op block target");
+
+    assert!(error.contains("at least one agent-fixable target gap"));
+}
+
+#[test]
+fn preview_agent_task_rejects_single_scope_non_agent_fixable_gap() {
+    let temp = TempWorkspace::new("non-agent-fixable-preview");
+    let detail = create_document_at("ws-1", temp.root(), "manual-gap-doc", "Manual Gap", None)
+        .expect("create document");
+    let detail = replace_with_dangling_ref_entity(detail);
+    let saved = save_document_at("ws-1", temp.root(), detail).expect("save dangling-ref doc");
+
+    let error = preview_agent_task_at(AgentTaskPreviewRequest {
+        workspace_id: "ws-1",
+        workspace_root: temp.root(),
+        document_id: "manual-gap-doc",
+        selected_block_ids: Vec::new(),
+        provider: "mock",
+        host_block_id: "order",
+        gap_codes: vec!["dangling-ref".to_string()],
+        scope: DesignerAgentTaskScope::Single,
+        base_revision: &saved.design.revision,
+    })
+    .expect_err("single non-agent-fixable preview should be rejected");
+
+    assert!(error.contains("not agent-fixable"));
+}
+
+#[test]
+fn preview_agent_task_command_rejects_unknown_scope() {
+    let request = json!({
+        "traceId": "designer-ipc-test",
+        "workspaceId": "ws-1",
+        "documentId": "scope-doc",
+        "selectedBlockIds": [],
+        "provider": "mock",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "scope": "everything",
+        "baseRevision": "rev-1"
+    });
+
+    let error = serde_json::from_value::<DesignerAgentTaskPreviewCommandRequest>(request)
+        .expect_err("unknown scope should fail serde");
+
+    assert!(error.to_string().contains("unknown variant"));
+}
+
+#[test]
+fn v1_agent_command_requests_reject_unknown_fields() {
+    let preview_request = json!({
+        "traceId": "designer-ipc-test-preview",
+        "workspaceId": "ws-1",
+        "documentId": "strict-doc",
+        "selectedBlockIds": [],
+        "provider": "mock",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "scope": "block",
+        "baseRevision": "rev-1",
+        "unexpectedField": true
+    });
+    let mock_request = json!({
+        "traceId": "designer-ipc-test-mock",
+        "workspaceId": "ws-1",
+        "documentId": "strict-doc",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "scope": "block",
+        "baseRevision": "rev-1",
+        "selectedBlockIds": [],
+        "unexpectedField": true
+    });
+    let validate_request = json!({
+        "traceId": "designer-ipc-test-validate",
+        "workspaceId": "ws-1",
+        "documentId": "strict-doc",
+        "patch": {},
+        "unexpectedField": true
+    });
+    let recover_request = json!({
+        "traceId": "designer-ipc-test-recover",
+        "workspaceId": "ws-1",
+        "documentId": "strict-doc",
+        "taskId": "task-1",
+        "unexpectedField": true
+    });
+    let apply_request = json!({
+        "traceId": "designer-ipc-test-apply",
+        "workspaceId": "ws-1",
+        "documentId": "strict-doc",
+        "patch": {},
+        "acceptedChangeIndices": [],
+        "unexpectedField": true
+    });
+
+    let errors = [
+        serde_json::from_value::<DesignerAgentTaskPreviewCommandRequest>(preview_request)
+            .expect_err("preview request should reject unknown fields"),
+        serde_json::from_value::<DesignerMockAgentCompletionCommandRequest>(mock_request)
+            .expect_err("mock request should reject unknown fields"),
+        serde_json::from_value::<DesignerValidateAgentPatchCommandRequest>(validate_request)
+            .expect_err("validate request should reject unknown fields"),
+        serde_json::from_value::<DesignerRecoverAgentPatchCommandRequest>(recover_request)
+            .expect_err("recover request should reject unknown fields"),
+        serde_json::from_value::<DesignerApplyAgentPatchCommandRequest>(apply_request)
+            .expect_err("apply request should reject unknown fields"),
+    ];
+
+    for error in errors {
+        assert!(error.to_string().contains("unknown field"));
+    }
+}
+
+#[test]
+fn ordinary_document_commands_accept_and_log_trace_ids() {
+    let source = include_str!("../mod.rs");
+    let commands = [
+        "business_designer_list_documents",
+        "business_designer_init_docs_repo",
+        "business_designer_create_document",
+        "business_designer_read_document",
+        "business_designer_save_document",
+        "business_designer_validate_document",
+        "business_designer_compile_document",
+        "business_designer_create_checkpoint",
+        "business_designer_diff_checkpoint",
+        "business_designer_compare_checkpoints",
+        "business_designer_list_checkpoints",
+        "business_designer_export_document",
+        "business_designer_export_document_to_file",
+    ];
+
+    for command in commands {
+        let marker = format!("pub fn {command}(");
+        let start = source
+            .find(&marker)
+            .unwrap_or_else(|| panic!("{command} exists"));
+        let next_command = source[start + marker.len()..]
+            .find("\n#[tauri::command]")
+            .map(|offset| start + marker.len() + offset)
+            .unwrap_or(source.len());
+        let block = &source[start..next_command];
+
+        assert!(
+            block.contains("trace_id: Option<String>"),
+            "{command} should accept trace_id"
+        );
+        assert!(
+            block.contains("trace_id = trace_id.as_deref()"),
+            "{command} should log trace_id"
+        );
+    }
+}
+
+#[test]
 fn validate_agent_patch_rejects_stale_base_revision() {
     let temp = TempWorkspace::new("stale-patch");
     create_document_at("ws-1", temp.root(), "stale", "Stale", None).expect("create document");
@@ -377,6 +748,10 @@ fn validate_agent_patch_rejects_stale_base_revision() {
         "documentId": "stale",
         "baseRevision": "old-revision",
         "summary": "stale",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "targetGapKeys": [],
+        "scope": "block",
         "changes": [],
         "openQuestions": []
     });
@@ -392,6 +767,67 @@ fn validate_agent_patch_rejects_stale_base_revision() {
 }
 
 #[test]
+fn validate_agent_patch_rejects_unknown_contract_fields() {
+    let temp = TempWorkspace::new("unknown-patch-field");
+    let detail = create_document_at("ws-1", temp.root(), "unknown", "Unknown", None)
+        .expect("create document");
+    let patch = json!({
+        "schemaVersion": 1,
+        "documentId": "unknown",
+        "baseRevision": detail.design.revision,
+        "summary": "unknown field",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "targetGapKeys": [],
+        "scope": "block",
+        "unexpectedField": true,
+        "changes": [],
+        "openQuestions": ["Need more detail."]
+    });
+
+    let error = validate_agent_patch_at("ws-1", temp.root(), "unknown", patch, None)
+        .expect_err("unknown field");
+
+    assert!(error.contains("unknown field"));
+}
+
+#[test]
+fn validate_agent_patch_rejects_link_changes() {
+    let temp = TempWorkspace::new("patch-links");
+    let detail = create_document_at("ws-1", temp.root(), "patch-links", "Patch Links", None)
+        .expect("create document");
+    let patch = json!({
+        "schemaVersion": 1,
+        "documentId": "patch-links",
+        "baseRevision": detail.design.revision,
+        "summary": "try to draw graph edge",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "targetGapKeys": [],
+        "scope": "block",
+        "changes": [
+            {
+                "op": "updateBlock",
+                "blockId": "overview",
+                "patch": {
+                    "links": [{ "targetBlockId": "other", "relation": "uses" }]
+                }
+            }
+        ],
+        "openQuestions": []
+    });
+
+    let validation = validate_agent_patch_at("ws-1", temp.root(), "patch-links", patch, None)
+        .expect("validate patch");
+
+    assert!(!validation.valid);
+    assert!(validation
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "patch_links_not_allowed"));
+}
+
+#[test]
 fn apply_agent_patch_accepts_selected_changes_and_archives_patch() {
     let temp = TempWorkspace::new("apply-patch");
     let detail = create_document_at("ws-1", temp.root(), "apply-doc", "Apply Doc", None)
@@ -400,21 +836,26 @@ fn apply_agent_patch_accepts_selected_changes_and_archives_patch() {
         "schemaVersion": 1,
         "documentId": "apply-doc",
         "baseRevision": detail.design.revision,
-        "summary": "Add and skip",
+        "summary": "Update and skip",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "targetGapKeys": [],
+        "scope": "block",
         "changes": [
             {
-                "op": "addBlock",
-                "afterBlockId": "overview",
-                "block": {
-                    "id": "agent-question",
-                    "kind": "openQuestions",
-                    "title": "Agent Question",
-                    "payload": { "questions": ["Need SLA?"] }
+                "op": "updateBlock",
+                "blockId": "overview",
+                "patch": {
+                    "title": "Updated Overview",
+                    "payload": { "markdown": "Updated by agent." }
                 }
             },
             {
-                "op": "deleteBlock",
-                "blockId": "api-contract"
+                "op": "updateBlock",
+                "blockId": "overview",
+                "patch": {
+                    "title": "Skipped Overview"
+                }
             }
         ],
         "openQuestions": []
@@ -425,18 +866,21 @@ fn apply_agent_patch_accepts_selected_changes_and_archives_patch() {
 
     assert_eq!(applied.accepted_changes, vec![0]);
     assert_eq!(applied.skipped_changes, vec![1]);
-    assert!(applied
+    let overview = applied
         .detail
         .design
         .blocks
         .iter()
-        .any(|block| block.id == "agent-question"));
-    assert!(applied
-        .detail
-        .design
-        .blocks
-        .iter()
-        .any(|block| block.id == "api-contract"));
+        .find(|block| block.id == "overview")
+        .expect("overview block");
+    assert_eq!(overview.title, "Updated Overview");
+    assert_eq!(
+        overview
+            .payload
+            .get("markdown")
+            .and_then(|value| value.as_str()),
+        Some("Updated by agent.")
+    );
     assert!(applied
         .patch_path
         .starts_with("documents/apply-doc/patches/"));
@@ -468,15 +912,16 @@ fn recover_agent_patch_from_task_reads_latest_reply_json_patch() {
         "documentId": "recover-doc",
         "baseRevision": detail.design.revision,
         "summary": "Recovered patch",
+        "hostBlockId": "overview",
+        "gapCodes": [],
+        "targetGapKeys": [],
+        "scope": "block",
         "changes": [
             {
-                "op": "addBlock",
-                "afterBlockId": "overview",
-                "block": {
-                    "id": "recovered-open-question",
-                    "kind": "openQuestions",
-                    "title": "Recovered Question",
-                    "payload": { "questions": ["Need rollout plan?"] }
+                "op": "updateBlock",
+                "blockId": "overview",
+                "patch": {
+                    "payload": { "markdown": "Recovered patch content." }
                 }
             }
         ],
@@ -512,6 +957,155 @@ fn recover_agent_patch_from_task_reads_latest_reply_json_patch() {
         .patch_path
         .as_deref()
         .is_some_and(|path| path.contains("agent-patch-task-recovered-")));
+}
+
+#[test]
+fn real_agent_prompt_requires_typed_host_patch() {
+    let temp = TempWorkspace::new("agent-prompt");
+    let detail = create_document_at("ws-1", temp.root(), "prompt-doc", "Prompt Doc", None)
+        .expect("create document");
+
+    let markdown = render_design_completion_markdown_with_host(
+        &detail,
+        "overview",
+        &["no-pk".to_string()],
+        &["entityModel:overview:no-pk".to_string()],
+        DesignerAgentTaskScope::Single,
+    );
+
+    assert!(markdown.contains("DesignerAgentPatch"));
+    assert!(markdown.contains("Do not edit files directly"));
+    assert!(markdown.contains("Do not include `requestId`"));
+    assert!(markdown.contains("`hostBlockId` must be `overview`"));
+    assert!(markdown.contains("`targetGapKeys` must be exactly: `entityModel:overview:no-pk`"));
+    assert!(markdown.contains("Do not include `links` in patches"));
+    assert!(!markdown.contains("`requestId` is"));
+    assert!(!markdown.contains("edit **only** the design file"));
+    assert!(!markdown.contains("Do not return a patch object"));
+}
+
+#[test]
+fn freeform_provider_maps_to_agent_tool_kind_for_terminal_env() {
+    assert_eq!(
+        DesignerFreeformCompletionProvider::Codex.as_tool_kind(),
+        AgentToolKind::Codex
+    );
+    assert_eq!(
+        DesignerFreeformCompletionProvider::Claude.as_tool_kind(),
+        AgentToolKind::Claude
+    );
+}
+
+#[test]
+fn freeform_prompt_guides_direct_document_edits_without_repo_validation() {
+    let temp = TempWorkspace::new("freeform-prompt");
+    let detail = create_document_at("ws-1", temp.root(), "freeform-doc", "Freeform Doc", None)
+        .expect("create document");
+    let host = detail
+        .design
+        .blocks
+        .iter()
+        .find(|block| block.id == "overview");
+
+    let prompt = super::agent_completion_prompts::render_freeform_completion_prompt(
+        super::agent_completion_prompts::FreeformPromptInput {
+            detail: &detail,
+            scenario: DesignerFreeformCompletionScenario::BriefToDesign,
+            host_block: host,
+            document_root: "/workspace/.gtoffice/docs/documents/freeform-doc",
+            document_file: "/workspace/.gtoffice/docs/documents/freeform-doc/design.json",
+            validation_summary: "- gaps: 0 total",
+            user_prompt: Some("Prefer event-sourced language."),
+        },
+    );
+
+    assert!(prompt.contains("Business Designer Freeform Completion"));
+    assert!(prompt.contains("brief_to_design"));
+    assert!(prompt.contains("documentRoot: /workspace/.gtoffice/docs/documents/freeform-doc"));
+    assert!(prompt
+        .contains("documentFile: /workspace/.gtoffice/docs/documents/freeform-doc/design.json"));
+    assert!(!prompt.contains("freeform-doc.design.json"));
+    assert!(prompt.contains("Do not edit application source code"));
+    assert!(prompt.contains("Do not run full repository validation commands by default"));
+    assert!(prompt.contains("Prefer event-sourced language."));
+    assert!(!prompt.contains("DesignerAgentPatch"));
+    assert!(!prompt.contains("targetGapKeys"));
+}
+
+#[test]
+fn freeform_runs_are_document_local_audit_records() {
+    let temp = TempWorkspace::new("freeform-runs");
+    create_document_at("ws-1", temp.root(), "freeform-runs", "Freeform Runs", None)
+        .expect("create document");
+    let document_root = temp.root().join(".gtoffice/docs/documents/freeform-runs");
+    let runs_dir = document_root.join(".agent-runs");
+    fs::create_dir_all(&runs_dir).expect("create runs dir");
+    let run = DesignerFreeformCompletionRun {
+        request_id: "bdfree_test".to_string(),
+        workspace_id: "ws-1".to_string(),
+        document_id: "freeform-runs".to_string(),
+        scenario: DesignerFreeformCompletionScenario::CompleteEntity,
+        host_block_id: Some("overview".to_string()),
+        provider: DesignerFreeformCompletionProvider::Codex,
+        session_id: "terminal-1".to_string(),
+        document_root: document_root.to_string_lossy().to_string(),
+        checkpoint_before: "abc123".to_string(),
+        status: DesignerFreeformCompletionRunStatus::Running,
+        created_at: "2026-06-21T00:00:00.000Z".to_string(),
+        updated_at: "2026-06-21T00:00:00.000Z".to_string(),
+        user_prompt_summary: Some("Add order lifecycle fields.".to_string()),
+    };
+    fs::write(
+        runs_dir.join("bdfree_test.json"),
+        serde_json::to_string_pretty(&run).expect("serialize run"),
+    )
+    .expect("write run");
+
+    let result = super::list_freeform_completion_runs_at("ws-1", temp.root(), "freeform-runs")
+        .expect("list runs");
+
+    assert_eq!(result.workspace_id, "ws-1");
+    assert_eq!(result.document_id, "freeform-runs");
+    assert_eq!(result.runs.len(), 1);
+    assert_eq!(result.runs[0].request_id, "bdfree_test");
+    assert_eq!(result.runs[0].checkpoint_before, "abc123");
+}
+
+#[test]
+fn freeform_checkpoint_before_uses_existing_head_when_checkpoint_is_clean() {
+    let temp = TempWorkspace::new("freeform-clean-head");
+    create_document_at(
+        "ws-1",
+        temp.root(),
+        "freeform-clean",
+        "Freeform Clean",
+        None,
+    )
+    .expect("create document");
+    let first = create_checkpoint_at(
+        "ws-1",
+        temp.root(),
+        "freeform-clean",
+        "designer: checkpoint initial",
+    )
+    .expect("first checkpoint")
+    .commit
+    .expect("first checkpoint commit");
+    let clean = create_checkpoint_at(
+        "ws-1",
+        temp.root(),
+        "freeform-clean",
+        "agent-freeform:complete_entity Freeform Clean",
+    )
+    .expect("clean checkpoint");
+
+    assert!(!clean.committed);
+    assert!(clean.commit.is_none());
+    let docs_root = temp.root().join(".gtoffice/docs");
+    let checkpoint_before =
+        super::checkpoint_revision_for_revert(&docs_root, &clean).expect("checkpoint revision");
+
+    assert_eq!(checkpoint_before, first);
 }
 
 #[test]

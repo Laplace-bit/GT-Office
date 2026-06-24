@@ -1,6 +1,7 @@
+use gt_abstractions::{TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId};
 use gt_task::{
-    ChannelMessageEvent, ChannelMessageType, DispatchSender, DispatchSenderType, TaskAttachment,
-    TaskDispatchBatchRequest, TaskDispatchBatchResponse,
+    AgentToolKind, ChannelMessageEvent, ChannelMessageType, DispatchSender, DispatchSenderType,
+    TaskAttachment, TaskDispatchBatchRequest, TaskDispatchBatchResponse,
 };
 use rfd::FileDialog;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -11,10 +12,21 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    thread,
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter, State};
 
-use crate::{app_state::AppState, commands::task_center::write_terminal_with_submit};
+use crate::{
+    app_state::AppState,
+    commands::{
+        settings::ai_config::augment_terminal_env_for_agent,
+        task_center::{write_terminal_command_with_submit, write_terminal_with_submit},
+    },
+};
+
+mod agent_completion_prompts;
+mod gap_rules;
 
 const DESIGNER_SCHEMA_VERSION: u32 = 1;
 const DOCS_ROOT_RELATIVE: &str = ".gtoffice/docs";
@@ -22,6 +34,10 @@ const DOCUMENTS_DIR: &str = "documents";
 const TEMPLATES_DIR: &str = "templates";
 const DEFAULT_DOC_STATUS: &str = "draft";
 const PATCHES_DIR: &str = "patches";
+const AGENT_RUNS_DIR: &str = ".agent-runs";
+const AGENT_REQUEST_HASH_OFFSET: u64 = 0xcbf29ce484222325;
+const AGENT_REQUEST_HASH_PRIME: u64 = 0x100000001b3;
+const FREEFORM_PROMPT_INJECTION_DELAY_MS: u64 = 150;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +47,121 @@ pub(crate) struct DesignerDiagnostic {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+}
+
+/// A machine-detected unmet sanity rule, anchored to its host block.
+///
+/// `key` is the semantic fingerprint used for before/after comparisons.
+/// `id` is a snapshot-friendly hash of that key; callers must not persist it
+/// as the gap's long-lived identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerGap {
+    pub id: String,
+    pub key: String,
+    pub code: String,
+    pub block_id: String,
+    pub layer: DesignerGapLayer,
+    pub severity: DesignerGapSeverity,
+    pub message: String,
+    pub fixable_by_agent: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locator: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DesignerGapLayer {
+    Intra,
+    Inter,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DesignerGapSeverity {
+    Warning,
+    Error,
+}
+
+/// One rule firing — pass or fail. The full run is the audit trail of
+/// "every machine-checked thing about this graph."
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerRuleRun {
+    pub kind: String,
+    pub code: String,
+    pub block_id: String,
+    pub passed: bool,
+    pub gap_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DesignerEdgeRelation {
+    DependsOn,
+    Produces,
+    Consumes,
+    Uses,
+    Extends,
+}
+
+/// An edge derived from payload references. v1 does not let users hand-draw
+/// edges — broken refs surface as `dangling-ref` gaps.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerDerivedEdge {
+    pub from_block_id: String,
+    pub to_block_id: String,
+    pub relation: DesignerEdgeRelation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_field: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerGraphProjection {
+    pub links: Vec<DesignerDerivedEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerAgentTaskTarget {
+    pub host_block_id: String,
+    pub scope: DesignerAgentTaskScope,
+    pub gap_codes: Vec<String>,
+    pub target_gap_keys: Vec<String>,
+    pub target_gaps: Vec<DesignerGap>,
+    pub context_gaps: Vec<DesignerGap>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DesignerAgentTaskScope {
+    Single,
+    Block,
+}
+
+impl DesignerAgentTaskScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::Block => "block",
+        }
+    }
+}
+
+/// Three-tier verdict for an applied patch: which target gaps actually went
+/// away, which survived, and which new gaps the patch *introduced*. The verdict
+/// comes from rerunning [`gap_rules::run_all`] before and after — the model
+/// cannot self-evaluate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerGapResolution {
+    pub target_gap_keys: Vec<String>,
+    pub resolved: Vec<String>,
+    pub unresolved: Vec<String>,
+    pub incidental_resolved: Vec<String>,
+    pub introduced: Vec<DesignerGap>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -77,7 +208,7 @@ pub(crate) struct ScaffoldResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerGeneratedPaths {
     pub readme: String,
     pub agent_brief: String,
@@ -86,7 +217,7 @@ pub(crate) struct DesignerGeneratedPaths {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerManifest {
     pub schema_version: u32,
     pub document_id: String,
@@ -99,17 +230,28 @@ pub(crate) struct DesignerManifest {
     pub generated: DesignerGeneratedPaths,
     pub tags: Vec<String>,
     pub status: String,
+    /// v1: per-block 2D coordinates for the graph canvas.
+    /// `None` on legacy documents — UI computes a grid layout on first render.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<HashMap<String, DesignerLayoutPosition>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerLayoutPosition {
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerBlockLink {
     pub target_block_id: String,
     pub relation: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerBlock {
     pub id: String,
     pub kind: String,
@@ -124,7 +266,7 @@ pub(crate) struct DesignerBlock {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerDesignGraph {
     pub schema_version: u32,
     pub document_id: String,
@@ -134,7 +276,7 @@ pub(crate) struct DesignerDesignGraph {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerDocumentDetail {
     pub workspace_id: String,
     pub docs_root: String,
@@ -200,7 +342,7 @@ pub(crate) struct DesignerCheckpointHistoryResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerPatchBlock {
     pub id: String,
     pub kind: String,
@@ -213,7 +355,12 @@ pub(crate) struct DesignerPatchBlock {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "op",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub(crate) enum DesignerPatchOperation {
     #[serde(rename = "addBlock")]
     Add {
@@ -231,7 +378,7 @@ pub(crate) enum DesignerPatchOperation {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerPatchBlockUpdate {
     #[serde(default)]
     pub kind: Option<String>,
@@ -246,7 +393,7 @@ pub(crate) struct DesignerPatchBlockUpdate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerAgentPatch {
     pub schema_version: u32,
     pub document_id: String,
@@ -256,10 +403,24 @@ pub(crate) struct DesignerAgentPatch {
     pub changes: Vec<DesignerPatchOperation>,
     #[serde(default)]
     pub open_questions: Vec<String>,
+    /// v1: host block this patch is anchored to. `apply_agent_patch` rejects
+    /// any change outside this block and rejects add/delete operations.
+    pub host_block_id: String,
+    /// v1: gap codes the Agent was told to fix. Used to compute the
+    /// resolved/unresolved verdict after applying the patch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gap_codes: Vec<String>,
+    /// v1: exact target gap fingerprints captured at preview/dispatch time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_gap_keys: Vec<String>,
+    /// v1: completion scope as recorded at dispatch time.
+    /// `"single"` = one gap, `"block"` = all gaps in host block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<DesignerAgentTaskScope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerPatchPreviewChange {
     pub op: String,
     pub block_id: String,
@@ -296,7 +457,7 @@ pub(crate) struct DesignerRecoveredAgentPatchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerPatchApplyResult {
     pub workspace_id: String,
     pub document_id: String,
@@ -306,6 +467,14 @@ pub(crate) struct DesignerPatchApplyResult {
     pub skipped_changes: Vec<usize>,
     pub detail: DesignerDocumentDetail,
     pub diagnostics: Vec<DesignerDiagnostic>,
+    /// v1: three-tier verdict — driven by rerunning `gap_rules`, not by the model.
+    pub gap_resolution: DesignerGapResolution,
+    /// v1: gaps after applying the patch, ready for the UI to render.
+    pub gaps: Vec<DesignerGap>,
+    /// v1: full rule run audit trail.
+    pub rules_run: Vec<DesignerRuleRun>,
+    /// v1: graph projection after applying the patch.
+    pub graph_projection: DesignerGraphProjection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -365,14 +534,23 @@ pub(crate) struct DesignerCodingHandoffDispatchResult {
     pub dispatch: TaskDispatchBatchResponse,
 }
 
-/// Request to dispatch an Agent completion: the agent edits `design.json`
-/// directly. The CLI agent (codex/claude) must already be online in a terminal.
+/// Request to dispatch a v1 host-anchored Agent completion.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerAgentCompletionRequest {
+    pub trace_id: Option<String>,
     pub workspace_id: String,
     pub document_id: String,
     pub target_agent_ids: Vec<String>,
+    pub host_block_id: String,
+    /// v1: gap codes the Agent should fix. `apply_agent_patch_at` later
+    /// re-runs gap rules and reports resolved/unresolved/introduced.
+    #[serde(default)]
+    pub gap_codes: Vec<String>,
+    /// v1: `"single"` (one gap) or `"block"` (all gaps in host).
+    #[serde(default)]
+    pub scope: Option<DesignerAgentTaskScope>,
+    pub base_revision: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -380,16 +558,194 @@ pub(crate) struct DesignerAgentCompletionRequest {
 pub(crate) struct DesignerAgentCompletionResult {
     pub workspace_id: String,
     pub document_id: String,
+    pub request_id: String,
     pub dispatch: TaskDispatchBatchResponse,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DesignerFreeformCompletionScenario {
+    BriefToDesign,
+    CompleteEntity,
+    CompleteFlow,
+    CompleteApiContract,
+    ExpandCanvas,
+}
+
+impl DesignerFreeformCompletionScenario {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::BriefToDesign => "brief_to_design",
+            Self::CompleteEntity => "complete_entity",
+            Self::CompleteFlow => "complete_flow",
+            Self::CompleteApiContract => "complete_api_contract",
+            Self::ExpandCanvas => "expand_canvas",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DesignerFreeformCompletionProvider {
+    Codex,
+    Claude,
+}
+
+impl DesignerFreeformCompletionProvider {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+        }
+    }
+
+    fn as_tool_kind(self) -> AgentToolKind {
+        match self {
+            Self::Codex => AgentToolKind::Codex,
+            Self::Claude => AgentToolKind::Claude,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DesignerFreeformCompletionRunStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerFreeformCompletionRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub scenario: DesignerFreeformCompletionScenario,
+    #[serde(default)]
+    pub host_block_id: Option<String>,
+    #[serde(default)]
+    pub user_prompt: Option<String>,
+    #[serde(default)]
+    pub provider: Option<DesignerFreeformCompletionProvider>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerFreeformCompletionRunStatusRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub request_id: String,
+    pub status: DesignerFreeformCompletionRunStatus,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerRevertToCheckpointRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub checkpoint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerFreeformCompletionRun {
+    pub request_id: String,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub scenario: DesignerFreeformCompletionScenario,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_block_id: Option<String>,
+    pub provider: DesignerFreeformCompletionProvider,
+    pub session_id: String,
+    pub document_root: String,
+    pub checkpoint_before: String,
+    pub status: DesignerFreeformCompletionRunStatus,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_prompt_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesignerFreeformCompletionRunsResult {
+    pub workspace_id: String,
+    pub document_id: String,
+    pub runs: Vec<DesignerFreeformCompletionRun>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerAgentTaskPreviewCommandRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    #[serde(default)]
+    pub selected_block_ids: Vec<String>,
+    pub provider: String,
+    pub host_block_id: String,
+    #[serde(default)]
+    pub gap_codes: Vec<String>,
+    pub scope: DesignerAgentTaskScope,
+    pub base_revision: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerMockAgentCompletionCommandRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub host_block_id: String,
+    #[serde(default)]
+    pub gap_codes: Vec<String>,
+    pub scope: DesignerAgentTaskScope,
+    pub base_revision: String,
+    #[serde(default)]
+    pub selected_block_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerValidateAgentPatchCommandRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub patch: Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerRecoverAgentPatchCommandRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub task_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerApplyAgentPatchCommandRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub patch: Value,
+    pub accepted_change_indices: Option<Vec<usize>>,
 }
 
 #[tauri::command]
 pub fn business_designer_list_documents(
     workspace_id: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
     tracing::info!(
+        trace_id = trace_id.as_deref(),
         workspace_id = %workspace_id,
         "listing business designer documents"
     );
@@ -401,10 +757,12 @@ pub fn business_designer_list_documents(
 #[tauri::command]
 pub fn business_designer_init_docs_repo(
     workspace_id: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
     tracing::info!(
+        trace_id = trace_id.as_deref(),
         workspace_id = %workspace_id,
         "initializing business designer docs repository"
     );
@@ -430,9 +788,16 @@ pub fn business_designer_create_document(
     document_id: String,
     title: String,
     module: Option<String>,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        "creating business designer document"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(create_document_at(
         &workspace_id,
@@ -448,9 +813,16 @@ pub fn business_designer_create_document(
 pub fn business_designer_read_document(
     workspace_id: String,
     document_id: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        "reading business designer document"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(read_document_at(
         &workspace_id,
@@ -464,9 +836,17 @@ pub fn business_designer_read_document(
 pub fn business_designer_save_document(
     workspace_id: String,
     detail: DesignerDocumentDetail,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %detail.manifest.document_id,
+        revision = %detail.design.revision,
+        "saving business designer document"
+    );
     if detail.workspace_id != workspace_id {
         return Err(
             "BUSINESS_DESIGNER_INVALID_PARAMS: detail.workspaceId must match workspaceId"
@@ -482,16 +862,37 @@ pub fn business_designer_save_document(
 pub fn business_designer_validate_document(
     workspace_id: String,
     document_id: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        "validating business designer document"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    validate_document_at(&workspace_id, &workspace_root, &document_id)
+}
+
+pub(crate) fn validate_document_at(
+    workspace_id: &str,
+    workspace_root: &Path,
+    document_id: &str,
+) -> Result<Value, String> {
     let detail = read_document_at(&workspace_id, &workspace_root, &document_id)?;
+    let diagnostics = validate_design(&detail.manifest, &detail.design);
+    let rule_result = gap_rules::run_all(&detail.design);
     serde_json::to_value(json!({
+        "schemaVersion": DESIGNER_SCHEMA_VERSION,
         "workspaceId": workspace_id,
         "documentId": detail.manifest.document_id,
         "revision": detail.design.revision,
-        "diagnostics": validate_design(&detail.manifest, &detail.design),
+        "diagnostics": diagnostics,
+        "gaps": rule_result.gaps,
+        "rulesRun": rule_result.rules_run,
+        "graphProjection": graph_projection_from_run(&rule_result),
     }))
     .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
 }
@@ -500,9 +901,16 @@ pub fn business_designer_validate_document(
 pub fn business_designer_compile_document(
     workspace_id: String,
     document_id: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        "compiling business designer document"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(compile_document_at(
         &workspace_id,
@@ -517,9 +925,16 @@ pub fn business_designer_create_checkpoint(
     workspace_id: String,
     document_id: String,
     message: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        "creating business designer checkpoint"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(create_checkpoint_at(
         &workspace_id,
@@ -535,9 +950,17 @@ pub fn business_designer_diff_checkpoint(
     workspace_id: String,
     document_id: Option<String>,
     base: Option<String>,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = document_id.as_deref(),
+        base = base.as_deref(),
+        "diffing business designer checkpoint"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(diff_checkpoint_at(
         &workspace_id,
@@ -554,9 +977,18 @@ pub fn business_designer_compare_checkpoints(
     document_id: Option<String>,
     base: String,
     head: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = document_id.as_deref(),
+        base = %base,
+        head = %head,
+        "comparing business designer checkpoints"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(compare_checkpoints_at(
         &workspace_id,
@@ -572,9 +1004,16 @@ pub fn business_designer_compare_checkpoints(
 pub fn business_designer_list_checkpoints(
     workspace_id: String,
     document_id: Option<String>,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = document_id.as_deref(),
+        "listing business designer checkpoints"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(list_checkpoints_at(
         &workspace_id,
@@ -586,25 +1025,105 @@ pub fn business_designer_list_checkpoints(
 
 #[tauri::command]
 pub fn business_designer_preview_agent_task(
-    workspace_id: String,
-    document_id: String,
-    selected_block_ids: Vec<String>,
-    provider: String,
+    request: DesignerAgentTaskPreviewCommandRequest,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        host_block_id = %request.host_block_id,
+        gap_codes = ?request.gap_codes,
+        scope = ?request.scope,
+        "previewing business designer agent task"
+    );
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
-    let detail = read_document_at(&workspace_id, &workspace_root, &document_id)?;
+    serde_json::to_value(preview_agent_task_at(AgentTaskPreviewRequest {
+        workspace_id: &workspace_id,
+        workspace_root: &workspace_root,
+        document_id: &request.document_id,
+        selected_block_ids: request.selected_block_ids,
+        provider: &request.provider,
+        host_block_id: &request.host_block_id,
+        gap_codes: request.gap_codes,
+        scope: request.scope,
+        base_revision: &request.base_revision,
+    })?)
+    .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+pub(crate) struct AgentTaskPreviewRequest<'a> {
+    pub workspace_id: &'a str,
+    pub workspace_root: &'a Path,
+    pub document_id: &'a str,
+    pub selected_block_ids: Vec<String>,
+    pub provider: &'a str,
+    pub host_block_id: &'a str,
+    pub gap_codes: Vec<String>,
+    pub scope: DesignerAgentTaskScope,
+    pub base_revision: &'a str,
+}
+
+pub(crate) fn preview_agent_task_at(request: AgentTaskPreviewRequest<'_>) -> Result<Value, String> {
+    let detail = read_document_at(
+        request.workspace_id,
+        request.workspace_root,
+        request.document_id,
+    )?;
+    if request.base_revision != detail.design.revision {
+        return Err(format!(
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: baseRevision '{}' does not match current revision '{}'",
+            request.base_revision, detail.design.revision
+        ));
+    }
+    let rule_run = gap_rules::run_all(&detail.design);
+    let target = resolve_agent_task_target(
+        &detail,
+        &rule_run,
+        Some(request.host_block_id),
+        request.gap_codes,
+        Some(request.scope),
+    )?;
+    let host_block = detail
+        .design
+        .blocks
+        .iter()
+        .find(|block| block.id == target.host_block_id);
+    let adjacency = rule_run
+        .derived_edges
+        .iter()
+        .filter(|edge| {
+            edge.from_block_id == target.host_block_id || edge.to_block_id == target.host_block_id
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let status = if target.target_gaps.is_empty() {
+        "no_agent_fixable_gaps"
+    } else {
+        "ready"
+    };
+    let request_id = build_agent_task_request_id(&detail, &target);
     Ok(json!({
-        "workspaceId": workspace_id,
+        "workspaceId": request.workspace_id,
         "documentId": detail.manifest.document_id,
-        "provider": provider,
+        "requestId": request_id,
+        "provider": request.provider,
+        "status": status,
         "schemaVersion": DESIGNER_SCHEMA_VERSION,
-        "selectedBlockIds": selected_block_ids,
+        "selectedBlockIds": request.selected_block_ids,
         "revision": detail.design.revision,
         "contextPath": format!("{DOCS_ROOT_RELATIVE}/{DOCUMENTS_DIR}/{}/design.json", detail.manifest.document_id),
         "outputContract": "DesignerAgentPatch",
         "lifecycle": "preview -> validate -> confirm -> dispatch -> receive patch -> validate patch -> review -> apply -> compile -> checkpoint",
+        "hostBlockId": target.host_block_id,
+        "gapCodes": target.gap_codes,
+        "targetGapKeys": target.target_gap_keys,
+        "scope": target.scope,
+        "targetGaps": target.target_gaps,
+        "contextGaps": target.context_gaps,
+        "hostBlock": host_block,
+        "adjacency": adjacency,
     }))
 }
 
@@ -614,11 +1133,42 @@ pub fn business_designer_run_agent_completion(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        host_block_id = %request.host_block_id,
+        gap_codes = ?request.gap_codes,
+        target_agent_ids = ?request.target_agent_ids,
+        "dispatching business designer agent completion"
+    );
     let workspace_id = normalize_workspace_id(&request.workspace_id)?;
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     let target_agent_ids = normalize_target_agent_ids(request.target_agent_ids)?;
     let detail = read_document_at(&workspace_id, &workspace_root, &request.document_id)?;
-    let markdown = render_design_completion_markdown(&detail);
+    if request.base_revision != detail.design.revision {
+        return Err(format!(
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: baseRevision '{}' does not match current revision '{}'",
+            request.base_revision, detail.design.revision
+        ));
+    }
+    let rule_run = gap_rules::run_all(&detail.design);
+    let target = resolve_agent_task_target(
+        &detail,
+        &rule_run,
+        Some(&request.host_block_id),
+        request.gap_codes.clone(),
+        request.scope,
+    )?;
+    assert_agent_task_has_target_gaps(&target)?;
+    let request_id = build_agent_task_request_id(&detail, &target);
+    let markdown = render_design_completion_markdown_with_host(
+        &detail,
+        &target.host_block_id,
+        &target.gap_codes,
+        &target.target_gap_keys,
+        target.scope,
+    );
     let attachments = requirement_package_attachments(&detail);
     let dispatch_request = TaskDispatchBatchRequest {
         workspace_id: workspace_id.clone(),
@@ -656,25 +1206,108 @@ pub fn business_designer_run_agent_completion(
     serde_json::to_value(DesignerAgentCompletionResult {
         workspace_id,
         document_id: detail.manifest.document_id.clone(),
+        request_id,
         dispatch: outcome.response,
     })
     .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
 }
 
+/// v1: deterministic mock-provider entry point used by the inspector
+/// "Let Agent fix" button when the user has selected the `mock` provider.
+/// Synthesizes a host-anchored patch from the rule engine and validates it
+/// in one call — no terminal session, no real CLI dispatch.
 #[tauri::command]
-pub fn business_designer_validate_agent_patch(
-    workspace_id: String,
-    document_id: String,
-    patch: Value,
+pub fn business_designer_run_mock_agent_completion(
+    request: DesignerMockAgentCompletionCommandRequest,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        host_block_id = %request.host_block_id,
+        gap_codes = ?request.gap_codes,
+        "running business designer mock agent completion"
+    );
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
+    let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    serde_json::to_value(run_mock_agent_completion_at(MockAgentCompletionRequest {
+        workspace_id: &workspace_id,
+        workspace_root: &workspace_root,
+        document_id: &request.document_id,
+        host_block_id: &request.host_block_id,
+        gap_codes: request.gap_codes,
+        scope: Some(request.scope),
+        base_revision: &request.base_revision,
+        selected_block_ids: &request.selected_block_ids,
+    })?)
+    .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+pub(crate) struct MockAgentCompletionRequest<'a> {
+    pub workspace_id: &'a str,
+    pub workspace_root: &'a Path,
+    pub document_id: &'a str,
+    pub host_block_id: &'a str,
+    pub gap_codes: Vec<String>,
+    pub scope: Option<DesignerAgentTaskScope>,
+    pub base_revision: &'a str,
+    pub selected_block_ids: &'a [String],
+}
+
+pub(crate) fn run_mock_agent_completion_at(
+    request: MockAgentCompletionRequest<'_>,
+) -> Result<DesignerPatchValidationResult, String> {
+    let detail = read_document_at(
+        request.workspace_id,
+        request.workspace_root,
+        request.document_id,
+    )?;
+    if request.base_revision != detail.design.revision {
+        return Err(format!(
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: baseRevision '{}' does not match current revision '{}'",
+            request.base_revision, detail.design.revision
+        ));
+    }
+    let run = gap_rules::run_all(&detail.design);
+    let target = resolve_agent_task_target(
+        &detail,
+        &run,
+        Some(request.host_block_id),
+        request.gap_codes,
+        request.scope,
+    )?;
+    assert_agent_task_has_target_gaps(&target)?;
+    let patch =
+        build_mock_agent_patch_for_host(&detail, "mock", request.selected_block_ids, &target);
+    validate_agent_patch_at(
+        request.workspace_id,
+        request.workspace_root,
+        request.document_id,
+        serde_json::to_value(&patch)
+            .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))?,
+        Some("agent-preview"),
+    )
+}
+
+#[tauri::command]
+pub fn business_designer_validate_agent_patch(
+    request: DesignerValidateAgentPatchCommandRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        "validating business designer agent patch"
+    );
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(validate_agent_patch_at(
         &workspace_id,
         &workspace_root,
-        &document_id,
-        patch,
+        &request.document_id,
+        request.patch,
         None,
     )?)
     .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
@@ -682,18 +1315,23 @@ pub fn business_designer_validate_agent_patch(
 
 #[tauri::command]
 pub fn business_designer_recover_agent_patch_from_task(
-    workspace_id: String,
-    document_id: String,
-    task_id: String,
+    request: DesignerRecoverAgentPatchCommandRequest,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        task_id = %request.task_id,
+        "recovering business designer agent patch from task"
+    );
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(recover_agent_patch_from_task_at(
         &workspace_id,
         &workspace_root,
-        &document_id,
-        &task_id,
+        &request.document_id,
+        &request.task_id,
         state.inner(),
     )?)
     .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
@@ -701,20 +1339,24 @@ pub fn business_designer_recover_agent_patch_from_task(
 
 #[tauri::command]
 pub fn business_designer_apply_agent_patch(
-    workspace_id: String,
-    document_id: String,
-    patch: Value,
-    accepted_change_indices: Option<Vec<usize>>,
+    request: DesignerApplyAgentPatchCommandRequest,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        accepted_change_indices = ?request.accepted_change_indices,
+        "applying business designer agent patch"
+    );
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(apply_agent_patch_at(
         &workspace_id,
         &workspace_root,
-        &document_id,
-        patch,
-        accepted_change_indices,
+        &request.document_id,
+        request.patch,
+        request.accepted_change_indices,
     )?)
     .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
 }
@@ -724,9 +1366,17 @@ pub fn business_designer_export_document(
     workspace_id: String,
     document_id: String,
     format: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        format = %format,
+        "exporting business designer document"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(export_document_at(
         &workspace_id,
@@ -742,9 +1392,17 @@ pub fn business_designer_export_document_to_file(
     workspace_id: String,
     document_id: String,
     format: String,
+    trace_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        format = %format,
+        "exporting business designer document to file"
+    );
     let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
     serde_json::to_value(export_document_to_file_at(
         &workspace_id,
@@ -753,6 +1411,98 @@ pub fn business_designer_export_document_to_file(
         &format,
     )?)
     .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+#[tauri::command]
+pub fn business_designer_start_freeform_completion(
+    request: DesignerFreeformCompletionRequest,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %request.workspace_id,
+        document_id = %request.document_id,
+        scenario = request.scenario.as_str(),
+        host_block_id = request.host_block_id.as_deref(),
+        "starting business designer freeform completion"
+    );
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
+    let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    let run =
+        start_freeform_completion_at(&workspace_id, &workspace_root, request, state.inner(), &app)?;
+    serde_json::to_value(run)
+        .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+#[tauri::command]
+pub fn business_designer_list_freeform_completion_runs(
+    workspace_id: String,
+    document_id: String,
+    trace_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = normalize_workspace_id(&workspace_id)?;
+    tracing::info!(
+        trace_id = trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %document_id,
+        "listing business designer freeform completion runs"
+    );
+    let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    let runs = list_freeform_completion_runs_at(&workspace_id, &workspace_root, &document_id)?;
+    serde_json::to_value(runs)
+        .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+#[tauri::command]
+pub fn business_designer_update_freeform_completion_run_status(
+    request: DesignerFreeformCompletionRunStatusRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %request.document_id,
+        request_id = %request.request_id,
+        status = ?request.status,
+        "updating business designer freeform completion run status"
+    );
+    let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    let run = update_freeform_completion_run_status_at(
+        &workspace_id,
+        &workspace_root,
+        &request.document_id,
+        &request.request_id,
+        request.status,
+    )?;
+    serde_json::to_value(run)
+        .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+#[tauri::command]
+pub fn business_designer_revert_to_checkpoint(
+    request: DesignerRevertToCheckpointRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %request.document_id,
+        checkpoint = %request.checkpoint,
+        "reverting business designer document to checkpoint"
+    );
+    let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    let detail = revert_document_to_checkpoint_at(
+        &workspace_id,
+        &workspace_root,
+        &request.document_id,
+        &request.checkpoint,
+    )?;
+    serde_json::to_value(detail)
+        .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
 }
 
 #[tauri::command]
@@ -873,6 +1623,255 @@ fn normalize_task_id(task_id: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+fn normalize_user_prompt_summary(user_prompt: Option<&str>) -> Option<String> {
+    let trimmed = user_prompt?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut summary = trimmed
+        .chars()
+        .take(160)
+        .collect::<String>()
+        .replace('\n', " ");
+    if trimmed.chars().count() > 160 {
+        summary.push('…');
+    }
+    Some(summary)
+}
+
+fn build_freeform_request_id(
+    detail: &DesignerDocumentDetail,
+    scenario: DesignerFreeformCompletionScenario,
+    host_block_id: Option<&str>,
+    created_at: &str,
+) -> String {
+    let mut hash = AGENT_REQUEST_HASH_OFFSET;
+    feed_agent_request_hash_part(&mut hash, &detail.manifest.document_id);
+    feed_agent_request_hash_part(&mut hash, scenario.as_str());
+    if let Some(host_block_id) = host_block_id {
+        feed_agent_request_hash_part(&mut hash, host_block_id);
+    }
+    feed_agent_request_hash_part(&mut hash, created_at);
+    format!("bdfree_{hash:016x}")
+}
+
+fn freeform_checkpoint_message(
+    scenario: DesignerFreeformCompletionScenario,
+    detail: &DesignerDocumentDetail,
+    host_block: Option<&DesignerBlock>,
+) -> String {
+    let target = host_block
+        .map(|block| block.title.trim())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| detail.manifest.title.trim());
+    format!("agent-freeform:{} {}", scenario.as_str(), target)
+}
+
+fn render_validation_summary(detail: &DesignerDocumentDetail) -> String {
+    let diagnostics = validate_design(&detail.manifest, &detail.design);
+    let rule_run = gap_rules::run_all(&detail.design);
+    let error_count = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == "error")
+        .count();
+    let warning_count = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == "warning")
+        .count();
+    let gap_count = rule_run.gaps.len();
+    let fixable_gap_count = rule_run
+        .gaps
+        .iter()
+        .filter(|gap| gap.fixable_by_agent)
+        .count();
+    format!(
+        "- diagnostics: {error_count} errors, {warning_count} warnings\n- gaps: {gap_count} total, {fixable_gap_count} agent-fixable"
+    )
+}
+
+fn freeform_runs_dir(document_root: &Path) -> PathBuf {
+    document_root.join(AGENT_RUNS_DIR)
+}
+
+fn freeform_run_path(document_root: &Path, request_id: &str) -> PathBuf {
+    freeform_runs_dir(document_root).join(format!("{request_id}.json"))
+}
+
+fn list_freeform_completion_runs_at(
+    workspace_id: &str,
+    workspace_root: &Path,
+    document_id: &str,
+) -> Result<DesignerFreeformCompletionRunsResult, String> {
+    let docs_root = docs_root_for(workspace_root);
+    ensure_inside_workspace(workspace_root, &docs_root)?;
+    let document_root = document_root_for(&docs_root, document_id)?;
+    ensure_inside_workspace(workspace_root, &document_root)?;
+    let runs_dir = freeform_runs_dir(&document_root);
+    let mut runs = Vec::new();
+    if runs_dir.exists() {
+        for entry in fs::read_dir(&runs_dir).map_err(|error| {
+            format!("BUSINESS_DESIGNER_FREEFORM_RUNS_FAILED: unable to read run directory: {error}")
+        })? {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "BUSINESS_DESIGNER_FREEFORM_RUNS_FAILED: unable to inspect run entry: {error}"
+                )
+            })?;
+            if !entry.path().extension().is_some_and(|ext| ext == "json") {
+                continue;
+            }
+            runs.push(read_json_file::<DesignerFreeformCompletionRun>(
+                &entry.path(),
+            )?);
+        }
+    }
+    runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(DesignerFreeformCompletionRunsResult {
+        workspace_id: workspace_id.to_string(),
+        document_id: document_id.to_string(),
+        runs,
+    })
+}
+
+fn update_freeform_completion_run_status_at(
+    workspace_id: &str,
+    workspace_root: &Path,
+    document_id: &str,
+    request_id: &str,
+    status: DesignerFreeformCompletionRunStatus,
+) -> Result<DesignerFreeformCompletionRun, String> {
+    let docs_root = docs_root_for(workspace_root);
+    ensure_inside_workspace(workspace_root, &docs_root)?;
+    let document_root = document_root_for(&docs_root, document_id)?;
+    ensure_inside_workspace(workspace_root, &document_root)?;
+    let run_path = freeform_run_path(&document_root, request_id);
+    if !run_path.exists() {
+        return Err(format!(
+            "BUSINESS_DESIGNER_FREEFORM_RUN_NOT_FOUND: run '{request_id}' was not found"
+        ));
+    }
+    let mut run = read_json_file::<DesignerFreeformCompletionRun>(&run_path)?;
+    if run.workspace_id != workspace_id || run.document_id != document_id {
+        return Err(
+            "BUSINESS_DESIGNER_FREEFORM_RUN_INVALID: run metadata does not match request"
+                .to_string(),
+        );
+    }
+    run.status = status;
+    run.updated_at = now_iso_timestamp();
+    atomic_write_json(&run_path, &run)?;
+    Ok(run)
+}
+
+fn start_freeform_completion_at(
+    workspace_id: &str,
+    workspace_root: &Path,
+    request: DesignerFreeformCompletionRequest,
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<DesignerFreeformCompletionRun, String> {
+    let detail = read_document_at(workspace_id, workspace_root, &request.document_id)?;
+    let docs_root = docs_root_for(workspace_root);
+    let document_root = document_root_for(&docs_root, &detail.manifest.document_id)?;
+    ensure_inside_workspace(workspace_root, &document_root)?;
+    let document_root_display = document_root.to_string_lossy().to_string();
+    let document_file_display = document_root
+        .join(&detail.manifest.entry)
+        .to_string_lossy()
+        .to_string();
+    let host_block = request.host_block_id.as_deref().and_then(|host_block_id| {
+        detail
+            .design
+            .blocks
+            .iter()
+            .find(|block| block.id == host_block_id)
+    });
+    if request.host_block_id.is_some() && host_block.is_none() {
+        return Err("BUSINESS_DESIGNER_FREEFORM_INVALID: hostBlockId was not found".to_string());
+    }
+    let created_at = now_iso_timestamp();
+    let request_id = build_freeform_request_id(
+        &detail,
+        request.scenario,
+        request.host_block_id.as_deref(),
+        &created_at,
+    );
+    let checkpoint_message = freeform_checkpoint_message(request.scenario, &detail, host_block);
+    let checkpoint = create_checkpoint_at(
+        workspace_id,
+        workspace_root,
+        &detail.manifest.document_id,
+        &checkpoint_message,
+    )?;
+    let checkpoint_before = checkpoint_revision_for_revert(&docs_root, &checkpoint)?;
+    let provider = request
+        .provider
+        .unwrap_or(DesignerFreeformCompletionProvider::Codex);
+    let tool_kind = provider.as_tool_kind();
+    let validation_summary = render_validation_summary(&detail);
+    let prompt = agent_completion_prompts::render_freeform_completion_prompt(
+        agent_completion_prompts::FreeformPromptInput {
+            detail: &detail,
+            scenario: request.scenario,
+            host_block,
+            document_root: &document_root_display,
+            document_file: &document_file_display,
+            validation_summary: &validation_summary,
+            user_prompt: request.user_prompt.as_deref(),
+        },
+    );
+    let terminal_request = TerminalCreateRequest {
+        workspace_id: WorkspaceId::new(workspace_id.to_string()),
+        shell: Some("auto".to_string()),
+        cwd: Some(document_root_display.clone()),
+        cwd_mode: TerminalCwdMode::Custom,
+        env: augment_terminal_env_for_agent(
+            app,
+            state,
+            workspace_id,
+            tool_kind,
+            true,
+            Default::default(),
+        )?,
+        agent_tool_kind: Some(provider.as_str().to_string()),
+        login_shell: Some(true),
+    };
+    let session = state
+        .terminal_provider
+        .create_session(terminal_request)
+        .map_err(|error| format!("BUSINESS_DESIGNER_FREEFORM_SESSION_FAILED: {error}"))?;
+    state
+        .terminal_provider
+        .set_session_visibility(&session.session_id, true)
+        .map_err(|error| {
+            format!("BUSINESS_DESIGNER_FREEFORM_SESSION_VISIBILITY_FAILED: {error}")
+        })?;
+    write_terminal_command_with_submit(state, &session.session_id, provider.as_str(), "\r")?;
+    thread::sleep(Duration::from_millis(FREEFORM_PROMPT_INJECTION_DELAY_MS));
+    write_terminal_with_submit(state, &session.session_id, &prompt, "\r")?;
+    let run = DesignerFreeformCompletionRun {
+        request_id,
+        workspace_id: workspace_id.to_string(),
+        document_id: detail.manifest.document_id.clone(),
+        scenario: request.scenario,
+        host_block_id: request.host_block_id,
+        provider,
+        session_id: session.session_id,
+        document_root: document_root_display,
+        checkpoint_before,
+        status: DesignerFreeformCompletionRunStatus::Running,
+        created_at: created_at.clone(),
+        updated_at: created_at,
+        user_prompt_summary: normalize_user_prompt_summary(request.user_prompt.as_deref()),
+    };
+    fs::create_dir_all(freeform_runs_dir(&document_root)).map_err(|error| {
+        format!("BUSINESS_DESIGNER_FREEFORM_RUNS_FAILED: unable to create run directory: {error}")
+    })?;
+    atomic_write_json(&freeform_run_path(&document_root, &run.request_id), &run)?;
+    let _ = app.emit("business-designer/freeform-run-started", &run);
+    Ok(run)
+}
+
 fn normalize_git_revision(revision: &str) -> Result<String, String> {
     let trimmed = revision.trim();
     if trimmed.is_empty() {
@@ -889,6 +1888,34 @@ fn normalize_git_revision(revision: &str) -> Result<String, String> {
         ));
     }
     Ok(trimmed.to_string())
+}
+
+fn checkpoint_revision_for_revert(
+    docs_root: &Path,
+    checkpoint: &DesignerCheckpointResult,
+) -> Result<String, String> {
+    if let Some(commit) = checkpoint
+        .commit
+        .as_deref()
+        .map(str::trim)
+        .filter(|commit| !commit.is_empty())
+    {
+        return Ok(commit.to_string());
+    }
+
+    current_docs_head(docs_root)
+}
+
+fn current_docs_head(docs_root: &Path) -> Result<String, String> {
+    let output = run_git(docs_root, &["rev-parse", "--verify", "HEAD"])?;
+    let head = String::from_utf8_lossy(&output).trim().to_string();
+    if head.is_empty() {
+        return Err(
+            "BUSINESS_DESIGNER_CHECKPOINT_FAILED: docs repository has no HEAD to revert to"
+                .to_string(),
+        );
+    }
+    Ok(head)
 }
 
 fn normalize_document_id(document_id: &str) -> Result<String, String> {
@@ -1044,6 +2071,7 @@ fn create_manifest(
         generated: default_generated_paths(),
         tags: Vec::new(),
         status: DEFAULT_DOC_STATUS.to_string(),
+        layout: None,
     }
 }
 
@@ -1197,6 +2225,18 @@ pub(crate) fn save_document_at(
         block.id = normalize_document_id(&block.id)?;
         block.title = block.title.trim().to_string();
         block.updated_at = timestamp.clone();
+    }
+    let block_ids = detail
+        .design
+        .blocks
+        .iter()
+        .map(|block| block.id.clone())
+        .collect::<HashSet<_>>();
+    if let Some(layout) = detail.manifest.layout.as_mut() {
+        layout.retain(|block_id, _| block_ids.contains(block_id));
+    }
+    for block in &mut detail.design.blocks {
+        block.links.clear();
     }
 
     let diagnostics = validate_design(&detail.manifest, &detail.design);
@@ -1429,6 +2469,26 @@ pub(crate) fn compare_checkpoints_at(
     })
 }
 
+pub(crate) fn revert_document_to_checkpoint_at(
+    workspace_id: &str,
+    workspace_root: &Path,
+    document_id: &str,
+    checkpoint: &str,
+) -> Result<DesignerDocumentDetail, String> {
+    let workspace_root = workspace_root.canonicalize().map_err(|error| {
+        format!("BUSINESS_DESIGNER_WORKSPACE_INVALID: workspace root is not accessible: {error}")
+    })?;
+    let document_id = normalize_document_id(document_id)?;
+    let checkpoint = normalize_git_revision(checkpoint)?;
+    let docs_root = docs_root_for(&workspace_root);
+    ensure_inside_workspace(&workspace_root, &docs_root)?;
+    ensure_docs_scaffold_at(&docs_root)?;
+    ensure_docs_git_repository(&docs_root)?;
+    let pathspec = format!("{DOCUMENTS_DIR}/{document_id}");
+    run_git(&docs_root, &["checkout", &checkpoint, "--", &pathspec])?;
+    read_document_at(workspace_id, &workspace_root, &document_id)
+}
+
 pub(crate) fn list_checkpoints_at(
     workspace_id: &str,
     workspace_root: &Path,
@@ -1495,40 +2555,114 @@ fn is_empty_git_log_error(error: &str) -> bool {
         || error.contains("unknown revision or path not in the working tree")
 }
 
-#[allow(dead_code)] // exercised via tests; production dispatch uses render_design_completion_markdown
-pub(crate) fn run_agent_completion_at(
-    workspace_id: &str,
-    workspace_root: &Path,
-    document_id: &str,
-    provider: &str,
-    selected_block_ids: &[String],
-) -> Result<DesignerPatchValidationResult, String> {
-    let provider = provider.trim();
-    if !matches!(provider, "mock" | "codex" | "claude") {
+fn graph_projection_from_run(run: &gap_rules::GapRunResult) -> DesignerGraphProjection {
+    DesignerGraphProjection {
+        links: run.derived_edges.clone(),
+    }
+}
+
+fn resolve_agent_task_target(
+    detail: &DesignerDocumentDetail,
+    run: &gap_rules::GapRunResult,
+    host_block_id: Option<&str>,
+    gap_codes: Vec<String>,
+    scope: Option<DesignerAgentTaskScope>,
+) -> Result<DesignerAgentTaskTarget, String> {
+    let host = host_block_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: hostBlockId is required for v1 agent tasks"
+                .to_string()
+        })?;
+    if !detail.design.blocks.iter().any(|block| block.id == host) {
         return Err(format!(
-            "BUSINESS_DESIGNER_AGENT_PROVIDER_UNSUPPORTED: unsupported provider '{provider}'"
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: host block '{host}' was not found"
         ));
     }
-    let detail = read_document_at(workspace_id, workspace_root, document_id)?;
-    let selected_block_ids = if selected_block_ids.is_empty() {
-        detail
-            .design
-            .blocks
+    let scope = scope.unwrap_or(if gap_codes.is_empty() {
+        DesignerAgentTaskScope::Block
+    } else {
+        DesignerAgentTaskScope::Single
+    });
+
+    let requested_codes = gap_codes
+        .iter()
+        .map(|code| code.trim())
+        .filter(|code| !code.is_empty())
+        .collect::<HashSet<_>>();
+
+    let host_gaps = run
+        .gaps
+        .iter()
+        .filter(|gap| gap.block_id == host)
+        .cloned()
+        .collect::<Vec<_>>();
+    let target_gaps = host_gaps
+        .iter()
+        .filter(|gap| {
+            if scope == DesignerAgentTaskScope::Single || !requested_codes.is_empty() {
+                requested_codes.contains(gap.code.as_str())
+            } else {
+                true
+            }
+        })
+        .filter(|gap| gap.fixable_by_agent)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if (scope == DesignerAgentTaskScope::Single || !requested_codes.is_empty())
+        && target_gaps.is_empty()
+    {
+        return Err(
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: target gaps were not found or are not agent-fixable"
+                .to_string(),
+        );
+    }
+
+    let target_gap_keys = target_gaps
+        .iter()
+        .map(|gap| gap.key.clone())
+        .collect::<Vec<_>>();
+    let gap_codes = if requested_codes.is_empty() {
+        target_gaps
             .iter()
-            .map(|block| block.id.clone())
+            .map(|gap| gap.code.clone())
             .collect::<Vec<_>>()
     } else {
-        selected_block_ids.to_vec()
+        gap_codes
+            .into_iter()
+            .map(|code| code.trim().to_string())
+            .filter(|code| !code.is_empty())
+            .collect::<Vec<_>>()
     };
-    let patch = build_mock_agent_patch(&detail, provider, &selected_block_ids);
-    validate_agent_patch_at(
-        workspace_id,
-        workspace_root,
-        document_id,
-        serde_json::to_value(patch)
-            .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))?,
-        Some("agent-preview"),
-    )
+    let target_key_set = target_gap_keys
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let context_gaps = host_gaps
+        .into_iter()
+        .filter(|gap| !target_key_set.contains(gap.key.as_str()))
+        .collect::<Vec<_>>();
+
+    Ok(DesignerAgentTaskTarget {
+        host_block_id: host.to_string(),
+        scope,
+        gap_codes,
+        target_gap_keys,
+        target_gaps,
+        context_gaps,
+    })
+}
+
+fn assert_agent_task_has_target_gaps(target: &DesignerAgentTaskTarget) -> Result<(), String> {
+    if target.target_gaps.is_empty() {
+        return Err(
+            "BUSINESS_DESIGNER_AGENT_TASK_INVALID: dispatch requires at least one agent-fixable target gap"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_agent_patch_at(
@@ -1645,6 +2779,10 @@ pub(crate) fn apply_agent_patch_at(
         ));
     }
 
+    // Snapshot gaps BEFORE applying so the three-tier verdict (resolved /
+    // unresolved / introduced) is computed from rule output, not the model.
+    let before_run = gap_rules::run_all(&detail.design);
+
     let accepted = accepted_change_indices.unwrap_or_else(|| (0..patch.changes.len()).collect());
     let accepted_set = accepted.iter().copied().collect::<HashSet<_>>();
     let skipped_changes = (0..patch.changes.len())
@@ -1659,6 +2797,11 @@ pub(crate) fn apply_agent_patch_at(
     }
     next_detail.manifest.status = "needsReview".to_string();
     let saved_detail = save_document_at(workspace_id, workspace_root, next_detail)?;
+
+    let after_run = gap_rules::run_all(&saved_detail.design);
+    let resolution = compute_gap_resolution(&before_run, &after_run, &patch);
+    let graph_projection = graph_projection_from_run(&after_run);
+
     let patch_path = archive_agent_patch(
         workspace_root,
         &saved_detail.manifest.document_id,
@@ -1675,7 +2818,96 @@ pub(crate) fn apply_agent_patch_at(
         skipped_changes,
         detail: saved_detail,
         diagnostics,
+        gap_resolution: resolution,
+        gaps: after_run.gaps,
+        rules_run: after_run.rules_run,
+        graph_projection,
     })
+}
+
+/// Returns Some(message) when a patch operation does NOT respect the host
+/// constraint. v1 anchored patches only update the host block.
+fn host_anchor_violation(host: &str, change: &DesignerPatchOperation) -> Option<String> {
+    match change {
+        DesignerPatchOperation::Update { block_id, .. } => {
+            if block_id == host {
+                None
+            } else {
+                Some(format!(
+                    "Change targets block '{block_id}' but patch host is '{host}'"
+                ))
+            }
+        }
+        DesignerPatchOperation::Add { .. } => {
+            Some("v1 anchored patches cannot add blocks".to_string())
+        }
+        DesignerPatchOperation::Delete { .. } => {
+            Some("v1 anchored patches cannot delete blocks".to_string())
+        }
+    }
+}
+
+/// Compute the resolved/unresolved/introduced verdict from before-and-after
+/// rule runs. Gap keys, not ids, are the semantic comparison unit.
+fn compute_gap_resolution(
+    before: &gap_rules::GapRunResult,
+    after: &gap_rules::GapRunResult,
+    patch: &DesignerAgentPatch,
+) -> DesignerGapResolution {
+    let target_keys: HashSet<String> = if patch.target_gap_keys.is_empty() {
+        let target_codes: HashSet<&str> = patch.gap_codes.iter().map(String::as_str).collect();
+        before
+            .gaps
+            .iter()
+            .filter(|gap| gap.block_id == patch.host_block_id)
+            .filter(|gap| target_codes.is_empty() || target_codes.contains(gap.code.as_str()))
+            .filter(|gap| gap.fixable_by_agent)
+            .map(|gap| gap.key.clone())
+            .collect()
+    } else {
+        patch.target_gap_keys.iter().cloned().collect()
+    };
+
+    let before_all_keys: HashSet<&str> = before.gaps.iter().map(|g| g.key.as_str()).collect();
+    let after_keys: HashSet<&str> = after.gaps.iter().map(|g| g.key.as_str()).collect();
+
+    let mut resolved: Vec<String> = target_keys
+        .iter()
+        .filter(|key| !after_keys.contains(key.as_str()))
+        .cloned()
+        .collect();
+    let mut unresolved: Vec<String> = target_keys
+        .iter()
+        .filter(|key| after_keys.contains(key.as_str()))
+        .cloned()
+        .collect();
+    let mut incidental_resolved: Vec<String> = before_all_keys
+        .iter()
+        .filter(|key| !target_keys.contains(**key))
+        .filter(|key| !after_keys.contains(**key))
+        .map(|key| (*key).to_string())
+        .collect();
+    let mut introduced: Vec<DesignerGap> = after
+        .gaps
+        .iter()
+        .filter(|gap| !before_all_keys.contains(gap.key.as_str()))
+        .cloned()
+        .collect();
+    let mut target_gap_keys: Vec<String> = target_keys.into_iter().collect();
+
+    target_gap_keys.sort();
+    resolved.sort();
+    unresolved.sort();
+    incidental_resolved.sort();
+    introduced.sort_by(|a, b| a.key.cmp(&b.key));
+
+    DesignerGapResolution {
+        target_gap_keys,
+        resolved,
+        unresolved,
+        incidental_resolved,
+        introduced,
+    }
 }
 
 pub(crate) fn export_document_at(
@@ -2051,6 +3283,14 @@ fn validate_agent_patch_against_detail(
             Some("patch.changes".to_string()),
         ));
     }
+    if patch.host_block_id.trim().is_empty() {
+        diagnostics.push(diagnostic(
+            "patch_host_block_required",
+            "error",
+            "Patch hostBlockId is required for v1 anchored patches",
+            Some("patch.hostBlockId".to_string()),
+        ));
+    }
 
     let block_ids = detail
         .design
@@ -2058,8 +3298,44 @@ fn validate_agent_patch_against_detail(
         .iter()
         .map(|block| block.id.as_str())
         .collect::<HashSet<_>>();
+    if !patch.host_block_id.trim().is_empty() && !block_ids.contains(patch.host_block_id.as_str()) {
+        diagnostics.push(diagnostic(
+            "patch_host_block_missing",
+            "error",
+            format!("Patch hostBlockId '{}' does not exist", patch.host_block_id),
+            Some("patch.hostBlockId".to_string()),
+        ));
+    }
+    let active_run = gap_rules::run_all(&detail.design);
+    if !patch.target_gap_keys.is_empty() {
+        let active_keys = active_run
+            .gaps
+            .iter()
+            .filter(|gap| gap.block_id == patch.host_block_id)
+            .filter(|gap| gap.fixable_by_agent)
+            .map(|gap| gap.key.as_str())
+            .collect::<HashSet<_>>();
+        for key in &patch.target_gap_keys {
+            if !active_keys.contains(key.as_str()) {
+                diagnostics.push(diagnostic(
+                    "patch_target_gap_invalid",
+                    "error",
+                    format!("Target gap key '{key}' is not an active agent-fixable gap on the host block"),
+                    Some("patch.targetGapKeys".to_string()),
+                ));
+            }
+        }
+    }
     let mut new_block_ids = HashSet::new();
     for (index, change) in patch.changes.iter().enumerate() {
+        if let Some(violation) = host_anchor_violation(&patch.host_block_id, change) {
+            diagnostics.push(diagnostic(
+                "patch_host_block_mismatch",
+                "error",
+                violation,
+                Some(format!("patch.changes[{index}]")),
+            ));
+        }
         match change {
             DesignerPatchOperation::Add {
                 after_block_id,
@@ -2125,6 +3401,14 @@ fn validate_agent_patch_against_detail(
                         "error",
                         "Patch payload must be a JSON object",
                         Some(format!("patch.changes[{index}].patch.payload")),
+                    ));
+                }
+                if patch.links.is_some() {
+                    diagnostics.push(diagnostic(
+                        "patch_links_not_allowed",
+                        "error",
+                        "v1 anchored patches cannot modify semantic links; graph edges are derived by validation",
+                        Some(format!("patch.changes[{index}].patch.links")),
                     ));
                 }
                 changes.push(DesignerPatchPreviewChange {
@@ -2325,9 +3609,6 @@ fn apply_patch_operation(
             if let Some(payload) = patch.payload.clone() {
                 block.payload = payload;
             }
-            if let Some(links) = patch.links.clone() {
-                block.links = links;
-            }
             block.updated_at = timestamp.to_string();
         }
         DesignerPatchOperation::Delete { block_id } => {
@@ -2363,39 +3644,327 @@ fn next_block_order(blocks: &[DesignerBlock]) -> u32 {
         .saturating_add(10)
 }
 
-#[allow(dead_code)] // used by run_agent_completion_at (test-only mock path)
-fn build_mock_agent_patch(
+/// v1: deterministic mock patch keyed off `(host_block_id, gap_codes)`. Each
+/// supported gap has a hand-coded fix; the patch never wanders off-host.
+fn build_mock_agent_patch_for_host(
     detail: &DesignerDocumentDetail,
     provider: &str,
-    selected_block_ids: &[String],
+    _selected_block_ids: &[String],
+    target: &DesignerAgentTaskTarget,
 ) -> DesignerAgentPatch {
-    let target = selected_block_ids
-        .first()
-        .cloned()
-        .or_else(|| detail.design.blocks.first().map(|block| block.id.clone()))
-        .unwrap_or_else(|| "overview".to_string());
+    let host = target.host_block_id.as_str();
+    if let Some(host_block) = detail.design.blocks.iter().find(|b| b.id == host) {
+        let candidate_codes = target
+            .target_gaps
+            .iter()
+            .map(|gap| gap.code.clone())
+            .collect::<Vec<_>>();
+
+        if let Some(update) = mock_payload_patch_for_host(host_block, &candidate_codes) {
+            return DesignerAgentPatch {
+                schema_version: DESIGNER_SCHEMA_VERSION,
+                document_id: detail.manifest.document_id.clone(),
+                base_revision: detail.design.revision.clone(),
+                summary: format!(
+                    "{provider} mock fix for host '{host}' ({} gap{})",
+                    candidate_codes.len(),
+                    if candidate_codes.len() == 1 { "" } else { "s" }
+                ),
+                changes: vec![DesignerPatchOperation::Update {
+                    block_id: host.to_string(),
+                    patch: update,
+                }],
+                open_questions: Vec::new(),
+                host_block_id: host.to_string(),
+                gap_codes: target.gap_codes.clone(),
+                target_gap_keys: target.target_gap_keys.clone(),
+                scope: Some(target.scope),
+            };
+        }
+    }
+
     DesignerAgentPatch {
         schema_version: DESIGNER_SCHEMA_VERSION,
         document_id: detail.manifest.document_id.clone(),
         base_revision: detail.design.revision.clone(),
-        summary: format!("{provider} mock completion for {}", detail.manifest.title),
-        changes: vec![DesignerPatchOperation::Add {
-            after_block_id: Some(target),
-            block: DesignerPatchBlock {
-                id: format!("agent-notes-{}", detail.design.blocks.len() + 1),
-                kind: "openQuestions".to_string(),
-                title: "Agent 待确认问题".to_string(),
-                order: Some(next_block_order(&detail.design.blocks)),
-                payload: json!({
-                    "questions": [
-                        "关键业务规则是否存在例外流程？",
-                        "该模块是否需要审计日志或权限边界？"
-                    ]
-                }),
-                links: Vec::new(),
-            },
-        }],
-        open_questions: vec!["请确认 mock patch 后再接入真实 Codex/Claude session。".to_string()],
+        summary: format!("{provider} mock found no agent-fixable changes for host '{host}'"),
+        changes: Vec::new(),
+        open_questions: vec![
+            "此块没有可由 Agent 自动处理的缺口，或 mock provider 尚未支持这些 gap。".to_string(),
+        ],
+        host_block_id: host.to_string(),
+        gap_codes: target.gap_codes.clone(),
+        target_gap_keys: target.target_gap_keys.clone(),
+        scope: Some(target.scope),
+    }
+}
+
+/// Mock fixer table — small per-rule transforms that produce a valid payload
+/// given the host block's existing payload + the unmet codes. Returns `None`
+/// when no transform applies (caller falls back to the legacy mock).
+fn mock_payload_patch_for_host(
+    host: &DesignerBlock,
+    codes: &[String],
+) -> Option<DesignerPatchBlockUpdate> {
+    if codes.is_empty() {
+        return None;
+    }
+    let mut payload = host.payload.clone();
+    let obj = payload.as_object_mut()?;
+    let mut applied_any = false;
+
+    let touched = |code: &str| codes.iter().any(|c| c == code);
+
+    match host.kind.as_str() {
+        "entityModel" => {
+            // entityName fallback
+            if !obj
+                .get("entityName")
+                .and_then(Value::as_str)
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+            {
+                obj.insert("entityName".to_string(), Value::String(host.title.clone()));
+            }
+            let entity_name = obj
+                .get("entityName")
+                .and_then(Value::as_str)
+                .unwrap_or(host.title.as_str())
+                .to_string();
+            let fields = obj
+                .entry("fields")
+                .or_insert_with(|| Value::Array(Vec::new()))
+                .as_array_mut()?;
+
+            if touched("no-fields") && fields.is_empty() {
+                fields.push(json!({
+                    "name": "id",
+                    "type": "string",
+                    "description": format!("{entity_name} 主键"),
+                    "isPrimaryKey": true,
+                }));
+                applied_any = true;
+            }
+
+            if touched("no-pk") {
+                let has_pk = fields.iter().any(|f| {
+                    f.get("isPrimaryKey")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                });
+                if !has_pk {
+                    fields.insert(
+                        0,
+                        json!({
+                            "name": "id",
+                            "type": "string",
+                            "description": format!("{entity_name} 主键"),
+                            "isPrimaryKey": true,
+                        }),
+                    );
+                    applied_any = true;
+                }
+            }
+
+            if touched("field-no-type") {
+                for field in fields.iter_mut() {
+                    let needs = field
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .map(|s| s.trim().is_empty())
+                        .unwrap_or(true);
+                    if needs {
+                        if let Some(map) = field.as_object_mut() {
+                            map.insert("type".to_string(), Value::String("string".to_string()));
+                            applied_any = true;
+                        }
+                    }
+                }
+            }
+
+            if touched("enum-no-values") {
+                for field in fields.iter_mut() {
+                    let is_enum = field
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .map(|s| s.eq_ignore_ascii_case("enum"))
+                        .unwrap_or(false);
+                    if !is_enum {
+                        continue;
+                    }
+                    let needs = field
+                        .get("values")
+                        .and_then(Value::as_array)
+                        .map(|a| a.is_empty())
+                        .unwrap_or(true);
+                    if needs {
+                        if let Some(map) = field.as_object_mut() {
+                            map.insert(
+                                "values".to_string(),
+                                json!(["draft", "active", "archived"]),
+                            );
+                            applied_any = true;
+                        }
+                    }
+                }
+            }
+        }
+        "businessFlow" => {
+            let states_initial = obj
+                .get("states")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .is_empty();
+            if touched("no-states") && states_initial {
+                obj.insert(
+                    "states".to_string(),
+                    json!([
+                        {"name": "draft", "initial": true},
+                        {"name": "active"},
+                        {"name": "done", "terminal": true},
+                    ]),
+                );
+                applied_any = true;
+            }
+            if touched("no-transitions") {
+                let has_t = obj
+                    .get("transitions")
+                    .and_then(Value::as_array)
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false);
+                if !has_t {
+                    obj.insert(
+                        "transitions".to_string(),
+                        json!([
+                            {"from": "draft", "to": "active"},
+                            {"from": "active", "to": "done"},
+                        ]),
+                    );
+                    applied_any = true;
+                }
+            }
+            if touched("no-terminal") {
+                if let Some(states) = obj.get_mut("states").and_then(Value::as_array_mut) {
+                    let any_terminal = states
+                        .iter()
+                        .any(|s| s.get("terminal").and_then(Value::as_bool).unwrap_or(false));
+                    if !any_terminal {
+                        if let Some(last) = states.last_mut() {
+                            if let Some(map) = last.as_object_mut() {
+                                map.insert("terminal".to_string(), Value::Bool(true));
+                                applied_any = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "apiContract" => {
+            let endpoints_empty = obj
+                .get("endpoints")
+                .and_then(Value::as_array)
+                .map(|a| a.is_empty())
+                .unwrap_or(true);
+            if touched("no-endpoints") && endpoints_empty {
+                obj.insert(
+                    "endpoints".to_string(),
+                    json!([
+                        {
+                            "method": "GET",
+                            "path": format!("/{}", host.id),
+                            "response": "Object",
+                            "errors": ["NOT_FOUND", "INTERNAL_ERROR"],
+                        }
+                    ]),
+                );
+                applied_any = true;
+            }
+            if let Some(endpoints) = obj.get_mut("endpoints").and_then(Value::as_array_mut) {
+                for endpoint in endpoints.iter_mut() {
+                    if let Some(map) = endpoint.as_object_mut() {
+                        if touched("endpoint-no-path") {
+                            let needs = map
+                                .get("path")
+                                .and_then(Value::as_str)
+                                .map(|s| s.trim().is_empty())
+                                .unwrap_or(true);
+                            if needs {
+                                map.insert(
+                                    "path".to_string(),
+                                    Value::String(format!("/{}", host.id)),
+                                );
+                                applied_any = true;
+                            }
+                        }
+                        if touched("endpoint-no-method") {
+                            let needs = map
+                                .get("method")
+                                .and_then(Value::as_str)
+                                .map(|s| s.trim().is_empty())
+                                .unwrap_or(true);
+                            if needs {
+                                map.insert("method".to_string(), Value::String("GET".to_string()));
+                                applied_any = true;
+                            }
+                        }
+                        if touched("no-response") {
+                            let needs = map.get("response").map(is_empty_value).unwrap_or(true)
+                                && map.get("responseShape").map(is_empty_value).unwrap_or(true);
+                            if needs {
+                                map.insert(
+                                    "response".to_string(),
+                                    Value::String("Object".to_string()),
+                                );
+                                applied_any = true;
+                            }
+                        }
+                        if touched("no-errors") {
+                            let needs = map
+                                .get("errors")
+                                .and_then(Value::as_array)
+                                .map(|a| a.is_empty())
+                                .unwrap_or(true)
+                                && map
+                                    .get("errorCodes")
+                                    .and_then(Value::as_array)
+                                    .map(|a| a.is_empty())
+                                    .unwrap_or(true);
+                            if needs {
+                                map.insert(
+                                    "errors".to_string(),
+                                    json!(["NOT_FOUND", "INTERNAL_ERROR"]),
+                                );
+                                applied_any = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    if !applied_any {
+        return None;
+    }
+
+    Some(DesignerPatchBlockUpdate {
+        kind: None,
+        title: None,
+        order: None,
+        payload: Some(payload),
+        links: None,
+    })
+}
+
+fn is_empty_value(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(s) => s.trim().is_empty(),
+        Value::Array(a) => a.is_empty(),
+        Value::Object(o) => o.is_empty(),
+        _ => false,
     }
 }
 
@@ -2754,6 +4323,36 @@ fn write_block_files(document_root: &Path, blocks: &[DesignerBlock]) -> Result<(
     fs::create_dir_all(&blocks_dir).map_err(|error| {
         format!("BUSINESS_DESIGNER_SAVE_FAILED: unable to create blocks directory: {error}")
     })?;
+    let active_files = blocks
+        .iter()
+        .map(|block| format!("{}.json", block.id))
+        .collect::<HashSet<_>>();
+    for entry in fs::read_dir(&blocks_dir).map_err(|error| {
+        format!("BUSINESS_DESIGNER_SAVE_FAILED: unable to read blocks directory: {error}")
+    })? {
+        let entry = entry.map_err(|error| {
+            format!("BUSINESS_DESIGNER_SAVE_FAILED: unable to inspect block file: {error}")
+        })?;
+        if !entry
+            .file_type()
+            .map_err(|error| {
+                format!("BUSINESS_DESIGNER_SAVE_FAILED: unable to inspect block file type: {error}")
+            })?
+            .is_file()
+        {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.ends_with(".json") && !active_files.contains(file_name.as_ref()) {
+            fs::remove_file(entry.path()).map_err(|error| {
+                format!(
+                    "BUSINESS_DESIGNER_SAVE_FAILED: unable to remove stale block file '{}': {error}",
+                    entry.path().display()
+                )
+            })?;
+        }
+    }
     for block in blocks {
         atomic_write_json(&blocks_dir.join(format!("{}.json", block.id)), block)?;
     }
@@ -2858,6 +4457,33 @@ where
     serde_json::to_string_pretty(value)
         .map(|json| format!("{json}\n"))
         .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+fn build_agent_task_request_id(
+    detail: &DesignerDocumentDetail,
+    target: &DesignerAgentTaskTarget,
+) -> String {
+    let mut hash = AGENT_REQUEST_HASH_OFFSET;
+    feed_agent_request_hash_part(&mut hash, &detail.manifest.document_id);
+    feed_agent_request_hash_part(&mut hash, &detail.design.revision);
+    feed_agent_request_hash_part(&mut hash, &target.host_block_id);
+    feed_agent_request_hash_part(&mut hash, target.scope.as_str());
+    for key in &target.target_gap_keys {
+        feed_agent_request_hash_part(&mut hash, key);
+    }
+    for code in &target.gap_codes {
+        feed_agent_request_hash_part(&mut hash, code);
+    }
+    format!("bdreq_{hash:016x}")
+}
+
+fn feed_agent_request_hash_part(hash: &mut u64, value: &str) {
+    for byte in value.as_bytes() {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(AGENT_REQUEST_HASH_PRIME);
+    }
+    *hash ^= 0xff;
+    *hash = hash.wrapping_mul(AGENT_REQUEST_HASH_PRIME);
 }
 
 fn render_readme(detail: &DesignerDocumentDetail) -> String {
@@ -3050,12 +4676,16 @@ fn format_refs(label: &str, refs: &[String]) -> String {
     }
 }
 
-/// Render the instruction typed into the agent's terminal for an Agent
-/// completion. Unlike the coding handoff (which dispatches the *whole* design
-/// to an implementer), this asks the agent to enrich the design **in place** by
-/// editing `design.json` directly — adding/refining structured blocks
-/// (entityModel, apiContract, acceptanceCriteria, …) from the brief prose.
-fn render_design_completion_markdown(detail: &DesignerDocumentDetail) -> String {
+/// Render the instruction typed into the agent's terminal for a v1
+/// host-anchored Agent completion. The agent returns a typed patch; it must not
+/// edit files directly.
+fn render_design_completion_markdown_with_host(
+    detail: &DesignerDocumentDetail,
+    host_block_id: &str,
+    gap_codes: &[String],
+    target_gap_keys: &[String],
+    scope: DesignerAgentTaskScope,
+) -> String {
     let design_path = format!(
         "{}/documents/{}/design.json",
         detail.docs_root, detail.manifest.document_id
@@ -3078,12 +4708,11 @@ fn render_design_completion_markdown(detail: &DesignerDocumentDetail) -> String 
         "# Agent completion: {}\n\n",
         detail.manifest.title
     ));
-    output.push_str("You are enriching a GT Office Business Designer requirement in place.\n\n");
+    output.push_str("You are preparing a typed GT Office Business Designer patch.\n\n");
     output.push_str("## Your task\n\n");
     output.push_str(
-        "Read the brief below, then **edit the design file directly** to add or refine the \
-         structured blocks the brief implies. Do not return a patch object; modify the file on \
-         disk. The UI will pick up your changes automatically.\n\n",
+        "Return a single JSON object that matches `DesignerAgentPatch`. Do not edit files directly. \
+         The UI will validate and present the patch for human review before applying it.\n\n",
     );
     output.push_str("## Design file\n\n");
     output.push_str(&format!("- Path: `{}`\n", design_path));
@@ -3092,7 +4721,7 @@ fn render_design_completion_markdown(detail: &DesignerDocumentDetail) -> String 
         detail.manifest.document_id
     ));
     output.push_str(&format!("- Revision: `{}`\n\n", detail.design.revision));
-    output.push_str("### File shape\n\n");
+    output.push_str("### Document shape\n\n");
     output.push_str(
         "```json\n{\n  \"schemaVersion\": 1,\n  \"documentId\": \"<id>\",\n  \"revision\": \
          \"<keep as-is>\",\n  \"title\": \"<title>\",\n  \"blocks\": [\n    {\n      \"id\": \
@@ -3103,14 +4732,12 @@ fn render_design_completion_markdown(detail: &DesignerDocumentDetail) -> String 
     );
     output.push_str("### Block kinds & payloads\n\n");
     output.push_str(
-        "- `text` (the brief): `{ \"markdown\": \"...\" }` — keep one with id `brief`; this is what \
-         the user edits.\n\
+        "- `text`: `{ \"markdown\": \"...\" }`\n\
          - `entityModel`: `{ \"entityName\": \"Order\", \"fields\": [{ \"name\": \"id\", \"type\": \
          \"string\", \"required\": true, \"description\": \"\" }] }`\n\
          - `apiContract`: `{ \"endpoints\": [{ \"method\": \"POST\", \"path\": \"/orders\", \
-         \"description\": \"\" }], \"events\": [] }`\n\
-         - `acceptanceCriteria`: `{ \"criteria\": [\"...\", \"...\"] }`\n\
-         - `openQuestions`: `{ \"questions\": [\"...\", \"...\"] }`\n\n",
+         \"responseShape\": \"Order\", \"errors\": [] }] }`\n\
+         - `businessFlow`: `{ \"states\": [{ \"name\": \"Draft\" }], \"transitions\": [] }`\n\n",
     );
     output.push_str("## Brief\n\n");
     if brief_summary.trim().is_empty() {
@@ -3124,21 +4751,43 @@ fn render_design_completion_markdown(detail: &DesignerDocumentDetail) -> String 
         output.push_str("\n\n");
     }
     output.push_str("## Operating rules\n\n");
+    output.push_str("- Return JSON only; no markdown wrapper.\n");
+    output.push_str("- `schemaVersion` must be 1.\n");
+    output.push_str(&format!(
+        "- `documentId` must be `{}`.\n",
+        detail.manifest.document_id
+    ));
+    output.push_str(&format!(
+        "- `baseRevision` must be `{}`.\n",
+        detail.design.revision
+    ));
+    output.push_str("- Do not include `requestId`; it is dispatch metadata, not part of `DesignerAgentPatch`.\n");
+    output.push_str(&format!("- `hostBlockId` must be `{host_block_id}`.\n"));
+    output.push_str(&format!("- `scope` must be `{}`.\n", scope.as_str()));
+    if gap_codes.is_empty() {
+        output.push_str("- `gapCodes` must contain the target gaps from this task.\n");
+    } else {
+        output.push_str(&format!(
+            "- `gapCodes` must be exactly: `{}`.\n",
+            gap_codes.join(", ")
+        ));
+    }
+    if target_gap_keys.is_empty() {
+        output.push_str("- `targetGapKeys` must be an empty array.\n");
+    } else {
+        output.push_str(&format!(
+            "- `targetGapKeys` must be exactly: `{}`.\n",
+            target_gap_keys.join(", ")
+        ));
+    }
+    output.push_str(
+        "- `changes` may contain only `updateBlock` changes where `targetBlockId` equals the host block.\n",
+    );
+    output.push_str("- Do not add blocks. Do not delete blocks. Do not modify non-host blocks.\n");
     output
-        .push_str("- Edit **only** the design file at the path above. Do not touch other files.\n");
+        .push_str("- Do not include `links` in patches; graph edges are derived by validation.\n");
     output.push_str(
-        "- Preserve `schemaVersion`, `documentId`, and `revision` exactly as they are.\n",
-    );
-    output.push_str(
-        "- Keep the `text` block with id `brief` intact (you may refine its markdown if the brief \
-         is rough, but do not delete it).\n",
-    );
-    output.push_str(
-        "- Append new structured blocks after the brief; give each a stable, descriptive id and a \
-         sensible `order`.\n",
-    );
-    output.push_str(
-        "- When you are done, stop. The UI auto-refreshes on file save; no reply needed.\n",
+        "- If you cannot safely fix the target gaps, return an empty `changes` array and explain in `openQuestions`.\n",
     );
     output
 }

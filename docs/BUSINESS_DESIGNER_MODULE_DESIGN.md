@@ -1,9 +1,9 @@
 # 业务设计器模块方案
 
-**当前版本**：v1 — 图范式 + Gap 引擎  
+**当前版本**：v1.1 — 图范式 + Gap 引擎 + Agent 双轨补全
 **首次起草**：2026-06-10  
-**最近迭代**：2026-06-17  
-**适用范围**：GT Office 业务设计器；Phase 6 极简底座之上的范式重写
+**最近迭代**：2026-06-21
+**适用范围**：GT Office 业务设计器；Phase 6 极简底座之上的范式重写与自由补全扩展
 
 > v0（Phase 1–6）的进度记录与历史决策保留在文末「附录 A：历史进度（v0）」，本节起的章节描述的是 v1 当前生效设计。
 
@@ -11,27 +11,29 @@
 
 ## 1. 一句话核心
 
-> **需求是一张以 block 为节点、以 link 为边的关系图；每个 block kind 有一套确定性健全性规则，规则未满足处即「缺口」（Gap）；AI 的唯一职责是补一个被命名的、锚定到宿主 block 的缺口；补完后同一套规则重跑验证 — AI 永远不自我评分。**
+> **需求是一张以 block 为节点、以 link 为边的关系图；规则引擎负责判断结构是否健康；Agent 有两条能力线：严格的 Anchored Gap Completion 用 typed patch 修机器识别的缺口，开放的 Freeform Design Completion 用专属 CLI Agent 直接扩展文档和画布。两条链路共享 reload + validate + checkpoint 的安全网，但不能混成一个浅接口。**
 
-这一句话决定了之后的所有结构。范式的「惊艳」不在视觉炫技，而在三条机器可执行的铁律：
+这一句话决定了之后的所有结构。范式的「惊艳」不在视觉炫技，而在三条机器可执行的铁律和一条自由补全产品线：
 
-1. **AI 任务必须有宿主 block**。不存在「帮我补全整个需求」这类无锚任务。任务 prompt 写死 `hostBlockId` + `gapCodes`，AI 返回的 patch 只能修改宿主 block 或为它显式声明的相邻新 block。
-2. **缺口是机器算的，不是 AI 说的**。`gap_rules` 是纯 Rust 函数集，输入 block payload + 图，输出 `Gap[]`。AI 不能发明 gap code，只能补规则发现的 gap。
-3. **验证 = 重跑规则**。AI patch 应用后，`validate_document` 重跑 `gap_rules`：目标 gap 消失 = resolved；仍在 = unresolved；新出现 = introduced。**AI 永远无法假装成功**，判定权在规则手里。
+1. **Anchored Gap Completion 必须有宿主 block**。任务 prompt 写死 `hostBlockId` + `gapCodes`，AI 返回的 typed patch 只能修改宿主 block。相邻 block 创建不是 anchored patch 的隐含能力，后续若需要也不能把它塞进这条链路。
+2. **缺口是机器算的，不是 AI 说的**。`gap_rules` 是纯 Rust 函数集，输入 block payload + 图，输出 `Gap[]`。Anchored Agent 不能发明 gap code，只能补规则发现的 gap。
+3. **验证 = 重跑规则**。typed patch 应用后，`validate_document` 重跑 `gap_rules`：目标 gap 消失 = resolved；仍在 = unresolved；新出现 = introduced。**AI 永远无法假装成功**，判定权在规则手里。
+4. **Freeform Design Completion 是另一条链路**。它允许用户从 brief、实体、流程、接口或画布场景一键启动专属 Claude Code / Codex CLI session；Agent 可直接创建、修改、删除业务设计文档文件。系统不承诺硬性文件范围控制，安全网是补全前 checkpoint、文档目录监听、自动 reload + validate、diff/revert 与 run 审计记录。
 
-「让 AI 有迹可循而不是猜测」在代码层即此三条；其余章节是把它们落到代码与界面。
+「让 AI 有迹可循」仍由 gap 链路保证；「让 AI 自由扩展设计」由 freeform 链路承担。两者的命令、UI 文案、状态模型和成功标准必须分开。
 
 ## 2. 与前序版本的关系
 
 - **v0 Phase 1–5**：16 种块的全功能表格编辑器 + 5 模式切换器。结构严谨但用户被迫先做「元数据架构师」。废弃。
 - **v0 Phase 6**：折叠为单一 brief 文本块 + AI 返回的只读结构化块。低门槛但结构折回自然语言，AI 又得猜。废弃为「v1 的图根入口」。
 - **v1（本设计）**：图范式 + 规则驱动的缺口 + 锚定到宿主块的 AI 补全。把 Phase 6 的 brief 文本块**保留为图根**，新结构从图根上"长出来"，不丢低门槛。
+- **v1.1（本次方向调整）**：保留 anchored gap completion 的可验证链路，同时恢复/新增场景化自由补全。自由补全不要求 typed patch，不复用常驻 station，而是启动 Business Designer 专属 transient CLI Agent，直接在当前设计文档根目录工作。
 
 ## 3. 产品原则（v1 收口）
 
 - **可视化优先，源码可携带**：用户主要操作图与下钻表单；落盘文件仍是 JSON / Markdown / HTML。
 - **结构从语义中长出**：用户不手画连线、不填表格元数据；图的节点从 brief 实体识别 / 缺口反推 / 直接加块产生，边由 payload 引用自动推导。
-- **AI 不直接改需求**：Agent 只能返回锚定到 hostBlockId 的 typed patch，必须由用户审阅后选择性应用。
+- **AI 能力双轨**：Anchored Gap Completion 不直接改需求，只返回锚定 typed patch；Freeform Design Completion 允许专属 CLI Agent 直接改设计文档文件，但必须有 checkpoint、run 记录、文件监听刷新、diff/revert 兜底。
 - **机器先于 AI**：能用规则确定的事情绝不让 AI 决定；能用规则验证的事情绝不让 AI 自评。
 - **工作区内闭环**：所有文件默认在 `.gtoffice/docs` 下；needs Git 是独立嵌套 repo。
 - **不为了便利新增依赖**：v1 不引入第三方 graph / diagram 库；如确实需要，先更新 `docs/DEPENDENCIES.md`。
@@ -41,10 +43,10 @@
 继续遵循 `$native-feel-cross-platform-desktop` 的四层原则：
 
 - **T1 — 边界在渲染面**：可视化编辑留在 React WebView；文件系统、Git、Agent 进程控制、规则引擎留在 Tauri/Rust。
-- **T2 — 一份 schema、多种语言**：`DesignerBlock` / `DesignerGap` / `DesignerRuleRun` / `DesignerAgentTaskRequest` 在前端 TS 与 Rust serde 之间双向对齐。
+- **T2 — 一份 schema、多种语言**：`DesignerBlock` / `DesignerGap` / `DesignerRuleRun` / `DesignerAgentTaskRequest` / `DesignerFreeformCompletionRun` 在前端 TS 与 Rust serde 之间双向对齐。
 - **T3 — 拥抱平台**：苹果风格 split-view，系统字体，无 `cursor:pointer`，pressed 态，原生 save dialog，深浅色 token。
 - **T4 — 性能即感知**：缺口规则在后端跑，前端拿结果即画；图画布用 SVG + CSS transform，避免阻塞输入；下钻表单仅在双击时挂载。
-- **T6 — 跨边界要刻意**：autosave、validate、compile、Git checkpoint、Agent dispatch 都批处理、可追踪、可取消。
+- **T6 — 跨边界要刻意**：autosave、validate、compile、Git checkpoint、Agent dispatch、transient session 启动与文档目录监听都批处理、可追踪、可取消。
 
 ## 5. 数据模型
 
@@ -52,7 +54,7 @@ v1 的 schema 改动是**加法**：旧文档加载即正常，零迁移。
 
 ### 5.0 跨语言 schema 同步策略（T2）
 
-v1 引入 4 个新数据结构横跨 Rust ↔ TS：`DesignerGap` / `DesignerRuleRun` / `DesignerAgentTaskRequest` / `DesignerPatchApplyResult.gapResolution`。Tauri 项目不能用 UniFFI 自动生成，沿用项目既有约束：
+v1 引入 4 个新数据结构横跨 Rust ↔ TS：`DesignerGap` / `DesignerRuleRun` / `DesignerAgentTaskRequest` / `DesignerPatchApplyResult.gapResolution`。v1.1 新增 `DesignerFreeformCompletionRequest` / `DesignerFreeformCompletionRun` / `DesignerDocumentWatchEvent`。Tauri 项目不能用 UniFFI 自动生成，沿用项目既有约束：
 
 - **Source of truth**：TS-first（`packages/shared-types`），Rust 侧手写 serde 镜像（沿用 v0 既定路线）。
 - **防漂移机制**：
@@ -65,7 +67,8 @@ v1 引入 4 个新数据结构横跨 Rust ↔ TS：`DesignerGap` / `DesignerRule
 
 ```ts
 interface DesignerGap {
-  id: string                 // 稳定 id：hash(blockId + code + 定位参数)
+  id: string                 // validation snapshot 内引用 id：hash(key)
+  key: string                // 语义 fingerprint：blockId + code + normalizedLocator
   code: string               // 'no-pk' | 'dead-state' | 'no-errors' | ...
   blockId: string            // 宿主块（hostBlockId 必须等于此值）
   layer: 'intra' | 'inter'   // 块内规则缺口 / 块间拓扑缺口
@@ -80,10 +83,11 @@ interface DesignerRuleRun {
   code: string
   blockId: string
   passed: boolean
+  gapCount: number           // passed === (gapCount === 0)
 }
 ```
 
-Gap id 稳定算法保证规则重跑后能匹配到同一缺口，进而判断 resolved/unresolved。
+Gap 的长期比较不依赖 `id`，而依赖语义 fingerprint（`key`）。locator 优先使用稳定业务名（field name / state name / endpoint method+path）；没有稳定业务名时可降级到 block-local path / ordinal（如 `fields[2]`），但 reorder 会改变身份。UI 不把 gap id 当长期持久引用。
 
 ### 5.2 validate_document 返回扩展
 
@@ -91,19 +95,26 @@ Gap id 稳定算法保证规则重跑后能匹配到同一缺口，进而判断 
 interface DesignerValidationResult {
   workspaceId: string
   documentId: string
+  revision: string
   diagnostics: DesignerDiagnostic[]   // 仅 lint / 格式 / schema 错误
   gaps: DesignerGap[]                 // 新增：一等公民
   rulesRun: DesignerRuleRun[]         // 新增：审计追踪
+  graphProjection: DesignerGraphProjection // 新增：后端派生的图快照
 }
 ```
 
-`diagnostics` 不再混 gap，前端按对象类型分流，不靠 code 前缀猜。
+`diagnostics` 不再混 gap，前端按对象类型分流，不靠 code 前缀猜。边界按「系统是否能可靠解析并定位 host block」划分，而不是按 severity 划分：
 
-### 5.3 Agent 任务锚定（新增字段，可选）
+- `diagnostic`：JSON / schema / block identity / kind 等问题导致系统无法可靠解析、验证为文件，或无法映射到 host block。
+- `gap`：文档可解析，host block 可定位，但业务结构不完整或关系不一致。即使 severity=`error`，只要能锚定并可审阅，也归 gap。
+
+`graphProjection` 与 `gaps` 来自同一次 validation revision，避免前端拼接不同步的健康状态与图数据。
+
+### 5.3 Anchored Gap Completion 任务锚定（v1 必填）
 
 ```ts
 interface DesignerAgentTaskRequest {
-  hostBlockId: string        // 必填（v1 前端永远填）
+  hostBlockId: string        // 必填；后端强制校验
   gapCodes: string[]         // 必填
   scope: 'single' | 'block'
   documentId: string
@@ -111,38 +122,106 @@ interface DesignerAgentTaskRequest {
 }
 ```
 
-`preview_agent_task` / `run_agent_completion` 入参增加这三个字段，**可选**——后端不强制非空，新画布永远填、走范式约束；旧路径不破坏。
+`preview_agent_task` / `run_agent_completion` 在 anchored path 中强制要求 `hostBlockId` / `gapCodes` / `scope` / `baseRevision`。自由补全不得通过把这些字段 optional 化来复用此命令，必须走 §5.4 的 freeform path。
 
-### 5.4 Patch 应用三态（新增返回字段）
+后端在 preview 与 dispatch 阶段都必须基于当前 validation 结果确认：
+
+- host block 存在。
+- target gaps 存在于该 host block。
+- target gaps 全部 `fixableByAgent=true`。
+- `scope='block'` 只收集 host block 上 agent-fixable gaps；没有 target gaps 时返回 typed no-op preview，不生成 prompt，不允许 dispatch。
+
+prompt 可包含同 host 上 non-agent-fixable gaps 作为 read-only `contextGaps`，但 target 只能是 `targetGaps`。prompt 文案必须明确 out-of-scope，patch 校验不相信 prompt 承诺，仍按 target set 校验。
+
+### 5.4 Freeform Design Completion（新增）
+
+自由补全不是 anchored patch 的变体。它是场景化 Agent 任务，目标是让 Claude Code / Codex CLI 直接扩展当前设计文档目录。
+
+```ts
+type DesignerFreeformCompletionScenario =
+  | 'brief_to_design'
+  | 'complete_entity'
+  | 'complete_flow'
+  | 'complete_api_contract'
+  | 'expand_canvas'
+
+interface DesignerFreeformCompletionRequest {
+  workspaceId: string
+  documentId: string
+  scenario: DesignerFreeformCompletionScenario
+  hostBlockId?: string | null
+  userPrompt?: string | null
+}
+
+interface DesignerFreeformCompletionRun {
+  requestId: string
+  workspaceId: string
+  documentId: string
+  scenario: DesignerFreeformCompletionScenario
+  hostBlockId?: string | null
+  provider: 'codex' | 'claude'
+  sessionId: string
+  documentRoot: string
+  checkpointBefore: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  createdAt: string
+  updatedAt: string
+  userPromptSummary?: string | null
+}
+```
+
+运行规则：
+
+- 用户点击场景入口后直接派发；不要求 preview 必经。
+- Business Designer 必须有默认补全 provider（`codex` 或 `claude`）。未设置时首次使用进入配置；设置后日常点击不再询问。
+- 每次补全启动一个专属 transient CLI Agent session，不复用常驻 station，不继承 station system prompt。
+- transient session 的 cwd 是当前 Business Designer 文档根目录，不是 workspace root。
+- 后端提示词模板是 source of truth，前端只传 `scenario` / `hostBlockId` / `userPrompt`。
+- 所有 AI 功能都支持用户补充提示词；用户补充内容拼在默认场景提示词最后，不默认保存。
+- Agent 可以直接创建、修改、删除当前设计文档文件；系统不声称硬限制修改范围。
+- 默认 prompt 必须强 guidance：只改当前 Business Designer 文档相关文件，除非用户明确要求，不要修改应用源码、测试、构建脚本、依赖或仓库配置。
+- 默认 prompt 不要求 Agent 运行完整验证命令；验证由 GT Office reload + validate 完成。
+- Agent 完成摘要是软信号，可要求它列出 changed/deleted files 和待人工确认事项，但主流程不依赖其格式。
+
+每次 run 写入当前设计文档根目录下的 `.agent-runs/<requestId>.json`。它是运行审计元数据，默认不存完整用户 prompt；是否提交到 Git 由项目策略决定。
+
+### 5.5 Patch 应用三态（新增返回字段）
 
 ```ts
 interface DesignerPatchApplyResult {
   // 现有字段保留
   gapResolution: {
-    targetGapIds: string[]
+    targetGapKeys: string[]
     resolved: string[]
     unresolved: string[]
+    incidentalResolved: string[]
     introduced: DesignerGap[]
   }
 }
 ```
 
-### 5.5 图节点位置
+主成功状态只看 target gap keys：target 消失即 resolved，仍在即 unresolved。非 target 但本次消失的 gap 进入 `incidentalResolved`，只作为信息展示；`introduced` 统计新出现的 gap，必须警示。
 
-存于 `manifest.layout: { [blockId]: { x: number; y: number } }`。manifest 是文档级视图元数据的天然归属，已存在 `tags`。位置是显示状态、不影响语义，存 manifest 不污染 block payload。
+### 5.6 图节点位置
 
-### 5.6 边的 relation 词表
+存于 `manifest.layout: { [blockId]: { x: number; y: number } }`。manifest 是文档级视图元数据的天然归属，已存在 `tags`。位置是显示状态、不影响语义，存 manifest 不污染 block payload。layout 中残留的不存在 blockId 属于可修复 view-state 垃圾：validation 忽略，下一次 save/layout write 可静默清理；缺 layout 的 block 使用 deterministic fallback 坐标。
+
+删除画布块时必须删除对应的文档块内容，并同步清理 `manifest.layout[blockId]` 与 `blocks/<blockId>.json` 落盘块文件。`brief` 是根块，不允许从画布或 Inspector 删除；其他块可从节点头部的显式“删除块”命令、Inspector 删除按钮或键盘 Delete/Backspace 删除，三者必须走同一条 document mutation 路径。旧文档若带 authored `links[*]`，下一次 `save_document` 必须清空这些 legacy links，不能继续把它们落盘为语义真相。
+
+### 5.7 边的 relation 词表
 
 v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`。封闭词表是图范式可读性的关键；自由文本会让 AI 又得猜。如未来需要扩词，先更新本节，不允许 ad hoc 引入。
 
-### 5.7 边的来源
+### 5.8 边的来源
 
-边**不**由用户手画，由后端在校验时基于 payload 引用自动推导：
+边**不**由用户手画，也不由前端从 payload 语义推导。后端 validation 是唯一 source of truth，基于 payload 引用自动推导：
 - 字段 type 指向另一实体名 → `entityModel A — uses → entityModel B`
 - API 端点的 request/response shape 引用实体 → `apiContract A — dependsOn → entityModel B`
 - 业务流程引用实体 → `businessFlow A — consumes → entityModel B`
 
 引用断裂 → `dangling-ref` 缺口。这种「边是派生的」让用户改字段名导致边消失是可见的、可补的。
+
+语义 link **不落盘**，只作为 `validate_document.graphProjection.links` 的派生快照返回。落盘的只有 block payload 与 layout；若未来做 cache，也只能是可丢弃缓存，不能作为文档真相。
 
 ## 6. Gap 规则集（v1 三种块）
 
@@ -157,7 +236,7 @@ v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`�
 | `field-no-type` | 任一字段缺 `type` | error | ✓ |
 | `field-no-name` | 任一字段缺 `name` | error | ✗ |
 | `enum-no-values` | type=`enum` 的字段 `values` 为空 | error | ✓ |
-| `dangling-ref` | 字段 type 指向另一实体但图内无该实体节点 | warning | ✓ |
+| `dangling-ref` | 字段 type 指向另一实体但图内无该实体节点 | warning | ✗ |
 
 ### 6.2 businessFlow
 
@@ -179,22 +258,24 @@ v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`�
 | `endpoint-no-method` | 端点缺 `method` | error | ✓ |
 | `no-response` | 端点缺 `response` 或 `responseShape` | warning | ✓ |
 | `no-errors` | 端点无 `errors` / `errorCodes` | warning | ✓ |
-| `orphan-contract` | 块无任何 `dependsOn` 边到 entityModel | warning | ✓ |
+
+`orphan-contract` 不进入 v1 gap 规则：API contract 没有 entityModel 依赖可能是合法设计选择，不是机器可判定缺口。v1 只保留明确断裂引用的 `dangling-ref`。
 
 ### 6.4 其余 13 种块（text / glossary / ruleTable / pseudocode / objectModel / dataContract / uiWorkflow / technicalStack / nonFunctional / acceptanceCriteria / openQuestions / agentInstruction / decisionRecord）
 
-v1 **不产 gap**，只做 lint（schema 格式 / 字段类型）。它们存在于图中、可作为引用目标（被三种 gap-rule kind 通过 `dependsOn`/`uses` 等指向），但 **AI 任务永远不以它们为 host**——AI 不会被派去补这 13 种块的内容。规则集留扩展位，后续按需加入。
+v1 **不产 gap**，只做 lint（schema 格式 / 字段类型）。它们存在于图中、可作为引用目标（被三种 gap-rule kind 通过 `dependsOn`/`uses` 等指向）。Anchored Gap Completion 不以它们为 host；Freeform Design Completion 可从 `brief` / 画布上下文扩展它们，但完成状态仍由 reload + validate + diff/revert 兜底，不由 Agent 自评。规则集留扩展位，后续按需加入。
 
 特殊情况：图根 `brief`（kind=`text`，id=`brief`）虽属此 13 种，但作为图入口节点存在，下钻时使用 `DesignerBriefRoot` 面板，不通过画布右键新建。
 
 ### 6.5 三态判定语义
 
 ```text
-patch 应用 → 重跑 gap_rules → 与应用前 rulesRun 快照对比
+patch 应用 → 重跑 gap_rules → 与应用前 gap fingerprint 快照对比
 
-resolved      = 应用前在 targetGapIds 且应用后不在
-unresolved    = 应用前在 targetGapIds 且应用后仍在
-introduced    = 应用后新出现的 gap（不限于本次目标）
+resolved            = 应用前在 targetGapKeys 且应用后不在
+unresolved          = 应用前在 targetGapKeys 且应用后仍在
+incidentalResolved  = 非 target 但应用后消失的 gap
+introduced          = 应用后新出现的 gap（不限于本次目标）
 ```
 
 unresolved/introduced 在 UI 上高亮，**不**自动接受为成功。
@@ -214,7 +295,7 @@ T7 「身份即肌肉记忆」要求 v1 不能借机"现代化"破坏 Phase 6 �
 | Checkpoint | toolbar 按钮 | 保留按钮；新增 v1 入口不替换 |
 | 历史浮层 | toolbar `时钟`图标 | 保留 |
 | 导出（4 格式） | toolbar 下拉 | 保留 |
-| 让 Agent 补全 | toolbar accent 按钮（mock） | **行为升级**：在 brief 上点击仍走 mock 全文补全（兼容旧路径），新增 inspector 内的 host-anchored 补全（新行为） |
+| 让 Agent 补全 | toolbar accent 按钮（mock） | **行为升级**：保留 Inspector 内 host-anchored gap 补全；新增场景化自由补全入口，直接启动专属 transient Agent |
 | `Esc` 关闭浮层 | history sheet / patch sheet 已支持 | 保留；新增的下钻 side panel 也用 `Esc` |
 | 切换文档 | sidebar 点击 | 保留 |
 
@@ -265,7 +346,7 @@ T7 「身份即肌肉记忆」要求 v1 不能借机"现代化"破坏 Phase 6 �
 
 用户**不**需要先想「我要建一个 entityModel 块」。三种自然入口：
 
-1. **从 brief 根节点长出**：brief 是图的根节点（kind=`text`，id=`brief`，沿用 Phase 6 落地）。用户在 brief 选中文本如「订单」→ 浮按钮 `↗ 建模为实体` → 一键生成 entityModel 节点入图。**不做**自动 NLP 识别，避免误导。
+1. **从 brief 根节点长出**：brief 是图的根节点（kind=`text`，id=`brief`，沿用 Phase 6 落地）。用户在 brief 选中文本如「订单」→ 浮按钮 `↗ 建模为实体` → 一键生成最小 entityModel 节点入图（name 来自选区，fields 为空）。**不做**自动 NLP 字段识别，避免误导；字段由 gap / Agent patch / 人工下钻补。
 2. **从缺口反推**：`dangling-ref` 缺口旁直接有 `+ 建 Customer 实体` 按钮——这是图范式区别于「单块编辑器」的核心，跨块补全发生在缺口反推时。
 3. **直接加块**：画布空处右键 / 快捷键 `⌘N` → 选 kind → 新建空块。v1 加块菜单仅列 §6 的三种 gap-rule kind（`entityModel` / `businessFlow` / `apiContract`），新块自动带缺口（如 `no-fields`）。其余 13 种 kind 在 v1 不能从画布新建，仅作为图根 brief 的子结构存在或后续版本扩展。
 
@@ -279,25 +360,51 @@ T7 「身份即肌肉记忆」要求 v1 不能借机"现代化"破坏 Phase 6 �
 - **双击节点 → 下钻**：从画布右侧滑入"下钻面板"（slide-in side panel，**非 modal**、**无 backdrop blur**、**不暗化背景画布**——这三条是反 web idiom 的硬约束）。下钻面板宽度约 480px，与右栏 inspector 并排不重叠；面板存在期间用户仍能看到画布全貌（保 T3：原生 split-view 信息密度，不模仿 web 的"全屏对话框"）。面板内容：
   - 极简结构化表单（字段表 / 状态迁移表 / 端点表）
   - 该块的缺口清单（与右栏 inspector 同步）
-  - Agent 入口
+  - Anchored Gap Agent 入口
+  - Freeform 场景补全入口
   - 关闭：`Esc` / 标题栏 close 按钮 / 点击画布空白处
 
-### 7.5 Agent 补全交互（范式硬约束在 UI 上的体现）
+### 7.5 Anchored Gap Completion 交互（严格链路）
 
 - 选中有缺口的块 → 右栏列缺口（每条 gap code + message + fixable 标）。
-- 每条缺口旁：`[让 Agent 补]`（scope=single）。块顶部：`[补全本块全部缺口]`（scope=block）。
-- 派发前 **preview**：右栏展示将发送的 prompt 与上下文（host block payload + 邻接边 + 当前 gapCodes），符合 `preview → validate → confirm → dispatch` 生命周期。
+- 每条 agent-fixable 缺口旁：`[让 Agent 补]`（scope=single）。不可由 Agent 修复的缺口不显示派发按钮，只显示需要人工决策的说明与可选动作。块顶部：`[补全可由 Agent 处理的缺口]`（scope=block）。
+- 派发前 **preview**：右栏展示将发送的 prompt 与上下文（host block payload + 后端派生邻接边 + targetGaps + read-only contextGaps），符合 `preview → validate → confirm → dispatch` 生命周期。没有 agent-fixable gaps 时 preview 返回 no-op，不进入 dispatch。
 - Agent 返回 → **Patch Sheet** 浮层逐条 accept/reject（复用 Phase 6 已建的 `DesignerPatchSheet` 与 `apply_agent_patch.acceptedChangeIndices` 协议）。破坏性变更默认不勾。
 - 应用后自动重跑 validate → Patch Sheet 尾部三态对比区显示 resolved ✓ / unresolved ⚠ / introduced ⚠。
 
-### 7.6 不做的（避免回到伪 CMS）
+### 7.6 Freeform Design Completion 交互（开放链路）
+
+Freeform 入口按场景分散在用户已经工作的地方，先覆盖 Business Designer，不做通用 workspace 补全：
+
+| 场景 | 入口 | 默认意图 |
+|---|---|---|
+| `brief_to_design` | brief 根节点 / 空画布 | 从需求生成实体、流程、接口初稿 |
+| `complete_entity` | 选中 `entityModel` | 补全字段、主键、约束、关系；必要时可创建相关实体/API |
+| `complete_flow` | 选中 `businessFlow` | 补全状态、迁移、异常路径；必要时可创建相关实体/API |
+| `complete_api_contract` | 选中 `apiContract` | 补全 endpoints、request/response、错误码；必要时可创建缺失实体 |
+| `expand_canvas` | 画布空白处 / toolbar 场景按钮 | 基于当前图继续扩展设计 |
+
+交互规则：
+
+- 主按钮直接派发，不要求 preview 必经。
+- 按钮旁提供可选“补充要求”轻量输入；不填则只用默认场景提示词，填写则追加到 prompt 最后一段。
+- 使用 Business Designer 默认补全 provider；首次未设置时进入一次配置，之后不打断。
+- 每次派发前自动创建 checkpoint，命名格式 `agent-freeform:<scenario> <blockTitleOrDocumentTitle>`。
+- 每次派发创建 `.agent-runs/<requestId>.json`，记录 checkpoint、scenario、hostBlockId、provider、sessionId 和状态。
+- 每次派发启动一个专属 transient CLI Agent session，cwd 为当前设计文档根目录；session 可见但不进入常驻 station 列表。
+- 运行中显示任务条，可展开日志/终端；完成后折叠保留，显示查看日志、查看变更、回滚入口。
+- 自动刷新依赖文档目录监听：相关文件变化后 debounce reload + validate。Agent 进程退出只更新 run 状态，不作为刷新前提。
+- 如果 `dirty=false`，外部文件变化自动 reload；如果 `dirty=true`，不覆盖本地编辑，显示“外部变更待处理”，提供保存本地或丢弃本地并刷新。
+- Agent 可跨 block 创建、修改、删除。删除和大范围改动必须通过摘要/diff 暴露；系统用 checkpoint 回滚兜底。
+
+### 7.7 不做的（避免回到伪 CMS）
 
 - ❌ 每种块的全功能表格编辑器（v0 的 716 行 `DesignerBlockEditorFields` 不复活）。
 - ❌ 5 模式切换器（设计/流程/契约/Agent Brief/预览）。模式消失，画布即一切。
 - ❌ 手画连线。
 - ❌ JSON textarea 作为主编辑面（仅在下钻视图的「源码」标签给高级用户，默认隐藏）。
 
-### 7.7 原生桌面风格
+### 7.8 原生桌面风格
 
 继续遵循 `$native-feel-cross-platform-desktop`：
 - macOS `-apple-system` / Windows `Segoe UI Variable`。
@@ -306,7 +413,7 @@ T7 「身份即肌肉记忆」要求 v1 不能借机"现代化"破坏 Phase 6 �
 - 危险操作（删块、删边引用、丢弃 patch）显示明确影响范围。
 - 完整键盘操作：节点选中、下钻、缩放、保存、Agent 派发、accept/reject。
 
-### 7.8 原生交互细则（T3 收口）
+### 7.9 原生交互细则（T3 收口）
 
 参考 `references/06-native-conventions.md`，把 v1 容易"网页化"的细节写死：
 
@@ -342,7 +449,8 @@ T7 「身份即肌肉记忆」要求 v1 不能借机"现代化"破坏 Phase 6 �
 
 ```text
 apps/desktop-tauri/src-tauri/src/commands/business_designer/
-├── mod.rs              # Tauri command 入口绑定（命令清单不变）
+├── mod.rs              # Tauri command 入口绑定
+├── agent_completion_prompts.rs # 新增：freeform 场景提示词模板
 ├── gap_rules/          # 新增：规则引擎
 │   ├── mod.rs          # GapRule trait + 注册表 + run_all(graph)
 │   ├── entity.rs       # entityModel 规则
@@ -364,20 +472,23 @@ apps/desktop-tauri/src-tauri/src/commands/business_designer/
 | `business_designer.read_document` | 不动 |
 | `business_designer.save_document` | 不动 |
 | `business_designer.compile_document` | 不动 |
-| **`business_designer.validate_document`** | **返回新增 `gaps` / `rulesRun`** |
+| **`business_designer.validate_document`** | **返回新增 `revision` / `gaps` / `rulesRun` / `graphProjection`** |
 | `business_designer.init_docs_repo` | 不动 |
 | `business_designer.create_checkpoint` | 不动 |
 | `business_designer.diff_checkpoint` | 不动 |
 | `business_designer.list_checkpoints` | 不动 |
 | `business_designer.compare_checkpoints` | 不动 |
-| `business_designer.preview_agent_task` | 入参增 `hostBlockId`/`gapCodes`/`scope`（可选，缺省退现行行为） |
-| `business_designer.run_agent_completion` | 同上（可选） |
-| `business_designer.validate_agent_patch` | 校验加：每个 change 必须命中 hostBlockId（若 patch metadata 有 host） |
-| `business_designer.apply_agent_patch` | 应用后自动 validate 并附 `gapResolution` |
+| `business_designer.preview_agent_task` | v1 采用 request-object 入参，强制 `hostBlockId`/`gapCodes`/`scope`/`baseRevision`；无 agent-fixable target 时返回 no-op preview |
+| `business_designer.run_agent_completion` | 同上；只接受有效 target gaps |
+| **`business_designer.start_freeform_completion`** | **新增：创建 checkpoint + run 记录 + 专属 transient CLI Agent session，cwd=文档根目录，直接派发场景提示词** |
+| **`business_designer.list_freeform_completion_runs`** | **新增：列出当前文档 `.agent-runs` 审计记录** |
+| **`business_designer.watch_document`** | **新增或复用系统 watcher：文档打开后监听设计文档根目录，文件变化触发前端 reload + validate** |
+| `business_designer.validate_agent_patch` | 校验加：每个 change 必须命中 hostBlockId；v1 anchored patch 不允许 addBlock / deleteBlock |
+| `business_designer.apply_agent_patch` | 校验 `baseRevision`，应用后自动 validate 并附 `gapResolution` |
 | `business_designer.export_document` | 不动 |
 | `business_designer.list_handoffs` 等 handoff 链 | 不动 |
 
-新增**零**命令；扩展 4 个返回 / 入参；其余不动。
+Anchored gap 命令继续保持严格，不为了 freeform 把字段 optional 化。Freeform 走新增命令与 transient session 模型；两条链路共享 validation / checkpoint / history 能力，但接口语义分开。
 
 ### 8.3 Patch 校验铁律（host 命中）
 
@@ -385,17 +496,20 @@ apps/desktop-tauri/src-tauri/src/commands/business_designer/
 
 ```text
 host = patch.metadata.hostBlockId
-if host is some:
-    for change in patch.changes:
-        target =
-          change.targetBlockId      if op in {updateBlock, deleteBlock}
-          change.afterBlockId        if op == addBlock
-        if target != host:
-            reject_patch("change targets {target}, host is {host}")
-            return  # 不部分应用
+if patch.baseRevision != currentRevision:
+    reject_patch("stale revision")
+    return  # 不部分应用
+
+for change in patch.changes:
+    if change.op != updateBlock:
+        reject_patch("v1 anchored patch only updates host block")
+        return
+    if change.targetBlockId != host:
+        reject_patch("change targets {target}, host is {host}")
+        return  # 不部分应用
 ```
 
-`hostBlockId` 写入归档 patch 的 metadata（`run_agent_completion` 派发时记录），不靠前端再传——避免前端绕过范式。
+`hostBlockId` / `targetGapKeys` / `baseRevision` 写入归档 patch 的 metadata（`run_agent_completion` 派发时记录），不靠前端再传——避免前端绕过范式。`baseRevision` 不匹配时 v1 不做自动 rebase 或 field-level merge，用户需重新 preview/dispatch。
 
 ### 8.4 三态对比实现
 
@@ -406,12 +520,12 @@ fn apply_agent_patch(...) -> ApplyResult:
     save_graph()
     after = gap_rules::run_all(load_graph())
     
-    target = patch.metadata.gapCodes
-    target_ids = before.gaps where code in target
+    target = patch.metadata.targetGapKeys
     
-    resolved   = target_ids - after.gap_ids
-    unresolved = target_ids ∩ after.gap_ids
-    introduced = after.gaps - before.gaps
+    resolved = target - after.gap_keys
+    unresolved = target ∩ after.gap_keys
+    incidental_resolved = (before.gap_keys - target) - after.gap_keys
+    introduced = after.gaps where key not in before.gap_keys
     
     return ApplyResult { ..., gap_resolution: { ... } }
 ```
@@ -454,14 +568,16 @@ apps/desktop-web/src/features/business-designer/
 │   ├── useDesignerDocuments.ts       # 保留
 │   ├── useDesignerDocumentState.ts   # 升级：携带 gaps/rulesRun/gapResolution
 │   ├── useDesignerHistory.ts         # 保留
-│   ├── useDesignerGraph.ts           # 新：节点位置、邻接、推导边
-│   └── useDesignerAgentTask.ts       # 新：host/gap 锚定、preview/dispatch
+│   ├── useDesignerGraph.ts           # 新：节点位置、邻接 view model、消费 graphProjection
+│   ├── useDesignerAgentTask.ts       # 新：host/gap 锚定、preview/dispatch
+│   └── useDesignerFreeformCompletion.ts # 新：场景补全、run 状态、文档 watcher 刷新
 └── model/
     ├── designer-blocks.ts            # 不动
     ├── designer-document.ts          # 加 layout 字段
     ├── designer-patch.ts             # 加 hostBlockId/gapCodes/gapResolution
-    ├── designer-validation.ts        # 加 gaps/rulesRun
-    └── designer-graph.ts             # 新：边推导、布局类型
+    ├── designer-freeform-completion.ts # 新：freeform scenario/run/session 类型
+    ├── designer-validation.ts        # 加 revision/gaps/rulesRun/graphProjection
+    └── designer-graph.ts             # 新：graph view model、布局类型；不做语义边推导
 ```
 
 不引入新依赖：节点定位用 SVG + CSS transform，缩放/平移用现有事件。布局用网格初始 + 用户拖拽位置。
@@ -473,27 +589,29 @@ apps/desktop-web/src/features/business-designer/
 ### M1 — 后端 Gap 引擎 + validate 扩展
 
 - 新增 `gap_rules/` 模块，实现三种块的全部规则（§6 收口清单）。
-- 扩展 `validate_document` 返回 `gaps` / `rulesRun`，`diagnostics` 退回纯 lint。
-- 边推导逻辑（§5.7）放在 `validation.rs`，跑在 `gap_rules::run_all` 之前。
+- 扩展 `validate_document` 返回 `revision` / `gaps` / `rulesRun` / `graphProjection`，`diagnostics` 退回纯 lint。
+- 边推导逻辑（§5.8）放在 `validation.rs`，跑在 `gap_rules::run_all` 之前。
 - 每条规则一组 fixture 单测（满足 / 不满足）。
-- inter 层规则（`dangling-ref` / `orphan-contract`）需要图遍历，`run_all` 接收完整 `DesignerDesignGraph`。
+- inter 层规则（`dangling-ref`）需要图遍历，`run_all` 接收完整 `DesignerDesignGraph`。
+- `rulesRun` 记录 `gapCount`，并保证 `passed === (gapCount === 0)`。
 
 **验证**：
 - `cargo test -p gtoffice-desktop-tauri business_designer`（旧测试 + 新规则测试全绿）
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- 手工：`validate_document` 一份带已知缺口的 fixture，确认 gaps 数量与定位正确。
+- 手工：`validate_document` 一份带已知缺口的 fixture，确认 gaps 数量、fingerprint、graphProjection links 与定位正确。
 
 完成时，「AI 有迹可循」在后端已成立——命令行即可验证缺口检测。
 
 ### M2 — Patch 锚定铁律 + 三态对比
 
-- `run_agent_completion` 接受 `hostBlockId` / `gapCodes` / `scope`，写入归档 patch metadata。
-- `apply_agent_patch` 校验：每个 change 命中 host，否则整体拒绝（不部分应用）。
+- `preview_agent_task` / `run_agent_completion` 强制 `hostBlockId` / `gapCodes` / `scope` / `baseRevision`，写入归档 patch metadata。
+- `preview_agent_task(scope='block')` 没有 agent-fixable target gaps 时返回 typed no-op preview，不生成 prompt。
+- `apply_agent_patch` 校验：baseRevision 必须匹配；每个 change 命中 host；v1 anchored patch 不允许 addBlock/deleteBlock；否则整体拒绝（不部分应用）。
 - 应用成功后重跑 `gap_rules`，返回 `gapResolution`。
 - mock provider patch 生成器升级为按 `hostBlockId` + `gapCodes` 生成确定性补丁。
 
 **验证**：
-- 单测覆盖：host 命中通过、host 不命中拒绝、resolved/unresolved/introduced 三态。
+- 单测覆盖：host 命中通过、host 不命中拒绝、stale revision 拒绝、non-agent-fixable gap 拒绝、no-op preview、resolved/unresolved/incidentalResolved/introduced 三态。
 - `cargo test` 绿。
 - 手工：mock provider 端到端跑一次 `no-pk` 缺口，确认三态返回。
 
@@ -505,28 +623,46 @@ apps/desktop-web/src/features/business-designer/
 - `BusinessDesignerPane` 切换为三栏：sidebar / canvas / inspector。
 - 保留 `DesignerDocument`，重命名为 `DesignerBriefRoot`，作为图根 brief 块的下钻面板。
 - 三种创作入口：brief 选中文本浮"建模为实体" / 缺口反推按钮 / 画布右键加块。
-- 边由前端从 `validate_document` 返回的隐含引用 + 后端推导结果二者合并渲染（v1 完全信任后端推导）。
+- 边只消费 `validate_document.graphProjection.links`；前端不从 payload 推导语义边，只做 view model / layout / path / hit testing。
 - 节点位置存 `manifest.layout`，**拖拽期间纯前端 `transform: translate3d`，mouseup 才 IPC**（§12.3 / §12.5 硬约束）。
+- 删除节点不是视觉隐藏：画布节点头部必须暴露显式“删除块”命令；该命令、Inspector 删除按钮、键盘 Delete/Backspace 统一调用 `deleteBlock`，同步删除 `design.blocks[]` 中的文档块内容、清理 `manifest.layout[blockId]`、关闭选中/下钻/patch 状态，并依赖 `save_document` 的二次兜底清理所有 authored legacy links 与 stale `blocks/<blockId>.json`。
 - 新增 `styles/tokens/_designer.scss`（§14.2 token 清单），深浅色双套，所有节点 / 边 / 缺口色走 token。
 - 实现 §7.0 身份连续性：打开旧 Phase 6 文档 → 默认聚焦 brief 节点、下钻面板自动展开、视觉与 Phase 6 一致。
-- 实现 §7.8 原生交互细则：loading 三档、empty 一图标一句话、hover 按节点/按钮分类、pressed 态。
+- 实现 §7.9 原生交互细则：loading 三档、empty 一图标一句话、hover 按节点/按钮分类、pressed 态。
 
 **验证**：
 - `npm run typecheck`
 - `npm run build:tauri` 产物可启动
-- 手工：打开样例文档 → 看到图、缺口徽章、双击下钻、改字段名让边消失、加块让边出现。
+- 手工：打开样例文档 → 看到图、缺口徽章、双击下钻、改字段名让后端派生边消失、加块让后端派生边出现。
 
-### M4 — Agent 派发 UI + Patch Sheet 升级
+### M4 — Anchored Agent 派发 UI + Patch Sheet 升级
 
-- Inspector 缺口清单加 `[让 Agent 补]` / `[补全本块全部缺口]`。
-- Preview 面板：展示 host + gapCodes + payload + 邻接 prompt。
+- Inspector 缺口清单加 `[让 Agent 补]` / `[补全可由 Agent 处理的缺口]`。
+- Preview 面板：展示 host + targetGaps + read-only contextGaps + payload + 后端派生邻接 prompt。
 - `DesignerPatchSheet` 尾部三态对比区。
 - `DesignerStatusbar` 显示文档级缺口总数。
 
 **验证**：
 - `npm run typecheck` + `cargo check --workspace` + `cargo clippy`
-- 手工端到端：写 brief「订单」→ 选中"订单"建 Order 实体（自动有 no-pk 缺口）→ 让 Agent 补 → patch sheet → 接受 → 三态显示 resolved → checkpoint。
+- 手工端到端：写 brief「订单」→ 选中"订单"建最小 Order 实体（自动有 no-fields / no-pk 缺口）→ 让 Agent 补 agent-fixable gap → patch sheet → 接受 → 三态显示 resolved → checkpoint。
 - mock provider 验通后，**用 Codex 真实 session 跑一次完整端到端**——v0 全程未做的端到端验证，v1 必须补上。
+
+### M5 — Freeform Design Completion + 文档监听
+
+- 新增 `agent_completion_prompts.rs`，按 `brief_to_design` / `complete_entity` / `complete_flow` / `complete_api_contract` / `expand_canvas` 生成场景提示词。
+- 新增 Business Designer 默认补全 provider 配置；未设置时首次使用进入配置，设置后点击直接派发。
+- 新增 `start_freeform_completion`：创建 checkpoint、写 `.agent-runs/<requestId>.json`、启动专属 transient CLI Agent session，cwd=当前设计文档根目录，并输入场景提示词。
+- transient session 可见但不进入常驻 station 列表；复用 terminal/session 基础设施，新增 task session 类型。
+- 新增文档根目录 watcher：打开文档后始终监听，忽略 `.agent-runs/`、日志、临时文件；相关文档变化 debounce reload + validate。
+- dirty 冲突策略：dirty=false 自动 reload；dirty=true 标记外部变更待处理，不覆盖本地编辑。
+- UI 场景入口：brief、entity、flow、api contract、空画布；主按钮直接派发，旁边可选补充提示词。
+- run 任务条：运行中可展开日志；完成/失败后折叠保留，提供查看日志、查看变更、回滚 checkpoint。
+
+**验证**：
+- `npm run typecheck` + `cargo check --workspace`
+- 手工：设置默认 provider → 在实体场景点击补全 → 创建 checkpoint → transient session cwd 为文档根目录 → Agent 修改文档文件 → watcher 自动刷新画布与 validate。
+- 手工：dirty=true 时外部文件变化不会覆盖本地编辑，显示待处理状态。
+- 手工：回滚 checkpoint 后画布回到补全前状态。
 
 ### 全局验证（每个 M 都跑）
 
@@ -543,9 +679,9 @@ apps/desktop-web/src/features/business-designer/
 - **schema 迁移**：`schemaVersion` 已存在；v1 加字段不动版本号（向后兼容加法），下一次破坏性改动再升级。
 - **Autosave**：debounce 保存，不每次 autosave 触发 Git commit。
 - **Git 错误**：缺 git binary / repo lock / 嵌套 repo 混淆给可操作提示，沿用 v0 处理。
-- **Agent 超时**：支持取消并保存 request 状态（沿用现有 task center 集成）。
+- **Agent 超时**：Anchored dispatch 支持取消并保存 request 状态；Freeform transient session 支持停止并保存 run 状态。
 - **Patch 幂等**：拒绝的 patch 仍归档；接受的 patch 记录 applied revision；host 不命中即整体拒绝、不部分应用。
-- **Tracing**：后端命令带 traceId；Agent task 带 request id + document id + hostBlockId + gapCodes，便于审计「AI 改了哪个 host 的哪个 gap」。
+- **Tracing**：后端命令带 traceId；Anchored Agent task 带 request id + document id + hostBlockId + gapCodes；Freeform run 带 request id + document id + scenario + hostBlockId + checkpointBefore + sessionId，便于审计一次自由补全。
 - **可 mock**：filesystem / Git / Agent dispatch / gap_rules 都可替换。
 
 ## 12. 性能
@@ -560,7 +696,9 @@ T4 「性能即感知」要求性能目标绑定具体动作，不写抽象 fps/
 | brief 输入字符 → 屏幕显示 | < 50ms（输入热路径不阻塞） | 输入延迟测量；不允许 IPC 同步等待 |
 | 拖拽节点 | 60fps 持续，松手到落位 < 50ms | Chrome DevTools Performance 录制 |
 | `validate_document` 跑完 | < 300ms（常规需求包，节点数 < 50） | trace；超 300ms 则降级为 debounce |
-| Agent 派发 → patch sheet 出现 | mock provider < 100ms；真实 provider 受 Agent 端制约（不计入预算） | trace |
+| Anchored Agent 派发 → patch sheet 出现 | mock provider < 100ms；真实 provider 受 Agent 端制约（不计入预算） | trace |
+| Freeform 场景点击 → transient session 可见 | < 500ms（不含 CLI 冷启动登录） | trace |
+| 文档文件变化 → 画布刷新 | debounce 500-1000ms 后 < 300ms reload + validate | watcher trace |
 | 接受 patch → 三态显示 | < 300ms（含 validate 重跑） | trace |
 | 节点选中 → inspector 切换 | < 16ms（一帧内） | 纯前端，无 IPC |
 
@@ -610,9 +748,12 @@ CLAUDE.md 规定不用 `px`，但 SVG 内部坐标是 viewBox 数学单位无法
 ## 13. 安全与隐私
 
 - `.gtoffice/docs` 不存 API key、provider secret。
-- Agent prompt 默认只含选中 host block 与其邻接 1 跳；用户可主动扩大。
-- 派发前 UI 必须展示将发送的上下文。
-- Agent session cwd 仍在 workspace 内。
+- Anchored Agent prompt 默认只含选中 host block、后端派生邻接 1 跳、targetGaps 与 read-only contextGaps；用户可主动扩大上下文，但不能扩大 patch target。
+- Anchored 派发前 UI 必须展示将发送的上下文。
+- Freeform prompt 由后端场景模板生成，默认包含文档根目录、当前场景、当前 block/文件路径、validation 摘要、强 guidance 与用户补充提示词。
+- Freeform 不承诺硬性文件范围控制；安全网是 checkpoint、diff/revert、文档 watcher reload + validate。
+- Freeform 默认 prompt 必须要求不要修改应用源码、测试、构建脚本、依赖或仓库配置，除非用户明确要求。
+- Freeform transient session cwd 必须是当前设计文档根目录，且仍在 workspace 内。
 - HTML preview 不允许执行任意脚本（沿用 v0）。
 - 文档支持 redaction 标记，导出时隐藏敏感业务词（沿用 v0 设计意图）。
 
@@ -624,7 +765,7 @@ CLAUDE.md 规定不用 `px`，但 SVG 内部坐标是 viewBox 数学单位无法
 - Markdown 渲染：现有 `react-markdown` + `remark-gfm` + `rehype-highlight`（用于 brief 与 Agent 产出的只读块）。
 - 图画布：**v1 不引第三方 graph 库**。SVG + CSS transform + 自研节点/边/拖拽。如 M3 实施中确认自研负担过大，先在 `docs/DEPENDENCIES.md` 记录用途、备选方案与影响范围，再讨论。
 - 后端：Tauri v2 commands、Rust serde、现有 `gt-git` 模式（用于 `.gtoffice/docs` 的独立 docs repo）。
-- Agent 调度：复用现有 terminal/session/task 基础设施，支持 `codex` / `claude`。
+- Agent 调度：复用现有 terminal/session/task 基础设施，支持 `codex` / `claude`；freeform 使用专属 transient task session，不复用常驻 station。
 - 样式：仅 SCSS；响应式单位（`rem`），不用 `px`。
 
 ### 14.1 原生 API 使用边界（T1 / T3 收口）
@@ -704,21 +845,27 @@ v0 shell 层已经按 `references/03-webview-survival.md` 处理了启动闪白�
 
 ## 15. 待确认决策（v1 范围内）
 
-以下决策 v1 已按倾向落定，记录在此供后续修订时回看：
+以下决策 v1 已落定，记录在此供后续修订时回看；背景见 `docs/adr/0001`–`0017`：
 
 1. **图节点位置存哪里？** 选 manifest.layout（B 方案）。
-2. **brief 实体识别策略**：用户选中浮按钮，**不**自动 NLP（最小方案）。
+2. **brief 实体识别策略**：用户选中浮按钮，只创建最小 block，**不**自动 NLP 字段识别。
 3. **下钻视图**：右侧滑入式 side panel（与 inspector 并排），无 backdrop、不 modal——避免 web idiom 的全屏对话框感；保留画布上下文。
 4. **relation 词表**：固定 5 种 `dependsOn` / `produces` / `consumes` / `uses` / `extends`，封闭。
+5. **Agent 双轨**：Anchored Gap Completion 必须锚定 host block + target gaps；Freeform Design Completion 是独立链路，允许场景化直接改文档。
+6. **边语义 source of truth**：后端 validation 派生 links，前端只消费 graphProjection；语义 links 不落盘。
+7. **Patch 范围**：anchored patch 只允许 update host block，不创建/删除相邻 block；`baseRevision` 过期即拒绝。freeform 可跨 block 创建/修改/删除，靠 checkpoint/diff/validate 回收。
+8. **Gap 规则边界**：`dangling-ref` 是 human-decision gap，非 agent-fixable；`orphan-contract` 不进入 v1 gap 规则。
 
 ## 16. 成功标准
 
 v1 闭环完成的标志：
 
 **范式硬约束**：
-- 用户从一句「订单系统」brief 出发，经几次 Agent 补缺口，得到结构完备、规则全绿、可导出的需求包。
-- 任何 AI 输出都被规则验证为 resolved/unresolved/introduced，无人为评分环节。
-- `apply_agent_patch` 对 host 不命中的 patch 整体拒绝，不部分应用。
+- 用户从一句「订单系统」brief 出发，可用 Freeform Agent 生成实体/流程/API 初稿，再用 Anchored Agent 修补机器识别的缺口，得到结构完备、规则全绿、可导出的需求包。
+- Anchored AI 输出被规则验证为 resolved/unresolved/introduced，无人为评分环节；Freeform AI 改动被 reload + validate + diff/revert 回收，不依赖 Agent 自评。
+- `apply_agent_patch` 对 stale revision、host 不命中、non-host change、v1 addBlock/deleteBlock 整体拒绝，不部分应用。
+- `validate_document` 返回同一 revision 下的 diagnostics / gaps / rulesRun / graphProjection，前端不做语义边推导。
+- 删除画布节点会删除对应文档块内容，并清理 layout、legacy authored links、`blocks/<blockId>.json` 落盘块文件、选中态、下钻态和待审 patch 状态；`brief` 根块不可删除。
 
 **身份连续性（T7）**：
 - 现有 Phase 6 的 brief 文本入口、checkpoint 历史、导出、docs Git 全部保持可用。
@@ -746,7 +893,7 @@ v1 闭环完成的标志：
 - 颜色 100% 走 token，无硬编码 hex。
 
 **Schema 防漂移（T2）**：
-- `packages/shared-types` 含 v1 新增的 4 个数据结构 contract 测试。
+- `packages/shared-types` 含 v1 新增的数据结构与 request-object IPC contract 测试。
 - Rust serde struct 加 `#[serde(deny_unknown_fields)]`。
 - CI 跑 typecheck + cargo check 双侧验证，单侧改 schema 即编译断。
 

@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
-import type { DesignerPatchValidationResult } from '../model/designer-patch'
+import type { DesignerGapResolution, DesignerPatchValidationResult } from '../model/designer-patch'
 import type { DesignerOperation } from '../controllers/useDesignerDocumentState'
 
 interface DesignerPatchSheetProps {
   locale: Locale
   patchValidation: DesignerPatchValidationResult | null
   operation: DesignerOperation | null
+  /** v1: most recent gap resolution from `apply_agent_patch`. */
+  gapResolution?: DesignerGapResolution | null
   onApply: (acceptedChangeIndices: number[]) => void
+  onCheckpoint?: () => void
   onDismiss: () => void
 }
 
@@ -29,10 +32,13 @@ export function DesignerPatchSheet({
   locale,
   patchValidation,
   operation,
+  gapResolution,
   onApply,
+  onCheckpoint,
   onDismiss,
 }: DesignerPatchSheetProps) {
   const changes = patchValidation?.changes ?? []
+  const sheetRef = useRef<HTMLElement | null>(null)
   const defaultAccepted = useMemo(
     () =>
       changes
@@ -45,6 +51,32 @@ export function DesignerPatchSheet({
   useEffect(() => {
     setAccepted(defaultAccepted)
   }, [defaultAccepted, patchValidation])
+
+  useEffect(() => {
+    if (!patchValidation) {
+      return
+    }
+    const sheet = sheetRef.current
+    const firstControl =
+      sheet?.querySelector<HTMLInputElement>('.designer-patch-change input') ??
+      sheet?.querySelector<HTMLButtonElement>('button')
+    firstControl?.focus()
+  }, [patchValidation])
+
+  useEffect(() => {
+    if (!patchValidation) {
+      return
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') {
+        return
+      }
+      event.preventDefault()
+      onDismiss()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [patchValidation, onDismiss])
 
   if (!patchValidation) {
     return null
@@ -65,6 +97,7 @@ export function DesignerPatchSheet({
 
   return (
     <section
+      ref={sheetRef}
       className={`designer-patch-sheet ${applying ? 'is-busy' : ''}`}
       aria-label={t(locale, 'designer.patch.title')}
     >
@@ -127,6 +160,72 @@ export function DesignerPatchSheet({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {gapResolution &&
+      (gapResolution.resolved.length > 0 ||
+        gapResolution.unresolved.length > 0 ||
+        gapResolution.incidentalResolved.length > 0 ||
+        gapResolution.introduced.length > 0) ? (
+        <div className="designer-patch-resolution">
+          <h4 className="designer-patch-resolution-title">
+            {t(locale, 'designer.patch.resolution.title')}
+          </h4>
+          {gapResolution.resolved.length > 0 ? (
+            <div className="designer-patch-resolution-row is-resolved">
+              <AppIcon name="check-circle" aria-hidden="true" />
+              <span>
+                {t(locale, 'designer.patch.resolution.resolved', {
+                  count: gapResolution.resolved.length,
+                  plural: gapResolution.resolved.length === 1 ? '' : 's',
+                })}
+              </span>
+            </div>
+          ) : null}
+          {gapResolution.unresolved.length > 0 ? (
+            <div className="designer-patch-resolution-row is-unresolved">
+              <AppIcon name="alert-triangle" aria-hidden="true" />
+              <span>
+                {t(locale, 'designer.patch.resolution.unresolved', {
+                  count: gapResolution.unresolved.length,
+                })}
+              </span>
+            </div>
+          ) : null}
+          {gapResolution.incidentalResolved.length > 0 ? (
+            <div className="designer-patch-resolution-row is-incidental-resolved">
+              <AppIcon name="check-circle" aria-hidden="true" />
+              <span>
+                {t(locale, 'designer.patch.resolution.incidentalResolved', {
+                  count: gapResolution.incidentalResolved.length,
+                  plural: gapResolution.incidentalResolved.length === 1 ? '' : 's',
+                })}
+              </span>
+            </div>
+          ) : null}
+          {gapResolution.introduced.length > 0 ? (
+            <div className="designer-patch-resolution-row is-introduced">
+              <AppIcon name="alert-circle" aria-hidden="true" />
+              <span>
+                {t(locale, 'designer.patch.resolution.introduced', {
+                  count: gapResolution.introduced.length,
+                  plural: gapResolution.introduced.length === 1 ? '' : 's',
+                })}
+              </span>
+            </div>
+          ) : null}
+          {onCheckpoint ? (
+            <button
+              type="button"
+              className="designer-tool-button designer-patch-resolution-checkpoint"
+              onClick={onCheckpoint}
+              disabled={applying}
+            >
+              <AppIcon name="git-commit" aria-hidden="true" />
+              <span>{t(locale, 'designer.patch.resolution.checkpoint')}</span>
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       <footer className="designer-patch-sheet-footer">
