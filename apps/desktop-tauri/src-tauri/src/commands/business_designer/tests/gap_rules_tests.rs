@@ -474,3 +474,43 @@ fn derived_edge_relations_include_navigates_and_participates() {
         .iter()
         .any(|r| *r == DesignerEdgeRelation::ParticipatesIn));
 }
+
+#[test]
+fn ui_screen_dangling_data_ref_emits_gap() {
+    let g = graph(vec![
+        block("screen-1", "uiScreen", json!({
+            "screenName": "Orders",
+            "html": "<button data-api=\"missing-api\">Go</button>"
+        })),
+    ]);
+    let result = run_all(&g);
+    let codes = gap_codes(&result, "screen-1");
+    assert!(codes.contains(&"ui-dangling-ref".to_string()));
+}
+
+#[test]
+fn ui_screen_valid_refs_derive_edges_and_no_gap() {
+    let g = graph(vec![
+        block("orders-api", "apiContract", json!({ "endpoints": [{ "path": "/orders", "method": "GET" }] })),
+        block("order", "entityModel", json!({ "entityName": "Order", "fields": [{ "name": "id", "type": "string" }] })),
+        block("order-flow", "businessFlow", json!({ "states": [{ "name": "created" }], "transitions": [] })),
+        block("dashboard", "uiScreen", json!({ "screenName": "Dashboard", "html": "<a data-nav=\"orders\">Orders</a>" })),
+        block("orders", "uiScreen", json!({
+            "screenName": "Orders",
+            "html": "<button data-api=\"orders-api:POST /orders\" data-entity=\"order\" data-flow=\"order-flow\">Create</button>"
+        })),
+    ]);
+    let result = run_all(&g);
+    assert!(!gap_codes(&result, "orders").contains(&"ui-dangling-ref".to_string()));
+    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "orders" && e.to_block_id == "orders-api" && e.relation == DesignerEdgeRelation::Consumes));
+    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "orders" && e.to_block_id == "order" && e.relation == DesignerEdgeRelation::Uses));
+    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "orders" && e.to_block_id == "order-flow" && e.relation == DesignerEdgeRelation::ParticipatesIn));
+    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "dashboard" && e.to_block_id == "orders" && e.relation == DesignerEdgeRelation::NavigatesTo));
+}
+
+#[test]
+fn ui_screen_empty_html_emits_gap() {
+    let g = graph(vec![block("s1", "uiScreen", json!({ "screenName": "S", "html": "" }))]);
+    let result = run_all(&g);
+    assert!(gap_codes(&result, "s1").contains(&"ui-no-html".to_string()));
+}

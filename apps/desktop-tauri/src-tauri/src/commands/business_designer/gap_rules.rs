@@ -49,6 +49,11 @@ pub(crate) const DERIVED_EDGE_RELATIONS: [DesignerEdgeRelation; 7] = [
 pub(crate) fn run_all(graph: &DesignerDesignGraph) -> GapRunResult {
     let derived_edges = derive_edges(graph);
     let entity_index = build_entity_index(graph);
+    let block_kinds: HashMap<String, String> = graph
+        .blocks
+        .iter()
+        .map(|b| (b.id.clone(), b.kind.clone()))
+        .collect();
 
     let mut result = GapRunResult {
         derived_edges: derived_edges.clone(),
@@ -60,7 +65,8 @@ pub(crate) fn run_all(graph: &DesignerDesignGraph) -> GapRunResult {
             "entityModel" => check_entity_model(block, &entity_index, &mut result),
             "businessFlow" => check_business_flow(block, &mut result),
             "apiContract" => check_api_contract(block, &derived_edges, &mut result),
-            _ => {} // 13 other kinds: no gaps in v1.
+            "uiScreen" => check_ui_screen(block, &block_kinds, &mut result),
+            _ => {} // other kinds: no consistency gaps.
         }
     }
 
@@ -75,6 +81,8 @@ fn derive_edges(graph: &DesignerDesignGraph) -> Vec<DesignerDerivedEdge> {
     let entity_name_to_id = build_entity_name_to_id(graph);
     let mut edges: Vec<DesignerDerivedEdge> = Vec::new();
     let mut seen: HashSet<(String, String, DesignerEdgeRelation)> = HashSet::new();
+
+    let block_ids: HashSet<String> = graph.blocks.iter().map(|b| b.id.clone()).collect();
 
     let push_edge = |edges: &mut Vec<DesignerDerivedEdge>,
                      seen: &mut HashSet<(String, String, DesignerEdgeRelation)>,
@@ -185,6 +193,34 @@ fn derive_edges(graph: &DesignerDesignGraph) -> Vec<DesignerDerivedEdge> {
                                 Some(slot.to_string()),
                             );
                         }
+                    }
+                }
+            }
+            // uiScreen: data-nav/data-entity/data-api/data-flow → edges
+            "uiScreen" => {
+                let Some(html) = block.payload.get("html").and_then(Value::as_str) else {
+                    continue;
+                };
+                let refs = super::ui_refs::extract_ui_refs(html);
+                for target in &refs.nav {
+                    if block_ids.contains(target.as_str()) {
+                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::NavigatesTo, Some("data-nav".to_string()));
+                    }
+                }
+                for target in &refs.entity {
+                    if block_ids.contains(target.as_str()) {
+                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::Uses, Some("data-entity".to_string()));
+                    }
+                }
+                for raw in &refs.api {
+                    let target = super::ui_refs::data_api_contract_id(raw);
+                    if block_ids.contains(target) {
+                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::Consumes, Some("data-api".to_string()));
+                    }
+                }
+                for target in &refs.flow {
+                    if block_ids.contains(target.as_str()) {
+                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::ParticipatesIn, Some("data-flow".to_string()));
                     }
                 }
             }
@@ -973,4 +1009,100 @@ fn is_empty_value(value: &Value) -> bool {
         Value::Object(o) => o.is_empty(),
         _ => false,
     }
+}
+
+// ---- uiScreen rules ---------------------------------------------------
+
+fn check_ui_screen(
+    block: &DesignerBlock,
+    block_kinds: &HashMap<String, String>,
+    result: &mut GapRunResult,
+) {
+    let kind = "uiScreen";
+    let html = block.payload.get("html").and_then(Value::as_str).unwrap_or("");
+    let has_html = !html.trim().is_empty();
+    record(result, kind, "ui-no-html", &block.id, usize::from(!has_html));
+    if !has_html {
+        fail(
+            result,
+            &block.id,
+            "ui-no-html",
+            DesignerGapLayer::Intra,
+            DesignerGapSeverity::Warning,
+            "屏幕没有 HTML 内容。",
+            true,
+            None,
+        );
+        return;
+    }
+
+    let refs = super::ui_refs::extract_ui_refs(html);
+    let mut dangling = 0usize;
+    for v in &refs.nav {
+        if check_ui_ref(&block.id, v, "data-nav", block_kinds, result) {
+            dangling += 1;
+        }
+    }
+    for v in &refs.entity {
+        if check_ui_ref(&block.id, v, "data-entity", block_kinds, result) {
+            dangling += 1;
+        }
+    }
+    for v in &refs.api {
+        if check_ui_ref(&block.id, v, "data-api", block_kinds, result) {
+            dangling += 1;
+        }
+    }
+    for v in &refs.flow {
+        if check_ui_ref(&block.id, v, "data-flow", block_kinds, result) {
+            dangling += 1;
+        }
+    }
+    record(result, kind, "ui-dangling-ref", &block.id, dangling);
+}
+
+/// Validate a single `data-*` reference. Returns `true` if a `ui-dangling-ref`
+/// gap was emitted (caller counts it for `rulesRun`). Standalone fn (not a
+/// closure) so it can take `&mut GapRunResult` without entangling the caller's
+/// locals in a borrow.
+fn check_ui_ref(
+    block_id: &str,
+    target: &str,
+    attr: &str,
+    block_kinds: &HashMap<String, String>,
+    result: &mut GapRunResult,
+) -> bool {
+    let target = target.trim();
+    if target.is_empty() {
+        return false;
+    }
+    let expected = match attr {
+        "data-nav" => "uiScreen",
+        "data-entity" => "entityModel",
+        "data-api" => "apiContract",
+        "data-flow" => "businessFlow",
+        _ => return false,
+    };
+    let resolved_id = super::ui_refs::data_api_contract_id(target);
+    let ok = match block_kinds.get(resolved_id) {
+        Some(actual_kind) => *actual_kind == expected,
+        None => false,
+    };
+    if ok {
+        return false;
+    }
+    let mut loc = BTreeMap::new();
+    loc.insert("attr".to_string(), attr.to_string());
+    loc.insert("target".to_string(), target.to_string());
+    fail(
+        result,
+        block_id,
+        "ui-dangling-ref",
+        DesignerGapLayer::Inter,
+        DesignerGapSeverity::Warning,
+        format!("HTML `{attr}` 引用了不存在的 block “{target}”。"),
+        true,
+        Some(loc),
+    );
+    true
 }
