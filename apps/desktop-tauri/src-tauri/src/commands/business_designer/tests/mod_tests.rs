@@ -1635,3 +1635,53 @@ fn data_contract_renders_object_schema() {
     let rendered = render_block_markdown(&block);
     assert!(rendered.contains("\"type\": \"object\""));
 }
+
+#[test]
+fn code_gen_prompt_contains_four_pillars_and_output_contract() {
+    let temp = TempWorkspace::new("codegen");
+    let mut detail = create_document_at("ws-1", temp.root(), "orders", "Orders", None)
+        .expect("create document");
+    // Inject one of each pillar.
+    detail.design.blocks.push(DesignerBlock {
+        id: "order".to_string(),
+        kind: "entityModel".to_string(),
+        title: "Order".to_string(),
+        order: 20,
+        payload: json!({ "entityName": "Order", "fields": [{ "name": "id", "type": "string" }] }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: "2026-07-05T00:00:00Z".to_string(),
+    });
+    detail.design.blocks.push(DesignerBlock {
+        id: "dc-1".to_string(),
+        kind: "dataContract".to_string(),
+        title: "Order schema".to_string(),
+        order: 30,
+        payload: json!({ "schema": { "type": "object", "properties": { "id": { "type": "string" } } } }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: "2026-07-05T00:00:00Z".to_string(),
+    });
+    detail.design.blocks.push(DesignerBlock {
+        id: "screen-1".to_string(),
+        kind: "uiScreen".to_string(),
+        title: "Orders".to_string(),
+        order: 40,
+        payload: json!({ "screenName": "Orders", "html": "<section data-entity=\"order\">x</section>" }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: "2026-07-05T00:00:00Z".to_string(),
+    });
+    save_document_at("ws-1", temp.root(), detail).expect("save");
+
+    let detail = read_document_at("ws-1", temp.root(), "orders").expect("read");
+    let prompt = super::code_gen_prompt::render_code_gen_prompt(&detail);
+    assert!(prompt.contains("Software System Implementation Specification"));
+    assert!(prompt.contains("## Brief"));
+    assert!(prompt.contains("## Data Schemas"));
+    assert!(prompt.contains("## Business Flows"));
+    assert!(prompt.contains("## UI"));
+    assert!(prompt.contains("## Output Contract"));
+    assert!(prompt.contains("<section data-entity=\"order\">x</section>"));
+    assert!(prompt.contains("\"type\": \"object\""));
+}

@@ -27,6 +27,7 @@ mod agent_completion_prompts;
 mod gap_rules;
 mod ui_refs;
 mod completeness_rules;
+mod code_gen_prompt;
 
 const DESIGNER_SCHEMA_VERSION: u32 = 1;
 const DOCS_ROOT_RELATIVE: &str = ".gtoffice/docs";
