@@ -66,6 +66,7 @@ pub(crate) fn run_all(graph: &DesignerDesignGraph) -> GapRunResult {
             "businessFlow" => check_business_flow(block, &mut result),
             "apiContract" => check_api_contract(block, &derived_edges, &mut result),
             "uiScreen" => check_ui_screen(block, &block_kinds, &mut result),
+            "dataContract" => check_data_contract(block, &mut result),
             _ => {} // other kinds: no consistency gaps.
         }
     }
@@ -1105,4 +1106,103 @@ fn check_ui_ref(
         Some(loc),
     );
     true
+}
+
+// ---- dataContract rules ---------------------------------------------------
+
+fn check_data_contract(block: &DesignerBlock, result: &mut GapRunResult) {
+    let kind = "dataContract";
+    let Some(raw) = block.payload.get("schema") else {
+        record(result, kind, "data-contract-invalid", &block.id, 1);
+        fail(
+            result,
+            &block.id,
+            "data-contract-invalid",
+            DesignerGapLayer::Intra,
+            DesignerGapSeverity::Error,
+            "dataContract 没有 schema 字段。",
+            true,
+            None,
+        );
+        return;
+    };
+    // Accept legacy string form (parse to JSON) or object form.
+    let schema: Value = match raw {
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                record(result, kind, "data-contract-invalid", &block.id, 1);
+                fail(
+                    result,
+                    &block.id,
+                    "data-contract-invalid",
+                    DesignerGapLayer::Intra,
+                    DesignerGapSeverity::Error,
+                    "dataContract schema 字符串不是合法 JSON。",
+                    true,
+                    None,
+                );
+                return;
+            }
+        },
+        Value::Object(_) => raw.clone(),
+        _ => {
+            record(result, kind, "data-contract-invalid", &block.id, 1);
+            fail(
+                result,
+                &block.id,
+                "data-contract-invalid",
+                DesignerGapLayer::Intra,
+                DesignerGapSeverity::Error,
+                "dataContract schema 必须是对象或 JSON 字符串。",
+                true,
+                None,
+            );
+            return;
+        }
+    };
+    record(result, kind, "data-contract-invalid", &block.id, 0);
+
+    let has_type = schema.get("type").and_then(Value::as_str).is_some()
+        || schema.get("$ref").and_then(Value::as_str).is_some();
+    record(result, kind, "data-contract-no-type", &block.id, usize::from(!has_type));
+    if !has_type {
+        fail(
+            result,
+            &block.id,
+            "data-contract-no-type",
+            DesignerGapLayer::Intra,
+            DesignerGapSeverity::Warning,
+            "dataContract schema 缺少 type 或 $ref。",
+            true,
+            None,
+        );
+    }
+
+    let is_object = schema.get("type").and_then(Value::as_str) == Some("object");
+    let has_properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|o| !o.is_empty())
+        .unwrap_or(false);
+    let missing_props = is_object && !has_properties;
+    record(
+        result,
+        kind,
+        "data-contract-no-properties",
+        &block.id,
+        usize::from(missing_props),
+    );
+    if missing_props {
+        fail(
+            result,
+            &block.id,
+            "data-contract-no-properties",
+            DesignerGapLayer::Intra,
+            DesignerGapSeverity::Warning,
+            "object 类型的 dataContract schema 没有 properties。",
+            true,
+            None,
+        );
+    }
 }

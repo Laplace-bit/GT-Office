@@ -514,3 +514,33 @@ fn ui_screen_empty_html_emits_gap() {
     let result = run_all(&g);
     assert!(gap_codes(&result, "s1").contains(&"ui-no-html".to_string()));
 }
+
+#[test]
+fn data_contract_non_object_schema_emits_invalid() {
+    let g = graph(vec![block("dc-1", "dataContract", json!({"schema": "not-json"}))]);
+    let result = run_all(&g);
+    assert!(gap_codes(&result, "dc-1").contains(&"data-contract-invalid".to_string()));
+}
+
+#[test]
+fn data_contract_missing_type_emits_gap() {
+    let g = graph(vec![block("dc-1", "dataContract", json!({"schema": {"properties": {}}}))]);
+    let result = run_all(&g);
+    assert!(gap_codes(&result, "dc-1").contains(&"data-contract-no-type".to_string()));
+}
+
+#[test]
+fn data_contract_object_without_properties_emits_gap() {
+    let g = graph(vec![block("dc-1", "dataContract", json!({"schema": {"type": "object"}}))]);
+    let result = run_all(&g);
+    assert!(gap_codes(&result, "dc-1").contains(&"data-contract-no-properties".to_string()));
+}
+
+#[test]
+fn data_contract_valid_object_schema_no_gap() {
+    let g = graph(vec![block("dc-1", "dataContract", json!({
+        "schema": {"type": "object", "properties": {"id": {"type": "string"}}}
+    }))]);
+    let result = run_all(&g);
+    assert!(!gap_codes(&result, "dc-1").iter().any(|c| c.starts_with("data-contract")));
+}
