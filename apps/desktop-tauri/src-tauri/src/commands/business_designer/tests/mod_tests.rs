@@ -1685,3 +1685,46 @@ fn code_gen_prompt_contains_four_pillars_and_output_contract() {
     assert!(prompt.contains("<section data-entity=\"order\">x</section>"));
     assert!(prompt.contains("\"type\": \"object\""));
 }
+
+#[test]
+fn compile_writes_code_gen_prompt() {
+    let temp = TempWorkspace::new("codegen-compile");
+    let detail = create_document_at("ws-1", temp.root(), "inv", "Inventory", None)
+        .expect("create document");
+    save_document_at("ws-1", temp.root(), detail).expect("save");
+    let compiled = compile_document_at("ws-1", temp.root(), "inv").expect("compile");
+    assert!(compiled.files.contains(&"generated/code-gen-prompt.md".to_string()));
+    let document_root = temp.root().join(".gtoffice/docs/documents/inv");
+    assert!(document_root.join("generated/code-gen-prompt.md").is_file());
+}
+
+#[test]
+fn export_code_gen_prompt_format_returns_content() {
+    let temp = TempWorkspace::new("codegen-export");
+    let detail = create_document_at("ws-1", temp.root(), "inv", "Inventory", None)
+        .expect("create document");
+    save_document_at("ws-1", temp.root(), detail).expect("save");
+    let exported = export_document_at("ws-1", temp.root(), "inv", "codeGenPrompt").expect("export");
+    assert_eq!(exported.format, "codeGenPrompt");
+    assert_eq!(exported.mime_type, "text/markdown");
+    assert!(exported.content.contains("Software System Implementation Specification"));
+}
+
+#[test]
+fn legacy_manifest_without_code_gen_prompt_field_deserializes() {
+    // Old manifests predate the code_gen_prompt field; serde(default) must fill it.
+    let temp = TempWorkspace::new("legacy");
+    let detail = create_document_at("ws-1", temp.root(), "legacy", "Legacy", None).expect("create");
+    save_document_at("ws-1", temp.root(), detail).expect("save");
+    let document_root = temp.root().join(".gtoffice/docs/documents/legacy");
+    let manifest_path = document_root.join("manifest.json");
+    let raw = std::fs::read_to_string(&manifest_path).unwrap();
+    // Remove the codeGenPrompt key to simulate a legacy manifest predating the field.
+    let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    if let Some(obj) = v.get_mut("generated").and_then(|g| g.as_object_mut()) {
+        obj.remove("codeGenPrompt");
+    }
+    std::fs::write(&manifest_path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    let reread = read_document_at("ws-1", temp.root(), "legacy").expect("legacy manifest must deserialize");
+    assert_eq!(reread.manifest.generated.code_gen_prompt, "generated/code-gen-prompt.md");
+}

@@ -218,6 +218,12 @@ pub(crate) struct DesignerGeneratedPaths {
     pub agent_brief: String,
     pub agent_input: String,
     pub preview_html: String,
+    #[serde(default = "default_code_gen_prompt_path")]
+    pub code_gen_prompt: String,
+}
+
+fn default_code_gen_prompt_path() -> String {
+    "generated/code-gen-prompt.md".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2320,6 +2326,7 @@ fn default_generated_paths() -> DesignerGeneratedPaths {
         agent_brief: "generated/agent-brief.md".to_string(),
         agent_input: "generated/agent-input.json".to_string(),
         preview_html: "generated/preview.html".to_string(),
+        code_gen_prompt: "generated/code-gen-prompt.md".to_string(),
     }
 }
 
@@ -2629,6 +2636,7 @@ pub(crate) fn compile_document_at(
     let preview_html_path = document_root.join(&generated.preview_html);
     let contracts_path = document_root.join("generated/contracts.md");
     let acceptance_path = document_root.join("generated/acceptance.md");
+    let code_gen_prompt_path = document_root.join(&generated.code_gen_prompt);
 
     atomic_write_text(&readme_path, &render_readme(&detail))?;
     atomic_write_text(&agent_brief_path, &render_agent_brief(&detail))?;
@@ -2636,6 +2644,7 @@ pub(crate) fn compile_document_at(
     atomic_write_text(&preview_html_path, &render_preview_html(&detail))?;
     atomic_write_text(&contracts_path, &render_contracts(&detail))?;
     atomic_write_text(&acceptance_path, &render_acceptance(&detail))?;
+    atomic_write_text(&code_gen_prompt_path, &code_gen_prompt::render_code_gen_prompt(&detail))?;
 
     files.push(generated.readme.clone());
     files.push(generated.agent_brief.clone());
@@ -2643,6 +2652,7 @@ pub(crate) fn compile_document_at(
     files.push(generated.preview_html.clone());
     files.push("generated/contracts.md".to_string());
     files.push("generated/acceptance.md".to_string());
+    files.push(generated.code_gen_prompt.clone());
 
     Ok(DesignerCompileResult {
         workspace_id: workspace_id.to_string(),
@@ -3321,6 +3331,20 @@ pub(crate) fn export_document_at(
                 "contracts": render_contracts(&detail),
             }))?,
         ),
+        "codeGenPrompt" => {
+            let path = document_root.join(&detail.manifest.generated.code_gen_prompt);
+            (
+                detail.manifest.generated.code_gen_prompt.clone(),
+                format!("{}-code-gen-prompt.md", detail.manifest.document_id),
+                "text/markdown".to_string(),
+                fs::read_to_string(&path).map_err(|error| {
+                    format!(
+                        "BUSINESS_DESIGNER_EXPORT_FAILED: unable to read '{}': {error}",
+                        path.display()
+                    )
+                })?,
+            )
+        },
         _ => unreachable!("normalize_export_format restricts format"),
     };
     Ok(DesignerExportResult {
@@ -4359,6 +4383,7 @@ fn normalize_export_format(format: &str) -> Result<String, String> {
         "html" => Ok("html".to_string()),
         "json" | "designJson" => Ok("json".to_string()),
         "agentBundle" | "agent-bundle" => Ok("agentBundle".to_string()),
+        "codeGenPrompt" | "code-gen-prompt" => Ok("codeGenPrompt".to_string()),
         other => Err(format!(
             "BUSINESS_DESIGNER_EXPORT_FORMAT_UNSUPPORTED: unsupported export format '{other}'"
         )),
@@ -4367,7 +4392,7 @@ fn normalize_export_format(format: &str) -> Result<String, String> {
 
 fn export_extension(format: &str) -> &'static str {
     match format {
-        "markdown" => "md",
+        "markdown" | "codeGenPrompt" => "md",
         "html" => "html",
         "json" | "agentBundle" => "json",
         _ => "txt",
@@ -4379,6 +4404,7 @@ fn export_filter_label(format: &str) -> &'static str {
         "markdown" => "Markdown",
         "html" => "HTML",
         "json" | "agentBundle" => "JSON",
+        "codeGenPrompt" => "Markdown",
         _ => "Text",
     }
 }
