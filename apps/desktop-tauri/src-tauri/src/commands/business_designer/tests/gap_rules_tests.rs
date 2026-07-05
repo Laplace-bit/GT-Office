@@ -417,3 +417,24 @@ fn rules_run_records_gap_count() {
     assert!(no_fields.passed);
     assert_eq!(no_fields.gap_count, 0);
 }
+
+#[test]
+fn ui_refs_extracts_data_attributes() {
+    use super::super::ui_refs::extract_ui_refs;
+    let html = r#"<section data-flow="order-flow">
+        <h1 data-nav="dashboard">Orders</h1>
+        <button data-api="orders-api:POST /orders" data-entity="order">Create</button>
+    </section>"#;
+    let refs = extract_ui_refs(html);
+    assert_eq!(refs.nav, vec!["dashboard".to_string()]);
+    assert_eq!(refs.entity, vec!["order".to_string()]);
+    assert_eq!(refs.api, vec!["orders-api:POST /orders".to_string()]);
+    assert_eq!(refs.flow, vec!["order-flow".to_string()]);
+}
+
+#[test]
+fn ui_refs_data_api_contract_id_splits_on_colon() {
+    use super::super::ui_refs::data_api_contract_id;
+    assert_eq!(data_api_contract_id("orders-api:POST /orders"), "orders-api");
+    assert_eq!(data_api_contract_id("orders-api"), "orders-api");
+}
