@@ -25,6 +25,12 @@ export interface DesignerFreeformCompletionRunStatusRequest {
   status: DesignerFreeformCompletionRunStatus
 }
 
+export interface DesignerFreeformCompletionRunLogRequest {
+  traceId: string
+  documentId: string
+  requestId: string
+}
+
 export interface DesignerRevertToCheckpointRequest {
   traceId: string
   documentId: string
@@ -51,4 +57,17 @@ export interface DesignerFreeformCompletionRunsResult {
   workspaceId: string
   documentId: string
   runs: DesignerFreeformCompletionRun[]
+}
+
+export interface DesignerFreeformCompletionRunLogResult {
+  workspaceId: string
+  documentId: string
+  requestId: string
+  log: string
+}
+
+export function hasRunningDesignerFreeformRun(
+  runs: readonly DesignerFreeformCompletionRun[],
+): boolean {
+  return runs.some((run) => run.status === 'running')
 }

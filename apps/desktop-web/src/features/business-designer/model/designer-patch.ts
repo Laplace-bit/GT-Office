@@ -8,11 +8,12 @@ import type {
 } from './designer-validation'
 
 /**
- * Agent patch contract for the business designer.
+ * Agent patch contract for mock/recovered business designer suggestions.
  *
- * The Agent never edits the design directly; it returns a typed patch that the
- * user reviews and selectively applies. Mirrors the serde structs in
- * commands/business_designer/mod.rs (camelCase wire shape).
+ * The mock provider and legacy task recovery return a typed patch that the user
+ * reviews and selectively applies. Real CLI Agent dispatches edit design files
+ * directly and the workbench reloads them from disk. Mirrors the serde structs
+ * in commands/business_designer/mod.rs (camelCase wire shape).
  *
  * v1 carries `hostBlockId` / `gapCodes` / `targetGapKeys` / `scope` so apply_agent_patch can
  * enforce host-anchoring and produce a three-tier verdict (resolved /

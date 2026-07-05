@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { DesignerGapResolution, DesignerPatchValidationResult } from '../model/designer-patch'
-import type { DesignerOperation } from '../controllers/useDesignerDocumentState'
+import type { DesignerOperation } from '../model/designer-operation'
 
 interface DesignerPatchSheetProps {
   locale: Locale

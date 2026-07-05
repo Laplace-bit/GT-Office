@@ -139,6 +139,7 @@ export function useGitController({
       behind: repository.behind,
       files: repository.files,
       repositories,
+      revision: summary.revision,
     }
   }, [activeRepositoryPath, repositories, summary])
 
@@ -515,6 +516,7 @@ export function useGitController({
     selectedPath: status.selectedPath,
     selectedDiffScope: status.selectedDiffScope,
     summaryFiles: activeSummary?.files,
+    summaryRevision: activeSummary?.revision,
     cacheRefs,
   })
 

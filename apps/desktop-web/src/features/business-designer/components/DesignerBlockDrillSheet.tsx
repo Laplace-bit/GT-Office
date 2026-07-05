@@ -1,7 +1,37 @@
-import { memo, useEffect, useId, useRef, useState, type ChangeEvent } from 'react'
+import {
+  memo,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { DesignerBlock, DesignerBlockPatch } from '../model/designer-blocks'
+import {
+  addApiEndpoint,
+  addEntityField,
+  addFlowState,
+  addFlowTransition,
+  formatEndpointErrors,
+  removeApiEndpoint,
+  removeEntityField,
+  removeFlowState,
+  removeFlowTransition,
+  renameEntityModel,
+  renameFlowState,
+  updateApiEndpoint,
+  updateApiEndpointErrors,
+  updateEntityField,
+  updateFlowState,
+  updateFlowStateEntity,
+  updateFlowTransition,
+  type ApiContractPayload,
+  type BusinessFlowPayload,
+  type EntityModelPayload,
+} from '../model/designer-drill-payload'
 
 interface DesignerBlockDrillSheetProps {
   locale: Locale
@@ -9,6 +39,7 @@ interface DesignerBlockDrillSheetProps {
   isOpen: boolean
   onClose: () => void
   onUpdateBlock: (blockId: string, patch: DesignerBlockPatch) => void
+  onDeleteBlock: (block: DesignerBlock) => void
   onCreateEntityFromSelection: (name: string) => void
 }
 
@@ -24,6 +55,7 @@ export const DesignerBlockDrillSheet = memo(function DesignerBlockDrillSheet({
   isOpen,
   onClose,
   onUpdateBlock,
+  onDeleteBlock,
   onCreateEntityFromSelection,
 }: DesignerBlockDrillSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -53,6 +85,17 @@ export const DesignerBlockDrillSheet = memo(function DesignerBlockDrillSheet({
         <h2 id={titleId} className="designer-drill-title">
           {block?.title || block?.id || ''}
         </h2>
+        {block && block.id !== 'brief' ? (
+          <button
+            type="button"
+            className="designer-icon-button designer-drill-delete-button"
+            onClick={() => onDeleteBlock(block)}
+            title={t(locale, 'designer.canvas.deleteBlock')}
+            aria-label={t(locale, 'designer.canvas.deleteBlock')}
+          >
+            <AppIcon name="trash" aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           type="button"
           className="designer-icon-button"
@@ -109,111 +152,142 @@ function BlockForm({ locale, block, onUpdate, onCreateEntityFromSelection }: Blo
   }
 }
 
-// ----- entityModel ---------------------------------------------------------
-
-interface EntityField {
-  name?: string
-  type?: string
-  description?: string
-  isPrimaryKey?: boolean
+function DrillTableFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="designer-drill-table-scroll" data-no-drag>
+      {children}
+    </div>
+  )
 }
 
+function BlockTitleField({ locale, block, onUpdate }: BaseBlockFormProps) {
+  return (
+    <section className="designer-drill-form-section">
+      <label className="designer-drill-form-label">{t(locale, 'designer.drill.blockTitle')}</label>
+      <input
+        type="text"
+        className="designer-drill-text-input"
+        value={block.title}
+        data-no-drag
+        onChange={(event) => onUpdate(block.id, { title: event.target.value })}
+      />
+    </section>
+  )
+}
+
+// ----- entityModel ---------------------------------------------------------
+
 function EntityModelForm({ locale, block, onUpdate }: BaseBlockFormProps) {
-  const payload = (block.payload as { entityName?: string; fields?: EntityField[] }) ?? {}
+  const payload = (block.payload as EntityModelPayload) ?? {}
   const fields = payload.fields ?? []
 
-  function patchPayload(next: { entityName?: string; fields?: EntityField[] }) {
+  function patchPayload(next: EntityModelPayload) {
     onUpdate(block.id, {
-      payload: { ...payload, ...next },
+      payload: next,
     })
   }
 
-  function updateField(index: number, patch: Partial<EntityField>) {
-    const nextFields = fields.map((field, i) => (i === index ? { ...field, ...patch } : field))
-    patchPayload({ fields: nextFields })
-  }
-  function removeField(index: number) {
-    patchPayload({ fields: fields.filter((_, i) => i !== index) })
-  }
-  function addField() {
-    patchPayload({ fields: [...fields, { name: '', type: 'string' }] })
+  function updateEntityName(entityName: string) {
+    onUpdate(block.id, {
+      title: entityName,
+      payload: renameEntityModel(payload, entityName),
+    })
   }
 
   return (
     <>
       <section className="designer-drill-form-section">
-        <label className="designer-drill-form-label">{t(locale, 'designer.inspector.kind')}</label>
+        <label className="designer-drill-form-label">{t(locale, 'designer.drill.entityName')}</label>
         <input
           type="text"
           className="designer-drill-text-input"
           value={payload.entityName ?? ''}
           placeholder={block.title}
           data-no-drag
-          onChange={(event) => patchPayload({ entityName: event.target.value })}
-          onBlur={(event) => patchPayload({ entityName: event.target.value })}
+          onChange={(event) => updateEntityName(event.target.value)}
+          onBlur={(event) => updateEntityName(event.target.value.trim())}
         />
       </section>
       <section className="designer-drill-form-section">
         <label className="designer-drill-form-label">{t(locale, 'designer.drill.fields')}</label>
-        <table className="designer-drill-table" data-no-drag>
-          <thead>
-            <tr>
-              <th className="designer-drill-col-name">{t(locale, 'designer.drill.colName')}</th>
-              <th className="designer-drill-col-type">{t(locale, 'designer.drill.colType')}</th>
-              <th>{t(locale, 'designer.drill.colDescription')}</th>
-              <th className="designer-drill-col-check">{t(locale, 'designer.drill.colPK')}</th>
-              <th className="designer-drill-col-action"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {fields.map((field, index) => (
-              <tr key={index}>
-                <td>
-                  <input
-                    type="text"
-                    value={field.name ?? ''}
-                    onChange={(e) => updateField(index, { name: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    value={field.type ?? ''}
-                    onChange={(e) => updateField(index, { type: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    value={field.description ?? ''}
-                    onChange={(e) => updateField(index, { description: e.target.value })}
-                  />
-                </td>
-                <td className="designer-drill-check-cell">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(field.isPrimaryKey)}
-                    onChange={(e) => updateField(index, { isPrimaryKey: e.target.checked })}
-                  />
-                </td>
-                <td>
-                  <div className="designer-drill-row-actions">
-                    <button
-                      type="button"
-                      className="designer-icon-button"
-                      onClick={() => removeField(index)}
-                      title={t(locale, 'designer.drill.removeRow')}
-                      aria-label={t(locale, 'designer.drill.removeRow')}
-                    >
-                      <AppIcon name="trash" aria-hidden="true" />
-                    </button>
-                  </div>
-                </td>
+        <DrillTableFrame>
+          <table className="designer-drill-table">
+            <thead>
+              <tr>
+                <th className="designer-drill-col-name">{t(locale, 'designer.drill.colName')}</th>
+                <th className="designer-drill-col-type">{t(locale, 'designer.drill.colType')}</th>
+                <th>{t(locale, 'designer.drill.colDescription')}</th>
+                <th className="designer-drill-col-check">{t(locale, 'designer.drill.colPK')}</th>
+                <th className="designer-drill-col-action"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <button type="button" className="designer-drill-add-row" onClick={addField} data-no-drag>
+            </thead>
+            <tbody>
+              {fields.map((field, index) => (
+                <tr key={index}>
+                  <td>
+                    <input
+                      type="text"
+                      value={field.name ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateEntityField(payload, index, { name: e.target.value }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={field.type ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateEntityField(payload, index, { type: e.target.value }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={field.description ?? ''}
+                      onChange={(e) =>
+                        patchPayload(
+                          updateEntityField(payload, index, { description: e.target.value }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className="designer-drill-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(field.isPrimaryKey)}
+                      onChange={(e) =>
+                        patchPayload(
+                          updateEntityField(payload, index, { isPrimaryKey: e.target.checked }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td>
+                    <div className="designer-drill-row-actions">
+                      <button
+                        type="button"
+                        className="designer-icon-button"
+                        onClick={() => patchPayload(removeEntityField(payload, index))}
+                        title={t(locale, 'designer.drill.removeRow')}
+                        aria-label={t(locale, 'designer.drill.removeRow')}
+                      >
+                        <AppIcon name="trash" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </DrillTableFrame>
+        <button
+          type="button"
+          className="designer-drill-add-row"
+          onClick={() => patchPayload(addEntityField(payload))}
+          data-no-drag
+        >
           <AppIcon name="plus" aria-hidden="true" />
           {t(locale, 'designer.drill.addRow')}
         </button>
@@ -224,100 +298,92 @@ function EntityModelForm({ locale, block, onUpdate }: BaseBlockFormProps) {
 
 // ----- businessFlow --------------------------------------------------------
 
-interface FlowState {
-  name?: string
-  initial?: boolean
-  terminal?: boolean
-}
-interface FlowTransition {
-  from?: string
-  to?: string
-}
-
 function BusinessFlowForm({ locale, block, onUpdate }: BaseBlockFormProps) {
-  const payload =
-    (block.payload as { states?: FlowState[]; transitions?: FlowTransition[] }) ?? {}
+  const payload = (block.payload as BusinessFlowPayload) ?? {}
   const states = payload.states ?? []
   const transitions = payload.transitions ?? []
 
-  function patchPayload(next: { states?: FlowState[]; transitions?: FlowTransition[] }) {
-    onUpdate(block.id, { payload: { ...payload, ...next } })
+  function patchPayload(next: BusinessFlowPayload) {
+    onUpdate(block.id, { payload: next })
   }
 
   return (
     <>
+      <BlockTitleField locale={locale} block={block} onUpdate={onUpdate} />
       <section className="designer-drill-form-section">
         <label className="designer-drill-form-label">{t(locale, 'designer.drill.states')}</label>
-        <table className="designer-drill-table" data-no-drag>
-          <thead>
-            <tr>
-              <th>{t(locale, 'designer.drill.colName')}</th>
-              <th className="designer-drill-col-check">{t(locale, 'designer.drill.colInitial')}</th>
-              <th className="designer-drill-col-check">{t(locale, 'designer.drill.colTerminal')}</th>
-              <th className="designer-drill-col-action"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {states.map((state, index) => (
-              <tr key={index}>
-                <td>
-                  <input
-                    type="text"
-                    value={state.name ?? ''}
-                    onChange={(e) =>
-                      patchPayload({
-                        states: states.map((s, i) => (i === index ? { ...s, name: e.target.value } : s)),
-                      })
-                    }
-                  />
-                </td>
-                <td className="designer-drill-check-cell">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(state.initial)}
-                    onChange={(e) =>
-                      patchPayload({
-                        states: states.map((s, i) =>
-                          i === index ? { ...s, initial: e.target.checked } : s,
-                        ),
-                      })
-                    }
-                  />
-                </td>
-                <td className="designer-drill-check-cell">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(state.terminal)}
-                    onChange={(e) =>
-                      patchPayload({
-                        states: states.map((s, i) =>
-                          i === index ? { ...s, terminal: e.target.checked } : s,
-                        ),
-                      })
-                    }
-                  />
-                </td>
-                <td>
-                  <div className="designer-drill-row-actions">
-                    <button
-                      type="button"
-                      className="designer-icon-button"
-                      onClick={() => patchPayload({ states: states.filter((_, i) => i !== index) })}
-                      title={t(locale, 'designer.drill.removeRow')}
-                      aria-label={t(locale, 'designer.drill.removeRow')}
-                    >
-                      <AppIcon name="trash" aria-hidden="true" />
-                    </button>
-                  </div>
-                </td>
+        <DrillTableFrame>
+          <table className="designer-drill-table designer-drill-table--flow">
+            <thead>
+              <tr>
+                <th>{t(locale, 'designer.drill.colName')}</th>
+                <th>{t(locale, 'designer.drill.colEntity')}</th>
+                <th className="designer-drill-col-check">{t(locale, 'designer.drill.colInitial')}</th>
+                <th className="designer-drill-col-check">{t(locale, 'designer.drill.colTerminal')}</th>
+                <th className="designer-drill-col-action"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {states.map((state, index) => (
+                <tr key={index}>
+                  <td>
+                    <input
+                      type="text"
+                      value={state.name ?? ''}
+                      onChange={(e) =>
+                        patchPayload(renameFlowState(payload, index, e.target.value))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={state.entity ?? state.target ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateFlowStateEntity(payload, index, e.target.value))
+                      }
+                    />
+                  </td>
+                  <td className="designer-drill-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(state.initial)}
+                      onChange={(e) =>
+                        patchPayload(updateFlowState(payload, index, { initial: e.target.checked }))
+                      }
+                    />
+                  </td>
+                  <td className="designer-drill-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(state.terminal)}
+                      onChange={(e) =>
+                        patchPayload(updateFlowState(payload, index, { terminal: e.target.checked }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <div className="designer-drill-row-actions">
+                      <button
+                        type="button"
+                        className="designer-icon-button"
+                        onClick={() => patchPayload(removeFlowState(payload, index))}
+                        title={t(locale, 'designer.drill.removeRow')}
+                        aria-label={t(locale, 'designer.drill.removeRow')}
+                      >
+                        <AppIcon name="trash" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </DrillTableFrame>
         <button
           type="button"
           className="designer-drill-add-row"
-          onClick={() => patchPayload({ states: [...states, { name: '' }] })}
+          onClick={() => patchPayload(addFlowState(payload))}
           data-no-drag
         >
           <AppIcon name="plus" aria-hidden="true" />
@@ -328,82 +394,70 @@ function BusinessFlowForm({ locale, block, onUpdate }: BaseBlockFormProps) {
         <label className="designer-drill-form-label">
           {t(locale, 'designer.drill.transitions')}
         </label>
-        <table className="designer-drill-table" data-no-drag>
-          <thead>
-            <tr>
-              <th>{t(locale, 'designer.drill.colFrom')}</th>
-              <th>{t(locale, 'designer.drill.colTo')}</th>
-              <th className="designer-drill-col-action"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {transitions.map((transition, index) => (
-              <tr key={index}>
-                <td>
-                  <select
-                    value={transition.from ?? ''}
-                    onChange={(e) =>
-                      patchPayload({
-                        transitions: transitions.map((t2, i) =>
-                          i === index ? { ...t2, from: e.target.value } : t2,
-                        ),
-                      })
-                    }
-                  >
-                    <option value=""></option>
-                    {states.map((state) => (
-                      <option key={state.name} value={state.name}>
-                        {state.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <select
-                    value={transition.to ?? ''}
-                    onChange={(e) =>
-                      patchPayload({
-                        transitions: transitions.map((t2, i) =>
-                          i === index ? { ...t2, to: e.target.value } : t2,
-                        ),
-                      })
-                    }
-                  >
-                    <option value=""></option>
-                    {states.map((state) => (
-                      <option key={state.name} value={state.name}>
-                        {state.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <div className="designer-drill-row-actions">
-                    <button
-                      type="button"
-                      className="designer-icon-button"
-                      onClick={() =>
-                        patchPayload({
-                          transitions: transitions.filter((_, i) => i !== index),
-                        })
-                      }
-                      title={t(locale, 'designer.drill.removeRow')}
-                      aria-label={t(locale, 'designer.drill.removeRow')}
-                    >
-                      <AppIcon name="trash" aria-hidden="true" />
-                    </button>
-                  </div>
-                </td>
+        <DrillTableFrame>
+          <table className="designer-drill-table">
+            <thead>
+              <tr>
+                <th>{t(locale, 'designer.drill.colFrom')}</th>
+                <th>{t(locale, 'designer.drill.colTo')}</th>
+                <th className="designer-drill-col-action"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {transitions.map((transition, index) => (
+                <tr key={index}>
+                  <td>
+                    <select
+                      value={transition.from ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateFlowTransition(payload, index, { from: e.target.value }))
+                      }
+                    >
+                      <option value=""></option>
+                      {states.map((state, stateIndex) => (
+                        <option key={`${stateIndex}:${state.name ?? ''}`} value={state.name ?? ''}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={transition.to ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateFlowTransition(payload, index, { to: e.target.value }))
+                      }
+                    >
+                      <option value=""></option>
+                      {states.map((state, stateIndex) => (
+                        <option key={`${stateIndex}:${state.name ?? ''}`} value={state.name ?? ''}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <div className="designer-drill-row-actions">
+                      <button
+                        type="button"
+                        className="designer-icon-button"
+                        onClick={() => patchPayload(removeFlowTransition(payload, index))}
+                        title={t(locale, 'designer.drill.removeRow')}
+                        aria-label={t(locale, 'designer.drill.removeRow')}
+                      >
+                        <AppIcon name="trash" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </DrillTableFrame>
         <button
           type="button"
           className="designer-drill-add-row"
-          onClick={() =>
-            patchPayload({ transitions: [...transitions, { from: '', to: '' }] })
-          }
+          onClick={() => patchPayload(addFlowTransition(payload))}
           data-no-drag
         >
           <AppIcon name="plus" aria-hidden="true" />
@@ -416,115 +470,114 @@ function BusinessFlowForm({ locale, block, onUpdate }: BaseBlockFormProps) {
 
 // ----- apiContract ---------------------------------------------------------
 
-interface ApiEndpoint {
-  method?: string
-  path?: string
-  response?: string
-  description?: string
-}
-
 function ApiContractForm({ locale, block, onUpdate }: BaseBlockFormProps) {
-  const payload = (block.payload as { endpoints?: ApiEndpoint[] }) ?? {}
+  const payload = (block.payload as ApiContractPayload) ?? {}
   const endpoints = payload.endpoints ?? []
 
-  function patchEndpoints(next: ApiEndpoint[]) {
-    onUpdate(block.id, { payload: { ...payload, endpoints: next } })
+  function patchPayload(next: ApiContractPayload) {
+    onUpdate(block.id, { payload: next })
   }
 
   return (
-    <section className="designer-drill-form-section">
-      <label className="designer-drill-form-label">{t(locale, 'designer.drill.endpoints')}</label>
-      <table className="designer-drill-table" data-no-drag>
-        <thead>
-          <tr>
-            <th className="designer-drill-col-method">{t(locale, 'designer.drill.colMethod')}</th>
-            <th className="designer-drill-col-path">{t(locale, 'designer.drill.colPath')}</th>
-            <th>{t(locale, 'designer.drill.colResponse')}</th>
-            <th className="designer-drill-col-action"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {endpoints.map((endpoint, index) => (
-            <tr key={index}>
-              <td>
-                <select
-                  value={(endpoint.method ?? '').toUpperCase()}
-                  onChange={(e) =>
-                    patchEndpoints(
-                      endpoints.map((ep, i) =>
-                        i === index ? { ...ep, method: e.target.value } : ep,
-                      ),
-                    )
-                  }
-                >
-                  <option value=""></option>
-                  {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => (
-                    <option key={method} value={method}>
-                      {method}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <input
-                  type="text"
-                  value={endpoint.path ?? ''}
-                  onChange={(e) =>
-                    patchEndpoints(
-                      endpoints.map((ep, i) =>
-                        i === index ? { ...ep, path: e.target.value } : ep,
-                      ),
-                    )
-                  }
-                />
-              </td>
-              <td>
-                <input
-                  type="text"
-                  value={endpoint.response ?? ''}
-                  onChange={(e) =>
-                    patchEndpoints(
-                      endpoints.map((ep, i) =>
-                        i === index ? { ...ep, response: e.target.value } : ep,
-                      ),
-                    )
-                  }
-                />
-              </td>
-              <td>
-                <div className="designer-drill-row-actions">
-                  <button
-                    type="button"
-                    className="designer-icon-button"
-                    onClick={() =>
-                      patchEndpoints(endpoints.filter((_, i) => i !== index))
-                    }
-                    title={t(locale, 'designer.drill.removeRow')}
-                    aria-label={t(locale, 'designer.drill.removeRow')}
-                  >
-                    <AppIcon name="trash" aria-hidden="true" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button
-        type="button"
-        className="designer-drill-add-row"
-        onClick={() =>
-          patchEndpoints([
-            ...endpoints,
-            { method: 'GET', path: '', response: '', description: '' },
-          ])
-        }
-        data-no-drag
-      >
-        <AppIcon name="plus" aria-hidden="true" />
-        {t(locale, 'designer.drill.addRow')}
-      </button>
-    </section>
+    <>
+      <BlockTitleField locale={locale} block={block} onUpdate={onUpdate} />
+      <section className="designer-drill-form-section">
+        <label className="designer-drill-form-label">{t(locale, 'designer.drill.endpoints')}</label>
+        <DrillTableFrame>
+          <table className="designer-drill-table designer-drill-table--api">
+            <thead>
+              <tr>
+                <th className="designer-drill-col-method">{t(locale, 'designer.drill.colMethod')}</th>
+                <th className="designer-drill-col-path">{t(locale, 'designer.drill.colPath')}</th>
+                <th>{t(locale, 'designer.drill.colRequest')}</th>
+                <th>{t(locale, 'designer.drill.colResponse')}</th>
+                <th>{t(locale, 'designer.drill.colErrors')}</th>
+                <th className="designer-drill-col-action"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {endpoints.map((endpoint, index) => (
+                <tr key={index}>
+                  <td>
+                    <select
+                      value={(endpoint.method ?? '').toUpperCase()}
+                      onChange={(e) =>
+                        patchPayload(updateApiEndpoint(payload, index, { method: e.target.value }))
+                      }
+                    >
+                      <option value=""></option>
+                      {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => (
+                        <option key={method} value={method}>
+                          {method}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={endpoint.path ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateApiEndpoint(payload, index, { path: e.target.value }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={endpoint.request ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateApiEndpoint(payload, index, { request: e.target.value }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={endpoint.response ?? ''}
+                      onChange={(e) =>
+                        patchPayload(updateApiEndpoint(payload, index, { response: e.target.value }))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={formatEndpointErrors(endpoint)}
+                      onChange={(e) =>
+                        patchPayload(updateApiEndpointErrors(payload, index, e.target.value))
+                      }
+                    />
+                  </td>
+                  <td>
+                    <div className="designer-drill-row-actions">
+                      <button
+                        type="button"
+                        className="designer-icon-button"
+                        onClick={() => patchPayload(removeApiEndpoint(payload, index))}
+                        title={t(locale, 'designer.drill.removeRow')}
+                        aria-label={t(locale, 'designer.drill.removeRow')}
+                      >
+                        <AppIcon name="trash" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </DrillTableFrame>
+        <button
+          type="button"
+          className="designer-drill-add-row"
+          onClick={() => patchPayload(addApiEndpoint(payload))}
+          data-no-drag
+        >
+          <AppIcon name="plus" aria-hidden="true" />
+          {t(locale, 'designer.drill.addRow')}
+        </button>
+      </section>
+    </>
   )
 }
 

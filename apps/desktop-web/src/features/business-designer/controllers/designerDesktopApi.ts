@@ -21,6 +21,8 @@ import type {
 import type {
   DesignerFreeformCompletionRequest,
   DesignerFreeformCompletionRun,
+  DesignerFreeformCompletionRunLogRequest,
+  DesignerFreeformCompletionRunLogResult,
   DesignerFreeformCompletionRunStatusRequest,
   DesignerFreeformCompletionRunsResult,
   DesignerRevertToCheckpointRequest,
@@ -300,6 +302,19 @@ export function updateDesignerFreeformCompletionRunStatus(
   >([
     'businessDesignerUpdateFreeformCompletionRunStatus',
     'updateBusinessDesignerFreeformCompletionRunStatus',
+  ])(workspaceId, params)
+}
+
+export function readDesignerFreeformCompletionRunLog(
+  workspaceId: string,
+  params: DesignerFreeformCompletionRunLogRequest,
+): Promise<DesignerFreeformCompletionRunLogResult> {
+  return getApiMethod<
+    [string, DesignerFreeformCompletionRunLogRequest],
+    DesignerFreeformCompletionRunLogResult
+  >([
+    'businessDesignerReadFreeformCompletionRunLog',
+    'readBusinessDesignerFreeformCompletionRunLog',
   ])(workspaceId, params)
 }
 

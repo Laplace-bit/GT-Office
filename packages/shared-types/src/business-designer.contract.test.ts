@@ -7,6 +7,8 @@ import type {
   BusinessDesignerAgentTaskPreviewRequest,
   BusinessDesignerFreeformCompletionRequest,
   BusinessDesignerFreeformCompletionRun,
+  BusinessDesignerFreeformCompletionRunLogRequest,
+  BusinessDesignerFreeformCompletionRunLogResult,
   BusinessDesignerFreeformCompletionRunsResult,
   BusinessDesignerGap,
   BusinessDesignerMockAgentCompletionRequest,
@@ -213,6 +215,20 @@ const freeformCompletionRunsResultSample = {
   documentId: "order-system",
   runs: [freeformCompletionRunSample],
 } satisfies BusinessDesignerFreeformCompletionRunsResult;
+
+const freeformCompletionRunLogRequestSample = {
+  traceId: "designer-ipc-freeform-log-1",
+  workspaceId: "ws-1",
+  documentId: "order-system",
+  requestId: "bdfree_0123456789abcdef",
+} satisfies BusinessDesignerFreeformCompletionRunLogRequest;
+
+const freeformCompletionRunLogResultSample = {
+  workspaceId: "ws-1",
+  documentId: "order-system",
+  requestId: "bdfree_0123456789abcdef",
+  log: "Starting codex freeform completion\n",
+} satisfies BusinessDesignerFreeformCompletionRunLogResult;
 
 const mockAgentCompletionRequestSample = {
   traceId: "designer-ipc-3",

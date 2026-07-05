@@ -229,6 +229,64 @@ fn flow_unknown_state_in_transition() {
 }
 
 #[test]
+fn flow_state_entity_reference_creates_consumes_edge() {
+    let g = graph(vec![
+        block(
+            "lifecycle",
+            "businessFlow",
+            json!({
+                "states": [{"name": "draft", "entity": "Order"}],
+                "transitions": []
+            }),
+        ),
+        block(
+            "order",
+            "entityModel",
+            json!({
+                "entityName": "Order",
+                "fields": [{"name": "id", "type": "string"}]
+            }),
+        ),
+    ]);
+    let result = run_all(&g);
+    assert!(result.derived_edges.iter().any(|edge| {
+        edge.from_block_id == "lifecycle"
+            && edge.to_block_id == "order"
+            && edge.relation == DesignerEdgeRelation::Consumes
+            && edge.source_field.as_deref() == Some("entity")
+    }));
+}
+
+#[test]
+fn flow_state_target_reference_is_accepted_as_entity_alias() {
+    let g = graph(vec![
+        block(
+            "lifecycle",
+            "businessFlow",
+            json!({
+                "states": [{"name": "draft", "target": "Order"}],
+                "transitions": []
+            }),
+        ),
+        block(
+            "order",
+            "entityModel",
+            json!({
+                "entityName": "Order",
+                "fields": [{"name": "id", "type": "string"}]
+            }),
+        ),
+    ]);
+    let result = run_all(&g);
+    assert!(result.derived_edges.iter().any(|edge| {
+        edge.from_block_id == "lifecycle"
+            && edge.to_block_id == "order"
+            && edge.relation == DesignerEdgeRelation::Consumes
+            && edge.source_field.as_deref() == Some("target")
+    }));
+}
+
+#[test]
 fn empty_api_emits_no_endpoints() {
     let g = graph(vec![block("api", "apiContract", json!({"endpoints": []}))]);
     let result = run_all(&g);

@@ -1,4 +1,3 @@
-use gt_abstractions::{TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId};
 use gt_task::{
     AgentToolKind, ChannelMessageEvent, ChannelMessageType, DispatchSender, DispatchSenderType,
     TaskAttachment, TaskDispatchBatchRequest, TaskDispatchBatchResponse,
@@ -7,12 +6,11 @@ use rfd::FileDialog;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
-    io::Write,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::Command,
-    thread,
+    process::{Command, Stdio},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, State};
@@ -21,7 +19,7 @@ use crate::{
     app_state::AppState,
     commands::{
         settings::ai_config::augment_terminal_env_for_agent,
-        task_center::{write_terminal_command_with_submit, write_terminal_with_submit},
+        task_center::write_terminal_with_submit,
     },
 };
 
@@ -37,7 +35,6 @@ const PATCHES_DIR: &str = "patches";
 const AGENT_RUNS_DIR: &str = ".agent-runs";
 const AGENT_REQUEST_HASH_OFFSET: u64 = 0xcbf29ce484222325;
 const AGENT_REQUEST_HASH_PRIME: u64 = 0x100000001b3;
-const FREEFORM_PROMPT_INJECTION_DELAY_MS: u64 = 150;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -643,6 +640,15 @@ pub(crate) struct DesignerFreeformCompletionRunStatusRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesignerFreeformCompletionRunLogRequest {
+    pub trace_id: Option<String>,
+    pub workspace_id: String,
+    pub document_id: String,
+    pub request_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesignerRevertToCheckpointRequest {
     pub trace_id: Option<String>,
     pub workspace_id: String,
@@ -676,6 +682,15 @@ pub(crate) struct DesignerFreeformCompletionRunsResult {
     pub workspace_id: String,
     pub document_id: String,
     pub runs: Vec<DesignerFreeformCompletionRun>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesignerFreeformCompletionRunLogResult {
+    pub workspace_id: String,
+    pub document_id: String,
+    pub request_id: String,
+    pub log: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -881,7 +896,7 @@ pub(crate) fn validate_document_at(
     workspace_root: &Path,
     document_id: &str,
 ) -> Result<Value, String> {
-    let detail = read_document_at(&workspace_id, &workspace_root, &document_id)?;
+    let detail = read_document_at(workspace_id, workspace_root, document_id)?;
     let diagnostics = validate_design(&detail.manifest, &detail.design);
     let rule_result = gap_rules::run_all(&detail.design);
     serde_json::to_value(json!({
@@ -1114,8 +1129,8 @@ pub(crate) fn preview_agent_task_at(request: AgentTaskPreviewRequest<'_>) -> Res
         "selectedBlockIds": request.selected_block_ids,
         "revision": detail.design.revision,
         "contextPath": format!("{DOCS_ROOT_RELATIVE}/{DOCUMENTS_DIR}/{}/design.json", detail.manifest.document_id),
-        "outputContract": "DesignerAgentPatch",
-        "lifecycle": "preview -> validate -> confirm -> dispatch -> receive patch -> validate patch -> review -> apply -> compile -> checkpoint",
+        "outputContract": "directDesignFileEdit",
+        "lifecycle": "preview -> validate -> confirm -> dispatch -> agent edits design files -> workspace reloads -> validate -> compile -> checkpoint",
         "hostBlockId": target.host_block_id,
         "gapCodes": target.gap_codes,
         "targetGapKeys": target.target_gap_keys,
@@ -1456,6 +1471,30 @@ pub fn business_designer_list_freeform_completion_runs(
 }
 
 #[tauri::command]
+pub fn business_designer_read_freeform_completion_run_log(
+    request: DesignerFreeformCompletionRunLogRequest,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    let workspace_id = normalize_workspace_id(&request.workspace_id)?;
+    tracing::info!(
+        trace_id = request.trace_id.as_deref(),
+        workspace_id = %workspace_id,
+        document_id = %request.document_id,
+        request_id = %request.request_id,
+        "reading business designer freeform completion run log"
+    );
+    let workspace_root = resolve_workspace_root(state.inner(), &workspace_id)?;
+    let result = read_freeform_completion_run_log_at(
+        &workspace_id,
+        &workspace_root,
+        &request.document_id,
+        &request.request_id,
+    )?;
+    serde_json::to_value(result)
+        .map_err(|error| format!("BUSINESS_DESIGNER_SERIALIZE_FAILED: {error}"))
+}
+
+#[tauri::command]
 pub fn business_designer_update_freeform_completion_run_status(
     request: DesignerFreeformCompletionRunStatusRequest,
     state: State<'_, AppState>,
@@ -1697,6 +1736,10 @@ fn freeform_run_path(document_root: &Path, request_id: &str) -> PathBuf {
     freeform_runs_dir(document_root).join(format!("{request_id}.json"))
 }
 
+fn freeform_run_log_path(document_root: &Path, request_id: &str) -> PathBuf {
+    freeform_runs_dir(document_root).join(format!("{request_id}.log"))
+}
+
 fn list_freeform_completion_runs_at(
     workspace_id: &str,
     workspace_root: &Path,
@@ -1717,12 +1760,13 @@ fn list_freeform_completion_runs_at(
                     "BUSINESS_DESIGNER_FREEFORM_RUNS_FAILED: unable to inspect run entry: {error}"
                 )
             })?;
-            if !entry.path().extension().is_some_and(|ext| ext == "json") {
+            if entry.path().extension().is_none_or(|ext| ext != "json") {
                 continue;
             }
-            runs.push(read_json_file::<DesignerFreeformCompletionRun>(
-                &entry.path(),
-            )?);
+            let run_path = entry.path();
+            let mut run = read_json_file::<DesignerFreeformCompletionRun>(&run_path)?;
+            reconcile_stale_freeform_run_status(&document_root, &run_path, &mut run);
+            runs.push(run);
         }
     }
     runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -1730,6 +1774,87 @@ fn list_freeform_completion_runs_at(
         workspace_id: workspace_id.to_string(),
         document_id: document_id.to_string(),
         runs,
+    })
+}
+
+fn reconcile_stale_freeform_run_status(
+    document_root: &Path,
+    run_path: &Path,
+    run: &mut DesignerFreeformCompletionRun,
+) {
+    if run.status != DesignerFreeformCompletionRunStatus::Running {
+        return;
+    }
+    let log_path = freeform_run_log_path(document_root, &run.request_id);
+    let Some(status) = infer_freeform_completion_status_from_log(&log_path) else {
+        return;
+    };
+    run.status = status;
+    run.updated_at = now_iso_timestamp();
+    if let Err(error) = atomic_write_json(run_path, run) {
+        append_freeform_run_log(&log_path, &format!("\n[status update failed]\n{error}\n"));
+    }
+}
+
+fn infer_freeform_completion_status_from_log(
+    log_path: &Path,
+) -> Option<DesignerFreeformCompletionRunStatus> {
+    let log = fs::read_to_string(log_path).ok()?;
+    if log.contains("\n[cancelled]\n") {
+        return Some(DesignerFreeformCompletionRunStatus::Cancelled);
+    }
+    if log.contains("\n[spawn failed]\n") || log.contains("\n[wait failed]\n") {
+        return Some(DesignerFreeformCompletionRunStatus::Failed);
+    }
+    let exit_index = log.rfind("\n[exit]\n")?;
+    let exit_text = &log[exit_index..];
+    if exit_text.contains("status: exit status: 0") || exit_text.contains("status: exit code: 0") {
+        Some(DesignerFreeformCompletionRunStatus::Completed)
+    } else if exit_text.contains("status:") {
+        Some(DesignerFreeformCompletionRunStatus::Failed)
+    } else {
+        None
+    }
+}
+
+fn read_freeform_completion_run_log_at(
+    workspace_id: &str,
+    workspace_root: &Path,
+    document_id: &str,
+    request_id: &str,
+) -> Result<DesignerFreeformCompletionRunLogResult, String> {
+    let docs_root = docs_root_for(workspace_root);
+    ensure_inside_workspace(workspace_root, &docs_root)?;
+    let document_root = document_root_for(&docs_root, document_id)?;
+    ensure_inside_workspace(workspace_root, &document_root)?;
+    let run_path = freeform_run_path(&document_root, request_id);
+    if !run_path.exists() {
+        return Err(format!(
+            "BUSINESS_DESIGNER_FREEFORM_RUN_NOT_FOUND: run '{request_id}' was not found"
+        ));
+    }
+    let run = read_json_file::<DesignerFreeformCompletionRun>(&run_path)?;
+    if run.workspace_id != workspace_id || run.document_id != document_id {
+        return Err(
+            "BUSINESS_DESIGNER_FREEFORM_RUN_INVALID: run metadata does not match request"
+                .to_string(),
+        );
+    }
+    let log_path = freeform_run_log_path(&document_root, request_id);
+    let log = match fs::read_to_string(&log_path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(format!(
+                "BUSINESS_DESIGNER_FREEFORM_LOG_FAILED: unable to read run log: {error}"
+            ))
+        }
+    };
+    Ok(DesignerFreeformCompletionRunLogResult {
+        workspace_id: workspace_id.to_string(),
+        document_id: document_id.to_string(),
+        request_id: request_id.to_string(),
+        log,
     })
 }
 
@@ -1820,35 +1945,15 @@ fn start_freeform_completion_at(
             user_prompt: request.user_prompt.as_deref(),
         },
     );
-    let terminal_request = TerminalCreateRequest {
-        workspace_id: WorkspaceId::new(workspace_id.to_string()),
-        shell: Some("auto".to_string()),
-        cwd: Some(document_root_display.clone()),
-        cwd_mode: TerminalCwdMode::Custom,
-        env: augment_terminal_env_for_agent(
-            app,
-            state,
-            workspace_id,
-            tool_kind,
-            true,
-            Default::default(),
-        )?,
-        agent_tool_kind: Some(provider.as_str().to_string()),
-        login_shell: Some(true),
-    };
-    let session = state
-        .terminal_provider
-        .create_session(terminal_request)
-        .map_err(|error| format!("BUSINESS_DESIGNER_FREEFORM_SESSION_FAILED: {error}"))?;
-    state
-        .terminal_provider
-        .set_session_visibility(&session.session_id, true)
-        .map_err(|error| {
-            format!("BUSINESS_DESIGNER_FREEFORM_SESSION_VISIBILITY_FAILED: {error}")
-        })?;
-    write_terminal_command_with_submit(state, &session.session_id, provider.as_str(), "\r")?;
-    thread::sleep(Duration::from_millis(FREEFORM_PROMPT_INJECTION_DELAY_MS));
-    write_terminal_with_submit(state, &session.session_id, &prompt, "\r")?;
+    let env = augment_terminal_env_for_agent(
+        app,
+        state,
+        workspace_id,
+        tool_kind,
+        true,
+        Default::default(),
+    )?;
+    let command_path = resolve_freeform_cli_command(provider, &env)?;
     let run = DesignerFreeformCompletionRun {
         request_id,
         workspace_id: workspace_id.to_string(),
@@ -1856,7 +1961,7 @@ fn start_freeform_completion_at(
         scenario: request.scenario,
         host_block_id: request.host_block_id,
         provider,
-        session_id: session.session_id,
+        session_id: format!("headless:{}", command_path.display()),
         document_root: document_root_display,
         checkpoint_before,
         status: DesignerFreeformCompletionRunStatus::Running,
@@ -1868,8 +1973,232 @@ fn start_freeform_completion_at(
         format!("BUSINESS_DESIGNER_FREEFORM_RUNS_FAILED: unable to create run directory: {error}")
     })?;
     atomic_write_json(&freeform_run_path(&document_root, &run.request_id), &run)?;
+    write_freeform_run_log(
+        &freeform_run_log_path(&document_root, &run.request_id),
+        &format!(
+            "Starting {} freeform completion\ncommand: {}\ndocumentRoot: {}\n\n",
+            provider.as_str(),
+            command_path.display(),
+            document_root.display()
+        ),
+    )?;
+    spawn_freeform_completion_process(FreeformCompletionProcess {
+        workspace_id: workspace_id.to_string(),
+        document_id: detail.manifest.document_id.clone(),
+        request_id: run.request_id.clone(),
+        provider,
+        command_path,
+        document_root,
+        prompt,
+        env,
+    });
     let _ = app.emit("business-designer/freeform-run-started", &run);
     Ok(run)
+}
+
+struct FreeformCompletionProcess {
+    workspace_id: String,
+    document_id: String,
+    request_id: String,
+    provider: DesignerFreeformCompletionProvider,
+    command_path: PathBuf,
+    document_root: PathBuf,
+    prompt: String,
+    env: BTreeMap<String, String>,
+}
+
+fn resolve_freeform_cli_command(
+    provider: DesignerFreeformCompletionProvider,
+    env: &BTreeMap<String, String>,
+) -> Result<PathBuf, String> {
+    let override_var = match provider {
+        DesignerFreeformCompletionProvider::Codex => "GTO_CODEX_COMMAND",
+        DesignerFreeformCompletionProvider::Claude => "GTO_CLAUDE_COMMAND",
+    };
+    if let Some(value) = env
+        .get(override_var)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        let path = PathBuf::from(value);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+    crate::commands::tool_adapter::resolve_structured_cli_command(provider.as_tool_kind()).map_err(
+        |error| {
+            format!(
+                "BUSINESS_DESIGNER_FREEFORM_COMMAND_NOT_FOUND: unable to resolve {} CLI: {error}",
+                provider.as_str()
+            )
+        },
+    )
+}
+
+fn write_freeform_run_log(path: &Path, text: &str) -> Result<(), String> {
+    fs::write(path, text).map_err(|error| {
+        format!("BUSINESS_DESIGNER_FREEFORM_LOG_FAILED: unable to write run log: {error}")
+    })
+}
+
+fn append_freeform_run_log(path: &Path, text: &str) {
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(text.as_bytes());
+    }
+}
+
+fn spawn_freeform_completion_process(process: FreeformCompletionProcess) {
+    std::thread::spawn(move || {
+        let log_path = freeform_run_log_path(&process.document_root, &process.request_id);
+        let status = run_freeform_completion_process(&process, &log_path);
+        finish_freeform_completion_process(&process, status);
+    });
+}
+
+fn run_freeform_completion_process(
+    process: &FreeformCompletionProcess,
+    log_path: &Path,
+) -> DesignerFreeformCompletionRunStatus {
+    let mut command = match process.provider {
+        DesignerFreeformCompletionProvider::Codex => {
+            let last_message_path = std::env::temp_dir().join(format!(
+                "gtoffice-business-designer-{}-last-message.txt",
+                process.request_id
+            ));
+            let mut command = Command::new(&process.command_path);
+            command
+                .current_dir(&process.document_root)
+                .envs(&process.env)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .arg("exec")
+                .arg("--json")
+                .arg("--skip-git-repo-check")
+                .arg("--output-last-message")
+                .arg(&last_message_path)
+                .arg(&process.prompt);
+            command
+        }
+        DesignerFreeformCompletionProvider::Claude => {
+            let mut command = Command::new(&process.command_path);
+            command
+                .current_dir(&process.document_root)
+                .envs(&process.env)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .args(crate::commands::tool_adapter::claude_print_stream_json_args())
+                .arg(&process.prompt);
+            command
+        }
+    };
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            append_freeform_run_log(log_path, &format!("\n[spawn failed]\n{error}\n"));
+            return DesignerFreeformCompletionRunStatus::Failed;
+        }
+    };
+    append_freeform_run_log(log_path, &format!("[spawned]\npid: {:?}\n", child.id()));
+
+    let stdout_handle = child
+        .stdout
+        .take()
+        .map(|stdout| spawn_freeform_output_logger(log_path.to_path_buf(), "stdout", stdout));
+    let stderr_handle = child
+        .stderr
+        .take()
+        .map(|stderr| spawn_freeform_output_logger(log_path.to_path_buf(), "stderr", stderr));
+
+    let status = loop {
+        if freeform_completion_was_cancelled(process) {
+            append_freeform_run_log(log_path, "\n[cancelled]\nterminating child process\n");
+            let _ = child.kill();
+            let _ = child.wait();
+            return DesignerFreeformCompletionRunStatus::Cancelled;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => std::thread::sleep(Duration::from_millis(500)),
+            Err(error) => {
+                append_freeform_run_log(log_path, &format!("\n[wait failed]\n{error}\n"));
+                return DesignerFreeformCompletionRunStatus::Failed;
+            }
+        }
+    };
+    if let Some(handle) = stdout_handle {
+        let _ = handle.join();
+    }
+    if let Some(handle) = stderr_handle {
+        let _ = handle.join();
+    }
+    append_freeform_run_log(log_path, &format!("\n[exit]\nstatus: {status}\n"));
+    if status.success() {
+        DesignerFreeformCompletionRunStatus::Completed
+    } else {
+        DesignerFreeformCompletionRunStatus::Failed
+    }
+}
+
+fn spawn_freeform_output_logger<R>(
+    log_path: PathBuf,
+    stream_name: &'static str,
+    reader: R,
+) -> std::thread::JoinHandle<()>
+where
+    R: std::io::Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        append_freeform_run_log(&log_path, &format!("\n[{stream_name}]\n"));
+        let reader = BufReader::new(reader);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => append_freeform_run_log(&log_path, &format!("{line}\n")),
+                Err(error) => {
+                    append_freeform_run_log(
+                        &log_path,
+                        &format!("[{stream_name} read failed] {error}\n"),
+                    );
+                    break;
+                }
+            }
+        }
+    })
+}
+
+fn freeform_completion_was_cancelled(process: &FreeformCompletionProcess) -> bool {
+    let run_path = freeform_run_path(&process.document_root, &process.request_id);
+    read_json_file::<DesignerFreeformCompletionRun>(&run_path)
+        .map(|run| run.status == DesignerFreeformCompletionRunStatus::Cancelled)
+        .unwrap_or(false)
+}
+
+fn finish_freeform_completion_process(
+    process: &FreeformCompletionProcess,
+    status: DesignerFreeformCompletionRunStatus,
+) {
+    let run_path = freeform_run_path(&process.document_root, &process.request_id);
+    let Ok(mut run) = read_json_file::<DesignerFreeformCompletionRun>(&run_path) else {
+        append_freeform_run_log(
+            &freeform_run_log_path(&process.document_root, &process.request_id),
+            "\n[status update failed]\nunable to read run record\n",
+        );
+        return;
+    };
+    if run.workspace_id != process.workspace_id
+        || run.document_id != process.document_id
+        || run.status != DesignerFreeformCompletionRunStatus::Running
+    {
+        return;
+    }
+    run.status = status;
+    run.updated_at = now_iso_timestamp();
+    if let Err(error) = atomic_write_json(&run_path, &run) {
+        append_freeform_run_log(
+            &freeform_run_log_path(&process.document_root, &process.request_id),
+            &format!("\n[status update failed]\n{error}\n"),
+        );
+    }
 }
 
 fn normalize_git_revision(revision: &str) -> Result<String, String> {
@@ -4708,11 +5037,13 @@ fn render_design_completion_markdown_with_host(
         "# Agent completion: {}\n\n",
         detail.manifest.title
     ));
-    output.push_str("You are preparing a typed GT Office Business Designer patch.\n\n");
+    output.push_str(
+        "You are editing a GT Office Business Designer document through the CLI Agent.\n\n",
+    );
     output.push_str("## Your task\n\n");
     output.push_str(
-        "Return a single JSON object that matches `DesignerAgentPatch`. Do not edit files directly. \
-         The UI will validate and present the patch for human review before applying it.\n\n",
+        "Edit the Business Designer document files directly. The GT Office workbench is only the \
+         visual control surface; it will reload and validate the files after you save them.\n\n",
     );
     output.push_str("## Design file\n\n");
     output.push_str(&format!("- Path: `{}`\n", design_path));
@@ -4751,8 +5082,15 @@ fn render_design_completion_markdown_with_host(
         output.push_str("\n\n");
     }
     output.push_str("## Operating rules\n\n");
-    output.push_str("- Return JSON only; no markdown wrapper.\n");
-    output.push_str("- `schemaVersion` must be 1.\n");
+    output.push_str(
+        "- Edit only files inside the Business Designer document directory for this document.\n",
+    );
+    output.push_str("- The primary file to edit is the `Design file` path above.\n");
+    output.push_str("- Do not edit application source code, tests, build scripts, dependencies, or repository configuration.\n");
+    output.push_str("- Keep JSON valid and readable.\n");
+    output.push_str("- Do not return a `DesignerAgentPatch`; save the file changes instead.\n");
+    output.push_str("- When done, reply with a concise summary of changed files and remaining human-review items.\n");
+    output.push_str("- `schemaVersion` must remain 1.\n");
     output.push_str(&format!(
         "- `documentId` must be `{}`.\n",
         detail.manifest.document_id
@@ -4761,8 +5099,10 @@ fn render_design_completion_markdown_with_host(
         "- `baseRevision` must be `{}`.\n",
         detail.design.revision
     ));
-    output.push_str("- Do not include `requestId`; it is dispatch metadata, not part of `DesignerAgentPatch`.\n");
-    output.push_str(&format!("- `hostBlockId` must be `{host_block_id}`.\n"));
+    output.push_str("- Do not add `requestId` to design files; it is dispatch metadata.\n");
+    output.push_str(&format!(
+        "- Focus changes on host block `{host_block_id}`.\n"
+    ));
     output.push_str(&format!("- `scope` must be `{}`.\n", scope.as_str()));
     if gap_codes.is_empty() {
         output.push_str("- `gapCodes` must contain the target gaps from this task.\n");
@@ -4780,14 +5120,10 @@ fn render_design_completion_markdown_with_host(
             target_gap_keys.join(", ")
         ));
     }
+    output.push_str("- Prefer updating the host block. Add adjacent design blocks only when they are necessary to complete the selected gap.\n");
+    output.push_str("- Do not hand-author `links`; graph edges are derived by validation.\n");
     output.push_str(
-        "- `changes` may contain only `updateBlock` changes where `targetBlockId` equals the host block.\n",
-    );
-    output.push_str("- Do not add blocks. Do not delete blocks. Do not modify non-host blocks.\n");
-    output
-        .push_str("- Do not include `links` in patches; graph edges are derived by validation.\n");
-    output.push_str(
-        "- If you cannot safely fix the target gaps, return an empty `changes` array and explain in `openQuestions`.\n",
+        "- If you cannot safely fix the target gaps, leave the file unchanged and explain what human decision is missing.\n",
     );
     output
 }

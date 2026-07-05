@@ -36,6 +36,7 @@ export interface OpenedFile {
   hydrated: boolean
   viewType: 'editor' | 'preview'
   mtimeMs: number
+  contentSignature?: string
   isStale?: boolean
 }
 

@@ -160,7 +160,17 @@ fn derive_edges(graph: &DesignerDesignGraph) -> Vec<DesignerDerivedEdge> {
                     .cloned()
                     .unwrap_or_default();
                 for state in states {
-                    if let Some(target_name) = state.get("entity").and_then(Value::as_str) {
+                    let relation_target = state
+                        .get("entity")
+                        .and_then(Value::as_str)
+                        .map(|target_name| ("entity", target_name))
+                        .or_else(|| {
+                            state
+                                .get("target")
+                                .and_then(Value::as_str)
+                                .map(|target_name| ("target", target_name))
+                        });
+                    if let Some((slot, target_name)) = relation_target {
                         if let Some(target_block_id) =
                             resolve_entity_ref(target_name, &entity_name_to_id)
                         {
@@ -170,7 +180,7 @@ fn derive_edges(graph: &DesignerDesignGraph) -> Vec<DesignerDerivedEdge> {
                                 &block.id,
                                 &target_block_id,
                                 DesignerEdgeRelation::Consumes,
-                                Some("entity".to_string()),
+                                Some(slot.to_string()),
                             );
                         }
                     }

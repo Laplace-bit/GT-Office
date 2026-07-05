@@ -21,6 +21,7 @@ import {
   buildGraphView,
   NODE_HEIGHT,
   NODE_WIDTH,
+  normalizeDesignerNodePosition,
   type DesignerGraphEdge,
   type DesignerGraphNode,
 } from '../model/designer-graph'
@@ -434,9 +435,12 @@ export const DesignerGraphCanvas = memo(function DesignerGraphCanvas({
         node.style.transform = ''
       }
       dragStateRef.current = null
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture?.(event.pointerId)
+      }
       if (moved) {
         // Single IPC for the whole drag (§12.5 contract).
-        onMoveBlock(state.blockId, finalPosition)
+        onMoveBlock(state.blockId, normalizeDesignerNodePosition(finalPosition))
       } else {
         // Treat as click — select the block.
         onSelectBlock(state.blockId)
@@ -444,6 +448,20 @@ export const DesignerGraphCanvas = memo(function DesignerGraphCanvas({
     },
     [zoom, onMoveBlock, onSelectBlock],
   )
+
+  const handleNodePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current
+    if (!state) return
+    const node = nodeRefs.current.get(state.blockId)
+    node?.classList.remove('is-dragging')
+    if (node) {
+      node.style.transform = ''
+    }
+    dragStateRef.current = null
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    }
+  }, [])
 
   const handleNodeDoubleClick = useCallback(
     (blockId: string) => () => {
@@ -637,6 +655,7 @@ export const DesignerGraphCanvas = memo(function DesignerGraphCanvas({
                 onPointerDown={handleNodePointerDown(node.block, node.position)}
                 onPointerMove={handleNodePointerMove}
                 onPointerUp={handleNodePointerUp}
+                onPointerCancel={handleNodePointerCancel}
                 onFocus={() => onSelectBlock(node.block.id)}
                 onDoubleClick={handleNodeDoubleClick(node.block.id)}
                 onDeleteBlock={onDeleteBlock}
@@ -726,6 +745,7 @@ interface NodeViewProps {
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void
   onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => void
   onFocus: (event: ReactFocusEvent<HTMLDivElement>) => void
   onDoubleClick: () => void
   onDeleteBlock: (block: DesignerBlock) => void
@@ -739,6 +759,7 @@ function NodeView({
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onPointerCancel,
   onFocus,
   onDoubleClick,
   onDeleteBlock,
@@ -755,6 +776,9 @@ function NodeView({
   const kindLabel = designerBlockKindLabel(locale, node.block.kind)
   const nodeTitle = node.block.title || node.block.id
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) {
+      return
+    }
     if (event.key !== 'Enter') {
       return
     }
@@ -776,7 +800,7 @@ function NodeView({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onFocus={onFocus}
       onKeyDown={handleKeyDown}
       onDoubleClick={onDoubleClick}
@@ -796,7 +820,9 @@ function NodeView({
             <button
               type="button"
               className="designer-node-delete-btn"
+              data-no-drag
               onPointerDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation()
                 onDeleteBlock(node.block)

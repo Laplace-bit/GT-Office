@@ -255,6 +255,330 @@ fn read_and_save_document_round_trip_blocks() {
 }
 
 #[test]
+fn save_document_persists_entity_flow_api_crud_edits_and_layout_cleanup() {
+    let temp = TempWorkspace::new("save-structured-crud");
+    let mut detail =
+        create_document_at("ws-1", temp.root(), "commerce", "Commerce", None).expect("create");
+    let document_root = temp.root().join(".gtoffice/docs/documents/commerce");
+
+    let timestamp = detail.design.revision.clone();
+    detail.design.blocks = vec![
+        DesignerBlock {
+            id: "brief".to_string(),
+            kind: "text".to_string(),
+            title: "Brief".to_string(),
+            order: 0,
+            payload: json!({ "markdown": "Commerce handles orders." }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "order".to_string(),
+            kind: "entityModel".to_string(),
+            title: "Order".to_string(),
+            order: 10,
+            payload: json!({
+                "entityName": "Order",
+                "fields": [
+                    { "name": "id", "type": "string", "isPrimaryKey": true },
+                    { "name": "customerEmail", "type": "string" },
+                    { "name": "legacyCoupon", "type": "string" }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "order-flow".to_string(),
+            kind: "businessFlow".to_string(),
+            title: "Order Flow".to_string(),
+            order: 20,
+            payload: json!({
+                "states": [
+                    { "name": "draft", "entity": "Order", "initial": true },
+                    { "name": "review", "entity": "Order" },
+                    { "name": "cancelled", "entity": "Order", "terminal": true },
+                    { "name": "paid", "entity": "Order", "terminal": true }
+                ],
+                "transitions": [
+                    { "from": "draft", "to": "review" },
+                    { "from": "review", "to": "cancelled" },
+                    { "from": "review", "to": "paid" }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "order-api".to_string(),
+            kind: "apiContract".to_string(),
+            title: "Order API".to_string(),
+            order: 30,
+            payload: json!({
+                "endpoints": [
+                    {
+                        "method": "POST",
+                        "path": "/orders",
+                        "request": "Order",
+                        "response": "Order",
+                        "errorCodes": ["ORDER_INVALID"]
+                    },
+                    {
+                        "method": "DELETE",
+                        "path": "/orders/legacy",
+                        "request": "LegacyOrderDelete",
+                        "response": "LegacyOrderDeleteResult",
+                        "errorCodes": ["ORDER_LEGACY"]
+                    }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "legacy-api".to_string(),
+            kind: "apiContract".to_string(),
+            title: "Legacy API".to_string(),
+            order: 40,
+            payload: json!({
+                "endpoints": [
+                    {
+                        "method": "GET",
+                        "path": "/legacy-orders",
+                        "request": "LegacyOrderQuery",
+                        "response": "LegacyOrderList",
+                        "errorCodes": ["ORDER_LEGACY"]
+                    }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp,
+        },
+    ];
+    detail.manifest.layout = Some(HashMap::from([
+        (
+            "order".to_string(),
+            DesignerLayoutPosition { x: 320.0, y: 120.0 },
+        ),
+        (
+            "order-flow".to_string(),
+            DesignerLayoutPosition { x: 620.0, y: 120.0 },
+        ),
+        (
+            "order-api".to_string(),
+            DesignerLayoutPosition { x: 920.0, y: 120.0 },
+        ),
+        (
+            "legacy-api".to_string(),
+            DesignerLayoutPosition {
+                x: 1220.0,
+                y: 120.0,
+            },
+        ),
+    ]));
+    save_document_at("ws-1", temp.root(), detail).expect("save initial document");
+    assert!(document_root.join("blocks/legacy-api.json").is_file());
+
+    let mut edited =
+        read_document_at("ws-1", temp.root(), "commerce").expect("read initial document");
+    let timestamp = edited.design.revision.clone();
+    edited.design.blocks = vec![
+        DesignerBlock {
+            id: "brief".to_string(),
+            kind: "text".to_string(),
+            title: "Brief".to_string(),
+            order: 0,
+            payload: json!({ "markdown": "Commerce handles paid order operations." }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "order".to_string(),
+            kind: "entityModel".to_string(),
+            title: "Order".to_string(),
+            order: 10,
+            payload: json!({
+                "entityName": "Order",
+                "fields": [
+                    { "name": "id", "type": "string", "isPrimaryKey": true },
+                    { "name": "status", "type": "OrderStatus", "description": "Current order lifecycle state" },
+                    { "name": "total", "type": "decimal", "description": "Captured order amount" }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "order-flow".to_string(),
+            kind: "businessFlow".to_string(),
+            title: "Order Fulfillment Flow".to_string(),
+            order: 20,
+            payload: json!({
+                "states": [
+                    { "name": "draft", "entity": "Order", "initial": true },
+                    { "name": "approved", "entity": "Order" },
+                    { "name": "paid", "entity": "Order", "terminal": true }
+                ],
+                "transitions": [
+                    { "from": "draft", "to": "approved" },
+                    { "from": "approved", "to": "paid" }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp.clone(),
+        },
+        DesignerBlock {
+            id: "order-api".to_string(),
+            kind: "apiContract".to_string(),
+            title: "Order API".to_string(),
+            order: 30,
+            payload: json!({
+                "endpoints": [
+                    {
+                        "method": "POST",
+                        "path": "/orders",
+                        "request": "CreateOrderRequest",
+                        "response": "Order",
+                        "errorCodes": ["ORDER_INVALID", "ORDER_DUPLICATE"]
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/orders/{id}",
+                        "request": "GetOrderRequest",
+                        "response": "Order",
+                        "errorCodes": ["ORDER_NOT_FOUND"]
+                    }
+                ]
+            }),
+            links: Vec::new(),
+            validation: Vec::new(),
+            updated_at: timestamp,
+        },
+    ];
+    edited.manifest.layout = Some(HashMap::from([
+        (
+            "order".to_string(),
+            DesignerLayoutPosition { x: 336.0, y: 144.0 },
+        ),
+        (
+            "order-flow".to_string(),
+            DesignerLayoutPosition { x: 656.0, y: 152.0 },
+        ),
+        (
+            "order-api".to_string(),
+            DesignerLayoutPosition { x: 976.0, y: 168.0 },
+        ),
+        (
+            "legacy-api".to_string(),
+            DesignerLayoutPosition {
+                x: 1220.0,
+                y: 120.0,
+            },
+        ),
+    ]));
+
+    save_document_at("ws-1", temp.root(), edited).expect("save edited document");
+    let read_back = read_document_at("ws-1", temp.root(), "commerce").expect("read document");
+
+    let order = read_back
+        .design
+        .blocks
+        .iter()
+        .find(|block| block.id == "order")
+        .expect("order block");
+    let fields = order.payload["fields"].as_array().expect("entity fields");
+    let field_names = fields
+        .iter()
+        .filter_map(|field| field["name"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(field_names, vec!["id", "status", "total"]);
+    assert_eq!(fields[0]["isPrimaryKey"], json!(true));
+    assert!(fields.iter().all(|field| field["name"] != "customerEmail"));
+    assert!(fields.iter().all(|field| field["name"] != "legacyCoupon"));
+
+    let flow = read_back
+        .design
+        .blocks
+        .iter()
+        .find(|block| block.id == "order-flow")
+        .expect("flow block");
+    let states = flow.payload["states"].as_array().expect("flow states");
+    let state_names = states
+        .iter()
+        .filter_map(|state| state["name"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(state_names, vec!["draft", "approved", "paid"]);
+    assert!(states.iter().all(|state| state["entity"] == "Order"));
+    assert!(states.iter().all(|state| state.get("target").is_none()));
+    let transitions = flow.payload["transitions"]
+        .as_array()
+        .expect("flow transitions");
+    assert_eq!(transitions.len(), 2);
+    assert!(transitions
+        .iter()
+        .all(|transition| transition["from"] != "review" && transition["to"] != "cancelled"));
+
+    let api = read_back
+        .design
+        .blocks
+        .iter()
+        .find(|block| block.id == "order-api")
+        .expect("api block");
+    let endpoints = api.payload["endpoints"].as_array().expect("api endpoints");
+    let endpoint_paths = endpoints
+        .iter()
+        .filter_map(|endpoint| endpoint["path"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(endpoint_paths, vec!["/orders", "/orders/{id}"]);
+    assert_eq!(
+        endpoints[0]["errorCodes"],
+        json!(["ORDER_INVALID", "ORDER_DUPLICATE"])
+    );
+    assert!(endpoints
+        .iter()
+        .all(|endpoint| endpoint["path"] != "/orders/legacy"));
+    assert!(endpoints
+        .iter()
+        .all(|endpoint| endpoint.get("errors").is_none()));
+
+    let layout = read_back.manifest.layout.expect("layout");
+    assert_eq!(layout["order"].x, 336.0);
+    assert_eq!(layout["order-flow"].x, 656.0);
+    assert_eq!(layout["order-api"].x, 976.0);
+    assert!(!layout.contains_key("legacy-api"));
+    assert!(document_root.join("blocks/order.json").is_file());
+    assert!(document_root.join("blocks/order-flow.json").is_file());
+    assert!(document_root.join("blocks/order-api.json").is_file());
+    assert!(!document_root.join("blocks/legacy-api.json").exists());
+
+    let design_json =
+        fs::read_to_string(document_root.join("design.json")).expect("read design json");
+    for removed_value in [
+        "customerEmail",
+        "legacyCoupon",
+        "cancelled",
+        "/orders/legacy",
+        "/legacy-orders",
+        "legacy-api",
+    ] {
+        assert!(
+            !design_json.contains(removed_value),
+            "removed value {removed_value} should not remain in design.json"
+        );
+    }
+    assert!(design_json.contains("Order Fulfillment Flow"));
+    assert!(design_json.contains("/orders/{id}"));
+}
+
+#[test]
 fn save_document_removes_deleted_block_layout_and_authored_links() {
     let temp = TempWorkspace::new("save-cleanup");
     let mut detail = create_document_at("ws-1", temp.root(), "cleanup", "Cleanup", None)
@@ -960,7 +1284,7 @@ fn recover_agent_patch_from_task_reads_latest_reply_json_patch() {
 }
 
 #[test]
-fn real_agent_prompt_requires_typed_host_patch() {
+fn real_agent_prompt_guides_direct_document_edits() {
     let temp = TempWorkspace::new("agent-prompt");
     let detail = create_document_at("ws-1", temp.root(), "prompt-doc", "Prompt Doc", None)
         .expect("create document");
@@ -973,15 +1297,16 @@ fn real_agent_prompt_requires_typed_host_patch() {
         DesignerAgentTaskScope::Single,
     );
 
-    assert!(markdown.contains("DesignerAgentPatch"));
-    assert!(markdown.contains("Do not edit files directly"));
-    assert!(markdown.contains("Do not include `requestId`"));
-    assert!(markdown.contains("`hostBlockId` must be `overview`"));
+    assert!(markdown.contains("Edit the Business Designer document files directly"));
+    assert!(markdown.contains("The primary file to edit is the `Design file` path above"));
+    assert!(markdown.contains("Do not return a `DesignerAgentPatch`"));
+    assert!(markdown.contains("Do not add `requestId` to design files"));
+    assert!(markdown.contains("Focus changes on host block `overview`"));
     assert!(markdown.contains("`targetGapKeys` must be exactly: `entityModel:overview:no-pk`"));
-    assert!(markdown.contains("Do not include `links` in patches"));
-    assert!(!markdown.contains("`requestId` is"));
-    assert!(!markdown.contains("edit **only** the design file"));
-    assert!(!markdown.contains("Do not return a patch object"));
+    assert!(markdown.contains("Do not hand-author `links`"));
+    assert!(!markdown.contains("Do not edit files directly"));
+    assert!(!markdown.contains("Return a single JSON object"));
+    assert!(!markdown.contains("The UI will validate and present the patch"));
 }
 
 #[test]
@@ -1060,6 +1385,11 @@ fn freeform_runs_are_document_local_audit_records() {
         serde_json::to_string_pretty(&run).expect("serialize run"),
     )
     .expect("write run");
+    fs::write(
+        runs_dir.join("bdfree_test.log"),
+        "Starting codex freeform completion\n[stdout]\nprogress\n",
+    )
+    .expect("write run log");
 
     let result = super::list_freeform_completion_runs_at("ws-1", temp.root(), "freeform-runs")
         .expect("list runs");
@@ -1069,6 +1399,124 @@ fn freeform_runs_are_document_local_audit_records() {
     assert_eq!(result.runs.len(), 1);
     assert_eq!(result.runs[0].request_id, "bdfree_test");
     assert_eq!(result.runs[0].checkpoint_before, "abc123");
+
+    let log = super::read_freeform_completion_run_log_at(
+        "ws-1",
+        temp.root(),
+        "freeform-runs",
+        "bdfree_test",
+    )
+    .expect("read run log");
+    assert_eq!(log.request_id, "bdfree_test");
+    assert!(log.log.contains("progress"));
+}
+
+#[test]
+fn freeform_run_list_reconciles_running_record_after_logged_exit() {
+    let temp = TempWorkspace::new("freeform-reconcile");
+    create_document_at(
+        "ws-1",
+        temp.root(),
+        "freeform-reconcile",
+        "Freeform Reconcile",
+        None,
+    )
+    .expect("create document");
+    let document_root = temp
+        .root()
+        .join(".gtoffice/docs/documents/freeform-reconcile");
+    let runs_dir = document_root.join(".agent-runs");
+    fs::create_dir_all(&runs_dir).expect("create runs dir");
+    let run = DesignerFreeformCompletionRun {
+        request_id: "bdfree_failed".to_string(),
+        workspace_id: "ws-1".to_string(),
+        document_id: "freeform-reconcile".to_string(),
+        scenario: DesignerFreeformCompletionScenario::CompleteEntity,
+        host_block_id: Some("overview".to_string()),
+        provider: DesignerFreeformCompletionProvider::Claude,
+        session_id: "headless:/usr/bin/claude".to_string(),
+        document_root: document_root.to_string_lossy().to_string(),
+        checkpoint_before: "abc123".to_string(),
+        status: DesignerFreeformCompletionRunStatus::Running,
+        created_at: "2026-06-21T00:00:00.000Z".to_string(),
+        updated_at: "2026-06-21T00:00:00.000Z".to_string(),
+        user_prompt_summary: Some("Complete entity fields.".to_string()),
+    };
+    fs::write(
+        runs_dir.join("bdfree_failed.json"),
+        serde_json::to_string_pretty(&run).expect("serialize run"),
+    )
+    .expect("write run");
+    fs::write(
+        runs_dir.join("bdfree_failed.log"),
+        "Starting claude freeform completion\n\n[exit]\nstatus: exit status: 1\n",
+    )
+    .expect("write run log");
+
+    let result = super::list_freeform_completion_runs_at("ws-1", temp.root(), "freeform-reconcile")
+        .expect("list runs");
+
+    assert_eq!(
+        result.runs[0].status,
+        DesignerFreeformCompletionRunStatus::Failed
+    );
+    let persisted = super::read_json_file::<DesignerFreeformCompletionRun>(
+        &runs_dir.join("bdfree_failed.json"),
+    )
+    .expect("read persisted run");
+    assert_eq!(
+        persisted.status,
+        DesignerFreeformCompletionRunStatus::Failed
+    );
+}
+
+#[test]
+fn freeform_log_status_inference_covers_terminal_states() {
+    let temp = TempWorkspace::new("freeform-log-status");
+
+    for (name, log, expected) in [
+        (
+            "completed-exit-status",
+            "\n[stdout]\ndone\n\n[exit]\nstatus: exit status: 0\n",
+            Some(DesignerFreeformCompletionRunStatus::Completed),
+        ),
+        (
+            "completed-exit-code",
+            "\n[exit]\nstatus: exit code: 0\n",
+            Some(DesignerFreeformCompletionRunStatus::Completed),
+        ),
+        (
+            "failed-exit-status",
+            "\n[stderr]\nError: bad args\n\n[exit]\nstatus: exit status: 1\n",
+            Some(DesignerFreeformCompletionRunStatus::Failed),
+        ),
+        (
+            "failed-spawn",
+            "\n[spawn failed]\nNo such file or directory\n",
+            Some(DesignerFreeformCompletionRunStatus::Failed),
+        ),
+        (
+            "failed-wait",
+            "\n[wait failed]\nprocess handle failed\n",
+            Some(DesignerFreeformCompletionRunStatus::Failed),
+        ),
+        (
+            "cancelled",
+            "\n[cancelled]\nterminating child process\n",
+            Some(DesignerFreeformCompletionRunStatus::Cancelled),
+        ),
+        ("still-running", "\n[stdout]\nprogress\n", None),
+        ("malformed-exit", "\n[exit]\n", None),
+    ] {
+        let log_path = temp.root().join(format!("{name}.log"));
+        fs::write(&log_path, log).expect("write log");
+
+        assert_eq!(
+            super::infer_freeform_completion_status_from_log(&log_path),
+            expected,
+            "{name} should infer expected terminal status"
+        );
+    }
 }
 
 #[test]

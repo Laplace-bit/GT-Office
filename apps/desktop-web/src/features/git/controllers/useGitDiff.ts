@@ -16,6 +16,7 @@ interface UseGitDiffInput {
   selectedPath: string | null
   selectedDiffScope: GitDiffScope
   summaryFiles: GitStatusFile[] | undefined
+  summaryRevision: number | undefined
   cacheRefs: DiffCacheRefs
 }
 
@@ -49,6 +50,7 @@ export function useGitDiff({
   selectedPath,
   selectedDiffScope,
   summaryFiles,
+  summaryRevision,
   cacheRefs,
 }: UseGitDiffInput): UseGitDiffResult {
   const [structuredDiff, setStructuredDiff] = useState<GitDiffStructuredResponse | null>(null)
@@ -60,12 +62,16 @@ export function useGitDiff({
   const selectedFileFingerprint = selectedPath
     ? summaryFiles?.find((file) => file.path === selectedPath)
     : null
-  const selectedDiffFingerprint = buildStatusFileFingerprint(selectedFileFingerprint)
+  const selectedDiffFingerprint = [
+    buildStatusFileFingerprint(selectedFileFingerprint),
+    summaryRevision ?? '',
+  ].join(':')
   const activeDiffScopeRef = useRef({
     workspaceId,
     repositoryPath,
     selectedPath,
     selectedDiffScope,
+    summaryRevision,
     selectedDiffFingerprint,
   })
   activeDiffScopeRef.current = {
@@ -73,6 +79,7 @@ export function useGitDiff({
     repositoryPath,
     selectedPath,
     selectedDiffScope,
+    summaryRevision,
     selectedDiffFingerprint,
   }
 
@@ -204,6 +211,7 @@ export function useGitDiff({
     selectedDiffScope,
     selectedDiffFingerprint,
     selectedPath,
+    summaryRevision,
     summaryFiles,
     workspaceId,
   ])
@@ -218,7 +226,10 @@ export function useGitDiff({
       const requestPath = path
       const requestScope = scope
       const requestFile = summaryFiles?.find((file) => file.path === requestPath)
-      const requestFingerprint = buildStatusFileFingerprint(requestFile)
+      const requestFingerprint = [
+        buildStatusFileFingerprint(requestFile),
+        summaryRevision ?? '',
+      ].join(':')
       const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}:${requestFingerprint}`
       // Skip if already cached or pending
       if (diffCacheRef.current.has(cacheKey) || pendingPreloadsRef.current.has(cacheKey)) return
@@ -264,6 +275,7 @@ export function useGitDiff({
       pendingPreloadsRef,
       preloadTimerRef,
       repositoryPath,
+      summaryRevision,
       summaryFiles,
       workspaceId,
     ],

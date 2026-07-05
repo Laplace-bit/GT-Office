@@ -17,6 +17,15 @@ export const NODE_HEIGHT = 96
 export const NODE_HSPACING = 64
 export const NODE_VSPACING = 56
 
+export function normalizeDesignerNodePosition(
+  position: DesignerLayoutPosition,
+): DesignerLayoutPosition {
+  return {
+    x: Number.isFinite(position.x) ? Math.max(0, position.x) : 0,
+    y: Number.isFinite(position.y) ? Math.max(0, position.y) : 0,
+  }
+}
+
 /** Resolve a canvas position for a block, falling back to a grid layout. */
 export function resolveNodePosition(
   block: DesignerBlock,
@@ -26,7 +35,7 @@ export function resolveNodePosition(
 ): DesignerLayoutPosition {
   const stored = layout?.[block.id]
   if (stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)) {
-    return stored
+    return normalizeDesignerNodePosition(stored)
   }
   const col = index % columns
   const row = Math.floor(index / columns)

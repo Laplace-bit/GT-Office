@@ -3,15 +3,18 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import type { DesignerExportFormat } from '../model/designer-document'
 import { DESIGNER_EXPORT_FORMATS } from '../model/designer-document'
-import type { DesignerOperation } from '../controllers/useDesignerDocumentState'
-
-export type DesignerCreateKind = 'entityModel' | 'businessFlow' | 'apiContract'
+import type { DesignerOperation } from '../model/designer-operation'
+import {
+  resolveDesignerToolbarActionStates,
+  type DesignerCreateKind,
+} from '../model/designer-toolbar-actions'
 
 interface DesignerToolbarProps {
   locale: Locale
   canEdit: boolean
   dirty: boolean
   operation: DesignerOperation | null
+  agentRunning?: boolean
   onSave: () => void
   onExport: (format: DesignerExportFormat) => void
   onCheckpoint: () => void
@@ -20,19 +23,12 @@ interface DesignerToolbarProps {
   onExpandCanvas: (userPrompt?: string | null) => void
 }
 
-function busy(operation: DesignerOperation | null, target: DesignerOperation): boolean {
-  return operation === target
-}
-
-function anyBusy(operation: DesignerOperation | null): boolean {
-  return operation !== null
-}
-
 export function DesignerToolbar({
   locale,
   canEdit,
   dirty,
   operation,
+  agentRunning = false,
   onSave,
   onExport,
   onCheckpoint,
@@ -44,6 +40,17 @@ export function DesignerToolbar({
   const [expandPrompt, setExpandPrompt] = useState('')
   const exportButtonRef = useRef<HTMLButtonElement>(null)
   const exportRef = useRef<HTMLDivElement>(null)
+  const actionStates = resolveDesignerToolbarActionStates({
+    canEdit,
+    operation,
+    agentRunning,
+  })
+
+  useEffect(() => {
+    if (exportOpen && actionStates.export.disabled) {
+      setExportOpen(false)
+    }
+  }, [actionStates.export.disabled, exportOpen])
 
   useEffect(() => {
     if (!exportOpen) {
@@ -103,10 +110,12 @@ export function DesignerToolbar({
         type="button"
         className="designer-tool-button"
         onClick={onSave}
-        disabled={!canEdit || busy(operation, 'save')}
+        disabled={actionStates.save.disabled}
+        title={actionStates.save.busy ? t(locale, 'designer.saving') : t(locale, 'designer.save')}
+        aria-label={actionStates.save.busy ? t(locale, 'designer.saving') : t(locale, 'designer.save')}
       >
         <AppIcon name="check" aria-hidden="true" />
-        <span>{busy(operation, 'save') ? t(locale, 'designer.saving') : t(locale, 'designer.save')}</span>
+        <span>{actionStates.save.busy ? t(locale, 'designer.saving') : t(locale, 'designer.save')}</span>
       </button>
 
       <span className="designer-tool-divider" aria-hidden="true" />
@@ -115,8 +124,9 @@ export function DesignerToolbar({
         type="button"
         className="designer-tool-button"
         onClick={() => onCreateBlock('entityModel')}
-        disabled={!canEdit}
+        disabled={actionStates.createEntity.disabled}
         title={t(locale, 'designer.create.entity')}
+        aria-label={t(locale, 'designer.create.entity')}
       >
         <AppIcon name="database" aria-hidden="true" />
         <span>{t(locale, 'designer.create.entity')}</span>
@@ -125,8 +135,9 @@ export function DesignerToolbar({
         type="button"
         className="designer-tool-button"
         onClick={() => onCreateBlock('businessFlow')}
-        disabled={!canEdit}
+        disabled={actionStates.createFlow.disabled}
         title={t(locale, 'designer.create.flow')}
+        aria-label={t(locale, 'designer.create.flow')}
       >
         <AppIcon name="route" aria-hidden="true" />
         <span>{t(locale, 'designer.create.flow')}</span>
@@ -135,8 +146,9 @@ export function DesignerToolbar({
         type="button"
         className="designer-tool-button"
         onClick={() => onCreateBlock('apiContract')}
-        disabled={!canEdit}
+        disabled={actionStates.createApi.disabled}
         title={t(locale, 'designer.create.api')}
+        aria-label={t(locale, 'designer.create.api')}
       >
         <AppIcon name="braces" aria-hidden="true" />
         <span>{t(locale, 'designer.create.api')}</span>
@@ -148,8 +160,9 @@ export function DesignerToolbar({
           onExpandCanvas(expandPrompt.trim() || null)
           setExpandPrompt('')
         }}
-        disabled={!canEdit || anyBusy(operation)}
+        disabled={actionStates.expandCanvas.disabled}
         title={t(locale, 'designer.freeform.expandCanvas')}
+        aria-label={t(locale, 'designer.freeform.expandCanvas')}
       >
         <AppIcon name="sparkles" aria-hidden="true" />
         <span>{t(locale, 'designer.freeform.expandCanvas')}</span>
@@ -157,12 +170,12 @@ export function DesignerToolbar({
       <input
         className="designer-toolbar-prompt"
         value={expandPrompt}
-        disabled={!canEdit || anyBusy(operation)}
+        disabled={actionStates.expandCanvas.disabled}
         aria-label={t(locale, 'designer.freeform.userPrompt')}
         placeholder={t(locale, 'designer.freeform.toolbarPromptPlaceholder')}
         onChange={(event) => setExpandPrompt(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key !== 'Enter' || !canEdit || anyBusy(operation)) {
+          if (event.key !== 'Enter' || actionStates.expandCanvas.disabled) {
             return
           }
           event.preventDefault()
@@ -181,18 +194,22 @@ export function DesignerToolbar({
           type="button"
           className="designer-tool-button"
           onClick={() => setExportOpen((open) => !open)}
-          disabled={!canEdit || anyBusy(operation)}
+          disabled={actionStates.export.disabled}
           aria-haspopup="menu"
           aria-expanded={exportOpen}
+          aria-controls={exportOpen ? 'designer-export-menu' : undefined}
+          title={actionStates.export.busy ? t(locale, 'designer.exporting') : t(locale, 'designer.export')}
+          aria-label={actionStates.export.busy ? t(locale, 'designer.exporting') : t(locale, 'designer.export')}
         >
           <AppIcon name="cloud-download" aria-hidden="true" />
           <span>
-            {busy(operation, 'export') ? t(locale, 'designer.exporting') : t(locale, 'designer.export')}
+            {actionStates.export.busy ? t(locale, 'designer.exporting') : t(locale, 'designer.export')}
           </span>
           <AppIcon name="chevron-down" aria-hidden="true" />
         </button>
         {exportOpen ? (
           <div
+            id="designer-export-menu"
             className="designer-export-popover"
             role="menu"
             onKeyDown={handleExportMenuKeyDown}
@@ -219,12 +236,13 @@ export function DesignerToolbar({
         type="button"
         className="designer-tool-button"
         onClick={onCheckpoint}
-        disabled={!canEdit || busy(operation, 'checkpoint')}
+        disabled={actionStates.checkpoint.disabled}
         title={t(locale, 'designer.checkpointHint')}
+        aria-label={actionStates.checkpoint.busy ? t(locale, 'designer.checkpointing') : t(locale, 'designer.checkpoint')}
       >
         <AppIcon name="git-commit" aria-hidden="true" />
         <span>
-          {busy(operation, 'checkpoint')
+          {actionStates.checkpoint.busy
             ? t(locale, 'designer.checkpointing')
             : t(locale, 'designer.checkpoint')}
         </span>
@@ -234,8 +252,9 @@ export function DesignerToolbar({
         type="button"
         className="designer-tool-button"
         onClick={onOpenHistory}
-        disabled={!canEdit}
+        disabled={actionStates.history.disabled}
         title={t(locale, 'designer.history.hint')}
+        aria-label={t(locale, 'designer.history.button')}
       >
         <AppIcon name="clock" aria-hidden="true" />
         <span>{t(locale, 'designer.history.button')}</span>

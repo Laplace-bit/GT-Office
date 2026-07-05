@@ -216,6 +216,13 @@ export interface BusinessDesignerFreeformCompletionRunStatusRequest {
   status: BusinessDesignerFreeformCompletionRunStatus;
 }
 
+export interface BusinessDesignerFreeformCompletionRunLogRequest {
+  traceId?: string | null;
+  workspaceId: string;
+  documentId: string;
+  requestId: string;
+}
+
 export interface BusinessDesignerRevertToCheckpointRequest {
   traceId?: string | null;
   workspaceId: string;
@@ -243,6 +250,13 @@ export interface BusinessDesignerFreeformCompletionRunsResult {
   workspaceId: string;
   documentId: string;
   runs: BusinessDesignerFreeformCompletionRun[];
+}
+
+export interface BusinessDesignerFreeformCompletionRunLogResult {
+  workspaceId: string;
+  documentId: string;
+  requestId: string;
+  log: string;
 }
 
 export interface BusinessDesignerMockAgentCompletionRequest {

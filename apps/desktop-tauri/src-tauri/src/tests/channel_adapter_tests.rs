@@ -1,12 +1,12 @@
 use super::{
     align_route_with_resolved_workspace, build_external_content_preview, build_external_title,
-    channel_supports_external_reply, codex_event_text, find_command_in_dir,
-    migrate_legacy_wechat_access_policies, normalize_account_id, normalize_executable_path,
-    nvm_bin_dirs, parse_external_interaction_callback, resolve_cli_candidate,
-    runtime_supports_structured_relay, split_text_for_channel, summarize_external_text,
-    truncate_text_for_channel, validate_binding_target_selector, AgentRuntimeRegistration,
-    AgentToolKind, PersistedChannelAccessPolicy, PersistedChannelStateFile,
-    PersistedRouteBindingRecord,
+    channel_supports_external_reply, claude_print_stream_json_args, codex_event_text,
+    find_command_in_dir, migrate_legacy_wechat_access_policies, normalize_account_id,
+    normalize_executable_path, nvm_bin_dirs, parse_external_interaction_callback,
+    resolve_cli_candidate, runtime_supports_structured_relay, split_text_for_channel,
+    summarize_external_text, truncate_text_for_channel, validate_binding_target_selector,
+    AgentRuntimeRegistration, AgentToolKind, PersistedChannelAccessPolicy,
+    PersistedChannelStateFile, PersistedRouteBindingRecord,
 };
 use gt_agent::{AgentRepository, AgentState, CreateAgentInput};
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
@@ -35,6 +35,17 @@ fn sample_runtime(
         provider_session: None,
         online: true,
     }
+}
+
+#[test]
+fn claude_print_stream_json_args_include_verbose() {
+    let args = claude_print_stream_json_args();
+
+    assert_eq!(args[0], "-p");
+    assert!(args.contains(&"--output-format"));
+    assert!(args.contains(&"stream-json"));
+    assert!(args.contains(&"--verbose"));
+    assert!(args.contains(&"--include-partial-messages"));
 }
 
 #[test]

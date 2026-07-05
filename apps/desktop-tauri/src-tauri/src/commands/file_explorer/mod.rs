@@ -101,6 +101,7 @@ fn build_fs_read_file_response(
     previewable: bool,
     truncated: bool,
     mtime_ms: u64,
+    content_signature: &str,
 ) -> Value {
     json!({
         "workspaceId": workspace_id,
@@ -111,8 +112,19 @@ fn build_fs_read_file_response(
         "previewBytes": preview_bytes,
         "previewable": previewable,
         "truncated": truncated,
-        "mtimeMs": mtime_ms
+        "mtimeMs": mtime_ms,
+        "contentSignature": content_signature
     })
+}
+
+fn metadata_content_signature(metadata: &fs::Metadata) -> String {
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{}:{modified_ns}", metadata.len())
 }
 
 fn build_fs_write_file_response(workspace_id: &str, path: &str, bytes: usize) -> Value {
@@ -351,6 +363,7 @@ fn read_file_with_limit(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
+    let content_signature = metadata_content_signature(&metadata);
 
     let mut file = fs::File::open(target)
         .map_err(|error| format!("FS_READ_FAILED: unable to open file: {error}"))?;
@@ -377,6 +390,7 @@ fn read_file_with_limit(
             false,
             truncated,
             mtime_ms,
+            content_signature.as_str(),
         ));
     }
 
@@ -391,6 +405,7 @@ fn read_file_with_limit(
         true,
         truncated,
         mtime_ms,
+        content_signature.as_str(),
     ))
 }
 
@@ -839,7 +854,8 @@ pub async fn fs_stat_files(
                     "path": path,
                     "sizeBytes": 0,
                     "mtimeMs": 0,
-                    "exists": false
+                    "exists": false,
+                    "contentSignature": ""
                 }));
                 continue;
             };
@@ -851,7 +867,8 @@ pub async fn fs_stat_files(
                     "path": path,
                     "sizeBytes": 0,
                     "mtimeMs": 0,
-                    "exists": false
+                    "exists": false,
+                    "contentSignature": ""
                 }));
                 continue;
             };
@@ -865,7 +882,8 @@ pub async fn fs_stat_files(
                 "path": path,
                 "sizeBytes": metadata.len(),
                 "mtimeMs": mtime_ms,
-                "exists": true
+                "exists": true,
+                "contentSignature": metadata_content_signature(&metadata)
             }));
         }
         Ok(json!({

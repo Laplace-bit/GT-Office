@@ -803,6 +803,7 @@ export function gitSummaryFromUpdatedPayload(payload: GitUpdatedPayload): GitSta
     behind: payload.behind,
     files: payload.files,
     repositories: payload.repositories,
+    revision: payload.revision,
   }
 }
 

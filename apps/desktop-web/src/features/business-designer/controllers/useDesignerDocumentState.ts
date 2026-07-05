@@ -27,6 +27,16 @@ import type {
   DesignerRuleRun,
   DesignerValidationResult,
 } from '../model/designer-validation'
+import type { DesignerOperation } from '../model/designer-operation'
+import {
+  AGENT_BLOCK_KINDS,
+  BRIEF_BLOCK_ID,
+  cloneDesignerDetail,
+  deleteDesignerBlockFromDetail,
+  pruneDesignerValidationForDeletedBlock,
+  setDesignerBlockPositionInDetail,
+  updateDesignerBlockInDetail,
+} from '../model/designer-document-operations'
 import {
   applyDesignerAgentPatch,
   compileDesignerDocument,
@@ -44,38 +54,8 @@ import {
 } from './designerDesktopApi'
 import { traceDesignerIpc } from './designerIpcTrace'
 
-/** Id of the single editable natural-language brief block. */
-export const BRIEF_BLOCK_ID = 'brief'
-
-/** Block kinds the Agent produces; rendered as read-only inline sections. */
-export const AGENT_BLOCK_KINDS = new Set<string>([
-  'entityModel',
-  'apiContract',
-  'businessFlow',
-  'acceptanceCriteria',
-  'openQuestions',
-  'glossary',
-  'ruleTable',
-  'objectModel',
-  'dataContract',
-  'technicalStack',
-  'nonFunctional',
-  'decisionRecord',
-  'pseudocode',
-  'uiWorkflow',
-  'agentInstruction',
-])
-
-export type DesignerOperation =
-  | 'load'
-  | 'save'
-  | 'validate'
-  | 'compile'
-  | 'checkpoint'
-  | 'agent'
-  | 'recover'
-  | 'apply'
-  | 'export'
+export { BRIEF_BLOCK_ID }
+export type { DesignerOperation }
 
 export interface DesignerNotice {
   kind: 'info' | 'success' | 'warning' | 'error'
@@ -133,7 +113,7 @@ interface UseDesignerDocumentStateResult {
   setBlockPosition: (blockId: string, position: DesignerLayoutPosition) => void
   selectBlock: (blockId: string | null) => void
   openDrill: (blockId: string | null) => void
-  save: () => Promise<void>
+  save: () => Promise<boolean>
   discardLocalAndReload: () => Promise<void>
   validate: () => Promise<void>
   compile: () => Promise<void>
@@ -158,14 +138,6 @@ interface UseDesignerDocumentStateResult {
   /** Discard the current Agent patch without applying it (hides the review sheet). */
   clearPatchValidation: () => void
   clearAgentPreview: () => void
-}
-
-function cloneDetail(detail: DesignerDocumentDetail): DesignerDocumentDetail {
-  return structuredClone(detail)
-}
-
-function nowRevision(): string {
-  return `web_ms_${Date.now()}`
 }
 
 function getErrorMessage(error: unknown): string {
@@ -218,7 +190,7 @@ function isDesignerDocumentReloadPath(documentId: string, path: string): boolean
  * block is first as the brief surface, renaming its id so the Agent can target
  * it deterministically. If no text block exists, insert one. */
 export function ensureBriefBlock(detail: DesignerDocumentDetail): DesignerDocumentDetail {
-  const next = cloneDetail(detail)
+  const next = cloneDesignerDetail(detail)
   const blocks = next.design.blocks
   const existing = blocks.find((block) => block.id === BRIEF_BLOCK_ID)
   if (existing) {
@@ -464,17 +436,16 @@ export function useDesignerDocumentState({
   }, [preserveBlockFocus])
 
   const updateBlock = useCallback((blockId: string, patch: DesignerBlockPatch) => {
-    setDetail((current) => {
-      if (!current) {
-        return current
-      }
-      const next = cloneDetail(current)
-      next.design.blocks = next.design.blocks.map((block) =>
-        block.id === blockId ? { ...block, ...patch } : block,
-      )
-      next.design.revision = nowRevision()
-      return next
-    })
+    const current = detailRef.current
+    if (!current) {
+      return
+    }
+    const result = updateDesignerBlockInDetail(current, blockId, patch)
+    if (!result.changed) {
+      return
+    }
+    setDetail(result.detail)
+    detailRef.current = result.detail
     setDirty(true)
   }, [])
 
@@ -483,45 +454,21 @@ export function useDesignerDocumentState({
       setError('Brief root cannot be deleted')
       return
     }
-    setDetail((current) => {
-      if (!current || !current.design.blocks.some((block) => block.id === blockId)) {
-        return current
-      }
-      const next = cloneDetail(current)
-      next.design.blocks = next.design.blocks.filter((block) => block.id !== blockId)
-      next.design.blocks = next.design.blocks.map((block) => ({
-        ...block,
-        links: block.links.filter((link) => link.targetBlockId !== blockId),
-      }))
-      next.diagnostics = next.diagnostics.filter((diagnostic) => diagnostic.blockId !== blockId)
-      next.design.revision = nowRevision()
-      if (next.manifest.layout?.[blockId]) {
-        const layout = { ...next.manifest.layout }
-        delete layout[blockId]
-        next.manifest.layout = layout
-      }
-      return next
-    })
+    const current = detailRef.current
+    if (!current) {
+      return
+    }
+    const result = deleteDesignerBlockFromDetail(current, blockId)
+    if (!result.changed) {
+      return
+    }
+    setDetail(result.detail)
+    detailRef.current = result.detail
     setSelectedBlockId((current) => (current === blockId ? null : current))
     setDrillBlockId((current) => (current === blockId ? null : current))
     setAgentPreview(null)
     setPatchValidation(null)
-    setValidation((current) =>
-      current
-        ? {
-            ...current,
-            diagnostics: current.diagnostics.filter((diagnostic) => diagnostic.blockId !== blockId),
-            gaps: current.gaps.filter((gap) => gap.blockId !== blockId),
-            rulesRun: current.rulesRun.filter((rule) => rule.blockId !== blockId),
-            graphProjection: {
-              ...current.graphProjection,
-              links: current.graphProjection.links.filter(
-                (link) => link.fromBlockId !== blockId && link.toBlockId !== blockId,
-              ),
-            },
-          }
-        : current,
-    )
+    setValidation((current) => pruneDesignerValidationForDeletedBlock(current, blockId))
     setGapResolution(null)
     setDirty(true)
   }, [])
@@ -533,15 +480,16 @@ export function useDesignerDocumentState({
    */
   const setBlockPosition = useCallback(
     (blockId: string, position: DesignerLayoutPosition) => {
-      setDetail((current) => {
-        if (!current) {
-          return current
-        }
-        const next = cloneDetail(current)
-        const layout = { ...(next.manifest.layout ?? {}), [blockId]: position }
-        next.manifest.layout = layout
-        return next
-      })
+      const current = detailRef.current
+      if (!current) {
+        return
+      }
+      const result = setDesignerBlockPositionInDetail(current, blockId, position)
+      if (!result.changed) {
+        return
+      }
+      setDetail(result.detail)
+      detailRef.current = result.detail
       setDirty(true)
     },
     [],
@@ -558,19 +506,22 @@ export function useDesignerDocumentState({
     }
   }, [])
 
-  const save = useCallback(async () => {
-    if (!workspaceId || !detail) {
-      return
+  const save = useCallback(async (): Promise<boolean> => {
+    const currentDetail = detailRef.current
+    if (!workspaceId || !currentDetail) {
+      return false
     }
     setOperation('save')
     setError(null)
     try {
       const saved = await traceDesignerIpc('business_designer.save_document', (traceId) =>
-        saveDesignerDocument(workspaceId, detail, traceId),
+        saveDesignerDocument(workspaceId, currentDetail, traceId),
       )
       const ready = ensureBriefBlock(saved)
       setDetail(ready)
       setDirty(false)
+      dirtyRef.current = false
+      detailRef.current = ready
       setNotice({ kind: 'success', text: 'saved' })
       // Save → validate chain (§12.5): the only post-save IPC, no separate
       // debounce.
@@ -584,12 +535,14 @@ export function useDesignerDocumentState({
         // eslint-disable-next-line no-console
         console.warn('designer.validate.after_save', err)
       }
+      return true
     } catch (err) {
       setError(getErrorMessage(err))
+      return false
     } finally {
       setOperation(null)
     }
-  }, [workspaceId, detail])
+  }, [workspaceId])
 
   const discardLocalAndReload = useCallback(async () => {
     if (saveTimerRef.current !== null) {

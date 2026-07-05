@@ -57,6 +57,7 @@
     "src/shell/state/workspace-tab-normalization.ts",
     "src/shell/state/workspace-tab-visibility.ts",
     "src/shell/state/workspace-terminal-session-store.ts",
-    "src/shell/layout/workspace-git-summary-model.ts"
+    "src/shell/layout/workspace-git-summary-model.ts",
+    "src/shell/layout/file-watch-reconcile-model.ts"
   ]
 }

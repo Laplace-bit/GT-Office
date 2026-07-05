@@ -22,6 +22,7 @@ import {
   type FileEditorCommandRequest,
   type FileReadMode,
 } from './ShellRoot.shared'
+import { resolveOpenedEditorPathsForWatchEvent } from './file-watch-reconcile-model'
 
 type FileSearchMode = 'file' | 'content'
 type LoadFileOptions = {
@@ -180,6 +181,7 @@ export function useShellFileController({
               hydrated: true,
               viewType: 'preview',
               mtimeMs: 0,
+              contentSignature: '',
             },
           ]
         })
@@ -254,6 +256,7 @@ export function useShellFileController({
                     hydrated: true,
                     viewType: 'editor',
                     mtimeMs: response.mtimeMs,
+                    contentSignature: response.contentSignature ?? `${response.sizeBytes}:${response.mtimeMs}`,
                     isStale: false,
                   }
                 : file,
@@ -269,6 +272,7 @@ export function useShellFileController({
               hydrated: true,
               viewType: 'editor',
               mtimeMs: response.mtimeMs,
+              contentSignature: response.contentSignature ?? `${response.sizeBytes}:${response.mtimeMs}`,
             },
           ]
         })
@@ -372,12 +376,16 @@ export function useShellFileController({
           filesToRemove.push(path)
           continue
         }
+        const statSignature = statEntry.contentSignature ?? `${statEntry.sizeBytes}:${statEntry.mtimeMs}`
+        const fileSignature = file.contentSignature ?? `${file.size}:${file.mtimeMs}`
         if (statEntry.mtimeMs === file.mtimeMs) {
-          continue
+          if (statSignature === fileSignature) {
+            continue
+          }
         }
 
         const savedAt = recentlySavedPathsRef.current.get(path)
-        if (savedAt && Date.now() - savedAt < 2000 && statEntry.mtimeMs === file.mtimeMs) {
+        if (savedAt && Date.now() - savedAt < 2000 && statSignature === fileSignature) {
           continue
         }
 
@@ -438,6 +446,9 @@ export function useShellFileController({
                   hydrated: true,
                   viewType: 'editor',
                   mtimeMs: statEntry?.mtimeMs ?? file.mtimeMs,
+                  contentSignature:
+                    statEntry?.contentSignature ??
+                    (statEntry ? `${statEntry.sizeBytes}:${statEntry.mtimeMs}` : file.contentSignature),
                   isStale: false,
                 }
               : file,
@@ -612,10 +623,7 @@ export function useShellFileController({
     let active = true
     let cleanup: (() => void) | null = null
     const scheduleStatReconcile = (paths: string[]) => {
-      const candidatePaths = paths.filter((path) => {
-        const file = openedFilesRef.current.find((entry) => entry.path === path)
-        return Boolean(file && file.hydrated && file.viewType === 'editor')
-      })
+      const candidatePaths = resolveOpenedEditorPathsForWatchEvent(openedFilesRef.current, paths)
       if (candidatePaths.length === 0) {
         return
       }
@@ -644,11 +652,8 @@ export function useShellFileController({
         return
       }
 
-      if (payload.kind === 'removed') {
-        removeOpenedFiles(changedPaths)
-        return
-      }
       if (
+        payload.kind === 'removed' ||
         payload.kind === 'modified' ||
         payload.kind === 'created' ||
         payload.kind === 'renamed' ||
@@ -674,7 +679,7 @@ export function useShellFileController({
         cleanup()
       }
     }
-  }, [activeWorkspaceId, clearPendingExternalStatTimer, removeOpenedFiles])
+  }, [activeWorkspaceId, clearPendingExternalStatTimer])
 
   useEffect(() => {
     if (!activeWorkspaceId || !desktopApi.isTauriRuntime()) {

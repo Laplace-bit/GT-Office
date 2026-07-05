@@ -173,6 +173,7 @@ pub fn run() {
             business_designer::business_designer_run_mock_agent_completion,
             business_designer::business_designer_start_freeform_completion,
             business_designer::business_designer_list_freeform_completion_runs,
+            business_designer::business_designer_read_freeform_completion_run_log,
             business_designer::business_designer_update_freeform_completion_run_status,
             business_designer::business_designer_revert_to_checkpoint,
             business_designer::business_designer_validate_agent_patch,

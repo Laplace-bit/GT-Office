@@ -1,5 +1,6 @@
 import { t, type Locale } from '@shell/i18n/ui-locale'
-import type { DesignerOperation, DesignerNotice } from '../controllers/useDesignerDocumentState'
+import type { DesignerNotice } from '../controllers/useDesignerDocumentState'
+import type { DesignerOperation } from '../model/designer-operation'
 
 interface DesignerStatusbarProps {
   locale: Locale

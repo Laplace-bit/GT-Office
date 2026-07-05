@@ -631,7 +631,7 @@ fn structured_cli_spec(tool_kind: AgentToolKind) -> Option<(&'static str, &'stat
     }
 }
 
-fn resolve_structured_cli_command(tool_kind: AgentToolKind) -> Result<PathBuf, String> {
+pub(crate) fn resolve_structured_cli_command(tool_kind: AgentToolKind) -> Result<PathBuf, String> {
     let (command_name, override_var) = structured_cli_spec(tool_kind)
         .ok_or_else(|| format!("unsupported structured relay tool: {:?}", tool_kind))?;
 
@@ -678,6 +678,16 @@ fn resolve_structured_cli_command(tool_kind: AgentToolKind) -> Result<PathBuf, S
         "unable to resolve executable '{command_name}'; searched {}",
         attempted.join(", ")
     ))
+}
+
+pub(crate) fn claude_print_stream_json_args() -> [&'static str; 5] {
+    [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+    ]
 }
 
 fn resolve_cli_candidate(candidate: &str, command_name: &str) -> Option<PathBuf> {
@@ -1214,10 +1224,7 @@ async fn stream_claude_once(
     configure_tokio_command(&mut command);
     command
         .current_dir(cwd)
-        .arg("-p")
-        .arg("--output-format")
-        .arg("stream-json")
-        .arg("--include-partial-messages");
+        .args(claude_print_stream_json_args());
     if continue_session {
         command.arg("-c");
     }

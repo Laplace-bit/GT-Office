@@ -100,6 +100,7 @@ fn fs_read_file_payload_keeps_contract_fields() {
         true,
         false,
         1000,
+        "5:1000000000",
     );
     assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["path"], "README.md");
@@ -110,6 +111,7 @@ fn fs_read_file_payload_keeps_contract_fields() {
     assert_eq!(payload["previewable"], true);
     assert_eq!(payload["truncated"], false);
     assert_eq!(payload["mtimeMs"], 1000);
+    assert_eq!(payload["contentSignature"], "5:1000000000");
 }
 
 #[test]

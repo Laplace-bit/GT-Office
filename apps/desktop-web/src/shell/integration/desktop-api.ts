@@ -251,6 +251,7 @@ export interface GitStatusResponse {
   behind: number
   files: GitStatusFile[]
   repositories: GitRepositorySummary[]
+  revision?: number
 }
 
 export interface GitInitResponse {
@@ -926,6 +927,7 @@ export interface FsReadFileResponse {
   previewable: boolean
   truncated: boolean
   mtimeMs: number
+  contentSignature?: string
 }
 
 export interface FsWriteFileResponse {
@@ -940,6 +942,7 @@ export interface FsStatEntry {
   sizeBytes: number
   mtimeMs: number
   exists: boolean
+  contentSignature?: string
 }
 
 export interface FsStatFilesResponse {
@@ -1276,6 +1279,12 @@ export interface BusinessDesignerFreeformCompletionRunStatusRequest {
   status: BusinessDesignerFreeformCompletionRunStatus
 }
 
+export interface BusinessDesignerFreeformCompletionRunLogRequest {
+  traceId: string
+  documentId: string
+  requestId: string
+}
+
 export interface BusinessDesignerRevertToCheckpointRequest {
   traceId: string
   documentId: string
@@ -1302,6 +1311,13 @@ export interface BusinessDesignerFreeformCompletionRunsResult {
   workspaceId: string
   documentId: string
   runs: BusinessDesignerFreeformCompletionRun[]
+}
+
+export interface BusinessDesignerFreeformCompletionRunLogResult {
+  workspaceId: string
+  documentId: string
+  requestId: string
+  log: string
 }
 
 export interface BusinessDesignerPatchOperation {
@@ -3519,6 +3535,28 @@ export const desktopApi = {
         },
       },
     )
+  },
+  businessDesignerReadFreeformCompletionRunLog(
+    workspaceId: string,
+    params: BusinessDesignerFreeformCompletionRunLogRequest,
+  ) {
+    return invokeCommand<BusinessDesignerFreeformCompletionRunLogResult>(
+      'business_designer_read_freeform_completion_run_log',
+      {
+        request: {
+          traceId: params.traceId,
+          workspaceId,
+          documentId: params.documentId,
+          requestId: params.requestId,
+        },
+      },
+    )
+  },
+  readBusinessDesignerFreeformCompletionRunLog(
+    workspaceId: string,
+    params: BusinessDesignerFreeformCompletionRunLogRequest,
+  ) {
+    return desktopApi.businessDesignerReadFreeformCompletionRunLog(workspaceId, params)
   },
   businessDesignerRevertToCheckpoint(
     workspaceId: string,
