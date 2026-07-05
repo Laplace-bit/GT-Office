@@ -5261,8 +5261,42 @@ fn render_block_markdown(block: &DesignerBlock) -> String {
         "openQuestions" => render_payload_list(&block.payload, "questions"),
         "entityModel" => render_entity_model(&block.payload),
         "apiContract" => render_api_contract(&block.payload),
+        "uiScreen" => render_ui_screen_markdown(&block.payload),
+        "dataContract" => render_data_contract_markdown(&block.payload),
         _ => stable_json_string(&block.payload).unwrap_or_else(|_| "{}\n".to_string()),
     }
+}
+
+/// Render a `uiScreen` block: heading + route + the HTML body in a fenced block.
+fn render_ui_screen_markdown(payload: &Value) -> String {
+    let name = payload_string(payload, "screenName").unwrap_or_default();
+    let route = payload_string(payload, "route").unwrap_or_default();
+    let html = payload_string(payload, "html").unwrap_or_default();
+    let mut out = String::new();
+    if !name.is_empty() {
+        out.push_str(&format!("### {name}\n\n"));
+    }
+    if !route.is_empty() {
+        out.push_str(&format!("- Route: `{route}`\n\n"));
+    }
+    if !html.is_empty() {
+        out.push_str("```html\n");
+        out.push_str(&html);
+        out.push_str("\n```\n");
+    }
+    out
+}
+
+/// Render a `dataContract` block: the schema (object or string) in a json fence.
+fn render_data_contract_markdown(payload: &Value) -> String {
+    let Some(schema) = payload.get("schema") else {
+        return String::new();
+    };
+    let pretty = match schema {
+        Value::String(s) => s.clone(),
+        other => serde_json::to_string_pretty(other).unwrap_or_else(|_| "{}".to_string()),
+    };
+    format!("```json\n{pretty}\n```\n")
 }
 
 fn render_payload_list(payload: &Value, key: &str) -> String {
@@ -5355,6 +5389,7 @@ fn is_supported_block_kind(kind: &str) -> bool {
             | "apiContract"
             | "dataContract"
             | "uiWorkflow"
+            | "uiScreen"
             | "technicalStack"
             | "nonFunctional"
             | "acceptanceCriteria"

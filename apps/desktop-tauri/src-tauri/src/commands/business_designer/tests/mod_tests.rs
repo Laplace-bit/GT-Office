@@ -26,7 +26,7 @@ use super::{
     DesignerFreeformCompletionRunStatus, DesignerFreeformCompletionScenario,
     DesignerLayoutPosition, DesignerMockAgentCompletionCommandRequest,
     DesignerRecoverAgentPatchCommandRequest, DesignerValidateAgentPatchCommandRequest,
-    MockAgentCompletionRequest,
+    MockAgentCompletionRequest, is_supported_block_kind, render_block_markdown,
 };
 
 #[path = "gap_rules_tests.rs"]
@@ -1598,4 +1598,37 @@ fn coding_handoff_preview_builds_task_dispatch_request() {
         .attachments
         .iter()
         .any(|attachment| attachment.category == "agent-input"));
+}
+
+#[test]
+fn ui_screen_is_supported_and_renders_html() {
+    assert!(is_supported_block_kind("uiScreen"));
+    let block = DesignerBlock {
+        id: "screen-1".to_string(),
+        kind: "uiScreen".to_string(),
+        title: "Orders".to_string(),
+        order: 10,
+        payload: json!({ "screenName": "Orders", "route": "/orders", "html": "<section><h1>Orders</h1></section>" }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: "2026-07-05T00:00:00Z".to_string(),
+    };
+    let rendered = render_block_markdown(&block);
+    assert!(rendered.contains("<section><h1>Orders</h1></section>"));
+}
+
+#[test]
+fn data_contract_renders_object_schema() {
+    let block = DesignerBlock {
+        id: "dc-1".to_string(),
+        kind: "dataContract".to_string(),
+        title: "Order schema".to_string(),
+        order: 10,
+        payload: json!({ "schema": { "type": "object", "properties": { "id": { "type": "string" } } }, "format": "json-schema-draft-07" }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: "2026-07-05T00:00:00Z".to_string(),
+    };
+    let rendered = render_block_markdown(&block);
+    assert!(rendered.contains("\"type\": \"object\""));
 }
