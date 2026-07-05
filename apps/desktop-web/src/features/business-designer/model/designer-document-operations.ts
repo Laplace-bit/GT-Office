@@ -20,12 +20,13 @@ export const AGENT_BLOCK_KINDS = new Set<string>([
   'decisionRecord',
   'pseudocode',
   'uiWorkflow',
+  'uiScreen',
   'agentInstruction',
 ])
 
 export type DesignerCreateBlockKind = Extract<
   DesignerBlockKind,
-  'entityModel' | 'businessFlow' | 'apiContract'
+  'entityModel' | 'businessFlow' | 'apiContract' | 'uiScreen'
 >
 
 export const DESIGNER_BLOCK_CREATE_DEFAULTS: Record<
@@ -43,6 +44,14 @@ export const DESIGNER_BLOCK_CREATE_DEFAULTS: Record<
   apiContract: {
     title: '新建契约',
     payload: { endpoints: [] },
+  },
+  uiScreen: {
+    title: '新建屏幕',
+    payload: {
+      screenName: '新建屏幕',
+      route: '',
+      html: '<section data-flow="">\n  <h1>新建屏幕</h1>\n</section>\n',
+    },
   },
 }
 

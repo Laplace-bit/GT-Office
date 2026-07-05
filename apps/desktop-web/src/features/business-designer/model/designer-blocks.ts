@@ -21,6 +21,7 @@ export type DesignerBlockKind =
   | 'apiContract'
   | 'dataContract'
   | 'uiWorkflow'
+  | 'uiScreen'
   | 'technicalStack'
   | 'nonFunctional'
   | 'acceptanceCriteria'
