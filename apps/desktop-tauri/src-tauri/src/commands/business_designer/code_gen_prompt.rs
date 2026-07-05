@@ -8,6 +8,7 @@
 
 use super::{sorted_blocks, DesignerBlock, DesignerDocumentDetail};
 
+#[allow(dead_code)] // wired in Task 8
 pub(crate) fn render_code_gen_prompt(detail: &DesignerDocumentDetail) -> String {
     let mut out = String::new();
     out.push_str("# Software System Implementation Specification\n\n");
@@ -26,40 +27,41 @@ pub(crate) fn render_code_gen_prompt(detail: &DesignerDocumentDetail) -> String 
     for b in tech {
         out.push_str(&format!("- Tech stack: {}\n", render_block_markdown_inline(b)));
     }
-    out.push_str("\n## Requirements\n\n");
+    out.push('\n');
+    out.push_str("## Requirements\n\n");
 
     out.push_str("### Brief\n\n");
     for b in blocks_of_kind(detail, "text") {
         out.push_str(&super::render_block_markdown(b));
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str("### Data Schemas\n\n");
     for b in blocks_of_kind(detail, "entityModel") {
         out.push_str(&super::render_block_markdown(b));
-        out.push_str("\n");
+        out.push('\n');
     }
     for b in blocks_of_kind(detail, "dataContract") {
         out.push_str(&super::render_block_markdown(b));
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str("### Business Flows\n\n");
     for b in blocks_of_kind(detail, "businessFlow") {
         out.push_str(&super::render_block_markdown(b));
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str("### UI\n\n");
     for b in blocks_of_kind(detail, "uiScreen") {
         out.push_str(&super::render_block_markdown(b));
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str("## Acceptance Criteria\n\n");
     for b in blocks_of_kind(detail, "acceptanceCriteria") {
         out.push_str(&super::render_block_markdown(b));
-        out.push_str("\n");
+        out.push('\n');
     }
 
     out.push_str("## Operating Rules\n\n");
@@ -74,6 +76,7 @@ pub(crate) fn render_code_gen_prompt(detail: &DesignerDocumentDetail) -> String 
     out
 }
 
+#[allow(dead_code)] // wired in Task 8
 fn blocks_of_kind<'a>(detail: &'a DesignerDocumentDetail, kind: &str) -> Vec<&'a DesignerBlock> {
     sorted_blocks(&detail.design.blocks)
         .into_iter()
@@ -81,6 +84,7 @@ fn blocks_of_kind<'a>(detail: &'a DesignerDocumentDetail, kind: &str) -> Vec<&'a
         .collect()
 }
 
+#[allow(dead_code)] // wired in Task 8
 fn render_block_markdown_inline(block: &DesignerBlock) -> String {
     let md = super::render_block_markdown(block);
     let trimmed = md.trim();
