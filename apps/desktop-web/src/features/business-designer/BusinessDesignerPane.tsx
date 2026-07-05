@@ -3,17 +3,13 @@ import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
 import { useDesignerDocuments } from './controllers/useDesignerDocuments'
 import {
-  BRIEF_BLOCK_ID,
   classifyDesignerError,
   useDesignerDocumentState,
 } from './controllers/useDesignerDocumentState'
 import { useDesignerFreeformCompletion } from './controllers/useDesignerFreeformCompletion'
 import { useDesignerHistory } from './controllers/useDesignerHistory'
 import { DesignerSidebar } from './components/DesignerSidebar'
-import {
-  DesignerToolbar,
-  type DesignerCreateKind,
-} from './components/DesignerToolbar'
+import { DesignerToolbar } from './components/DesignerToolbar'
 import {
   DesignerGraphCanvas,
   type DesignerCanvasCreateKind,
@@ -33,6 +29,11 @@ import type {
 } from './model/designer-freeform-completion'
 import type { DesignerLayoutPosition } from './model/designer-document'
 import type { DesignerGap } from './model/designer-validation'
+import type { DesignerCreateKind } from './model/designer-toolbar-actions'
+import {
+  addDesignerBlockToDetail,
+  BRIEF_BLOCK_ID,
+} from './model/designer-document-operations'
 
 interface BusinessDesignerPaneProps {
   locale: Locale
@@ -41,32 +42,6 @@ interface BusinessDesignerPaneProps {
   active: boolean
   libraryPanelVisible: boolean
   onLibraryPanelVisibleChange: (visible: boolean) => void
-}
-
-const NEW_BLOCK_DEFAULTS: Record<DesignerCreateKind, { title: string; payload: Record<string, unknown> }> = {
-  entityModel: {
-    title: '新建实体',
-    payload: { entityName: '新建实体', fields: [] },
-  },
-  businessFlow: {
-    title: '新建流程',
-    payload: { states: [], transitions: [] },
-  },
-  apiContract: {
-    title: '新建契约',
-    payload: { endpoints: [] },
-  },
-}
-
-function nextBlockId(blocks: DesignerBlock[], kind: DesignerCreateKind): string {
-  const existingIds = new Set(blocks.map((block) => block.id))
-  for (let index = 1; index < 10000; index += 1) {
-    const candidate = `${kind}-${index}`
-    if (!existingIds.has(candidate)) {
-      return candidate
-    }
-  }
-  return `${kind}-${Date.now()}`
 }
 
 const LIBRARY_PANEL_WIDTH_MIN = 220
@@ -215,38 +190,14 @@ export function BusinessDesignerPane({
       overrides?: { title?: string; payload?: Record<string, unknown> },
     ) => {
       if (!state.detail) return
-      const defaults = NEW_BLOCK_DEFAULTS[kind]
-      const newId = nextBlockId(state.detail.design.blocks, kind)
-      const newBlock: DesignerBlock = {
-        id: newId,
-        kind,
-        title: overrides?.title ?? defaults.title,
-        order: state.detail.design.blocks.length * 10 + 10,
-        payload: overrides?.payload ?? defaults.payload,
-        links: [],
-        validation: [],
-        updatedAt: new Date().toISOString(),
-      }
-      const next = {
-        ...state.detail,
-        manifest: position
-          ? {
-              ...state.detail.manifest,
-              layout: {
-                ...(state.detail.manifest.layout ?? {}),
-                [newId]: position,
-              },
-            }
-          : state.detail.manifest,
-        design: {
-          ...state.detail.design,
-          blocks: [...state.detail.design.blocks, newBlock],
-          revision: `web_ms_${Date.now()}`,
-        },
-      }
-      state.replaceDetail(next, true)
-      state.selectBlock(newId)
-      state.openDrill(newId)
+      const result = addDesignerBlockToDetail(state.detail, kind, {
+        position,
+        title: overrides?.title,
+        payload: overrides?.payload,
+      })
+      state.replaceDetail(result.detail, true)
+      state.selectBlock(result.block.id)
+      state.openDrill(result.block.id)
     },
     [state],
   )
@@ -337,18 +288,24 @@ export function BusinessDesignerPane({
 
   const dispatchFreeformCompletion = useCallback(
     (params: PendingFreeformCompletion, provider: DesignerFreeformCompletionProvider) => {
-      void freeformCompletion
-        .startCompletion({
+      void (async () => {
+        if (state.dirty) {
+          const saved = await state.save()
+          if (!saved) {
+            return
+          }
+          void documents.refresh()
+        }
+        const run = await freeformCompletion.startCompletion({
           ...params,
           provider,
         })
-        .then((run) => {
-          if (run) {
-            void history.refresh()
-          }
-        })
+        if (run) {
+          void history.refresh()
+        }
+      })()
     },
-    [freeformCompletion, history],
+    [documents, freeformCompletion, history, state],
   )
 
   const onStartFreeformCompletion = useCallback(
@@ -554,6 +511,7 @@ export function BusinessDesignerPane({
                   canEdit={canEdit}
                   dirty={state.dirty}
                   operation={state.operation}
+                  agentRunning={freeformCompletion.running}
                   onSave={saveDesignerDocument}
                   onExport={(format) => {
                     void state.exportDocument(format)
@@ -566,24 +524,39 @@ export function BusinessDesignerPane({
                   onExpandCanvas={onExpandCanvas}
                 />
 
-                <div className="designer-workbench-v1">
-                  <DesignerGraphCanvas
-                    locale={locale}
-                    blocks={blocks}
-                    gaps={state.gaps}
-                    edges={state.derivedEdges}
-                    layout={state.detail.manifest.layout}
-                    selectedBlockId={state.selectedBlockId}
-                    drillBlockId={state.drillBlockId}
-                    onSelectBlock={state.selectBlock}
-                    onOpenDrill={state.openDrill}
-                    onCloseDrill={() => state.openDrill(null)}
-                    onMoveBlock={onMoveBlock}
-                    onDeleteBlock={onDeleteBlock}
-                    onCreateBlock={(kind: DesignerCanvasCreateKind, position) =>
-                      onCreateBlock(kind, position)
-                    }
-                  />
+                <div
+                  className={`designer-workbench-v1 ${
+                    state.drillBlockId ? 'has-open-drill' : ''
+                  }`}
+                >
+                  <div className="designer-canvas-stack">
+                    <DesignerGraphCanvas
+                      locale={locale}
+                      blocks={blocks}
+                      gaps={state.gaps}
+                      edges={state.derivedEdges}
+                      layout={state.detail.manifest.layout}
+                      selectedBlockId={state.selectedBlockId}
+                      drillBlockId={state.drillBlockId}
+                      onSelectBlock={state.selectBlock}
+                      onOpenDrill={state.openDrill}
+                      onCloseDrill={() => state.openDrill(null)}
+                      onMoveBlock={onMoveBlock}
+                      onDeleteBlock={onDeleteBlock}
+                      onCreateBlock={(kind: DesignerCanvasCreateKind, position) =>
+                        onCreateBlock(kind, position)
+                      }
+                    />
+                    <DesignerBlockDrillSheet
+                      locale={locale}
+                      block={drillBlock ?? selectedBlock}
+                      isOpen={Boolean(state.drillBlockId)}
+                      onClose={() => state.openDrill(null)}
+                      onUpdateBlock={(blockId, patch) => state.updateBlock(blockId, patch)}
+                      onDeleteBlock={onDeleteBlock}
+                      onCreateEntityFromSelection={onCreateEntityFromSelection}
+                    />
+                  </div>
                   <DesignerInspector
                     locale={locale}
                     block={selectedBlock}
@@ -596,7 +569,7 @@ export function BusinessDesignerPane({
                     freeformRuns={freeformCompletion.runs}
                     freeformRunLogs={freeformCompletion.runLogs}
                     freeformLogLoadingRunId={freeformCompletion.logLoadingRunId}
-                    freeformBusy={freeformCompletion.running}
+                    freeformBusy={freeformCompletion.starting || state.operation === 'save'}
                     freeformError={freeformCompletion.error}
                     freeformProvider={freeformProvider}
                     freeformProviderConfigured={freeformProviderConfigured}
@@ -606,7 +579,7 @@ export function BusinessDesignerPane({
                     onFixBlock={onFixBlock}
                     onCreateEntityFromGap={onCreateEntityFromGap}
                     onConfirmAgentPreview={onConfirmAgentPreview}
-                    onRecoverAgentPatch={state.recoverAgentPatchFromTask}
+                    onReloadDocument={state.loadDocument}
                     onCancelAgentPreview={state.clearAgentPreview}
                     onFreeformProviderChange={configureFreeformProvider}
                     onConfirmFreeformProvider={confirmFreeformProvider}
@@ -616,14 +589,6 @@ export function BusinessDesignerPane({
                     onStopFreeformRun={freeformCompletion.stopRun}
                     onViewFreeformChanges={onViewFreeformChanges}
                     onRevertFreeformRun={onRevertFreeformRun}
-                  />
-                  <DesignerBlockDrillSheet
-                    locale={locale}
-                    block={drillBlock ?? selectedBlock}
-                    isOpen={Boolean(state.drillBlockId)}
-                    onClose={() => state.openDrill(null)}
-                    onUpdateBlock={(blockId, patch) => state.updateBlock(blockId, patch)}
-                    onCreateEntityFromSelection={onCreateEntityFromSelection}
                   />
                 </div>
               </>
@@ -688,8 +653,6 @@ export function BusinessDesignerPane({
   )
 }
 
-// `BRIEF_BLOCK_ID` is re-exported from the controller, but the pane keeps its
-// own reference path here in case other features import it via the pane.
 export { BRIEF_BLOCK_ID }
 
 function readStoredFreeformProvider(): DesignerFreeformCompletionProvider | null {

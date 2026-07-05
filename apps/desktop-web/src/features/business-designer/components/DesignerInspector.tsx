@@ -44,7 +44,7 @@ interface DesignerInspectorProps {
   onFixBlock: (blockId: string) => void
   onCreateEntityFromGap: (gap: DesignerGap) => void
   onConfirmAgentPreview: (provider: string, targetAgentIds: string[]) => void
-  onRecoverAgentPatch: (taskId: string) => void
+  onReloadDocument: () => void
   onCancelAgentPreview: () => void
   onFreeformProviderChange: (provider: DesignerFreeformCompletionProvider) => void
   onConfirmFreeformProvider: () => void
@@ -87,7 +87,7 @@ export const DesignerInspector = memo(function DesignerInspector({
   onFixBlock,
   onCreateEntityFromGap,
   onConfirmAgentPreview,
-  onRecoverAgentPatch,
+  onReloadDocument,
   onCancelAgentPreview,
   onFreeformProviderChange,
   onConfirmFreeformProvider,
@@ -175,7 +175,7 @@ export const DesignerInspector = memo(function DesignerInspector({
             agentDispatch={agentDispatch}
             busy={agentBusy}
             onConfirm={onConfirmAgentPreview}
-            onRecover={onRecoverAgentPatch}
+            onReload={onReloadDocument}
             onCancel={onCancelAgentPreview}
           />
         ) : null}
@@ -198,6 +198,7 @@ export const DesignerInspector = memo(function DesignerInspector({
         onRefresh={onRefreshFreeformRuns}
         onReadLog={onReadFreeformRunLog}
         onStopRun={onStopFreeformRun}
+        onReload={onReloadDocument}
         onViewChanges={onViewFreeformChanges}
         onRevertRun={onRevertFreeformRun}
       />
@@ -249,6 +250,7 @@ function FreeformCompletionPanel({
   onRefresh,
   onReadLog,
   onStopRun,
+  onReload,
   onViewChanges,
   onRevertRun,
 }: {
@@ -272,6 +274,7 @@ function FreeformCompletionPanel({
   onRefresh: () => void
   onReadLog: (run: DesignerFreeformCompletionRun) => void
   onStopRun: (run: DesignerFreeformCompletionRun) => void
+  onReload: () => void
   onViewChanges: (checkpoint: string) => void
   onRevertRun: (run: DesignerFreeformCompletionRun) => void
 }) {
@@ -373,6 +376,7 @@ function FreeformCompletionPanel({
         busy={busy}
         onReadLog={onReadLog}
         onStopRun={onStopRun}
+        onReload={onReload}
         onViewChanges={onViewChanges}
         onRevertRun={onRevertRun}
       />
@@ -426,6 +430,7 @@ function FreeformRunList({
   busy,
   onReadLog,
   onStopRun,
+  onReload,
   onViewChanges,
   onRevertRun,
 }: {
@@ -436,81 +441,107 @@ function FreeformRunList({
   busy: boolean
   onReadLog: (run: DesignerFreeformCompletionRun) => void
   onStopRun: (run: DesignerFreeformCompletionRun) => void
+  onReload: () => void
   onViewChanges: (checkpoint: string) => void
   onRevertRun: (run: DesignerFreeformCompletionRun) => void
 }) {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
+  useEffect(() => {
+    const runningRun = runs.find((run) => run.status === 'running')
+    if (!runningRun || expandedRunId === runningRun.requestId) {
+      return
+    }
+    setExpandedRunId(runningRun.requestId)
+    if (!runLogs[runningRun.requestId]) {
+      onReadLog(runningRun)
+    }
+  }, [expandedRunId, onReadLog, runLogs, runs])
 
   if (runs.length === 0) {
     return <p className="designer-agent-preview-empty">{t(locale, 'designer.freeform.noRuns')}</p>
   }
   return (
     <ul className="designer-freeform-runs" aria-label={t(locale, 'designer.freeform.latestRuns')}>
-      {runs.map((run) => (
-        <li key={run.requestId} className={`designer-freeform-run is-${run.status}`}>
-          <div className="designer-freeform-run-main">
-            <span className="designer-freeform-run-status">
-              {t(locale, freeformStatusKey(run.status))}
-            </span>
-            <span className="designer-freeform-run-provider">{run.provider}</span>
-          </div>
-          <div className="designer-freeform-run-meta">
-            {run.sessionId} · {run.checkpointBefore}
-          </div>
-          {run.userPromptSummary ? (
-            <div className="designer-freeform-run-summary">{run.userPromptSummary}</div>
-          ) : null}
-          <div className="designer-freeform-run-actions">
-            <button
-              type="button"
-              className="designer-gap-fix"
-              disabled={logLoadingRunId === run.requestId}
-              aria-expanded={expandedRunId === run.requestId}
-              onClick={() => {
-                const nextExpanded = expandedRunId === run.requestId ? null : run.requestId
-                setExpandedRunId(nextExpanded)
-                if (nextExpanded && !runLogs[run.requestId]) {
-                  onReadLog(run)
-                }
-              }}
-            >
-              {logLoadingRunId === run.requestId
-                ? t(locale, 'designer.freeform.loadingLog')
-                : t(locale, 'designer.freeform.viewLog')}
-            </button>
-            <button
-              type="button"
-              className="designer-gap-fix"
-              onClick={() => onViewChanges(run.checkpointBefore)}
-            >
-              {t(locale, 'designer.freeform.viewChanges')}
-            </button>
-            {run.status === 'running' ? (
+      {runs.map((run) => {
+        const runSessionLabel = run.sessionId.startsWith('headless:')
+          ? 'headless'
+          : run.sessionId
+        return (
+          <li key={run.requestId} className={`designer-freeform-run is-${run.status}`}>
+            <div className="designer-freeform-run-main">
+              <span className="designer-freeform-run-status">
+                {t(locale, freeformStatusKey(run.status))}
+              </span>
+              <span className="designer-freeform-run-provider">{run.provider}</span>
+            </div>
+            <div className="designer-freeform-run-meta">
+              {runSessionLabel} · {run.checkpointBefore}
+            </div>
+            {run.userPromptSummary ? (
+              <div className="designer-freeform-run-summary">{run.userPromptSummary}</div>
+            ) : null}
+            <div className="designer-freeform-run-actions">
               <button
                 type="button"
                 className="designer-gap-fix"
-                disabled={busy}
-                onClick={() => onStopRun(run)}
+                disabled={logLoadingRunId === run.requestId}
+                aria-expanded={expandedRunId === run.requestId}
+                onClick={() => {
+                  const nextExpanded = expandedRunId === run.requestId ? null : run.requestId
+                  setExpandedRunId(nextExpanded)
+                  if (nextExpanded && !runLogs[run.requestId]) {
+                    onReadLog(run)
+                  }
+                }}
               >
-                {t(locale, 'designer.freeform.stopRun')}
+                {logLoadingRunId === run.requestId
+                  ? t(locale, 'designer.freeform.loadingLog')
+                  : t(locale, 'designer.freeform.viewLog')}
               </button>
+              <button
+                type="button"
+                className="designer-gap-fix"
+                onClick={() => onViewChanges(run.checkpointBefore)}
+              >
+                {t(locale, 'designer.freeform.viewChanges')}
+              </button>
+              {run.status === 'completed' ? (
+                <button
+                  type="button"
+                  className="designer-gap-fix"
+                  disabled={busy}
+                  onClick={onReload}
+                >
+                  {t(locale, 'designer.freeform.reloadDocument')}
+                </button>
+              ) : null}
+              {run.status === 'running' ? (
+                <button
+                  type="button"
+                  className="designer-gap-fix"
+                  disabled={logLoadingRunId === run.requestId}
+                  onClick={() => onStopRun(run)}
+                >
+                  {t(locale, 'designer.freeform.stopRun')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="designer-gap-fix"
+                disabled={busy || run.status === 'running'}
+                onClick={() => onRevertRun(run)}
+              >
+                {t(locale, 'designer.freeform.revert')}
+              </button>
+            </div>
+            {expandedRunId === run.requestId ? (
+              <pre className="designer-freeform-run-log">
+                {runLogs[run.requestId] || t(locale, 'designer.freeform.noLog')}
+              </pre>
             ) : null}
-            <button
-              type="button"
-              className="designer-gap-fix"
-              disabled={busy || run.status === 'running'}
-              onClick={() => onRevertRun(run)}
-            >
-              {t(locale, 'designer.freeform.revert')}
-            </button>
-          </div>
-          {expandedRunId === run.requestId ? (
-            <pre className="designer-freeform-run-log">
-              {runLogs[run.requestId] || t(locale, 'designer.freeform.noLog')}
-            </pre>
-          ) : null}
-        </li>
-      ))}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -667,7 +698,7 @@ function AgentPreviewPanel({
   agentDispatch,
   busy,
   onConfirm,
-  onRecover,
+  onReload,
   onCancel,
 }: {
   locale: Locale
@@ -676,7 +707,7 @@ function AgentPreviewPanel({
   agentDispatch: DesignerAgentCompletionDispatchResult | null
   busy: boolean
   onConfirm: (provider: string, targetAgentIds: string[]) => void
-  onRecover: (taskId: string) => void
+  onReload: () => void
   onCancel: () => void
 }) {
   const hasTargetGaps = preview.targetGaps.length > 0
@@ -820,9 +851,9 @@ function AgentPreviewPanel({
                 type="button"
                 className="designer-gap-fix"
                 disabled={busy}
-                onClick={() => onRecover(dispatchTask.taskId)}
+                onClick={onReload}
               >
-                {t(locale, 'designer.agentPreview.recoverPatch')}
+                {t(locale, 'designer.agentPreview.reloadDocument')}
               </button>
             </div>
           ) : null}

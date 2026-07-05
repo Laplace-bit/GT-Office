@@ -1,0 +1,10 @@
+export type DesignerOperation =
+  | 'load'
+  | 'save'
+  | 'validate'
+  | 'compile'
+  | 'checkpoint'
+  | 'agent'
+  | 'recover'
+  | 'apply'
+  | 'export'

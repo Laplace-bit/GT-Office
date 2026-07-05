@@ -365,6 +365,7 @@
 .designer-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: #{rem(6)};
   padding: #{rem(8)} #{rem(14)};
   border-bottom: var(--vb-border-width) solid var(--vb-border-subtle);
@@ -419,7 +420,9 @@
 }
 
 .designer-toolbar-prompt {
+  flex: 1 1 #{rem(160)};
   width: clamp(#{rem(136)}, 18vw, #{rem(260)});
+  max-width: #{rem(320)};
   min-width: 0;
   padding: #{rem(5)} #{rem(8)};
   border: var(--vb-border-width) solid var(--vb-border-subtle);
@@ -451,7 +454,8 @@
 }
 
 .designer-tool-spacer {
-  flex: 1 1 auto;
+  flex: 999 1 #{rem(12)};
+  min-width: #{rem(8)};
 }
 
 .designer-tool-dirty {
@@ -1049,14 +1053,22 @@
   flex: 0 0 auto;
   padding: 0 #{rem(14)};
   height: #{rem(26)};
+  min-height: #{rem(26)};
   border-top: var(--vb-border-width) solid var(--vb-border-subtle);
   background: var(--vb-surface-muted);
   color: var(--vb-text-subtle);
   font-size: #{rem(11)};
   user-select: none;
+  min-width: 0;
 }
 
 .designer-statusbar-state {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
   &.is-dirty {
     color: var(--vb-warning);
   }
@@ -1068,10 +1080,12 @@
 .designer-statusbar-status,
 .designer-statusbar-schema,
 .designer-statusbar-diagnostics {
+  flex: 0 0 auto;
   padding: 0 #{rem(6)};
   border-radius: var(--vb-radius-full);
   background: color-mix(in srgb, var(--vb-chip) 70%, transparent);
   color: var(--vb-text-muted);
+  white-space: nowrap;
 }
 
 .designer-statusbar-diagnostics {
@@ -1087,6 +1101,7 @@
   display: inline-flex;
   align-items: center;
   gap: #{rem(5)};
+  flex: 0 0 auto;
 }
 
 .designer-statusbar-action {
@@ -1105,6 +1120,9 @@
 }
 
 .designer-statusbar-repo {
+  flex: 0 0 auto;
+  white-space: nowrap;
+
   &.is-ready {
     color: var(--vb-success);
   }
@@ -1191,10 +1209,157 @@
 // .designer-document column is reused for the brief drill view.
 
 .designer-workbench-v1 {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, #{rem(280)});
-  flex: 1 1 auto;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 0;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.designer-canvas-stack {
+  position: relative;
+  display: flex;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.designer-canvas-stack > .designer-canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: #{rem(1040)}) {
+  .designer-toolbar {
+    align-content: flex-start;
+    row-gap: #{rem(6)};
+  }
+
+  .designer-tool-divider {
+    display: none;
+  }
+
+  .designer-toolbar-prompt {
+    flex-basis: #{rem(220)};
+    max-width: none;
+  }
+}
+
+@media (max-width: #{rem(860)}) {
+  .designer-workbench-v1 {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(#{rem(180)}, 0.55fr);
+  }
+
+  .designer-workbench-v1.has-open-drill .designer-canvas-stack {
+    position: absolute;
+    inset: 0;
+    height: auto;
+    z-index: 20;
+  }
+
+  .designer-inspector {
+    max-height: 100%;
+    border-left: 0;
+    border-top: var(--vb-border-width) solid var(--vb-border-subtle);
+  }
+}
+
+@media (max-width: #{rem(720)}) {
+  .designer-workbench {
+    flex-direction: column;
+  }
+
+  .designer-sidebar-panel {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: #{rem(176)};
+    border-radius: #{rem(16)};
+  }
+
+  .designer-library-resizer {
+    display: none;
+  }
+
+  .designer-document-list {
+    max-height: #{rem(96)};
+  }
+
+  .designer-main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: #{rem(520)}) {
+  .designer-toolbar {
+    gap: #{rem(4)};
+    padding: #{rem(6)} #{rem(8)};
+  }
+
+  .designer-tool-button {
+    justify-content: center;
+    width: #{rem(31)};
+    min-width: #{rem(31)};
+    min-height: #{rem(31)};
+    padding: #{rem(5)};
+    gap: 0;
+
+    span {
+      display: none;
+    }
+  }
+
+  .designer-toolbar-prompt {
+    order: 2;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+
+  .designer-tool-spacer {
+    display: none;
+  }
+
+  .designer-statusbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    height: auto;
+    min-height: #{rem(30)};
+    gap: #{rem(5)} #{rem(8)};
+    padding: #{rem(4)} #{rem(8)};
+  }
+
+  .designer-statusbar-state {
+    flex: 1 1 #{rem(120)};
+  }
+
+  .designer-statusbar-schema,
+  .designer-statusbar-repo {
+    display: none;
+  }
+
+  .designer-statusbar-spacer {
+    display: none;
+  }
+
+  .designer-statusbar-actions {
+    order: 2;
+    flex: 1 1 100%;
+  }
+
+  .designer-statusbar-action {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 
 // ---- Graph canvas --------------------------------------------------------
@@ -2200,12 +2365,18 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(#{rem(480)}, 80vw);
+  width: min(#{rem(480)}, 100%);
   display: flex;
   flex-direction: column;
-  background: var(--vb-surface-elevated);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vb-bg) 94%, white 6%),
+      color-mix(in srgb, var(--vb-bg) 98%, white 2%)
+    );
   border-left: var(--vb-border-width) solid var(--vb-border-subtle);
   box-shadow: var(--designer-side-panel-shadow);
+  overflow: hidden;
   z-index: 6;
   // Slide in from the right; honor reduced motion.
   transform: translate3d(100%, 0, 0);
@@ -2220,6 +2391,22 @@
   }
 }
 
+@media (max-width: #{rem(860)}) {
+  .designer-drill-panel {
+    position: absolute;
+    inset: #{rem(12)} #{rem(12)} #{rem(36)};
+    width: auto;
+    border: var(--vb-border-width) solid var(--vb-border-subtle);
+    border-radius: #{rem(18)};
+    z-index: 30;
+    transform: translate3d(0, calc(100% + #{rem(24)}), 0);
+
+    &.is-open {
+      transform: translate3d(0, 0, 0);
+    }
+  }
+}
+
 .designer-drill-header {
   display: flex;
   align-items: center;
@@ -2230,10 +2417,25 @@
 
 .designer-drill-title {
   flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: #{rem(14)};
   font-weight: 600;
   color: var(--vb-text);
+}
+
+.designer-drill-delete-button {
+  flex: 0 0 auto;
+  color: var(--designer-danger);
+
+  &:not(:disabled):hover,
+  &:not(:disabled):focus-visible {
+    background: var(--designer-danger-bg-hover);
+    color: var(--designer-danger);
+  }
 }
 
 .designer-drill-content {
@@ -2261,6 +2463,7 @@
 
 .designer-drill-table {
   width: 100%;
+  min-width: #{rem(520)};
   border-collapse: collapse;
   font-size: #{rem(12)};
 
@@ -2279,6 +2482,7 @@
   }
   td input, td select {
     width: 100%;
+    min-width: 0;
     padding: #{rem(2)} #{rem(6)};
     border: var(--vb-border-width) solid transparent;
     border-radius: var(--vb-radius-sm);
@@ -2292,6 +2496,35 @@
       border-color: var(--vb-input-focus-border);
       background: var(--vb-input-bg);
       box-shadow: 0 0 0 #{rem(2)} var(--designer-focus-ring);
+    }
+  }
+
+  &--api {
+    min-width: #{rem(720)};
+  }
+
+  &--flow {
+    min-width: #{rem(640)};
+  }
+}
+
+.designer-drill-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  border: var(--vb-border-width) solid var(--vb-border-subtle);
+  border-radius: var(--vb-radius-sm);
+
+  .designer-drill-table {
+    th:first-child,
+    td:first-child {
+      padding-left: #{rem(8)};
+    }
+
+    th:last-child,
+    td:last-child {
+      padding-right: #{rem(8)};
     }
   }
 }

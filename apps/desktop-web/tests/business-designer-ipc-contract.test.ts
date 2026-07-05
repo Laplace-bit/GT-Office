@@ -77,6 +77,26 @@ const designerBlockLabelsTs = readFileSync(
   resolve(testDir, '../../src/features/business-designer/model/designer-block-labels.ts'),
   'utf8',
 )
+const designerDrillPayloadTs = readFileSync(
+  resolve(testDir, '../../src/features/business-designer/model/designer-drill-payload.ts'),
+  'utf8',
+)
+const designerDocumentOperationsTs = readFileSync(
+  resolve(testDir, '../../src/features/business-designer/model/designer-document-operations.ts'),
+  'utf8',
+)
+const designerResponsiveLayoutTs = readFileSync(
+  resolve(testDir, '../../src/features/business-designer/model/designer-responsive-layout.ts'),
+  'utf8',
+)
+const designerToolbarActionsTs = readFileSync(
+  resolve(testDir, '../../src/features/business-designer/model/designer-toolbar-actions.ts'),
+  'utf8',
+)
+const designerOperationTs = readFileSync(
+  resolve(testDir, '../../src/features/business-designer/model/designer-operation.ts'),
+  'utf8',
+)
 const desktopApiTs = readFileSync(
   resolve(testDir, '../../src/shell/integration/desktop-api.ts'),
   'utf8',
@@ -147,7 +167,27 @@ function interfaceBlock(source: string, name: string): string {
   return source.slice(start, end)
 }
 
+function scssBlock(source: string, selector: string): string {
+  const marker = `${selector} {`
+  const start = source.lastIndexOf(marker)
+  assert.notEqual(start, -1, `${selector} scss block should exist`)
+  let depth = 0
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(start, index + 1)
+      }
+    }
+  }
+  assert.fail(`${selector} scss block should close`)
+}
+
 test('business designer autosave IPC is debounced and save owns validation', () => {
+  assert.match(controllerTs, /save: \(\) => Promise<boolean>/)
   assert.match(controllerTs, /const DESIGNER_AUTOSAVE_DEBOUNCE_MS = 1500/)
   assert.match(
     controllerTs,
@@ -155,8 +195,16 @@ test('business designer autosave IPC is debounced and save owns validation', () 
   )
 
   const saveBlock = functionBlock('save')
+  assert.match(saveBlock, /async \(\): Promise<boolean>/)
+  assert.match(saveBlock, /const currentDetail = detailRef\.current/)
+  assert.match(saveBlock, /if \(!workspaceId \|\| !currentDetail\)/)
+  assert.match(saveBlock, /return false/)
   assert.match(saveBlock, /traceDesignerIpc\('business_designer\.save_document'/)
+  assert.match(saveBlock, /saveDesignerDocument\(workspaceId, currentDetail, traceId\)/)
+  assert.match(saveBlock, /dirtyRef\.current = false/)
+  assert.match(saveBlock, /detailRef\.current = ready/)
   assert.match(saveBlock, /traceDesignerIpc\('business_designer\.validate_document\.after_save'/)
+  assert.match(saveBlock, /return true/)
 })
 
 test('business designer IPC tracing is shared across document and history commands', () => {
@@ -174,7 +222,7 @@ test('business designer IPC tracing is shared across document and history comman
   assert.match(historyControllerTs, /traceDesignerIpc\('business_designer\.diff_checkpoint\.history'/)
 
   assert.match(controllerTs, /readDesignerDocument\(workspaceId, selectedDocumentId, traceId\)/)
-  assert.match(controllerTs, /saveDesignerDocument\(workspaceId, detail, traceId\)/)
+  assert.match(controllerTs, /saveDesignerDocument\(workspaceId, currentDetail, traceId\)/)
   assert.match(controllerTs, /validateDesignerDocument\(workspaceId, ready\.manifest\.documentId, traceId\)/)
   assert.match(controllerTs, /validateDesignerDocument\(workspaceId, detail\.manifest\.documentId, traceId\)/)
   assert.match(controllerTs, /compileDesignerDocument\(workspaceId, detail\.manifest\.documentId, traceId\)/)
@@ -203,9 +251,22 @@ test('business designer edit and drag hot paths stay local until debounce', () =
   }
 
   assert.match(graphCanvasTsx, /node\.style\.transform = `translate3d\(\$\{dx\}px, \$\{dy\}px, 0\)`/)
-  assert.match(graphCanvasTsx, /onMoveBlock\(state\.blockId, finalPosition\)/)
+  assert.match(graphCanvasTsx, /onMoveBlock\(state\.blockId, normalizeDesignerNodePosition\(finalPosition\)\)/)
+  assert.match(graphCanvasTsx, /setPointerCapture\?\.\(event\.pointerId\)/)
+  assert.match(graphCanvasTsx, /hasPointerCapture\?\.\(event\.pointerId\)/)
+  assert.match(graphCanvasTsx, /releasePointerCapture\?\.\(event\.pointerId\)/)
   assert.doesNotMatch(graphCanvasTsx, /node\.style\.left =/)
   assert.doesNotMatch(graphCanvasTsx, /node\.style\.top =/)
+})
+
+test('business designer created entity flow and contract blocks get isolated payload objects', () => {
+  assert.match(
+    designerDocumentOperationsTs,
+    /function cloneDesignerBlockPayload\([\s\S]*?return structuredClone\(payload\) as Record<string, unknown>/,
+  )
+  assert.match(designerDocumentOperationsTs, /payload: cloneDesignerBlockPayload\(options\.payload \?\? defaults\.payload\)/)
+  assert.match(paneTsx, /addDesignerBlockToDetail\(state\.detail, kind, \{/)
+  assert.doesNotMatch(paneTsx, /payload: overrides\?\.payload \?\? defaults\.payload/)
 })
 
 test('business designer graph canvas culls only large viewports with pinned context kept', () => {
@@ -350,6 +411,26 @@ test('business designer drill forms keep visual styling in scss', () => {
   assert.match(drillSheetTsx, /className="designer-drill-text-input"/)
   assert.match(drillSheetTsx, /className="designer-drill-json"/)
   assert.match(drillSheetTsx, /designer-brief-textarea--drill/)
+  assert.match(designerDrillPayloadTs, /export interface FlowState \{[\s\S]*?entity\?: string[\s\S]*?target\?: string/)
+  assert.match(drillSheetTsx, /designer\.drill\.colEntity/)
+  assert.match(drillSheetTsx, /value=\{state\.entity \?\? state\.target \?\? ''\}/)
+  assert.match(drillSheetTsx, /updateFlowStateEntity\(payload, index, e\.target\.value\)/)
+  assert.match(designerDrillPayloadTs, /export function nextFlowStateName\(states: FlowState\[\]\): string/)
+  assert.match(designerDrillPayloadTs, /const candidate = `state\$\{index\}`/)
+  assert.doesNotMatch(designerDrillPayloadTs, /states: \[\.\.\.\(payload\.states \?\? \[\]\), \{ name: '' \}\]/)
+  assert.match(designerDrillPayloadTs, /export function renameFlowState\(/)
+  assert.match(designerDrillPayloadTs, /from: transition\.from === previousName \? nextName : transition\.from/)
+  assert.match(designerDrillPayloadTs, /export function removeFlowState\(/)
+  assert.match(designerDrillPayloadTs, /transition\.from !== removedName && transition\.to !== removedName/)
+  assert.match(drillSheetTsx, /key=\{`\$\{stateIndex\}:\$\{state\.name \?\? ''\}`\} value=\{state\.name \?\? ''\}/)
+  assert.match(drillSheetTsx, /className="designer-drill-table designer-drill-table--flow"/)
+  assert.match(designerDrillPayloadTs, /export function formatEndpointErrors\(endpoint: ApiEndpoint\): string/)
+  assert.match(designerDrillPayloadTs, /endpoint\.errorCodes && endpoint\.errorCodes\.length > 0/)
+  assert.match(designerDrillPayloadTs, /formatList\(endpoint\.errors\)/)
+  assert.match(designerDrillPayloadTs, /errorCodes: parseList\(value\),[\s\S]*?errors: undefined/)
+  assert.match(designerScss, /&--flow \{[\s\S]*?min-width: #\{rem\(640\)\};/)
+  assert.match(designerScss, /\.designer-drill-table-scroll \{[\s\S]*?overflow-x: auto;/)
+  assert.match(messagesTs, /'designer\.drill\.colEntity': \{ 'zh-CN': '实体', 'en-US': 'Entity' \}/)
   assert.match(messagesTs, /'designer\.drill\.addRow': \{ 'zh-CN': '添加', 'en-US': 'Add' \}/)
   assert.match(
     messagesTs,
@@ -376,6 +457,72 @@ test('business designer drill panel closes from native desktop exits', () => {
     /if \(event\.target === event\.currentTarget\) \{[\s\S]*?onSelectBlock\(null\)[\s\S]*?onCloseDrill\(\)/,
   )
   assert.match(paneTsx, /onCloseDrill=\{\(\) => state\.openDrill\(null\)\}/)
+})
+
+test('business designer toolbar and workbench keep responsive layout constraints', () => {
+  assert.match(designerResponsiveLayoutTs, /toolbarWrap:\s*1040/)
+  assert.match(designerResponsiveLayoutTs, /stackedWorkbench:\s*860/)
+  assert.match(designerResponsiveLayoutTs, /stackedLibrary:\s*720/)
+  assert.match(designerResponsiveLayoutTs, /compactToolbar:\s*520/)
+  assert.match(designerResponsiveLayoutTs, /inspectorWidth:\s*280/)
+  assert.match(designerResponsiveLayoutTs, /drillPanelMaxWidth:\s*480/)
+  assert.match(designerResponsiveLayoutTs, /statusbarExternalActionsMinWidth:\s*184/)
+  assert.match(designerResponsiveLayoutTs, /statusbarActionsFullRow/)
+  assert.match(designerResponsiveLayoutTs, /statusbarHiddenMeta/)
+  assert.match(designerResponsiveLayoutTs, /resolveDesignerResponsiveLayout/)
+  assert.match(designerResponsiveLayoutTs, /assertDesignerResponsiveLayout/)
+  assert.match(designerOperationTs, /export type DesignerOperation =[\s\S]*?'save'[\s\S]*?'export'/)
+  assert.match(designerToolbarActionsTs, /DESIGNER_TOOLBAR_ACTION_ORDER = \[[\s\S]*?'save'[\s\S]*?'expandCanvas'[\s\S]*?'history'/)
+  assert.match(designerToolbarActionsTs, /DESIGNER_TOOLBAR_MUTATING_ACTIONS = \[[\s\S]*?'expandCanvas'[\s\S]*?'checkpoint'/)
+  assert.match(designerToolbarActionsTs, /agentRunning\?: boolean/)
+  assert.match(designerToolbarActionsTs, /export function resolveDesignerToolbarActionStates/)
+  assert.match(toolbarTsx, /resolveDesignerToolbarActionStates\(\{[\s\S]*?agentRunning,/)
+  assert.match(toolbarTsx, /disabled=\{actionStates\.save\.disabled\}/)
+  assert.match(toolbarTsx, /disabled=\{actionStates\.expandCanvas\.disabled\}/)
+  assert.match(toolbarTsx, /disabled=\{actionStates\.export\.disabled\}/)
+  assert.match(designerScss, /\.designer-toolbar \{[\s\S]*?flex-wrap: wrap;/)
+  assert.match(designerScss, /\.designer-toolbar-prompt \{[\s\S]*?flex: 1 1 #\{rem\(160\)\};/)
+  assert.match(designerScss, /\.designer-toolbar-prompt \{[\s\S]*?min-width: 0;/)
+  assert.match(designerScss, /\.designer-tool-spacer \{[\s\S]*?flex: 999 1 #\{rem\(12\)\};/)
+  assert.match(paneTsx, /className=\{`designer-workbench-v1 \$\{[\s\S]*?state\.drillBlockId \? 'has-open-drill' : ''/)
+  assert.match(paneTsx, /<div className="designer-canvas-stack">[\s\S]*?<DesignerGraphCanvas[\s\S]*?<DesignerBlockDrillSheet/)
+  assert.match(designerScss, /\.designer-canvas-stack \{[\s\S]*?position: relative;[\s\S]*?height: 100%;[\s\S]*?overflow: hidden;/)
+  assert.match(designerScss, /\.designer-canvas-stack > \.designer-canvas \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(1040\)\}\) \{[\s\S]*?\.designer-tool-divider \{[\s\S]*?display: none;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(860\)\}\) \{[\s\S]*?\.designer-workbench-v1 \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(860\)\}\) \{[\s\S]*?\.designer-workbench-v1 \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\) minmax\(#\{rem\(180\)\}, 0\.55fr\);/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(860\)\}\) \{[\s\S]*?\.designer-workbench-v1\.has-open-drill \.designer-canvas-stack \{[\s\S]*?position: absolute;[\s\S]*?inset: 0;[\s\S]*?height: auto;[\s\S]*?z-index: 20;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(860\)\}\) \{[\s\S]*?\.designer-inspector \{[\s\S]*?max-height: 100%;[\s\S]*?border-top: var\(--vb-border-width\) solid var\(--vb-border-subtle\);/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(860\)\}\) \{[\s\S]*?\.designer-drill-panel \{[\s\S]*?position: absolute;[\s\S]*?inset: #\{rem\(12\)\} #\{rem\(12\)\} #\{rem\(36\)\};/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(720\)\}\) \{[\s\S]*?\.designer-workbench \{[\s\S]*?flex-direction: column;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(720\)\}\) \{[\s\S]*?\.designer-sidebar-panel \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?max-width: none;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(720\)\}\) \{[\s\S]*?\.designer-library-resizer \{[\s\S]*?display: none;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-tool-button \{[\s\S]*?width: #\{rem\(31\)\};[\s\S]*?span \{[\s\S]*?display: none;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-toolbar-prompt \{[\s\S]*?flex: 1 1 100%;/)
+  assert.match(designerScss, /\.designer-statusbar \{[\s\S]*?min-width: 0;/)
+  assert.match(designerScss, /\.designer-statusbar-state \{[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-statusbar \{[\s\S]*?flex-wrap: wrap;[\s\S]*?height: auto;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-statusbar-schema,[\s\S]*?\.designer-statusbar-repo \{[\s\S]*?display: none;/)
+  assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-statusbar-actions \{[\s\S]*?flex: 1 1 100%;/)
+  assert.match(toolbarTsx, /aria-label=\{actionStates\.save\.busy \? t\(locale, 'designer\.saving'\) : t\(locale, 'designer\.save'\)\}/)
+  assert.match(toolbarTsx, /aria-label=\{t\(locale, 'designer\.freeform\.expandCanvas'\)\}/)
+  assert.match(toolbarTsx, /aria-label=\{actionStates\.export\.busy \? t\(locale, 'designer\.exporting'\) : t\(locale, 'designer\.export'\)\}/)
+  assert.match(toolbarTsx, /aria-controls=\{exportOpen \? 'designer-export-menu' : undefined\}/)
+  assert.match(designerScss, /\.designer-drill-panel \{[\s\S]*?width: min\(#\{rem\(480\)\}, 100%\);/)
+  assert.match(designerScss, /\.designer-drill-panel \{[\s\S]*?background:[\s\S]*?color-mix\(in srgb, var\(--vb-bg\) 94%, white 6%\)/)
+  assert.match(designerScss, /\.designer-drill-panel \{[\s\S]*?overflow: hidden;/)
+})
+
+test('business designer chrome keeps native desktop cursor and scroll conventions', () => {
+  assert.doesNotMatch(designerScss, /^\s*cursor:\s*pointer/m)
+  assert.doesNotMatch(`${graphCanvasTsx}\n${paneTsx}\n${controllerTs}`, /behavior:\s*['"]smooth['"]/)
+  assert.match(designerScss, /\.business-designer-pane \{[\s\S]*?user-select: none;/)
+  assert.match(
+    designerScss,
+    /\.business-designer-pane \{[\s\S]*?input,[\s\S]*?textarea,[\s\S]*?select,[\s\S]*?user-select: text;/,
+  )
+  assert.match(designerScss, /\.designer-canvas \{[\s\S]*?cursor: default;/)
+  assert.match(designerScss, /\.designer-canvas-viewport \{[\s\S]*?overscroll-behavior: contain;/)
 })
 
 test('business designer patch sheet keeps native keyboard review flow', () => {
@@ -427,9 +574,20 @@ test('business designer patch sheet offers checkpoint after verification', () =>
 
 test('business designer delete removes block document state and derived graph state', () => {
   const deleteBlock = functionBlock('deleteBlock')
+  const inspectorUsageStart = paneTsx.indexOf('<DesignerInspector')
+  assert.notEqual(inspectorUsageStart, -1, 'DesignerInspector usage should exist')
+  const inspectorUsageEnd = paneTsx.indexOf('/>', inspectorUsageStart)
+  assert.notEqual(inspectorUsageEnd, -1, 'DesignerInspector usage should close')
+  const inspectorUsage = paneTsx.slice(inspectorUsageStart, inspectorUsageEnd + 2)
 
   assert.match(graphCanvasTsx, /onDeleteBlock\(node\.block\)/)
   assert.match(graphCanvasTsx, /designer\.canvas\.deleteBlock/)
+  assert.match(drillSheetTsx, /onDeleteBlock: \(block: DesignerBlock\) => void/)
+  assert.match(drillSheetTsx, /block && block\.id !== 'brief'/)
+  assert.match(drillSheetTsx, /className="designer-icon-button designer-drill-delete-button"/)
+  assert.match(drillSheetTsx, /onClick=\{\(\) => onDeleteBlock\(block\)\}/)
+  assert.match(paneTsx, /<DesignerBlockDrillSheet[\s\S]*?onDeleteBlock=\{onDeleteBlock\}/)
+  assert.doesNotMatch(toolbarTsx, /onDeleteBlock/)
   assert.match(
     graphCanvasTsx,
     /className="designer-node-delete-btn"[\s\S]*?title=\{t\(locale, 'designer\.canvas\.deleteBlock'\)\}[\s\S]*?aria-label=\{t\(locale, 'designer\.canvas\.deleteBlock'\)\}[\s\S]*?<AppIcon name="trash" aria-hidden="true" \/>/,
@@ -437,19 +595,21 @@ test('business designer delete removes block document state and derived graph st
   assert.doesNotMatch(graphCanvasTsx, /designer-node-delete-btn[\s\S]*?<span>/)
   assert.doesNotMatch(inspectorTsx, /designer-inspector-delete-btn/)
   assert.doesNotMatch(inspectorTsx, /onDeleteBlock/)
-  assert.doesNotMatch(paneTsx, /<DesignerInspector[\s\S]*?onDeleteBlock=\{onDeleteBlock\}/)
-  assert.match(deleteBlock, /next\.design\.blocks = next\.design\.blocks\.filter/)
-  assert.match(deleteBlock, /delete layout\[blockId\]/)
-  assert.match(deleteBlock, /links: block\.links\.filter\(\(link\) => link\.targetBlockId !== blockId\)/)
-  assert.match(deleteBlock, /next\.diagnostics = next\.diagnostics\.filter/)
-  assert.match(deleteBlock, /setValidation\(\(current\) =>/)
-  assert.match(deleteBlock, /gaps: current\.gaps\.filter\(\(gap\) => gap\.blockId !== blockId\)/)
+  assert.doesNotMatch(inspectorUsage, /onDeleteBlock/)
+  assert.match(designerScss, /\.designer-drill-delete-button \{[\s\S]*?color: var\(--designer-danger\);/)
+  assert.match(deleteBlock, /deleteDesignerBlockFromDetail\(current, blockId\)/)
+  assert.match(deleteBlock, /pruneDesignerValidationForDeletedBlock\(current, blockId\)/)
+  assert.match(designerDocumentOperationsTs, /next\.design\.blocks = next\.design\.blocks[\s\S]*?\.filter\(\(block\) => block\.id !== blockId\)/)
+  assert.match(designerDocumentOperationsTs, /delete layout\[blockId\]/)
+  assert.match(designerDocumentOperationsTs, /links: block\.links\.filter\(\(link\) => link\.targetBlockId !== blockId\)/)
+  assert.match(designerDocumentOperationsTs, /next\.diagnostics = next\.diagnostics\.filter/)
+  assert.match(designerDocumentOperationsTs, /gaps: validation\.gaps\.filter\(\(gap\) => gap\.blockId !== blockId\)/)
   assert.match(
-    deleteBlock,
-    /rulesRun: current\.rulesRun\.filter\(\(rule\) => rule\.blockId !== blockId\)/,
+    designerDocumentOperationsTs,
+    /rulesRun: validation\.rulesRun\.filter\(\(rule\) => rule\.blockId !== blockId\)/,
   )
   assert.match(
-    deleteBlock,
+    designerDocumentOperationsTs,
     /link\.fromBlockId !== blockId && link\.toBlockId !== blockId/,
   )
   assert.match(deleteBlock, /setSelectedBlockId\(\(current\) => \(current === blockId \? null : current\)\)/)
@@ -460,10 +620,11 @@ test('business designer delete removes block document state and derived graph st
 })
 
 test('business designer inspector scrolls without clipping freeform controls', () => {
-  assert.match(
-    designerScss,
-    /\.designer-inspector \{[\s\S]*?max-height: 100%;[\s\S]*?overflow-x: hidden;[\s\S]*?overflow-y: auto;[\s\S]*?overscroll-behavior: contain;/,
-  )
+  const inspectorBlock = scssBlock(designerScss, '.designer-inspector')
+  assert.match(inspectorBlock, /max-height: 100%;/)
+  assert.match(inspectorBlock, /overflow-x: hidden;/)
+  assert.match(inspectorBlock, /overflow-y: auto;/)
+  assert.match(inspectorBlock, /overscroll-behavior: contain;/)
   assert.match(
     designerScss,
     /\.designer-inspector-header \{[\s\S]*?flex: 0 0 auto;/,
@@ -473,7 +634,7 @@ test('business designer inspector scrolls without clipping freeform controls', (
     /\.designer-inspector-section \{[\s\S]*?flex: 0 0 auto;[\s\S]*?min-width: 0;/,
   )
   assert.match(designerScss, /\.designer-freeform-run-log \{[\s\S]*?overflow: auto;/)
-  assert.doesNotMatch(designerScss, /\.designer-inspector \{[\s\S]*?overflow: hidden;/)
+  assert.doesNotMatch(inspectorBlock, /overflow: hidden;/)
 })
 
 test('business designer graph canvas localizes accessibility copy', () => {
@@ -501,6 +662,24 @@ test('business designer graph canvas localizes accessibility copy', () => {
   )
   assert.doesNotMatch(graphCanvasTsx, /aria-label=\{`\$\{node\.block\.kind\}: /)
   assert.doesNotMatch(graphCanvasTsx, /aria-label=\{`\$\{node\.gapCount\} gaps`\}/)
+})
+
+test('business designer graph drag stays cancellable and keeps nodes reachable', () => {
+  assert.match(designerGraphTs, /export function normalizeDesignerNodePosition/)
+  assert.match(designerGraphTs, /Math\.max\(0, position\.x\)/)
+  assert.match(designerGraphTs, /Math\.max\(0, position\.y\)/)
+  assert.match(designerDocumentOperationsTs, /normalizeDesignerNodePosition\(options\.position\)/)
+  assert.match(designerDocumentOperationsTs, /normalizeDesignerNodePosition\(position\)/)
+  assert.match(graphCanvasTsx, /normalizeDesignerNodePosition\(finalPosition\)/)
+  assert.match(graphCanvasTsx, /const handleNodePointerCancel = useCallback/)
+  assert.match(graphCanvasTsx, /node\?\.classList\.remove\('is-dragging'\)/)
+  assert.match(graphCanvasTsx, /dragStateRef\.current = null/)
+  assert.match(graphCanvasTsx, /onPointerCancel=\{handleNodePointerCancel\}/)
+  assert.match(graphCanvasTsx, /if \(event\.target !== event\.currentTarget\) \{[\s\S]*?return[\s\S]*?\}/)
+  assert.match(
+    graphCanvasTsx,
+    /className="designer-node-delete-btn"[\s\S]*?data-no-drag[\s\S]*?onKeyDown=\{\(event\) => event\.stopPropagation\(\)\}/,
+  )
 })
 
 test('business designer inspector localizes accessibility landmarks', () => {
@@ -614,15 +793,20 @@ test('business designer shared request objects carry audit trace ids', () => {
 test('business designer freeform completion has separate request-object IPC', () => {
   const sharedRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRequest')
   const sharedRunStatusRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRunStatusRequest')
+  const sharedRunLogRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRunLogRequest')
   const sharedRevertRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerRevertToCheckpointRequest')
   const sharedRun = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRun')
+  const sharedRunLogResult = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRunLogResult')
   const featureRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRequest')
   const featureRunStatusRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRunStatusRequest')
+  const featureRunLogRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRunLogRequest')
   const featureRevertRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerRevertToCheckpointRequest')
   const featureRun = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRun')
+  const featureRunLogResult = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRunLogResult')
   const startApi = exportedFunctionBlock(designerDesktopApiTs, 'startDesignerFreeformCompletion')
   const listApi = exportedFunctionBlock(designerDesktopApiTs, 'listDesignerFreeformCompletionRuns')
   const updateStatusApi = exportedFunctionBlock(designerDesktopApiTs, 'updateDesignerFreeformCompletionRunStatus')
+  const readLogApi = exportedFunctionBlock(designerDesktopApiTs, 'readDesignerFreeformCompletionRunLog')
   const revertApi = exportedFunctionBlock(designerDesktopApiTs, 'revertDesignerToCheckpoint')
 
   for (const source of [sharedRequest, featureRequest]) {
@@ -645,6 +829,14 @@ test('business designer freeform completion has separate request-object IPC', ()
     assert.match(source, /requestId: string/)
     assert.match(source, /status: .*FreeformCompletionRunStatus/)
   }
+  for (const source of [sharedRunLogRequest, featureRunLogRequest]) {
+    assert.match(source, /requestId: string/)
+    assert.doesNotMatch(source, /sessionId/)
+  }
+  for (const source of [sharedRunLogResult, featureRunLogResult]) {
+    assert.match(source, /log: string/)
+    assert.match(source, /requestId: string/)
+  }
   for (const source of [sharedRevertRequest, featureRevertRequest]) {
     assert.match(source, /checkpoint: string/)
     assert.doesNotMatch(source, /path/)
@@ -663,42 +855,56 @@ test('business designer freeform completion has separate request-object IPC', ()
   )
   assert.match(
     desktopApiTs,
+    /businessDesignerReadFreeformCompletionRunLog\([\s\S]*?business_designer_read_freeform_completion_run_log'/,
+  )
+  assert.match(
+    desktopApiTs,
     /businessDesignerRevertToCheckpoint\([\s\S]*?business_designer_revert_to_checkpoint'/,
   )
   assert.match(startApi, /Promise<DesignerFreeformCompletionRun>/)
   assert.match(listApi, /Promise<DesignerFreeformCompletionRunsResult>/)
   assert.match(updateStatusApi, /Promise<DesignerFreeformCompletionRun>/)
+  assert.match(readLogApi, /Promise<DesignerFreeformCompletionRunLogResult>/)
   assert.match(revertApi, /Promise<DesignerDocumentDetail>/)
   assert.match(freeformControllerTs, /traceDesignerIpc\('business_designer\.list_freeform_completion_runs'/)
+  assert.match(freeformControllerTs, /hasRunningDesignerFreeformRun\(runs\)/)
+  assert.match(freeformControllerTs, /const \[starting, setStarting\] = useState\(false\)/)
+  assert.match(freeformControllerTs, /running: starting \|\| hasRunningDesignerFreeformRun\(runs\)/)
   assert.match(freeformControllerTs, /startDesignerFreeformCompletion\(workspaceId, \{[\s\S]*?traceId: nextDesignerIpcTraceId\(\)/)
-  assert.match(freeformControllerTs, /desktopApi\.subscribeTerminalEvents\(/)
+  assert.match(
+    freeformControllerTs,
+    /setRuns\(\(current\) => \[result,[\s\S]*?void readDesignerFreeformCompletionRunLog\(workspaceId, \{[\s\S]*?documentId: result\.documentId,[\s\S]*?requestId: result\.requestId,[\s\S]*?\[result\.requestId\]: logResult\.log/,
+  )
+  assert.match(freeformControllerTs, /readDesignerFreeformCompletionRunLog\(workspaceId, \{/)
   assert.match(freeformControllerTs, /updateDesignerFreeformCompletionRunStatus\(workspaceId, \{/)
-  assert.match(freeformControllerTs, /payload\.to === 'killed' \? 'cancelled' : payload\.to === 'failed' \? 'failed' : 'completed'/)
-  assert.match(freeformControllerTs, /terminalReadSnapshot\(workspaceId, run\.sessionId, 48_000\)/)
-  assert.match(freeformControllerTs, /createTerminalChunkDecoder\(\)/)
-  assert.match(freeformControllerTs, /decodeTerminalBase64Chunk\(decoder, snapshot\.chunk, false\)/)
-  assert.match(freeformControllerTs, /desktopApi\.terminalKill\(workspaceId, run\.sessionId, 'TERM'\)/)
+  assert.match(freeformControllerTs, /window\.setInterval\(\(\) => \{[\s\S]*?refreshRuns\(\)[\s\S]*?\}, 2_000\)/)
+  assert.doesNotMatch(freeformControllerTs, /subscribeTerminalEvents/)
+  assert.doesNotMatch(freeformControllerTs, /terminalReadSnapshot/)
+  assert.doesNotMatch(freeformControllerTs, /terminalKill/)
+  assert.doesNotMatch(freeformControllerTs, /createTerminalChunkDecoder/)
+  assert.doesNotMatch(freeformControllerTs, /decodeTerminalBase64Chunk/)
   assert.match(freeformControllerTs, /status: 'cancelled'/)
   assert.match(historyControllerTs, /function useDesignerHistory/)
   assert.match(historyControllerTs, /openDiffFromCheckpoint[\s\S]*?diffDesignerWorkingTree\(workspaceId, documentId, checkpoint, traceId\)/)
   assert.match(controllerTs, /revertDesignerToCheckpoint\(workspaceId, \{/)
   assert.match(controllerTs, /setNotice\(\{ kind: 'success', text: 'checkpointReverted' \}\)/)
   assert.match(tauriLibRs, /business_designer::business_designer_update_freeform_completion_run_status/)
+  assert.match(tauriLibRs, /business_designer::business_designer_read_freeform_completion_run_log/)
   assert.match(tauriLibRs, /business_designer::business_designer_revert_to_checkpoint/)
   assert.match(tauriBusinessDesignerRs, /pub fn business_designer_update_freeform_completion_run_status/)
+  assert.match(tauriBusinessDesignerRs, /pub fn business_designer_read_freeform_completion_run_log/)
   assert.match(tauriBusinessDesignerRs, /pub fn business_designer_revert_to_checkpoint/)
-  assert.match(tauriBusinessDesignerRs, /set_session_visibility\(&session\.session_id, true\)/)
-  assert.match(tauriBusinessDesignerRs, /shell: Some\("auto"\.to_string\(\)\)/)
   assert.match(tauriBusinessDesignerRs, /fn as_tool_kind\(self\) -> AgentToolKind/)
   assert.match(
     tauriBusinessDesignerRs,
-    /let tool_kind = provider\.as_tool_kind\(\);[\s\S]*?env:\s*augment_terminal_env_for_agent\(\s*app,\s*state,\s*workspace_id,\s*tool_kind,\s*true,\s*Default::default\(\),?\s*\)\?/,
+    /let tool_kind = provider\.as_tool_kind\(\);[\s\S]*?augment_terminal_env_for_agent\(\s*app,\s*state,\s*workspace_id,\s*tool_kind,\s*true,\s*Default::default\(\),?\s*\)\?/,
   )
-  assert.match(
-    tauriBusinessDesignerRs,
-    /write_terminal_command_with_submit\(state, &session\.session_id, provider\.as_str\(\), "\\r"\)/,
-  )
-  assert.match(tauriBusinessDesignerRs, /FREEFORM_PROMPT_INJECTION_DELAY_MS/)
+  assert.match(tauriBusinessDesignerRs, /resolve_freeform_cli_command\(provider, &env\)\?/)
+  assert.match(tauriBusinessDesignerRs, /spawn_freeform_completion_process\(FreeformCompletionProcess/)
+  assert.match(tauriBusinessDesignerRs, /stdout\(Stdio::piped\(\)\)/)
+  assert.doesNotMatch(tauriBusinessDesignerRs, /set_session_visibility\(&session\.session_id, true\)/)
+  assert.doesNotMatch(tauriBusinessDesignerRs, /write_terminal_command_with_submit/)
+  assert.doesNotMatch(tauriBusinessDesignerRs, /FREEFORM_PROMPT_INJECTION_DELAY_MS/)
   assert.doesNotMatch(tauriBusinessDesignerRs, /shell: Some\(provider\.as_str\(\)\.to_string\(\)\)/)
   assert.doesNotMatch(tauriBusinessDesignerRs, /env: Default::default\(\),[\s\S]*?agent_tool_kind: Some\(provider\.as_str\(\)\.to_string\(\)\)/)
   assert.match(tauriBusinessDesignerRs, /run_git\(&docs_root, &\["checkout", &checkpoint, "--", &pathspec\]\)/)
@@ -708,6 +914,7 @@ test('business designer freeform completion has separate request-object IPC', ()
 
 test('business designer freeform entry dispatches directly from inspector scenes', () => {
   const freeformPanel = localFunctionBlock(inspectorTsx, 'FreeformCompletionPanel')
+  const freeformRunList = localFunctionBlock(inspectorTsx, 'FreeformRunList')
 
   assert.match(paneTsx, /useDesignerFreeformCompletion\(\{[\s\S]*?documentId: state\.detail\?\.manifest\.documentId \?\? null/)
   assert.match(paneTsx, /const FREEFORM_PROVIDER_STORAGE_KEY = 'gtoffice\.businessDesigner\.freeformProvider'/)
@@ -718,7 +925,11 @@ test('business designer freeform entry dispatches directly from inspector scenes
   assert.match(paneTsx, /setPendingFreeformCompletion\(params\)/)
   assert.match(paneTsx, /const configureFreeformProvider = useCallback\([\s\S]*?setFreeformProvider\(provider\)[\s\S]*?dispatchFreeformCompletion\(pending, provider\)/)
   assert.match(paneTsx, /const confirmFreeformProvider = useCallback\(\(\) => \{[\s\S]*?configureFreeformProvider\(freeformProvider\)/)
-  assert.match(paneTsx, /const dispatchFreeformCompletion = useCallback\([\s\S]*?startCompletion\(\{[\s\S]*?\.\.\.params,[\s\S]*?provider,/)
+  assert.match(
+    paneTsx,
+    /const dispatchFreeformCompletion = useCallback\([\s\S]*?if \(state\.dirty\) \{[\s\S]*?const saved = await state\.save\(\)[\s\S]*?if \(!saved\) \{[\s\S]*?return[\s\S]*?void documents\.refresh\(\)[\s\S]*?const run = await freeformCompletion\.startCompletion\(\{[\s\S]*?\.\.\.params,[\s\S]*?provider,/,
+  )
+  assert.match(paneTsx, /freeformBusy=\{freeformCompletion\.starting \|\| state\.operation === 'save'\}/)
   assert.match(
     paneTsx,
     /<DesignerInspector[\s\S]*?freeformRuns=\{freeformCompletion\.runs\}[\s\S]*?freeformProvider=\{freeformProvider\}[\s\S]*?onStartFreeformCompletion=\{onStartFreeformCompletion\}/,
@@ -739,6 +950,7 @@ test('business designer freeform entry dispatches directly from inspector scenes
   assert.match(messagesTs, /'designer\.freeform\.providerSetup'/)
   assert.match(messagesTs, /'designer\.freeform\.providerSetupPending'/)
   assert.match(toolbarTsx, /onExpandCanvas: \(userPrompt\?: string \| null\) => void/)
+  assert.match(toolbarTsx, /agentRunning\?: boolean/)
   assert.match(toolbarTsx, /className="designer-toolbar-prompt"/)
   assert.match(toolbarTsx, /placeholder=\{t\(locale, 'designer\.freeform\.toolbarPromptPlaceholder'\)\}/)
   assert.match(toolbarTsx, /onExpandCanvas\(expandPrompt\.trim\(\) \|\| null\)/)
@@ -748,8 +960,19 @@ test('business designer freeform entry dispatches directly from inspector scenes
     /const onExpandCanvas = useCallback\(\(userPrompt\?: string \| null\) => \{[\s\S]*?scenario: 'expand_canvas'[\s\S]*?userPrompt: userPrompt\?\.trim\(\) \|\| null/,
   )
   assert.match(paneTsx, /onExpandCanvas=\{onExpandCanvas\}/)
+  assert.match(paneTsx, /agentRunning=\{freeformCompletion\.running\}/)
+  assert.match(freeformControllerTs, /starting: boolean/)
+  assert.match(freeformControllerTs, /starting,/)
   assert.match(inspectorTsx, /function FreeformRunList\(/)
-  assert.match(inspectorTsx, /run\.sessionId[\s\S]*?run\.checkpointBefore/)
+  assert.match(freeformRunList, /const runningRun = runs\.find\(\(run\) => run\.status === 'running'\)/)
+  assert.match(freeformRunList, /setExpandedRunId\(runningRun\.requestId\)/)
+  assert.match(freeformRunList, /if \(!runLogs\[runningRun\.requestId\]\) \{[\s\S]*?onReadLog\(runningRun\)/)
+  assert.match(inspectorTsx, /onReload=\{onReloadDocument\}/)
+  assert.match(freeformRunList, /run\.status === 'completed'[\s\S]*?onClick=\{onReload\}/)
+  assert.match(freeformRunList, /designer\.freeform\.reloadDocument/)
+  assert.match(messagesTs, /'designer\.freeform\.reloadDocument': \{ 'zh-CN': '刷新文档', 'en-US': 'Reload document' \}/)
+  assert.match(inspectorTsx, /run\.sessionId\.startsWith\('headless:'\)/)
+  assert.match(inspectorTsx, /runSessionLabel[\s\S]*?run\.checkpointBefore/)
   assert.match(inspectorTsx, /aria-expanded=\{expandedRunId === run\.requestId\}/)
   assert.match(inspectorTsx, /onReadLog\(run\)/)
   assert.match(inspectorTsx, /className="designer-freeform-run-log"/)
@@ -890,11 +1113,16 @@ test('business designer mock completion and real dispatch use explicit interface
 
 test('business designer v1 agent entry stays host-anchored in inspector', () => {
   const toolbarProps = interfaceBlock(toolbarTsx, 'DesignerToolbarProps')
+  const toolbarPropsWithoutBusyState = toolbarProps
+    .replace(/\s*agentRunning\?: boolean\n/g, '\n')
+    .replace(/\s*agentRunning = false,\n/g, '\n')
+    .replace(/\s*agentRunning,\n/g, '\n')
   const toolbarRenderStart = toolbarTsx.indexOf('return (')
   assert.notEqual(toolbarRenderStart, -1, 'toolbar render should exist')
   const toolbarRender = toolbarTsx.slice(toolbarRenderStart)
 
-  assert.doesNotMatch(toolbarProps, /Agent|agent|completion|preview|run/)
+  assert.match(toolbarProps, /agentRunning\?: boolean/)
+  assert.doesNotMatch(toolbarPropsWithoutBusyState, /Agent|agent|completion|preview|run/)
   assert.doesNotMatch(toolbarRender, /previewAgentTask|runAgentCompletion|onRunAgent|agentPreview/)
   assert.doesNotMatch(toolbarRender, /designer\.inspector\.fixGap|designer\.inspector\.fixBlock/)
   assert.match(inspectorTsx, /onFixGap\(blockId, gap\.code\)/)
