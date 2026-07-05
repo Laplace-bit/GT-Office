@@ -110,7 +110,9 @@ export const DesignerInspector = memo(function DesignerInspector({
   }
 
   const blockGaps = gaps.filter((gap) => gap.blockId === block.id)
-  const hasFixable = blockGaps.some((gap) => gap.fixableByAgent)
+  const consistencyGaps = blockGaps.filter((gap) => gap.layer !== 'completeness')
+  const completenessGaps = blockGaps.filter((gap) => gap.layer === 'completeness')
+  const hasFixable = consistencyGaps.some((gap) => gap.fixableByAgent)
   const adjacency = edges.filter(
     (edge) => edge.fromBlockId === block.id || edge.toBlockId === block.id,
   )
@@ -138,21 +140,23 @@ export const DesignerInspector = memo(function DesignerInspector({
             </button>
           </div>
         </div>
-        {blockGaps.length === 0 ? (
+        {consistencyGaps.length === 0 && completenessGaps.length === 0 ? (
           <div className="designer-inspector-clean">
             <AppIcon name="check-circle" aria-hidden="true" />
             <span>{t(locale, 'designer.inspector.noGaps')}</span>
           </div>
         ) : (
           <>
-            <GapList
-              locale={locale}
-              blockId={block.id}
-              gaps={blockGaps}
-              agentBusy={agentBusy}
-              onFixGap={onFixGap}
-              onCreateEntityFromGap={onCreateEntityFromGap}
-            />
+            {consistencyGaps.length > 0 && (
+              <GapList
+                locale={locale}
+                blockId={block.id}
+                gaps={consistencyGaps}
+                agentBusy={agentBusy}
+                onFixGap={onFixGap}
+                onCreateEntityFromGap={onCreateEntityFromGap}
+              />
+            )}
             {hasFixable ? (
               <div className="designer-gap-block-action">
                 <button
@@ -165,6 +169,28 @@ export const DesignerInspector = memo(function DesignerInspector({
                 </button>
               </div>
             ) : null}
+            {completenessGaps.length > 0 && (
+              <section className="designer-inspector__completeness">
+                <h4>完备性（影响代码生成准确度）</h4>
+                <ul className="designer-gap-list">
+                  {completenessGaps.map((gap) => (
+                    <li key={gap.id} className={`designer-gap-item is-${gap.severity}`}>
+                      <div className="designer-gap-row">
+                        <AppIcon
+                          name={gap.severity === 'error' ? 'alert-circle' : 'alert-triangle'}
+                          className="designer-gap-icon"
+                          aria-hidden="true"
+                        />
+                        <div className="designer-gap-text">
+                          <div className="designer-gap-message">{gap.message}</div>
+                          <code className="designer-gap-code">{gap.code}</code>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
         )}
         {agentPreview && agentPreview.hostBlockId === block.id ? (

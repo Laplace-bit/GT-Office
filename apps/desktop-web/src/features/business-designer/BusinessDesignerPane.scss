@@ -2689,3 +2689,35 @@
     background: #fff;
   }
 }
+
+.designer-inspector__completeness {
+  padding: 0.75rem;
+  border-top: 0.0625rem solid var(--designer-border, #d0d0d0);
+
+  h4 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+  }
+}
+
+.designer-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: 0.8125rem;
+
+  &__code {
+    font-family: monospace;
+    color: var(--designer-muted, #888);
+    font-size: 0.75rem;
+  }
+
+  &--info .designer-gap__message {
+    color: var(--designer-muted, #888);
+  }
+
+  &--warning .designer-gap__message {
+    color: var(--designer-warning, #b8860b);
+  }
+}
