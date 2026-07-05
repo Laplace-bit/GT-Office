@@ -60,6 +60,7 @@ Feature modules under `src/features/`:
 - `tool-adapter` -- channel connectors, bot bindings, message routing
 - `workspace` -- workspace lifecycle management
 - `workspace-hub` -- multi-station workbench, agent cards, detached windows
+- `business-designer` -- requirement design with graph, gap rules, and AI completion
 
 ### apps/desktop-tauri
 
@@ -313,5 +314,6 @@ The frontend feature modules and backend command directories maintain a strict o
 | `settings` | `commands/settings/` |
 | `keybindings` | `commands/keybindings/` |
 | `change-feed` | (events only, no commands) |
+| `business-designer` | `commands/business_designer/` |
 
 New Tauri commands must be placed in the corresponding feature directory under `commands/`. The `commands/` root contains only the `mod.rs` binding file and cross-cutting handlers like `security.rs` and `system.rs`.

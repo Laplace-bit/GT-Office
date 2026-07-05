@@ -158,6 +158,37 @@ Error example:
 | `task.list` | `workspaceId, filters?` | `tasks[]` |
 | `task.cancel` | `taskId` | `cancelled` |
 
+### Business Designer
+
+| Command | Key Request Fields | Key Response Fields |
+|---------|-------------------|-------------------|
+| `business_designer.list_documents` | `workspaceId` | `documents[]` |
+| `business_designer.init_docs_repo` | `workspaceId` | `initialized` |
+| `business_designer.create_document` | `workspaceId, name?` | `documentId, manifest` |
+| `business_designer.read_document` | `workspaceId, documentId` | `document, manifest, generated` |
+| `business_designer.save_document` | `workspaceId, documentId, document, manifest` | `saved, revision` |
+| `business_designer.validate_document` | `workspaceId, documentId` | `revision, diagnostics, gaps, completenessGaps, rulesRun, graphProjection` |
+| `business_designer.compile_document` | `workspaceId, documentId` | `compiled` (includes `code-gen-prompt.md` in generated files) |
+| `business_designer.create_checkpoint` | `workspaceId, documentId, message?` | `checkpointId` |
+| `business_designer.diff_checkpoint` | `workspaceId, documentId, checkpointId?` | `diff` |
+| `business_designer.compare_checkpoints` | `workspaceId, documentId, fromCheckpointId, toCheckpointId` | `diff` |
+| `business_designer.list_checkpoints` | `workspaceId, documentId` | `checkpoints[]` |
+| `business_designer.preview_agent_task` | `workspaceId, documentId, hostBlockId, gapCodes, scope, baseRevision` | `preview` |
+| `business_designer.run_agent_completion` | `workspaceId, documentId, hostBlockId, gapCodes, scope, baseRevision` | `patch` |
+| `business_designer.run_mock_agent_completion` | `workspaceId, documentId, hostBlockId, gapCodes, scope, baseRevision` | `patch` (mock) |
+| `business_designer.start_freeform_completion` | `workspaceId, documentId, scenario, hostBlockId?, userPrompt?` | `runId, sessionId` |
+| `business_designer.list_freeform_completion_runs` | `workspaceId, documentId` | `runs[]` |
+| `business_designer.read_freeform_completion_run_log` | `workspaceId, documentId, runId` | `log` |
+| `business_designer.update_freeform_completion_run_status` | `workspaceId, documentId, runId, status` | `updated` |
+| `business_designer.revert_to_checkpoint` | `workspaceId, documentId, checkpointId` | `reverted` |
+| `business_designer.validate_agent_patch` | `workspaceId, documentId, patch, baseRevision` | `validation` |
+| `business_designer.recover_agent_patch_from_task` | `workspaceId, documentId, taskId` | `patch` |
+| `business_designer.apply_agent_patch` | `workspaceId, documentId, patch, baseRevision, acceptedChangeIndices?` | `applied, gapResolution` |
+| `business_designer.export_document` | `workspaceId, documentId, format` | `export` (supports `codeGenPrompt` format) |
+| `business_designer.export_document_to_file` | `workspaceId, documentId, format, path` | `exported` |
+| `business_designer.preview_coding_handoff` | `workspaceId, documentId` | `preview` |
+| `business_designer.dispatch_coding_handoff` | `workspaceId, documentId` | `taskId` |
+
 ## Event Contracts
 
 Events are broadcast from the backend to all subscribed frontend listeners. Workspace-scoped events include `workspaceId` so listeners can reject stale events before mutating active UI state.

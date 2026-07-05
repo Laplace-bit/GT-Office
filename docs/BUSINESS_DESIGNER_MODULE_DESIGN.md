@@ -227,7 +227,21 @@ v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`�
 
 收口原则：**仅做机器能确定的事实**——零主观判断、零业务启发式。「订单该不该有取消路径」是人的决定，归 `openQuestions` 块，不归规则。
 
-### 6.1 entityModel
+### 5. Block Vocabulary (v1.1 updates)
+
+| Block Kind | Purpose | Payload | Notes |
+|---|---|---|---|
+| `text` (root `brief`) | Human-readable requirement text | `{ "text": string }` | Reserved for id=`brief`; preserved from Phase 6 |
+| `entityModel` | Domain entity definition | `{ "name": string, "fields": [...] }` | Already has gap rules in v1 |
+| `businessFlow` | State machine / process definition | `{ "states": [...] }` | Already has gap rules in v1 |
+| `apiContract` | API endpoint definition | `{ "endpoints": [...] }` | Already has gap rules in v1 |
+| `dataContract` (upgraded) | Data shape / schema definition | `{ "schema": object \| string }` | `schema` may be JSON Schema (object) or legacy string; new `check_data_contract` rule |
+| `uiScreen` (new) | UI screen artifact with HTML | `{ "html": string, "name": string }` | HTML payload with `data-nav/data-entity/data-api/data-flow` cross-block links; new `check_ui_screen` rule |
+| `uiWorkflow` | (placeholder) UI navigation flow | `{ "name": string }` | Placeholder only; no gap rules yet |
+
+### 6. Gap Ruleset (v1.1 updates)
+
+#### 6.1 entityModel
 
 | code | 规则 | severity | fixable |
 |---|---|---|---|
@@ -261,13 +275,40 @@ v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`�
 
 `orphan-contract` 不进入 v1 gap 规则：API contract 没有 entityModel 依赖可能是合法设计选择，不是机器可判定缺口。v1 只保留明确断裂引用的 `dangling-ref`。
 
-### 6.4 其余 13 种块（text / glossary / ruleTable / pseudocode / objectModel / dataContract / uiWorkflow / technicalStack / nonFunctional / acceptanceCriteria / openQuestions / agentInstruction / decisionRecord）
+#### 6.4 uiScreen
 
-v1 **不产 gap**，只做 lint（schema 格式 / 字段类型）。它们存在于图中、可作为引用目标（被三种 gap-rule kind 通过 `dependsOn`/`uses` 等指向）。Anchored Gap Completion 不以它们为 host；Freeform Design Completion 可从 `brief` / 画布上下文扩展它们，但完成状态仍由 reload + validate + diff/revert 兜底，不由 Agent 自评。规则集留扩展位，后续按需加入。
+| code | 规则 | severity | fixable |
+|---|---|---|---|
+| `ui_no_html` | `html` 缺失或为空 | error | ✓ |
+| `ui_dangling_ref` | `data-nav/data-entity/data-api/data-flow` 引用了不存在的块 | warning | ✗ |
 
-特殊情况：图根 `brief`（kind=`text`，id=`brief`）虽属此 13 种，但作为图入口节点存在，下钻时使用 `DesignerBriefRoot` 面板，不通过画布右键新建。
+#### 6.5 dataContract
 
-### 6.5 三态判定语义
+| code | 规则 | severity | fixable |
+|---|---|---|---|
+| `data_contract_no_schema` | `schema` 缺失或为空 | error | ✓ |
+| `data_contract_invalid` | `schema` 为对象但不符合 JSON Schema 基本结构（仅轻量检查） | warning | ✗ |
+
+#### 6.6 completeness_rules（软层）
+
+完整性检查为非阻塞（info/warning），用于捕获设计中的明显缺口。在 `derive_edges` 和 `gap_rules` 之后运行。
+
+| code | 规则 | severity |
+|---|---|---|
+| `completeness_no_entity_model` | 文档中无 `entityModel` 块 | info |
+| `completeness_no_business_flow` | 文档中无 `businessFlow` 块 | info |
+| `completeness_no_api_contract` | 文档中无 `apiContract` 块 | info |
+| `completeness_no_ui_screen` | 文档中无 `uiScreen` 块 | info |
+| `completeness_flow_unverified` | 存在 `businessFlow` 但无 `acceptanceCriteria` 引用它 | warning |
+| `completeness_no_agent_instruction` | 文档中无 `agentInstruction` 块 | warning |
+
+### 6.7 其余 11 种块（text / glossary / ruleTable / pseudocode / objectModel / uiWorkflow / technicalStack / nonFunctional / acceptanceCriteria / openQuestions / agentInstruction / decisionRecord）
+
+v1.1 **不产 gap**，只做 lint（schema 格式 / 字段类型）。它们存在于图中、可作为引用目标（被三种 gap-rule kind 通过 `dependsOn`/`uses` 等指向）。Anchored Gap Completion 不以它们为 host；Freeform Design Completion 可从 `brief` / 画布上下文扩展它们，但完成状态仍由 reload + validate + diff/revert 兜底，不由 Agent 自评。规则集留扩展位，后续按需加入。
+
+特殊情况：图根 `brief`（kind=`text`，id=`brief`）虽属此 11 种，但作为图入口节点存在，下钻时使用 `DesignerBriefRoot` 面板，不通过画布右键新建。
+
+### 6.8 三态判定语义
 
 ```text
 patch 应用 → 重跑 gap_rules → 与应用前 gap fingerprint 快照对比
@@ -450,15 +491,20 @@ Freeform 入口按场景分散在用户已经工作的地方，先覆盖 Busines
 ```text
 apps/desktop-tauri/src-tauri/src/commands/business_designer/
 ├── mod.rs              # Tauri command 入口绑定
-├── agent_completion_prompts.rs # 新增：freeform 场景提示词模板
-├── gap_rules/          # 新增：规则引擎
+├── agent_completion_prompts.rs # freeform 场景提示词模板
+├── gap_rules/          # 规则引擎
 │   ├── mod.rs          # GapRule trait + 注册表 + run_all(graph)
 │   ├── entity.rs       # entityModel 规则
 │   ├── flow.rs         # businessFlow 规则
 │   ├── api.rs          # apiContract 规则
+│   ├── ui_screen.rs    # (v1.1) uiScreen 规则
+│   ├── data_contract.rs # (v1.1) dataContract 规则
+│   ├── completeness_rules.rs # (v1.1) 完整性软层规则
 │   └── tests.rs        # 规则单测（每条规则一组 fixture）
-├── validation.rs       # 现有 validate 逻辑外提 + 调 gap_rules::run_all
-└── tests/mod_tests.rs  # 现有测试（命令级）
+├── code_gen_prompt.rs  # (v1.1) 生成 code-gen-prompt.md 的渲染器
+├── ui_refs.rs          # (v1.1) 解析 uiScreen HTML 的 data-* 链接
+├── validation.rs       # validate 逻辑 + 调 gap_rules::run_all + completeness_rules
+└── tests/mod_tests.rs  # 命令级测试
 ```
 
 `gap_rules` 是纯函数模块——无 IO、无 Tauri、无 state，可独立单测。规则集稳定后整个 `business_designer/` 可沉淀为 `crates/gt-business-designer`，v1 不做。
@@ -471,8 +517,8 @@ apps/desktop-tauri/src-tauri/src/commands/business_designer/
 | `business_designer.create_document` | 不动 |
 | `business_designer.read_document` | 不动 |
 | `business_designer.save_document` | 不动 |
-| `business_designer.compile_document` | 不动 |
-| **`business_designer.validate_document`** | **返回新增 `revision` / `gaps` / `rulesRun` / `graphProjection`** |
+| **`business_designer.compile_document`** | **v1.1 新增生成 `generated/code-gen-prompt.md`（用于代码生成的提示词资产）** |
+| **`business_designer.validate_document`** | **v1 已有 `revision`/`gaps`/`rulesRun`/`graphProjection`；v1.1 新增 `completenessGaps`（软层完整性检查）** |
 | `business_designer.init_docs_repo` | 不动 |
 | `business_designer.create_checkpoint` | 不动 |
 | `business_designer.diff_checkpoint` | 不动 |
@@ -485,7 +531,7 @@ apps/desktop-tauri/src-tauri/src/commands/business_designer/
 | **`business_designer.watch_document`** | **新增或复用系统 watcher：文档打开后监听设计文档根目录，文件变化触发前端 reload + validate** |
 | `business_designer.validate_agent_patch` | 校验加：每个 change 必须命中 hostBlockId；v1 anchored patch 不允许 addBlock / deleteBlock |
 | `business_designer.apply_agent_patch` | 校验 `baseRevision`，应用后自动 validate 并附 `gapResolution` |
-| `business_designer.export_document` | 不动 |
+| **`business_designer.export_document`** | **v1.1 新增 `codeGenPrompt` 导出格式，包含 `code-gen-prompt.md` 内容** |
 | `business_designer.list_handoffs` 等 handoff 链 | 不动 |
 
 Anchored gap 命令继续保持严格，不为了 freeform 把字段 optional 化。Freeform 走新增命令与 transient session 模型；两条链路共享 validation / checkpoint / history 能力，但接口语义分开。

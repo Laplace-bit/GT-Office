@@ -139,6 +139,7 @@ Core third-party dependencies used by the Tauri shell and workspace crates. Work
 | Identity | `uuid` | workspace dependency `1` | ✅ Used | Stable IDs across workspace models |
 | Crypto / encoding | `qrcode` | `apps/desktop-tauri/src-tauri/Cargo.toml` `0.14` | ✅ Used | QR code generation |
 | | `base64` | `apps/desktop-tauri/src-tauri/Cargo.toml` `0.22` | ✅ Used | Base64 encoding and decoding |
+| HTML parsing | `scraper` | `apps/desktop-tauri/src-tauri/Cargo.toml` `0.20` | ✅ Used | Parse `uiScreen` block HTML, extract `data-*` cross-block links (data-nav/data-entity/data-api/data-flow) |
 
 ---
 
