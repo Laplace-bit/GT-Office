@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { MarkdownRenderer } from '@/components/editor'
 import type { DesignerBlock } from '../model/designer-blocks'
 import { designerBlockKindLabel } from '../model/designer-block-labels'
+import { DesignerScreenPreview } from './DesignerScreenPreview'
 
 interface DesignerDocumentProps {
   locale: Locale
@@ -186,10 +186,11 @@ function blockToMarkdown(locale: Locale, block: DesignerBlock): string {
       break
     }
     case 'dataContract': {
-      const schema = str(block.payload, 'schema')
+      const schema = asRecord(block.payload).schema
       if (schema) {
+        const text = typeof schema === 'string' ? schema : JSON.stringify(schema, null, 2)
         lines.push('```json')
-        lines.push(schema)
+        lines.push(text)
         lines.push('```')
       }
       break
@@ -233,11 +234,6 @@ export function DesignerDocument({
   agentBlocks,
   readOnly = false,
 }: DesignerDocumentProps) {
-  const sections = useMemo(
-    () => agentBlocks.map((block) => ({ block, markdown: blockToMarkdown(locale, block) })),
-    [agentBlocks, locale],
-  )
-
   return (
     <section className="designer-document" aria-label={t(locale, 'designer.document')}>
       <input
@@ -260,20 +256,31 @@ export function DesignerDocument({
           aria-label={t(locale, 'designer.brief')}
         />
       </div>
-      {sections.length > 0 ? (
+      {agentBlocks.length > 0 ? (
         <div className="designer-agent-sections" aria-label={t(locale, 'designer.agentSections')}>
           <p className="designer-agent-sections-label">
             {t(locale, 'designer.agentSectionsHint')}
           </p>
-          {sections.map(({ block, markdown }) => (
-            <article key={block.id} className="designer-agent-section">
-              <MarkdownRenderer
-                content={markdown}
-                filePath={`${block.id}.md`}
-                workspaceRoot={workspaceRoot}
-              />
-            </article>
-          ))}
+          {agentBlocks.map((block) => {
+            if (block.kind === 'uiScreen') {
+              const html = str(block.payload, 'html') ?? ''
+              return (
+                <article key={block.id} className="designer-agent-section">
+                  <DesignerScreenPreview html={html} />
+                </article>
+              )
+            }
+            const markdown = blockToMarkdown(locale, block)
+            return (
+              <article key={block.id} className="designer-agent-section">
+                <MarkdownRenderer
+                  content={markdown}
+                  filePath={`${block.id}.md`}
+                  workspaceRoot={workspaceRoot}
+                />
+              </article>
+            )
+          })}
         </div>
       ) : null}
     </section>
