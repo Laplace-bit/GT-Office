@@ -26,6 +26,7 @@ use crate::{
 mod agent_completion_prompts;
 mod gap_rules;
 mod ui_refs;
+mod completeness_rules;
 
 const DESIGNER_SCHEMA_VERSION: u32 = 1;
 const DOCS_ROOT_RELATIVE: &str = ".gtoffice/docs";
@@ -904,13 +905,16 @@ pub(crate) fn validate_document_at(
     let detail = read_document_at(workspace_id, workspace_root, document_id)?;
     let diagnostics = validate_design(&detail.manifest, &detail.design);
     let rule_result = gap_rules::run_all(&detail.design);
+    let completeness = completeness_rules::run_completeness(&detail.design, &rule_result.derived_edges);
+    let mut gaps = rule_result.gaps.clone();
+    gaps.extend(completeness);
     serde_json::to_value(json!({
         "schemaVersion": DESIGNER_SCHEMA_VERSION,
         "workspaceId": workspace_id,
         "documentId": detail.manifest.document_id,
         "revision": detail.design.revision,
         "diagnostics": diagnostics,
-        "gaps": rule_result.gaps,
+        "gaps": gaps,
         "rulesRun": rule_result.rules_run,
         "graphProjection": graph_projection_from_run(&rule_result),
     }))

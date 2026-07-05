@@ -368,6 +368,12 @@ fn stable_gap_id(key: &str) -> String {
     format!("gap_{:016x}", hash)
 }
 
+/// Public wrapper so `completeness_rules` can produce stable gap ids without
+/// duplicating the FNV-1a hasher.
+pub(crate) fn stable_gap_id_pub(key: &str) -> String {
+    stable_gap_id(key)
+}
+
 /// Tiny FNV-1a 64-bit hasher. We don't use std::collections::hash::DefaultHasher
 /// because it's not guaranteed to be stable across rust versions; gap ids cross
 /// process boundaries (recorded in archived patches), so stability matters.

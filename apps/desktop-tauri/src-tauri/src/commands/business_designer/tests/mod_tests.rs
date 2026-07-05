@@ -32,6 +32,9 @@ use super::{
 #[path = "gap_rules_tests.rs"]
 mod gap_rules_tests;
 
+#[path = "completeness_rules_tests.rs"]
+mod completeness_rules_tests;
+
 struct TempWorkspace {
     root: PathBuf,
 }
