@@ -26,8 +26,8 @@ export interface DesignerGap {
   key: string
   code: string
   blockId: string
-  layer: 'intra' | 'inter'
-  severity: 'warning' | 'error'
+  layer: 'intra' | 'inter' | 'completeness'
+  severity: 'info' | 'warning' | 'error'
   message: string
   fixableByAgent: boolean
   locator?: Record<string, string> | null
@@ -48,6 +48,8 @@ export type DesignerEdgeRelation =
   | 'consumes'
   | 'uses'
   | 'extends'
+  | 'navigatesTo'
+  | 'participatesIn'
 
 export interface DesignerDerivedEdge {
   fromBlockId: string

@@ -72,11 +72,13 @@ pub(crate) struct DesignerGap {
 pub(crate) enum DesignerGapLayer {
     Intra,
     Inter,
+    Completeness,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum DesignerGapSeverity {
+    Info,
     Warning,
     Error,
 }
@@ -101,6 +103,8 @@ pub(crate) enum DesignerEdgeRelation {
     Consumes,
     Uses,
     Extends,
+    NavigatesTo,
+    ParticipatesIn,
 }
 
 /// An edge derived from payload references. v1 does not let users hand-draw

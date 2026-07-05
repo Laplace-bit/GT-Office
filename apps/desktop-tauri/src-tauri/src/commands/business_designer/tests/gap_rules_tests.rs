@@ -48,25 +48,27 @@ fn derived_edge_relation_vocabulary_is_closed() {
             DesignerEdgeRelation::Consumes,
             DesignerEdgeRelation::Uses,
             DesignerEdgeRelation::Extends,
+            DesignerEdgeRelation::NavigatesTo,
+            DesignerEdgeRelation::ParticipatesIn,
         ]
     );
     assert_eq!(
         serde_json::to_value(DERIVED_EDGE_RELATIONS).expect("serialize relation vocabulary"),
-        json!(["dependsOn", "produces", "consumes", "uses", "extends"])
+        json!(["dependsOn", "produces", "consumes", "uses", "extends", "navigatesTo", "participatesIn"])
     );
 }
 
 #[test]
 fn gap_layer_and_severity_vocabularies_are_closed() {
     assert_eq!(
-        serde_json::to_value([DesignerGapLayer::Intra, DesignerGapLayer::Inter])
+        serde_json::to_value([DesignerGapLayer::Intra, DesignerGapLayer::Inter, DesignerGapLayer::Completeness])
             .expect("serialize gap layers"),
-        json!(["intra", "inter"])
+        json!(["intra", "inter", "completeness"])
     );
     assert_eq!(
-        serde_json::to_value([DesignerGapSeverity::Warning, DesignerGapSeverity::Error])
+        serde_json::to_value([DesignerGapSeverity::Info, DesignerGapSeverity::Warning, DesignerGapSeverity::Error])
             .expect("serialize gap severities"),
-        json!(["warning", "error"])
+        json!(["info", "warning", "error"])
     );
 }
 
@@ -435,6 +437,40 @@ fn ui_refs_extracts_data_attributes() {
 #[test]
 fn ui_refs_data_api_contract_id_splits_on_colon() {
     use super::super::ui_refs::data_api_contract_id;
-    assert_eq!(data_api_contract_id("orders-api:POST /orders"), "orders-api");
+    assert_eq!(
+        data_api_contract_id("orders-api:POST /orders"),
+        "orders-api"
+    );
     assert_eq!(data_api_contract_id("orders-api"), "orders-api");
+}
+
+#[test]
+fn completeness_gap_serializes_with_new_layer_severity() {
+    use super::super::{DesignerGap, DesignerGapLayer, DesignerGapSeverity};
+    let gap = DesignerGap {
+        id: "gap_1".to_string(),
+        key: "brief:flow-unverified".to_string(),
+        code: "flow-unverified".to_string(),
+        block_id: "brief".to_string(),
+        layer: DesignerGapLayer::Completeness,
+        severity: DesignerGapSeverity::Info,
+        message: "doc has no acceptance".to_string(),
+        fixable_by_agent: true,
+        locator: None,
+    };
+    let value = serde_json::to_value(&gap).unwrap();
+    assert_eq!(value["layer"], "completeness");
+    assert_eq!(value["severity"], "info");
+}
+
+#[test]
+fn derived_edge_relations_include_navigates_and_participates() {
+    use super::super::gap_rules::DERIVED_EDGE_RELATIONS;
+    use super::super::DesignerEdgeRelation;
+    assert!(DERIVED_EDGE_RELATIONS
+        .iter()
+        .any(|r| *r == DesignerEdgeRelation::NavigatesTo));
+    assert!(DERIVED_EDGE_RELATIONS
+        .iter()
+        .any(|r| *r == DesignerEdgeRelation::ParticipatesIn));
 }

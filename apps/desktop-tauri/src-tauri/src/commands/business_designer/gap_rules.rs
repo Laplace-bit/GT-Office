@@ -36,12 +36,14 @@ pub(crate) struct GapRunResult {
 }
 
 #[cfg(test)]
-pub(crate) const DERIVED_EDGE_RELATIONS: [DesignerEdgeRelation; 5] = [
+pub(crate) const DERIVED_EDGE_RELATIONS: [DesignerEdgeRelation; 7] = [
     DesignerEdgeRelation::DependsOn,
     DesignerEdgeRelation::Produces,
     DesignerEdgeRelation::Consumes,
     DesignerEdgeRelation::Uses,
     DesignerEdgeRelation::Extends,
+    DesignerEdgeRelation::NavigatesTo,
+    DesignerEdgeRelation::ParticipatesIn,
 ];
 
 pub(crate) fn run_all(graph: &DesignerDesignGraph) -> GapRunResult {
