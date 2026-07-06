@@ -42,7 +42,7 @@ pub const DEFAULT_DEPARTMENTS: [DepartmentSeed; 4] = [
     },
 ];
 
-pub const DEFAULT_ROLES: [RoleSeed; 4] = [
+pub const DEFAULT_ROLES: [RoleSeed; 5] = [
     RoleSeed {
         id: "global_role_orchestrator",
         role_key: "orchestrator",
@@ -70,6 +70,13 @@ pub const DEFAULT_ROLES: [RoleSeed; 4] = [
         role_name: "Evaluator",
         department_id: "dept_evaluation",
         charter_path: ".gtoffice/agents/roles/evaluator.md",
+    },
+    RoleSeed {
+        id: "global_role_business_designer",
+        role_key: "business-designer",
+        role_name: "Business Designer",
+        department_id: "dept_generation",
+        charter_path: ".gtoffice/agents/roles/business-designer.md",
     },
 ];
 
