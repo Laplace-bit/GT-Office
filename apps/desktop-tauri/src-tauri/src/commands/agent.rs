@@ -43,7 +43,7 @@ fn get_workspace_root(state: &AppState, workspace_id: &str) -> Result<PathBuf, S
     Ok(PathBuf::from(context.root))
 }
 
-fn resolve_agent_repository<R: tauri::Runtime>(
+pub(crate) fn resolve_agent_repository<R: tauri::Runtime>(
     app: &AppHandle<R>,
 ) -> Result<SqliteAgentRepository, String> {
     let base_dir = app

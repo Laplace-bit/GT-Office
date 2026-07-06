@@ -28,6 +28,7 @@ mod gap_rules;
 mod ui_refs;
 mod completeness_rules;
 mod code_gen_prompt;
+pub(crate) mod agent_station;
 
 const DESIGNER_SCHEMA_VERSION: u32 = 1;
 const DOCS_ROOT_RELATIVE: &str = ".gtoffice/docs";
