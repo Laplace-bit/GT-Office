@@ -171,7 +171,7 @@ export const DesignerInspector = memo(function DesignerInspector({
             ) : null}
             {completenessGaps.length > 0 && (
               <section className="designer-inspector__completeness">
-                <h4>完备性（影响代码生成准确度）</h4>
+                <h4>{t(locale, 'designer.inspector.completenessTitle')}</h4>
                 <ul className="designer-gap-list">
                   {completenessGaps.map((gap) => (
                     <li key={gap.id} className={`designer-gap-item is-${gap.severity}`}>

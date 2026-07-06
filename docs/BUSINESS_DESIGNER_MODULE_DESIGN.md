@@ -236,7 +236,7 @@ v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`�
 | `businessFlow` | State machine / process definition | `{ "states": [...] }` | Already has gap rules in v1 |
 | `apiContract` | API endpoint definition | `{ "endpoints": [...] }` | Already has gap rules in v1 |
 | `dataContract` (upgraded) | Data shape / schema definition | `{ "schema": object \| string }` | `schema` may be JSON Schema (object) or legacy string; new `check_data_contract` rule |
-| `uiScreen` (new) | UI screen artifact with HTML | `{ "html": string, "name": string }` | HTML payload with `data-nav/data-entity/data-api/data-flow` cross-block links; new `check_ui_screen` rule |
+| `uiScreen` (new) | UI screen artifact with HTML | `{ "screenName": string, "route": string, "html": string }` | HTML payload with `data-nav/data-entity/data-api/data-flow` cross-block links; new `check_ui_screen` rule |
 | `uiWorkflow` | (placeholder) UI navigation flow | `{ "name": string }` | Placeholder only; no gap rules yet |
 
 ### 6. Gap Ruleset (v1.1 updates)
@@ -295,12 +295,11 @@ v1 固定为 5 种：`dependsOn` / `produces` / `consumes` / `uses` / `extends`�
 
 | code | 规则 | severity |
 |---|---|---|
-| `completeness_no_entity_model` | 文档中无 `entityModel` 块 | info |
-| `completeness_no_business_flow` | 文档中无 `businessFlow` 块 | info |
-| `completeness_no_api_contract` | 文档中无 `apiContract` 块 | info |
-| `completeness_no_ui_screen` | 文档中无 `uiScreen` 块 | info |
-| `completeness_flow_unverified` | 存在 `businessFlow` 但无 `acceptanceCriteria` 引用它 | warning |
-| `completeness_no_agent_instruction` | 文档中无 `agentInstruction` 块 | warning |
+| `orphan-api-contract` | API 契约没有被任何 UI 屏幕的 data-api 引用 | info |
+| `orphan-entity` | 实体没有被任何 API 契约、UI 屏幕或其他实体引用 | info |
+| `flow-uncovered-ui` | 业务流程没有被任何 UI 屏幕的 data-flow 覆盖 | info |
+| `flow-unverified` | 文档缺少验收标准 block | warning |
+| `no-agent-instruction` | 文档缺少 agent 编码简报 block | warning |
 
 ### 6.7 其余 11 种块（text / glossary / ruleTable / pseudocode / objectModel / uiWorkflow / technicalStack / nonFunctional / acceptanceCriteria / openQuestions / agentInstruction / decisionRecord）
 

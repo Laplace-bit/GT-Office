@@ -167,7 +167,7 @@ Error example:
 | `business_designer.create_document` | `workspaceId, name?` | `documentId, manifest` |
 | `business_designer.read_document` | `workspaceId, documentId` | `document, manifest, generated` |
 | `business_designer.save_document` | `workspaceId, documentId, document, manifest` | `saved, revision` |
-| `business_designer.validate_document` | `workspaceId, documentId` | `revision, diagnostics, gaps, completenessGaps, rulesRun, graphProjection` |
+| `business_designer.validate_document` | `workspaceId, documentId` | `revision, diagnostics, gaps, rulesRun, graphProjection` |
 | `business_designer.compile_document` | `workspaceId, documentId` | `compiled` (includes `code-gen-prompt.md` in generated files) |
 | `business_designer.create_checkpoint` | `workspaceId, documentId, message?` | `checkpointId` |
 | `business_designer.diff_checkpoint` | `workspaceId, documentId, checkpointId?` | `diff` |

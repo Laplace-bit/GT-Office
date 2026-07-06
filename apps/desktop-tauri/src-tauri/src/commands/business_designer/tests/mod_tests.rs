@@ -1728,3 +1728,82 @@ fn legacy_manifest_without_code_gen_prompt_field_deserializes() {
     let reread = read_document_at("ws-1", temp.root(), "legacy").expect("legacy manifest must deserialize");
     assert_eq!(reread.manifest.generated.code_gen_prompt, "generated/code-gen-prompt.md");
 }
+
+#[test]
+fn validate_document_merges_completeness_gaps_into_gaps() {
+    // Test that completeness gaps are merged into the main `gaps` array and that
+    // they have `layer: "completeness"`.
+    let temp = TempWorkspace::new("completeness-gaps-merge");
+    let mut detail = create_document_at("ws-1", temp.root(), "orders", "Orders", None)
+        .expect("create document");
+    let timestamp = detail.design.revision.clone();
+
+    // Remove any existing acceptanceCriteria or agentInstruction blocks to ensure we get those gaps.
+    detail.design.blocks.retain(|b| b.kind != "acceptanceCriteria" && b.kind != "agentInstruction");
+
+    // Add an orphan entityModel, an orphan apiContract, and an orphan businessFlow.
+    detail.design.blocks.push(DesignerBlock {
+        id: "orphan-entity".to_string(),
+        kind: "entityModel".to_string(),
+        title: "Orphan Entity".to_string(),
+        order: 20,
+        payload: json!({
+            "entityName": "OrphanEntity",
+            "fields": [{ "name": "id", "type": "string" }]
+        }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: timestamp.clone(),
+    });
+    detail.design.blocks.push(DesignerBlock {
+        id: "orphan-api".to_string(),
+        kind: "apiContract".to_string(),
+        title: "Orphan API".to_string(),
+        order: 30,
+        payload: json!({
+            "endpoints": []
+        }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: timestamp.clone(),
+    });
+    detail.design.blocks.push(DesignerBlock {
+        id: "orphan-flow".to_string(),
+        kind: "businessFlow".to_string(),
+        title: "Orphan Flow".to_string(),
+        order: 40,
+        payload: json!({
+            "states": [],
+            "transitions": []
+        }),
+        links: Vec::new(),
+        validation: Vec::new(),
+        updated_at: timestamp.clone(),
+    });
+
+    save_document_at("ws-1", temp.root(), detail).expect("save");
+
+    let validate_result = validate_document_at("ws-1", temp.root(), "orders")
+        .expect("validate document");
+
+    let gaps = validate_result["gaps"].as_array().expect("gaps should be an array");
+    assert!(!gaps.is_empty(), "gaps should contain completeness gaps");
+
+    let completeness_gaps: Vec<_> = gaps
+        .iter()
+        .filter(|gap| gap["layer"] == "completeness")
+        .collect();
+
+    assert!(!completeness_gaps.is_empty(), "should have completeness gaps");
+
+    let codes: Vec<_> = completeness_gaps
+        .iter()
+        .map(|gap| gap["code"].as_str().expect("code should be string"))
+        .collect();
+
+    assert!(codes.contains(&"orphan-entity"), "codes should contain orphan-entity: {codes:?}");
+    assert!(codes.contains(&"orphan-api-contract"), "codes should contain orphan-api-contract: {codes:?}");
+    assert!(codes.contains(&"flow-uncovered-ui"), "codes should contain flow-uncovered-ui: {codes:?}");
+    assert!(codes.contains(&"flow-unverified"), "codes should contain flow-unverified: {codes:?}");
+    assert!(codes.contains(&"no-agent-instruction"), "codes should contain no-agent-instruction: {codes:?}");
+}

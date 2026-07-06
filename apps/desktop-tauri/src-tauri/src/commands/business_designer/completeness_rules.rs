@@ -57,7 +57,7 @@ pub(crate) fn run_completeness(
             }
             "entityModel" if !entity_targets.contains(block.id.as_str()) => {
                 push_completeness(&mut gaps, block, "orphan-entity",
-                    "实体没有被任何 API 契约或 UI 屏幕引用。");
+                    "实体没有被任何 API 契约、UI 屏幕或其他实体引用。");
             }
             "businessFlow" if !flow_targets.contains(block.id.as_str()) => {
                 push_completeness(&mut gaps, block, "flow-uncovered-ui",

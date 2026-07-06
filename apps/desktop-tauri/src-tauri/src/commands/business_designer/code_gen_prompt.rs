@@ -8,7 +8,6 @@
 
 use super::{sorted_blocks, DesignerBlock, DesignerDocumentDetail};
 
-#[allow(dead_code)] // wired in Task 8
 pub(crate) fn render_code_gen_prompt(detail: &DesignerDocumentDetail) -> String {
     let mut out = String::new();
     out.push_str("# Software System Implementation Specification\n\n");
@@ -76,7 +75,6 @@ pub(crate) fn render_code_gen_prompt(detail: &DesignerDocumentDetail) -> String 
     out
 }
 
-#[allow(dead_code)] // wired in Task 8
 fn blocks_of_kind<'a>(detail: &'a DesignerDocumentDetail, kind: &str) -> Vec<&'a DesignerBlock> {
     sorted_blocks(&detail.design.blocks)
         .into_iter()
@@ -84,7 +82,6 @@ fn blocks_of_kind<'a>(detail: &'a DesignerDocumentDetail, kind: &str) -> Vec<&'a
         .collect()
 }
 
-#[allow(dead_code)] // wired in Task 8
 fn render_block_markdown_inline(block: &DesignerBlock) -> String {
     let md = super::render_block_markdown(block);
     let trimmed = md.trim();

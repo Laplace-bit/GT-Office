@@ -2890,6 +2890,11 @@ export const messages = {
     'zh-CN': '需求文件已被更新，请重新让 Agent 补全后再应用。',
     'en-US': 'Document has changed since the patch was generated. Re-run the Agent and try again.',
   },
+  'designer.screenPreview.annotationMode': { 'zh-CN': '注释模式', 'en-US': 'Annotation mode' },
+  'designer.screenPreview.exitAnnotation': { 'zh-CN': '退出注释', 'en-US': 'Exit annotation' },
+  'designer.screenPreview.uiPreview': { 'zh-CN': 'UI 预览', 'en-US': 'UI preview' },
+  'designer.screenPreview.selectedElement': { 'zh-CN': '已选中元素（{count} 字符）', 'en-US': 'Selected element ({count} characters)' },
+  'designer.inspector.completenessTitle': { 'zh-CN': '完备性（影响代码生成准确度）', 'en-US': 'Completeness (affects code generation accuracy)' },
 }
 
 export type TranslationKey = keyof typeof messages

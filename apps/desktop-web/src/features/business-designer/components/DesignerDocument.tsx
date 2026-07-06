@@ -266,7 +266,7 @@ export function DesignerDocument({
               const html = str(block.payload, 'html') ?? ''
               return (
                 <article key={block.id} className="designer-agent-section">
-                  <DesignerScreenPreview html={html} />
+                  <DesignerScreenPreview html={html} locale={locale} />
                 </article>
               )
             }
