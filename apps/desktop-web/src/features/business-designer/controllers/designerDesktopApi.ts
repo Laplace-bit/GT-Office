@@ -28,6 +28,11 @@ import type {
   DesignerRevertToCheckpointRequest,
 } from '../model/designer-freeform-completion'
 import type { DesignerValidationResult } from '../model/designer-validation'
+import type {
+  DesignerAgentStationResult,
+  DesignerScenario,
+  DesignerScenarioPromptResult,
+} from '../model/designer-agent-station'
 
 type ApiRecord = Record<string, unknown>
 
@@ -409,4 +414,42 @@ export function exportDesignerDocumentToFile(
     'businessDesignerExportDocumentToFile',
     'exportBusinessDesignerDocumentToFile',
   ])(workspaceId, documentId, format, traceId)
+}
+
+export function ensureDesignerAgentStation(
+  workspaceId: string,
+  traceId?: string,
+): Promise<DesignerAgentStationResult> {
+  return getApiMethod<[string, string | undefined], DesignerAgentStationResult>([
+    'businessDesignerEnsureAgentStation',
+    'ensureBusinessDesignerAgentStation',
+  ])(workspaceId, traceId)
+}
+
+export function renderDesignerScenarioPrompt(
+  workspaceId: string,
+  documentId: string,
+  scenario: DesignerScenario,
+  hostBlockId: string | null,
+  userPrompt: string | null,
+  traceId?: string,
+): Promise<DesignerScenarioPromptResult> {
+  return getApiMethod<
+    [string, string, DesignerScenario, string | null, string | null, string | undefined],
+    DesignerScenarioPromptResult
+  >([
+    'businessDesignerRenderScenarioPrompt',
+    'renderBusinessDesignerScenarioPrompt',
+  ])(workspaceId, documentId, scenario, hostBlockId, userPrompt, traceId)
+}
+
+export function checkpointDesignerTurn(
+  workspaceId: string,
+  documentId: string,
+  message: string | null,
+  traceId?: string,
+): Promise<DesignerCheckpointResult> {
+  return getApiMethod<[string, string, string | null, string | undefined], DesignerCheckpointResult>(
+    ['businessDesignerCheckpointTurn', 'checkpointBusinessDesignerTurn'],
+  )(workspaceId, documentId, message, traceId)
 }
