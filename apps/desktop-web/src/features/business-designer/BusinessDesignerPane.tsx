@@ -6,7 +6,6 @@ import {
   classifyDesignerError,
   useDesignerDocumentState,
 } from './controllers/useDesignerDocumentState'
-import { useDesignerFreeformCompletion } from './controllers/useDesignerFreeformCompletion'
 import { useDesignerHistory } from './controllers/useDesignerHistory'
 import { DesignerSidebar } from './components/DesignerSidebar'
 import { DesignerToolbar } from './components/DesignerToolbar'
@@ -22,11 +21,6 @@ import { DesignerStatusbar } from './components/DesignerStatusbar'
 import { confirmDesignerDestructiveAction } from './controllers/designerDesktopApi'
 import { DESIGNER_SCHEMA_VERSION } from './model/designer-document'
 import type { DesignerBlock } from './model/designer-blocks'
-import type {
-  DesignerFreeformCompletionProvider,
-  DesignerFreeformCompletionRun,
-  DesignerFreeformCompletionScenario,
-} from './model/designer-freeform-completion'
 import type { DesignerLayoutPosition } from './model/designer-document'
 import type { DesignerGap } from './model/designer-validation'
 import type { DesignerCreateKind } from './model/designer-toolbar-actions'
@@ -47,13 +41,6 @@ interface BusinessDesignerPaneProps {
 const LIBRARY_PANEL_WIDTH_MIN = 220
 const LIBRARY_PANEL_WIDTH_MAX = 420
 const LIBRARY_PANEL_WIDTH_DEFAULT = 272
-const FREEFORM_PROVIDER_STORAGE_KEY = 'gtoffice.businessDesigner.freeformProvider'
-
-interface PendingFreeformCompletion {
-  scenario: DesignerFreeformCompletionScenario
-  hostBlockId?: string | null
-  userPrompt?: string | null
-}
 
 function clampLibraryPanelWidth(width: number): number {
   return Math.min(LIBRARY_PANEL_WIDTH_MAX, Math.max(LIBRARY_PANEL_WIDTH_MIN, Math.round(width)))
@@ -85,20 +72,8 @@ export function BusinessDesignerPane({
     documentId: state.detail?.manifest.documentId ?? null,
     active,
   })
-  const freeformCompletion = useDesignerFreeformCompletion({
-    workspaceId,
-    documentId: state.detail?.manifest.documentId ?? null,
-  })
-  const [freeformProvider, setFreeformProviderState] = useState<DesignerFreeformCompletionProvider>(
-    () => readStoredFreeformProvider() ?? 'codex',
-  )
-  const [freeformProviderConfigured, setFreeformProviderConfigured] = useState(
-    () => readStoredFreeformProvider() !== null,
-  )
-  const [pendingFreeformCompletion, setPendingFreeformCompletion] =
-    useState<PendingFreeformCompletion | null>(null)
 
-  // Font fallback prewarm — first time the canvas mounts, Chinese/CJK fallbacks
+  // Font fallback prewarm - first time the canvas mounts, Chinese/CJK fallbacks
   // can stutter (references/03-webview-survival.md § A.9). Render a hidden span
   // once.
   useEffect(() => {
@@ -276,105 +251,6 @@ export function BusinessDesignerPane({
     })
   }, [state])
 
-  const setFreeformProvider = useCallback((provider: DesignerFreeformCompletionProvider) => {
-    setFreeformProviderState(provider)
-    try {
-      window.localStorage.setItem(FREEFORM_PROVIDER_STORAGE_KEY, provider)
-    } catch {
-      // Local storage can be unavailable in restricted WebViews; keep the in-memory choice.
-    }
-    setFreeformProviderConfigured(true)
-  }, [])
-
-  const dispatchFreeformCompletion = useCallback(
-    (params: PendingFreeformCompletion, provider: DesignerFreeformCompletionProvider) => {
-      void (async () => {
-        if (state.dirty) {
-          const saved = await state.save()
-          if (!saved) {
-            return
-          }
-          void documents.refresh()
-        }
-        const run = await freeformCompletion.startCompletion({
-          ...params,
-          provider,
-        })
-        if (run) {
-          void history.refresh()
-        }
-      })()
-    },
-    [documents, freeformCompletion, history, state],
-  )
-
-  const onStartFreeformCompletion = useCallback(
-    (params: PendingFreeformCompletion) => {
-      if (!freeformProviderConfigured) {
-        setPendingFreeformCompletion(params)
-        return
-      }
-      dispatchFreeformCompletion(params, freeformProvider)
-    },
-    [dispatchFreeformCompletion, freeformProvider, freeformProviderConfigured],
-  )
-
-  const configureFreeformProvider = useCallback(
-    (provider: DesignerFreeformCompletionProvider) => {
-      setFreeformProvider(provider)
-      const pending = pendingFreeformCompletion
-      setPendingFreeformCompletion(null)
-      if (pending) {
-        dispatchFreeformCompletion(pending, provider)
-      }
-    },
-    [dispatchFreeformCompletion, pendingFreeformCompletion, setFreeformProvider],
-  )
-
-  const confirmFreeformProvider = useCallback(() => {
-    configureFreeformProvider(freeformProvider)
-  }, [configureFreeformProvider, freeformProvider])
-
-  const onViewFreeformChanges = useCallback(
-    (checkpoint: string) => {
-      history.openDiffFromCheckpoint(checkpoint)
-    },
-    [history],
-  )
-
-  const onExpandCanvas = useCallback((userPrompt?: string | null) => {
-    onStartFreeformCompletion({
-      scenario: 'expand_canvas',
-      hostBlockId: state.selectedBlockId,
-      userPrompt: userPrompt?.trim() || null,
-    })
-  }, [onStartFreeformCompletion, state.selectedBlockId])
-
-  const onRevertFreeformRun = useCallback(
-    (run: DesignerFreeformCompletionRun) => {
-      void confirmDesignerDestructiveAction(
-        t(locale, 'designer.freeform.revert'),
-        t(locale, 'designer.freeform.revertConfirm', {
-          checkpoint: run.checkpointBefore,
-        }),
-      )
-        .then((confirmed) => {
-          if (!confirmed) {
-            return
-          }
-          void state.revertToCheckpoint(run.checkpointBefore).then(() => {
-            void documents.refresh()
-            void freeformCompletion.refreshRuns()
-            void history.refresh()
-          })
-        })
-        .catch((error: unknown) => {
-          console.warn('Business Designer freeform revert confirmation failed', error)
-        })
-    },
-    [documents, freeformCompletion, history, locale, state],
-  )
-
   const onDeleteBlock = useCallback(
     (block: DesignerBlock) => {
       if (block.id === BRIEF_BLOCK_ID) {
@@ -511,7 +387,6 @@ export function BusinessDesignerPane({
                   canEdit={canEdit}
                   dirty={state.dirty}
                   operation={state.operation}
-                  agentRunning={freeformCompletion.running}
                   onSave={saveDesignerDocument}
                   onExport={(format) => {
                     void state.exportDocument(format)
@@ -521,7 +396,6 @@ export function BusinessDesignerPane({
                   }}
                   onOpenHistory={() => history.open()}
                   onCreateBlock={onCreateBlock}
-                  onExpandCanvas={onExpandCanvas}
                 />
 
                 <div
@@ -566,14 +440,6 @@ export function BusinessDesignerPane({
                     agents={state.agents}
                     agentDispatch={state.agentDispatch}
                     agentBusy={state.operation === 'agent' || state.operation === 'apply'}
-                    freeformRuns={freeformCompletion.runs}
-                    freeformRunLogs={freeformCompletion.runLogs}
-                    freeformLogLoadingRunId={freeformCompletion.logLoadingRunId}
-                    freeformBusy={freeformCompletion.starting || state.operation === 'save'}
-                    freeformError={freeformCompletion.error}
-                    freeformProvider={freeformProvider}
-                    freeformProviderConfigured={freeformProviderConfigured}
-                    freeformProviderPending={Boolean(pendingFreeformCompletion)}
                     onOpenDrill={state.openDrill}
                     onFixGap={onFixGap}
                     onFixBlock={onFixBlock}
@@ -581,14 +447,6 @@ export function BusinessDesignerPane({
                     onConfirmAgentPreview={onConfirmAgentPreview}
                     onReloadDocument={state.loadDocument}
                     onCancelAgentPreview={state.clearAgentPreview}
-                    onFreeformProviderChange={configureFreeformProvider}
-                    onConfirmFreeformProvider={confirmFreeformProvider}
-                    onStartFreeformCompletion={onStartFreeformCompletion}
-                    onRefreshFreeformRuns={freeformCompletion.refreshRuns}
-                    onReadFreeformRunLog={freeformCompletion.readRunLog}
-                    onStopFreeformRun={freeformCompletion.stopRun}
-                    onViewFreeformChanges={onViewFreeformChanges}
-                    onRevertFreeformRun={onRevertFreeformRun}
                   />
                 </div>
               </>
@@ -654,15 +512,3 @@ export function BusinessDesignerPane({
 }
 
 export { BRIEF_BLOCK_ID }
-
-function readStoredFreeformProvider(): DesignerFreeformCompletionProvider | null {
-  try {
-    const stored = window.localStorage.getItem(FREEFORM_PROVIDER_STORAGE_KEY)
-    if (stored === 'claude' || stored === 'codex') {
-      return stored
-    }
-    return null
-  } catch {
-    return null
-  }
-}

@@ -9,6 +9,7 @@ import type {
   DesignerExportResult,
   DesignerInitDocsRepoResponse,
   DesignerListDocumentsResponse,
+  DesignerRevertToCheckpointRequest,
 } from '../model/designer-document'
 import type {
   DesignerAgentCompletionDispatchResult,
@@ -18,15 +19,6 @@ import type {
   DesignerPatchValidationResult,
   DesignerRecoveredAgentPatchResult,
 } from '../model/designer-patch'
-import type {
-  DesignerFreeformCompletionRequest,
-  DesignerFreeformCompletionRun,
-  DesignerFreeformCompletionRunLogRequest,
-  DesignerFreeformCompletionRunLogResult,
-  DesignerFreeformCompletionRunStatusRequest,
-  DesignerFreeformCompletionRunsResult,
-  DesignerRevertToCheckpointRequest,
-} from '../model/designer-freeform-completion'
 import type { DesignerValidationResult } from '../model/designer-validation'
 import type {
   DesignerAgentStationResult,
@@ -268,59 +260,6 @@ export function runDesignerAgentCompletion(
     'businessDesignerRunAgentCompletion',
     'runBusinessDesignerAgentCompletion',
 ])(workspaceId, params)
-}
-
-export function startDesignerFreeformCompletion(
-  workspaceId: string,
-  params: DesignerFreeformCompletionRequest,
-): Promise<DesignerFreeformCompletionRun> {
-  return getApiMethod<
-    [string, DesignerFreeformCompletionRequest],
-    DesignerFreeformCompletionRun
-  >([
-    'businessDesignerStartFreeformCompletion',
-    'startBusinessDesignerFreeformCompletion',
-  ])(workspaceId, params)
-}
-
-export function listDesignerFreeformCompletionRuns(
-  workspaceId: string,
-  documentId: string,
-  traceId?: string,
-): Promise<DesignerFreeformCompletionRunsResult> {
-  return getApiMethod<
-    [string, string, string | undefined],
-    DesignerFreeformCompletionRunsResult
-  >([
-    'businessDesignerListFreeformCompletionRuns',
-    'listBusinessDesignerFreeformCompletionRuns',
-  ])(workspaceId, documentId, traceId)
-}
-
-export function updateDesignerFreeformCompletionRunStatus(
-  workspaceId: string,
-  params: DesignerFreeformCompletionRunStatusRequest,
-): Promise<DesignerFreeformCompletionRun> {
-  return getApiMethod<
-    [string, DesignerFreeformCompletionRunStatusRequest],
-    DesignerFreeformCompletionRun
-  >([
-    'businessDesignerUpdateFreeformCompletionRunStatus',
-    'updateBusinessDesignerFreeformCompletionRunStatus',
-  ])(workspaceId, params)
-}
-
-export function readDesignerFreeformCompletionRunLog(
-  workspaceId: string,
-  params: DesignerFreeformCompletionRunLogRequest,
-): Promise<DesignerFreeformCompletionRunLogResult> {
-  return getApiMethod<
-    [string, DesignerFreeformCompletionRunLogRequest],
-    DesignerFreeformCompletionRunLogResult
-  >([
-    'businessDesignerReadFreeformCompletionRunLog',
-    'readBusinessDesignerFreeformCompletionRunLog',
-  ])(workspaceId, params)
 }
 
 export function revertDesignerToCheckpoint(

@@ -13,10 +13,6 @@ const historyControllerTs = readFileSync(
   resolve(testDir, '../../src/features/business-designer/controllers/useDesignerHistory.ts'),
   'utf8',
 )
-const freeformControllerTs = readFileSync(
-  resolve(testDir, '../../src/features/business-designer/controllers/useDesignerFreeformCompletion.ts'),
-  'utf8',
-)
 const ipcTraceTs = readFileSync(
   resolve(testDir, '../../src/features/business-designer/controllers/designerIpcTrace.ts'),
   'utf8',
@@ -59,10 +55,6 @@ const inspectorTsx = readFileSync(
 )
 const designerPatchTs = readFileSync(
   resolve(testDir, '../../src/features/business-designer/model/designer-patch.ts'),
-  'utf8',
-)
-const designerFreeformCompletionTs = readFileSync(
-  resolve(testDir, '../../src/features/business-designer/model/designer-freeform-completion.ts'),
   'utf8',
 )
 const designerValidationTs = readFileSync(
@@ -472,17 +464,12 @@ test('business designer toolbar and workbench keep responsive layout constraints
   assert.match(designerResponsiveLayoutTs, /resolveDesignerResponsiveLayout/)
   assert.match(designerResponsiveLayoutTs, /assertDesignerResponsiveLayout/)
   assert.match(designerOperationTs, /export type DesignerOperation =[\s\S]*?'save'[\s\S]*?'export'/)
-  assert.match(designerToolbarActionsTs, /DESIGNER_TOOLBAR_ACTION_ORDER = \[[\s\S]*?'save'[\s\S]*?'expandCanvas'[\s\S]*?'history'/)
-  assert.match(designerToolbarActionsTs, /DESIGNER_TOOLBAR_MUTATING_ACTIONS = \[[\s\S]*?'expandCanvas'[\s\S]*?'checkpoint'/)
-  assert.match(designerToolbarActionsTs, /agentRunning\?: boolean/)
+  assert.match(designerToolbarActionsTs, /DESIGNER_TOOLBAR_ACTION_ORDER = \[[\s\S]*?'save'[\s\S]*?'history'/)
+  assert.match(designerToolbarActionsTs, /DESIGNER_TOOLBAR_MUTATING_ACTIONS = \[[\s\S]*?'save'[\s\S]*?'checkpoint'/)
   assert.match(designerToolbarActionsTs, /export function resolveDesignerToolbarActionStates/)
-  assert.match(toolbarTsx, /resolveDesignerToolbarActionStates\(\{[\s\S]*?agentRunning,/)
   assert.match(toolbarTsx, /disabled=\{actionStates\.save\.disabled\}/)
-  assert.match(toolbarTsx, /disabled=\{actionStates\.expandCanvas\.disabled\}/)
   assert.match(toolbarTsx, /disabled=\{actionStates\.export\.disabled\}/)
   assert.match(designerScss, /\.designer-toolbar \{[\s\S]*?flex-wrap: wrap;/)
-  assert.match(designerScss, /\.designer-toolbar-prompt \{[\s\S]*?flex: 1 1 #\{rem\(160\)\};/)
-  assert.match(designerScss, /\.designer-toolbar-prompt \{[\s\S]*?min-width: 0;/)
   assert.match(designerScss, /\.designer-tool-spacer \{[\s\S]*?flex: 999 1 #\{rem\(12\)\};/)
   assert.match(paneTsx, /className=\{`designer-workbench-v1 \$\{[\s\S]*?state\.drillBlockId \? 'has-open-drill' : ''/)
   assert.match(paneTsx, /<div className="designer-canvas-stack">[\s\S]*?<DesignerGraphCanvas[\s\S]*?<DesignerBlockDrillSheet/)
@@ -498,14 +485,12 @@ test('business designer toolbar and workbench keep responsive layout constraints
   assert.match(designerScss, /@media \(max-width: #\{rem\(720\)\}\) \{[\s\S]*?\.designer-sidebar-panel \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?max-width: none;/)
   assert.match(designerScss, /@media \(max-width: #\{rem\(720\)\}\) \{[\s\S]*?\.designer-library-resizer \{[\s\S]*?display: none;/)
   assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-tool-button \{[\s\S]*?width: #\{rem\(31\)\};[\s\S]*?span \{[\s\S]*?display: none;/)
-  assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-toolbar-prompt \{[\s\S]*?flex: 1 1 100%;/)
   assert.match(designerScss, /\.designer-statusbar \{[\s\S]*?min-width: 0;/)
   assert.match(designerScss, /\.designer-statusbar-state \{[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/)
   assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-statusbar \{[\s\S]*?flex-wrap: wrap;[\s\S]*?height: auto;/)
   assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-statusbar-schema,[\s\S]*?\.designer-statusbar-repo \{[\s\S]*?display: none;/)
   assert.match(designerScss, /@media \(max-width: #\{rem\(520\)\}\) \{[\s\S]*?\.designer-statusbar-actions \{[\s\S]*?flex: 1 1 100%;/)
   assert.match(toolbarTsx, /aria-label=\{actionStates\.save\.busy \? t\(locale, 'designer\.saving'\) : t\(locale, 'designer\.save'\)\}/)
-  assert.match(toolbarTsx, /aria-label=\{t\(locale, 'designer\.freeform\.expandCanvas'\)\}/)
   assert.match(toolbarTsx, /aria-label=\{actionStates\.export\.busy \? t\(locale, 'designer\.exporting'\) : t\(locale, 'designer\.export'\)\}/)
   assert.match(toolbarTsx, /aria-controls=\{exportOpen \? 'designer-export-menu' : undefined\}/)
   assert.match(designerScss, /\.designer-drill-panel \{[\s\S]*?width: min\(#\{rem\(480\)\}, 100%\);/)
@@ -790,205 +775,6 @@ test('business designer shared request objects carry audit trace ids', () => {
   assert.doesNotMatch(completionRequest, /selectedBlockIds/)
 })
 
-test('business designer freeform completion has separate request-object IPC', () => {
-  const sharedRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRequest')
-  const sharedRunStatusRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRunStatusRequest')
-  const sharedRunLogRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRunLogRequest')
-  const sharedRevertRequest = interfaceBlock(sharedTypesTs, 'BusinessDesignerRevertToCheckpointRequest')
-  const sharedRun = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRun')
-  const sharedRunLogResult = interfaceBlock(sharedTypesTs, 'BusinessDesignerFreeformCompletionRunLogResult')
-  const featureRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRequest')
-  const featureRunStatusRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRunStatusRequest')
-  const featureRunLogRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRunLogRequest')
-  const featureRevertRequest = interfaceBlock(designerFreeformCompletionTs, 'DesignerRevertToCheckpointRequest')
-  const featureRun = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRun')
-  const featureRunLogResult = interfaceBlock(designerFreeformCompletionTs, 'DesignerFreeformCompletionRunLogResult')
-  const startApi = exportedFunctionBlock(designerDesktopApiTs, 'startDesignerFreeformCompletion')
-  const listApi = exportedFunctionBlock(designerDesktopApiTs, 'listDesignerFreeformCompletionRuns')
-  const updateStatusApi = exportedFunctionBlock(designerDesktopApiTs, 'updateDesignerFreeformCompletionRunStatus')
-  const readLogApi = exportedFunctionBlock(designerDesktopApiTs, 'readDesignerFreeformCompletionRunLog')
-  const revertApi = exportedFunctionBlock(designerDesktopApiTs, 'revertDesignerToCheckpoint')
-
-  for (const source of [sharedRequest, featureRequest]) {
-    assert.match(source, /scenario: .*FreeformCompletionScenario/)
-    assert.match(source, /hostBlockId\?: string \| null/)
-    assert.match(source, /userPrompt\?: string \| null/)
-    assert.match(source, /provider\?: .*FreeformCompletionProvider \| null/)
-    assert.doesNotMatch(source, /gapCodes/)
-    assert.doesNotMatch(source, /baseRevision/)
-    assert.doesNotMatch(source, /targetAgentIds/)
-  }
-  for (const source of [sharedRun, featureRun]) {
-    assert.match(source, /requestId: string/)
-    assert.match(source, /sessionId: string/)
-    assert.match(source, /documentRoot: string/)
-    assert.match(source, /checkpointBefore: string/)
-    assert.match(source, /status: .*FreeformCompletionRunStatus/)
-  }
-  for (const source of [sharedRunStatusRequest, featureRunStatusRequest]) {
-    assert.match(source, /requestId: string/)
-    assert.match(source, /status: .*FreeformCompletionRunStatus/)
-  }
-  for (const source of [sharedRunLogRequest, featureRunLogRequest]) {
-    assert.match(source, /requestId: string/)
-    assert.doesNotMatch(source, /sessionId/)
-  }
-  for (const source of [sharedRunLogResult, featureRunLogResult]) {
-    assert.match(source, /log: string/)
-    assert.match(source, /requestId: string/)
-  }
-  for (const source of [sharedRevertRequest, featureRevertRequest]) {
-    assert.match(source, /checkpoint: string/)
-    assert.doesNotMatch(source, /path/)
-  }
-  assert.match(
-    desktopApiTs,
-    /businessDesignerStartFreeformCompletion\([\s\S]*?business_designer_start_freeform_completion'[\s\S]*?request:\s*\{[\s\S]*?workspaceId,/,
-  )
-  assert.match(
-    desktopApiTs,
-    /businessDesignerListFreeformCompletionRuns\([\s\S]*?business_designer_list_freeform_completion_runs'/,
-  )
-  assert.match(
-    desktopApiTs,
-    /businessDesignerUpdateFreeformCompletionRunStatus\([\s\S]*?business_designer_update_freeform_completion_run_status'/,
-  )
-  assert.match(
-    desktopApiTs,
-    /businessDesignerReadFreeformCompletionRunLog\([\s\S]*?business_designer_read_freeform_completion_run_log'/,
-  )
-  assert.match(
-    desktopApiTs,
-    /businessDesignerRevertToCheckpoint\([\s\S]*?business_designer_revert_to_checkpoint'/,
-  )
-  assert.match(startApi, /Promise<DesignerFreeformCompletionRun>/)
-  assert.match(listApi, /Promise<DesignerFreeformCompletionRunsResult>/)
-  assert.match(updateStatusApi, /Promise<DesignerFreeformCompletionRun>/)
-  assert.match(readLogApi, /Promise<DesignerFreeformCompletionRunLogResult>/)
-  assert.match(revertApi, /Promise<DesignerDocumentDetail>/)
-  assert.match(freeformControllerTs, /traceDesignerIpc\('business_designer\.list_freeform_completion_runs'/)
-  assert.match(freeformControllerTs, /hasRunningDesignerFreeformRun\(runs\)/)
-  assert.match(freeformControllerTs, /const \[starting, setStarting\] = useState\(false\)/)
-  assert.match(freeformControllerTs, /running: starting \|\| hasRunningDesignerFreeformRun\(runs\)/)
-  assert.match(freeformControllerTs, /startDesignerFreeformCompletion\(workspaceId, \{[\s\S]*?traceId: nextDesignerIpcTraceId\(\)/)
-  assert.match(
-    freeformControllerTs,
-    /setRuns\(\(current\) => \[result,[\s\S]*?void readDesignerFreeformCompletionRunLog\(workspaceId, \{[\s\S]*?documentId: result\.documentId,[\s\S]*?requestId: result\.requestId,[\s\S]*?\[result\.requestId\]: logResult\.log/,
-  )
-  assert.match(freeformControllerTs, /readDesignerFreeformCompletionRunLog\(workspaceId, \{/)
-  assert.match(freeformControllerTs, /updateDesignerFreeformCompletionRunStatus\(workspaceId, \{/)
-  assert.match(freeformControllerTs, /window\.setInterval\(\(\) => \{[\s\S]*?refreshRuns\(\)[\s\S]*?\}, 2_000\)/)
-  assert.doesNotMatch(freeformControllerTs, /subscribeTerminalEvents/)
-  assert.doesNotMatch(freeformControllerTs, /terminalReadSnapshot/)
-  assert.doesNotMatch(freeformControllerTs, /terminalKill/)
-  assert.doesNotMatch(freeformControllerTs, /createTerminalChunkDecoder/)
-  assert.doesNotMatch(freeformControllerTs, /decodeTerminalBase64Chunk/)
-  assert.match(freeformControllerTs, /status: 'cancelled'/)
-  assert.match(historyControllerTs, /function useDesignerHistory/)
-  assert.match(historyControllerTs, /openDiffFromCheckpoint[\s\S]*?diffDesignerWorkingTree\(workspaceId, documentId, checkpoint, traceId\)/)
-  assert.match(controllerTs, /revertDesignerToCheckpoint\(workspaceId, \{/)
-  assert.match(controllerTs, /setNotice\(\{ kind: 'success', text: 'checkpointReverted' \}\)/)
-  assert.match(tauriLibRs, /business_designer::business_designer_update_freeform_completion_run_status/)
-  assert.match(tauriLibRs, /business_designer::business_designer_read_freeform_completion_run_log/)
-  assert.match(tauriLibRs, /business_designer::business_designer_revert_to_checkpoint/)
-  assert.match(tauriBusinessDesignerRs, /pub fn business_designer_update_freeform_completion_run_status/)
-  assert.match(tauriBusinessDesignerRs, /pub fn business_designer_read_freeform_completion_run_log/)
-  assert.match(tauriBusinessDesignerRs, /pub fn business_designer_revert_to_checkpoint/)
-  assert.match(tauriBusinessDesignerRs, /fn as_tool_kind\(self\) -> AgentToolKind/)
-  assert.match(
-    tauriBusinessDesignerRs,
-    /let tool_kind = provider\.as_tool_kind\(\);[\s\S]*?augment_terminal_env_for_agent\(\s*app,\s*state,\s*workspace_id,\s*tool_kind,\s*true,\s*Default::default\(\),?\s*\)\?/,
-  )
-  assert.match(tauriBusinessDesignerRs, /resolve_freeform_cli_command\(provider, &env\)\?/)
-  assert.match(tauriBusinessDesignerRs, /spawn_freeform_completion_process\(FreeformCompletionProcess/)
-  assert.match(tauriBusinessDesignerRs, /stdout\(Stdio::piped\(\)\)/)
-  assert.doesNotMatch(tauriBusinessDesignerRs, /set_session_visibility\(&session\.session_id, true\)/)
-  assert.doesNotMatch(tauriBusinessDesignerRs, /write_terminal_command_with_submit/)
-  assert.doesNotMatch(tauriBusinessDesignerRs, /FREEFORM_PROMPT_INJECTION_DELAY_MS/)
-  assert.doesNotMatch(tauriBusinessDesignerRs, /shell: Some\(provider\.as_str\(\)\.to_string\(\)\)/)
-  assert.doesNotMatch(tauriBusinessDesignerRs, /env: Default::default\(\),[\s\S]*?agent_tool_kind: Some\(provider\.as_str\(\)\.to_string\(\)\)/)
-  assert.match(tauriBusinessDesignerRs, /run_git\(&docs_root, &\["checkout", &checkpoint, "--", &pathspec\]\)/)
-  assert.doesNotMatch(freeformControllerTs, /runDesignerAgentCompletion/)
-  assert.doesNotMatch(freeformControllerTs, /runMockDesignerAgentCompletion/)
-})
-
-test('business designer freeform entry dispatches directly from inspector scenes', () => {
-  const freeformPanel = localFunctionBlock(inspectorTsx, 'FreeformCompletionPanel')
-  const freeformRunList = localFunctionBlock(inspectorTsx, 'FreeformRunList')
-
-  assert.match(paneTsx, /useDesignerFreeformCompletion\(\{[\s\S]*?documentId: state\.detail\?\.manifest\.documentId \?\? null/)
-  assert.match(paneTsx, /const FREEFORM_PROVIDER_STORAGE_KEY = 'gtoffice\.businessDesigner\.freeformProvider'/)
-  assert.match(paneTsx, /window\.localStorage\.setItem\(FREEFORM_PROVIDER_STORAGE_KEY, provider\)/)
-  assert.match(paneTsx, /readStoredFreeformProvider\(\)/)
-  assert.match(paneTsx, /readStoredFreeformProvider\(\) \?\? 'codex'/)
-  assert.match(paneTsx, /const \[freeformProviderConfigured, setFreeformProviderConfigured\] = useState\([\s\S]*?readStoredFreeformProvider\(\) !== null/)
-  assert.match(paneTsx, /setPendingFreeformCompletion\(params\)/)
-  assert.match(paneTsx, /const configureFreeformProvider = useCallback\([\s\S]*?setFreeformProvider\(provider\)[\s\S]*?dispatchFreeformCompletion\(pending, provider\)/)
-  assert.match(paneTsx, /const confirmFreeformProvider = useCallback\(\(\) => \{[\s\S]*?configureFreeformProvider\(freeformProvider\)/)
-  assert.match(
-    paneTsx,
-    /const dispatchFreeformCompletion = useCallback\([\s\S]*?if \(state\.dirty\) \{[\s\S]*?const saved = await state\.save\(\)[\s\S]*?if \(!saved\) \{[\s\S]*?return[\s\S]*?void documents\.refresh\(\)[\s\S]*?const run = await freeformCompletion\.startCompletion\(\{[\s\S]*?\.\.\.params,[\s\S]*?provider,/,
-  )
-  assert.match(paneTsx, /freeformBusy=\{freeformCompletion\.starting \|\| state\.operation === 'save'\}/)
-  assert.match(
-    paneTsx,
-    /<DesignerInspector[\s\S]*?freeformRuns=\{freeformCompletion\.runs\}[\s\S]*?freeformProvider=\{freeformProvider\}[\s\S]*?onStartFreeformCompletion=\{onStartFreeformCompletion\}/,
-  )
-
-  assert.match(inspectorTsx, /function FreeformCompletionPanel\(/)
-  assert.match(inspectorTsx, /function scenarioForBlock\(block: DesignerBlock\): DesignerFreeformCompletionScenario/)
-  assert.match(inspectorTsx, /block\.id === 'brief'[\s\S]*?return 'brief_to_design'/)
-  assert.match(inspectorTsx, /block\.kind === 'entityModel'[\s\S]*?return 'complete_entity'/)
-  assert.match(inspectorTsx, /block\.kind === 'businessFlow'[\s\S]*?return 'complete_flow'/)
-  assert.match(inspectorTsx, /block\.kind === 'apiContract'[\s\S]*?return 'complete_api_contract'/)
-  assert.match(inspectorTsx, /return 'expand_canvas'/)
-  assert.match(inspectorTsx, /onStart\(\{[\s\S]*?scenario,[\s\S]*?hostBlockId: block\.id,[\s\S]*?userPrompt: userPrompt\.trim\(\) \|\| null/)
-  assert.match(inspectorTsx, /onProviderChange\(event\.target\.value === 'claude' \? 'claude' : 'codex'\)/)
-  assert.match(inspectorTsx, /!providerConfigured/)
-  assert.match(inspectorTsx, /designer\.freeform\.providerSetupPending/)
-  assert.match(inspectorTsx, /designer\.freeform\.providerConfirm/)
-  assert.match(messagesTs, /'designer\.freeform\.providerSetup'/)
-  assert.match(messagesTs, /'designer\.freeform\.providerSetupPending'/)
-  assert.match(toolbarTsx, /onExpandCanvas: \(userPrompt\?: string \| null\) => void/)
-  assert.match(toolbarTsx, /agentRunning\?: boolean/)
-  assert.match(toolbarTsx, /className="designer-toolbar-prompt"/)
-  assert.match(toolbarTsx, /placeholder=\{t\(locale, 'designer\.freeform\.toolbarPromptPlaceholder'\)\}/)
-  assert.match(toolbarTsx, /onExpandCanvas\(expandPrompt\.trim\(\) \|\| null\)/)
-  assert.match(messagesTs, /'designer\.freeform\.toolbarPromptPlaceholder'/)
-  assert.match(
-    paneTsx,
-    /const onExpandCanvas = useCallback\(\(userPrompt\?: string \| null\) => \{[\s\S]*?scenario: 'expand_canvas'[\s\S]*?userPrompt: userPrompt\?\.trim\(\) \|\| null/,
-  )
-  assert.match(paneTsx, /onExpandCanvas=\{onExpandCanvas\}/)
-  assert.match(paneTsx, /agentRunning=\{freeformCompletion\.running\}/)
-  assert.match(freeformControllerTs, /starting: boolean/)
-  assert.match(freeformControllerTs, /starting,/)
-  assert.match(inspectorTsx, /function FreeformRunList\(/)
-  assert.match(freeformRunList, /const runningRun = runs\.find\(\(run\) => run\.status === 'running'\)/)
-  assert.match(freeformRunList, /setExpandedRunId\(runningRun\.requestId\)/)
-  assert.match(freeformRunList, /if \(!runLogs\[runningRun\.requestId\]\) \{[\s\S]*?onReadLog\(runningRun\)/)
-  assert.match(inspectorTsx, /onReload=\{onReloadDocument\}/)
-  assert.match(freeformRunList, /run\.status === 'completed'[\s\S]*?onClick=\{onReload\}/)
-  assert.match(freeformRunList, /designer\.freeform\.reloadDocument/)
-  assert.match(messagesTs, /'designer\.freeform\.reloadDocument': \{ 'zh-CN': '刷新文档', 'en-US': 'Reload document' \}/)
-  assert.match(inspectorTsx, /run\.sessionId\.startsWith\('headless:'\)/)
-  assert.match(inspectorTsx, /runSessionLabel[\s\S]*?run\.checkpointBefore/)
-  assert.match(inspectorTsx, /aria-expanded=\{expandedRunId === run\.requestId\}/)
-  assert.match(inspectorTsx, /onReadLog\(run\)/)
-  assert.match(inspectorTsx, /className="designer-freeform-run-log"/)
-  assert.match(inspectorTsx, /designer\.freeform\.viewLog/)
-  assert.match(inspectorTsx, /onStopRun\(run\)/)
-  assert.match(inspectorTsx, /designer\.freeform\.stopRun/)
-  assert.match(inspectorTsx, /onViewChanges\(run\.checkpointBefore\)/)
-  assert.match(inspectorTsx, /onRevertRun\(run\)/)
-  assert.match(paneTsx, /onStopFreeformRun=\{freeformCompletion\.stopRun\}/)
-  assert.match(paneTsx, /history\.openDiffFromCheckpoint\(checkpoint\)/)
-  assert.match(paneTsx, /state\.revertToCheckpoint\(run\.checkpointBefore\)/)
-  assert.match(inspectorTsx, /designer\.freeform\.status\.running/)
-  assert.doesNotMatch(freeformPanel, /targetAgentIds/)
-  assert.doesNotMatch(freeformPanel, /gapCodes/)
-})
-
 test('business designer reloads watched document changes without overwriting dirty edits', () => {
   assert.match(controllerTs, /type FilesystemChangedPayload/)
   assert.match(controllerTs, /function isDesignerDocumentReloadPath\(documentId: string, path: string\): boolean/)
@@ -1113,16 +899,11 @@ test('business designer mock completion and real dispatch use explicit interface
 
 test('business designer v1 agent entry stays host-anchored in inspector', () => {
   const toolbarProps = interfaceBlock(toolbarTsx, 'DesignerToolbarProps')
-  const toolbarPropsWithoutBusyState = toolbarProps
-    .replace(/\s*agentRunning\?: boolean\n/g, '\n')
-    .replace(/\s*agentRunning = false,\n/g, '\n')
-    .replace(/\s*agentRunning,\n/g, '\n')
   const toolbarRenderStart = toolbarTsx.indexOf('return (')
   assert.notEqual(toolbarRenderStart, -1, 'toolbar render should exist')
   const toolbarRender = toolbarTsx.slice(toolbarRenderStart)
 
-  assert.match(toolbarProps, /agentRunning\?: boolean/)
-  assert.doesNotMatch(toolbarPropsWithoutBusyState, /Agent|agent|completion|preview|run/)
+  assert.doesNotMatch(toolbarProps, /Agent|agent|completion|preview|run/)
   assert.doesNotMatch(toolbarRender, /previewAgentTask|runAgentCompletion|onRunAgent|agentPreview/)
   assert.doesNotMatch(toolbarRender, /designer\.inspector\.fixGap|designer\.inspector\.fixBlock/)
   assert.match(inspectorTsx, /onFixGap\(blockId, gap\.code\)/)

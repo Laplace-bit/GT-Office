@@ -7,7 +7,6 @@ export type DesignerToolbarActionId =
   | 'createEntity'
   | 'createFlow'
   | 'createApi'
-  | 'expandCanvas'
   | 'export'
   | 'checkpoint'
   | 'history'
@@ -20,7 +19,6 @@ export interface DesignerToolbarActionState {
 export interface DesignerToolbarStateInput {
   canEdit: boolean
   operation: DesignerOperation | null
-  agentRunning?: boolean
 }
 
 export const DESIGNER_TOOLBAR_ACTION_ORDER = [
@@ -28,7 +26,6 @@ export const DESIGNER_TOOLBAR_ACTION_ORDER = [
   'createEntity',
   'createFlow',
   'createApi',
-  'expandCanvas',
   'export',
   'checkpoint',
   'history',
@@ -39,20 +36,18 @@ export const DESIGNER_TOOLBAR_MUTATING_ACTIONS = [
   'createEntity',
   'createFlow',
   'createApi',
-  'expandCanvas',
   'export',
   'checkpoint',
 ] as const satisfies readonly DesignerToolbarActionId[]
 
 export function isDesignerToolbarBusy(input: DesignerToolbarStateInput): boolean {
-  return input.operation !== null || input.agentRunning === true
+  return input.operation !== null
 }
 
 export function resolveDesignerToolbarActionStates(
   input: DesignerToolbarStateInput,
 ): Record<DesignerToolbarActionId, DesignerToolbarActionState> {
   const documentBusy = input.operation !== null
-  const freeformRunning = input.agentRunning === true
   const documentMutationDisabled = !input.canEdit || documentBusy
 
   return {
@@ -70,10 +65,6 @@ export function resolveDesignerToolbarActionStates(
     },
     createApi: {
       busy: false,
-      disabled: documentMutationDisabled,
-    },
-    expandCanvas: {
-      busy: input.operation === 'agent' || freeformRunning,
       disabled: documentMutationDisabled,
     },
     export: {

@@ -1261,63 +1261,10 @@ export interface BusinessDesignerAgentCompletionResult {
   dispatch: unknown
 }
 
-export type BusinessDesignerFreeformCompletionScenario =
-  | 'brief_to_design'
-  | 'complete_entity'
-  | 'complete_flow'
-  | 'complete_api_contract'
-  | 'expand_canvas'
-
-export type BusinessDesignerFreeformCompletionProvider = 'codex' | 'claude'
-
-export type BusinessDesignerFreeformCompletionRunStatus = 'running' | 'completed' | 'failed' | 'cancelled'
-
-export interface BusinessDesignerFreeformCompletionRunStatusRequest {
-  traceId: string
-  documentId: string
-  requestId: string
-  status: BusinessDesignerFreeformCompletionRunStatus
-}
-
-export interface BusinessDesignerFreeformCompletionRunLogRequest {
-  traceId: string
-  documentId: string
-  requestId: string
-}
-
 export interface BusinessDesignerRevertToCheckpointRequest {
   traceId: string
   documentId: string
   checkpoint: string
-}
-
-export interface BusinessDesignerFreeformCompletionRun {
-  requestId: string
-  workspaceId: string
-  documentId: string
-  scenario: BusinessDesignerFreeformCompletionScenario
-  hostBlockId?: string | null
-  provider: BusinessDesignerFreeformCompletionProvider
-  sessionId: string
-  documentRoot: string
-  checkpointBefore: string
-  status: BusinessDesignerFreeformCompletionRunStatus
-  createdAt: string
-  updatedAt: string
-  userPromptSummary?: string | null
-}
-
-export interface BusinessDesignerFreeformCompletionRunsResult {
-  workspaceId: string
-  documentId: string
-  runs: BusinessDesignerFreeformCompletionRun[]
-}
-
-export interface BusinessDesignerFreeformCompletionRunLogResult {
-  workspaceId: string
-  documentId: string
-  requestId: string
-  log: string
 }
 
 export interface BusinessDesignerPatchOperation {
@@ -3481,82 +3428,6 @@ export const desktopApi = {
         baseRevision: params.baseRevision,
       },
     })
-  },
-  businessDesignerStartFreeformCompletion(
-    workspaceId: string,
-    params: {
-      traceId: string
-      documentId: string
-      scenario: BusinessDesignerFreeformCompletionScenario
-      hostBlockId?: string | null
-      userPrompt?: string | null
-      provider?: BusinessDesignerFreeformCompletionProvider | null
-    },
-  ) {
-    return invokeCommand<BusinessDesignerFreeformCompletionRun>('business_designer_start_freeform_completion', {
-      request: {
-        traceId: params.traceId,
-        workspaceId,
-        documentId: params.documentId,
-        scenario: params.scenario,
-        hostBlockId: params.hostBlockId ?? null,
-        userPrompt: params.userPrompt ?? null,
-        provider: params.provider ?? null,
-      },
-    })
-  },
-  businessDesignerListFreeformCompletionRuns(
-    workspaceId: string,
-    documentId: string,
-    traceId?: string | null,
-  ) {
-    return invokeCommand<BusinessDesignerFreeformCompletionRunsResult>(
-      'business_designer_list_freeform_completion_runs',
-      {
-        workspaceId,
-        documentId,
-        traceId: traceId ?? null,
-      },
-    )
-  },
-  businessDesignerUpdateFreeformCompletionRunStatus(
-    workspaceId: string,
-    params: BusinessDesignerFreeformCompletionRunStatusRequest,
-  ) {
-    return invokeCommand<BusinessDesignerFreeformCompletionRun>(
-      'business_designer_update_freeform_completion_run_status',
-      {
-        request: {
-          traceId: params.traceId,
-          workspaceId,
-          documentId: params.documentId,
-          requestId: params.requestId,
-          status: params.status,
-        },
-      },
-    )
-  },
-  businessDesignerReadFreeformCompletionRunLog(
-    workspaceId: string,
-    params: BusinessDesignerFreeformCompletionRunLogRequest,
-  ) {
-    return invokeCommand<BusinessDesignerFreeformCompletionRunLogResult>(
-      'business_designer_read_freeform_completion_run_log',
-      {
-        request: {
-          traceId: params.traceId,
-          workspaceId,
-          documentId: params.documentId,
-          requestId: params.requestId,
-        },
-      },
-    )
-  },
-  readBusinessDesignerFreeformCompletionRunLog(
-    workspaceId: string,
-    params: BusinessDesignerFreeformCompletionRunLogRequest,
-  ) {
-    return desktopApi.businessDesignerReadFreeformCompletionRunLog(workspaceId, params)
   },
   businessDesignerRevertToCheckpoint(
     workspaceId: string,

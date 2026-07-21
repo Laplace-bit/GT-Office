@@ -1,5 +1,4 @@
 export { BusinessDesignerPane } from './BusinessDesignerPane'
-export { useDesignerFreeformCompletion } from './controllers/useDesignerFreeformCompletion'
 export type { DesignerBlock, DesignerBlockKind, DesignerBlockPatch } from './model/designer-blocks'
 export type {
   DesignerCompileResult,
@@ -21,9 +20,4 @@ export type {
   DesignerPatchPreviewChange,
   DesignerPatchValidationResult,
 } from './model/designer-patch'
-export type {
-  DesignerFreeformCompletionProvider,
-  DesignerFreeformCompletionRun,
-  DesignerFreeformCompletionScenario,
-} from './model/designer-freeform-completion'
 export type { DesignerValidationResult } from './model/designer-validation'

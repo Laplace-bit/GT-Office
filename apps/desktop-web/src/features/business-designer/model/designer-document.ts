@@ -128,6 +128,12 @@ export interface DesignerCheckpointHistoryResult {
   entries: DesignerCheckpointEntry[]
 }
 
+export interface DesignerRevertToCheckpointRequest {
+  traceId: string
+  documentId: string
+  checkpoint: string
+}
+
 export interface DesignerDiffEntry {
   status: string
   path: string

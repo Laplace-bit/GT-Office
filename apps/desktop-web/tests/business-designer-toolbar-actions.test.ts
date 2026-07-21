@@ -15,7 +15,6 @@ test('business designer toolbar keeps stable native action order', () => {
     'createEntity',
     'createFlow',
     'createApi',
-    'expandCanvas',
     'export',
     'checkpoint',
     'history',
@@ -25,7 +24,6 @@ test('business designer toolbar keeps stable native action order', () => {
     'createEntity',
     'createFlow',
     'createApi',
-    'expandCanvas',
     'export',
     'checkpoint',
   ])
@@ -37,7 +35,6 @@ test('business designer toolbar enables write actions only when the document is 
   const idle = resolveDesignerToolbarActionStates({
     canEdit: true,
     operation: null,
-    agentRunning: false,
   })
 
   for (const action of DESIGNER_TOOLBAR_ACTION_ORDER) {
@@ -48,7 +45,6 @@ test('business designer toolbar enables write actions only when the document is 
   const readonly = resolveDesignerToolbarActionStates({
     canEdit: false,
     operation: null,
-    agentRunning: false,
   })
 
   for (const action of DESIGNER_TOOLBAR_ACTION_ORDER) {
@@ -61,7 +57,6 @@ test('business designer toolbar blocks mutating actions while a document operati
     const states = resolveDesignerToolbarActionStates({
       canEdit: true,
       operation,
-      agentRunning: false,
     })
 
     assert.equal(isDesignerToolbarBusy({ canEdit: true, operation }), true)
@@ -70,26 +65,6 @@ test('business designer toolbar blocks mutating actions while a document operati
     }
     assert.equal(states.history.disabled, false, `history should remain inspectable during ${operation}`)
   }
-})
-
-test('business designer toolbar keeps completion actions available while a freeform run exists', () => {
-  const states = resolveDesignerToolbarActionStates({
-    canEdit: true,
-    operation: null,
-    agentRunning: true,
-  })
-
-  assert.equal(isDesignerToolbarBusy({ canEdit: true, operation: null, agentRunning: true }), true)
-  for (const action of DESIGNER_TOOLBAR_MUTATING_ACTIONS) {
-    assert.equal(
-      states[action].disabled,
-      false,
-      `${action} should remain available while freeform completion runs`,
-    )
-  }
-  assert.equal(states.expandCanvas.busy, true)
-  assert.equal(states.expandCanvas.disabled, false)
-  assert.equal(states.history.disabled, false)
 })
 
 test('business designer toolbar exposes precise busy labels for long-running document actions', () => {

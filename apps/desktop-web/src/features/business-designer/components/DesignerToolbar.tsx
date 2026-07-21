@@ -14,13 +14,11 @@ interface DesignerToolbarProps {
   canEdit: boolean
   dirty: boolean
   operation: DesignerOperation | null
-  agentRunning?: boolean
   onSave: () => void
   onExport: (format: DesignerExportFormat) => void
   onCheckpoint: () => void
   onOpenHistory: () => void
   onCreateBlock: (kind: DesignerCreateKind) => void
-  onExpandCanvas: (userPrompt?: string | null) => void
 }
 
 export function DesignerToolbar({
@@ -28,22 +26,18 @@ export function DesignerToolbar({
   canEdit,
   dirty,
   operation,
-  agentRunning = false,
   onSave,
   onExport,
   onCheckpoint,
   onOpenHistory,
   onCreateBlock,
-  onExpandCanvas,
 }: DesignerToolbarProps) {
   const [exportOpen, setExportOpen] = useState(false)
-  const [expandPrompt, setExpandPrompt] = useState('')
   const exportButtonRef = useRef<HTMLButtonElement>(null)
   const exportRef = useRef<HTMLDivElement>(null)
   const actionStates = resolveDesignerToolbarActionStates({
     canEdit,
     operation,
-    agentRunning,
   })
 
   useEffect(() => {
@@ -153,36 +147,6 @@ export function DesignerToolbar({
         <AppIcon name="braces" aria-hidden="true" />
         <span>{t(locale, 'designer.create.api')}</span>
       </button>
-      <button
-        type="button"
-        className="designer-tool-button designer-tool-button--accent"
-        onClick={() => {
-          onExpandCanvas(expandPrompt.trim() || null)
-          setExpandPrompt('')
-        }}
-        disabled={actionStates.expandCanvas.disabled}
-        title={t(locale, 'designer.freeform.expandCanvas')}
-        aria-label={t(locale, 'designer.freeform.expandCanvas')}
-      >
-        <AppIcon name="sparkles" aria-hidden="true" />
-        <span>{t(locale, 'designer.freeform.expandCanvas')}</span>
-      </button>
-      <input
-        className="designer-toolbar-prompt"
-        value={expandPrompt}
-        disabled={actionStates.expandCanvas.disabled}
-        aria-label={t(locale, 'designer.freeform.userPrompt')}
-        placeholder={t(locale, 'designer.freeform.toolbarPromptPlaceholder')}
-        onChange={(event) => setExpandPrompt(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' || actionStates.expandCanvas.disabled) {
-            return
-          }
-          event.preventDefault()
-          onExpandCanvas(expandPrompt.trim() || null)
-          setExpandPrompt('')
-        }}
-      />
 
       <span className="designer-tool-divider" aria-hidden="true" />
 

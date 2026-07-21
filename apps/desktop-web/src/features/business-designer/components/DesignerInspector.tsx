@@ -15,11 +15,6 @@ import type {
   DesignerAgentCompletionDispatchResult,
   DesignerAgentTaskPreview,
 } from '../model/designer-patch'
-import type {
-  DesignerFreeformCompletionProvider,
-  DesignerFreeformCompletionRun,
-  DesignerFreeformCompletionScenario,
-} from '../model/designer-freeform-completion'
 import type { DesignerDerivedEdge, DesignerGap } from '../model/designer-validation'
 
 interface DesignerInspectorProps {
@@ -31,14 +26,6 @@ interface DesignerInspectorProps {
   agents: AgentProfile[]
   agentDispatch: DesignerAgentCompletionDispatchResult | null
   agentBusy: boolean
-  freeformRuns: DesignerFreeformCompletionRun[]
-  freeformRunLogs: Record<string, string>
-  freeformLogLoadingRunId: string | null
-  freeformBusy: boolean
-  freeformError: string | null
-  freeformProvider: DesignerFreeformCompletionProvider
-  freeformProviderConfigured: boolean
-  freeformProviderPending: boolean
   onOpenDrill: (blockId: string) => void
   onFixGap: (blockId: string, gapCode: string) => void
   onFixBlock: (blockId: string) => void
@@ -46,18 +33,6 @@ interface DesignerInspectorProps {
   onConfirmAgentPreview: (provider: string, targetAgentIds: string[]) => void
   onReloadDocument: () => void
   onCancelAgentPreview: () => void
-  onFreeformProviderChange: (provider: DesignerFreeformCompletionProvider) => void
-  onConfirmFreeformProvider: () => void
-  onStartFreeformCompletion: (params: {
-    scenario: DesignerFreeformCompletionScenario
-    hostBlockId?: string | null
-    userPrompt?: string | null
-  }) => void
-  onRefreshFreeformRuns: () => void
-  onReadFreeformRunLog: (run: DesignerFreeformCompletionRun) => void
-  onStopFreeformRun: (run: DesignerFreeformCompletionRun) => void
-  onViewFreeformChanges: (checkpoint: string) => void
-  onRevertFreeformRun: (run: DesignerFreeformCompletionRun) => void
 }
 
 /**
@@ -74,14 +49,6 @@ export const DesignerInspector = memo(function DesignerInspector({
   agents,
   agentDispatch,
   agentBusy,
-  freeformRuns,
-  freeformRunLogs,
-  freeformLogLoadingRunId,
-  freeformBusy,
-  freeformError,
-  freeformProvider,
-  freeformProviderConfigured,
-  freeformProviderPending,
   onOpenDrill,
   onFixGap,
   onFixBlock,
@@ -89,14 +56,6 @@ export const DesignerInspector = memo(function DesignerInspector({
   onConfirmAgentPreview,
   onReloadDocument,
   onCancelAgentPreview,
-  onFreeformProviderChange,
-  onConfirmFreeformProvider,
-  onStartFreeformCompletion,
-  onRefreshFreeformRuns,
-  onReadFreeformRunLog,
-  onStopFreeformRun,
-  onViewFreeformChanges,
-  onRevertFreeformRun,
 }: DesignerInspectorProps) {
   if (!block) {
     return (
@@ -207,28 +166,6 @@ export const DesignerInspector = memo(function DesignerInspector({
         ) : null}
       </section>
 
-      <FreeformCompletionPanel
-        locale={locale}
-        block={block}
-        runs={freeformRuns}
-        runLogs={freeformRunLogs}
-        logLoadingRunId={freeformLogLoadingRunId}
-        busy={freeformBusy}
-        error={freeformError}
-        provider={freeformProvider}
-        providerConfigured={freeformProviderConfigured}
-        providerPending={freeformProviderPending}
-        onProviderChange={onFreeformProviderChange}
-        onConfirmProvider={onConfirmFreeformProvider}
-        onStart={onStartFreeformCompletion}
-        onRefresh={onRefreshFreeformRuns}
-        onReadLog={onReadFreeformRunLog}
-        onStopRun={onStopFreeformRun}
-        onReload={onReloadDocument}
-        onViewChanges={onViewFreeformChanges}
-        onRevertRun={onRevertFreeformRun}
-      />
-
       {adjacency.length > 0 ? (
         <section className="designer-inspector-section">
           <div className="designer-inspector-section-label">
@@ -258,338 +195,6 @@ export const DesignerInspector = memo(function DesignerInspector({
     </aside>
   )
 })
-
-function FreeformCompletionPanel({
-  locale,
-  block,
-  runs,
-  runLogs,
-  logLoadingRunId,
-  busy,
-  error,
-  provider,
-  providerConfigured,
-  providerPending,
-  onProviderChange,
-  onConfirmProvider,
-  onStart,
-  onRefresh,
-  onReadLog,
-  onStopRun,
-  onReload,
-  onViewChanges,
-  onRevertRun,
-}: {
-  locale: Locale
-  block: DesignerBlock
-  runs: DesignerFreeformCompletionRun[]
-  runLogs: Record<string, string>
-  logLoadingRunId: string | null
-  busy: boolean
-  error: string | null
-  provider: DesignerFreeformCompletionProvider
-  providerConfigured: boolean
-  providerPending: boolean
-  onProviderChange: (provider: DesignerFreeformCompletionProvider) => void
-  onConfirmProvider: () => void
-  onStart: (params: {
-    scenario: DesignerFreeformCompletionScenario
-    hostBlockId?: string | null
-    userPrompt?: string | null
-  }) => void
-  onRefresh: () => void
-  onReadLog: (run: DesignerFreeformCompletionRun) => void
-  onStopRun: (run: DesignerFreeformCompletionRun) => void
-  onReload: () => void
-  onViewChanges: (checkpoint: string) => void
-  onRevertRun: (run: DesignerFreeformCompletionRun) => void
-}) {
-  const scenario = scenarioForBlock(block)
-  const [userPrompt, setUserPrompt] = useState('')
-  const latestRuns = runs.slice(0, 4)
-
-  function handleSubmit() {
-    onStart({
-      scenario,
-      hostBlockId: block.id,
-      userPrompt: userPrompt.trim() || null,
-    })
-    setUserPrompt('')
-  }
-
-  return (
-    <section className="designer-inspector-section designer-freeform">
-      <div className="designer-inspector-section-label">
-        <span>{t(locale, 'designer.freeform.title')}</span>
-        <div className="designer-inspector-section-actions">
-          <button
-            type="button"
-            className="designer-inspector-drill-btn"
-            onClick={onRefresh}
-            disabled={busy}
-            aria-label={t(locale, 'designer.freeform.refreshRuns')}
-          >
-            <AppIcon name="refresh" aria-hidden="true" />
-            {t(locale, 'designer.freeform.refreshRuns')}
-          </button>
-        </div>
-      </div>
-      <div className="designer-freeform-controls">
-        <label className="designer-agent-preview-field">
-          <span>{t(locale, 'designer.freeform.provider')}</span>
-          <select
-            value={provider}
-            disabled={busy}
-            onChange={(event) =>
-              onProviderChange(event.target.value === 'claude' ? 'claude' : 'codex')
-            }
-          >
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select>
-        </label>
-        {!providerConfigured ? (
-          <div className="designer-freeform-provider-setup" role="status">
-            <span>
-              {providerPending
-                ? t(locale, 'designer.freeform.providerSetupPending')
-                : t(locale, 'designer.freeform.providerSetup')}
-            </span>
-            <button
-              type="button"
-              className="designer-gap-fix"
-              disabled={busy}
-              onClick={onConfirmProvider}
-            >
-              {t(locale, 'designer.freeform.providerConfirm')}
-            </button>
-          </div>
-        ) : null}
-        <label className="designer-freeform-prompt">
-          <span>{t(locale, 'designer.freeform.userPrompt')}</span>
-          <textarea
-            value={userPrompt}
-            disabled={busy}
-            spellCheck={false}
-            rows={3}
-            placeholder={t(locale, 'designer.freeform.userPromptPlaceholder')}
-            onChange={(event) => setUserPrompt(event.target.value)}
-          />
-        </label>
-      </div>
-      <div className="designer-freeform-actions">
-        <button
-          type="button"
-          className="designer-gap-fix designer-gap-fix--accent"
-          disabled={busy}
-          onClick={handleSubmit}
-        >
-          <AppIcon name="sparkles" aria-hidden="true" />
-          {t(locale, scenarioButtonKey(scenario))}
-        </button>
-      </div>
-      {error ? (
-        <div className="designer-freeform-error" role="alert">
-          <AppIcon name="alert-circle" aria-hidden="true" />
-          <span>{error}</span>
-        </div>
-      ) : null}
-      <FreeformRunList
-        locale={locale}
-        runs={latestRuns}
-        runLogs={runLogs}
-        logLoadingRunId={logLoadingRunId}
-        busy={busy}
-        onReadLog={onReadLog}
-        onStopRun={onStopRun}
-        onReload={onReload}
-        onViewChanges={onViewChanges}
-        onRevertRun={onRevertRun}
-      />
-    </section>
-  )
-}
-
-function scenarioForBlock(block: DesignerBlock): DesignerFreeformCompletionScenario {
-  if (block.id === 'brief') {
-    return 'brief_to_design'
-  }
-  if (block.kind === 'entityModel') {
-    return 'complete_entity'
-  }
-  if (block.kind === 'businessFlow') {
-    return 'complete_flow'
-  }
-  if (block.kind === 'apiContract') {
-    return 'complete_api_contract'
-  }
-  return 'expand_canvas'
-}
-
-function scenarioButtonKey(
-  scenario: DesignerFreeformCompletionScenario,
-):
-  | 'designer.freeform.briefToDesign'
-  | 'designer.freeform.completeEntity'
-  | 'designer.freeform.completeFlow'
-  | 'designer.freeform.completeApiContract'
-  | 'designer.freeform.expandCanvas' {
-  switch (scenario) {
-    case 'brief_to_design':
-      return 'designer.freeform.briefToDesign'
-    case 'complete_entity':
-      return 'designer.freeform.completeEntity'
-    case 'complete_flow':
-      return 'designer.freeform.completeFlow'
-    case 'complete_api_contract':
-      return 'designer.freeform.completeApiContract'
-    case 'expand_canvas':
-      return 'designer.freeform.expandCanvas'
-  }
-}
-
-function FreeformRunList({
-  locale,
-  runs,
-  runLogs,
-  logLoadingRunId,
-  busy,
-  onReadLog,
-  onStopRun,
-  onReload,
-  onViewChanges,
-  onRevertRun,
-}: {
-  locale: Locale
-  runs: DesignerFreeformCompletionRun[]
-  runLogs: Record<string, string>
-  logLoadingRunId: string | null
-  busy: boolean
-  onReadLog: (run: DesignerFreeformCompletionRun) => void
-  onStopRun: (run: DesignerFreeformCompletionRun) => void
-  onReload: () => void
-  onViewChanges: (checkpoint: string) => void
-  onRevertRun: (run: DesignerFreeformCompletionRun) => void
-}) {
-  const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
-  useEffect(() => {
-    const runningRun = runs.find((run) => run.status === 'running')
-    if (!runningRun || expandedRunId === runningRun.requestId) {
-      return
-    }
-    setExpandedRunId(runningRun.requestId)
-    if (!runLogs[runningRun.requestId]) {
-      onReadLog(runningRun)
-    }
-  }, [expandedRunId, onReadLog, runLogs, runs])
-
-  if (runs.length === 0) {
-    return <p className="designer-agent-preview-empty">{t(locale, 'designer.freeform.noRuns')}</p>
-  }
-  return (
-    <ul className="designer-freeform-runs" aria-label={t(locale, 'designer.freeform.latestRuns')}>
-      {runs.map((run) => {
-        const runSessionLabel = run.sessionId.startsWith('headless:')
-          ? 'headless'
-          : run.sessionId
-        return (
-          <li key={run.requestId} className={`designer-freeform-run is-${run.status}`}>
-            <div className="designer-freeform-run-main">
-              <span className="designer-freeform-run-status">
-                {t(locale, freeformStatusKey(run.status))}
-              </span>
-              <span className="designer-freeform-run-provider">{run.provider}</span>
-            </div>
-            <div className="designer-freeform-run-meta">
-              {runSessionLabel} · {run.checkpointBefore}
-            </div>
-            {run.userPromptSummary ? (
-              <div className="designer-freeform-run-summary">{run.userPromptSummary}</div>
-            ) : null}
-            <div className="designer-freeform-run-actions">
-              <button
-                type="button"
-                className="designer-gap-fix"
-                disabled={logLoadingRunId === run.requestId}
-                aria-expanded={expandedRunId === run.requestId}
-                onClick={() => {
-                  const nextExpanded = expandedRunId === run.requestId ? null : run.requestId
-                  setExpandedRunId(nextExpanded)
-                  if (nextExpanded && !runLogs[run.requestId]) {
-                    onReadLog(run)
-                  }
-                }}
-              >
-                {logLoadingRunId === run.requestId
-                  ? t(locale, 'designer.freeform.loadingLog')
-                  : t(locale, 'designer.freeform.viewLog')}
-              </button>
-              <button
-                type="button"
-                className="designer-gap-fix"
-                onClick={() => onViewChanges(run.checkpointBefore)}
-              >
-                {t(locale, 'designer.freeform.viewChanges')}
-              </button>
-              {run.status === 'completed' ? (
-                <button
-                  type="button"
-                  className="designer-gap-fix"
-                  disabled={busy}
-                  onClick={onReload}
-                >
-                  {t(locale, 'designer.freeform.reloadDocument')}
-                </button>
-              ) : null}
-              {run.status === 'running' ? (
-                <button
-                  type="button"
-                  className="designer-gap-fix"
-                  disabled={logLoadingRunId === run.requestId}
-                  onClick={() => onStopRun(run)}
-                >
-                  {t(locale, 'designer.freeform.stopRun')}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="designer-gap-fix"
-                disabled={busy || run.status === 'running'}
-                onClick={() => onRevertRun(run)}
-              >
-                {t(locale, 'designer.freeform.revert')}
-              </button>
-            </div>
-            {expandedRunId === run.requestId ? (
-              <pre className="designer-freeform-run-log">
-                {runLogs[run.requestId] || t(locale, 'designer.freeform.noLog')}
-              </pre>
-            ) : null}
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-function freeformStatusKey(
-  status: DesignerFreeformCompletionRun['status'],
-):
-  | 'designer.freeform.status.running'
-  | 'designer.freeform.status.completed'
-  | 'designer.freeform.status.failed'
-  | 'designer.freeform.status.cancelled' {
-  switch (status) {
-    case 'completed':
-      return 'designer.freeform.status.completed'
-    case 'failed':
-      return 'designer.freeform.status.failed'
-    case 'cancelled':
-      return 'designer.freeform.status.cancelled'
-    case 'running':
-      return 'designer.freeform.status.running'
-  }
-}
 
 const GAP_ROW_ESTIMATE_PX = 92
 

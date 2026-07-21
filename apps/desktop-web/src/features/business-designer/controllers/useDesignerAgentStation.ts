@@ -32,11 +32,9 @@ export interface DesignerAgentStationController {
 }
 
 /**
- * Controller for the designer agent station (sub-project B). Replaces
- * `useDesignerFreeformCompletion`. The terminal session itself is launched by
- * `DesignerAgentPane` (B5) via the station/terminal infra; this controller
- * covers station profile lifecycle + scenario prompt composition + per-turn
- * checkpoint.
+ * Controller for the designer agent station (sub-project B). Covers station
+ * profile lifecycle + scenario prompt composition + per-turn checkpoint.
+ * The terminal session itself is launched via the station/terminal infra.
  */
 export function useDesignerAgentStation({
   workspaceId,
