@@ -1,4 +1,4 @@
-import type { AgentProfile, AgentRole } from '../../shell/integration/desktop-api.js'
+import type { AgentProfile, AgentRole, AgentScope } from '../../shell/integration/desktop-api.js'
 import { buildStationWorkdirs, type StationRole } from '../workspace/station-workdir-model.js'
 
 export type StationToolKind = 'claude' | 'codex' | 'shell' | 'unknown'
@@ -33,6 +33,7 @@ export interface AgentStation {
   roleWorkdirRel: string
   agentWorkdirRel: string
   customWorkdir: boolean
+  scope: AgentScope
   tool: string
   toolKind: StationToolKind
   promptFileName?: string | null
@@ -93,6 +94,7 @@ export function mapAgentProfileToStation(
     roleWorkdirRel: fallbackWorkdirs.roleWorkdirRel,
     agentWorkdirRel: normalizedWorkdir,
     customWorkdir,
+    scope: agent.scope,
     tool: agent.tool?.trim() ? agent.tool.trim() : 'codex',
     promptFileName: agent.promptFileName,
     promptFileRelativePath: agent.promptFileRelativePath,
@@ -113,6 +115,7 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
     roleId: 'global_role_orchestrator',
     role: 'orchestrator',
     roleName: 'Orchestrator',
+    scope: 'station',
     tool: 'claude code',
     terminalSessionId: 'ts_101',
     state: 'running',
@@ -124,6 +127,7 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
     roleId: 'global_role_analyst',
     role: 'analyst',
     roleName: 'Analyst',
+    scope: 'station',
     tool: 'claude code',
     terminalSessionId: 'ts_102',
     state: 'running',
@@ -135,6 +139,7 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
     roleId: 'global_role_generator',
     role: 'generator',
     roleName: 'Generator',
+    scope: 'station',
     tool: 'codex cli',
     terminalSessionId: 'ts_103',
     state: 'running',
@@ -146,6 +151,7 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
     roleId: 'global_role_evaluator',
     role: 'evaluator',
     roleName: 'Evaluator',
+    scope: 'station',
     tool: 'codex cli',
     terminalSessionId: 'ts_104',
     state: 'idle',

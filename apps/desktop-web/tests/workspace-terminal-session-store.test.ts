@@ -24,6 +24,7 @@ function makeStation(id: string): AgentStation {
     roleWorkdirRel: '.gtoffice/roles/generator',
     agentWorkdirRel: '.gtoffice',
     customWorkdir: false,
+    scope: 'station',
     tool: 'claude',
     toolKind: 'claude',
     promptFileName: null,

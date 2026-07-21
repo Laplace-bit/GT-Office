@@ -112,6 +112,7 @@ function mapDetachedStation(payload: SurfaceDetachedStationPayload, index: numbe
     roleWorkdirRel: payload.roleWorkdirRel?.trim() || '.gtoffice/roles/detached',
     agentWorkdirRel: payload.agentWorkdirRel,
     customWorkdir: true,
+    scope: 'station',
     tool: payload.tool,
     toolKind: normalizeStationToolKind(payload.tool),
     promptFileName: null,

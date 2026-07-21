@@ -19,7 +19,7 @@ use crate::{
         agent_create_with_repo, resolve_agent_repository, seed_agent_defaults, AgentCreateRequest,
     },
 };
-use gt_agent::AgentRepository;
+use gt_agent::{AgentRepository, AgentScope};
 
 use super::{
     create_checkpoint_at, read_document_at, resolve_workspace_root, DesignerBlock,
@@ -64,7 +64,10 @@ pub(crate) fn ensure_agent_station_at(
     let agents = repo
         .list_agents(workspace_id)
         .map_err(|error| error.to_string())?;
-    if let Some(existing) = agents.iter().find(|agent| agent.role_id == designer_role.id) {
+    if let Some(existing) = agents
+        .iter()
+        .find(|agent| agent.role_id == designer_role.id)
+    {
         return Ok(json!({ "agent": existing, "created": false }));
     }
 
@@ -79,6 +82,7 @@ pub(crate) fn ensure_agent_station_at(
         tool: Some("codex".to_string()),
         workdir: Some(DESIGNER_AGENT_WORKDIR.to_string()),
         custom_workdir: Some(true),
+        scope: Some(AgentScope::Designer),
         employee_no: None,
         state: None,
         prompt_enabled: Some(false),

@@ -1,4 +1,4 @@
-use crate::{AgentProfile, AgentRole, AgentState, OrganizationDepartment, RoleStatus};
+use crate::{AgentProfile, AgentRole, AgentScope, AgentState, OrganizationDepartment, RoleStatus};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -22,6 +22,8 @@ pub struct CreateAgentInput {
     pub tool: String,
     pub workdir: Option<String>,
     pub custom_workdir: bool,
+    #[serde(default)]
+    pub scope: AgentScope,
     pub employee_no: Option<String>,
     pub state: AgentState,
     pub launch_command: Option<String>,

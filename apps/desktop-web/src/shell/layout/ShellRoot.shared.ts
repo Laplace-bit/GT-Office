@@ -796,6 +796,7 @@ export function createStationFromNumber(
     roleWorkdirRel: buildRoleWorkdirRel(role),
     agentWorkdirRel: workdir,
     customWorkdir: hasCustomWorkdir,
+    scope: 'station',
     tool,
     toolKind: normalizeStationToolKind(tool),
     promptFileName: null,

@@ -34,6 +34,7 @@ function sampleAgent(id: string, name: string): AgentProfile {
     tool: 'codex',
     workdir: '.gtoffice/product',
     customWorkdir: false,
+    scope: 'station',
     state: 'ready',
     employeeNo: null,
     policySnapshotId: null,

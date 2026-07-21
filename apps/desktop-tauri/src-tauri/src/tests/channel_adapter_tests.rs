@@ -8,7 +8,7 @@ use super::{
     AgentRuntimeRegistration, AgentToolKind, PersistedChannelAccessPolicy,
     PersistedChannelStateFile, PersistedRouteBindingRecord,
 };
-use gt_agent::{AgentRepository, AgentState, CreateAgentInput};
+use gt_agent::{AgentRepository, AgentScope, AgentState, CreateAgentInput};
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use gt_task::{
     ChannelRouteBinding, ExternalInboundMessage, ExternalPeerKind, ExternalRouteResolution,
@@ -107,6 +107,7 @@ fn seed_workspace_agent(repo: &SqliteAgentRepository, workspace_id: &str, agent_
         tool: "codex".to_string(),
         workdir: Some(".gtoffice/agent-analyst".to_string()),
         custom_workdir: false,
+        scope: AgentScope::Station,
         employee_no: None,
         state: AgentState::Ready,
         launch_command: None,

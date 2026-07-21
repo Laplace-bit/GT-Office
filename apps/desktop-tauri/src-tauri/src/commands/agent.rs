@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use gt_abstractions::{WorkspaceId, WorkspaceService};
 use gt_agent::{
     default_agent_workdir, normalize_agent_slug, prompt_file_name_for_tool, AgentProfile,
-    AgentRepository, AgentRole, AgentRoleScope, AgentState, CreateAgentInput, UpdateAgentInput,
-    DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
+    AgentRepository, AgentRole, AgentRoleScope, AgentScope, AgentState, CreateAgentInput,
+    UpdateAgentInput, DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
 };
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use serde::{Deserialize, Serialize};
@@ -642,6 +642,7 @@ pub struct AgentCreateRequest {
     pub tool: Option<String>,
     pub workdir: Option<String>,
     pub custom_workdir: Option<bool>,
+    pub scope: Option<AgentScope>,
     pub employee_no: Option<String>,
     pub state: Option<String>,
     pub prompt_enabled: Option<bool>,
@@ -674,6 +675,7 @@ pub(crate) fn agent_create_with_repo(
         tool: tool.clone(),
         workdir: Some(workdir.clone()),
         custom_workdir,
+        scope: request.scope.unwrap_or_default(),
         employee_no: request.employee_no,
         state: agent_state,
         launch_command: request.launch_command,

@@ -1,5 +1,5 @@
 use super::*;
-use gt_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentState, RoleStatus};
+use gt_agent::{AgentProfile, AgentRole, AgentRoleScope, AgentScope, AgentState, RoleStatus};
 use gt_task::{DispatchSender, DispatchSenderType};
 use std::{env, fs};
 use uuid::Uuid;
@@ -44,6 +44,7 @@ fn resolve_bootstrap_role_key_prefers_agent_role_mapping() {
         tool: "claude".to_string(),
         workdir: Some(".gtoffice/alpha".to_string()),
         custom_workdir: false,
+        scope: AgentScope::Station,
         state: AgentState::Ready,
         employee_no: None,
         policy_snapshot_id: None,

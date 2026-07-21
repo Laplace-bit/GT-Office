@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf};
 
 use crate::app_state::AppState;
 use gt_abstractions::WorkspaceService;
-use gt_agent::{AgentProfile, AgentRepository, AgentState};
+use gt_agent::{AgentProfile, AgentRepository, AgentScope, AgentState};
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use gt_task::{ChannelRouteBinding, ExternalPeerKind, TaskService};
 use uuid::Uuid;
@@ -98,6 +98,7 @@ impl AgentCommandFixture {
             tool: Some("codex".to_string()),
             workdir: Some(".".to_string()),
             custom_workdir: Some(false),
+            scope: None,
             employee_no: None,
             state: Some("ready".to_string()),
             prompt_enabled: Some(false),
@@ -632,6 +633,7 @@ fn update_preserves_existing_prompt_file_override_through_prompt_read_and_write(
         tool: "Claude Code".to_string(),
         workdir: Some(workdir.to_string()),
         custom_workdir: false,
+        scope: AgentScope::Station,
         state: AgentState::Ready,
         employee_no: None,
         policy_snapshot_id: None,

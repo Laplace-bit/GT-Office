@@ -79,6 +79,34 @@ impl AgentRoleScope {
     }
 }
 
+/// Where an agent profile is surfaced in the UI. `Station` agents appear in the
+/// global workspace-hub station list; `Designer` agents are owned by the
+/// business designer and only surface inside the designer pane. Defaults to
+/// `Station` for backward compatibility (existing agents predate the field).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentScope {
+    #[default]
+    Station,
+    Designer,
+}
+
+impl AgentScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AgentScope::Station => "station",
+            AgentScope::Designer => "designer",
+        }
+    }
+
+    pub fn from_storage_str(value: &str) -> Self {
+        match value {
+            "designer" => AgentScope::Designer,
+            _ => AgentScope::Station,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationDepartment {
@@ -120,6 +148,8 @@ pub struct AgentProfile {
     pub tool: String,
     pub workdir: Option<String>,
     pub custom_workdir: bool,
+    #[serde(default)]
+    pub scope: AgentScope,
     pub state: AgentState,
     pub employee_no: Option<String>,
     pub policy_snapshot_id: Option<String>,

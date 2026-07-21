@@ -5,7 +5,9 @@ use crate::commands::workspace::{
     build_workspace_switch_response, close_workspace_resources, workspace_reset_state_with_storage,
 };
 use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
-use gt_agent::{AgentRepository, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_agent::{
+    AgentRepository, AgentScope, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WORKSPACE_ID,
+};
 use gt_ai_config::{
     AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
     AiConfigSnapshot, ClaudeConfigSnapshot, ClaudeSnapshot, CodexConfigSnapshot, CodexSnapshot,
@@ -286,6 +288,7 @@ impl WorkspaceResetFixture {
                 tool: "codex".to_string(),
                 workdir: Some(".gtoffice/alpha".to_string()),
                 custom_workdir: false,
+                scope: AgentScope::Station,
                 employee_no: None,
                 state: AgentState::Ready,
                 launch_command: None,
@@ -301,6 +304,7 @@ impl WorkspaceResetFixture {
                 tool: "codex".to_string(),
                 workdir: Some(".gtoffice/beta".to_string()),
                 custom_workdir: false,
+                scope: AgentScope::Station,
                 employee_no: None,
                 state: AgentState::Ready,
                 launch_command: None,

@@ -1897,6 +1897,11 @@ export interface AgentRole {
   updatedAtMs: number
 }
 
+/** Where an agent surfaces in the UI. Mirrors the backend `AgentScope`
+ *  enum (snake_case wire form). `designer` agents are owned by the business
+ *  designer and filtered out of the global workspace-hub station list. */
+export type AgentScope = 'station' | 'designer'
+
 export interface AgentProfile {
   id: string
   workspaceId: string
@@ -1905,6 +1910,7 @@ export interface AgentProfile {
   tool: string
   workdir?: string | null
   customWorkdir: boolean
+  scope: AgentScope
   state: AgentState
   employeeNo?: string | null
   policySnapshotId?: string | null

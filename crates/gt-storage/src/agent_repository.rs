@@ -1,7 +1,7 @@
 use crate::sqlite::SqliteStorage;
 use gt_agent::{
     default_role_seed_by_id, AgentError, AgentProfile, AgentRepository, AgentResult, AgentRole,
-    AgentRoleScope, AgentState, CreateAgentInput, OrganizationDepartment, RoleStatus,
+    AgentRoleScope, AgentScope, AgentState, CreateAgentInput, OrganizationDepartment, RoleStatus,
     UpdateAgentInput, DEFAULT_DEPARTMENTS, DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
 };
 use rusqlite::{params, OptionalExtension};
@@ -185,6 +185,7 @@ impl SqliteAgentRepository {
               tool TEXT NOT NULL DEFAULT 'codex cli',
               workdir TEXT,
               custom_workdir INTEGER NOT NULL DEFAULT 0,
+              scope TEXT NOT NULL DEFAULT 'station',
               state TEXT NOT NULL,
               employee_no TEXT,
               policy_snapshot_id TEXT,
@@ -206,6 +207,7 @@ impl SqliteAgentRepository {
               tool,
               workdir,
               custom_workdir,
+              scope,
               state,
               employee_no,
               policy_snapshot_id,
@@ -223,6 +225,7 @@ impl SqliteAgentRepository {
               tool,
               workdir,
               custom_workdir,
+              COALESCE(scope, 'station'),
               state,
               employee_no,
               policy_snapshot_id,
@@ -353,6 +356,7 @@ CREATE TABLE IF NOT EXISTS agents (
   tool TEXT NOT NULL DEFAULT 'codex cli',
   workdir TEXT,
   custom_workdir INTEGER NOT NULL DEFAULT 0,
+  scope TEXT NOT NULL DEFAULT 'station',
   state TEXT NOT NULL,
   employee_no TEXT,
   policy_snapshot_id TEXT,
@@ -446,6 +450,10 @@ impl AgentRepository for SqliteAgentRepository {
                 "order_index",
                 "ALTER TABLE agents ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0",
             ),
+            (
+                "scope",
+                "ALTER TABLE agents ADD COLUMN scope TEXT NOT NULL DEFAULT 'station'",
+            ),
         ] {
             if existing_agent_columns
                 .iter()
@@ -469,6 +477,16 @@ impl AgentRepository for SqliteAgentRepository {
         }
         conn.execute(
             "UPDATE agents SET role_workspace_id = workspace_id WHERE role_workspace_id = '' OR role_workspace_id IS NULL",
+            [],
+        )
+        .map_err(|error| AgentError::Storage {
+            message: error.to_string(),
+        })?;
+        // Backfill: agents seeded with the business-designer role before the
+        // `scope` column existed default to 'station'; re-tag them 'designer'
+        // so the global station list filters them out. Idempotent.
+        conn.execute(
+            "UPDATE agents SET scope = 'designer' WHERE scope != 'designer' AND role_id IN (SELECT id FROM agent_roles WHERE role_key = 'business-designer')",
             [],
         )
         .map_err(|error| AgentError::Storage {
@@ -624,7 +642,7 @@ impl AgentRepository for SqliteAgentRepository {
         let conn = self.connection()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, order_index, created_at_ms, updated_at_ms
+                "SELECT id, workspace_id, name, role_id, tool, workdir, custom_workdir, scope, state, employee_no, policy_snapshot_id, launch_command, order_index, created_at_ms, updated_at_ms
                  FROM agents WHERE workspace_id = ?1 ORDER BY order_index, created_at_ms",
             )
             .map_err(|error| AgentError::Storage {
@@ -632,7 +650,8 @@ impl AgentRepository for SqliteAgentRepository {
             })?;
         let rows = stmt
             .query_map(params![workspace_id], |row| {
-                let state: String = row.get(7)?;
+                let state: String = row.get(8)?;
+                let scope: String = row.get(7)?;
                 Ok(Self::hydrate_agent_profile(AgentProfile {
                     id: row.get(0)?,
                     workspace_id: row.get(1)?,
@@ -641,15 +660,16 @@ impl AgentRepository for SqliteAgentRepository {
                     tool: row.get(4)?,
                     workdir: row.get(5)?,
                     custom_workdir: row.get::<_, i32>(6)? != 0,
+                    scope: AgentScope::from_storage_str(scope.as_str()),
                     state: AgentState::from_storage_str(state.as_str()),
-                    employee_no: row.get(8)?,
-                    policy_snapshot_id: row.get(9)?,
-                    launch_command: row.get(10)?,
-                    order_index: row.get(11)?,
+                    employee_no: row.get(9)?,
+                    policy_snapshot_id: row.get(10)?,
+                    launch_command: row.get(11)?,
+                    order_index: row.get(12)?,
                     prompt_file_name: None,
                     prompt_file_relative_path: None,
-                    created_at_ms: row.get(12)?,
-                    updated_at_ms: row.get(13)?,
+                    created_at_ms: row.get(13)?,
+                    updated_at_ms: row.get(14)?,
                 }))
             })
             .map_err(|error| AgentError::Storage {
@@ -717,7 +737,7 @@ impl AgentRepository for SqliteAgentRepository {
         });
 
         conn.execute(
-            "INSERT INTO agents (id, workspace_id, name, role_id, role_workspace_id, tool, workdir, custom_workdir, state, employee_no, policy_snapshot_id, launch_command, order_index, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, ?14)",
+            "INSERT INTO agents (id, workspace_id, name, role_id, role_workspace_id, tool, workdir, custom_workdir, scope, state, employee_no, policy_snapshot_id, launch_command, order_index, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15)",
             params![
                 agent_id,
                 input.workspace_id,
@@ -727,6 +747,7 @@ impl AgentRepository for SqliteAgentRepository {
                 input.tool,
                 input.workdir,
                 if input.custom_workdir { 1 } else { 0 },
+                input.scope.as_str(),
                 input.state.as_str(),
                 input.employee_no,
                 input.launch_command,
@@ -747,6 +768,7 @@ impl AgentRepository for SqliteAgentRepository {
             tool: input.tool,
             workdir: input.workdir,
             custom_workdir: input.custom_workdir,
+            scope: input.scope,
             state: input.state,
             employee_no: input.employee_no,
             policy_snapshot_id: None,
@@ -842,6 +864,7 @@ impl AgentRepository for SqliteAgentRepository {
             tool: input.tool,
             workdir: input.workdir,
             custom_workdir: input.custom_workdir,
+            scope: AgentScope::default(),
             state: input.state,
             employee_no: input.employee_no,
             policy_snapshot_id,
@@ -1038,7 +1061,7 @@ impl AgentRepository for SqliteAgentRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gt_agent::{AgentRoleScope, AgentState, RoleStatus};
+    use gt_agent::{AgentRoleScope, AgentScope, AgentState, RoleStatus};
     use std::path::Path;
 
     fn test_repo(label: &str) -> SqliteAgentRepository {
@@ -1213,6 +1236,7 @@ mod tests {
             tool: "codex".to_string(),
             workdir: Some(".gtoffice/alpha".to_string()),
             custom_workdir: false,
+            scope: AgentScope::Station,
             employee_no: None,
             state: AgentState::Ready,
             launch_command: None,
@@ -1264,6 +1288,7 @@ mod tests {
             tool: "codex".to_string(),
             workdir: Some(".gtoffice/alpha".to_string()),
             custom_workdir: false,
+            scope: AgentScope::Station,
             employee_no: None,
             state: AgentState::Ready,
             launch_command: None,
@@ -1377,6 +1402,7 @@ mod tests {
             tool: "codex".to_string(),
             workdir: Some(".gtoffice/alpha".to_string()),
             custom_workdir: false,
+            scope: AgentScope::Station,
             employee_no: None,
             state: AgentState::Ready,
             launch_command: None,

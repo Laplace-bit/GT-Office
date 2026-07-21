@@ -133,6 +133,7 @@ interface WorkbenchCanvasPanelProps {
   onReturnToWorkspace?: () => void
   onOpenStationManage?: () => void
   onOpenStationSearch?: () => void
+  onEditStation?: (station: AgentStation) => void
   pinned?: boolean
   onTogglePinnedWorkbenchContainer?: (containerId: string) => void
   minimizedDockPortalTarget?: HTMLElement | null
@@ -549,6 +550,7 @@ function WorkbenchCanvasPanelView({
   onReturnToWorkspace,
   onOpenStationManage,
   onOpenStationSearch,
+  onEditStation,
   pinned = false,
   onTogglePinnedWorkbenchContainer,
   minimizedDockPortalTarget = null,
@@ -583,6 +585,9 @@ function WorkbenchCanvasPanelView({
     const nextDockStations: AgentStation[] = []
 
     for (const station of stations) {
+      if (station.scope === 'designer') {
+        continue
+      }
       if (roleFilter !== 'all' && station.role !== roleFilter) {
         continue
       }
@@ -1415,6 +1420,7 @@ function WorkbenchCanvasPanelView({
             commands={toolCommandsByStationId[station.id]}
             onRestoreStateCaptured={onRestoreStateCaptured}
             onRemoveStation={onRemoveStation}
+            onEditStation={detachedReadonly ? undefined : onEditStation}
             onEnterFullscreen={handleEnterFullscreen}
             onExitFullscreen={handleExitFullscreen}
             onMinimizeStation={detachedReadonly ? undefined : handleMinimizeStation}
@@ -1446,6 +1452,7 @@ function WorkbenchCanvasPanelView({
       workspaceCwd,
       workspaceId,
       onDropFilePath,
+      onEditStation,
       onRemoveStation,
       onRenderedScreenSnapshot,
       onRestoreStateCaptured,
@@ -1623,11 +1630,13 @@ function WorkbenchCanvasPanelView({
               <strong>{locale === 'zh-CN' ? '没有匹配角色' : 'No Matching Roles'}</strong>
               <p>{locale === 'zh-CN' ? '当前筛选条件下没有匹配的角色。' : 'No roles match the current filter.'}</p>
             </div>
-            {stations.map((station) =>
-              renderStationCard(station, {
-                slotMode: resolveStationSlotMode(station.id),
-              }),
-            )}
+            {stations
+              .filter((station) => station.scope !== 'designer')
+              .map((station) =>
+                renderStationCard(station, {
+                  slotMode: resolveStationSlotMode(station.id),
+                }),
+              )}
           </div>
         ) : container.layoutMode === 'focus' ? (
           <div className="station-grid focus-mode" ref={gridRef} style={focusGridStyle}>
@@ -1636,15 +1645,17 @@ function WorkbenchCanvasPanelView({
               style={displayedStations.length > 1 ? { gridColumn: '1 / 2', gridRow: '1 / 2' } : undefined}
             >
               <div className="focus-main-stage">
-                {stations.map((station) => {
-                  const slotMode = resolveStationSlotMode(station.id)
-                  const visibility = resolveFocusStageStationVisibility(station.id, selectedStationId, slotMode)
-                  return renderStationCard(station, {
-                    focusHidden: visibility.focusHidden,
-                    inert: visibility.inert,
-                    slotMode,
-                  })
-                })}
+                {stations
+                  .filter((station) => station.scope !== 'designer')
+                  .map((station) => {
+                    const slotMode = resolveStationSlotMode(station.id)
+                    const visibility = resolveFocusStageStationVisibility(station.id, selectedStationId, slotMode)
+                    return renderStationCard(station, {
+                      focusHidden: visibility.focusHidden,
+                      inert: visibility.inert,
+                      slotMode,
+                    })
+                  })}
               </div>
             </div>
             {displayedStations.length > 1 ? (
@@ -1671,11 +1682,13 @@ function WorkbenchCanvasPanelView({
             data-layout-mode={container.layoutMode === 'custom' ? 'fixed' : 'auto'}
             data-layout-preset={container.layoutMode}
           >
-            {stations.map((station) =>
-              renderStationCard(station, {
-                slotMode: resolveStationSlotMode(station.id),
-              }),
-            )}
+            {stations
+              .filter((station) => station.scope !== 'designer')
+              .map((station) =>
+                renderStationCard(station, {
+                  slotMode: resolveStationSlotMode(station.id),
+                }),
+              )}
           </div>
         )
       ) : (
