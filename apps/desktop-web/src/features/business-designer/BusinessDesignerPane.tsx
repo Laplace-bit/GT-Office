@@ -7,6 +7,7 @@ import {
   useDesignerDocumentState,
 } from './controllers/useDesignerDocumentState'
 import { useDesignerHistory } from './controllers/useDesignerHistory'
+import { useDesignerAgentStation } from './controllers/useDesignerAgentStation'
 import { DesignerSidebar } from './components/DesignerSidebar'
 import { DesignerToolbar } from './components/DesignerToolbar'
 import {
@@ -23,6 +24,7 @@ import { DESIGNER_SCHEMA_VERSION } from './model/designer-document'
 import type { DesignerBlock } from './model/designer-blocks'
 import type { DesignerLayoutPosition } from './model/designer-document'
 import type { DesignerGap } from './model/designer-validation'
+import type { DesignerScenario } from './model/designer-agent-station'
 import type { DesignerCreateKind } from './model/designer-toolbar-actions'
 import {
   addDesignerBlockToDetail,
@@ -36,6 +38,10 @@ interface BusinessDesignerPaneProps {
   active: boolean
   libraryPanelVisible: boolean
   onLibraryPanelVisibleChange: (visible: boolean) => void
+  /** Write a prompt into the designer agent station terminal. Provided by the
+   *  shell, which owns the terminal session mechanics. Returns true when the
+   *  prompt was accepted by the station terminal. */
+  onDispatchDesignerStationPrompt: (stationId: string, prompt: string) => Promise<boolean>
 }
 
 const LIBRARY_PANEL_WIDTH_MIN = 220
@@ -53,6 +59,7 @@ export function BusinessDesignerPane({
   active,
   libraryPanelVisible,
   onLibraryPanelVisibleChange,
+  onDispatchDesignerStationPrompt,
 }: BusinessDesignerPaneProps) {
   const documents = useDesignerDocuments({ workspaceId, active })
   const [libraryPanelWidth, setLibraryPanelWidth] = useState(LIBRARY_PANEL_WIDTH_DEFAULT)
@@ -72,6 +79,9 @@ export function BusinessDesignerPane({
     documentId: state.detail?.manifest.documentId ?? null,
     active,
   })
+  const agentStation = useDesignerAgentStation({ workspaceId })
+  const [agentStationBusy, setAgentStationBusy] = useState(false)
+  const [agentStationNotice, setAgentStationNotice] = useState<string | null>(null)
 
   // Font fallback prewarm - first time the canvas mounts, Chinese/CJK fallbacks
   // can stutter (references/03-webview-survival.md § A.9). Render a hidden span
@@ -250,6 +260,50 @@ export function BusinessDesignerPane({
       scope: preview.scope === 'single' ? 'single' : 'block',
     })
   }, [state])
+
+  const onCompleteWithAgent = useCallback(
+    async (blockId: string, scenario: DesignerScenario) => {
+      const documentId = state.detail?.manifest.documentId
+      if (!workspaceId || !documentId || agentStationBusy) {
+        return
+      }
+      setAgentStationBusy(true)
+      setAgentStationNotice(null)
+      try {
+        const agent = await agentStation.ensure()
+        if (!agent) {
+          setAgentStationNotice(t(locale, 'designer.agentStation.dispatchFailed'))
+          return
+        }
+        const prompt = await agentStation.renderScenario({
+          documentId,
+          scenario,
+          hostBlockId: blockId,
+        })
+        if (!prompt) {
+          setAgentStationNotice(t(locale, 'designer.agentStation.dispatchFailed'))
+          return
+        }
+        const dispatched = await onDispatchDesignerStationPrompt(agent.id, prompt)
+        if (!dispatched) {
+          setAgentStationNotice(t(locale, 'designer.agentStation.dispatchFailed'))
+          return
+        }
+        await agentStation.checkpointTurn(documentId, scenario)
+        setAgentStationNotice(t(locale, 'designer.agentStation.dispatched'))
+      } finally {
+        setAgentStationBusy(false)
+      }
+    },
+    [
+      agentStation,
+      agentStationBusy,
+      locale,
+      onDispatchDesignerStationPrompt,
+      state.detail?.manifest.documentId,
+      workspaceId,
+    ],
+  )
 
   const onDeleteBlock = useCallback(
     (block: DesignerBlock) => {
@@ -440,11 +494,14 @@ export function BusinessDesignerPane({
                     agents={state.agents}
                     agentDispatch={state.agentDispatch}
                     agentBusy={state.operation === 'agent' || state.operation === 'apply'}
+                    agentStationBusy={agentStationBusy}
+                    agentStationNotice={agentStationNotice}
                     onOpenDrill={state.openDrill}
                     onFixGap={onFixGap}
                     onFixBlock={onFixBlock}
                     onCreateEntityFromGap={onCreateEntityFromGap}
                     onConfirmAgentPreview={onConfirmAgentPreview}
+                    onCompleteWithAgent={onCompleteWithAgent}
                     onReloadDocument={state.loadDocument}
                     onCancelAgentPreview={state.clearAgentPreview}
                   />

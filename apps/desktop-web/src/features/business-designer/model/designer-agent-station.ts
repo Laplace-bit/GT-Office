@@ -17,6 +17,26 @@ export type DesignerScenario =
   | 'complete_api_contract'
   | 'expand_canvas'
 
+/** Map a block kind to the designer agent scenario that completes it. Pure
+ *  helper so the inspector / dock share one mapping and it stays testable. */
+export function scenarioForBlockKind(kind: string): DesignerScenario {
+  switch (kind) {
+    case 'text':
+      return 'brief_to_design'
+    case 'entityModel':
+    case 'objectModel':
+    case 'dataContract':
+      return 'complete_entity'
+    case 'businessFlow':
+    case 'uiWorkflow':
+      return 'complete_flow'
+    case 'apiContract':
+      return 'complete_api_contract'
+    default:
+      return 'expand_canvas'
+  }
+}
+
 /** The subset of the agent profile the designer UI needs. Mirrors the backend
  *  `AgentProfile` camelCase wire form. */
 export interface DesignerAgentStation {

@@ -335,6 +335,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     stationAgentRunningById,
     batchLaunchableAgentCount,
     runtimeStateByStationId,
+    writeStationTerminalWithSubmit,
   } = terminalController
   const deleteCleanupSubmitting = stationDeleteCleanupSubmitting
   const taskDispatchController = useShellTaskDispatchController({
@@ -1160,6 +1161,23 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     [handleStationTerminalInput, launchStationTerminal],
   )
 
+  // Designer agent station dispatch: the designer pane owns ensure/renderScenario/
+  // checkpointTurn (feature controller); the shell owns the terminal session
+  // mechanics. After `ensure` creates the designer agent profile we must reload
+  // the station list so writeStationTerminalWithSubmit can find it, then write
+  // the rendered prompt + submit into the designer station terminal.
+  const handleDispatchDesignerStationPrompt = useCallback(
+    async (stationId: string, prompt: string): Promise<boolean> => {
+      const workspaceId = presentedWorkspaceId
+      if (!workspaceId) {
+        return false
+      }
+      await loadStationsFromDatabase(workspaceId)
+      return writeStationTerminalWithSubmit(stationId, prompt)
+    },
+    [loadStationsFromDatabase, presentedWorkspaceId, writeStationTerminalWithSubmit],
+  )
+
   const workbenchCanvasBaseProps = {
     locale,
     appearanceVersion: `${uiPreferences.themeMode}:${uiPreferences.monoFont}:${uiPreferences.uiFontSize}`,
@@ -1387,6 +1405,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       active: activeNavId === 'designer',
       libraryPanelVisible: leftPaneVisible,
       onLibraryPanelVisibleChange: setLeftPaneVisible,
+      onDispatchDesignerStationPrompt: handleDispatchDesignerStationPrompt,
     },
     activePaneModel,
     showWorkbenchCanvas,

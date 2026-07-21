@@ -2741,6 +2741,22 @@ export const messages = {
   'designer.inspector.fixGap': { 'zh-CN': '让 Agent 补', 'en-US': 'Let Agent fix' },
   'designer.inspector.fixBlock': { 'zh-CN': '补全可由 Agent 处理的缺口', 'en-US': 'Fix agent-handled gaps' },
   'designer.inspector.openDrill': { 'zh-CN': '展开', 'en-US': 'Open' },
+  'designer.inspector.completeWithAgent': {
+    'zh-CN': '用 Agent 补全',
+    'en-US': 'Complete with Agent',
+  },
+  'designer.agentStation.dispatching': {
+    'zh-CN': '正在派发到 Designer Agent…',
+    'en-US': 'Dispatching to Designer Agent…',
+  },
+  'designer.agentStation.dispatchFailed': {
+    'zh-CN': '派发失败，请稍后重试',
+    'en-US': 'Dispatch failed, please retry',
+  },
+  'designer.agentStation.dispatched': {
+    'zh-CN': '已派发到 Designer Agent 终端',
+    'en-US': 'Dispatched to Designer Agent terminal',
+  },
   'designer.inspector.deleteBlock': { 'zh-CN': '删除', 'en-US': 'Delete' },
   'designer.inspector.deleteConfirm': {
     'zh-CN': '删除“{title}”？对应的块内容和画布位置会从当前文档中移除。',

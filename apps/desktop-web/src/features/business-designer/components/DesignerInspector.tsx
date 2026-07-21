@@ -16,6 +16,10 @@ import type {
   DesignerAgentTaskPreview,
 } from '../model/designer-patch'
 import type { DesignerDerivedEdge, DesignerGap } from '../model/designer-validation'
+import {
+  scenarioForBlockKind,
+  type DesignerScenario,
+} from '../model/designer-agent-station'
 
 interface DesignerInspectorProps {
   locale: Locale
@@ -26,11 +30,14 @@ interface DesignerInspectorProps {
   agents: AgentProfile[]
   agentDispatch: DesignerAgentCompletionDispatchResult | null
   agentBusy: boolean
+  agentStationBusy: boolean
+  agentStationNotice: string | null
   onOpenDrill: (blockId: string) => void
   onFixGap: (blockId: string, gapCode: string) => void
   onFixBlock: (blockId: string) => void
   onCreateEntityFromGap: (gap: DesignerGap) => void
   onConfirmAgentPreview: (provider: string, targetAgentIds: string[]) => void
+  onCompleteWithAgent: (blockId: string, scenario: DesignerScenario) => void
   onReloadDocument: () => void
   onCancelAgentPreview: () => void
 }
@@ -49,11 +56,14 @@ export const DesignerInspector = memo(function DesignerInspector({
   agents,
   agentDispatch,
   agentBusy,
+  agentStationBusy,
+  agentStationNotice,
   onOpenDrill,
   onFixGap,
   onFixBlock,
   onCreateEntityFromGap,
   onConfirmAgentPreview,
+  onCompleteWithAgent,
   onReloadDocument,
   onCancelAgentPreview,
 }: DesignerInspectorProps) {
@@ -90,6 +100,17 @@ export const DesignerInspector = memo(function DesignerInspector({
           <div className="designer-inspector-section-actions">
             <button
               type="button"
+              className="designer-inspector-agent-btn"
+              onClick={() => onCompleteWithAgent(block.id, scenarioForBlockKind(block.kind))}
+              disabled={agentStationBusy}
+              title={t(locale, 'designer.inspector.completeWithAgent')}
+              aria-label={t(locale, 'designer.inspector.completeWithAgent')}
+            >
+              <AppIcon name="sparkles" aria-hidden="true" />
+              {t(locale, 'designer.inspector.completeWithAgent')}
+            </button>
+            <button
+              type="button"
               className="designer-inspector-drill-btn"
               onClick={() => onOpenDrill(block.id)}
               aria-label={t(locale, 'designer.inspector.openDrill')}
@@ -99,6 +120,11 @@ export const DesignerInspector = memo(function DesignerInspector({
             </button>
           </div>
         </div>
+        {agentStationBusy || agentStationNotice ? (
+          <div className="designer-inspector-agent-notice" role="status" aria-live="polite">
+            {agentStationBusy ? t(locale, 'designer.agentStation.dispatching') : agentStationNotice}
+          </div>
+        ) : null}
         {consistencyGaps.length === 0 && completenessGaps.length === 0 ? (
           <div className="designer-inspector-clean">
             <AppIcon name="check-circle" aria-hidden="true" />
