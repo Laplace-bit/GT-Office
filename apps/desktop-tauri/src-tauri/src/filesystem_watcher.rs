@@ -12,6 +12,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
+use tokio_util::sync::CancellationToken;
 
 const WATCH_EVENT_DEBOUNCE_MS: u64 = 64;
 const WATCH_EVENT_KIND_ORDER: [&str; 5] = ["removed", "renamed", "created", "modified", "other"];
@@ -30,11 +31,68 @@ struct WorkspaceWatcher {
     settings: FilesystemWatcherSettings,
     #[allow(dead_code)]
     event_tx: Sender<WatchBatchMessage>,
+    cancel: CancellationToken,
+}
+
+#[derive(Default)]
+struct WorkspaceWatcherRegistryState {
+    watchers: HashMap<String, WorkspaceWatcher>,
+    pending: HashMap<String, PendingWorkspaceWatcher>,
+    next_generation: u64,
+}
+
+struct PendingWorkspaceWatcher {
+    generation: u64,
+    cancel: CancellationToken,
+}
+
+impl WorkspaceWatcherRegistryState {
+    fn reserve_pending(&mut self, workspace_id: &str, cancel: CancellationToken) -> Option<u64> {
+        if self.watchers.contains_key(workspace_id) || self.pending.contains_key(workspace_id) {
+            return None;
+        }
+        self.next_generation = self.next_generation.wrapping_add(1);
+        let generation = self.next_generation;
+        self.pending.insert(
+            workspace_id.to_string(),
+            PendingWorkspaceWatcher { generation, cancel },
+        );
+        Some(generation)
+    }
+
+    fn pending_is_current(&self, workspace_id: &str, generation: u64) -> bool {
+        self.pending
+            .get(workspace_id)
+            .is_some_and(|pending| pending.generation == generation)
+    }
+
+    fn take_pending_if_current(
+        &mut self,
+        workspace_id: &str,
+        generation: u64,
+    ) -> Option<PendingWorkspaceWatcher> {
+        if !self.pending_is_current(workspace_id, generation) {
+            return None;
+        }
+        self.pending.remove(workspace_id)
+    }
+
+    fn cancel_pending(&mut self, workspace_id: &str) {
+        if let Some(pending) = self.pending.remove(workspace_id) {
+            pending.cancel.cancel();
+        }
+    }
+
+    fn cancel_pending_if_current(&mut self, workspace_id: &str, generation: u64) {
+        if let Some(pending) = self.take_pending_if_current(workspace_id, generation) {
+            pending.cancel.cancel();
+        }
+    }
 }
 
 #[derive(Clone, Default)]
 pub struct WorkspaceWatcherRegistry {
-    watchers: Arc<Mutex<HashMap<String, WorkspaceWatcher>>>,
+    inner: Arc<Mutex<WorkspaceWatcherRegistryState>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,23 +112,51 @@ struct PendingWatchEvents {
     repository_cache_invalidation_required: bool,
 }
 
+impl PendingWatchEvents {
+    fn clear(&mut self) {
+        self.paths_by_kind.clear();
+        self.errors.clear();
+        self.git_refresh_required = false;
+        self.repository_cache_invalidation_required = false;
+    }
+}
+
 impl WorkspaceWatcherRegistry {
-    pub fn ensure_workspace<R: tauri::Runtime>(
+    pub fn ensure_workspace<R: tauri::Runtime, F: Fn() -> bool>(
         &self,
         app: &AppHandle<R>,
         workspace_id: &str,
         root: &Path,
         settings: FilesystemWatcherSettings,
+        is_current: F,
     ) -> Result<(), String> {
-        let canonical_root = root.canonicalize().map_err(|error| {
-            format!("FS_WATCHER_INIT_FAILED: unable to canonicalize workspace root: {error}")
-        })?;
+        if !is_current() {
+            return Ok(());
+        }
+        let canonical_root = match root.canonicalize() {
+            Ok(root) => root,
+            Err(_) if !is_current() => return Ok(()),
+            Err(error) => {
+                return Err(format!(
+                    "FS_WATCHER_INIT_FAILED: unable to canonicalize workspace root: {error}"
+                ));
+            }
+        };
 
-        let mut watchers = self
-            .watchers
-            .lock()
-            .map_err(|_| "FS_WATCHER_INIT_FAILED: watcher lock poisoned".to_string())?;
-        if watchers.contains_key(workspace_id) {
+        let cancel = CancellationToken::new();
+        let generation = {
+            let mut registry = self
+                .inner
+                .lock()
+                .map_err(|_| "FS_WATCHER_INIT_FAILED: watcher lock poisoned".to_string())?;
+            let Some(generation) = registry.reserve_pending(workspace_id, cancel.clone()) else {
+                return Ok(());
+            };
+            generation
+        };
+
+        if !is_current() {
+            self.cancel_pending_workspace(workspace_id, generation);
             return Ok(());
         }
 
@@ -80,57 +166,112 @@ impl WorkspaceWatcherRegistry {
             workspace_id.to_string(),
             canonical_root.clone(),
             settings.clone(),
+            cancel.clone(),
         );
         let event_tx_for_callback = event_tx.clone();
+        let cancel_for_callback = cancel.clone();
 
-        let mut watcher =
-            notify::recommended_watcher(move |result: Result<Event, notify::Error>| match result {
-                Ok(event) => {
-                    let _ = event_tx_for_callback.send(WatchBatchMessage::Event(event));
-                }
-                Err(error) => {
-                    let _ = event_tx_for_callback.send(WatchBatchMessage::Error(error.to_string()));
-                }
-            })
-            .map_err(|error| {
-                format!("FS_WATCHER_INIT_FAILED: unable to create watcher: {error}")
-            })?;
+        let watcher_result =
+            (|| {
+                let mut watcher =
+                    notify::recommended_watcher(move |result: Result<Event, notify::Error>| {
+                        if cancel_for_callback.is_cancelled() {
+                            return;
+                        }
+                        match result {
+                            Ok(event) => {
+                                let _ = event_tx_for_callback.send(WatchBatchMessage::Event(event));
+                            }
+                            Err(error) => {
+                                let _ = event_tx_for_callback
+                                    .send(WatchBatchMessage::Error(error.to_string()));
+                            }
+                        }
+                    })
+                    .map_err(|error| {
+                        format!("FS_WATCHER_INIT_FAILED: unable to create watcher: {error}")
+                    })?;
 
-        watcher
-            .configure(
-                Config::default().with_poll_interval(std::time::Duration::from_millis(
-                    settings.poll_interval_ms,
-                )),
-            )
-            .map_err(|error| {
-                format!("FS_WATCHER_INIT_FAILED: unable to configure watcher: {error}")
-            })?;
+                watcher
+                    .configure(Config::default().with_poll_interval(
+                        std::time::Duration::from_millis(settings.poll_interval_ms),
+                    ))
+                    .map_err(|error| {
+                        format!("FS_WATCHER_INIT_FAILED: unable to configure watcher: {error}")
+                    })?;
 
-        watcher
-            .watch(canonical_root.as_path(), RecursiveMode::Recursive)
-            .map_err(|error| {
-                format!("FS_WATCHER_INIT_FAILED: unable to watch workspace root: {error}")
-            })?;
+                watcher
+                    .watch(canonical_root.as_path(), RecursiveMode::Recursive)
+                    .map_err(|error| {
+                        format!("FS_WATCHER_INIT_FAILED: unable to watch workspace root: {error}")
+                    })?;
+                Ok::<_, String>(watcher)
+            })();
 
-        watchers.insert(
+        let watcher = match watcher_result {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                self.cancel_pending_workspace(workspace_id, generation);
+                return Err(error);
+            }
+        };
+
+        let mut registry = self
+            .inner
+            .lock()
+            .map_err(|_| "FS_WATCHER_INIT_FAILED: watcher lock poisoned".to_string())?;
+        if !registry.pending_is_current(workspace_id, generation) {
+            cancel.cancel();
+            return Ok(());
+        }
+        if cancel.is_cancelled() || !is_current() {
+            registry.cancel_pending_if_current(workspace_id, generation);
+            return Ok(());
+        }
+        let Some(_pending) = registry.take_pending_if_current(workspace_id, generation) else {
+            cancel.cancel();
+            return Ok(());
+        };
+        registry.watchers.insert(
             workspace_id_value,
             WorkspaceWatcher {
                 root: canonical_root,
                 watcher,
                 settings,
                 event_tx,
+                cancel,
             },
         );
         Ok(())
     }
 
     pub fn remove_workspace(&self, workspace_id: &str) -> Result<(), String> {
-        let mut watchers = self
-            .watchers
+        let mut registry = self
+            .inner
             .lock()
             .map_err(|_| "FS_WATCHER_CLOSE_FAILED: watcher lock poisoned".to_string())?;
-        watchers.remove(workspace_id);
+        registry.cancel_pending(workspace_id);
+        if let Some(watcher) = registry.watchers.remove(workspace_id) {
+            watcher.cancel.cancel();
+        }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn contains_workspace_for_test(&self, workspace_id: &str) -> bool {
+        self.inner
+            .lock()
+            .map(|registry| {
+                registry.watchers.contains_key(workspace_id)
+                    || registry.pending.contains_key(workspace_id)
+            })
+            .unwrap_or(true)
+    }
+
+    fn cancel_pending_workspace(&self, workspace_id: &str, generation: u64) {
+        if let Ok(mut registry) = self.inner.lock() {
+            registry.cancel_pending_if_current(workspace_id, generation);
+        }
     }
 }
 
@@ -139,11 +280,16 @@ fn spawn_watch_batcher<R: tauri::Runtime>(
     workspace_id: String,
     root: PathBuf,
     settings: FilesystemWatcherSettings,
+    cancel: CancellationToken,
 ) -> Sender<WatchBatchMessage> {
     let (tx, rx) = mpsc::channel::<WatchBatchMessage>();
     std::thread::spawn(move || {
         let mut pending = PendingWatchEvents::default();
         loop {
+            if cancel.is_cancelled() {
+                pending.clear();
+                return;
+            }
             match rx.recv() {
                 Ok(message) => {
                     accumulate_watch_batch_message(
@@ -153,13 +299,14 @@ fn spawn_watch_batcher<R: tauri::Runtime>(
                         &mut pending,
                     );
                 }
-                Err(_) => {
-                    flush_pending_watch_events(&app, workspace_id.as_str(), &mut pending);
-                    return;
-                }
+                Err(_) => return,
             }
 
             loop {
+                if cancel.is_cancelled() {
+                    pending.clear();
+                    return;
+                }
                 match rx.recv_timeout(Duration::from_millis(WATCH_EVENT_DEBOUNCE_MS)) {
                     Ok(message) => accumulate_watch_batch_message(
                         root.as_path(),
@@ -168,13 +315,15 @@ fn spawn_watch_batcher<R: tauri::Runtime>(
                         &mut pending,
                     ),
                     Err(RecvTimeoutError::Timeout) => {
-                        flush_pending_watch_events(&app, workspace_id.as_str(), &mut pending);
+                        flush_pending_watch_events(
+                            &app,
+                            workspace_id.as_str(),
+                            &mut pending,
+                            &cancel,
+                        );
                         break;
                     }
-                    Err(RecvTimeoutError::Disconnected) => {
-                        flush_pending_watch_events(&app, workspace_id.as_str(), &mut pending);
-                        return;
-                    }
+                    Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
         }
@@ -193,7 +342,7 @@ fn accumulate_watch_batch_message(
             if should_schedule_git_refresh(root, &event.paths, settings) {
                 pending.git_refresh_required = true;
             }
-            if should_invalidate_repository_cache(root, &event) {
+            if should_invalidate_repository_cache(root, &event, settings) {
                 pending.git_refresh_required = true;
                 pending.repository_cache_invalidation_required = true;
             }
@@ -216,7 +365,12 @@ fn flush_pending_watch_events<R: tauri::Runtime>(
     app: &AppHandle<R>,
     workspace_id: &str,
     pending: &mut PendingWatchEvents,
+    cancel: &CancellationToken,
 ) {
+    if cancel.is_cancelled() {
+        pending.clear();
+        return;
+    }
     if pending.paths_by_kind.is_empty()
         && pending.errors.is_empty()
         && !pending.git_refresh_required
@@ -225,7 +379,11 @@ fn flush_pending_watch_events<R: tauri::Runtime>(
         return;
     }
 
-    for error in pending.errors.drain(..) {
+    for error in std::mem::take(&mut pending.errors) {
+        if cancel.is_cancelled() {
+            pending.clear();
+            return;
+        }
         let _ = app.emit(
             "filesystem/watch_error",
             serde_json::json!({
@@ -236,6 +394,10 @@ fn flush_pending_watch_events<R: tauri::Runtime>(
     }
 
     for kind in WATCH_EVENT_KIND_ORDER {
+        if cancel.is_cancelled() {
+            pending.clear();
+            return;
+        }
         let Some(paths) = pending.paths_by_kind.remove(kind) else {
             continue;
         };
@@ -254,6 +416,10 @@ fn flush_pending_watch_events<R: tauri::Runtime>(
     }
 
     if pending.git_refresh_required {
+        if cancel.is_cancelled() {
+            pending.clear();
+            return;
+        }
         let state = app.state::<crate::app_state::AppState>();
         let workspace_id_value = WorkspaceId::new(workspace_id.to_string());
         if pending.repository_cache_invalidation_required {
@@ -363,17 +529,24 @@ fn should_schedule_git_refresh(
     paths.iter().any(|path| {
         normalize_path(root, path.as_path())
             .map(|relative| {
-                is_git_metadata_path_of_interest(&relative)
-                    || !should_ignore_relative_path(&relative, settings)
+                if is_git_metadata_path_of_interest(&relative) {
+                    !is_git_path_under_ignored_parent(&relative, settings)
+                } else {
+                    !should_ignore_relative_path(&relative, settings)
+                }
             })
             .unwrap_or(false)
     })
 }
 
-fn should_invalidate_repository_cache(root: &Path, event: &Event) -> bool {
+fn should_invalidate_repository_cache(
+    root: &Path,
+    event: &Event,
+    settings: &FilesystemWatcherSettings,
+) -> bool {
     if !matches!(
         event.kind,
-        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
     ) {
         return false;
     }
@@ -382,6 +555,30 @@ fn should_invalidate_repository_cache(root: &Path, event: &Event) -> bool {
         let Some(relative) = normalize_path(root, path.as_path()) else {
             return false;
         };
+        if is_git_path_under_ignored_parent(&relative, settings)
+            || (!relative
+                .split('/')
+                .any(|component| component.eq_ignore_ascii_case(".git"))
+                && should_ignore_relative_path(&relative, settings))
+        {
+            return false;
+        }
+        if relative == ".gitmodules" || relative.ends_with("/.gitmodules") {
+            return true;
+        }
+        let inside_git_dir = relative
+            .split('/')
+            .any(|component| component.eq_ignore_ascii_case(".git"));
+        // A removed repository marker may only surface as its already-gone parent
+        // directory, so folder removals conservatively invalidate discovery.
+        if !inside_git_dir
+            && matches!(
+                event.kind,
+                EventKind::Remove(notify::event::RemoveKind::Folder)
+            )
+        {
+            return true;
+        }
         if relative == ".git" || relative.ends_with("/.git") {
             return true;
         }
@@ -390,8 +587,25 @@ fn should_invalidate_repository_cache(root: &Path, event: &Event) -> bool {
             return true;
         }
 
-        path.join(".git").exists()
+        matches!(
+            event.kind,
+            EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_))
+        ) && path.join(".git").exists()
     })
+}
+
+fn is_git_path_under_ignored_parent(relative: &str, settings: &FilesystemWatcherSettings) -> bool {
+    let components = relative.split('/').collect::<Vec<_>>();
+    let Some(git_index) = components
+        .iter()
+        .position(|component| component.eq_ignore_ascii_case(".git"))
+    else {
+        return false;
+    };
+    if git_index == 0 {
+        return false;
+    }
+    should_ignore_relative_path(&components[..git_index].join("/"), settings)
 }
 
 fn is_git_metadata_path_of_interest(path: &str) -> bool {
@@ -401,13 +615,17 @@ fn is_git_metadata_path_of_interest(path: &str) -> bool {
         if components[index] != ".git" {
             continue;
         }
-        let suffix = components[index + 1..].join("/");
-        if matches!(
-            suffix.as_str(),
-            "HEAD" | "index" | "packed-refs" | "MERGE_HEAD"
-        ) || suffix.starts_with("refs/heads/")
-            || suffix.starts_with("rebase-apply/")
-            || suffix.starts_with("rebase-merge/")
+        let suffix = &components[index + 1..];
+        let file_name = suffix.last().copied().unwrap_or_default();
+        let joined = suffix.join("/");
+        if matches!(file_name, "HEAD" | "index" | "packed-refs" | "MERGE_HEAD")
+            || joined == "refs"
+            || joined.starts_with("refs/")
+            || joined.contains("/refs/")
+            || joined.starts_with("rebase-apply/")
+            || joined.contains("/rebase-apply/")
+            || joined.starts_with("rebase-merge/")
+            || joined.contains("/rebase-merge/")
         {
             return true;
         }

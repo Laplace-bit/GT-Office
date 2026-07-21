@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { desktopApi, type SessionActivityItem, type GitUpdatedPayload } from '@shell/integration/desktop-api'
+import { countCompleteGitStatusFiles } from './git-status-counts'
 
 export interface SessionActivityState {
   activities: SessionActivityItem[]
@@ -36,16 +37,22 @@ export function useSessionActivity(workspaceId: string | null) {
         if (destroyed) return
         if (wsRef.current && payload.workspaceId !== wsRef.current) return
         if (!payload.available) return
+        if (
+          payload.state === 'invalid' ||
+          payload.repositories.some((repository) => repository.state === 'invalid')
+        ) return
         try {
+          const counts = countCompleteGitStatusFiles(payload.files, payload.truncated)
+          if (!counts) return
           await desktopApi.sessionChangefeedPush({
             workspaceId: payload.workspaceId,
             branch: payload.branch,
             dirty: payload.dirty,
             ahead: payload.ahead,
             behind: payload.behind,
-            stagedFiles: payload.files.filter((f) => f.status === 'staged').length,
-            unstagedFiles: payload.files.filter((f) => f.status === 'unstaged').length,
-            untrackedFiles: payload.files.filter((f) => f.status === 'untracked').length,
+            stagedFiles: counts.stagedFiles,
+            unstagedFiles: counts.unstagedFiles,
+            untrackedFiles: counts.untrackedFiles,
             revision: payload.revision,
           })
         } catch {

@@ -17,6 +17,7 @@ import { buildGraphCommits, describeUnknownError } from './helpers'
 import { useGitShared, useDiffCacheRefs } from './useGitShared'
 import {
   buildRepositoryScopeKey,
+  isSelectableRepository,
   resolveActiveRepositoryPath,
   restoreScopedRepositorySelection,
   shouldAdoptResolvedRepositorySelection,
@@ -126,7 +127,7 @@ export function useGitController({
     }
     const repository =
       repositories.find((item) => item.repositoryPath === activeRepositoryPath) ??
-      repositories[0] ??
+      repositories.find(isSelectableRepository) ??
       null
     if (!repository) {
       return summary
@@ -139,6 +140,12 @@ export function useGitController({
       behind: repository.behind,
       files: repository.files,
       repositories,
+      totalChanges: repository.totalChanges,
+      truncated: repository.truncated,
+      kind: repository.kind,
+      state: repository.state,
+      headOid: repository.headOid,
+      expectedHeadOid: repository.expectedHeadOid,
       revision: summary.revision,
     }
   }, [activeRepositoryPath, repositories, summary])
@@ -250,6 +257,23 @@ export function useGitController({
       return
     }
 
+    if (repositories.length > 0 && requestRepositoryPath === null) {
+      metaRefreshSeqRef.current += 1
+      historyFetchSeqRef.current += 1
+      setMetaLoading(false)
+      setHistoryLoading(false)
+      setLogEntries([])
+      setBranches([])
+      setStashEntries([])
+      setHasMoreHistory(false)
+      setHistorySkip(0)
+      setCheckoutTarget('')
+      setIsGitRepository(false)
+      setRepositoryNotice(null)
+      setErrorMessage(null)
+      return
+    }
+
     if (!isCurrentRepositoryScope(requestWorkspaceId, requestRepositoryPath)) {
       return
     }
@@ -339,6 +363,7 @@ export function useGitController({
     activeRepositoryPath,
     isCurrentRepositoryScope,
     locale,
+    repositories.length,
     setErrorMessage,
     setIsGitRepository,
     setRepositoryNotice,
@@ -440,6 +465,20 @@ export function useGitController({
   const refreshAll = useCallback(async () => {
     await Promise.all([onRefreshSummary(workspaceId, activeRepositoryPath), refreshMeta()])
   }, [activeRepositoryPath, onRefreshSummary, refreshMeta, workspaceId])
+
+  const initializeSubmodule = useCallback(
+    async (repositoryPath: string) => {
+      if (!workspaceId || !repositoryPath) {
+        return
+      }
+      await runAction(`submodule-update:${repositoryPath}`, async () => {
+        await desktopApi.gitSubmoduleUpdate(workspaceId, repositoryPath, true)
+        invalidateDiffCache()
+        await onRefreshSummary(workspaceId)
+      })
+    },
+    [invalidateDiffCache, onRefreshSummary, runAction, workspaceId],
+  )
 
   // Alias for sub-controllers that need full refresh
   const onRefreshAll = useCallback(() => refreshAll(), [refreshAll])
@@ -567,7 +606,10 @@ export function useGitController({
   useEffect(() => {
     metaRefreshSeqRef.current += 1
     historyFetchSeqRef.current += 1
-    setIsGitRepository(true)
+    setIsGitRepository(
+      repositories.length === 0 ||
+      (activeRepositoryPath !== null && activeSummary?.state === 'ready'),
+    )
     setRepositoryNotice(null)
     setMetaLoading(false)
     setHistoryLoading(false)
@@ -580,7 +622,7 @@ export function useGitController({
     }
     void refreshMeta()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRepositoryPath, workspaceId])
+  }, [activeRepositoryPath, activeSummary?.state, repositories.length, workspaceId])
 
   useEffect(() => {
     if (!merge.isMerging || !workspaceId) {
@@ -662,6 +704,7 @@ export function useGitController({
     graphCommits,
     refreshAll,
     refreshSummary: refreshSummaryOnly,
+    initializeSubmodule,
     invalidateDiffCache,
     stagePath: status.stagePath,
     unstagePath: status.unstagePath,

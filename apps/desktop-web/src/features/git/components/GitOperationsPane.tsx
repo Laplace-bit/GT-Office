@@ -64,6 +64,9 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
     bulkCount?: number
   } | null>(null)
   const rootFontSizePx = useRootFontSizePx()
+  const hasUnavailableRepository = controller.repositories.some(
+    (repository) => repository.state === 'invalid',
+  )
 
   // Convert repository notices and errors to toast notifications
   useEffect(() => {
@@ -218,12 +221,18 @@ export function GitOperationsPane({ controller }: GitOperationsPaneProps) {
           onOpenTags={openTags}
         />
 
-        {!isGitRepository && (
+        {!isGitRepository && controller.repositories.length === 0 && (
           <GitNoticeBanner
             locale={locale}
             message={t(locale, 'git.info.notRepository')}
           />
         )}
+        {hasUnavailableRepository ? (
+          <GitNoticeBanner
+            locale={locale}
+            message={t(locale, 'git.error.statusUnavailable')}
+          />
+        ) : null}
 
         {/* Scrollable content area */}
         <div className="git-pane__content">

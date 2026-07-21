@@ -122,7 +122,26 @@ pub(crate) fn build_git_status_payload(
         "ahead": summary.ahead,
         "behind": summary.behind,
         "files": summary.files,
-        "repositories": summary.repositories
+        "repositories": summary.repositories,
+        "totalChanges": summary.total_changes,
+        "truncated": summary.truncated,
+        "kind": summary.kind,
+        "state": summary.state,
+        "headOid": summary.head_oid,
+        "expectedHeadOid": summary.expected_head_oid
+    })
+}
+
+pub(crate) fn build_git_submodule_update_payload(
+    workspace_id: &WorkspaceId,
+    repository_path: &str,
+    recursive: bool,
+) -> Value {
+    json!({
+        "workspaceId": workspace_id.as_str(),
+        "repositoryPath": repository_path,
+        "recursive": recursive,
+        "initialized": true
     })
 }
 
@@ -276,6 +295,41 @@ pub async fn git_init(
 }
 
 #[tauri::command]
+pub async fn git_submodule_update(
+    workspace_id: String,
+    repository_path: String,
+    recursive: Option<bool>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Value, String> {
+    let workspace_id = WorkspaceId::new(workspace_id);
+    let workspace_id_owned = workspace_id.clone();
+    let repository_path_owned = repository_path.clone();
+    let recursive = recursive.unwrap_or(true);
+    run_git_blocking(&state, "GIT_SUBMODULE_UPDATE_FAILED", move |app_state| {
+        app_state
+            .git_service
+            .submodule_update(
+                &workspace_id_owned,
+                repository_path_owned.as_str(),
+                recursive,
+            )
+            .map_err(to_command_error)
+    })
+    .await?;
+    state.inner().git_status_coordinator.refresh_immediate(
+        &app,
+        state.inner(),
+        workspace_id.as_str(),
+    );
+    Ok(build_git_submodule_update_payload(
+        &workspace_id,
+        repository_path.as_str(),
+        recursive,
+    ))
+}
+
+#[tauri::command]
 pub async fn git_diff_file(
     workspace_id: String,
     repository_path: Option<String>,
@@ -334,6 +388,7 @@ pub async fn git_diff_file_structured(
         "workspaceId": workspace_id.as_str(),
         "path": diff.path,
         "isBinary": diff.is_binary,
+        "tooLarge": diff.too_large,
         "isNew": diff.is_new,
         "isDeleted": diff.is_deleted,
         "isRenamed": diff.is_renamed,
@@ -341,7 +396,9 @@ pub async fn git_diff_file_structured(
         "additions": diff.additions,
         "deletions": diff.deletions,
         "hunks": diff.hunks,
-        "patch": diff.patch,
+        // The renderer builds hunk operation patches from structured lines.
+        // Avoid sending and caching a second copy of the same diff text.
+        "patch": "",
     }))
 }
 
@@ -378,6 +435,7 @@ pub async fn git_diff_file_expansion(
             "workspaceId": workspace_id.as_str(),
             "path": full_diff.path,
             "isBinary": full_diff.is_binary,
+            "tooLarge": full_diff.too_large,
             "isNew": full_diff.is_new,
             "isDeleted": full_diff.is_deleted,
             "isRenamed": full_diff.is_renamed,
@@ -385,7 +443,7 @@ pub async fn git_diff_file_expansion(
             "additions": full_diff.additions,
             "deletions": full_diff.deletions,
             "hunks": full_diff.hunks,
-            "patch": full_diff.patch,
+            "patch": "",
         })
     } else {
         Value::Null
@@ -395,6 +453,7 @@ pub async fn git_diff_file_expansion(
         "path": expanded.path,
         "oldPath": expanded.old_path,
         "isBinary": expanded.is_binary,
+        "tooLarge": expanded.too_large,
         "oldExists": expanded.old_exists,
         "newExists": expanded.new_exists,
         "fullDiff": full_diff,

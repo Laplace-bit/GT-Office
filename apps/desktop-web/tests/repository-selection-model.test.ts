@@ -6,6 +6,7 @@ import {
   resolveActiveRepositoryPath,
   restoreScopedRepositorySelection,
   shouldAdoptResolvedRepositorySelection,
+  shouldShowRepositorySection,
 } from '../src/features/git/controllers/repository-selection-model.js'
 import type { GitRepositorySummary } from '../src/shell/integration/desktop-api.js'
 
@@ -20,6 +21,10 @@ function buildRepositorySummary(
     ahead: 0,
     behind: 0,
     files: [],
+    kind: repositoryPath.length === 0 ? 'root' : 'nested',
+    state: 'ready',
+    totalChanges: 0,
+    truncated: false,
     ...overrides,
   }
 }
@@ -112,5 +117,60 @@ test('repository scope keys distinguish auto resolution from explicit workspace 
   assert.notEqual(
     buildRepositoryScopeKey('ws-a', null),
     buildRepositoryScopeKey('ws-a', ''),
+  )
+})
+
+test('never restores or falls back to an unavailable submodule', () => {
+  const repositories = [
+    buildRepositorySummary(''),
+    buildRepositorySummary('modules/pending', {
+      kind: 'submodule',
+      state: 'uninitialized',
+    }),
+    buildRepositorySummary('modules/broken', {
+      kind: 'submodule',
+      state: 'invalid',
+    }),
+  ]
+
+  assert.equal(
+    resolveActiveRepositoryPath('modules/pending', repositories, 'modules/pending'),
+    '',
+  )
+  assert.equal(
+    resolveActiveRepositoryPath('modules/broken', repositories, 'modules/broken'),
+    '',
+  )
+})
+
+test('keeps a single unavailable repository visible without showing a normal single repo', () => {
+  assert.equal(shouldShowRepositorySection([buildRepositorySummary('')]), false)
+  assert.equal(
+    shouldShowRepositorySection([
+      buildRepositorySummary('modules/pending', {
+        kind: 'submodule',
+        state: 'uninitialized',
+      }),
+    ]),
+    true,
+  )
+  assert.equal(
+    shouldShowRepositorySection([
+      buildRepositorySummary('broken', { state: 'invalid' }),
+    ]),
+    true,
+  )
+  assert.equal(
+    resolveActiveRepositoryPath(
+      null,
+      [
+        buildRepositorySummary('modules/pending', {
+          kind: 'submodule',
+          state: 'uninitialized',
+        }),
+      ],
+      'modules/pending',
+    ),
+    null,
   )
 })

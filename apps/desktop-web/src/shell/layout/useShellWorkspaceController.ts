@@ -12,15 +12,27 @@ import { desktopApi, type GitStatusResponse } from '../integration/desktop-api'
 import {
   WORKSPACE_AUTO_OPEN_DEBOUNCE_MS,
   describeError,
+  forgetRememberedWorkspacePath,
   gitSummaryFromUpdatedPayload,
   loadRememberedWorkspacePath,
   normalizeFsPath,
   rememberWorkspacePath,
 } from './ShellRoot.shared'
 import {
+  areWorkspaceGitSummariesEquivalent,
   resolveCachedWorkspaceGitSummary,
+  shouldAdoptActiveWorkspace,
   shouldApplyWorkspaceGitSummaryRefreshResult,
+  shouldClearWorkspaceStateForCloseResult,
+  shouldClearWorkspaceStateForClosedEvent,
 } from './workspace-git-summary-model'
+
+const GIT_RECONCILE_INTERVAL_MS = 10_000
+const GIT_RECONCILE_MIN_GAP_MS = 1_000
+
+function isWorkspaceNotFoundError(error: unknown): boolean {
+  return describeError(error).toLowerCase().includes('workspace not found')
+}
 
 type ConnectionState =
   | { code: 'checking'; detail?: string }
@@ -42,6 +54,10 @@ export interface ShellWorkspaceController {
   connectionState: ConnectionState
   gitSummary: GitStatusResponse | null
   refreshGit: (workspaceId: string | null) => Promise<void>
+  adoptActiveWorkspace: (
+    workspaceId: string | null,
+    closedWorkspaceId?: string | null,
+  ) => Promise<void>
   openWorkspaceAtPath: (
     path: string,
     reason?: 'manual' | 'restore' | 'picker' | 'debounce',
@@ -64,7 +80,10 @@ export function useShellWorkspaceController(
   const [gitSummary, setGitSummary] = useState<GitStatusResponse | null>(null)
   const gitRefreshTimerRef = useRef<number | null>(null)
   const gitSummaryCacheRef = useRef<Map<string, GitStatusResponse | null>>(new Map())
+  const gitRefreshInFlightRef = useRef<Set<string>>(new Set())
+  const gitRefreshPendingRef = useRef<Set<string>>(new Set())
   const gitRefreshSeqRef = useRef(0)
+  const gitLastRefreshStartedAtRef = useRef(0)
   const workspaceOpenInFlightRef = useRef(false)
   const workspaceAutoOpenTimerRef = useRef<number | null>(null)
   const lastAutoOpenedPathRef = useRef<string | null>(loadRememberedWorkspacePath())
@@ -84,60 +103,161 @@ export function useShellWorkspaceController(
     activeWorkspaceRootRef.current = activeWorkspaceRoot
   }, [activeWorkspaceRoot])
 
-  const refreshGit = useMemo(
-    () => async (workspaceId: string | null) => {
+  const clearClosedWorkspaceState = useCallback((closedWorkspaceId: string) => {
+    const closedWorkspaceRoot = activeWorkspaceRootRef.current
+    gitRefreshSeqRef.current += 1
+    gitSummaryCacheRef.current.delete(closedWorkspaceId)
+    gitRefreshPendingRef.current.delete(closedWorkspaceId)
+    activeWorkspaceIdRef.current = null
+    activeWorkspaceNameRef.current = null
+    activeWorkspaceRootRef.current = null
+    lastAutoOpenedPathRef.current = null
+    gitLastRefreshStartedAtRef.current = 0
+    setActiveWorkspaceId(null)
+    setActiveWorkspaceName(null)
+    setActiveWorkspaceRoot(null)
+    setWorkspacePathInput('')
+    setGitSummary(null)
+    setConnectionState({ code: 'input-required' })
+    forgetRememberedWorkspacePath({
+      workspaceId: closedWorkspaceId,
+      path: closedWorkspaceRoot,
+    })
+  }, [])
+
+  const refreshGit = useMemo(() => {
+    const runRefresh = async (workspaceId: string | null): Promise<void> => {
       if (!workspaceId) {
+        gitRefreshSeqRef.current += 1
+        gitRefreshPendingRef.current.clear()
         setGitSummary(null)
         return
       }
 
+      if (gitRefreshInFlightRef.current.has(workspaceId)) {
+        gitRefreshPendingRef.current.add(workspaceId)
+        return
+      }
+      gitRefreshInFlightRef.current.add(workspaceId)
+
+      gitLastRefreshStartedAtRef.current = Date.now()
       const requestId = gitRefreshSeqRef.current + 1
       gitRefreshSeqRef.current = requestId
 
       try {
         const summary = await desktopApi.gitStatus(workspaceId)
+        const shouldApply =
+          summary.workspaceId === workspaceId &&
+          shouldApplyWorkspaceGitSummaryRefreshResult({
+            workspaceId,
+            activeWorkspaceId: activeWorkspaceIdRef.current,
+            requestId,
+            latestRequestId: gitRefreshSeqRef.current,
+          })
+        if (!shouldApply) {
+          return
+        }
+        const cachedSummary = gitSummaryCacheRef.current.get(workspaceId) ?? null
+        if (areWorkspaceGitSummariesEquivalent(cachedSummary, summary)) {
+          return
+        }
         gitSummaryCacheRef.current.set(workspaceId, summary)
-        if (
-          shouldApplyWorkspaceGitSummaryRefreshResult({
-            workspaceId,
-            activeWorkspaceId: activeWorkspaceIdRef.current,
-            requestId,
-            latestRequestId: gitRefreshSeqRef.current,
-          })
-        ) {
-          setGitSummary(summary)
-        }
+        setGitSummary(summary)
       } catch (error) {
-        gitSummaryCacheRef.current.set(workspaceId, null)
-        if (
-          shouldApplyWorkspaceGitSummaryRefreshResult({
-            workspaceId,
-            activeWorkspaceId: activeWorkspaceIdRef.current,
-            requestId,
-            latestRequestId: gitRefreshSeqRef.current,
-          })
-        ) {
-          setGitSummary(null)
+        const shouldApply = shouldApplyWorkspaceGitSummaryRefreshResult({
+          workspaceId,
+          activeWorkspaceId: activeWorkspaceIdRef.current,
+          requestId,
+          latestRequestId: gitRefreshSeqRef.current,
+        })
+        if (!shouldApply) {
+          return
         }
+        if (isWorkspaceNotFoundError(error)) {
+          clearClosedWorkspaceState(workspaceId)
+          return
+        }
+        gitSummaryCacheRef.current.set(workspaceId, null)
+        setGitSummary(null)
         if (isNotGitRepositoryError(error)) {
           return
         }
-        if (
-          shouldApplyWorkspaceGitSummaryRefreshResult({
-            workspaceId,
-            activeWorkspaceId: activeWorkspaceIdRef.current,
-            requestId,
-            latestRequestId: gitRefreshSeqRef.current,
-          })
-        ) {
-          setConnectionState({
-            code: 'git-read-failed',
-            detail: describeError(error),
-          })
+        setConnectionState({
+          code: 'git-read-failed',
+          detail: describeError(error),
+        })
+      } finally {
+        gitRefreshInFlightRef.current.delete(workspaceId)
+        const shouldRefreshAgain = gitRefreshPendingRef.current.delete(workspaceId)
+        if (shouldRefreshAgain && activeWorkspaceIdRef.current === workspaceId) {
+          void runRefresh(workspaceId)
         }
       }
+    }
+
+    return runRefresh
+  }, [clearClosedWorkspaceState])
+
+  const adoptActiveWorkspace = useCallback(
+    async (workspaceId: string | null, closedWorkspaceId: string | null = null) => {
+      if (!workspaceId) {
+        const currentActiveWorkspaceId = activeWorkspaceIdRef.current
+        if (
+          closedWorkspaceId &&
+          shouldClearWorkspaceStateForCloseResult({
+            closedWorkspaceId,
+            activeWorkspaceId: currentActiveWorkspaceId,
+            nextActiveWorkspaceId: workspaceId,
+          })
+        ) {
+          clearClosedWorkspaceState(closedWorkspaceId)
+        }
+        return
+      }
+      if (
+        !shouldAdoptActiveWorkspace({
+          requestedWorkspaceId: workspaceId,
+          activeWorkspaceId: activeWorkspaceIdRef.current,
+        })
+      ) {
+        return
+      }
+      activeWorkspaceIdRef.current = workspaceId
+      activeWorkspaceNameRef.current = workspaceId
+      activeWorkspaceRootRef.current = null
+      setActiveWorkspaceId(workspaceId)
+      setActiveWorkspaceName(workspaceId)
+      setActiveWorkspaceRoot(null)
+      setWorkspacePathInput('')
+      setGitSummary(resolveCachedWorkspaceGitSummary(gitSummaryCacheRef.current, workspaceId))
+
+      try {
+        const context = await desktopApi.workspaceGetContext(workspaceId)
+        if (activeWorkspaceIdRef.current !== workspaceId) {
+          return
+        }
+        activeWorkspaceRootRef.current = context.root
+        setActiveWorkspaceRoot(context.root)
+        setWorkspacePathInput(context.root)
+        rememberWorkspacePath({
+          path: context.root,
+          workspaceId,
+          name: workspaceId,
+        })
+        lastAutoOpenedPathRef.current = context.root
+        setConnectionState({ code: 'bound', detail: context.root })
+      } catch (error) {
+        if (activeWorkspaceIdRef.current !== workspaceId) {
+          return
+        }
+        if (isWorkspaceNotFoundError(error)) {
+          clearClosedWorkspaceState(workspaceId)
+          return
+        }
+        setActiveWorkspaceRoot(null)
+      }
     },
-    [],
+    [clearClosedWorkspaceState],
   )
 
   const openWorkspaceAtPath = useCallback(
@@ -189,7 +309,6 @@ export function useShellWorkspaceController(
         })
         lastAutoOpenedPathRef.current = opened.root
         setConnectionState({ code: 'bound', detail: opened.root })
-        void refreshGit(opened.workspaceId)
       } catch (error) {
         setConnectionState({
           code: 'open-failed',
@@ -199,7 +318,7 @@ export function useShellWorkspaceController(
         workspaceOpenInFlightRef.current = false
       }
     },
-    [refreshGit],
+    [],
   )
 
   const bootstrapRanRef = useRef(false)
@@ -262,6 +381,7 @@ export function useShellWorkspaceController(
       if (remembered) {
         setWorkspacePathInput(remembered)
         await openWorkspaceAtPath(remembered, 'restore')
+        void refreshGit(activeWorkspaceIdRef.current)
         return
       }
       setConnectionState({ code: 'input-required' })
@@ -345,36 +465,78 @@ export function useShellWorkspaceController(
     }
     let disposed = false
     const cleanups: (() => void)[] = []
-
+    const reconcileActiveWorkspaceGit = () => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+      const workspaceId = activeWorkspaceIdRef.current
+      if (!workspaceId) {
+        return
+      }
+      if (Date.now() - gitLastRefreshStartedAtRef.current < GIT_RECONCILE_MIN_GAP_MS) {
+        return
+      }
+      void refreshGit(workspaceId)
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        reconcileActiveWorkspaceGit()
+      }
+    }
+    window.addEventListener('focus', reconcileActiveWorkspaceGit)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    gitRefreshTimerRef.current = window.setInterval(
+      reconcileActiveWorkspaceGit,
+      GIT_RECONCILE_INTERVAL_MS,
+    )
     void desktopApi
       .subscribeWorkspaceEvents({
-        onActiveChanged: (payload) => {
-          if (disposed) return
-          if (!payload.workspaceId) return
-          if (lockedWorkspaceId) {
+        onUpdated: (payload) => {
+          if (disposed || payload.kind !== 'closed') {
             return
           }
-          if (payload.workspaceId === activeWorkspaceIdRef.current) return
-          activeWorkspaceIdRef.current = payload.workspaceId
-          setActiveWorkspaceId(payload.workspaceId)
-          setActiveWorkspaceName(payload.workspaceId)
-          setGitSummary(
-            resolveCachedWorkspaceGitSummary(gitSummaryCacheRef.current, payload.workspaceId),
-          )
-          void desktopApi
-            .workspaceGetContext(payload.workspaceId)
-            .then((context) => {
-              if (disposed) return
-              setActiveWorkspaceRoot(context.root)
-              setWorkspacePathInput(context.root)
-              rememberWorkspacePath({
-                path: context.root,
-                workspaceId: payload.workspaceId,
-                name: payload.workspaceId,
-              })
+          gitSummaryCacheRef.current.delete(payload.workspaceId)
+          if (
+            shouldClearWorkspaceStateForClosedEvent({
+              closedWorkspaceId: payload.workspaceId,
+              activeWorkspaceId: activeWorkspaceIdRef.current,
+              lockedWorkspaceId,
             })
-            .catch(() => {})
-          void refreshGit(payload.workspaceId)
+          ) {
+            clearClosedWorkspaceState(payload.workspaceId)
+          }
+        },
+        onActiveChanged: (payload) => {
+          if (disposed) return
+          if (lockedWorkspaceId) {
+            const lockedWorkspaceWasClosed =
+              payload.workspaceId === null && payload.previousWorkspaceId === lockedWorkspaceId
+            if (!lockedWorkspaceWasClosed) {
+              return
+            }
+          }
+          if (!payload.workspaceId) {
+            const closedWorkspaceId =
+              payload.previousWorkspaceId ?? activeWorkspaceIdRef.current
+            if (!closedWorkspaceId) {
+              return
+            }
+            if (
+              shouldClearWorkspaceStateForClosedEvent({
+                closedWorkspaceId,
+                activeWorkspaceId: activeWorkspaceIdRef.current,
+                lockedWorkspaceId,
+              })
+            ) {
+              clearClosedWorkspaceState(closedWorkspaceId)
+            }
+            return
+          }
+          if (
+            payload.workspaceId === activeWorkspaceIdRef.current &&
+            activeWorkspaceRootRef.current
+          ) return
+          void adoptActiveWorkspace(payload.workspaceId)
         },
       })
       .then((unlisten) => {
@@ -394,14 +556,19 @@ export function useShellWorkspaceController(
         if (!currentActiveWorkspaceId || payload.workspaceId !== currentActiveWorkspaceId) {
           return
         }
+        gitRefreshSeqRef.current += 1
+        gitLastRefreshStartedAtRef.current = Date.now()
         if (!payload.available) {
           gitSummaryCacheRef.current.set(payload.workspaceId, null)
           setGitSummary(null)
           return
         }
         const summary = gitSummaryFromUpdatedPayload(payload)
+        const cachedSummary = gitSummaryCacheRef.current.get(payload.workspaceId) ?? null
         gitSummaryCacheRef.current.set(payload.workspaceId, summary)
-        setGitSummary(summary)
+        if (!areWorkspaceGitSummariesEquivalent(cachedSummary, summary)) {
+          setGitSummary(summary)
+        }
       })
       .then((unlisten) => {
         if (disposed) {
@@ -412,16 +579,18 @@ export function useShellWorkspaceController(
       })
     return () => {
       disposed = true
+      window.removeEventListener('focus', reconcileActiveWorkspaceGit)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       for (const fn of cleanups) {
         fn()
       }
       const timerId = gitRefreshTimerRef.current
       if (typeof timerId === 'number') {
-        window.clearTimeout(timerId)
+        window.clearInterval(timerId)
       }
       gitRefreshTimerRef.current = null
     }
-  }, [lockedWorkspaceId, refreshGit])
+  }, [adoptActiveWorkspace, clearClosedWorkspaceState, lockedWorkspaceId, refreshGit])
 
   return {
     workspacePathInput,
@@ -432,6 +601,7 @@ export function useShellWorkspaceController(
     connectionState,
     gitSummary,
     refreshGit,
+    adoptActiveWorkspace,
     openWorkspaceAtPath,
   }
 }

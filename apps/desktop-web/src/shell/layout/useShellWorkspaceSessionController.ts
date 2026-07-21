@@ -475,29 +475,19 @@ export function useShellWorkspaceSessionController({
         captureActiveWorkspaceTerminalDocument(workspaceId)
       }
       const cachedDoc = workspaceTerminalCacheRef.current[workspaceId]
+      await closeWorkspaceTab(workspaceId)
       if (cachedDoc) {
-        const sessionIds = Object.keys(cachedDoc.sessionStation)
-        const stationIds = new Set(Object.values(cachedDoc.sessionStation))
-        for (const sessionId of sessionIds) {
-          desktopApi.terminalKill(workspaceId, sessionId, 'TERM').catch(() => {})
-        }
-        stationIds.forEach((stationId) => {
+        const runtimeStationIds = new Set(Object.values(cachedDoc.sessionStation))
+        runtimeStationIds.forEach((stationId) => {
           desktopApi.agentRuntimeUnregister(workspaceId, stationId).catch(() => {})
         })
         delete workspaceTerminalCacheRef.current[workspaceId]
-      }
-      if (cachedDoc) {
-        const stationIds = Object.keys(cachedDoc.stationTerminals)
-        for (const stationId of stationIds) {
+        const outputStationIds = Object.keys(cachedDoc.stationTerminals)
+        for (const stationId of outputStationIds) {
           delete stationTerminalOutputCacheRef.current[stationId]
           delete stationTerminalOutputRevisionRef.current[stationId]
           delete stationTerminalRestoreStateRef.current[stationId]
         }
-      }
-      await closeWorkspaceTab(workspaceId)
-      const remainingTab = workspaceTabs.find((t) => t.workspaceId !== workspaceId)
-      if (remainingTab) {
-        await openWorkspaceAtPath(remainingTab.root, 'restore')
       }
       addNotification({
         type: 'success',
@@ -507,7 +497,7 @@ export function useShellWorkspaceSessionController({
           'workspaceTab.closeSuccess',
         ),
       })
-    } catch (error) {
+    } catch {
       addNotification({
         type: 'error',
         message: t(
@@ -520,7 +510,7 @@ export function useShellWorkspaceSessionController({
       setCloseSubmitting(false)
       setCloseConfirmState(null)
     }
-  }, [captureActiveWorkspaceTerminalDocument, closeConfirmState, closeWorkspaceTab, openWorkspaceAtPath, uiPreferences.locale, workspaceTabs])
+  }, [captureActiveWorkspaceTerminalDocument, closeConfirmState, closeWorkspaceTab, uiPreferences.locale])
 
   const dismissCloseConfirm = useCallback(() => {
     setCloseConfirmState(null)
@@ -638,6 +628,16 @@ export function useShellWorkspaceSessionController({
       departingWorkspaceId,
       targetWorkspaceId: activeWorkspaceId,
     }
+    const departingWorkspaceIsClosing =
+      closeSubmitting && closeConfirmState?.workspaceId === departingWorkspaceId
+    if (activeWorkspaceId && departingWorkspaceIsClosing) {
+      applyWorkspacePresentationSwitch({
+        activeWorkspaceId: null,
+        departingWorkspaceId,
+        clearVisibleState: true,
+      })
+      return
+    }
     if (!activeWorkspaceId) {
       applyWorkspacePresentationSwitch({
         activeWorkspaceId: null,
@@ -647,7 +647,14 @@ export function useShellWorkspaceSessionController({
       pendingWorkspacePresentationSwitchRef.current = null
       completeWorkspaceSwitch()
     }
-  }, [activeWorkspaceId, applyWorkspacePresentationSwitch, completeWorkspaceSwitch])
+  }, [
+    activeWorkspaceId,
+    applyWorkspacePresentationSwitch,
+    closeConfirmState?.workspaceId,
+    closeSubmitting,
+    completeWorkspaceSwitch,
+    resetFileState,
+  ])
 
   // Terminal document hydration effect
   useEffect(() => {

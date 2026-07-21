@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveVisibleWorkspaceTabs } from '../src/shell/state/workspace-tab-visibility.js'
+import {
+  resolveVisibleWorkspaceTabs,
+  resolveWorkspaceAfterClose,
+} from '../src/shell/state/workspace-tab-visibility.js'
 
 test('resolveVisibleWorkspaceTabs shows active workspace in main window when list is empty', () => {
   const result = resolveVisibleWorkspaceTabs({
@@ -59,4 +62,40 @@ test('resolveVisibleWorkspaceTabs filters to workspace window id in single-works
   assert.deepEqual(result, [
     { workspaceId: 'ws-2', name: 'Two', root: '/tmp/two', active: true },
   ])
+})
+
+test('resolveWorkspaceAfterClose prefers the right neighbor, then the left', () => {
+  const tabs = [
+    { workspaceId: 'ws-a' },
+    { workspaceId: 'ws-b' },
+    { workspaceId: 'ws-c' },
+  ]
+
+  assert.equal(
+    resolveWorkspaceAfterClose({
+      tabs,
+      closedWorkspaceId: 'ws-b',
+      activeWorkspaceId: 'ws-b',
+    }),
+    'ws-c',
+  )
+  assert.equal(
+    resolveWorkspaceAfterClose({
+      tabs,
+      closedWorkspaceId: 'ws-c',
+      activeWorkspaceId: 'ws-c',
+    }),
+    'ws-b',
+  )
+})
+
+test('resolveWorkspaceAfterClose keeps the active workspace when closing an inactive tab', () => {
+  assert.equal(
+    resolveWorkspaceAfterClose({
+      tabs: [{ workspaceId: 'ws-a' }, { workspaceId: 'ws-b' }],
+      closedWorkspaceId: 'ws-b',
+      activeWorkspaceId: 'ws-a',
+    }),
+    'ws-a',
+  )
 })

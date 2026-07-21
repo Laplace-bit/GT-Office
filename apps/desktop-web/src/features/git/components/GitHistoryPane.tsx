@@ -8,6 +8,15 @@ import {
 } from '@shell/integration/desktop-api'
 import type { GitWorkspaceController } from '../useGitWorkspaceController'
 import { buildRepositoryScopeKey } from '../controllers/repository-selection-model'
+import {
+  COMMIT_DETAIL_CACHE_SIZE,
+  EXPANDED_DIFF_CACHE_SIZE,
+} from '../controllers/types'
+import {
+  compactExpandedDiff,
+  getLruCacheValue,
+  setLruCacheValue,
+} from '../controllers/git-cache-model'
 import { DiffViewer } from '../DiffViewer'
 import { GitGraphView } from '../GitGraphView'
 import { MergeConflictPanel } from './MergeConflictPanel'
@@ -173,7 +182,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
     }
 
     const cacheKey = `${buildRepositoryScopeKey(workspaceId, currentRepositoryPath)}:${selectedPath}:${selectedDiffScope}:${selectedOldPath ?? ''}`
-    const cached = expandedDiffFileCacheRef.current.get(cacheKey)
+    const cached = getLruCacheValue(expandedDiffFileCacheRef.current, cacheKey)
     if (cached) {
       setExpandedDiffFile(cached)
       setExpandedDiffFileError(null)
@@ -214,8 +223,14 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
         ) {
           return
         }
-        expandedDiffFileCacheRef.current.set(cacheKey, response)
-        setExpandedDiffFile(response)
+        const cachedResponse = compactExpandedDiff(response)
+        setLruCacheValue(
+          expandedDiffFileCacheRef.current,
+          cacheKey,
+          cachedResponse,
+          EXPANDED_DIFF_CACHE_SIZE,
+        )
+        setExpandedDiffFile(cachedResponse)
       })
       .catch((error) => {
         if (
@@ -289,7 +304,7 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
       const requestCommit = hash
 
       const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestCommit}`
-      const cached = commitDetailCacheRef.current.get(cacheKey)
+      const cached = getLruCacheValue(commitDetailCacheRef.current, cacheKey)
       if (cached) {
         setSelectedCommitDetail(cached)
         setCommitDetailLoading(false)
@@ -308,7 +323,12 @@ export function GitHistoryPane({ controller, onOpenInEditor }: GitHistoryPanePro
           ) {
             return
           }
-          commitDetailCacheRef.current.set(cacheKey, detail)
+          setLruCacheValue(
+            commitDetailCacheRef.current,
+            cacheKey,
+            detail,
+            COMMIT_DETAIL_CACHE_SIZE,
+          )
           setSelectedCommitDetail(detail)
         })
         .catch((error) => {

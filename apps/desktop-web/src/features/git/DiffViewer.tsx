@@ -74,8 +74,8 @@ export interface DiffViewerProps {
 // ============================================
 
 /**
- * Construct a unified-diff patch string for a single hunk.
- * The result is suitable for passing to git apply --cached or git apply --reverse.
+ * Construct the selected hunk payload. The backend validates it against the
+ * current path-scoped diff and supplies authoritative file headers before apply.
  */
 function buildHunkPatch(hunk: GitDiffHunk): string {
   const lines = hunk.lines.map((line) => {
@@ -440,6 +440,9 @@ export const DiffViewer = memo(function DiffViewer({
   )
   const activeDiff = fullFileExpanded ? fullFile?.fullDiff ?? null : diff
   const activePath = activeDiff?.path ?? path
+  const activeTooLarge = fullFileExpanded
+    ? Boolean(fullFile?.tooLarge || fullFile?.fullDiff?.tooLarge)
+    : Boolean(diff?.tooLarge)
   const loadingLabel = fullFileExpanded ? t(locale, 'git.diff.expand.loading') : t(locale, 'git.diff.loading')
 
   // Render binary file message
@@ -492,6 +495,32 @@ export const DiffViewer = memo(function DiffViewer({
         <div className="diff-viewer__empty">
           <AppIcon name="info" className="diff-viewer__empty-icon" />
           <p>{fullFileError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (activeTooLarge) {
+    return (
+      <div className="diff-viewer">
+        <header className="diff-viewer__header">
+          <div className="diff-viewer__path">
+            <AppIcon name="file-text" className="diff-viewer__path-icon" />
+            <span className="diff-viewer__path-text">{activePath ?? t(locale, 'git.diff.none')}</span>
+          </div>
+        </header>
+        <div className="diff-viewer__empty">
+          <AppIcon name="info" className="diff-viewer__empty-icon" />
+          <p>{t(locale, 'git.diff.tooLarge')}</p>
+          {!openInEditorDisabled && (
+            <button
+              type="button"
+              className="diff-viewer__mode-chip diff-viewer__mode-chip--action"
+              onClick={onOpenInEditor}
+            >
+              <span>{t(locale, 'git.diff.openInEditor')}</span>
+            </button>
+          )}
         </div>
       </div>
     )

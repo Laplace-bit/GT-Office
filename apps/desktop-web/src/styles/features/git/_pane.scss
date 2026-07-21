@@ -880,14 +880,14 @@
   justify-content: space-between;
   width: 100%;
   min-height: #{rem(36)};
-  padding: #{rem(6)} #{rem(12)};
+  padding: 0;
   border: none;
   border-bottom: var(--vb-border-width) solid color-mix(in srgb, var(--vb-border) 40%, transparent);
   border-radius: 0;
   background: transparent;
   color: var(--vb-text);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition: background-color 120ms var(--vb-ease-out);
 }
 
@@ -905,18 +905,57 @@
   background: color-mix(in srgb, var(--vb-accent) 12%, var(--vb-surface));
 }
 
+.git-repo-row--unavailable {
+  color: var(--vb-text-muted);
+}
+
+.git-repo-row--unavailable .git-repo-row__name {
+  color: var(--vb-text-muted);
+}
+
+.git-repo-row__select {
+  display: flex;
+  align-items: center;
+  gap: #{rem(8)};
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: #{rem(36)};
+  padding: #{rem(6)} #{rem(12)};
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git-repo-row__select:disabled {
+  cursor: default;
+}
+
+.git-repo-row__select:focus-visible {
+  outline: #{rem(2)} solid var(--vb-accent);
+  outline-offset: #{rem(-2)};
+}
+
+.git-repo-row > .git-icon-btn {
+  flex: 0 0 auto;
+  margin-right: #{rem(6)};
+}
+
 .git-repo-row__main {
   display: flex;
   align-items: center;
   gap: #{rem(8)};
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .git-repo-row__title {
   display: flex;
   align-items: center;
   gap: #{rem(8)};
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .git-repo-row__icon {
@@ -938,9 +977,31 @@
 
 
 
+.git-repo-row__meta {
+  display: flex;
+  align-items: center;
+  gap: #{rem(5)};
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.git-repo-row__kind,
 .git-repo-row__branch {
   font-size: var(--vb-git-font-2xs);
   color: var(--vb-text-subtle);
+  white-space: nowrap;
+}
+
+.git-repo-row__kind {
+  padding: #{rem(1)} #{rem(4)};
+  border-radius: var(--vb-radius-sm);
+  background: color-mix(in srgb, var(--vb-chip) 82%, transparent);
+}
+
+.git-repo-row__branch {
+  max-width: #{rem(88)};
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .git-repo-row__branch-name {
@@ -954,8 +1015,14 @@
 }
 
 .git-repo-row__count {
+  flex: 0 0 auto;
+  min-width: #{rem(20)};
+  padding: #{rem(1)} #{rem(5)};
+  border-radius: var(--vb-radius-pill);
   background: color-mix(in srgb, var(--vb-chip) 82%, transparent);
   color: var(--vb-text-subtle);
+  font-size: var(--vb-git-font-2xs);
+  text-align: center;
 }
 
 .git-repo-row__count--staged {
@@ -966,6 +1033,13 @@
 .git-repo-row__count--unstaged {
   color: var(--vb-warning);
   background: color-mix(in srgb, var(--vb-warning) 14%, transparent);
+}
+
+.git-files-truncated-note {
+  margin: 0 0 var(--vb-space-xs);
+  color: var(--vb-text-muted);
+  font-size: var(--vb-git-font-xs);
+  line-height: 1.4;
 }
 
 /* === File List (Virtual) === */

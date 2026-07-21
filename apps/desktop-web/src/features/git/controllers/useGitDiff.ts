@@ -8,6 +8,11 @@ import type { GitDiffScope } from './types'
 import { DIFF_CACHE_SIZE, DIFF_PRELOAD_DELAY_MS } from './types'
 import type { DiffCacheRefs } from './useGitShared'
 import { buildRepositoryScopeKey } from './repository-selection-model'
+import {
+  compactStructuredDiff,
+  getLruCacheValue,
+  setLruCacheValue,
+} from './git-cache-model'
 
 interface UseGitDiffInput {
   workspaceId: string | null
@@ -120,12 +125,9 @@ export function useGitDiff({
 
     // Check cache first for instant loading
     const cacheKey = `${buildRepositoryScopeKey(requestWorkspaceId, requestRepositoryPath)}:${requestPath}:${requestScope}:${requestFingerprint}`
-    const cached = diffCacheRef.current.get(cacheKey)
+    const cached = getLruCacheValue(diffCacheRef.current, cacheKey)
     if (cached) {
       diffSeqRef.current += 1
-      // Move to end of map for LRU behavior
-      diffCacheRef.current.delete(cacheKey)
-      diffCacheRef.current.set(cacheKey, cached)
       setStructuredDiff(cached)
       setShowDiffView(true)
       setDiffLoading(false)
@@ -159,16 +161,10 @@ export function useGitDiff({
           return
         }
 
-        // Cache the result (LRU with max items)
-        const cache = diffCacheRef.current
-        if (cache.size >= DIFF_CACHE_SIZE) {
-          // Remove oldest entry (first key)
-          const firstKey = cache.keys().next().value
-          if (firstKey) cache.delete(firstKey)
-        }
-        cache.set(cacheKey, response)
+        const cachedResponse = compactStructuredDiff(response)
+        setLruCacheValue(diffCacheRef.current, cacheKey, cachedResponse, DIFF_CACHE_SIZE)
 
-        setStructuredDiff(response)
+        setStructuredDiff(cachedResponse)
         setShowDiffView(true)
       })
       .catch(() => {
@@ -254,12 +250,12 @@ export function useGitDiff({
             ) {
               return
             }
-            const cache = diffCacheRef.current
-            if (cache.size >= DIFF_CACHE_SIZE) {
-              const firstKey = cache.keys().next().value
-              if (firstKey) cache.delete(firstKey)
-            }
-            cache.set(cacheKey, response)
+            setLruCacheValue(
+              diffCacheRef.current,
+              cacheKey,
+              compactStructuredDiff(response),
+              DIFF_CACHE_SIZE,
+            )
           })
           .catch(() => {
             // Ignore preload errors

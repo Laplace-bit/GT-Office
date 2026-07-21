@@ -31,10 +31,15 @@ pub(crate) fn build_workspace_open_response(workspace_id: &str, name: &str, root
     })
 }
 
-pub(crate) fn build_workspace_close_response(workspace_id: &str, closed: bool) -> Value {
+pub(crate) fn build_workspace_close_response(
+    workspace_id: &str,
+    closed: bool,
+    active_workspace_id: Option<&str>,
+) -> Value {
     json!({
         "workspaceId": workspace_id,
         "closed": closed,
+        "activeWorkspaceId": active_workspace_id,
     })
 }
 
@@ -241,6 +246,84 @@ fn emit_active_changed<R: tauri::Runtime>(
     .map_err(|err| format!("WORKSPACE_EVENT_EMIT_FAILED: {err}"))
 }
 
+pub(crate) fn activate_workspace_git_runtime<R: tauri::Runtime>(
+    state: &AppState,
+    app: &AppHandle<R>,
+    workspace_id: &WorkspaceId,
+) -> Result<(), String> {
+    if !state
+        .git_status_coordinator
+        .is_active(workspace_id.as_str())
+    {
+        state
+            .git_service
+            .invalidate_repository_cache(workspace_id)
+            .map_err(to_command_error)?;
+        state
+            .git_status_coordinator
+            .activate(workspace_id.as_str())?;
+    }
+    state
+        .git_status_coordinator
+        .refresh_immediate(app, state, workspace_id.as_str());
+    Ok(())
+}
+
+fn restore_workspace_git_runtime<R: tauri::Runtime>(
+    state: &AppState,
+    app: &AppHandle<R>,
+    workspace_id: &WorkspaceId,
+    workspace_root: &Path,
+) {
+    if let Err(error) = activate_workspace_git_runtime(state, app, workspace_id) {
+        tracing::warn!(workspace_id = %workspace_id, error = %error, "failed to reactivate git status after workspace close failure");
+        return;
+    }
+    let root = workspace_root.to_string_lossy();
+    if let Err(error) = state.ensure_workspace_watcher(app, workspace_id.as_str(), root.as_ref()) {
+        tracing::warn!(workspace_id = %workspace_id, error = %error, "failed to restore watcher after workspace close failure");
+    }
+}
+
+pub(crate) fn close_workspace_resources<R: tauri::Runtime>(
+    state: &AppState,
+    app: &AppHandle<R>,
+    workspace_id: &WorkspaceId,
+) -> Result<(std::path::PathBuf, bool), String> {
+    let workspace_root = state.workspace_root_path(workspace_id.as_str())?;
+    state
+        .git_service
+        .invalidate_repository_cache(workspace_id)
+        .map_err(to_command_error)?;
+    state
+        .git_status_coordinator
+        .deactivate(workspace_id.as_str())?;
+    if let Err(error) = state.remove_workspace_watcher(workspace_id.as_str()) {
+        restore_workspace_git_runtime(state, app, workspace_id, &workspace_root);
+        return Err(error);
+    }
+    let closed = match state.workspace_service.close(workspace_id) {
+        Ok(closed) => closed,
+        Err(error) => {
+            restore_workspace_git_runtime(state, app, workspace_id, &workspace_root);
+            return Err(to_command_error(error));
+        }
+    };
+    if closed {
+        if let Err(error) = state
+            .terminal_provider
+            .kill_workspace_sessions(workspace_id.as_str())
+        {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                error = %error,
+                "workspace closed but terminal cleanup failed"
+            );
+        }
+    }
+    Ok((workspace_root, closed))
+}
+
 #[tauri::command]
 pub fn workspace_list(state: State<'_, AppState>) -> Result<Value, String> {
     let workspaces = state.workspace_service.list().map_err(to_command_error)?;
@@ -269,18 +352,33 @@ pub fn workspace_open(
     window: Window,
 ) -> Result<Value, String> {
     let before_active = active_workspace_id(&state)?;
+    // Asset scope is the only mandatory platform setup. Validate it before
+    // mutating workspace state so a failure cannot leave a half-open workspace
+    // (or accidentally close an already-open one during rollback).
+    allow_workspace_asset_scope(&app, Path::new(&path))?;
     let workspace = state
         .workspace_service
         .open(Path::new(&path))
         .map_err(to_command_error)?;
 
-    if let Err(error) = allow_workspace_asset_scope(&app, Path::new(&workspace.root)) {
-        let _ = state.workspace_service.close(&workspace.workspace_id);
-        return Err(error);
+    if let Err(error) = activate_workspace_git_runtime(state.inner(), &app, &workspace.workspace_id)
+    {
+        tracing::warn!(
+            workspace_id = %workspace.workspace_id,
+            error = %error,
+            "workspace opened but git runtime activation failed"
+        );
     }
 
-    let after_active = active_workspace_id(&state)?;
-    state.bind_window_workspace(window.label(), workspace.workspace_id.as_str())?;
+    let after_active = Some(workspace.workspace_id.to_string());
+    if let Err(error) = state.bind_window_workspace(window.label(), workspace.workspace_id.as_str())
+    {
+        tracing::warn!(
+            workspace_id = %workspace.workspace_id,
+            error = %error,
+            "workspace opened but window binding update failed"
+        );
+    }
     let app_for_watcher = app.clone();
     let state_for_watcher = state.inner().clone();
     let watcher_workspace_id = workspace.workspace_id.to_string();
@@ -301,8 +399,21 @@ pub fn workspace_open(
             );
         }
     });
-    emit_workspace_updated(&app, workspace.workspace_id.as_str(), "opened")?;
-    emit_active_changed(&app, after_active.as_deref(), before_active.as_deref())?;
+    if let Err(error) = emit_workspace_updated(&app, workspace.workspace_id.as_str(), "opened") {
+        tracing::warn!(
+            workspace_id = %workspace.workspace_id,
+            error = %error,
+            "workspace opened but workspace update event failed"
+        );
+    }
+    if let Err(error) = emit_active_changed(&app, after_active.as_deref(), before_active.as_deref())
+    {
+        tracing::warn!(
+            workspace_id = %workspace.workspace_id,
+            error = %error,
+            "workspace opened but active workspace event failed"
+        );
+    }
     Ok(build_workspace_open_response(
         workspace.workspace_id.as_str(),
         &workspace.name,
@@ -313,39 +424,92 @@ pub fn workspace_open(
 #[tauri::command]
 pub fn workspace_close(
     workspace_id: String,
+    next_workspace_id: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
     window: Window,
 ) -> Result<Value, String> {
     let before_active = active_workspace_id(&state)?;
     let workspace_id = WorkspaceId::new(workspace_id);
-    let workspace_root = state.workspace_root_path(workspace_id.as_str())?;
-    let _ = state
-        .terminal_provider
-        .kill_workspace_sessions(workspace_id.as_str())
-        .map_err(to_command_error)?;
-    let closed = state
-        .workspace_service
-        .close(&workspace_id)
-        .map_err(to_command_error)?;
-    if closed {
-        let _ = state.remove_workspace_watcher(workspace_id.as_str());
-        let snapshot_path = workspace_root
-            .join(".gtoffice")
-            .join("session.snapshot.json");
-        let _ = std::fs::remove_file(&snapshot_path);
+    let (workspace_root, closed) = close_workspace_resources(state.inner(), &app, &workspace_id)?;
+    if !closed {
+        return Ok(build_workspace_close_response(
+            workspace_id.as_str(),
+            false,
+            before_active.as_deref(),
+        ));
     }
-    let after_active = active_workspace_id(&state)?;
+    let snapshot_path = workspace_root
+        .join(".gtoffice")
+        .join("session.snapshot.json");
+    let _ = std::fs::remove_file(&snapshot_path);
+    // Keep tab close predictable: the UI supplies the adjacent tab selected from
+    // its stable order. The service still has a deterministic fallback when it
+    // is absent or no longer exists.
+    if before_active.as_deref() == Some(workspace_id.as_str()) {
+        if let Some(next_workspace_id) = next_workspace_id.as_deref() {
+            let next_workspace_id = WorkspaceId::new(next_workspace_id);
+            if let Err(error) = state.workspace_service.switch_active(&next_workspace_id) {
+                tracing::warn!(
+                    closed_workspace_id = %workspace_id,
+                    requested_workspace_id = %next_workspace_id,
+                    error = %error,
+                    "workspace closed but requested adjacent workspace could not be activated"
+                );
+            }
+        }
+    }
+    let after_active = match active_workspace_id(&state) {
+        Ok(active) => active,
+        Err(error) => {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                error = %error,
+                "workspace closed but active workspace reconciliation failed"
+            );
+            None
+        }
+    };
     if let Some(active_workspace_id) = after_active.as_deref() {
-        state.bind_window_workspace(window.label(), active_workspace_id)?;
-    } else {
-        state.clear_window_workspace(window.label())?;
+        if let Err(error) = state.bind_window_workspace(window.label(), active_workspace_id) {
+            tracing::warn!(
+                workspace_id = %workspace_id,
+                active_workspace_id,
+                error = %error,
+                "workspace closed but window binding update failed"
+            );
+        }
+    } else if let Err(error) = state.clear_window_workspace(window.label()) {
+        tracing::warn!(
+            workspace_id = %workspace_id,
+            error = %error,
+            "workspace closed but window binding cleanup failed"
+        );
     }
-    emit_workspace_updated(&app, workspace_id.as_str(), "closed")?;
-    emit_active_changed(&app, after_active.as_deref(), before_active.as_deref())?;
+    if let Err(error) = emit_workspace_updated(&app, workspace_id.as_str(), "closed") {
+        tracing::warn!(
+            workspace_id = %workspace_id,
+            error = %error,
+            "workspace closed but workspace update event failed"
+        );
+    }
+    if let Err(error) = emit_active_changed(&app, after_active.as_deref(), before_active.as_deref())
+    {
+        tracing::warn!(
+            workspace_id = %workspace_id,
+            error = %error,
+            "workspace closed but active workspace event failed"
+        );
+    }
+    if let Some(active_workspace_id) = after_active.as_deref() {
+        state
+            .git_status_coordinator
+            .refresh_immediate(&app, state.inner(), active_workspace_id);
+    }
     Ok(build_workspace_close_response(
         workspace_id.as_str(),
         closed,
+        after_active.as_deref(),
     ))
 }
 
@@ -379,8 +543,26 @@ pub fn workspace_switch_active(
         .switch_active(&workspace_id)
         .map_err(to_command_error)?;
     let after_active = Some(active_workspace_id.to_string());
-    state.bind_window_workspace(window.label(), active_workspace_id.as_str())?;
-    emit_active_changed(&app, after_active.as_deref(), before_active.as_deref())?;
+    if let Err(error) = state.bind_window_workspace(window.label(), active_workspace_id.as_str()) {
+        tracing::warn!(
+            active_workspace_id = %active_workspace_id,
+            error = %error,
+            "active workspace switched but window binding update failed"
+        );
+    }
+    if let Err(error) = emit_active_changed(&app, after_active.as_deref(), before_active.as_deref())
+    {
+        tracing::warn!(
+            active_workspace_id = %active_workspace_id,
+            error = %error,
+            "active workspace switched but active workspace event failed"
+        );
+    }
+    state.git_status_coordinator.refresh_immediate(
+        &app,
+        state.inner(),
+        active_workspace_id.as_str(),
+    );
     Ok(build_workspace_switch_response(
         active_workspace_id.as_str(),
     ))

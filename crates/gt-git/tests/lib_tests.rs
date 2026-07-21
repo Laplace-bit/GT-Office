@@ -1,5 +1,6 @@
-use gt_abstractions::ConflictStatus;
-use gt_abstractions::WorkspaceService;
+use gt_abstractions::{
+    ConflictStatus, GitRepositoryKind, GitRepositoryState, GitStatusEntryKind, WorkspaceService,
+};
 use gt_git::GitService;
 use gt_workspace::InMemoryWorkspaceService;
 use std::{
@@ -105,6 +106,225 @@ fn status_reports_modified_file() {
 }
 
 #[test]
+fn status_ignores_invalid_nested_git_marker_without_hiding_root() {
+    let repo = TempRepo::create();
+    fs::write(repo.path.join("README.md"), "hello\n").expect("write initial");
+    run_git(&repo.path, &["add", "README.md"]);
+    run_git(&repo.path, &["commit", "-m", "init", "--no-gpg-sign"]);
+    fs::create_dir_all(repo.path.join("broken")).expect("create broken nested directory");
+    fs::write(
+        repo.path.join("broken/.git"),
+        "this is not a valid gitdir marker\n",
+    )
+    .expect("write invalid git marker");
+
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&repo.path).expect("open workspace");
+    let git_service = GitService::new(service);
+
+    let status = git_service
+        .status(&workspace.workspace_id)
+        .expect("root status should survive invalid nested repo");
+    assert!(status
+        .repositories
+        .iter()
+        .any(|repo| repo.repository_path.is_empty()));
+    assert!(!status
+        .repositories
+        .iter()
+        .any(|repo| repo.repository_path == "broken"));
+}
+
+#[test]
+fn status_describes_initialized_submodule_and_marks_parent_gitlink() {
+    let child_source = TempRepo::create();
+    fs::write(child_source.path.join("child.txt"), "base\n").expect("write child base");
+    run_git(&child_source.path, &["add", "child.txt"]);
+    run_git(
+        &child_source.path,
+        &["commit", "-m", "child init", "--no-gpg-sign"],
+    );
+    let expected_oid = run_git_output(&child_source.path, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+
+    let workspace_repo = TempRepo::create();
+    fs::write(workspace_repo.path.join("root.txt"), "base\n").expect("write root base");
+    run_git(&workspace_repo.path, &["add", "root.txt"]);
+    run_git(
+        &workspace_repo.path,
+        &["commit", "-m", "root init", "--no-gpg-sign"],
+    );
+    run_git(
+        &workspace_repo.path,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            child_source.path.to_str().expect("utf-8 child source"),
+            "modules/child",
+        ],
+    );
+    run_git(
+        &workspace_repo.path,
+        &["commit", "-am", "add child", "--no-gpg-sign"],
+    );
+    fs::write(
+        workspace_repo.path.join("modules/child/child.txt"),
+        "changed\n",
+    )
+    .expect("modify child worktree");
+
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+    let status = service
+        .status(&workspace.workspace_id)
+        .expect("read status");
+
+    let child = status
+        .repositories
+        .iter()
+        .find(|repository| repository.repository_path == "modules/child")
+        .expect("submodule repository summary");
+    assert_eq!(child.kind, GitRepositoryKind::Submodule);
+    assert_eq!(child.state, GitRepositoryState::Ready);
+    assert_eq!(child.head_oid.as_deref(), Some(expected_oid.as_str()));
+    assert_eq!(
+        child.expected_head_oid.as_deref(),
+        Some(expected_oid.as_str())
+    );
+
+    assert!(!status
+        .files
+        .iter()
+        .any(|file| file.path == "modules/child" && file.repository_path.is_empty()));
+
+    let child_root = workspace_repo.path.join("modules/child");
+    run_git(
+        &child_root,
+        &["config", "user.email", "gtoffice@example.com"],
+    );
+    run_git(&child_root, &["config", "user.name", "GT Office Bot"]);
+    fs::write(child_root.join("child.txt"), "committed\n").expect("commit child pointer change");
+    run_git(&child_root, &["add", "child.txt"]);
+    run_git(
+        &child_root,
+        &["commit", "-m", "child pointer", "--no-gpg-sign"],
+    );
+    let changed_oid = run_git_output(&child_root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let selected_child = service
+        .status_repo(&workspace.workspace_id, Some("modules/child"))
+        .expect("refresh selected submodule status");
+    assert_eq!(
+        selected_child.head_oid.as_deref(),
+        Some(changed_oid.as_str())
+    );
+    let pointer_status = service
+        .status(&workspace.workspace_id)
+        .expect("read pointer status");
+    let gitlink = pointer_status
+        .files
+        .iter()
+        .find(|file| file.path == "modules/child" && file.repository_path.is_empty())
+        .expect("parent gitlink status after child HEAD change");
+    assert_eq!(gitlink.entry_kind, GitStatusEntryKind::Submodule);
+    assert_eq!(gitlink.head_oid.as_deref(), Some(changed_oid.as_str()));
+    assert_eq!(
+        gitlink.expected_head_oid.as_deref(),
+        Some(expected_oid.as_str())
+    );
+    assert!(!gitlink.content_signature.is_empty());
+}
+
+#[test]
+fn uninitialized_submodule_is_reported_and_can_be_initialized_explicitly() {
+    let child_source = TempRepo::create();
+    fs::write(child_source.path.join("child.txt"), "base\n").expect("write child base");
+    run_git(&child_source.path, &["add", "child.txt"]);
+    run_git(
+        &child_source.path,
+        &["commit", "-m", "child init", "--no-gpg-sign"],
+    );
+    let expected_oid = run_git_output(&child_source.path, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+
+    let workspace_repo = TempRepo::create();
+    fs::write(workspace_repo.path.join("root.txt"), "base\n").expect("write root base");
+    run_git(&workspace_repo.path, &["add", "root.txt"]);
+    run_git(
+        &workspace_repo.path,
+        &["commit", "-m", "root init", "--no-gpg-sign"],
+    );
+    run_git(
+        &workspace_repo.path,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            child_source.path.to_str().expect("utf-8 child source"),
+            "modules/child",
+        ],
+    );
+    run_git(
+        &workspace_repo.path,
+        &["commit", "-am", "add child", "--no-gpg-sign"],
+    );
+    run_git(
+        &workspace_repo.path,
+        &["submodule", "deinit", "-f", "--", "modules/child"],
+    );
+
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+    let status = service
+        .status(&workspace.workspace_id)
+        .expect("read status");
+    let child = status
+        .repositories
+        .iter()
+        .find(|repository| repository.repository_path == "modules/child")
+        .expect("uninitialized submodule summary");
+    assert_eq!(child.kind, GitRepositoryKind::Submodule);
+    assert_eq!(child.state, GitRepositoryState::Uninitialized);
+    assert_eq!(
+        child.expected_head_oid.as_deref(),
+        Some(expected_oid.as_str())
+    );
+    let error = service
+        .status_repo(&workspace.workspace_id, Some("modules/child"))
+        .expect_err("uninitialized submodule status should be explicit");
+    assert!(error.to_string().contains("GIT_SUBMODULE_UNINITIALIZED"));
+
+    service
+        .submodule_update(&workspace.workspace_id, "modules/child", false)
+        .expect("initialize submodule");
+    assert!(workspace_repo.path.join("modules/child/.git").exists());
+    service
+        .invalidate_repository_cache(&workspace.workspace_id)
+        .expect("invalidate after submodule update");
+    let ready = service
+        .status(&workspace.workspace_id)
+        .expect("read initialized status");
+    let child = ready
+        .repositories
+        .iter()
+        .find(|repository| repository.repository_path == "modules/child")
+        .expect("initialized submodule summary");
+    assert_eq!(child.state, GitRepositoryState::Ready);
+}
+
+#[test]
 fn commit_returns_head_sha() {
     let repo = TempRepo::create();
     let service = InMemoryWorkspaceService::new();
@@ -134,6 +354,43 @@ fn stage_rejects_parent_traversal() {
         .stage(&workspace.workspace_id, None, &[String::from("../x")])
         .expect_err("expected invalid path");
     assert!(error.to_string().contains("GIT_PATH_INVALID"));
+}
+
+#[cfg(unix)]
+#[test]
+fn stage_rejects_repository_symlink_outside_workspace() {
+    let workspace_repo = TempRepo::create();
+    let outside_repo = TempRepo::create();
+    fs::write(outside_repo.path.join("outside.txt"), "base\n").expect("write outside base");
+    run_git(&outside_repo.path, &["add", "outside.txt"]);
+    run_git(
+        &outside_repo.path,
+        &["commit", "-m", "outside init", "--no-gpg-sign"],
+    );
+    fs::write(outside_repo.path.join("outside.txt"), "changed\n").expect("modify outside file");
+    std::os::unix::fs::symlink(&outside_repo.path, workspace_repo.path.join("linked"))
+        .expect("create repository symlink");
+
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    let error = service
+        .stage(
+            &workspace.workspace_id,
+            Some("linked"),
+            &["linked/outside.txt".to_string()],
+        )
+        .expect_err("repository symlink must not escape workspace");
+
+    assert!(error.to_string().contains("GIT_REPOSITORY_PATH_INVALID"));
+    assert!(
+        run_git_output(&outside_repo.path, &["diff", "--cached", "--name-only"])
+            .trim()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1418,7 +1675,7 @@ fn resolve_conflict_accepts_theirs_and_stages_result() {
     assert!(status
         .files
         .iter()
-        .any(|file| file.path == "shared.txt" && file.status == "M"));
+        .any(|file| file.path == "shared.txt" && file.status == "M "));
     let merged = git.merge_continue(&workspace.workspace_id, None).unwrap();
     assert!(!merged.is_empty());
 }
@@ -2065,6 +2322,223 @@ fn init_repo_supports_explicit_nested_repository_path() {
 }
 
 #[test]
+fn init_repo_creates_explicit_nested_repository_inside_existing_parent_repository() {
+    let workspace_repo = TempRepo::create();
+    let nested_repo = workspace_repo.path.join("packages/app");
+    fs::create_dir_all(&nested_repo).expect("create nested target");
+
+    let service = InMemoryWorkspaceService::new();
+    let workspace = service.open(&workspace_repo.path).expect("open workspace");
+    let git = GitService::new(service);
+
+    let branch = git
+        .init_repo(&workspace.workspace_id, Some("packages/app"), Some("trunk"))
+        .expect("init explicit nested repo");
+
+    assert_eq!(branch, "trunk");
+    assert!(nested_repo.join(".git").exists());
+    let status = git
+        .status_repo(&workspace.workspace_id, Some("packages/app"))
+        .expect("read explicit nested repository status");
+    assert_eq!(status.primary_repository_path, "packages/app");
+    assert_eq!(status.branch, "trunk");
+}
+
+#[test]
+fn invalidate_repository_cache_succeeds_after_workspace_root_is_removed() {
+    let workspace_repo = TempRepo::create();
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+    service
+        .status(&workspace.workspace_id)
+        .expect("populate repository cache");
+
+    fs::remove_dir_all(&workspace_repo.path).expect("remove workspace root externally");
+
+    service
+        .invalidate_repository_cache(&workspace.workspace_id)
+        .expect("cache invalidation must not require the workspace root to exist");
+}
+
+#[test]
+fn init_repo_rejects_parent_traversal_before_creating_outside_repository() {
+    let workspace_root =
+        std::env::temp_dir().join(format!("gtoffice-git-init-scope-{}", Uuid::new_v4()));
+    fs::create_dir_all(&workspace_root).expect("create workspace root");
+    let outside_name = format!("outside-{}", Uuid::new_v4());
+    let outside_root = workspace_root.parent().unwrap().join(&outside_name);
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_root)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    let error = service
+        .init_repo(
+            &workspace.workspace_id,
+            Some(&format!("../{outside_name}")),
+            Some("main"),
+        )
+        .expect_err("parent traversal must be rejected");
+
+    assert!(error.to_string().contains("GIT_REPOSITORY_PATH_INVALID"));
+    assert!(!outside_root.join(".git").exists());
+    fs::remove_dir_all(workspace_root).expect("remove workspace root");
+}
+
+#[cfg(unix)]
+#[test]
+fn init_repo_rejects_symlink_target_outside_workspace() {
+    let workspace_root =
+        std::env::temp_dir().join(format!("gtoffice-git-init-link-scope-{}", Uuid::new_v4()));
+    let outside_root =
+        std::env::temp_dir().join(format!("gtoffice-git-init-link-outside-{}", Uuid::new_v4()));
+    fs::create_dir_all(&workspace_root).expect("create workspace root");
+    fs::create_dir_all(&outside_root).expect("create outside root");
+    std::os::unix::fs::symlink(&outside_root, workspace_root.join("linked"))
+        .expect("create repository target symlink");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_root)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    let error = service
+        .init_repo(&workspace.workspace_id, Some("linked"), Some("main"))
+        .expect_err("repository target symlink must be rejected");
+
+    assert!(error.to_string().contains("GIT_REPOSITORY_PATH_INVALID"));
+    assert!(!outside_root.join(".git").exists());
+    fs::remove_dir_all(workspace_root).expect("remove workspace root");
+    fs::remove_dir_all(outside_root).expect("remove outside root");
+}
+
+#[cfg(unix)]
+#[test]
+fn stage_rejects_symlink_component_inside_workspace_path() {
+    let workspace_repo = TempRepo::create();
+    let outside =
+        std::env::temp_dir().join(format!("gtoffice-git-path-outside-{}", Uuid::new_v4()));
+    fs::create_dir_all(&outside).expect("create outside directory");
+    fs::write(outside.join("outside.txt"), "outside\n").expect("write outside file");
+    std::os::unix::fs::symlink(&outside, workspace_repo.path.join("linked"))
+        .expect("create directory symlink");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    let error = service
+        .stage(
+            &workspace.workspace_id,
+            None,
+            &["linked/outside.txt".to_string()],
+        )
+        .expect_err("symlink path component must be rejected");
+
+    assert!(error.to_string().contains("GIT_PATH_INVALID"));
+    fs::remove_dir_all(outside).expect("remove outside directory");
+}
+
+#[cfg(unix)]
+#[test]
+fn stage_allows_final_symlink_without_following_its_target() {
+    let workspace_repo = TempRepo::create();
+    let outside = std::env::temp_dir().join(format!("gtoffice-git-link-target-{}", Uuid::new_v4()));
+    let secret = "external-secret-must-not-be-read";
+    fs::write(&outside, format!("{secret}\n")).expect("write outside target");
+    std::os::unix::fs::symlink(&outside, workspace_repo.path.join("linked.txt"))
+        .expect("create file symlink");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    let unstaged_diff = service
+        .diff_file(&workspace.workspace_id, None, "linked.txt", false)
+        .expect("diff untracked symlink");
+    assert!(unstaged_diff.contains("new file mode 120000"));
+    assert!(unstaged_diff.contains(outside.to_string_lossy().as_ref()));
+    assert!(!unstaged_diff.contains(secret));
+
+    let expansion = service
+        .diff_file_expansion(&workspace.workspace_id, None, "linked.txt", None, false)
+        .expect("expand untracked symlink diff");
+    let expanded_lines = expansion
+        .full_diff
+        .expect("symlink expansion should be textual")
+        .hunks
+        .into_iter()
+        .flat_map(|hunk| hunk.lines)
+        .map(|line| line.content)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(expanded_lines.contains(outside.to_string_lossy().as_ref()));
+    assert!(!expanded_lines.contains(secret));
+
+    service
+        .stage(&workspace.workspace_id, None, &["linked.txt".to_string()])
+        .expect("stage symlink itself");
+
+    assert!(
+        run_git_output(&workspace_repo.path, &["ls-files", "-s", "linked.txt"])
+            .starts_with("120000 ")
+    );
+    let staged_diff = service
+        .diff_file(&workspace.workspace_id, None, "linked.txt", true)
+        .expect("diff staged symlink");
+    assert!(staged_diff.contains("new file mode 120000"));
+    assert!(staged_diff.contains(outside.to_string_lossy().as_ref()));
+    assert!(!staged_diff.contains(secret));
+    service
+        .commit(&workspace.workspace_id, None, "track symlink")
+        .expect("commit symlink");
+
+    let second_outside =
+        std::env::temp_dir().join(format!("gtoffice-git-link-target-{}", Uuid::new_v4()));
+    let second_secret = "second-external-secret-must-not-be-read";
+    fs::write(&second_outside, format!("{second_secret}\n")).expect("write second outside target");
+    fs::remove_file(workspace_repo.path.join("linked.txt")).expect("remove first symlink");
+    std::os::unix::fs::symlink(&second_outside, workspace_repo.path.join("linked.txt"))
+        .expect("replace tracked symlink target");
+
+    let tracked_diff = service
+        .diff_file(&workspace.workspace_id, None, "linked.txt", false)
+        .expect("diff tracked symlink");
+    assert!(tracked_diff.contains(outside.to_string_lossy().as_ref()));
+    assert!(tracked_diff.contains(second_outside.to_string_lossy().as_ref()));
+    assert!(!tracked_diff.contains(secret));
+    assert!(!tracked_diff.contains(second_secret));
+    service
+        .stage(&workspace.workspace_id, None, &["linked.txt".to_string()])
+        .expect("stage tracked symlink update");
+    let tracked_expansion = service
+        .diff_file_expansion(&workspace.workspace_id, None, "linked.txt", None, true)
+        .expect("expand staged tracked symlink");
+    let tracked_lines = tracked_expansion
+        .full_diff
+        .expect("tracked symlink expansion should be textual")
+        .hunks
+        .into_iter()
+        .flat_map(|hunk| hunk.lines)
+        .map(|line| line.content)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(tracked_lines.contains(outside.to_string_lossy().as_ref()));
+    assert!(tracked_lines.contains(second_outside.to_string_lossy().as_ref()));
+    assert!(!tracked_lines.contains(secret));
+    assert!(!tracked_lines.contains(second_secret));
+
+    fs::remove_file(outside).expect("remove outside target");
+    fs::remove_file(second_outside).expect("remove second outside target");
+}
+
+#[test]
 fn status_returns_repo_invalid_for_non_git_workspace() {
     let path = std::env::temp_dir().join(format!("gtoffice-git-no-repo-status-{}", Uuid::new_v4()));
     fs::create_dir_all(&path).expect("create temp dir");
@@ -2177,8 +2651,9 @@ fn stage_hunk_applies_partial_patch() {
     // Modify the first line
     std::fs::write(repo.path.join("multi.txt"), "line1 changed\nline2\nline3\n").unwrap();
 
-    // Create a patch for the change (matching what `git diff` would produce)
-    let patch = "--- a/multi.txt\n+++ b/multi.txt\n@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
+    // Match the UI contract: it sends only the selected hunk. The backend
+    // validates it against the current diff and supplies authoritative headers.
+    let patch = "@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
 
     // Stage the hunk
     git.stage_hunk(&workspace.workspace_id, None, "multi.txt", patch)
@@ -2227,7 +2702,7 @@ fn unstage_hunk_reverses_staged_patch() {
     );
 
     // Unstage via patch
-    let patch = "--- a/multi.txt\n+++ b/multi.txt\n@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
+    let patch = "@@ -1,3 +1,3 @@\n-line1\n+line1 changed\n line2\n line3\n";
     git.unstage_hunk(&workspace.workspace_id, None, "multi.txt", patch)
         .unwrap();
 
@@ -2239,6 +2714,171 @@ fn unstage_hunk_reverses_staged_patch() {
         after_diff.trim().is_empty(),
         "nothing should be staged after unstage: {after_diff}"
     );
+}
+
+#[test]
+fn stage_hunk_works_for_submodule_with_gitfile_metadata() {
+    let child_source = TempRepo::create();
+    fs::write(child_source.path.join("multi.txt"), "one\ntwo\nthree\n").expect("write child base");
+    run_git(&child_source.path, &["add", "multi.txt"]);
+    run_git(
+        &child_source.path,
+        &["commit", "-m", "child init", "--no-gpg-sign"],
+    );
+    let workspace_repo = TempRepo::create();
+    fs::write(workspace_repo.path.join("root.txt"), "root\n").expect("write root");
+    run_git(&workspace_repo.path, &["add", "root.txt"]);
+    run_git(
+        &workspace_repo.path,
+        &["commit", "-m", "root init", "--no-gpg-sign"],
+    );
+    run_git(
+        &workspace_repo.path,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            child_source.path.to_str().expect("utf-8 child source"),
+            "modules/child",
+        ],
+    );
+    run_git(
+        &workspace_repo.path,
+        &["commit", "-am", "add child", "--no-gpg-sign"],
+    );
+    let child_root = workspace_repo.path.join("modules/child");
+    assert!(child_root.join(".git").is_file());
+    fs::write(child_root.join("multi.txt"), "one\nchanged\nthree\n").expect("modify child file");
+    let patch = run_git_output(&child_root, &["diff", "--", "multi.txt"]);
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_repo.path)
+        .expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    service
+        .stage_hunk(
+            &workspace.workspace_id,
+            Some("modules/child"),
+            "modules/child/multi.txt",
+            &patch,
+        )
+        .expect("stage child patch through stdin");
+
+    assert!(
+        run_git_output(&child_root, &["diff", "--cached", "--", "multi.txt"]).contains("+changed")
+    );
+}
+
+#[test]
+fn status_signature_changes_when_only_staged_hunk_changes() {
+    let repo = TempRepo::create();
+    fs::write(
+        repo.path.join("multi.txt"),
+        "one\n2\n3\n4\n5\n6\n7\n8\n9\nten\n",
+    )
+    .expect("write base file");
+    run_git(&repo.path, &["add", "multi.txt"]);
+    run_git(&repo.path, &["commit", "-m", "base", "--no-gpg-sign"]);
+    fs::write(
+        repo.path.join("multi.txt"),
+        "ONE\n2\n3\n4\n5\n6\n7\n8\n9\nTEN\n",
+    )
+    .expect("modify two hunks");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service.open(&repo.path).expect("open workspace");
+    let service = GitService::new(workspace_service);
+    let full_patch = run_git_output(&repo.path, &["diff", "--", "multi.txt"]);
+    let first_hunk = full_patch.find("@@ ").expect("first hunk");
+    let second_hunk = full_patch[first_hunk + 3..]
+        .find("\n@@ ")
+        .map(|offset| first_hunk + 3 + offset + 1)
+        .expect("second hunk");
+    let patch_header = &full_patch[..first_hunk];
+    let first_patch = &full_patch[..second_hunk];
+    let second_patch = format!("{patch_header}{}", &full_patch[second_hunk..]);
+
+    service
+        .stage_hunk(&workspace.workspace_id, None, "multi.txt", first_patch)
+        .expect("stage first hunk");
+    let first = service
+        .status_repo(&workspace.workspace_id, None)
+        .expect("status after first hunk");
+    let first = first
+        .files
+        .iter()
+        .find(|file| file.path == "multi.txt")
+        .expect("first status file");
+    assert_eq!(first.status, "MM");
+
+    run_git(&repo.path, &["reset", "HEAD", "--", "multi.txt"]);
+    service
+        .stage_hunk(&workspace.workspace_id, None, "multi.txt", &second_patch)
+        .expect("stage second hunk");
+    let second = service
+        .status_repo(&workspace.workspace_id, None)
+        .expect("status after second hunk");
+    let second = second
+        .files
+        .iter()
+        .find(|file| file.path == "multi.txt")
+        .expect("second status file");
+    assert_eq!(second.status, "MM");
+    assert_ne!(first.content_signature, second.content_signature);
+}
+
+#[test]
+fn status_signature_hashes_all_large_file_content() {
+    let repo = TempRepo::create();
+    let file_path = repo.path.join("large.bin");
+    let base = vec![b'a'; 128 * 1024];
+    fs::write(&file_path, &base).expect("write large base file");
+    run_git(&repo.path, &["add", "large.bin"]);
+    run_git(&repo.path, &["commit", "-m", "large base", "--no-gpg-sign"]);
+
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service.open(&repo.path).expect("open workspace");
+    let service = GitService::new(workspace_service);
+
+    let mut first_content = base.clone();
+    first_content[6_000] = b'b';
+    fs::write(&file_path, &first_content).expect("write first gap change");
+    let first_modified = fs::metadata(&file_path)
+        .expect("read first metadata")
+        .modified()
+        .expect("read first modified time");
+    let first = service
+        .status_repo(&workspace.workspace_id, None)
+        .expect("read first large-file status");
+    let first_signature = first
+        .files
+        .iter()
+        .find(|file| file.path == "large.bin")
+        .expect("large file should be dirty")
+        .content_signature
+        .clone();
+
+    let mut second_content = base;
+    second_content[6_001] = b'b';
+    fs::write(&file_path, &second_content).expect("write second gap change");
+    std::fs::File::options()
+        .write(true)
+        .open(&file_path)
+        .expect("open large file")
+        .set_modified(first_modified)
+        .expect("restore modified time");
+    let second = service
+        .status_repo(&workspace.workspace_id, None)
+        .expect("read second large-file status");
+    let second_signature = &second
+        .files
+        .iter()
+        .find(|file| file.path == "large.bin")
+        .expect("large file should remain dirty")
+        .content_signature;
+
+    assert_ne!(first_signature, *second_signature);
 }
 
 #[test]

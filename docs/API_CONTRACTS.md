@@ -56,7 +56,7 @@ Error example:
 |---------|-------------------|-------------------|
 | `workspace.list` | `{}` | `workspaces[]` |
 | `workspace.open` | `path` | `workspaceId, name, root` |
-| `workspace.close` | `workspaceId` | `closed` |
+| `workspace.close` | `workspaceId, nextWorkspaceId?` | `workspaceId, closed, activeWorkspaceId?` |
 | `workspace.restore_session` | `workspaceId` | `windows, tabs, terminals` |
 | `workspace.switch_active` | `workspaceId` | `activeWorkspaceId` |
 | `workspace.get_context` | `workspaceId` | `root, permissions, terminalDefaultCwd` |

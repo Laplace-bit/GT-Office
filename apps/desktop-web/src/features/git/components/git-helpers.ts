@@ -104,7 +104,8 @@ export function isUntrackedFile(file: GitStatusFile): boolean {
 
 export function isIndexNewFile(file: GitStatusFile): boolean {
   const indexStatus = file.status[0] ?? ''
-  return indexStatus === 'A'
+  const worktreeStatus = file.status[1] ?? ' '
+  return indexStatus === 'A' && worktreeStatus === ' '
 }
 
 export function resolveDiscardKind(file: GitStatusFile): GitDiscardKind {

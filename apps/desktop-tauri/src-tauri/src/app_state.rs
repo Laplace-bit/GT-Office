@@ -613,15 +613,39 @@ impl AppState {
         workspace_id: &str,
         root: &str,
     ) -> Result<(), String> {
+        let requested_root = match Path::new(root).canonicalize() {
+            Ok(root) => root,
+            Err(_) if !self.git_status_coordinator.is_active(workspace_id) => return Ok(()),
+            Err(error) => {
+                return Err(format!(
+                    "FS_WATCHER_INIT_FAILED: unable to canonicalize workspace root: {error}"
+                ));
+            }
+        };
+        let is_current = || {
+            self.git_status_coordinator.is_active(workspace_id)
+                && self
+                    .workspace_root_path(workspace_id)
+                    .map(|current_root| current_root == requested_root)
+                    .unwrap_or(false)
+        };
+        if !is_current() {
+            return Ok(());
+        }
+
         let runtime = self
             .settings_service
-            .load_runtime(Some(Path::new(root)))
+            .load_runtime(Some(requested_root.as_path()))
             .map_err(|error| error.to_string())?;
+        if !is_current() {
+            return Ok(());
+        }
         self.workspace_watchers.ensure_workspace(
             app,
             workspace_id,
-            Path::new(root),
+            requested_root.as_path(),
             runtime.filesystem.watcher,
+            is_current,
         )
     }
 
@@ -629,12 +653,22 @@ impl AppState {
         self.workspace_watchers.remove_workspace(workspace_id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn workspace_watcher_exists_for_test(&self, workspace_id: &str) -> bool {
+        self.workspace_watchers
+            .contains_workspace_for_test(workspace_id)
+    }
+
     pub fn reload_workspace_watcher<R: tauri::Runtime>(
         &self,
         app: &tauri::AppHandle<R>,
         workspace_id: &str,
     ) -> Result<(), String> {
-        let root = self.workspace_root_path(workspace_id)?;
+        let root = match self.workspace_root_path(workspace_id) {
+            Ok(root) => root,
+            Err(_error) if !self.git_status_coordinator.is_active(workspace_id) => return Ok(()),
+            Err(error) => return Err(error),
+        };
         let root_display = root.to_string_lossy().to_string();
         let _ = self.remove_workspace_watcher(workspace_id);
         self.ensure_workspace_watcher(app, workspace_id, &root_display)

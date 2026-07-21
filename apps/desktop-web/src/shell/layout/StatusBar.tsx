@@ -6,7 +6,7 @@ interface StatusBarProps {
   locale: Locale
   gitBranch: string
   gitBranches: GitBranchEntry[]
-  gitChangedFiles: number
+  gitChangedFiles: number | null
   onCheckoutBranch: (target: string) => Promise<void>
   checkoutLoading: boolean
   agentOnline: number
@@ -28,7 +28,7 @@ export function StatusBar({
   stationDockRef,
 }: StatusBarProps) {
   const branchLabel = gitBranch.trim() || '-'
-  const changedFilesCount = Math.max(0, gitChangedFiles)
+  const changedFilesCount = gitChangedFiles === null ? '-' : Math.max(0, gitChangedFiles)
   const hasCurrentBranch = gitBranches.some((branch) => branch.name === branchLabel)
   const branchDisabled = checkoutLoading || gitBranches.length === 0
 

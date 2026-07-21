@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopApi } from '../integration/desktop-api'
 import type { WorkspaceTabInfo } from './workspace-tab-model'
 import { normalizeWorkspaceTabsResponse } from './workspace-tab-normalization'
-import { resolveVisibleWorkspaceTabs } from './workspace-tab-visibility'
+import {
+  resolveVisibleWorkspaceTabs,
+  resolveWorkspaceAfterClose,
+} from './workspace-tab-visibility'
 
 function applyTabOrder(tabs: WorkspaceTabInfo[], order: string[]): WorkspaceTabInfo[] {
   if (order.length === 0) {
@@ -64,6 +67,7 @@ export function useWorkspaceTabController(
     connectionState,
     gitSummary,
     refreshGit,
+    adoptActiveWorkspace,
     openWorkspaceAtPath,
   } = useShellWorkspaceController(workspaceWindowId)
 
@@ -74,6 +78,23 @@ export function useWorkspaceTabController(
   const pendingWorkspaceSwitchIdRef = useRef<string | null>(null)
   const tabOrderRef = useRef<string[]>([])
   const workspaceListFetchSeqRef = useRef(0)
+  const visibleTabs = useMemo(
+    () =>
+      resolveVisibleWorkspaceTabs({
+        isSingleWorkspaceMode,
+        workspaceWindowId,
+        workspaceTabs,
+        activeWorkspaceId,
+        activeWorkspaceRoot,
+      }),
+    [
+      activeWorkspaceId,
+      activeWorkspaceRoot,
+      isSingleWorkspaceMode,
+      workspaceWindowId,
+      workspaceTabs,
+    ],
+  )
 
   const beginWorkspaceSwitchAnimation = useCallback((workspaceId?: string | null) => {
     if (workspaceId && pendingWorkspaceSwitchIdRef.current !== workspaceId) {
@@ -106,10 +127,7 @@ export function useWorkspaceTabController(
       beginWorkspaceSwitchAnimation(workspaceId)
       try {
         const response = await desktopApi.workspaceSwitchActive(workspaceId)
-        const tab = workspaceTabs.find((t) => t.workspaceId === response.activeWorkspaceId)
-        if (tab) {
-          void openWorkspaceAtPath(tab.root, 'restore')
-        }
+        await adoptActiveWorkspace(response.activeWorkspaceId)
       } catch (error) {
         logPerformanceDebug('workspace-tabs', 'failed to switch tab', {
           workspaceId,
@@ -118,7 +136,7 @@ export function useWorkspaceTabController(
         completeWorkspaceSwitch(workspaceId)
       }
     },
-    [activeWorkspaceId, beginWorkspaceSwitchAnimation, completeWorkspaceSwitch, workspaceTabs, openWorkspaceAtPath],
+    [activeWorkspaceId, adoptActiveWorkspace, beginWorkspaceSwitchAnimation, completeWorkspaceSwitch],
   )
 
   // --- Tab close ---
@@ -129,7 +147,13 @@ export function useWorkspaceTabController(
       // Trigger closing animation
       setClosingTabId(workspaceId)
       try {
-        await desktopApi.workspaceClose(workspaceId)
+        const nextWorkspaceId = resolveWorkspaceAfterClose({
+          tabs: visibleTabs,
+          closedWorkspaceId: workspaceId,
+          activeWorkspaceId,
+        })
+        const response = await desktopApi.workspaceClose(workspaceId, nextWorkspaceId)
+        await adoptActiveWorkspace(response.activeWorkspaceId, workspaceId)
         // Wait for the CSS closing animation to complete before removing the tab
         await new Promise<void>((resolve) => setTimeout(resolve, 220))
         setWorkspaceTabs((prev) => prev.filter((t) => t.workspaceId !== workspaceId))
@@ -138,11 +162,12 @@ export function useWorkspaceTabController(
           workspaceId,
           error: error instanceof Error ? error.message : String(error),
         })
+        throw error
       } finally {
         setClosingTabId(null)
       }
     },
-    [],
+    [activeWorkspaceId, adoptActiveWorkspace, visibleTabs],
   )
 
   // --- Tab detach (tear-off into new window) ---
@@ -263,24 +288,6 @@ export function useWorkspaceTabController(
     workspaceTabs,
     workspaceWindowId,
   ])
-
-  const visibleTabs = useMemo(
-    () =>
-      resolveVisibleWorkspaceTabs({
-        isSingleWorkspaceMode,
-        workspaceWindowId,
-        workspaceTabs,
-        activeWorkspaceId,
-        activeWorkspaceRoot,
-      }),
-    [
-      activeWorkspaceId,
-      activeWorkspaceRoot,
-      isSingleWorkspaceMode,
-      workspaceWindowId,
-      workspaceTabs,
-    ],
-  )
 
   return {
     workspacePathInput,

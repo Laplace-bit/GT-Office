@@ -203,7 +203,14 @@ impl WorkspaceService for InMemoryWorkspaceService {
 
         state.by_root.remove(&removed.root);
         if state.active_workspace_id.as_ref() == Some(workspace_id) {
-            state.active_workspace_id = state.by_id.keys().next().cloned();
+            // HashMap iteration is intentionally randomized. Keep the fallback
+            // stable; callers with a UI tab order can still select a preferred
+            // neighbor immediately after close.
+            state.active_workspace_id = state
+                .by_id
+                .keys()
+                .min_by(|left, right| left.as_str().cmp(right.as_str()))
+                .cloned();
         }
         Ok(true)
     }

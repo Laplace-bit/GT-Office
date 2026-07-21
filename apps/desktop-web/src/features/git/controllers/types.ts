@@ -84,6 +84,7 @@ export interface GitWorkspaceController {
   graphCommits: GitGraphCommitView[]
   refreshAll: () => Promise<void>
   refreshSummary: () => Promise<void>
+  initializeSubmodule: (repositoryPath: string) => Promise<void>
   invalidateDiffCache: () => void
   stagePath: (path: string) => Promise<void>
   unstagePath: (path: string) => Promise<void>
@@ -136,7 +137,9 @@ export const ROW_HEIGHT = 40
 export const OVERSCAN_ROWS = 25
 export const HISTORY_PAGE_SIZE = 80
 export const STASH_LIMIT = 30
-export const DIFF_CACHE_SIZE = 30
+export const DIFF_CACHE_SIZE = 8
+export const EXPANDED_DIFF_CACHE_SIZE = 5
+export const COMMIT_DETAIL_CACHE_SIZE = 20
 export const DIFF_PRELOAD_DELAY_MS = 140
 
 // ============================================

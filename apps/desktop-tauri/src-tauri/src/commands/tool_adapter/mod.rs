@@ -3,7 +3,7 @@ mod binding_target_validation;
 pub mod command_catalog;
 pub mod tool_profiles;
 
-use gt_abstractions::WorkspaceService;
+use gt_abstractions::{WorkspaceId, WorkspaceService};
 use gt_agent::{AgentRepository, AgentState, RoleStatus};
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use gt_task::{
@@ -34,7 +34,9 @@ use crate::{
         ExternalTerminalKey,
     },
     channel_sinks,
-    commands::task_center::write_terminal_with_submit,
+    commands::{
+        task_center::write_terminal_with_submit, workspace::activate_workspace_git_runtime,
+    },
     connectors::{feishu, telegram, wechat},
     process_utils::configure_tokio_command,
 };
@@ -511,6 +513,22 @@ fn ensure_legacy_wechat_access_policy_initialized(
     Ok(())
 }
 
+fn activate_restored_workspace(
+    app: &AppHandle,
+    state: &AppState,
+    workspace_id: &str,
+    workspace_root: &str,
+) {
+    let workspace_id_value = WorkspaceId::new(workspace_id.to_string());
+    if let Err(error) = activate_workspace_git_runtime(state, app, &workspace_id_value) {
+        warn!(workspace_id, error = %error, "failed to activate git status for restored workspace");
+        return;
+    }
+    if let Err(error) = state.ensure_workspace_watcher(app, workspace_id, workspace_root) {
+        warn!(workspace_id, error = %error, "failed to initialize watcher for restored workspace");
+    }
+}
+
 pub fn restore_persisted_channel_state(app: &AppHandle, state: &AppState) -> Result<(), String> {
     let mut state_file = read_channel_state_file(app)?;
     let uninitialized_wechat_accounts: HashSet<String> =
@@ -540,6 +558,12 @@ pub fn restore_persisted_channel_state(app: &AppHandle, state: &AppState) -> Res
                 .filter(|value| !value.is_empty())
             {
                 if let Ok(summary) = state.workspace_service.open(Path::new(root)) {
+                    activate_restored_workspace(
+                        app,
+                        state,
+                        summary.workspace_id.as_str(),
+                        &summary.root,
+                    );
                     binding.workspace_id = summary.workspace_id.to_string();
                 }
             } else if let Ok(workspaces) = state.workspace_service.list() {
@@ -1555,6 +1579,7 @@ fn resolve_workspace_from_persisted_route(
         };
         if let Ok(summary) = state.workspace_service.open(Path::new(root.trim())) {
             let workspace_id = summary.workspace_id.to_string();
+            activate_restored_workspace(app, state, &workspace_id, &summary.root);
             if let Ok(path) = state.workspace_root_path(&workspace_id) {
                 return Some((workspace_id, path));
             }

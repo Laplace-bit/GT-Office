@@ -1,5 +1,10 @@
 import type { FsEntry } from '@shell/integration/desktop-api'
 
+export function isWorkspaceNotFoundError(error: unknown): boolean {
+  const detail = error instanceof Error ? error.message : String(error ?? '')
+  return detail.toLowerCase().includes('workspace not found')
+}
+
 function normalizeDirectoryPath(path: string): string {
   const trimmed = path.trim()
   if (!trimmed || trimmed === '.' || trimmed === './') {

@@ -61,6 +61,39 @@ fn open_same_directory_across_service_instances_keeps_stable_workspace_id() {
 }
 
 #[test]
+fn closing_active_workspace_uses_a_deterministic_fallback() {
+    let first_dir = TempWorkspaceDir::create();
+    let second_dir = TempWorkspaceDir::create();
+    let active_dir = TempWorkspaceDir::create();
+    let service = InMemoryWorkspaceService::new();
+    let first = service.open(&first_dir.path).expect("open first workspace");
+    let second = service
+        .open(&second_dir.path)
+        .expect("open second workspace");
+    let active = service
+        .open(&active_dir.path)
+        .expect("open active workspace");
+    let expected = if first.workspace_id.as_str() < second.workspace_id.as_str() {
+        first.workspace_id
+    } else {
+        second.workspace_id
+    };
+
+    service
+        .close(&active.workspace_id)
+        .expect("close active workspace");
+
+    let actual = service
+        .list()
+        .expect("list workspaces")
+        .into_iter()
+        .find(|workspace| workspace.active)
+        .expect("one remaining workspace should be active")
+        .workspace_id;
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn get_context_returns_workspace_root_default_cwd() {
     let tmp = TempWorkspaceDir::create();
     let service = InMemoryWorkspaceService::new();

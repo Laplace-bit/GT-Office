@@ -1,18 +1,33 @@
 import type { GitRepositorySummary } from '@shell/integration/desktop-api'
 
+export function isSelectableRepository(repository: GitRepositorySummary): boolean {
+  return !repository.state || repository.state === 'ready'
+}
+
+export function shouldShowRepositorySection(
+  repositories: readonly GitRepositorySummary[],
+): boolean {
+  return repositories.length > 1 ||
+    (repositories.length === 1 && !isSelectableRepository(repositories[0]))
+}
+
 export function resolveActiveRepositoryPath(
   currentRepositoryPath: string | null,
   repositories: readonly GitRepositorySummary[],
   primaryRepositoryPath: string | null | undefined,
 ): string | null {
+  const selectableRepositories = repositories.filter(isSelectableRepository)
   if (
     currentRepositoryPath !== null &&
-    repositories.some((item) => item.repositoryPath === currentRepositoryPath)
+    selectableRepositories.some((item) => item.repositoryPath === currentRepositoryPath)
   ) {
     return currentRepositoryPath
   }
 
-  return primaryRepositoryPath ?? repositories[0]?.repositoryPath ?? null
+  const primaryRepository = selectableRepositories.find(
+    (item) => item.repositoryPath === primaryRepositoryPath,
+  )
+  return primaryRepository?.repositoryPath ?? selectableRepositories[0]?.repositoryPath ?? null
 }
 
 export function buildRepositoryScopeKey(

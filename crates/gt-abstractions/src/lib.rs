@@ -141,6 +141,28 @@ pub struct GitStatusSummary {
     pub files: Vec<GitStatusFile>,
     #[serde(default)]
     pub repositories: Vec<GitRepositorySummary>,
+    /// Number of status entries observed before the response limit was applied.
+    #[serde(default)]
+    pub total_changes: usize,
+    /// True when one or more status entries were omitted from `files`.
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub kind: GitRepositoryKind,
+    #[serde(default)]
+    pub state: GitRepositoryState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_oid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_head_oid: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum GitStatusEntryKind {
+    #[default]
+    File,
+    Submodule,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +177,30 @@ pub struct GitStatusFile {
     pub repo_relative_path: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content_signature: String,
+    #[serde(default)]
+    pub entry_kind: GitStatusEntryKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_oid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_head_oid: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum GitRepositoryKind {
+    #[default]
+    Root,
+    Nested,
+    Submodule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum GitRepositoryState {
+    #[default]
+    Ready,
+    Uninitialized,
+    Invalid,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -166,6 +212,18 @@ pub struct GitRepositorySummary {
     pub ahead: u32,
     pub behind: u32,
     pub files: Vec<GitStatusFile>,
+    #[serde(default)]
+    pub kind: GitRepositoryKind,
+    #[serde(default)]
+    pub state: GitRepositoryState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_oid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_head_oid: Option<String>,
+    #[serde(default)]
+    pub total_changes: usize,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

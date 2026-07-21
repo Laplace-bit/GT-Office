@@ -153,6 +153,7 @@ export interface WorkspaceActiveChangedPayload {
 export interface WorkspaceCloseResponse {
   workspaceId: string
   closed: boolean
+  activeWorkspaceId: string | null
 }
 
 export interface WorkspaceSwitchActiveResponse {
@@ -225,6 +226,10 @@ export interface AppUpdateProgressPayload {
   detail?: string | null
 }
 
+export type GitStatusEntryKind = 'file' | 'submodule'
+export type GitRepositoryKind = 'root' | 'nested' | 'submodule'
+export type GitRepositoryState = 'ready' | 'uninitialized' | 'invalid'
+
 export interface GitStatusFile {
   path: string
   staged: boolean
@@ -232,6 +237,9 @@ export interface GitStatusFile {
   repositoryPath: string
   repoRelativePath: string
   contentSignature?: string
+  entryKind: GitStatusEntryKind
+  headOid?: string | null
+  expectedHeadOid?: string | null
 }
 
 export interface GitRepositorySummary {
@@ -241,6 +249,12 @@ export interface GitRepositorySummary {
   ahead: number
   behind: number
   files: GitStatusFile[]
+  kind: GitRepositoryKind
+  state: GitRepositoryState
+  headOid?: string | null
+  expectedHeadOid?: string | null
+  totalChanges: number
+  truncated: boolean
 }
 
 export interface GitStatusResponse {
@@ -251,12 +265,25 @@ export interface GitStatusResponse {
   behind: number
   files: GitStatusFile[]
   repositories: GitRepositorySummary[]
+  totalChanges: number
+  truncated: boolean
+  kind: GitRepositoryKind
+  state: GitRepositoryState
+  headOid?: string | null
+  expectedHeadOid?: string | null
   revision?: number
 }
 
 export interface GitInitResponse {
   workspaceId: string
   branch: string
+  initialized: boolean
+}
+
+export interface GitSubmoduleUpdateResponse {
+  workspaceId: string
+  repositoryPath: string
+  recursive: boolean
   initialized: boolean
 }
 
@@ -311,6 +338,8 @@ export interface GitDiffStructuredResponse {
   path: string
   /** Whether the file is binary */
   isBinary: boolean
+  /** Whether the diff exceeded the inline rendering limits */
+  tooLarge: boolean
   /** Whether this is a new file */
   isNew: boolean
   /** Whether this is a deleted file */
@@ -334,6 +363,8 @@ export interface GitDiffExpansionResponse {
   path: string
   oldPath: string | null
   isBinary: boolean
+  /** Whether either side or the full comparison exceeded the inline rendering limits */
+  tooLarge: boolean
   oldExists: boolean
   newExists: boolean
   fullDiff: GitDiffStructuredResponse | null
@@ -1792,6 +1823,12 @@ export interface GitUpdatedPayload {
   behind: number
   files: GitStatusFile[]
   repositories: GitRepositorySummary[]
+  totalChanges: number
+  truncated: boolean
+  kind: GitRepositoryKind
+  state: GitRepositoryState
+  headOid?: string | null
+  expectedHeadOid?: string | null
   revision: number
 }
 
@@ -2759,8 +2796,11 @@ export const desktopApi = {
   workspaceOpen(path: string) {
     return invokeCommand<WorkspaceOpenResponse>('workspace_open', { path })
   },
-  workspaceClose(workspaceId: string) {
-    return invokeCommand<WorkspaceCloseResponse>('workspace_close', { workspaceId })
+  workspaceClose(workspaceId: string, nextWorkspaceId?: string | null) {
+    return invokeCommand<WorkspaceCloseResponse>('workspace_close', {
+      workspaceId,
+      nextWorkspaceId: nextWorkspaceId ?? null,
+    })
   },
   workspaceSwitchActive(workspaceId: string) {
     return invokeCommand<WorkspaceSwitchActiveResponse>('workspace_switch_active', { workspaceId })
@@ -2801,6 +2841,13 @@ export const desktopApi = {
       workspaceId,
       initialBranch: initialBranch ?? null,
       repositoryPath: repositoryPath ?? null,
+    })
+  },
+  gitSubmoduleUpdate(workspaceId: string, repositoryPath: string, recursive = true) {
+    return invokeCommand<GitSubmoduleUpdateResponse>('git_submodule_update', {
+      workspaceId,
+      repositoryPath,
+      recursive,
     })
   },
   gitDiffFile(workspaceId: string, path: string, staged?: boolean, repositoryPath?: string | null) {

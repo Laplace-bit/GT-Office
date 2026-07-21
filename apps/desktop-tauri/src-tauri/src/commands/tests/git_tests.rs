@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 use crate::commands::git::{
     build_git_branches_payload, build_git_commit_detail_payload, build_git_diff_payload,
     build_git_discard_payload, build_git_log_payload, build_git_stage_payload,
-    build_git_stash_list_payload, build_git_status_payload, build_git_tag_list_payload,
-    build_git_unstage_payload,
+    build_git_stash_list_payload, build_git_status_payload, build_git_submodule_update_payload,
+    build_git_tag_list_payload, build_git_unstage_payload,
 };
 
 fn build_git_fetch_payload(workspace_id: &WorkspaceId, result: GitFetchResult) -> Value {
@@ -129,8 +129,14 @@ fn git_status_payload_keeps_contract_fields() {
             repository_path: String::new(),
             repo_relative_path: "src/main.rs".to_string(),
             content_signature: "12:34".to_string(),
+            entry_kind: Default::default(),
+            head_oid: None,
+            expected_head_oid: None,
         }],
         repositories: Vec::new(),
+        total_changes: 1,
+        truncated: false,
+        ..GitStatusSummary::default()
     };
 
     let payload = build_git_status_payload(&workspace_id, &summary);
@@ -141,6 +147,21 @@ fn git_status_payload_keeps_contract_fields() {
     assert_eq!(payload["files"][0]["path"], "src/main.rs");
     assert_eq!(payload["files"][0]["staged"], false);
     assert_eq!(payload["files"][0]["status"], "M");
+    assert_eq!(payload["totalChanges"], 1);
+    assert_eq!(payload["truncated"], false);
+    assert_eq!(payload["kind"], "root");
+    assert_eq!(payload["state"], "ready");
+}
+
+#[test]
+fn git_submodule_update_payload_keeps_contract_fields() {
+    let workspace_id = WorkspaceId::new("ws-1");
+    let payload = build_git_submodule_update_payload(&workspace_id, "modules/child", true);
+
+    assert_eq!(payload["workspaceId"], "ws-1");
+    assert_eq!(payload["repositoryPath"], "modules/child");
+    assert_eq!(payload["recursive"], true);
+    assert_eq!(payload["initialized"], true);
 }
 
 #[test]

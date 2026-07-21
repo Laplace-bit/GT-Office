@@ -73,6 +73,7 @@ import { useShellPaneLayoutController } from './useShellPaneLayoutController'
 import { useShellShortcutController } from './useShellShortcutController'
 import { useShellWindowController } from './useShellWindowController'
 import { useShellWorkspaceSessionController } from './useShellWorkspaceSessionController'
+import { resolveWorkspaceGitStatusFiles } from './workspace-git-summary-model'
 import { ShellRootView } from './ShellRootView'
 import { WorkspaceCloseDialog } from './WorkspaceCloseDialog'
 import { pickDirectory } from '../integration/directory-picker'
@@ -513,6 +514,10 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     }
     return workspaceTabs.find((tab) => tab.workspaceId === presentedWorkspaceId)?.root ?? null
   }, [activeWorkspaceId, activeWorkspaceRoot, presentedWorkspaceId, workspaceTabs])
+  const presentedGitStatusFiles = useMemo(
+    () => resolveWorkspaceGitStatusFiles(gitSummary, presentedWorkspaceId),
+    [gitSummary, presentedWorkspaceId],
+  )
 
   const navItems = useMemo(() => getNavItems(locale), [locale])
   const paneModels = useMemo(() => getPaneModels(locale), [locale])
@@ -596,6 +601,10 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   })
 
   const activeGitSummary = gitController.summary
+  const hasUnavailableGitRepository = Boolean(
+    gitSummary?.state === 'invalid' ||
+    gitSummary?.repositories.some((repository) => repository.state === 'invalid'),
+  )
 
   const activePaneModel = useMemo(() => {
     if (activeNavId !== 'git') {
@@ -624,9 +633,16 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       items:
         activeGitSummary.files.length > 0
           ? activeGitSummary.files.slice(0, 8).map((file) => `${file.status} ${file.path}`)
-          : [t(locale, 'shell.git.workspaceClean')],
+          : [
+              t(
+                locale,
+                hasUnavailableGitRepository
+                  ? 'shell.git.statusInvalid'
+                  : 'shell.git.workspaceClean',
+              ),
+            ],
     }
-  }, [activeGitSummary, activeNavId, locale, paneModels])
+  }, [activeGitSummary, activeNavId, hasUnavailableGitRepository, locale, paneModels])
 
   const filteredStations = useMemo(
     () => filterStationsForOverview(stations, runtimeStateByStationId, stationOverviewState),
@@ -1363,6 +1379,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         locale,
         workspaceId: presentedWorkspaceId,
         workspaceRoot: presentedWorkspaceRoot,
+        gitStatusFiles: presentedGitStatusFiles,
         isMacOs: nativeWindowTopMacOs,
         selectedFilePath: activeFilePath,
         onSelectFile: handleFileTreeSelectFile,
@@ -1438,7 +1455,9 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
       locale,
       gitBranch: activeGitSummary?.branch ?? '-',
       gitBranches: gitController.branches,
-      gitChangedFiles: activeGitSummary?.files.length ?? 0,
+      gitChangedFiles: hasUnavailableGitRepository
+        ? null
+        : activeGitSummary?.totalChanges ?? activeGitSummary?.files.length ?? 0,
       onCheckoutBranch: gitController.checkoutTo,
       checkoutLoading: gitController.actionLoading === 'checkout',
       agentOnline: 6,

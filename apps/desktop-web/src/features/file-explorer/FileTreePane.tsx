@@ -23,7 +23,6 @@ import {
   type FilesystemWatchErrorPayload,
   type FsEntry,
   type GitStatusFile,
-  type GitUpdatedPayload,
 } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
@@ -33,7 +32,7 @@ import {
   writeTerminalFileDropPayload,
 } from '@shell/utils/terminal-file-drop'
 import { FileTreePromptModal, FileTreeConfirmModal } from './FileTreeModals'
-import { sanitizeDirectoryEntries } from './file-tree-data'
+import { isWorkspaceNotFoundError, sanitizeDirectoryEntries } from './file-tree-data'
 import { buildFileTreeModalKey } from './file-tree-modal-key'
 import { resolveExistingTreeSelectionPath } from './file-tree-selection'
 import { resolveFileVisual, type FileVisual } from './file-visuals'
@@ -45,6 +44,7 @@ interface FileTreePaneProps {
   locale: Locale
   workspaceId: string | null
   workspaceRoot?: string | null
+  gitStatusFiles: readonly GitStatusFile[]
   isMacOs?: boolean
   selectedFilePath: string | null
   onSelectFile: (filePath: string, line?: number) => void
@@ -336,7 +336,7 @@ function pickDominantGitStatus(
   return GIT_TONE_PRIORITY[incoming.tone] > GIT_TONE_PRIORITY[current.tone] ? incoming : current
 }
 
-function buildGitStatusesByPath(files: GitStatusFile[]): Record<string, GitStatusVisual> {
+function buildGitStatusesByPath(files: readonly GitStatusFile[]): Record<string, GitStatusVisual> {
   const next: Record<string, GitStatusVisual> = {}
   for (const file of files) {
     const normalizedPath = normalizeDirectoryPath(file.path)
@@ -465,6 +465,7 @@ export function FileTreePane({
   locale,
   workspaceId,
   workspaceRoot: workspaceRootProp = null,
+  gitStatusFiles,
   isMacOs = false,
   selectedFilePath,
   onSelectFile,
@@ -482,7 +483,10 @@ export function FileTreePane({
   const [workspaceRoot, setWorkspaceRoot] = useState(workspaceRootProp ?? '')
   const [selectedTreePath, setSelectedTreePath] = useState<string | null>(selectedFilePath)
   const [treeSize, setTreeSize] = useState({ width: 0, height: 0 })
-  const [gitStatusesByPath, setGitStatusesByPath] = useState<Record<string, GitStatusVisual>>({})
+  const gitStatusesByPath = useMemo(
+    () => buildGitStatusesByPath(gitStatusFiles),
+    [gitStatusFiles],
+  )
   const [draggingFilePath, setDraggingFilePath] = useState<string | null>(null)
 
   const [promptModal, setPromptModal] = useState<{
@@ -532,13 +536,17 @@ export function FileTreePane({
       if (!workspaceId) {
         return
       }
+      const requestWorkspaceId = workspaceId
+      if (workspaceIdRef.current !== requestWorkspaceId) {
+        return
+      }
       const directoryPath = normalizeDirectoryPath(rawDirectoryPath)
-      const existingTask = inFlightDirectoryLoadsRef.current[directoryPath]
+      const loadKey = JSON.stringify([requestWorkspaceId, directoryPath])
+      const existingTask = inFlightDirectoryLoadsRef.current[loadKey]
       if (existingTask) {
         await existingTask
         return
       }
-      const requestWorkspaceId = workspaceId
       const task = (async () => {
         setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: true }))
         try {
@@ -552,7 +560,10 @@ export function FileTreePane({
           }))
           setLoadedDirectories((prev) => ({ ...prev, [directoryPath]: true }))
         } catch (error) {
-          if (workspaceIdRef.current !== requestWorkspaceId) {
+          if (
+            workspaceIdRef.current !== requestWorkspaceId ||
+            isWorkspaceNotFoundError(error)
+          ) {
             return
           }
           addNotification({
@@ -562,36 +573,22 @@ export function FileTreePane({
             }),
           })
         } finally {
-          delete inFlightDirectoryLoadsRef.current[directoryPath]
           if (workspaceIdRef.current === requestWorkspaceId) {
             setLoadingDirectories((prev) => ({ ...prev, [directoryPath]: false }))
           }
         }
       })()
-      inFlightDirectoryLoadsRef.current[directoryPath] = task
-      await task
+      inFlightDirectoryLoadsRef.current[loadKey] = task
+      try {
+        await task
+      } finally {
+        if (inFlightDirectoryLoadsRef.current[loadKey] === task) {
+          delete inFlightDirectoryLoadsRef.current[loadKey]
+        }
+      }
     },
     [locale, workspaceId],
   )
-
-  const refreshGitStatuses = useCallback(async () => {
-    if (!workspaceId || !desktopApi.isTauriRuntime()) {
-      setGitStatusesByPath({})
-      return
-    }
-    const requestWorkspaceId = workspaceId
-    try {
-      const summary = await desktopApi.gitStatus(requestWorkspaceId)
-      if (workspaceIdRef.current !== requestWorkspaceId) {
-        return
-      }
-      setGitStatusesByPath(buildGitStatusesByPath(summary.files as GitStatusFile[]))
-    } catch {
-      if (workspaceIdRef.current === requestWorkspaceId) {
-        setGitStatusesByPath({})
-      }
-    }
-  }, [workspaceId])
 
   const closeOpenPathsUnder = useCallback((path: string) => {
     const normalized = normalizeDirectoryPath(path)
@@ -615,7 +612,8 @@ export function FileTreePane({
       if (!api.isOpen(path) || path === ROOT_DIR) {
         continue
       }
-      if (!loadedDirectoriesRef.current[path] && !inFlightDirectoryLoadsRef.current[path]) {
+      const loadKey = JSON.stringify([workspaceId, path])
+      if (!loadedDirectoriesRef.current[path] && !inFlightDirectoryLoadsRef.current[loadKey]) {
         void loadDirectory(path)
       }
     }
@@ -625,22 +623,30 @@ export function FileTreePane({
     if (!workspaceId) {
       return
     }
+    const requestWorkspaceId = workspaceId
+    if (workspaceIdRef.current !== requestWorkspaceId) {
+      return
+    }
     setEntriesByDirectory({})
     setLoadedDirectories({})
     setLoadingDirectories({})
     await loadDirectory(ROOT_DIR)
+    if (workspaceIdRef.current !== requestWorkspaceId) {
+      return
+    }
     ensureOpenDirectoriesLoaded()
-    await refreshGitStatuses()
-  }, [ensureOpenDirectoriesLoaded, loadDirectory, refreshGitStatuses, workspaceId])
+  }, [ensureOpenDirectoriesLoaded, loadDirectory, workspaceId])
+
+  useLayoutEffect(() => {
+    workspaceIdRef.current = workspaceId
+  }, [workspaceId])
 
   useEffect(() => {
-    workspaceIdRef.current = workspaceId
     inFlightDirectoryLoadsRef.current = {}
     if (!workspaceId) {
       setEntriesByDirectory({})
       setLoadedDirectories({})
       setLoadingDirectories({})
-      setGitStatusesByPath({})
       setWorkspaceRoot('')
       setSelectedTreePath(null)
       return
@@ -1057,7 +1063,6 @@ export function FileTreePane({
     let active = true
     let cleanupChanged: (() => void) | null = null
     let cleanupWatchError: (() => void) | null = null
-    let cleanupGitUpdated: (() => void) | null = null
 
     void desktopApi
       .subscribeFilesystemEvents((payload: FilesystemChangedPayload) => {
@@ -1099,30 +1104,10 @@ export function FileTreePane({
         cleanupWatchError = unlisten
       })
 
-    void desktopApi
-      .subscribeGitUpdated((payload: GitUpdatedPayload) => {
-        if (!active || payload.workspaceId !== workspaceId) {
-          return
-        }
-        if (!payload.available) {
-          setGitStatusesByPath({})
-          return
-        }
-        setGitStatusesByPath(buildGitStatusesByPath(payload.files))
-      })
-      .then((unlisten) => {
-        if (!active) {
-          unlisten()
-          return
-        }
-        cleanupGitUpdated = unlisten
-      })
-
     return () => {
       active = false
       cleanupChanged?.()
       cleanupWatchError?.()
-      cleanupGitUpdated?.()
     }
   }, [handleFilesystemChanged, locale, workspaceId])
 

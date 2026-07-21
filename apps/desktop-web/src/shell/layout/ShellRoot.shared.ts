@@ -469,6 +469,39 @@ export function loadRememberedWorkspacePath(): string | null {
   return null
 }
 
+export function forgetRememberedWorkspacePath(input: {
+  workspaceId: string
+  path?: string | null
+}) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_MEMORY_STORAGE_KEY)
+    if (!raw) {
+      return
+    }
+    const remembered = JSON.parse(raw) as {
+      workspaceId?: string | null
+      path?: string | null
+    }
+    const rememberedPath = normalizeFsPath(remembered.path ?? '')
+    const closedPath = normalizeFsPath(input.path ?? '')
+    if (
+      remembered.workspaceId === input.workspaceId ||
+      (closedPath && rememberedPath === closedPath)
+    ) {
+      window.localStorage.removeItem(WORKSPACE_MEMORY_STORAGE_KEY)
+    }
+  } catch {
+    try {
+      window.localStorage.removeItem(WORKSPACE_MEMORY_STORAGE_KEY)
+    } catch {
+      // Best effort only.
+    }
+  }
+}
+
 export function rememberWorkspacePath(input: {
   path: string
   workspaceId?: string | null
@@ -803,6 +836,12 @@ export function gitSummaryFromUpdatedPayload(payload: GitUpdatedPayload): GitSta
     behind: payload.behind,
     files: payload.files,
     repositories: payload.repositories,
+    totalChanges: payload.totalChanges,
+    truncated: payload.truncated,
+    kind: payload.kind,
+    state: payload.state,
+    headOid: payload.headOid,
+    expectedHeadOid: payload.expectedHeadOid,
     revision: payload.revision,
   }
 }

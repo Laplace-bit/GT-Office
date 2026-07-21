@@ -40,6 +40,7 @@ test('git file helpers keep staged and unstaged actions repo-safe', () => {
     repositoryPath: 'packages/alpha',
     status: 'MM',
     staged: true,
+    entryKind: 'file' as const,
   }
   const stagedFile = {
     path: 'packages/alpha/src/index.ts',
@@ -47,6 +48,7 @@ test('git file helpers keep staged and unstaged actions repo-safe', () => {
     repositoryPath: 'packages/alpha',
     status: 'M ',
     staged: true,
+    entryKind: 'file' as const,
   }
   const untrackedFile = {
     path: 'packages/alpha/src/new.ts',
@@ -54,6 +56,7 @@ test('git file helpers keep staged and unstaged actions repo-safe', () => {
     repositoryPath: 'packages/alpha',
     status: '??',
     staged: false,
+    entryKind: 'file' as const,
   }
   const indexNewFile = {
     path: 'packages/alpha/src/new.ts',
@@ -61,6 +64,11 @@ test('git file helpers keep staged and unstaged actions repo-safe', () => {
     repositoryPath: 'packages/alpha',
     status: 'A ',
     staged: true,
+    entryKind: 'file' as const,
+  }
+  const indexNewWithWorktreeChanges = {
+    ...indexNewFile,
+    status: 'AM',
   }
 
   assert.equal(hasStagedChanges(mixedFile), true)
@@ -76,5 +84,6 @@ test('git file helpers keep staged and unstaged actions repo-safe', () => {
   assert.equal(resolveDiscardKind(untrackedFile), 'untracked')
 
   assert.equal(resolveDiscardKind(indexNewFile), 'index-new')
+  assert.equal(resolveDiscardKind(indexNewWithWorktreeChanges), 'tracked')
   assert.equal(resolveDiscardKind(stagedFile), 'tracked')
 })

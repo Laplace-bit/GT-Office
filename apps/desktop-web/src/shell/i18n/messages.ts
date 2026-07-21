@@ -1133,6 +1133,10 @@ export const messages = {
     'zh-CN': '工作区干净，无待处理变更',
     'en-US': 'Workspace clean, no pending changes',
   },
+  'shell.git.statusInvalid': {
+    'zh-CN': 'Git 状态不可用，无法确认工作区是否干净',
+    'en-US': 'Git status is unavailable; workspace cleanliness is unknown',
+  },
   'shell.git.summaryStatus': {
     'zh-CN': '分支 {branch} · ahead {ahead} / behind {behind}',
     'en-US': 'Branch {branch} · ahead {ahead} / behind {behind}',
@@ -1145,6 +1149,10 @@ export const messages = {
     'zh-CN': 'Git 元数据加载失败: {detail}',
     'en-US': 'Failed to load Git metadata: {detail}',
   },
+  'git.error.statusUnavailable': {
+    'zh-CN': '部分仓库状态读取失败，请检查仓库权限或索引后重试。',
+    'en-US': 'Some repository statuses could not be read. Check permissions or the index, then retry.',
+  },
   'git.info.notRepository': {
     'zh-CN': '当前目录不是 Git 仓库，可先执行初始化后再使用 Git 协作。',
     'en-US': 'Current directory is not a Git repository. Initialize it first to use Git collaboration.',
@@ -1156,9 +1164,15 @@ export const messages = {
   'git.repositories.staged': { 'zh-CN': '已暂存', 'en-US': 'Staged' },
   'git.repositories.unstaged': { 'zh-CN': '未暂存', 'en-US': 'Unstaged' },
   'git.repositories.total': { 'zh-CN': '总计', 'en-US': 'Total' },
+  'git.repositories.submodule': { 'zh-CN': '子模块', 'en-US': 'Submodule' },
+  'git.repositories.uninitialized': { 'zh-CN': '未初始化', 'en-US': 'Uninitialized' },
+  'git.repositories.invalid': { 'zh-CN': '不可用', 'en-US': 'Unavailable' },
+  'git.repositories.initialize': { 'zh-CN': '初始化子模块', 'en-US': 'Initialize submodule' },
+  'git.repositories.initializing': { 'zh-CN': '正在初始化子模块', 'en-US': 'Initializing submodule' },
   'git.files.title': { 'zh-CN': '变更文件', 'en-US': 'Changed Files' },
   'git.files.count': { 'zh-CN': '共 {count} 个', 'en-US': '{count} total' },
   'git.files.countLabel': { 'zh-CN': '个文件', 'en-US': 'files' },
+  'git.files.truncated': { 'zh-CN': '显示 {shown} / {total} 个变更，已停用批量操作', 'en-US': 'Showing {shown} of {total} changes; bulk actions are disabled' },
   'git.filter.all': { 'zh-CN': '全部', 'en-US': 'All' },
   'git.filter.staged': { 'zh-CN': '暂存', 'en-US': 'Staged' },
   'git.filter.unstaged': { 'zh-CN': '变更', 'en-US': 'Unstaged' },
@@ -1172,6 +1186,10 @@ export const messages = {
   'git.diff.loading': { 'zh-CN': '加载差异中...', 'en-US': 'Loading diff...' },
   'git.diff.empty': { 'zh-CN': '暂无可显示差异', 'en-US': 'No diff to display' },
   'git.diff.binary': { 'zh-CN': '二进制文件，无法显示差异', 'en-US': 'Binary file, cannot display diff' },
+  'git.diff.tooLarge': {
+    'zh-CN': '文件内容或差异过大，为保障性能未在此处加载',
+    'en-US': 'This file or diff is too large to load inline',
+  },
   'git.diff.openInEditor': { 'zh-CN': '打开', 'en-US': 'Open' },
   'git.diff.expand.title': { 'zh-CN': '完整文件对比', 'en-US': 'Full File Compare' },
   'git.diff.expand.open': { 'zh-CN': '全文', 'en-US': 'Full' },

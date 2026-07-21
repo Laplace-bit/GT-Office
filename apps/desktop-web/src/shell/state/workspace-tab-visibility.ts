@@ -42,3 +42,25 @@ export function resolveVisibleWorkspaceTabs(input: {
 
   return filtered
 }
+
+export function resolveWorkspaceAfterClose(input: {
+  tabs: readonly Pick<WorkspaceTabInfo, 'workspaceId'>[]
+  closedWorkspaceId: string
+  activeWorkspaceId: string | null
+}): string | null {
+  if (input.closedWorkspaceId !== input.activeWorkspaceId) {
+    return input.activeWorkspaceId
+  }
+
+  const closedIndex = input.tabs.findIndex(
+    (tab) => tab.workspaceId === input.closedWorkspaceId,
+  )
+  if (closedIndex < 0) {
+    return null
+  }
+  return (
+    input.tabs[closedIndex + 1]?.workspaceId ??
+    input.tabs[closedIndex - 1]?.workspaceId ??
+    null
+  )
+}

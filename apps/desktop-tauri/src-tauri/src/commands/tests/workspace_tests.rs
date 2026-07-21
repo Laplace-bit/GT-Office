@@ -2,9 +2,9 @@ use crate::app_state::AppState;
 use crate::commands::workspace::{
     allow_workspace_asset_scope, build_window_active_response, build_workspace_close_response,
     build_workspace_open_response, build_workspace_restore_response,
-    build_workspace_switch_response, workspace_reset_state_with_storage,
+    build_workspace_switch_response, close_workspace_resources, workspace_reset_state_with_storage,
 };
-use gt_abstractions::{WorkspaceService, WorkspaceSessionSnapshot};
+use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
 use gt_agent::{AgentRepository, AgentState, DEFAULT_DEPARTMENTS, GLOBAL_ROLE_WORKSPACE_ID};
 use gt_ai_config::{
     AiAgentConfigStatus, AiAgentInstallStatus, AiAgentSnapshotCard, AiConfigAgent,
@@ -48,9 +48,10 @@ fn workspace_open_response_keeps_contract_fields() {
 
 #[test]
 fn workspace_close_response_keeps_contract_fields() {
-    let payload = build_workspace_close_response("ws-1", true);
+    let payload = build_workspace_close_response("ws-1", true, Some("ws-2"));
     assert_eq!(payload["workspaceId"], "ws-1");
     assert_eq!(payload["closed"], true);
+    assert_eq!(payload["activeWorkspaceId"], "ws-2");
 }
 
 #[test]
@@ -93,6 +94,87 @@ fn workspace_asset_scope_allows_files_outside_home_after_workspace_open() {
     assert!(app.asset_protocol_scope().is_allowed(&nested_file));
 
     fs::remove_dir_all(&workspace_root).expect("remove workspace dir");
+}
+
+#[test]
+fn watcher_initialization_is_noop_for_closed_or_mismatched_workspace() {
+    let app = mock_app();
+    let state = AppState::default();
+    let root = std::env::temp_dir().join(format!("gtoffice-watcher-{}", Uuid::new_v4()));
+    let other_root = root.join("other");
+    fs::create_dir_all(&other_root).expect("create watcher roots");
+
+    assert!(state
+        .ensure_workspace_watcher(app.handle(), "ws-closed", root.to_string_lossy().as_ref())
+        .is_ok());
+
+    let opened = state
+        .workspace_service
+        .open(&root)
+        .expect("open watcher workspace");
+    state
+        .git_status_coordinator
+        .activate(opened.workspace_id.as_str())
+        .expect("activate watcher workspace");
+    assert!(state
+        .ensure_workspace_watcher(
+            app.handle(),
+            opened.workspace_id.as_str(),
+            other_root.to_string_lossy().as_ref(),
+        )
+        .is_ok());
+
+    let _ = state
+        .git_status_coordinator
+        .deactivate(opened.workspace_id.as_str());
+    let _ = state.remove_workspace_watcher(opened.workspace_id.as_str());
+    fs::remove_dir_all(&root).expect("remove watcher roots");
+}
+
+#[test]
+fn workspace_close_resources_succeeds_after_root_is_deleted() {
+    let app = mock_app();
+    let state = AppState::default();
+    assert!(app.manage(state.clone()));
+    let root = std::env::temp_dir().join(format!("gtoffice-close-{}", Uuid::new_v4()));
+    fs::create_dir_all(&root).expect("create workspace root");
+
+    let opened = state.workspace_service.open(&root).expect("open workspace");
+    let canonical_root = std::path::PathBuf::from(&opened.root);
+    let workspace_id = WorkspaceId::new(opened.workspace_id.to_string());
+    state
+        .git_status_coordinator
+        .activate(workspace_id.as_str())
+        .expect("activate git status");
+    state
+        .ensure_workspace_watcher(
+            app.handle(),
+            workspace_id.as_str(),
+            root.to_string_lossy().as_ref(),
+        )
+        .expect("start workspace watcher");
+    assert!(state.workspace_watcher_exists_for_test(workspace_id.as_str()));
+
+    fs::remove_dir_all(&root).expect("delete workspace root externally");
+    let (closed_root, closed) =
+        close_workspace_resources(&state, app.handle(), &workspace_id).expect("close workspace");
+
+    assert!(closed);
+    assert_eq!(closed_root, canonical_root);
+    assert!(state.workspace_service.get_context(&workspace_id).is_err());
+    assert!(!state
+        .git_status_coordinator
+        .is_active(workspace_id.as_str()));
+    assert!(!state.workspace_watcher_exists_for_test(workspace_id.as_str()));
+
+    state
+        .ensure_workspace_watcher(
+            app.handle(),
+            workspace_id.as_str(),
+            root.to_string_lossy().as_ref(),
+        )
+        .expect("closed workspace must remain a watcher no-op");
+    assert!(!state.workspace_watcher_exists_for_test(workspace_id.as_str()));
 }
 
 struct WorkspaceResetFixture {

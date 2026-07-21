@@ -79,7 +79,8 @@ export const ChangesSection = memo(function ChangesSection({
     preloadDiff,
   } = controller
 
-  const totalFiles = summary?.files.length ?? 0
+  const totalFiles = summary?.totalChanges ?? summary?.files.length ?? 0
+  const bulkActionsDisabled = Boolean(summary?.truncated)
 
   const toggleGroup = useCallback((group: ChangeGroupKey) => {
     setCollapsedGroups((current) => ({ ...current, [group]: !current[group] }))
@@ -103,13 +104,16 @@ export const ChangesSection = memo(function ChangesSection({
     [onDiscardConfirm],
   )
   const handleDiscardAll = useCallback(() => {
+    if (bulkActionsDisabled) {
+      return
+    }
     const paths = unstagedFiles.map((file) => file.path)
     if (paths.length === 0) {
       return
     }
     const includeUntracked = unstagedFiles.some((file) => resolveDiscardKind(file) === 'untracked')
     onDiscardAllConfirm(paths, includeUntracked)
-  }, [onDiscardAllConfirm, unstagedFiles])
+  }, [bulkActionsDisabled, onDiscardAllConfirm, unstagedFiles])
 
   const repositoryPath =
     stagedFiles[0]?.repositoryPath ?? unstagedFiles[0]?.repositoryPath ?? undefined
@@ -124,8 +128,8 @@ export const ChangesSection = memo(function ChangesSection({
       const count = isStaged ? stagedFiles.length : unstagedFiles.length
       const actionable = isStaged ? hasStagedFiles : hasUnstagedFiles
       const disabled = isStaged
-        ? !isGitRepository || !hasStagedFiles || Boolean(actionLoading)
-        : !isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)
+        ? bulkActionsDisabled || !isGitRepository || !hasStagedFiles || Boolean(actionLoading)
+        : bulkActionsDisabled || !isGitRepository || !hasUnstagedFiles || Boolean(actionLoading)
       const title = isStaged
         ? t(locale, 'git.repositories.staged')
         : t(locale, 'git.filter.unstaged')
@@ -180,6 +184,7 @@ export const ChangesSection = memo(function ChangesSection({
     },
     [
       actionLoading,
+      bulkActionsDisabled,
       collapsedGroups,
       handleDiscardAll,
       hasStagedFiles,
@@ -203,7 +208,7 @@ export const ChangesSection = memo(function ChangesSection({
         key: 'staged',
         count: stagedFiles.length,
         actionable: hasStagedFiles,
-        disabled: !isGitRepository || !hasStagedFiles || Boolean(actionLoading),
+        disabled: bulkActionsDisabled || !isGitRepository || !hasStagedFiles || Boolean(actionLoading),
       },
     ]
 
@@ -223,7 +228,7 @@ export const ChangesSection = memo(function ChangesSection({
       key: 'unstaged',
       count: unstagedFiles.length,
       actionable: hasUnstagedFiles,
-      disabled: !isGitRepository || !hasUnstagedFiles || Boolean(actionLoading),
+      disabled: bulkActionsDisabled || !isGitRepository || !hasUnstagedFiles || Boolean(actionLoading),
     })
 
     if (!collapsedGroups.unstaged) {
@@ -240,6 +245,7 @@ export const ChangesSection = memo(function ChangesSection({
     return rows
   }, [
     actionLoading,
+    bulkActionsDisabled,
     collapsedGroups.staged,
     collapsedGroups.unstaged,
     hasStagedFiles,
@@ -306,6 +312,14 @@ export const ChangesSection = memo(function ChangesSection({
       />
       {!collapsed && (
         <div className="git-section__content">
+          {summary?.truncated ? (
+            <p className="git-files-truncated-note" role="status">
+              {t(locale, 'git.files.truncated', {
+                shown: summary.files.length,
+                total: summary.totalChanges,
+              })}
+            </p>
+          ) : null}
           {viewMode === 'list' ? (
             <div ref={viewportRef} className="git-file-list">
               <div

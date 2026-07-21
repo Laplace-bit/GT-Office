@@ -200,6 +200,7 @@ pub fn run() {
             terminal::terminal_open_output_channel,
             git::git_status,
             git::git_init,
+            git::git_submodule_update,
             git::git_diff_file,
             git::git_diff_file_structured,
             git::git_diff_file_expansion,
