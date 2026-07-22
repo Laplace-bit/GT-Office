@@ -1462,6 +1462,10 @@ export const messages = {
     'zh-CN': '[系统] Web 预览模式无法启动 PTY。\r\n',
     'en-US': '[system] PTY unavailable in web preview.\r\n',
   },
+  'system.terminalLaunching': {
+    'zh-CN': '[系统] 正在启动终端。\r\n',
+    'en-US': '[system] Starting terminal.\r\n',
+  },
   'system.terminalLaunched': {
     'zh-CN': '[系统] 终端已启动。\r\n',
     'en-US': '[system] Terminal launched.\r\n',

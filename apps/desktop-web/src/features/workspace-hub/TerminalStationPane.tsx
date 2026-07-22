@@ -150,6 +150,10 @@ function TerminalStationPaneView({
   const handleSelectStation = useCallback(() => {
     onSelectStation(station.id)
   }, [onSelectStation, station.id])
+  const handleLaunchStationTerminal = useCallback(() => {
+    onSelectStation(station.id)
+    onLaunchStationTerminal(station.id)
+  }, [onLaunchStationTerminal, onSelectStation, station.id])
   const sessionProvider = resolveStationSessionProvider(station)
   const discoverCwd = useMemo(() => {
     if (!workspaceCwd) {
@@ -227,7 +231,7 @@ function TerminalStationPaneView({
               title={t(locale, 'workbench.stationLaunchTerminal')}
               onClick={(event) => {
                 event.stopPropagation()
-                onLaunchStationTerminal(station.id)
+                handleLaunchStationTerminal()
               }}
             >
               <AppIcon name="terminal" className="vb-icon" aria-hidden="true" />
@@ -293,7 +297,7 @@ function TerminalStationPaneView({
         </div>
       </div>
 
-      {hasTerminalSession ? (
+      {shouldRenderTerminal ? (
         <>
           <StationXtermTerminal
             locale={locale}
@@ -326,7 +330,7 @@ function TerminalStationPaneView({
             <button
               type="button"
               className="terminal-station-pane-idle-button primary"
-              onClick={() => onLaunchStationTerminal(station.id)}
+              onClick={handleLaunchStationTerminal}
             >
               <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
               <span>{t(locale, 'workbench.stationLaunchTerminal')}</span>

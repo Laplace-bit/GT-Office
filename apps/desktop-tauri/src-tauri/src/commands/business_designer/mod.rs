@@ -1,25 +1,26 @@
 use gt_task::{
-    ChannelMessageEvent, ChannelMessageType, DispatchSender, DispatchSenderType,
-    TaskAttachment, TaskDispatchBatchRequest, TaskDispatchBatchResponse,
+    ChannelMessageEvent, ChannelMessageType, DispatchSender, DispatchSenderType, TaskAttachment,
+    TaskDispatchBatchRequest, TaskDispatchBatchResponse,
 };
 use rfd::FileDialog;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::{HashMap, HashSet}, fs, io::Write, path::{Path, PathBuf}, process::Command};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::Command,
+};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::{
-    app_state::AppState,
-    commands::{
-        task_center::write_terminal_with_submit,
-    },
-};
+use crate::{app_state::AppState, commands::task_center::write_terminal_with_submit};
 
+pub(crate) mod agent_station;
+mod code_gen_prompt;
+mod completeness_rules;
 mod gap_rules;
 mod ui_refs;
-mod completeness_rules;
-mod code_gen_prompt;
-pub(crate) mod agent_station;
 
 const DESIGNER_SCHEMA_VERSION: u32 = 1;
 const DOCS_ROOT_RELATIVE: &str = ".gtoffice/docs";
@@ -788,7 +789,8 @@ pub(crate) fn validate_document_at(
     let detail = read_document_at(workspace_id, workspace_root, document_id)?;
     let diagnostics = validate_design(&detail.manifest, &detail.design);
     let rule_result = gap_rules::run_all(&detail.design);
-    let completeness = completeness_rules::run_completeness(&detail.design, &rule_result.derived_edges);
+    let completeness =
+        completeness_rules::run_completeness(&detail.design, &rule_result.derived_edges);
     let mut gaps = rule_result.gaps.clone();
     gaps.extend(completeness);
     serde_json::to_value(json!({
@@ -1861,7 +1863,10 @@ pub(crate) fn compile_document_at(
     atomic_write_text(&preview_html_path, &render_preview_html(&detail))?;
     atomic_write_text(&contracts_path, &render_contracts(&detail))?;
     atomic_write_text(&acceptance_path, &render_acceptance(&detail))?;
-    atomic_write_text(&code_gen_prompt_path, &code_gen_prompt::render_code_gen_prompt(&detail))?;
+    atomic_write_text(
+        &code_gen_prompt_path,
+        &code_gen_prompt::render_code_gen_prompt(&detail),
+    )?;
 
     files.push(generated.readme.clone());
     files.push(generated.agent_brief.clone());
@@ -2561,7 +2566,7 @@ pub(crate) fn export_document_at(
                     )
                 })?,
             )
-        },
+        }
         _ => unreachable!("normalize_export_format restricts format"),
     };
     Ok(DesignerExportResult {

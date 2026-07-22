@@ -140,9 +140,7 @@
 }
 
 .station-terminal-shell.is-runtime-pending .station-terminal-host {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vb-terminal-bg) 90%, transparent), transparent),
-    var(--vb-terminal-bg);
+  background: var(--vb-terminal-bg);
 }
 
 /* Keep xterm's internal layout untouched. FitAddon, helper textarea, and IME geometry
@@ -164,6 +162,7 @@
   --station-terminal-scrollbar-hit-size: 0.7143rem;
   --station-terminal-scrollbar-edge-gap: 0.1071rem;
   inset: 0 !important;
+  overscroll-behavior: contain;
 }
 
 .station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element > .scrollbar.vertical {

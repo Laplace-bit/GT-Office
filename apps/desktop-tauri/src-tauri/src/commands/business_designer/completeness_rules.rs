@@ -26,7 +26,12 @@ pub(crate) fn run_completeness(
         .collect();
     let entity_targets: HashSet<&str> = derived_edges
         .iter()
-        .filter(|e| matches!(e.relation, DesignerEdgeRelation::Uses | DesignerEdgeRelation::DependsOn))
+        .filter(|e| {
+            matches!(
+                e.relation,
+                DesignerEdgeRelation::Uses | DesignerEdgeRelation::DependsOn
+            )
+        })
         .map(|e| e.to_block_id.as_str())
         .collect();
     let flow_targets: HashSet<&str> = derived_edges
@@ -40,46 +45,65 @@ pub(crate) fn run_completeness(
         .first()
         .map(|b| b.id.clone())
         .unwrap_or_default();
-    let has_acceptance = graph
-        .blocks
-        .iter()
-        .any(|b| b.kind == "acceptanceCriteria");
-    let has_agent_instruction = graph
-        .blocks
-        .iter()
-        .any(|b| b.kind == "agentInstruction");
+    let has_acceptance = graph.blocks.iter().any(|b| b.kind == "acceptanceCriteria");
+    let has_agent_instruction = graph.blocks.iter().any(|b| b.kind == "agentInstruction");
 
     for block in &graph.blocks {
         match block.kind.as_str() {
             "apiContract" if !consumes_targets.contains(block.id.as_str()) => {
-                push_completeness(&mut gaps, block, "orphan-api-contract",
-                    "API 契约没有被任何 UI 屏幕的 data-api 引用。");
+                push_completeness(
+                    &mut gaps,
+                    block,
+                    "orphan-api-contract",
+                    "API 契约没有被任何 UI 屏幕的 data-api 引用。",
+                );
             }
             "entityModel" if !entity_targets.contains(block.id.as_str()) => {
-                push_completeness(&mut gaps, block, "orphan-entity",
-                    "实体没有被任何 API 契约、UI 屏幕或其他实体引用。");
+                push_completeness(
+                    &mut gaps,
+                    block,
+                    "orphan-entity",
+                    "实体没有被任何 API 契约、UI 屏幕或其他实体引用。",
+                );
             }
             "businessFlow" if !flow_targets.contains(block.id.as_str()) => {
-                push_completeness(&mut gaps, block, "flow-uncovered-ui",
-                    "业务流程没有被任何 UI 屏幕的 data-flow 覆盖。");
+                push_completeness(
+                    &mut gaps,
+                    block,
+                    "flow-uncovered-ui",
+                    "业务流程没有被任何 UI 屏幕的 data-flow 覆盖。",
+                );
             }
             _ => {}
         }
     }
 
     if !has_acceptance {
-        push_doc_completeness(&mut gaps, &anchor, "flow-unverified",
-            "文档缺少验收标准 block。");
+        push_doc_completeness(
+            &mut gaps,
+            &anchor,
+            "flow-unverified",
+            "文档缺少验收标准 block。",
+        );
     }
     if !has_agent_instruction {
-        push_doc_completeness(&mut gaps, &anchor, "no-agent-instruction",
-            "文档缺少 agent 编码简报 block。");
+        push_doc_completeness(
+            &mut gaps,
+            &anchor,
+            "no-agent-instruction",
+            "文档缺少 agent 编码简报 block。",
+        );
     }
 
     gaps
 }
 
-fn push_completeness(gaps: &mut Vec<DesignerGap>, block: &DesignerBlock, code: &str, message: &str) {
+fn push_completeness(
+    gaps: &mut Vec<DesignerGap>,
+    block: &DesignerBlock,
+    code: &str,
+    message: &str,
+) {
     gaps.push(DesignerGap {
         id: super::gap_rules::stable_gap_id_pub(&format!("{}:{code}", block.id)),
         key: format!("{}:{code}", block.id),

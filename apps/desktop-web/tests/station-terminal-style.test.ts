@@ -9,6 +9,10 @@ const stationTerminalScss = readFileSync(
   resolve(testDir, '../../src/features/terminal/StationXtermTerminal.scss'),
   'utf8',
 )
+const stationTerminalSource = readFileSync(
+  resolve(testDir, '../../src/features/terminal/StationXtermTerminal.tsx'),
+  'utf8',
+)
 const terminalDebugPanelScss = readFileSync(
   resolve(testDir, '../../src/features/terminal/TerminalDebugPanel.scss'),
   'utf8',
@@ -38,4 +42,12 @@ test('terminal debug panel reduced motion removes pressed scale movement', () =>
     block,
     /\.terminal-debug-launcher:active,[\s\S]*\.terminal-debug-panel-tabs button:active \{[\s\S]*transform: none !important;/,
   )
+})
+
+test('station terminal keeps the WebGL, system monospace, and extended scrollback path enabled', () => {
+  assert.match(stationTerminalSource, /const TERMINAL_SCROLLBACK_LINES = 20_000/)
+  assert.match(stationTerminalSource, /scrollback: TERMINAL_SCROLLBACK_LINES/)
+  assert.match(stationTerminalSource, /lineHeight: 1\.2/)
+  assert.match(stationTerminalSource, /new webglModule\.WebglAddon\(\)/)
+  assert.match(stationTerminalSource, /ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace/)
 })

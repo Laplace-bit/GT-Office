@@ -48,3 +48,17 @@ fn build_initial_prompt_includes_primary_text_files_and_selection() {
     assert!(prompt.contains("Selection:\nFocus on the launch flow."));
     assert!(prompt.contains("Notes:\nKeep the diff small."));
 }
+
+#[test]
+fn agent_profile_launch_skips_login_shell_by_default_but_respects_explicit_choice() {
+    assert!(!resolve_profile_login_shell(None));
+    assert!(!resolve_profile_login_shell(Some(
+        &json!({ "loginShell": false })
+    )));
+    assert!(resolve_profile_login_shell(Some(
+        &json!({ "loginShell": true })
+    )));
+    assert!(resolve_profile_login_shell(Some(
+        &json!({ "login_shell": true })
+    )));
+}

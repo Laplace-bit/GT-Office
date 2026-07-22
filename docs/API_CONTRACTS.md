@@ -79,7 +79,7 @@ Error example:
 
 | Command | Key Request Fields | Key Response Fields |
 |---------|-------------------|-------------------|
-| `terminal_create` | `workspaceId, cwd?, shell?` | `sessionId, workspaceId, shell, cwdMode, resolvedCwd` |
+| `terminal_create` | `workspaceId, cwd?, shell?, agentToolKind?, loginShell?` | `sessionId, workspaceId, shell, cwdMode, resolvedCwd` |
 | `terminal_write` | `workspaceId, sessionId, input` | `workspaceId, sessionId, accepted` |
 | `terminal_write_with_submit` | `workspaceId, sessionId, input, submitSequence?` | `workspaceId, sessionId, accepted` |
 | `terminal_resize` | `workspaceId, sessionId, cols, rows` | `workspaceId, sessionId, cols, rows, resized` |
@@ -90,6 +90,16 @@ Error example:
 | `terminal_describe_processes` | `workspaceId, sessionId` | `workspaceId` + process snapshot |
 | `terminal_report_rendered_screen` | `workspaceId, snapshot, toolKind?` | `workspaceId, sessionId, screenRevision, accepted, humanText?, humanEntries[]` |
 | `terminal_has_session` | `workspaceId, sessionId` | `workspaceId, sessionId, alive` |
+
+`terminal_read_delta` is an ordered recovery page. When `truncated` is `true`, the returned
+`chunk` is still complete through `toSeq`; callers must request the next page with
+`afterSeq = toSeq` until `toSeq >= currentSeq`. `gap` means the requested sequence is no
+longer covered by terminal recovery history, so callers may fall back to `terminal_read_snapshot`.
+
+For Claude/Codex `agentToolKind` requests, `loginShell: false` uses the pre-augmented PATH and
+skips shell rc files for a fast cold start. Calls that depend on shell profile setup must set
+`loginShell: true` explicitly.
+
 | `terminal_activate` | `workspaceId, sessionId` | `workspaceId` + rendered terminal placeholder |
 | `terminal_get_rendered_screen` | `workspaceId, sessionId` | `workspaceId` + rendered terminal placeholder |
 | `terminal_open_output_channel` | `workspaceId, sessionId` | `workspaceId, sessionId, channelBound` |

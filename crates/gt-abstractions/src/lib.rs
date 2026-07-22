@@ -117,7 +117,8 @@ pub struct TerminalCreateRequest {
     pub cwd_mode: TerminalCwdMode,
     pub env: BTreeMap<String, String>,
     pub agent_tool_kind: Option<String>,
-    /// When `false`, skip login-shell flags (`-l`) for faster cold start. PATH must be set in `env`.
+    /// When `false`, skip login-shell flags (`-l`) for faster cold start. Known agent
+    /// profiles also skip shell rc files; PATH must be set in `env`.
     #[serde(default)]
     pub login_shell: Option<bool>,
 }

@@ -75,10 +75,15 @@ pub enum TerminalRuntimeEvent {
     Meta(TerminalMetaEvent),
 }
 
-const OUTPUT_RING_CAPACITY_BYTES: usize = 2 * 1024 * 1024;
+// Keep enough recovery history for a busy compiler or agent stream without
+// making every terminal session retain an unbounded transcript in memory.
+const OUTPUT_RING_CAPACITY_BYTES: usize = 32 * 1024 * 1024;
 const OUTPUT_AGGREGATION_WINDOW_MS: u64 = 12;
 const HIDDEN_META_EMIT_WINDOW_MS: u64 = 280;
-const VISIBLE_PENDING_CAP_BYTES: usize = 256 * 1024;
+// Tauri events must remain small enough for the WebView to process between
+// paints. Remaining bytes stay queued for subsequent frames; they are never
+// discarded merely because a producer is faster than the renderer.
+const VISIBLE_OUTPUT_EVENT_MAX_BYTES: usize = 64 * 1024;
 const HIDDEN_TAIL_PREVIEW_BYTES: usize = 2048;
 
 #[derive(Debug, Clone)]
@@ -599,8 +604,8 @@ struct SessionFlowState {
     ring: ByteRingBuffer,
     frames: VecDeque<OutputFrame>,
     frames_bytes: usize,
-    pending_visible: Vec<u8>,
-    dropped_visible_bytes: u64,
+    pending_visible: VecDeque<Vec<u8>>,
+    pending_visible_bytes: usize,
     hidden_unread_bytes: u64,
     hidden_unread_chunks: u64,
     hidden_tail: Vec<u8>,
@@ -635,24 +640,40 @@ impl SessionFlowState {
         if chunk.is_empty() {
             return;
         }
-        if chunk.len() >= VISIBLE_PENDING_CAP_BYTES {
-            let dropped_existing = self.pending_visible.len() as u64;
-            let dropped_incoming = chunk.len().saturating_sub(VISIBLE_PENDING_CAP_BYTES) as u64;
-            self.dropped_visible_bytes = self
-                .dropped_visible_bytes
-                .saturating_add(dropped_existing.saturating_add(dropped_incoming));
-            self.pending_visible.clear();
-            self.pending_visible
-                .extend_from_slice(&chunk[chunk.len() - VISIBLE_PENDING_CAP_BYTES..]);
-            return;
+        self.pending_visible_bytes = self.pending_visible_bytes.saturating_add(chunk.len());
+        self.pending_visible.push_back(chunk.to_vec());
+    }
+
+    fn take_visible_batch(&mut self, max_bytes: usize) -> Vec<u8> {
+        if max_bytes == 0 || self.pending_visible_bytes == 0 {
+            return Vec::new();
         }
-        let required = self.pending_visible.len().saturating_add(chunk.len());
-        if required > VISIBLE_PENDING_CAP_BYTES {
-            let overflow = required - VISIBLE_PENDING_CAP_BYTES;
-            self.pending_visible.drain(..overflow);
-            self.dropped_visible_bytes = self.dropped_visible_bytes.saturating_add(overflow as u64);
+
+        let mut batch = Vec::with_capacity(self.pending_visible_bytes.min(max_bytes));
+        while batch.len() < max_bytes {
+            let remaining = max_bytes - batch.len();
+            let Some(front_len) = self.pending_visible.front().map(Vec::len) else {
+                break;
+            };
+
+            if front_len <= remaining {
+                let Some(chunk) = self.pending_visible.pop_front() else {
+                    break;
+                };
+                self.pending_visible_bytes = self.pending_visible_bytes.saturating_sub(chunk.len());
+                batch.extend_from_slice(&chunk);
+                continue;
+            }
+
+            let Some(front) = self.pending_visible.front_mut() else {
+                break;
+            };
+            batch.extend_from_slice(&front[..remaining]);
+            front.drain(..remaining);
+            self.pending_visible_bytes = self.pending_visible_bytes.saturating_sub(remaining);
         }
-        self.pending_visible.extend_from_slice(chunk);
+
+        batch
     }
 
     fn push_frame(&mut self, seq: u64, chunk: Vec<u8>) {
@@ -703,12 +724,17 @@ impl SessionFlowState {
             false
         };
 
-        let mut chunk = Vec::new();
+        let mut chunk = Vec::with_capacity(max_bytes);
         let mut from_seq = None;
-        let mut to_seq = current_seq;
+        let mut to_seq = after_seq;
+        let mut truncated = false;
         for frame in &self.frames {
             if frame.seq <= after_seq {
                 continue;
+            }
+            if !chunk.is_empty() && chunk.len().saturating_add(frame.chunk.len()) > max_bytes {
+                truncated = true;
+                break;
             }
             if from_seq.is_none() {
                 from_seq = Some(frame.seq);
@@ -716,10 +742,8 @@ impl SessionFlowState {
             to_seq = frame.seq;
             chunk.extend_from_slice(&frame.chunk);
         }
-
-        let truncated = chunk.len() > max_bytes;
-        if truncated {
-            chunk = chunk[chunk.len() - max_bytes..].to_vec();
+        if !truncated && to_seq < current_seq {
+            truncated = true;
         }
 
         DeltaReadResult {
@@ -846,25 +870,11 @@ async fn run_mux_loop(
             }
             _ = output_tick.tick() => {
                 for (session_id, state) in sessions.iter_mut() {
-                    if state.subscribers == 0
-                        || (state.pending_visible.is_empty() && state.dropped_visible_bytes == 0)
-                    {
+                    if state.subscribers == 0 || state.pending_visible.is_empty() {
                         continue;
                     }
 
-                    let mut payload = Vec::new();
-                    if state.dropped_visible_bytes > 0 {
-                        payload.extend_from_slice(
-                            format!(
-                                "\r\n[terminal:output-coalesced dropped={} bytes]\r\n",
-                                state.dropped_visible_bytes
-                            )
-                            .as_bytes(),
-                        );
-                        state.dropped_visible_bytes = 0;
-                    }
-                    payload.extend_from_slice(&state.pending_visible);
-                    state.pending_visible.clear();
+                    let payload = state.take_visible_batch(VISIBLE_OUTPUT_EVENT_MAX_BYTES);
 
                     if payload.is_empty() {
                         continue;
@@ -1381,14 +1391,13 @@ where
         // rebuild it. Callers that skip the login shell must supply PATH via `env`.
         command.env("PATH", minimal_bootstrap_path());
 
-        let shell_lower = shell_name.to_lowercase();
         let use_login_shell = request.login_shell.unwrap_or(true);
-        if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
-            command.arg("-NoLogo");
-        } else if use_login_shell {
-            // Login shell restores PATH from profiles (slow). Skip when `login_shell`
-            // is false and the caller already augmented PATH in `env` (fast agent launch).
-            command.arg("-l");
+        for argument in resolve_shell_startup_args(
+            &shell_name,
+            use_login_shell,
+            request.agent_tool_kind.as_deref(),
+        ) {
+            command.arg(argument);
         }
 
         command.cwd(&resolved_cwd);
@@ -1634,6 +1643,53 @@ fn minimal_bootstrap_path() -> &'static str {
     }
 }
 
+fn is_fast_agent_shell_start(agent_tool_kind: Option<&str>, use_login_shell: bool) -> bool {
+    if use_login_shell {
+        return false;
+    }
+    let Some(tool_kind) = agent_tool_kind else {
+        return false;
+    };
+    matches!(
+        tool_kind.trim().to_ascii_lowercase().as_str(),
+        "claude" | "claude-code" | "codex" | "codex-cli"
+    )
+}
+
+fn resolve_shell_startup_args(
+    shell_name: &str,
+    use_login_shell: bool,
+    agent_tool_kind: Option<&str>,
+) -> Vec<&'static str> {
+    let shell_lower = shell_name.to_ascii_lowercase();
+    let fast_agent_start = is_fast_agent_shell_start(agent_tool_kind, use_login_shell);
+
+    if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
+        let mut args = vec!["-NoLogo"];
+        if fast_agent_start {
+            args.push("-NoProfile");
+        }
+        return args;
+    }
+
+    if use_login_shell {
+        return vec!["-l"];
+    }
+    if !fast_agent_start {
+        return Vec::new();
+    }
+    if shell_lower.contains("zsh") {
+        return vec!["-f"];
+    }
+    if shell_lower.contains("bash") {
+        return vec!["--norc"];
+    }
+    if shell_lower.contains("fish") {
+        return vec!["--no-config"];
+    }
+    Vec::new()
+}
+
 fn resolve_shell_name(shell: Option<&str>) -> String {
     if let Some(shell) = shell {
         let shell = shell.trim();
@@ -1653,5 +1709,79 @@ fn resolve_shell_name(shell: Option<&str>) -> String {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "/bin/bash".to_string())
+    }
+}
+
+#[cfg(test)]
+mod flow_state_tests {
+    use super::*;
+
+    #[test]
+    fn fast_agent_shell_startup_skips_rc_files_without_changing_standard_terminal_shells() {
+        assert_eq!(
+            resolve_shell_startup_args("/bin/zsh", false, Some("codex")),
+            vec!["-f"]
+        );
+        assert_eq!(
+            resolve_shell_startup_args("/bin/bash", false, Some("claude-code")),
+            vec!["--norc"]
+        );
+        assert_eq!(
+            resolve_shell_startup_args("pwsh", false, Some("claude")),
+            vec!["-NoLogo", "-NoProfile"]
+        );
+        assert_eq!(
+            resolve_shell_startup_args("/bin/zsh", true, Some("codex")),
+            vec!["-l"]
+        );
+        assert!(resolve_shell_startup_args("/bin/zsh", false, None).is_empty());
+    }
+
+    #[test]
+    fn visible_output_is_batched_without_discarding_earlier_bytes() {
+        let mut state = SessionFlowState::default();
+        state.set_visible(true);
+
+        let first = vec![b'a'; VISIBLE_OUTPUT_EVENT_MAX_BYTES - 7];
+        let second = vec![b'b'; VISIBLE_OUTPUT_EVENT_MAX_BYTES + 11];
+        let mut expected = first.clone();
+        expected.extend_from_slice(&second);
+
+        state.absorb_output(&first);
+        state.absorb_output(&second);
+
+        let mut observed = Vec::new();
+        while !state.pending_visible.is_empty() {
+            observed.extend_from_slice(&state.take_visible_batch(VISIBLE_OUTPUT_EVENT_MAX_BYTES));
+        }
+
+        assert_eq!(observed, expected);
+        assert_eq!(state.pending_visible_bytes, 0);
+    }
+
+    #[test]
+    fn delta_reads_continue_from_the_previous_page_instead_of_returning_a_tail() {
+        let mut state = SessionFlowState::default();
+        state.absorb_output(b"one");
+        state.absorb_output(b"two");
+        state.absorb_output(b"three");
+
+        let first_page = state.read_delta(0, 4);
+        assert_eq!(first_page.chunk, b"one");
+        assert_eq!(first_page.from_seq, Some(1));
+        assert_eq!(first_page.to_seq, 1);
+        assert!(first_page.truncated);
+
+        let second_page = state.read_delta(first_page.to_seq, 4);
+        assert_eq!(second_page.chunk, b"two");
+        assert_eq!(second_page.from_seq, Some(2));
+        assert_eq!(second_page.to_seq, 2);
+        assert!(second_page.truncated);
+
+        let third_page = state.read_delta(second_page.to_seq, 8);
+        assert_eq!(third_page.chunk, b"three");
+        assert_eq!(third_page.from_seq, Some(3));
+        assert_eq!(third_page.to_seq, 3);
+        assert!(!third_page.truncated);
     }
 }

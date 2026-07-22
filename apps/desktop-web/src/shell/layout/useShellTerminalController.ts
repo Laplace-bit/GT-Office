@@ -162,6 +162,7 @@ const ACTIVE_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT = STATION_TERMINAL_OUTPUT_FLUSH_AC
 const TERMINAL_REPLAY_WRITE_CHUNK_CHAR_LIMIT = ACTIVE_TERMINAL_OUTPUT_FLUSH_CHAR_LIMIT
 const CACHED_TERMINAL_OUTPUT_FLUSH_DELAY_MS = 96
 const TERMINAL_DOCUMENT_PERSIST_DELAY_MS = 180
+const TERMINAL_DELTA_RECOVERY_PAGE_LIMIT = 128
 const TERMINAL_WRITE_REJECTED_DETAIL = 'TERMINAL_WRITE_REJECTED'
 const TERMINAL_KILL_REJECTED_DETAIL = 'TERMINAL_KILL_REJECTED'
 const STATION_TERMINAL_FOCUS_MAX_RETRY_FRAMES = 8
@@ -207,6 +208,8 @@ interface ScheduledTerminalReplayTask {
   replayVersion: number
   run: () => Promise<void>
 }
+
+type TerminalDeltaRecoveryOutcome = 'complete' | 'gap' | 'stopped'
 
 interface UseShellTerminalControllerInput {
   // Core state from root
@@ -356,7 +359,7 @@ export function useShellTerminalController({
   stationsRef,
   activeWorkspaceRoot,
 
-  setActiveStationId: _setActiveStationId,
+  setActiveStationId,
   setStations,
   setIsStationManageOpen,
   setEditingStation,
@@ -1814,6 +1817,63 @@ export function useShellTerminalController({
     [recordStationLifecycleDiagnostic, setStationTerminalState],
   )
 
+  const recoverTerminalOutputDeltaPages = useCallback(
+    async (input: {
+      workspaceId: string
+      stationId: string
+      sessionId: string
+      afterSeq: number
+      minimumTargetSeq?: number
+      shouldContinue: () => boolean
+    }): Promise<TerminalDeltaRecoveryOutcome> => {
+      let cursor = input.afterSeq
+      let targetSeq = input.minimumTargetSeq ?? input.afterSeq
+
+      for (let page = 0; page < TERMINAL_DELTA_RECOVERY_PAGE_LIMIT; page += 1) {
+        if (!input.shouldContinue()) {
+          return 'stopped'
+        }
+
+        const delta = await desktopApi.terminalReadDelta(input.workspaceId, input.sessionId, cursor)
+        if (
+          !isMatchingTerminalWorkspaceSessionResponse(delta, input.workspaceId, input.sessionId) ||
+          !input.shouldContinue()
+        ) {
+          return 'stopped'
+        }
+        if (
+          delta.gap ||
+          (delta.fromSeq !== null && delta.fromSeq !== cursor + 1) ||
+          (delta.fromSeq === null && delta.currentSeq > cursor)
+        ) {
+          return 'gap'
+        }
+
+        targetSeq = Math.max(targetSeq, delta.currentSeq)
+        if (delta.toSeq <= cursor) {
+          return targetSeq <= cursor ? 'complete' : 'gap'
+        }
+
+        const text = decodeBase64Chunk(input.sessionId, delta.chunk, true)
+        if (text) {
+          appendStationTerminalOutput(input.stationId, text)
+        }
+        cursor = delta.toSeq
+        terminalSessionSeqRef.current[input.sessionId] = cursor
+
+        if (cursor >= targetSeq) {
+          return 'complete'
+        }
+        if (!delta.truncated) {
+          return 'gap'
+        }
+      }
+
+      return 'gap'
+    },
+    [appendStationTerminalOutput, decodeBase64Chunk],
+  )
+
   const recoverStationTerminalOutput = useCallback(
     async (workspaceId: string, stationId: string, sessionId: string): Promise<boolean> => {
       if (!desktopApi.isTauriRuntime()) {
@@ -1826,17 +1886,19 @@ export function useShellTerminalController({
         return false
       }
 
-      const previousSeq = terminalSessionSeqRef.current[sessionId] ?? 0
       try {
-        const delta = await desktopApi.terminalReadDelta(workspaceId, sessionId, previousSeq)
-        if (
-          !isMatchingTerminalWorkspaceSessionResponse(delta, workspaceId, sessionId) ||
-          activeWorkspaceIdRef.current !== workspaceId ||
-          sessionStationRef.current[sessionId] !== stationId
-        ) {
+        const outcome = await recoverTerminalOutputDeltaPages({
+          workspaceId,
+          stationId,
+          sessionId,
+          afterSeq: terminalSessionSeqRef.current[sessionId] ?? 0,
+          shouldContinue: () =>
+            activeWorkspaceIdRef.current === workspaceId && sessionStationRef.current[sessionId] === stationId,
+        })
+        if (outcome === 'stopped') {
           return false
         }
-        if (delta.gap || delta.truncated) {
+        if (outcome === 'gap') {
           const snapshot = await desktopApi.terminalReadSnapshot(workspaceId, sessionId).catch(() => null)
           if (!snapshot) {
             return true
@@ -1860,15 +1922,7 @@ export function useShellTerminalController({
           scheduleTerminalDocumentPersist()
           return true
         }
-
-        if (delta.toSeq > previousSeq) {
-          const text = decodeBase64Chunk(sessionId, delta.chunk, true)
-          if (text) {
-            appendStationTerminalOutput(stationId, text)
-          }
-          terminalSessionSeqRef.current[sessionId] = delta.toSeq
-          scheduleTerminalDocumentPersist()
-        }
+        scheduleTerminalDocumentPersist()
         return true
       } catch (error) {
         const detail = describeError(error)
@@ -1882,6 +1936,7 @@ export function useShellTerminalController({
       appendStationTerminalOutput,
       cleanupMissingWorkspaceTerminalSession,
       decodeBase64Chunk,
+      recoverTerminalOutputDeltaPages,
       resetStationTerminalOutput,
       scheduleTerminalDocumentPersist,
     ],
@@ -2220,7 +2275,7 @@ export function useShellTerminalController({
               }
               const terminalDebugEnabled = isStationTerminalDebugEnabled(stationId)
               let debugDirectText = ''
-              if (terminalDebugEnabled) {
+              if (terminalDebugEnabled && sequenceAction === 'append') {
                 debugDirectText = decodeBase64Chunk(payload.sessionId, payload.chunk, true)
                 pushStationTerminalDebugRecord(stationId, {
                   atMs: payload.tsMs,
@@ -2262,77 +2317,39 @@ export function useShellTerminalController({
               if (activeWorkspaceIdRef.current !== workspaceId) {
                 return
               }
-              const delta = await desktopApi
-                .terminalReadDelta(workspaceId, payload.sessionId, seq)
-                .catch((error) => {
-                  const detail = describeError(error)
-                  if (isTerminalSessionBindingInvalid(detail)) {
-                    cleanupMissingWorkspaceTerminalSession(
-                      workspaceId,
-                      stationId,
+              let recoveryOutcome: TerminalDeltaRecoveryOutcome
+              try {
+                recoveryOutcome = await recoverTerminalOutputDeltaPages({
+                  workspaceId,
+                  stationId,
+                  sessionId: payload.sessionId,
+                  afterSeq: seq,
+                  minimumTargetSeq: payload.seq,
+                  shouldContinue: () =>
+                    activeWorkspaceIdRef.current === workspaceId &&
+                    sessionStationRef.current[payload.sessionId] === stationId &&
+                    shouldApplyRecoveredStationOutput(
+                      stationTerminalsRef.current[stationId],
                       payload.sessionId,
-                      detail,
-                    )
-                  }
-                  return null
+                    ),
                 })
-              if (
-                delta &&
-                !isMatchingTerminalWorkspaceSessionResponse(delta, workspaceId, payload.sessionId)
-              ) {
-                return
-              }
-              if (
-                activeWorkspaceIdRef.current !== workspaceId ||
-                sessionStationRef.current[payload.sessionId] !== stationId
-              ) {
-                return
-              }
-              if (
-                delta &&
-                !delta.gap &&
-                !delta.truncated &&
-                delta.fromSeq === seq + 1 &&
-                delta.toSeq >= payload.seq
-              ) {
-                if (
-                  !shouldApplyRecoveredStationOutput(
-                    stationTerminalsRef.current[stationId],
+              } catch (error) {
+                const detail = describeError(error)
+                if (isTerminalSessionBindingInvalid(detail)) {
+                  cleanupMissingWorkspaceTerminalSession(
+                    workspaceId,
+                    stationId,
                     payload.sessionId,
+                    detail,
                   )
-                ) {
-                  return
                 }
-                const text = decodeBase64Chunk(payload.sessionId, delta.chunk, true)
-                if (terminalDebugEnabled) {
-                  pushStationTerminalDebugRecord(stationId, {
-                    sessionId: payload.sessionId,
-                    lane: 'recovery',
-                    kind: 'delta',
-                    source: 'terminal_read_delta',
-                    summary: `delta ${delta.fromSeq ?? '?'}-${delta.toSeq} · ${formatTerminalDebugPreview(text || delta.chunk, 72)}`,
-                    body: [
-                      `workspace=${workspaceId}`,
-                      `afterSeq=${delta.afterSeq}`,
-                      `fromSeq=${delta.fromSeq ?? 'null'}`,
-                      `toSeq=${delta.toSeq}`,
-                      `currentSeq=${delta.currentSeq}`,
-                      `gap=${delta.gap}`,
-                      `truncated=${delta.truncated}`,
-                      `base64=${delta.chunk}`,
-                      '',
-                      'decoded:',
-                      text,
-                    ].join('\n'),
-                  })
-                }
-                if (text) {
-                  appendStationTerminalOutput(stationId, text)
-                }
-                terminalSessionSeqRef.current[payload.sessionId] = delta.toSeq
-                if (!text) {
-                  scheduleTerminalDocumentPersist()
-                }
+                return
+              }
+              if (recoveryOutcome === 'stopped') {
+                return
+              }
+              if (recoveryOutcome === 'complete') {
+                scheduleTerminalDocumentPersist()
                 if (unread) {
                   incrementStationUnread(stationId, 1)
                 }
@@ -2620,6 +2637,7 @@ export function useShellTerminalController({
     pushStationTerminalDebugRecord,
     recordStationLifecycleDiagnostic,
     recordStationRuntimeDiagnosticBySession,
+    recoverTerminalOutputDeltaPages,
     resetStationTerminalOutput,
     scheduleTerminalDocumentPersist,
     setStationTerminalState,
@@ -2799,6 +2817,7 @@ export function useShellTerminalController({
             stateRaw: 'launching',
             unreadCount: 0,
           })
+          resetStationTerminalOutput(stationId, t(locale, 'system.terminalLaunching'))
           try {
             const station = stationsRef.current.find((item) => item.id === stationId)
             if (!station) {
@@ -2983,10 +3002,11 @@ export function useShellTerminalController({
 
   const launchStationTerminal = useMemo(
     () => async (stationId: string) => {
+      setActiveStationId(stationId)
       await ensureStationTerminalSession(stationId)
       await focusStationTerminal(stationId)
     },
-    [ensureStationTerminalSession, focusStationTerminal],
+    [ensureStationTerminalSession, focusStationTerminal, setActiveStationId],
   )
 
   // ── Send station terminal input ────────────────────────────────────────
@@ -3701,6 +3721,12 @@ export function useShellTerminalController({
         return sessionId
       }
 
+      const previousRuntime = stationTerminalsRef.current[station.id] ?? null
+      setStationTerminalState(station.id, {
+        stateRaw: 'launching',
+        unreadCount: 0,
+      })
+      resetStationTerminalOutput(station.id, t(locale, 'system.terminalLaunching'))
       try {
         const launchesFromWorkspaceRoot = isWorkspaceRootWorkdir(station.agentWorkdirRel)
         if (!launchesFromWorkspaceRoot) {
@@ -3719,6 +3745,7 @@ export function useShellTerminalController({
             roleWorkdirRel: station.roleWorkdirRel,
             resolvedCwd: null,
             cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
+            loginShell: false,
           },
         })
 
@@ -3878,6 +3905,9 @@ export function useShellTerminalController({
             stationToolLaunchSeqRef.current[station.id] ?? 0,
           )
         ) {
+          setStationTerminalState(station.id, {
+            stateRaw: previousRuntime?.sessionId ? previousRuntime.stateRaw ?? 'running' : 'failed',
+          })
           appendStationTerminalOutput(
             station.id,
             t(locale, 'system.launchFailed', {
@@ -3921,7 +3951,7 @@ export function useShellTerminalController({
         return false
       }
 
-      _setActiveStationId(stationId)
+      setActiveStationId(stationId)
 
       const existingSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       const sessionId = existingSessionId ?? (await ensureStationTerminalSession(stationId))
@@ -3987,7 +4017,7 @@ export function useShellTerminalController({
       protectStationAgentSession,
       runStationTerminalCommand,
       setStationTerminalState,
-      _setActiveStationId,
+      setActiveStationId,
     ],
   )
 
@@ -4050,6 +4080,7 @@ export function useShellTerminalController({
       if (!station) {
         return
       }
+      setActiveStationId(stationId)
       const currentSessionId = stationTerminalsRef.current[stationId]?.sessionId ?? null
       const launchCommand = resolveStationCliLaunchCommand(station.toolKind, station.launchCommand)
       if (!currentSessionId || !launchCommand) {
@@ -4087,6 +4118,7 @@ export function useShellTerminalController({
       protectStationAgentSession,
       resetStationTerminalToAgentWorkdir,
       runStationTerminalCommand,
+      setActiveStationId,
     ],
   )
   launchStationCliAgentRef.current = launchStationCliAgent

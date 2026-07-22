@@ -52,6 +52,19 @@ test('primary station launch keeps mouse focus available for the terminal', () =
   )
 })
 
+test('explicit terminal launch starts a fresh session even when the card shows closed history', () => {
+  const stationCard = readSource('features/workspace-hub/StationCard.tsx')
+  const explicitLaunchBlock =
+    stationCard.match(/const activateStationAndOpenTerminal = useCallback\([\s\S]*?\n  const activateStationFromTerminal/m)?.[0] ?? ''
+
+  assert.notEqual(explicitLaunchBlock, '', 'explicit terminal launch handler should exist')
+  assert.match(
+    explicitLaunchBlock,
+    /activateStationAndFocusTerminal\(\)\s*onLaunchStationTerminal\(station\.id\)/,
+  )
+  assert.doesNotMatch(explicitLaunchBlock, /shouldAutoLaunchTerminal/)
+})
+
 test('idle session history is available regardless of the active station', () => {
   const stationCard = readSource('features/workspace-hub/StationCard.tsx')
   const terminalStationPane = readSource('features/workspace-hub/TerminalStationPane.tsx')

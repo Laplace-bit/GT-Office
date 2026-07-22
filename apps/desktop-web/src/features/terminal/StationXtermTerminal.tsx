@@ -103,9 +103,13 @@ const TERMINAL_MIN_VISIBLE_SIZE_PX = 4
 const TERMINAL_OVERVIEW_RULER_WIDTH = 0
 const RENDERED_SCREEN_REPORT_THROTTLE_MS = 280
 const RENDERED_SCREEN_CAPTURE_MAX_LINES = 1200
-const TERMINAL_SERIALIZE_SCROLLBACK_LINES = 4000
-const TERMINAL_SERIALIZE_MIN_INTERVAL_MS = 1000
-const TERMINAL_SERIALIZE_IDLE_TIMEOUT_MS = 900
+// This is deliberately high enough for compiler and agent transcripts while
+// staying bounded per mounted terminal. xterm's WebGL renderer keeps scrolling
+// smooth without handing a giant DOM tree to the WebView.
+const TERMINAL_SCROLLBACK_LINES = 20_000
+const TERMINAL_SERIALIZE_SCROLLBACK_LINES = TERMINAL_SCROLLBACK_LINES
+const TERMINAL_SERIALIZE_MIN_INTERVAL_MS = 2400
+const TERMINAL_SERIALIZE_IDLE_TIMEOUT_MS = 1100
 const TERMINAL_SERIALIZE_IDLE_FALLBACK_DELAY_MS = 120
 const BACKGROUND_TERMINAL_INIT_TIMEOUT_MS = 1200
 const BACKGROUND_TERMINAL_INIT_FALLBACK_DELAY_MS = 96
@@ -310,6 +314,15 @@ function resolveTerminalFontSize(host?: HTMLElement | null): number {
     return Math.max(10, baseSize - 1)
   }
   return baseSize
+}
+
+function resolveTerminalFontFamily(host?: HTMLElement | null): string {
+  const doc = resolveTerminalDocument(host, document)
+  return readCssVarOr(
+    '--vb-font-mono',
+    "ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace",
+    doc,
+  )
 }
 
 function getTerminalTheme(host?: HTMLElement | null): ITheme {
@@ -611,8 +624,7 @@ function StationXtermTerminalView({
       return
     }
     const host = hostRef.current
-    const doc = resolveTerminalDocument(host, document)
-    terminal.options.fontFamily = readCssVar('--vb-font-mono', doc)
+    terminal.options.fontFamily = resolveTerminalFontFamily(host)
     terminal.options.fontSize = resolveTerminalFontSize(host)
     terminal.options.theme = getTerminalTheme(host)
     terminal.options.overviewRuler = { width: TERMINAL_OVERVIEW_RULER_WIDTH }
@@ -875,11 +887,12 @@ function StationXtermTerminalView({
 
         const terminal = new xtermModule.Terminal({
           convertEol: false,
-          fontFamily: readCssVar('--vb-font-mono', resolveTerminalDocument(host, document)),
+          fontFamily: resolveTerminalFontFamily(host),
           fontSize: resolveTerminalFontSize(host),
           fontWeight: '500',
           fontWeightBold: '700',
-          scrollback: 4000,
+          lineHeight: 1.2,
+          scrollback: TERMINAL_SCROLLBACK_LINES,
           theme: getTerminalTheme(host),
           overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,

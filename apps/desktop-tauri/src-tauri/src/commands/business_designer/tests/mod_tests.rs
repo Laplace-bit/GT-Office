@@ -16,15 +16,16 @@ use crate::app_state::AppState;
 use super::{
     apply_agent_patch_at, compare_checkpoints_at, compile_document_at, create_checkpoint_at,
     create_document_at, diff_checkpoint_at, ensure_docs_git_repository, ensure_docs_scaffold_at,
-    export_document_at, list_checkpoints_at, list_documents_at, preview_agent_task_at,
-    preview_coding_handoff_at, read_document_at, recover_agent_patch_from_task_at,
+    export_document_at, is_supported_block_kind, list_checkpoints_at, list_documents_at,
+    preview_agent_task_at, preview_coding_handoff_at, read_document_at,
+    recover_agent_patch_from_task_at, render_block_markdown,
     render_design_completion_markdown_with_host, run_mock_agent_completion_at, save_document_at,
     validate_agent_patch_at, validate_document_at, AgentTaskPreviewRequest,
     DesignerAgentTaskPreviewCommandRequest, DesignerAgentTaskScope,
     DesignerApplyAgentPatchCommandRequest, DesignerBlock, DesignerBlockLink,
     DesignerLayoutPosition, DesignerMockAgentCompletionCommandRequest,
     DesignerRecoverAgentPatchCommandRequest, DesignerValidateAgentPatchCommandRequest,
-    MockAgentCompletionRequest, is_supported_block_kind, render_block_markdown,
+    MockAgentCompletionRequest,
 };
 
 #[path = "gap_rules_tests.rs"]
@@ -1390,8 +1391,8 @@ fn data_contract_renders_object_schema() {
 #[test]
 fn code_gen_prompt_contains_four_pillars_and_output_contract() {
     let temp = TempWorkspace::new("codegen");
-    let mut detail = create_document_at("ws-1", temp.root(), "orders", "Orders", None)
-        .expect("create document");
+    let mut detail =
+        create_document_at("ws-1", temp.root(), "orders", "Orders", None).expect("create document");
     // Inject one of each pillar.
     detail.design.blocks.push(DesignerBlock {
         id: "order".to_string(),
@@ -1440,11 +1441,13 @@ fn code_gen_prompt_contains_four_pillars_and_output_contract() {
 #[test]
 fn compile_writes_code_gen_prompt() {
     let temp = TempWorkspace::new("codegen-compile");
-    let detail = create_document_at("ws-1", temp.root(), "inv", "Inventory", None)
-        .expect("create document");
+    let detail =
+        create_document_at("ws-1", temp.root(), "inv", "Inventory", None).expect("create document");
     save_document_at("ws-1", temp.root(), detail).expect("save");
     let compiled = compile_document_at("ws-1", temp.root(), "inv").expect("compile");
-    assert!(compiled.files.contains(&"generated/code-gen-prompt.md".to_string()));
+    assert!(compiled
+        .files
+        .contains(&"generated/code-gen-prompt.md".to_string()));
     let document_root = temp.root().join(".gtoffice/docs/documents/inv");
     assert!(document_root.join("generated/code-gen-prompt.md").is_file());
 }
@@ -1452,13 +1455,15 @@ fn compile_writes_code_gen_prompt() {
 #[test]
 fn export_code_gen_prompt_format_returns_content() {
     let temp = TempWorkspace::new("codegen-export");
-    let detail = create_document_at("ws-1", temp.root(), "inv", "Inventory", None)
-        .expect("create document");
+    let detail =
+        create_document_at("ws-1", temp.root(), "inv", "Inventory", None).expect("create document");
     save_document_at("ws-1", temp.root(), detail).expect("save");
     let exported = export_document_at("ws-1", temp.root(), "inv", "codeGenPrompt").expect("export");
     assert_eq!(exported.format, "codeGenPrompt");
     assert_eq!(exported.mime_type, "text/markdown");
-    assert!(exported.content.contains("Software System Implementation Specification"));
+    assert!(exported
+        .content
+        .contains("Software System Implementation Specification"));
 }
 
 #[test]
@@ -1476,8 +1481,12 @@ fn legacy_manifest_without_code_gen_prompt_field_deserializes() {
         obj.remove("codeGenPrompt");
     }
     std::fs::write(&manifest_path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
-    let reread = read_document_at("ws-1", temp.root(), "legacy").expect("legacy manifest must deserialize");
-    assert_eq!(reread.manifest.generated.code_gen_prompt, "generated/code-gen-prompt.md");
+    let reread =
+        read_document_at("ws-1", temp.root(), "legacy").expect("legacy manifest must deserialize");
+    assert_eq!(
+        reread.manifest.generated.code_gen_prompt,
+        "generated/code-gen-prompt.md"
+    );
 }
 
 #[test]
@@ -1485,12 +1494,15 @@ fn validate_document_merges_completeness_gaps_into_gaps() {
     // Test that completeness gaps are merged into the main `gaps` array and that
     // they have `layer: "completeness"`.
     let temp = TempWorkspace::new("completeness-gaps-merge");
-    let mut detail = create_document_at("ws-1", temp.root(), "orders", "Orders", None)
-        .expect("create document");
+    let mut detail =
+        create_document_at("ws-1", temp.root(), "orders", "Orders", None).expect("create document");
     let timestamp = detail.design.revision.clone();
 
     // Remove any existing acceptanceCriteria or agentInstruction blocks to ensure we get those gaps.
-    detail.design.blocks.retain(|b| b.kind != "acceptanceCriteria" && b.kind != "agentInstruction");
+    detail
+        .design
+        .blocks
+        .retain(|b| b.kind != "acceptanceCriteria" && b.kind != "agentInstruction");
 
     // Add an orphan entityModel, an orphan apiContract, and an orphan businessFlow.
     detail.design.blocks.push(DesignerBlock {
@@ -1534,10 +1546,12 @@ fn validate_document_merges_completeness_gaps_into_gaps() {
 
     save_document_at("ws-1", temp.root(), detail).expect("save");
 
-    let validate_result = validate_document_at("ws-1", temp.root(), "orders")
-        .expect("validate document");
+    let validate_result =
+        validate_document_at("ws-1", temp.root(), "orders").expect("validate document");
 
-    let gaps = validate_result["gaps"].as_array().expect("gaps should be an array");
+    let gaps = validate_result["gaps"]
+        .as_array()
+        .expect("gaps should be an array");
     assert!(!gaps.is_empty(), "gaps should contain completeness gaps");
 
     let completeness_gaps: Vec<_> = gaps
@@ -1545,16 +1559,34 @@ fn validate_document_merges_completeness_gaps_into_gaps() {
         .filter(|gap| gap["layer"] == "completeness")
         .collect();
 
-    assert!(!completeness_gaps.is_empty(), "should have completeness gaps");
+    assert!(
+        !completeness_gaps.is_empty(),
+        "should have completeness gaps"
+    );
 
     let codes: Vec<_> = completeness_gaps
         .iter()
         .map(|gap| gap["code"].as_str().expect("code should be string"))
         .collect();
 
-    assert!(codes.contains(&"orphan-entity"), "codes should contain orphan-entity: {codes:?}");
-    assert!(codes.contains(&"orphan-api-contract"), "codes should contain orphan-api-contract: {codes:?}");
-    assert!(codes.contains(&"flow-uncovered-ui"), "codes should contain flow-uncovered-ui: {codes:?}");
-    assert!(codes.contains(&"flow-unverified"), "codes should contain flow-unverified: {codes:?}");
-    assert!(codes.contains(&"no-agent-instruction"), "codes should contain no-agent-instruction: {codes:?}");
+    assert!(
+        codes.contains(&"orphan-entity"),
+        "codes should contain orphan-entity: {codes:?}"
+    );
+    assert!(
+        codes.contains(&"orphan-api-contract"),
+        "codes should contain orphan-api-contract: {codes:?}"
+    );
+    assert!(
+        codes.contains(&"flow-uncovered-ui"),
+        "codes should contain flow-uncovered-ui: {codes:?}"
+    );
+    assert!(
+        codes.contains(&"flow-unverified"),
+        "codes should contain flow-unverified: {codes:?}"
+    );
+    assert!(
+        codes.contains(&"no-agent-instruction"),
+        "codes should contain no-agent-instruction: {codes:?}"
+    );
 }

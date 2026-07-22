@@ -1015,7 +1015,7 @@ test('ignores closed session cleanup when the station already rebound to another
   assert.equal(resolveClosedStationSessionCleanup({ sessionId: null }, 'session-1'), null)
 })
 
-test('keeps closed runtimes terminal-renderable after the live session id is cleared', () => {
+test('keeps terminal surfaces renderable while a new session launches or a prior session closes', () => {
   assert.equal(
     Reflect.has(stationTerminalRuntimeState, 'shouldRenderStationTerminal'),
     true,
@@ -1027,6 +1027,7 @@ test('keeps closed runtimes terminal-renderable after the live session id is cle
   ) as ((runtime: { sessionId?: string | null; stateRaw?: string | null } | null | undefined) => boolean)
 
   assert.equal(shouldRenderStationTerminal({ sessionId: 'session-live', stateRaw: 'running' }), true)
+  assert.equal(shouldRenderStationTerminal({ sessionId: null, stateRaw: 'launching' }), true)
   assert.equal(shouldRenderStationTerminal({ sessionId: null, stateRaw: 'exited' }), true)
   assert.equal(shouldRenderStationTerminal({ sessionId: null, stateRaw: 'killed' }), true)
   assert.equal(shouldRenderStationTerminal({ sessionId: null, stateRaw: 'failed' }), true)

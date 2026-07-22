@@ -409,10 +409,8 @@ function StationCardView({
   }, [agentRunningForDisplay, onLaunchCliAgent, onSelectStation, requestTerminalFocus, runtime?.sessionId, station.id])
   const activateStationAndOpenTerminal = useCallback(() => {
     activateStationAndFocusTerminal()
-    if (shouldAutoLaunchTerminal) {
-      onLaunchStationTerminal(station.id)
-    }
-  }, [activateStationAndFocusTerminal, onLaunchStationTerminal, shouldAutoLaunchTerminal, station.id])
+    onLaunchStationTerminal(station.id)
+  }, [activateStationAndFocusTerminal, onLaunchStationTerminal, station.id])
   const activateStationFromTerminal = useCallback(() => {
     onSelectStation(station.id)
     if (shouldAutoLaunchTerminal) {

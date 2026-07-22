@@ -17,14 +17,20 @@ pub(crate) fn render_code_gen_prompt(detail: &DesignerDocumentDetail) -> String 
     );
 
     out.push_str("## Context\n\n");
-    out.push_str(&format!("- Module: {}\n", detail.manifest.module.as_deref().unwrap_or("(unspecified)")));
+    out.push_str(&format!(
+        "- Module: {}\n",
+        detail.manifest.module.as_deref().unwrap_or("(unspecified)")
+    ));
     out.push_str(&format!("- Document ID: {}\n", detail.manifest.document_id));
     out.push_str(&format!("- Revision: {}\n", detail.design.revision));
     let tech = sorted_blocks(&detail.design.blocks)
         .into_iter()
         .filter(|b| b.kind == "technicalStack");
     for b in tech {
-        out.push_str(&format!("- Tech stack: {}\n", render_block_markdown_inline(b)));
+        out.push_str(&format!(
+            "- Tech stack: {}\n",
+            render_block_markdown_inline(b)
+        ));
     }
     out.push('\n');
     out.push_str("## Requirements\n\n");

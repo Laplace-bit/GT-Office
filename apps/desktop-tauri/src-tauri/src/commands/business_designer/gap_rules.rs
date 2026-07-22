@@ -205,23 +205,51 @@ fn derive_edges(graph: &DesignerDesignGraph) -> Vec<DesignerDerivedEdge> {
                 let refs = super::ui_refs::extract_ui_refs(html);
                 for target in &refs.nav {
                     if block_ids.contains(target.as_str()) {
-                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::NavigatesTo, Some("data-nav".to_string()));
+                        push_edge(
+                            &mut edges,
+                            &mut seen,
+                            &block.id,
+                            target,
+                            DesignerEdgeRelation::NavigatesTo,
+                            Some("data-nav".to_string()),
+                        );
                     }
                 }
                 for target in &refs.entity {
                     if block_ids.contains(target.as_str()) {
-                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::Uses, Some("data-entity".to_string()));
+                        push_edge(
+                            &mut edges,
+                            &mut seen,
+                            &block.id,
+                            target,
+                            DesignerEdgeRelation::Uses,
+                            Some("data-entity".to_string()),
+                        );
                     }
                 }
                 for raw in &refs.api {
                     let target = super::ui_refs::data_api_contract_id(raw);
                     if block_ids.contains(target) {
-                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::Consumes, Some("data-api".to_string()));
+                        push_edge(
+                            &mut edges,
+                            &mut seen,
+                            &block.id,
+                            target,
+                            DesignerEdgeRelation::Consumes,
+                            Some("data-api".to_string()),
+                        );
                     }
                 }
                 for target in &refs.flow {
                     if block_ids.contains(target.as_str()) {
-                        push_edge(&mut edges, &mut seen, &block.id, target, DesignerEdgeRelation::ParticipatesIn, Some("data-flow".to_string()));
+                        push_edge(
+                            &mut edges,
+                            &mut seen,
+                            &block.id,
+                            target,
+                            DesignerEdgeRelation::ParticipatesIn,
+                            Some("data-flow".to_string()),
+                        );
                     }
                 }
             }
@@ -1026,9 +1054,19 @@ fn check_ui_screen(
     result: &mut GapRunResult,
 ) {
     let kind = "uiScreen";
-    let html = block.payload.get("html").and_then(Value::as_str).unwrap_or("");
+    let html = block
+        .payload
+        .get("html")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let has_html = !html.trim().is_empty();
-    record(result, kind, "ui-no-html", &block.id, usize::from(!has_html));
+    record(
+        result,
+        kind,
+        "ui-no-html",
+        &block.id,
+        usize::from(!has_html),
+    );
     if !has_html {
         fail(
             result,
@@ -1171,7 +1209,13 @@ fn check_data_contract(block: &DesignerBlock, result: &mut GapRunResult) {
 
     let has_type = schema.get("type").and_then(Value::as_str).is_some()
         || schema.get("$ref").and_then(Value::as_str).is_some();
-    record(result, kind, "data-contract-no-type", &block.id, usize::from(!has_type));
+    record(
+        result,
+        kind,
+        "data-contract-no-type",
+        &block.id,
+        usize::from(!has_type),
+    );
     if !has_type {
         fail(
             result,

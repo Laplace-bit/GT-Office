@@ -17,7 +17,12 @@ export function shouldRenderStationTerminal(
   if (Boolean(runtime?.sessionId)) {
     return true
   }
-  return runtime?.stateRaw === 'exited' || runtime?.stateRaw === 'killed' || runtime?.stateRaw === 'failed'
+  return (
+    runtime?.stateRaw === 'launching' ||
+    runtime?.stateRaw === 'exited' ||
+    runtime?.stateRaw === 'killed' ||
+    runtime?.stateRaw === 'failed'
+  )
 }
 
 export function isStationTerminalRuntimeLive(

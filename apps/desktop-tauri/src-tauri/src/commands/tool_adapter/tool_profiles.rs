@@ -324,6 +324,13 @@ fn context_bool(context: Option<&Value>, keys: &[&str]) -> Option<bool> {
     None
 }
 
+fn resolve_profile_login_shell(context: Option<&Value>) -> bool {
+    // Agent profiles receive a fully augmented environment before PTY creation.
+    // Skipping shell profiles avoids repeated shell startup work while preserving
+    // an explicit opt-in for integrations that require a login shell.
+    context_bool(context, &["loginShell", "login_shell"]).unwrap_or(false)
+}
+
 fn context_string_list(context: Option<&Value>, keys: &[&str]) -> Vec<String> {
     let Some(object) = context.and_then(Value::as_object) else {
         return Vec::new();
@@ -560,7 +567,7 @@ pub fn tool_launch(
         cwd_mode: cwd_mode.clone(),
         env,
         agent_tool_kind: Some(profile_id_canonical.clone()),
-        login_shell: context_bool(context.as_ref(), &["loginShell", "login_shell"]),
+        login_shell: Some(resolve_profile_login_shell(context.as_ref())),
     };
     let session = state
         .terminal_provider

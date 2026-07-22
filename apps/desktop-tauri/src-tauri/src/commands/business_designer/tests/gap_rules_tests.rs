@@ -54,20 +54,36 @@ fn derived_edge_relation_vocabulary_is_closed() {
     );
     assert_eq!(
         serde_json::to_value(DERIVED_EDGE_RELATIONS).expect("serialize relation vocabulary"),
-        json!(["dependsOn", "produces", "consumes", "uses", "extends", "navigatesTo", "participatesIn"])
+        json!([
+            "dependsOn",
+            "produces",
+            "consumes",
+            "uses",
+            "extends",
+            "navigatesTo",
+            "participatesIn"
+        ])
     );
 }
 
 #[test]
 fn gap_layer_and_severity_vocabularies_are_closed() {
     assert_eq!(
-        serde_json::to_value([DesignerGapLayer::Intra, DesignerGapLayer::Inter, DesignerGapLayer::Completeness])
-            .expect("serialize gap layers"),
+        serde_json::to_value([
+            DesignerGapLayer::Intra,
+            DesignerGapLayer::Inter,
+            DesignerGapLayer::Completeness
+        ])
+        .expect("serialize gap layers"),
         json!(["intra", "inter", "completeness"])
     );
     assert_eq!(
-        serde_json::to_value([DesignerGapSeverity::Info, DesignerGapSeverity::Warning, DesignerGapSeverity::Error])
-            .expect("serialize gap severities"),
+        serde_json::to_value([
+            DesignerGapSeverity::Info,
+            DesignerGapSeverity::Warning,
+            DesignerGapSeverity::Error
+        ])
+        .expect("serialize gap severities"),
         json!(["info", "warning", "error"])
     );
 }
@@ -477,12 +493,14 @@ fn derived_edge_relations_include_navigates_and_participates() {
 
 #[test]
 fn ui_screen_dangling_data_ref_emits_gap() {
-    let g = graph(vec![
-        block("screen-1", "uiScreen", json!({
+    let g = graph(vec![block(
+        "screen-1",
+        "uiScreen",
+        json!({
             "screenName": "Orders",
             "html": "<button data-api=\"missing-api\">Go</button>"
-        })),
-    ]);
+        }),
+    )]);
     let result = run_all(&g);
     let codes = gap_codes(&result, "screen-1");
     assert!(codes.contains(&"ui-dangling-ref".to_string()));
@@ -491,56 +509,118 @@ fn ui_screen_dangling_data_ref_emits_gap() {
 #[test]
 fn ui_screen_valid_refs_derive_edges_and_no_gap() {
     let g = graph(vec![
-        block("orders-api", "apiContract", json!({ "endpoints": [{ "path": "/orders", "method": "GET" }] })),
-        block("order", "entityModel", json!({ "entityName": "Order", "fields": [{ "name": "id", "type": "string" }] })),
-        block("order-flow", "businessFlow", json!({ "states": [{ "name": "created" }], "transitions": [] })),
-        block("dashboard", "uiScreen", json!({ "screenName": "Dashboard", "html": "<a data-nav=\"orders\">Orders</a>" })),
-        block("orders", "uiScreen", json!({
-            "screenName": "Orders",
-            "html": "<button data-api=\"orders-api:POST /orders\" data-entity=\"order\" data-flow=\"order-flow\">Create</button>"
-        })),
+        block(
+            "orders-api",
+            "apiContract",
+            json!({ "endpoints": [{ "path": "/orders", "method": "GET" }] }),
+        ),
+        block(
+            "order",
+            "entityModel",
+            json!({ "entityName": "Order", "fields": [{ "name": "id", "type": "string" }] }),
+        ),
+        block(
+            "order-flow",
+            "businessFlow",
+            json!({ "states": [{ "name": "created" }], "transitions": [] }),
+        ),
+        block(
+            "dashboard",
+            "uiScreen",
+            json!({ "screenName": "Dashboard", "html": "<a data-nav=\"orders\">Orders</a>" }),
+        ),
+        block(
+            "orders",
+            "uiScreen",
+            json!({
+                "screenName": "Orders",
+                "html": "<button data-api=\"orders-api:POST /orders\" data-entity=\"order\" data-flow=\"order-flow\">Create</button>"
+            }),
+        ),
     ]);
     let result = run_all(&g);
     assert!(!gap_codes(&result, "orders").contains(&"ui-dangling-ref".to_string()));
-    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "orders" && e.to_block_id == "orders-api" && e.relation == DesignerEdgeRelation::Consumes));
-    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "orders" && e.to_block_id == "order" && e.relation == DesignerEdgeRelation::Uses));
-    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "orders" && e.to_block_id == "order-flow" && e.relation == DesignerEdgeRelation::ParticipatesIn));
-    assert!(result.derived_edges.iter().any(|e| e.from_block_id == "dashboard" && e.to_block_id == "orders" && e.relation == DesignerEdgeRelation::NavigatesTo));
+    assert!(result
+        .derived_edges
+        .iter()
+        .any(|e| e.from_block_id == "orders"
+            && e.to_block_id == "orders-api"
+            && e.relation == DesignerEdgeRelation::Consumes));
+    assert!(result
+        .derived_edges
+        .iter()
+        .any(|e| e.from_block_id == "orders"
+            && e.to_block_id == "order"
+            && e.relation == DesignerEdgeRelation::Uses));
+    assert!(result
+        .derived_edges
+        .iter()
+        .any(|e| e.from_block_id == "orders"
+            && e.to_block_id == "order-flow"
+            && e.relation == DesignerEdgeRelation::ParticipatesIn));
+    assert!(result
+        .derived_edges
+        .iter()
+        .any(|e| e.from_block_id == "dashboard"
+            && e.to_block_id == "orders"
+            && e.relation == DesignerEdgeRelation::NavigatesTo));
 }
 
 #[test]
 fn ui_screen_empty_html_emits_gap() {
-    let g = graph(vec![block("s1", "uiScreen", json!({ "screenName": "S", "html": "" }))]);
+    let g = graph(vec![block(
+        "s1",
+        "uiScreen",
+        json!({ "screenName": "S", "html": "" }),
+    )]);
     let result = run_all(&g);
     assert!(gap_codes(&result, "s1").contains(&"ui-no-html".to_string()));
 }
 
 #[test]
 fn data_contract_non_object_schema_emits_invalid() {
-    let g = graph(vec![block("dc-1", "dataContract", json!({"schema": "not-json"}))]);
+    let g = graph(vec![block(
+        "dc-1",
+        "dataContract",
+        json!({"schema": "not-json"}),
+    )]);
     let result = run_all(&g);
     assert!(gap_codes(&result, "dc-1").contains(&"data-contract-invalid".to_string()));
 }
 
 #[test]
 fn data_contract_missing_type_emits_gap() {
-    let g = graph(vec![block("dc-1", "dataContract", json!({"schema": {"properties": {}}}))]);
+    let g = graph(vec![block(
+        "dc-1",
+        "dataContract",
+        json!({"schema": {"properties": {}}}),
+    )]);
     let result = run_all(&g);
     assert!(gap_codes(&result, "dc-1").contains(&"data-contract-no-type".to_string()));
 }
 
 #[test]
 fn data_contract_object_without_properties_emits_gap() {
-    let g = graph(vec![block("dc-1", "dataContract", json!({"schema": {"type": "object"}}))]);
+    let g = graph(vec![block(
+        "dc-1",
+        "dataContract",
+        json!({"schema": {"type": "object"}}),
+    )]);
     let result = run_all(&g);
     assert!(gap_codes(&result, "dc-1").contains(&"data-contract-no-properties".to_string()));
 }
 
 #[test]
 fn data_contract_valid_object_schema_no_gap() {
-    let g = graph(vec![block("dc-1", "dataContract", json!({
-        "schema": {"type": "object", "properties": {"id": {"type": "string"}}}
-    }))]);
+    let g = graph(vec![block(
+        "dc-1",
+        "dataContract",
+        json!({
+            "schema": {"type": "object", "properties": {"id": {"type": "string"}}}
+        }),
+    )]);
     let result = run_all(&g);
-    assert!(!gap_codes(&result, "dc-1").iter().any(|c| c.starts_with("data-contract")));
+    assert!(!gap_codes(&result, "dc-1")
+        .iter()
+        .any(|c| c.starts_with("data-contract")));
 }

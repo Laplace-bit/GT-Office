@@ -1,7 +1,10 @@
 import type { WorkbenchStationRuntime } from './TerminalStationPane'
 
 export const DETACHED_TERMINAL_BRIDGE_MAIN_WINDOW_LABEL = 'main'
-export const DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS = 50000
+// The cache is a rebind/recovery source as well as detached-window state. Keep
+// a meaningful terminal transcript here instead of resetting to a 50k tail
+// whenever a renderer or window changes ownership.
+export const DETACHED_TERMINAL_OUTPUT_CACHE_MAX_CHARS = 1024 * 1024
 export const DETACHED_TERMINAL_OUTPUT_APPEND_MESSAGE_CHAR_LIMIT = 24 * 1024
 
 export type DetachedTerminalRuntimeProjectionPatch = Partial<
