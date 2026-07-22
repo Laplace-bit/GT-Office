@@ -79,4 +79,3 @@ export type {
   DetachedTerminalRuntimeProjectionPatch,
 } from './detached-terminal-bridge'
 export * from './station-model'
-export { resolveRolePromptTemplate } from './role-prompt-templates'

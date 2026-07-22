@@ -1,7 +1,7 @@
 pub mod surface;
 
 use gt_abstractions::{WorkspaceId, WorkspaceService, WorkspaceSessionSnapshot};
-use gt_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_agent::AgentRepository;
 use gt_storage::{SqliteAgentRepository, SqliteAiConfigRepository, SqliteStorage};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -193,9 +193,6 @@ fn reset_workspace_state_storage(
     let agent_repo = SqliteAgentRepository::new(storage.clone());
     let ai_repo = SqliteAiConfigRepository::new(storage.clone());
     agent_repo.ensure_schema().map_err(to_command_error)?;
-    agent_repo
-        .seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
-        .map_err(to_command_error)?;
     ai_repo.ensure_schema().map_err(to_command_error)?;
 
     let mut conn = storage.open_connection().map_err(to_command_error)?;

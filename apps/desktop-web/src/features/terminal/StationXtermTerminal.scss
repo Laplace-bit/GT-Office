@@ -10,6 +10,12 @@
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: none;
+  // Native terminal: subtle top divider line
+  border-top: var(--vb-border-width) solid var(--vb-terminal-border);
+}
+// Focus state: subtle accent ring when terminal is active
+.station-terminal-shell[data-active='true'] {
+  box-shadow: inset 0 0 0 var(--vb-border-width) color-mix(in srgb, var(--vb-terminal-focus) 12%, transparent);
 }
 
 .station-terminal-shell[data-file-drop-active='true'] {
@@ -151,6 +157,12 @@
   height: 100%;
 }
 
+// Native terminal feel: content area padding
+.station-terminal-shell .station-terminal-host .xterm {
+  padding: 0.4286rem 0.5714rem;
+  box-sizing: border-box;
+}
+
 .station-terminal-shell .station-terminal-host .xterm .xterm-viewport,
 .station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element,
 .station-terminal-shell .station-terminal-host .xterm .xterm-screen {
@@ -159,8 +171,8 @@
 }
 
 .station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element {
-  --station-terminal-scrollbar-hit-size: 0.7143rem;
-  --station-terminal-scrollbar-edge-gap: 0.1071rem;
+  --station-terminal-scrollbar-hit-size: 0.5714rem;
+  --station-terminal-scrollbar-edge-gap: 0.1429rem;
   inset: 0 !important;
   overscroll-behavior: contain;
 }
@@ -210,4 +222,9 @@
 .station-terminal-shell .station-terminal-host .xterm .xterm-scrollable-element > .shadow {
   display: none !important;
   box-shadow: none !important;
+}
+
+// Cursor layer rendering hint for smooth blink animation
+.station-terminal-shell .station-terminal-host .xterm .xterm-cursor-layer {
+  will-change: opacity;
 }

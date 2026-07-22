@@ -5,7 +5,7 @@ import {
   type StationActionDescriptor,
 } from './station-action-model'
 import { StationActionCommandSheet } from './StationActionCommandSheet'
-import type { AgentStation, StationRole } from './station-model'
+import type { AgentStation } from './station-model'
 import { normalizeStationToolKind } from './station-model'
 import {
   buildStationLaunchCommand,
@@ -98,18 +98,10 @@ function isDetachedTerminalSessionBindingInvalid(detail: string): boolean {
   )
 }
 
-function toStationRole(value: string): StationRole {
-  return value
-}
-
 function mapDetachedStation(payload: SurfaceDetachedStationPayload, index: number): AgentStation {
   return {
     id: payload.stationId,
     name: payload.name,
-    roleId: payload.stationId,
-    role: toStationRole(payload.role),
-    roleName: payload.role,
-    roleWorkdirRel: payload.roleWorkdirRel?.trim() || '.gtoffice/roles/detached',
     agentWorkdirRel: payload.agentWorkdirRel,
     customWorkdir: true,
     scope: 'station',

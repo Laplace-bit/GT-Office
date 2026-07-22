@@ -11,7 +11,6 @@ use crate::app_state::AppState;
 pub(crate) struct SurfaceDetachedStationPayload {
     pub(crate) station_id: String,
     pub(crate) name: String,
-    pub(crate) role: String,
     pub(crate) tool: String,
     pub(crate) agent_workdir_rel: String,
     pub(crate) role_workdir_rel: Option<String>,

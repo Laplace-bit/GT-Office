@@ -2,7 +2,7 @@
  * Designer agent station types (sub-project B).
  *
  * The designer agent station is a workspace-level persistent agent profile
- * (role: business-designer, workdir: .gtoffice/docs) whose terminal session
+ * (scope: designer, workdir: .gtoffice/docs) whose terminal session
  * is launched by the frontend via the existing station/terminal infra. These
  * types cover the station profile + scenario prompt used by
  * `useDesignerAgentStation`.

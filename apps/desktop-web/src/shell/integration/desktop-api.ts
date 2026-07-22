@@ -732,10 +732,8 @@ export interface TerminalDebugAppendFrontendFocusLogResponse {
 export interface SurfaceDetachedStationPayload {
   stationId: string
   name: string
-  role: string
   tool: string
   agentWorkdirRel: string
-  roleWorkdirRel?: string | null
   workspaceId: string
   sessionId?: string | null
 }
@@ -1868,45 +1866,12 @@ export interface TaskDispatchBatchResponse {
 
 export type AgentState = 'ready' | 'paused' | 'blocked' | 'terminated'
 
-export interface OrganizationDepartment {
-  id: string
-  workspaceId: string
-  name: string
-  description?: string | null
-  orderIndex: number
-  isSystem: boolean
-  createdAtMs: number
-  updatedAtMs: number
-}
-
-export type AgentRoleScope = 'global' | 'workspace'
-
-export interface AgentRole {
-  id: string
-  workspaceId: string
-  roleKey: string
-  roleName: string
-  departmentId: string
-  scope: AgentRoleScope
-  charterPath?: string | null
-  policyJson?: string | null
-  version: number
-  status: 'active' | 'deprecated' | 'disabled'
-  isSystem: boolean
-  createdAtMs: number
-  updatedAtMs: number
-}
-
-/** Where an agent surfaces in the UI. Mirrors the backend `AgentScope`
- *  enum (snake_case wire form). `designer` agents are owned by the business
- *  designer and filtered out of the global workspace-hub station list. */
 export type AgentScope = 'station' | 'designer'
 
 export interface AgentProfile {
   id: string
   workspaceId: string
   name: string
-  roleId: string
   tool: string
   workdir?: string | null
   customWorkdir: boolean
@@ -1922,15 +1887,6 @@ export interface AgentProfile {
   updatedAtMs: number
 }
 
-export interface AgentDepartmentListResponse {
-  departments: OrganizationDepartment[]
-}
-
-export interface AgentRoleListResponse {
-  roles: AgentRole[]
-  restorableSystemRoles: RestorableSystemRole[]
-}
-
 export interface AgentListResponse {
   agents: AgentProfile[]
 }
@@ -1939,7 +1895,6 @@ export interface AgentCreateRequest {
   workspaceId: string
   agentId?: string | null
   name: string
-  roleId: string
   tool?: string | null
   workdir?: string | null
   customWorkdir?: boolean
@@ -1959,7 +1914,6 @@ export interface AgentUpdateRequest {
   workspaceId: string
   agentId: string
   name: string
-  roleId: string
   tool?: string | null
   workdir?: string | null
   customWorkdir?: boolean
@@ -1995,50 +1949,6 @@ export interface AgentDeleteResponse {
   } | null
 }
 
-export interface AgentRoleSaveRequest {
-  workspaceId: string
-  roleId?: string | null
-  roleKey?: string | null
-  roleName: string
-  scope?: AgentRoleScope | null
-  status?: 'active' | 'deprecated' | 'disabled' | null
-  charterPath?: string | null
-  policyJson?: string | null
-}
-
-export interface AgentRoleSaveResponse {
-  role: AgentRole
-}
-
-export interface AgentRoleDeleteRequest {
-  workspaceId: string
-  roleId: string
-  scope?: AgentRoleScope | null
-}
-
-export interface AgentRoleDeleteResponse {
-  deleted: boolean
-  errorCode?: string | null
-  blockingAgents?: AgentProfile[] | null
-  fallbackRoleId?: string | null
-  fallbackRoleName?: string | null
-}
-
-export interface RestorableSystemRole {
-  roleId: string
-  roleKey: string
-  roleName: string
-}
-
-export interface AgentRoleRestoreSystemRequest {
-  workspaceId: string
-  roleId: string
-}
-
-export interface AgentRoleRestoreSystemResponse {
-  role: AgentRole
-}
-
 export interface AgentPromptReadRequest {
   workspaceId: string
   agentId: string
@@ -2059,7 +1969,6 @@ export interface AgentRuntimeRegisterRequest {
   workspaceId: string
   agentId: string
   stationId: string
-  roleKey?: string | null
   sessionId: string
   toolKind?: 'claude' | 'codex' | 'shell' | 'unknown'
   resolvedCwd?: string | null
@@ -2071,7 +1980,6 @@ export interface AgentRuntimeRegisterResponse {
   workspaceId: string
   agentId: string
   stationId: string
-  roleKey?: string | null
   sessionId: string
   toolKind?: 'claude' | 'codex' | 'shell' | 'unknown'
   resolvedCwd?: string | null
@@ -2158,7 +2066,6 @@ export interface ToolLaunchResponse {
   toolSessionId?: string | null
   terminalSessionId?: string | null
   stationId?: string | null
-  roleKey?: string | null
   resolvedCwd?: string | null
   shell?: string | null
   submitSequence?: string | null
@@ -4358,43 +4265,6 @@ export const desktopApi = {
       },
     })
   },
-  agentDepartmentList(workspaceId: string) {
-    return invokeCommand<AgentDepartmentListResponse>('agent_department_list', { workspaceId })
-  },
-  agentRoleList(workspaceId: string) {
-    return invokeCommand<AgentRoleListResponse>('agent_role_list', { workspaceId })
-  },
-  agentRoleSave(request: AgentRoleSaveRequest) {
-    return invokeCommand<AgentRoleSaveResponse>('agent_role_save', {
-      request: {
-        workspaceId: request.workspaceId,
-        roleId: request.roleId ?? null,
-        roleKey: request.roleKey ?? null,
-        roleName: request.roleName,
-        scope: request.scope ?? null,
-        status: request.status ?? null,
-        charterPath: request.charterPath ?? null,
-        policyJson: request.policyJson ?? null,
-      },
-    })
-  },
-  agentRoleDelete(request: AgentRoleDeleteRequest) {
-    return invokeCommand<AgentRoleDeleteResponse>('agent_role_delete', {
-      request: {
-        workspaceId: request.workspaceId,
-        roleId: request.roleId,
-        scope: request.scope ?? null,
-      },
-    })
-  },
-  agentRoleRestoreSystem(request: AgentRoleRestoreSystemRequest) {
-    return invokeCommand<AgentRoleRestoreSystemResponse>('agent_role_restore_system', {
-      request: {
-        workspaceId: request.workspaceId,
-        roleId: request.roleId,
-      },
-    })
-  },
   agentList(workspaceId: string) {
     return invokeCommand<AgentListResponse>('agent_list', { workspaceId })
   },
@@ -4404,7 +4274,6 @@ export const desktopApi = {
         workspaceId: request.workspaceId,
         agentId: request.agentId ?? null,
         name: request.name,
-        roleId: request.roleId,
         tool: request.tool ?? null,
         workdir: request.workdir ?? null,
         customWorkdir: request.customWorkdir ?? false,
@@ -4423,7 +4292,6 @@ export const desktopApi = {
         workspaceId: request.workspaceId,
         agentId: request.agentId,
         name: request.name,
-        roleId: request.roleId,
         tool: request.tool ?? null,
         workdir: request.workdir ?? null,
         customWorkdir: request.customWorkdir ?? false,
@@ -4468,7 +4336,6 @@ export const desktopApi = {
         workspaceId: request.workspaceId,
         agentId: request.agentId,
         stationId: request.stationId,
-        roleKey: request.roleKey ?? null,
         sessionId: request.sessionId,
         toolKind: request.toolKind ?? 'unknown',
         resolvedCwd: request.resolvedCwd ?? null,

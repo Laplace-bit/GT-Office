@@ -1,5 +1,5 @@
 import { t, type Locale } from '@shell/i18n/ui-locale'
-import type { AgentRole, AgentProfile, ChannelRouteBinding } from '@shell/integration/desktop-api'
+import type { AgentProfile, ChannelRouteBinding } from '@shell/integration/desktop-api'
 import {
   buildChannelRouteRowKey,
   normalizeChannelAccountId,
@@ -12,7 +12,6 @@ type ChannelBotGroup = ChannelBotBindingGroup
 interface ChannelBotCardProps {
   group: ChannelBotGroup
   locale: Locale
-  roles: AgentRole[]
   agents: AgentProfile[]
   onEditBinding: (binding: ChannelRouteBinding) => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
@@ -46,7 +45,6 @@ function buildHealthCheckKey(channel: string, accountId?: string | null): string
 export function ChannelBotCard({
   group,
   locale,
-  roles,
   agents,
   onEditBinding,
   onDeleteBinding,
@@ -66,13 +64,8 @@ export function ChannelBotCard({
       : group.channel
 
   const getTargetLabel = (target: { type: string; value: string }) => {
-    if (target.type === 'role') {
-      const role = roles.find(r => r.roleKey === target.value || r.id === target.value)
-      return role ? role.roleName : target.value
-    } else {
-      const agent = agents.find(a => a.id === target.value)
-      return agent ? agent.name : target.value
-    }
+    const agent = agents.find((agent) => agent.id === target.value)
+    return agent ? agent.name : target.value
   }
 
   const groupHealthKey = buildHealthCheckKey(group.channel, group.accountId)

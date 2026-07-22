@@ -266,7 +266,6 @@ pub fn agent_runtime_register(
         "workspaceId": request.workspace_id,
         "agentId": request.agent_id,
         "stationId": request.station_id,
-        "roleKey": request.role_key,
         "sessionId": request.session_id,
         "toolKind": request.tool_kind,
         "resolvedCwd": request.resolved_cwd,

@@ -1,10 +1,9 @@
 import type { ChannelConnectorAccount, ChannelRouteBinding } from '@shell/integration/desktop-api'
 
-const ROLE_TARGET_PREFIX = 'role:'
 const DEFAULT_ACCOUNT_ID = 'default'
 
 export interface ParsedChannelBindingTarget {
-  type: 'role' | 'agent'
+  type: 'agent'
   value: string
 }
 
@@ -28,7 +27,6 @@ export interface StationChannelBotBindingSummary {
 
 interface StationDescriptor {
   id: string
-  role: string
 }
 
 function normalizeCompareKey(value: string): string {
@@ -100,12 +98,7 @@ export function isConfiguredChannelBotGroup(group: ChannelBotBindingGroup): bool
 
 export function parseChannelBindingTarget(targetAgentId: string): ParsedChannelBindingTarget {
   const trimmed = targetAgentId.trim()
-  if (trimmed.startsWith(ROLE_TARGET_PREFIX)) {
-    return {
-      type: 'role',
-      value: trimmed.slice(ROLE_TARGET_PREFIX.length).trim(),
-    }
-  }
+
   return {
     type: 'agent',
     value: trimmed,
@@ -207,12 +200,6 @@ export function buildStationChannelBotBindingMap(
     if (target.type === 'agent') {
       stations.forEach((station) => {
         if (normalizeCompareKey(station.id) === normalizedTarget) {
-          matchedStationIds.push(station.id)
-        }
-      })
-    } else {
-      stations.forEach((station) => {
-        if (normalizeCompareKey(station.role) === normalizedTarget) {
           matchedStationIds.push(station.id)
         }
       })

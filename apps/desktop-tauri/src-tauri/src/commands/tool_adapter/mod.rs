@@ -4,7 +4,7 @@ pub mod command_catalog;
 pub mod tool_profiles;
 
 use gt_abstractions::{WorkspaceId, WorkspaceService};
-use gt_agent::{AgentRepository, AgentState, RoleStatus};
+use gt_agent::AgentRepository;
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use gt_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelRouteBinding,
@@ -190,8 +190,6 @@ pub struct FeishuQrLoginStartRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeishuQrLoginCancelRequest {}
-
-const ROLE_TARGET_PREFIX: &str = "role:";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2245,87 +2243,15 @@ fn resolve_agent_repository(app: &AppHandle) -> Result<SqliteAgentRepository, St
     Ok(SqliteAgentRepository::new(storage))
 }
 
-fn resolve_role_dispatch_targets(
-    state: &AppState,
-    app: &AppHandle,
-    workspace_id: &str,
-    role_selector: &str,
-) -> Result<Vec<String>, String> {
-    let selector = role_selector.trim();
-    if selector.is_empty() {
-        return Err("CHANNEL_ROLE_INVALID: empty role selector".to_string());
-    }
-
-    let repo = resolve_agent_repository(app)?;
-    repo.ensure_schema()
-        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
-    repo.seed_defaults(workspace_id)
-        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
-
-    let roles = repo
-        .list_roles(workspace_id)
-        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
-    let matched_roles: Vec<_> = roles
-        .iter()
-        .filter(|role| {
-            role.status != RoleStatus::Disabled
-                && (role.id.eq_ignore_ascii_case(selector)
-                    || role.role_key.eq_ignore_ascii_case(selector))
-        })
-        .collect();
-    let matched_role_ids: HashSet<String> =
-        matched_roles.iter().map(|role| role.id.clone()).collect();
-    let matched_role_keys: HashSet<String> = matched_roles
-        .iter()
-        .map(|role| role.role_key.to_ascii_lowercase())
-        .collect();
-
-    if matched_role_ids.is_empty() {
-        return Err(format!("CHANNEL_ROLE_NOT_FOUND: {selector}"));
-    }
-
-    let agents = repo
-        .list_agents(workspace_id)
-        .map_err(|error| format!("CHANNEL_ROLE_RESOLVE_FAILED: {error}"))?;
-    let mut targets: Vec<String> = agents
-        .iter()
-        .filter(|agent| {
-            matched_role_ids.contains(&agent.role_id) && agent.state != AgentState::Terminated
-        })
-        .map(|agent| agent.id.clone())
-        .collect();
-    for runtime in state.task_service.list_runtimes(Some(workspace_id)) {
-        let Some(role_key) = runtime.role_key.as_deref() else {
-            continue;
-        };
-        if matched_role_keys.contains(&role_key.to_ascii_lowercase()) {
-            targets.push(runtime.agent_id);
-        }
-    }
-    targets.sort();
-    targets.dedup();
-
-    if targets.is_empty() {
-        return Err(format!(
-            "CHANNEL_ROLE_EMPTY: no dispatch targets found for {selector}"
-        ));
-    }
-
-    Ok(targets)
-}
-
 fn resolve_dispatch_targets(
-    state: &AppState,
-    app: &AppHandle,
-    workspace_id: &str,
+    _state: &AppState,
+    _app: &AppHandle,
+    _workspace_id: &str,
     target_selector: &str,
 ) -> Result<Vec<String>, String> {
     let trimmed = target_selector.trim();
     if trimmed.is_empty() {
         return Err("CHANNEL_TARGET_INVALID: target selector is required".to_string());
-    }
-    if let Some(role_selector) = trimmed.strip_prefix(ROLE_TARGET_PREFIX) {
-        return resolve_role_dispatch_targets(state, app, workspace_id, role_selector);
     }
     Ok(vec![trimmed.to_string()])
 }

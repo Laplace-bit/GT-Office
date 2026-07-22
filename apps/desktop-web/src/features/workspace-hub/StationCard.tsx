@@ -51,21 +51,6 @@ const TERMINAL_FOCUS_RETRY_FRAME_FALLBACK_MS = 48
 const STATION_CARD_COMPACT_WIDTH_PX = 360
 const STATION_CARD_COMPACT_HEIGHT_PX = 392
 
-function roleLabel(locale: Locale, station: AgentStation): string {
-  switch (station.role) {
-    case 'orchestrator':
-      return t(locale, 'station.role.orchestrator')
-    case 'analyst':
-      return t(locale, 'station.role.analyst')
-    case 'generator':
-      return t(locale, 'station.role.generator')
-    case 'evaluator':
-      return t(locale, 'station.role.evaluator')
-    default:
-      return station.roleName || station.role
-  }
-}
-
 interface StationIconButtonProps {
   tooltip: string
   className?: string
@@ -339,10 +324,9 @@ function StationCardView({
   )
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
 
-  const roleText = roleLabel(locale, station)
   const identityMeta = useMemo(
-    () => buildStationCardIdentityMeta(station.name, roleText, station.tool),
-    [roleText, station.name, station.tool],
+    () => buildStationCardIdentityMeta(station.name, station.tool),
+    [station.name, station.tool],
   )
   const identityTitle = useMemo(() => identityMeta.map((item) => item.label).join(' · '), [identityMeta])
   const agentRunningForDisplay = hasTerminalSession

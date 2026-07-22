@@ -2,15 +2,13 @@ use std::path::{Path, PathBuf};
 
 use gt_abstractions::{WorkspaceId, WorkspaceService};
 use gt_agent::{
-    default_agent_workdir, normalize_agent_slug, prompt_file_name_for_tool, AgentProfile,
-    AgentRepository, AgentRole, AgentRoleScope, AgentScope, AgentState, CreateAgentInput,
-    UpdateAgentInput, DEFAULT_ROLES, GLOBAL_ROLE_WORKSPACE_ID,
+    default_agent_workdir, prompt_file_name_for_tool, AgentProfile, AgentRepository, AgentScope,
+    AgentState, CreateAgentInput, UpdateAgentInput,
 };
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
-use uuid::Uuid;
 
 use crate::app_state::AppState;
 
@@ -57,15 +55,6 @@ pub(crate) fn resolve_agent_repository<R: tauri::Runtime>(
     Ok(SqliteAgentRepository::new(storage))
 }
 
-pub(crate) fn seed_agent_defaults(
-    repo: &SqliteAgentRepository,
-    workspace_id: &str,
-) -> Result<(), String> {
-    repo.seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
-        .map_err(to_command_error)?;
-    repo.seed_defaults(workspace_id).map_err(to_command_error)
-}
-
 pub(crate) fn parse_agent_state(value: Option<String>) -> Result<AgentState, String> {
     match value.as_deref().map(str::trim) {
         None => Ok(AgentState::Ready),
@@ -77,35 +66,15 @@ pub(crate) fn parse_agent_state(value: Option<String>) -> Result<AgentState, Str
     }
 }
 
-pub(crate) fn parse_role_scope(value: Option<&str>) -> AgentRoleScope {
-    match value.map(str::trim) {
-        Some("global") => AgentRoleScope::Global,
-        _ => AgentRoleScope::Workspace,
-    }
-}
-
-pub(crate) fn parse_role_status(value: Option<String>) -> Result<gt_agent::RoleStatus, String> {
-    match value.as_deref().map(str::trim) {
-        None => Ok(gt_agent::RoleStatus::Active),
-        Some("active") => Ok(gt_agent::RoleStatus::Active),
-        Some("deprecated") => Ok(gt_agent::RoleStatus::Deprecated),
-        Some("disabled") => Ok(gt_agent::RoleStatus::Disabled),
-        Some(other) => Err(format!("AGENT_ROLE_STATUS_INVALID: {other}")),
-    }
-}
-
 fn parse_direct_binding_cleanup_mode(
     value: Option<&str>,
     replacement_agent_id: Option<&str>,
 ) -> Result<Option<DirectBindingCleanupMode>, String> {
-    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    match value {
-        "reject" => Ok(None),
-        "disable" => Ok(Some(DirectBindingCleanupMode::Disable)),
-        "delete" => Ok(Some(DirectBindingCleanupMode::Delete)),
-        "rebind" => {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        None | Some("reject") => Ok(None),
+        Some("disable") => Ok(Some(DirectBindingCleanupMode::Disable)),
+        Some("delete") => Ok(Some(DirectBindingCleanupMode::Delete)),
+        Some("rebind") => {
             let replacement_agent_id = replacement_agent_id
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -113,35 +82,13 @@ fn parse_direct_binding_cleanup_mode(
                     "CHANNEL_BINDING_REPLACEMENT_AGENT_INVALID: replacementAgentId is required"
                         .to_string()
                 })?;
-            if replacement_agent_id.starts_with("role:") {
-                return Err(
-                    "CHANNEL_BINDING_REPLACEMENT_AGENT_INVALID: replacementAgentId must be a direct agent id"
-                        .to_string(),
-                );
-            }
             Ok(Some(DirectBindingCleanupMode::Rebind {
                 replacement_agent_id: replacement_agent_id.to_string(),
             }))
         }
-        other => Err(format!("AGENT_DELETE_CLEANUP_MODE_INVALID: {other}")),
+        Some(other) => Err(format!("AGENT_DELETE_CLEANUP_MODE_INVALID: {other}")),
     }
 }
-
-pub(crate) fn role_scope_workspace_id(scope: &AgentRoleScope, workspace_id: &str) -> String {
-    match scope {
-        AgentRoleScope::Global => GLOBAL_ROLE_WORKSPACE_ID.to_string(),
-        AgentRoleScope::Workspace => workspace_id.to_string(),
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RestorableSystemRoleSummary {
-    role_id: String,
-    role_key: String,
-    role_name: String,
-}
-
 pub(crate) fn normalize_relative_workdir(value: &str) -> Option<String> {
     let normalized = value.trim().replace('\\', "/").replace("/./", "/");
     if normalized.starts_with('/') || normalized.starts_with('~') || normalized.contains(':') {
@@ -411,52 +358,6 @@ fn find_agent(
 }
 
 #[tauri::command]
-pub fn agent_department_list(
-    workspace_id: String,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    repo.seed_defaults(&workspace_id)
-        .map_err(to_command_error)?;
-    let departments = repo
-        .list_departments(&workspace_id)
-        .map_err(to_command_error)?;
-    Ok(json!({ "departments": departments }))
-}
-
-#[tauri::command]
-pub fn agent_role_list(
-    workspace_id: String,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &workspace_id)?;
-    let roles = repo.list_roles(&workspace_id).map_err(to_command_error)?;
-    let deleted_ids = repo
-        .list_deleted_system_role_seed_ids(GLOBAL_ROLE_WORKSPACE_ID)
-        .map_err(to_command_error)?;
-    let restorable_system_roles = DEFAULT_ROLES
-        .iter()
-        .filter(|role| deleted_ids.iter().any(|id| id == role.id))
-        .map(|role| RestorableSystemRoleSummary {
-            role_id: role.id.to_string(),
-            role_key: role.role_key.to_string(),
-            role_name: role.role_name.to_string(),
-        })
-        .collect::<Vec<_>>();
-    Ok(json!({
-        "roles": roles,
-        "restorableSystemRoles": restorable_system_roles,
-    }))
-}
-
-#[tauri::command]
 pub fn agent_list(
     workspace_id: String,
     state: State<'_, AppState>,
@@ -471,174 +372,10 @@ pub fn agent_list(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRoleSaveRequest {
-    pub workspace_id: String,
-    pub role_id: Option<String>,
-    pub role_key: Option<String>,
-    pub role_name: String,
-    pub scope: Option<String>,
-    pub status: Option<String>,
-    pub charter_path: Option<String>,
-    pub policy_json: Option<String>,
-}
-
-#[tauri::command]
-pub fn agent_role_save(
-    request: AgentRoleSaveRequest,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
-    let scope = parse_role_scope(request.scope.as_deref());
-    let status = parse_role_status(request.status.clone())?;
-    let role_workspace_id = role_scope_workspace_id(&scope, &request.workspace_id);
-    let existing = request.role_id.as_deref().and_then(|role_id| {
-        repo.list_roles(&request.workspace_id)
-            .ok()
-            .and_then(|roles| roles.into_iter().find(|role| role.id == role_id))
-    });
-    let role_key = request
-        .role_key
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| existing.as_ref().map(|role| role.role_key.clone()))
-        .unwrap_or_else(|| normalize_agent_slug(request.role_name.as_str()));
-    let role = AgentRole {
-        id: request
-            .role_id
-            .unwrap_or_else(|| Uuid::new_v4().to_string()),
-        workspace_id: role_workspace_id.clone(),
-        role_key,
-        role_name: request.role_name.trim().to_string(),
-        department_id: String::new(),
-        scope: scope.clone(),
-        charter_path: request
-            .charter_path
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| existing.as_ref().and_then(|role| role.charter_path.clone())),
-        policy_json: request
-            .policy_json
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| existing.as_ref().and_then(|role| role.policy_json.clone())),
-        version: existing.as_ref().map_or(1, |role| role.version + 1),
-        status,
-        is_system: existing.as_ref().is_some_and(|role| role.is_system),
-        created_at_ms: existing.as_ref().map_or(0, |role| role.created_at_ms),
-        updated_at_ms: 0,
-    };
-    let saved = repo
-        .upsert_role(&role_workspace_id, role)
-        .map_err(to_command_error)?;
-    Ok(json!({ "role": saved }))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRoleDeleteRequest {
-    pub workspace_id: String,
-    pub role_id: String,
-    pub scope: Option<String>,
-}
-
-#[tauri::command]
-pub fn agent_role_delete(
-    request: AgentRoleDeleteRequest,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
-    let scope = parse_role_scope(request.scope.as_deref());
-    let role_workspace_id = role_scope_workspace_id(&scope, &request.workspace_id);
-    let roles = repo
-        .list_roles(&request.workspace_id)
-        .map_err(to_command_error)?;
-    let target_role = roles
-        .iter()
-        .find(|role| role.id == request.role_id && role.workspace_id == role_workspace_id)
-        .cloned()
-        .ok_or_else(|| {
-            "AGENT_ROLE_DELETE_NOT_FOUND: roleId was not found in the requested scope".to_string()
-        })?;
-    let blocking_agents = repo
-        .list_agents(&request.workspace_id)
-        .map_err(to_command_error)?
-        .into_iter()
-        .filter(|agent| agent.role_id == request.role_id)
-        .collect::<Vec<_>>();
-    let fallback_role = roles
-        .iter()
-        .find(|role| {
-            role.id != target_role.id
-                && role.role_key == target_role.role_key
-                && role.status != gt_agent::RoleStatus::Disabled
-        })
-        .cloned();
-    if !blocking_agents.is_empty() {
-        if let Some(fallback_role) = fallback_role.clone() {
-            let _ = repo
-                .reassign_agents_role(
-                    &request.workspace_id,
-                    &target_role.id,
-                    &fallback_role.id,
-                    &fallback_role.workspace_id,
-                )
-                .map_err(to_command_error)?;
-        } else {
-            return Ok(json!({
-                "deleted": false,
-                "errorCode": "AGENT_ROLE_DELETE_BLOCKED_BY_ASSIGNED_AGENTS",
-                "blockingAgents": blocking_agents,
-            }));
-        }
-    }
-    let deleted = repo
-        .delete_role(&role_workspace_id, &request.role_id)
-        .map_err(to_command_error)?;
-    Ok(json!({
-        "deleted": deleted,
-        "fallbackRoleId": fallback_role.as_ref().map(|role| role.id.clone()),
-        "fallbackRoleName": fallback_role.as_ref().map(|role| role.role_name.clone()),
-    }))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRoleRestoreSystemRequest {
-    pub workspace_id: String,
-    pub role_id: String,
-}
-
-#[tauri::command]
-pub fn agent_role_restore_system(
-    request: AgentRoleRestoreSystemRequest,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> Result<Value, String> {
-    ensure_workspace_exists(&state, &request.workspace_id)?;
-    let repo = resolve_agent_repository(&app)?;
-    repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
-    let restored = repo
-        .restore_system_role(GLOBAL_ROLE_WORKSPACE_ID, &request.role_id)
-        .map_err(to_command_error)?;
-    match restored {
-        Some(role) => Ok(json!({ "role": role })),
-        None => Err("AGENT_ROLE_SYSTEM_RESTORE_INVALID: roleId is not a system preset".to_string()),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentCreateRequest {
     pub workspace_id: String,
     pub agent_id: Option<String>,
     pub name: String,
-    pub role_id: String,
     pub tool: Option<String>,
     pub workdir: Option<String>,
     pub custom_workdir: Option<bool>,
@@ -671,7 +408,6 @@ pub(crate) fn agent_create_with_repo(
         workspace_id: request.workspace_id.clone(),
         agent_id: request.agent_id,
         name: name.clone(),
-        role_id: request.role_id,
         tool: tool.clone(),
         workdir: Some(workdir.clone()),
         custom_workdir,
@@ -707,7 +443,6 @@ fn agent_create_with_context<R: tauri::Runtime>(
     ensure_workspace_exists(state, &request.workspace_id)?;
     let repo = resolve_agent_repository(app)?;
     repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
     let workspace_root = get_workspace_root(state, &request.workspace_id)?;
     let workspace_id = request.workspace_id.clone();
     let response = agent_create_with_repo(request, &repo, &workspace_root)?;
@@ -730,7 +465,6 @@ pub struct AgentUpdateRequest {
     pub workspace_id: String,
     pub agent_id: String,
     pub name: String,
-    pub role_id: String,
     pub tool: Option<String>,
     pub workdir: Option<String>,
     pub custom_workdir: Option<bool>,
@@ -780,7 +514,6 @@ pub(crate) fn agent_update_with_repo(
         workspace_id: request.workspace_id.clone(),
         agent_id: request.agent_id.clone(),
         name: name.clone(),
-        role_id: request.role_id,
         tool: tool.clone(),
         workdir: Some(workdir.clone()),
         custom_workdir,
@@ -825,7 +558,6 @@ fn agent_update_with_context<R: tauri::Runtime>(
     ensure_workspace_exists(state, &request.workspace_id)?;
     let repo = resolve_agent_repository(app)?;
     repo.ensure_schema().map_err(to_command_error)?;
-    seed_agent_defaults(&repo, &request.workspace_id)?;
     let workspace_root = get_workspace_root(state, &request.workspace_id)?;
     let workspace_id = request.workspace_id.clone();
     let response = agent_update_with_repo(request, &repo, &workspace_root)?;

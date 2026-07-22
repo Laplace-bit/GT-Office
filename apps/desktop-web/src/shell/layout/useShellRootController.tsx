@@ -87,7 +87,7 @@ function filterStationsForSearch(stations: AgentStation[], query: string): Agent
         return true
       }
       const searchable =
-        `${station.id} ${station.name} ${station.role} ${station.roleName} ${station.tool} ${station.agentWorkdirRel}`.toLowerCase()
+        `${station.id} ${station.name} ${station.tool} ${station.agentWorkdirRel}`.toLowerCase()
       return searchable.includes(normalizedQuery)
     })
     .sort((left, right) => left.orderIndex - right.orderIndex)
@@ -271,8 +271,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     stations,
     setStations,
     stationsLoadedWorkspaceId,
-    agentRoles,
-    restorableSystemRoles,
     stationSavePending,
     loadStationsFromDatabase,
     addStation,
@@ -939,10 +937,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
           return {
             stationId: station.id,
             name: station.name,
-            role: station.role,
             tool: station.tool,
             agentWorkdirRel: station.agentWorkdirRel,
-            roleWorkdirRel: station.roleWorkdirRel,
             workspaceId: activeWorkspaceId,
             sessionId: stationTerminals[station.id]?.sessionId ?? null,
           }
@@ -1539,8 +1535,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         open: isStationManageOpen,
         locale,
         workspaceId: activeWorkspaceId,
-        roles: agentRoles,
-        restorableSystemRoles,
         editingStation,
         saving: stationSavePending,
         deleting: stationDeletePendingId === editingStation?.id,

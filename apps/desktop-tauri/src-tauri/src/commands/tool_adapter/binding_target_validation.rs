@@ -10,9 +10,6 @@ pub(crate) fn validate_binding_target_selector(
     if target_selector.is_empty() {
         return Err("CHANNEL_BINDING_TARGET_INVALID: target selector is required".to_string());
     }
-    if target_selector.starts_with("role:") {
-        return Ok(());
-    }
 
     let exists = repo
         .list_agents(workspace_id)

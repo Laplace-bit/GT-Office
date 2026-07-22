@@ -40,6 +40,13 @@ export function shouldAutoLaunchStationTerminalFromSurface(
   return !runtime?.sessionId && !shouldRenderStationTerminal(runtime)
 }
 
+export function shouldPrioritizeStationTerminalRuntimeInit(
+  isActive: boolean,
+  stateRaw: string | null | undefined,
+): boolean {
+  return isActive || stateRaw === 'launching'
+}
+
 export function shouldForwardStationTerminalInput(
   target: StationTerminalRuntimeStateLike | string | null | undefined,
 ): boolean {

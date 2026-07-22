@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   doesStationTerminalRuntimePatchChangeState,
   isStationTerminalRuntimeLive,
+  shouldPrioritizeStationTerminalRuntimeInit,
   shouldRenderStationTerminal,
 } from '../src/features/terminal/station-terminal-runtime-state.js'
 
@@ -45,6 +46,12 @@ test('keeps exited sessions renderable for transcript playback', () => {
     }),
     false,
   )
+})
+
+test('prioritizes a launching terminal runtime without eagerly mounting inactive live sessions', () => {
+  assert.equal(shouldPrioritizeStationTerminalRuntimeInit(false, 'launching'), true)
+  assert.equal(shouldPrioritizeStationTerminalRuntimeInit(false, 'running'), false)
+  assert.equal(shouldPrioritizeStationTerminalRuntimeInit(true, 'running'), true)
 })
 
 test('detects no-op runtime patches before shell React state updates', () => {

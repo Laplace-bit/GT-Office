@@ -200,6 +200,15 @@ test('requests terminal auto focus when the active station first receives a sess
   )
 })
 
+test('requests terminal auto focus when an active session becomes input-ready', () => {
+  const transition = {
+    previous: { active: true, sessionId: 'session-a', inputReady: false },
+    next: { active: true, sessionId: 'session-a', inputReady: true },
+  }
+
+  assert.equal(shouldRequestStationTerminalAutoFocus(transition), true)
+})
+
 test('terminal focus retry frame runs on the next animation frame', () => {
   const fake = createFakeScheduler()
   let retryCount = 0

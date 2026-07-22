@@ -11,7 +11,6 @@ import {
   type WorkbenchCustomLayout,
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
-import { buildRoleWorkdirRel, buildStationWorkdirs } from '@features/workspace'
 import type {
   AgentRuntimeRegisterRequest,
   GitStatusResponse,
@@ -778,22 +777,16 @@ export function createStationFromNumber(
 ): AgentStation {
   const suffix = String(number).padStart(2, '0')
   const id = `agent-${suffix}`
-  const role = input?.role ?? 'product'
-  const roleName = input?.roleName?.trim() || role
   const normalizedWorkdir = normalizeStationWorkdirInput(input?.workdir ?? '')
   const hasCustomWorkdir = input?.customWorkdir ?? false
-  const defaultWorkdir = buildStationWorkdirs(role, input?.name?.trim() || id).agentWorkdirRel
+  const defaultWorkdir = '.'
   const workdir = hasCustomWorkdir
     ? normalizedWorkdir || defaultWorkdir
     : defaultWorkdir
   const tool = input?.tool?.trim() ? input.tool.trim() : 'codex cli'
   return {
     id,
-    name: input?.name?.trim() ? input.name.trim() : `角色-${suffix}`,
-    roleId: input?.roleId?.trim() || `local-role-${role}`,
-    role,
-    roleName,
-    roleWorkdirRel: buildRoleWorkdirRel(role),
+    name: input?.name?.trim() ? input.name.trim() : `Agent-${suffix}`,
     agentWorkdirRel: workdir,
     customWorkdir: hasCustomWorkdir,
     scope: 'station',
@@ -813,9 +806,6 @@ export function createStationEditInput(station: AgentStation): UpdateStationInpu
   return {
     id: station.id,
     name: station.name,
-    roleId: station.roleId,
-    role: station.role,
-    roleName: station.roleName,
     tool: station.tool,
     workdir: station.agentWorkdirRel,
     customWorkdir: station.customWorkdir,

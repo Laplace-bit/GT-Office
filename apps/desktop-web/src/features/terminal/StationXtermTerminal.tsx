@@ -6,7 +6,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { shouldAcceptStationTerminalLocalInput } from './station-terminal-runtime-state'
+import {
+  shouldAcceptStationTerminalLocalInput,
+  shouldPrioritizeStationTerminalRuntimeInit,
+} from './station-terminal-runtime-state'
 import { resolveTerminalDocument } from './station-terminal-document-scope'
 import '@xterm/xterm/css/xterm.css'
 import './StationXtermTerminal.scss'
@@ -19,6 +22,7 @@ import {
   resolveDeferredMacOsTextInputHandling,
   shouldBypassXtermTextKeyEvent,
 } from './macos-webkit-ime-workaround'
+import { shouldUseStationTerminalWebglRenderer } from './station-terminal-renderer-policy'
 import {
   installStationTerminalWindowDiagnostics,
   recordStationTerminalFocusDiagnostic,
@@ -33,6 +37,7 @@ import {
   shouldRequestStationTerminalAutoFocus,
 } from './station-terminal-focus-runtime'
 import {
+  refreshStationTerminalAfterTextureAtlasRecovery,
   scheduleStationTerminalAppearanceSyncFrame,
   scheduleStationTerminalRenderRefreshFrame,
   scheduleStationTerminalRendererRecoveryFrameDrain,
@@ -387,7 +392,8 @@ function StationXtermTerminalView({
   const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null)
   const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null)
   const boundSinkRef = useRef<StationTerminalSink | null>(null)
-  const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(isActive)
+  const shouldPrioritizeRuntimeInit = shouldPrioritizeStationTerminalRuntimeInit(isActive, stateRaw)
+  const [runtimeInitAllowed, setRuntimeInitAllowed] = useState(shouldPrioritizeRuntimeInit)
   const [rendererRecoveryVersion, setRendererRecoveryVersion] = useState(0)
   const [fileDropActive, setFileDropActive] = useState(false)
   const [fileDropLabel, setFileDropLabel] = useState<string | null>(null)
@@ -426,9 +432,10 @@ function StationXtermTerminalView({
         })
       : false,
   )
-  const lastAutoFocusStateRef = useRef<{ active: boolean; sessionId: string | null }>({
+  const lastAutoFocusStateRef = useRef<{ active: boolean; sessionId: string | null; inputReady: boolean }>({
     active: false,
     sessionId: null,
+    inputReady: false,
   })
   const lastRenderEventSeqRef = useRef(0)
 
@@ -703,16 +710,19 @@ function StationXtermTerminalView({
       cancelPendingInactiveActivation()
       cancelPendingInactiveActivationClickSuppression()
       cancelPendingInactiveActivationGuard()
-      setRuntimeInitAllowed(true)
-      return
+    } else {
+      cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
+      focusRetryFrameRef.current = null
     }
-    cancelStationTerminalFrameFlush(focusRetryFrameRef.current)
-    focusRetryFrameRef.current = null
+    if (shouldPrioritizeRuntimeInit) {
+      setRuntimeInitAllowed(true)
+    }
   }, [
     cancelPendingInactiveActivation,
     cancelPendingInactiveActivationClickSuppression,
     cancelPendingInactiveActivationGuard,
     isActive,
+    shouldPrioritizeRuntimeInit,
   ])
 
   useEffect(() => {
@@ -749,7 +759,11 @@ function StationXtermTerminalView({
 
   useEffect(() => {
     const previous = lastAutoFocusStateRef.current
-    const next = { active: isActive, sessionId }
+    const next = {
+      active: isActive,
+      sessionId,
+      inputReady: shouldAcceptStationTerminalLocalInput({ sessionId, stateRaw }),
+    }
     const shouldAutoFocus = shouldRequestStationTerminalAutoFocus({
       previous,
       next,
@@ -767,7 +781,7 @@ function StationXtermTerminalView({
     ) {
       focusTerminalRequestRef.current?.()
     }
-  }, [isActive, sessionId])
+  }, [isActive, sessionId, stateRaw])
 
   useEffect(() => {
     const terminal = terminalRef.current
@@ -864,6 +878,7 @@ function StationXtermTerminalView({
     let captureLatestRestoreState: (() => void) | null = null
     let removeViewportWakeListeners: (() => void) | null = null
     let removeCompositionStartSyncListener: (() => void) | null = null
+    let removeTerminalFocusTextureRecoveryListener: (() => void) | null = null
     let removeMacOsImeFallbackListeners: (() => void) | null = null
     let pendingNativeTextInputRef: { current: boolean } | null = null
     let pendingNativeTextInputXtermDataRef: { current: string | null } | null = null
@@ -879,8 +894,9 @@ function StationXtermTerminalView({
       import('@xterm/addon-fit'),
       import('@xterm/addon-serialize'),
       import('@xterm/addon-webgl'),
+      import('@xterm/addon-unicode11'),
     ]).then(
-      ([xtermModule, fitModule, serializeModule, webglModule]) => {
+      ([xtermModule, fitModule, serializeModule, webglModule, unicode11Module]) => {
         if (!active) {
           return
         }
@@ -889,7 +905,7 @@ function StationXtermTerminalView({
           convertEol: false,
           fontFamily: resolveTerminalFontFamily(host),
           fontSize: resolveTerminalFontSize(host),
-          fontWeight: '500',
+          fontWeight: 'normal',
           fontWeightBold: '700',
           lineHeight: 1.2,
           scrollback: TERMINAL_SCROLLBACK_LINES,
@@ -897,41 +913,57 @@ function StationXtermTerminalView({
           overviewRuler: { width: TERMINAL_OVERVIEW_RULER_WIDTH },
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 4.5,
+          cursorBlink: true,
+          cursorStyle: 'bar',
+          cursorWidth: 2,
+          cursorInactiveStyle: 'outline',
+          customGlyphs: true,
+          // Unicode11Addon activates xterm's proposed Unicode API.
+          allowProposedApi: true,
+          rescaleOverlappingGlyphs: true,
+          smoothScrollDuration: 125,
+          scrollOnUserInput: true,
+          fastScrollSensitivity: 5,
+          altClickMovesCursor: true,
+          rightClickSelectsWord: true,
         })
         const fitAddon = new fitModule.FitAddon()
         const serializeAddon = new serializeModule.SerializeAddon()
         terminal.loadAddon(fitAddon)
         terminal.loadAddon(serializeAddon)
+        const unicode11Addon = new unicode11Module.Unicode11Addon()
+        terminal.loadAddon(unicode11Addon)
+        terminal.unicode.activeVersion = '11'
         terminal.open(host)
 
-        // Prefer the GPU-accelerated WebGL renderer for native-grade scroll and output
-        // throughput. It replaces the default DOM renderer, which repays layout/paint
-        // costs on every frame and is the main source of "this feels like a web app."
-        // Fall back silently to the DOM renderer when the GPU context is unavailable.
-        try {
-          webglAddon = new webglModule.WebglAddon()
-          webglContextLossDisposable = webglAddon.onContextLoss(() => {
+        // WKWebView can retain a corrupt WebGL glyph texture atlas after compositor
+        // changes. Its default canvas renderer avoids that GPU-only failure mode.
+        if (shouldUseStationTerminalWebglRenderer(isMacOsWebKitEnvironmentRef.current)) {
+          try {
+            webglAddon = new webglModule.WebglAddon(false)
+            webglContextLossDisposable = webglAddon.onContextLoss(() => {
+              webglContextLossDisposable?.dispose()
+              webglContextLossDisposable = null
+              try {
+                webglAddon?.dispose()
+              } catch {
+                // No-op: dispose should never block terminal lifecycle.
+              }
+              webglAddon = null
+              // The default renderer takes over automatically once the addon is disposed;
+              // force a refresh so the recovered surface paints immediately.
+              refreshTerminal()
+            })
+            // loadAddon wires the WebGL surface as the active renderer after open();
+            // the addon self-registers internally — there is no separate register() call.
+            terminal.loadAddon(webglAddon)
+          } catch (error) {
             webglContextLossDisposable?.dispose()
             webglContextLossDisposable = null
-            try {
-              webglAddon?.dispose()
-            } catch {
-              // No-op: dispose should never block terminal lifecycle.
-            }
             webglAddon = null
-            // The DOM renderer takes over automatically once the addon is disposed;
-            // force a refresh so the recovered surface paints immediately.
-            refreshTerminal()
-          })
-          // loadAddon wires the WebGL surface as the active renderer after open();
-          // the addon self-registers internally — there is no separate register() call.
-          terminal.loadAddon(webglAddon)
-        } catch (error) {
-          webglContextLossDisposable?.dispose()
-          webglContextLossDisposable = null
-          webglAddon = null
-          const message = error instanceof Error ? error.message : String(error)
-          recordFocusDiagnostic('webgl-unavailable', message)
+            const message = error instanceof Error ? error.message : String(error)
+            recordFocusDiagnostic('webgl-unavailable', message)
+          }
         }
 
         terminalRef.current = terminal
@@ -1092,6 +1124,18 @@ function StationXtermTerminalView({
               refreshTerminal()
             },
           })
+        }
+        if (terminalTextarea) {
+          const handleTerminalFocusTextureRecovery = () => {
+            if (!active) {
+              return
+            }
+            refreshStationTerminalAfterTextureAtlasRecovery(terminal)
+          }
+          terminalTextarea.addEventListener('focus', handleTerminalFocusTextureRecovery)
+          removeTerminalFocusTextureRecoveryListener = () => {
+            terminalTextarea.removeEventListener('focus', handleTerminalFocusTextureRecovery)
+          }
         }
         const requestTerminalFocus = (retryFrames = 8) => {
           cancelScheduledTerminalFocus()
@@ -1874,6 +1918,7 @@ function StationXtermTerminalView({
       webglAddon = null
       removeViewportWakeListeners?.()
       removeCompositionStartSyncListener?.()
+      removeTerminalFocusTextureRecoveryListener?.()
       removeMacOsImeFallbackListeners?.()
       resizeObserver?.disconnect()
       appearanceObserver?.disconnect()

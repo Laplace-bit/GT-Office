@@ -34,21 +34,6 @@ export interface WorkbenchStationRuntime {
 
 type PaneLaunchMode = 'workspace' | 'detached-readonly'
 
-function roleLabel(locale: Locale, station: AgentStation): string {
-  switch (station.role) {
-    case 'orchestrator':
-      return t(locale, 'station.role.orchestrator')
-    case 'analyst':
-      return t(locale, 'station.role.analyst')
-    case 'generator':
-      return t(locale, 'station.role.generator')
-    case 'evaluator':
-      return t(locale, 'station.role.evaluator')
-    default:
-      return station.roleName || station.role
-  }
-}
-
 function stationChannelLabel(locale: Locale, channel: string): string {
   if (channel === 'telegram') {
     return 'Telegram'
@@ -213,7 +198,6 @@ function TerminalStationPaneView({
             onClick={handleSelectStation}
           >
             <strong>{station.name}</strong>
-            <span>{roleLabel(locale, station)}</span>
           </button>
           {activitySignal ? (
             <StationActivityComet

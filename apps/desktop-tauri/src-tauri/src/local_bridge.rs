@@ -2,7 +2,7 @@ use gt_abstractions::{
     AbstractionError, TerminalCreateRequest, TerminalCwdMode, TerminalProvider, WorkspaceId,
     WorkspaceService,
 };
-use gt_agent::{AgentRepository, GLOBAL_ROLE_WORKSPACE_ID};
+use gt_agent::AgentRepository;
 use gt_storage::{SqliteAgentRepository, SqliteStorage};
 use gt_task::{
     AgentRuntimeRegistration, AgentToolKind, ChannelAckEvent, ChannelMessageEvent,
@@ -27,10 +27,8 @@ use tracing::{debug, info, warn};
 
 use crate::app_state::AppState;
 use crate::commands::agent::{
-    agent_create, agent_delete, agent_list, agent_prompt_read, agent_role_delete, agent_role_list,
-    agent_role_restore_system, agent_role_save, agent_update, AgentCreateRequest,
-    AgentDeleteRequest, AgentPromptReadRequest, AgentRoleDeleteRequest,
-    AgentRoleRestoreSystemRequest, AgentRoleSaveRequest, AgentUpdateRequest,
+    agent_create, agent_delete, agent_list, agent_prompt_read, agent_update, AgentCreateRequest,
+    AgentDeleteRequest, AgentPromptReadRequest, AgentUpdateRequest,
 };
 use crate::commands::settings::ai_config::augment_terminal_env_for_agent;
 use crate::commands::task_center::write_terminal_with_submit;
@@ -219,17 +217,6 @@ fn map_command_error(error: String) -> BridgeError {
         None => BridgeError::new("LOCAL_BRIDGE_INTERNAL", error),
     }
 }
-
-fn seed_agent_defaults(
-    repo: &SqliteAgentRepository,
-    workspace_id: &str,
-) -> Result<(), BridgeError> {
-    repo.seed_defaults(GLOBAL_ROLE_WORKSPACE_ID)
-        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
-    repo.seed_defaults(workspace_id)
-        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))
-}
-
 pub fn spawn(app: AppHandle, state: AppState) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_bridge(app.clone(), state).await {
@@ -359,12 +346,6 @@ async fn handle_request(
             "directorySnapshotCount": count_directory_snapshots(state),
         })),
         "directory.get" => directory_get(app, state, request.params.clone()),
-        "agent.role_list" => bridge_agent_role_list(app, state, request.params.clone()),
-        "agent.role_save" => bridge_agent_role_save(app, state, request.params.clone()),
-        "agent.role_delete" => bridge_agent_role_delete(app, state, request.params.clone()),
-        "agent.role_restore_system" => {
-            bridge_agent_role_restore_system(app, state, request.params.clone())
-        }
         "agent.list" => bridge_agent_list(app, state, request.params.clone()),
         "agent.create" => bridge_agent_create(app, state, request.params.clone()),
         "agent.update" => bridge_agent_update(app, state, request.params.clone()),
@@ -381,77 +362,6 @@ async fn handle_request(
             format!("unsupported method: {method}"),
         )),
     }
-}
-
-fn bridge_agent_role_list(
-    app: &AppHandle,
-    _state: &AppState,
-    params: Value,
-) -> Result<Value, BridgeError> {
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct WorkspaceRequest {
-        workspace_id: String,
-    }
-
-    let request: WorkspaceRequest = serde_json::from_value(params).map_err(|error| {
-        BridgeError::new(
-            "LOCAL_BRIDGE_INVALID_PARAMS",
-            format!("agent.role_list params invalid: {error}"),
-        )
-    })?;
-
-    let state_guard = app.state::<AppState>();
-    agent_role_list(request.workspace_id, state_guard, app.clone()).map_err(map_command_error)
-}
-
-fn bridge_agent_role_save(
-    app: &AppHandle,
-    _state: &AppState,
-    params: Value,
-) -> Result<Value, BridgeError> {
-    let request: AgentRoleSaveRequest = serde_json::from_value(params).map_err(|error| {
-        BridgeError::new(
-            "LOCAL_BRIDGE_INVALID_PARAMS",
-            format!("agent.role_save params invalid: {error}"),
-        )
-    })?;
-
-    let state_guard = app.state::<AppState>();
-    agent_role_save(request, state_guard, app.clone()).map_err(map_command_error)
-}
-
-fn bridge_agent_role_delete(
-    app: &AppHandle,
-    _state: &AppState,
-    params: Value,
-) -> Result<Value, BridgeError> {
-    let request: AgentRoleDeleteRequest = serde_json::from_value(params).map_err(|error| {
-        BridgeError::new(
-            "LOCAL_BRIDGE_INVALID_PARAMS",
-            format!("agent.role_delete params invalid: {error}"),
-        )
-    })?;
-
-    let state_guard = app.state::<AppState>();
-    agent_role_delete(request, state_guard, app.clone()).map_err(map_command_error)
-}
-
-fn bridge_agent_role_restore_system(
-    app: &AppHandle,
-    _state: &AppState,
-    params: Value,
-) -> Result<Value, BridgeError> {
-    let request: AgentRoleRestoreSystemRequest =
-        serde_json::from_value(params).map_err(|error| {
-            BridgeError::new(
-                "LOCAL_BRIDGE_INVALID_PARAMS",
-                format!("agent.role_restore_system params invalid: {error}"),
-            )
-        })?;
-
-    let state_guard = app.state::<AppState>();
-    agent_role_restore_system(request, state_guard, app.clone()).map_err(map_command_error)
 }
 
 fn bridge_agent_list(
@@ -618,14 +528,7 @@ fn build_directory_snapshot<R: tauri::Runtime>(
 
     let repo = resolve_agent_repository(app)?;
     repo.ensure_schema().map_err(|error| error.to_string())?;
-    seed_agent_defaults(&repo, workspace_id).map_err(|error| error.message)?;
 
-    let departments = repo
-        .list_departments(workspace_id)
-        .map_err(|error| error.to_string())?;
-    let roles = repo
-        .list_roles(workspace_id)
-        .map_err(|error| error.to_string())?;
     let agents = repo
         .list_agents(workspace_id)
         .map_err(|error| error.to_string())?;
@@ -636,15 +539,9 @@ fn build_directory_snapshot<R: tauri::Runtime>(
         .into_iter()
         .map(|agent| {
             let runtime = runtimes.iter().find(|runtime| runtime.agent_id == agent.id);
-            let role = roles.iter().find(|role| role.id == agent.role_id);
             json!({
                 "agentId": agent.id,
                 "name": agent.name,
-                "roleId": agent.role_id,
-                "roleKey": runtime
-                    .and_then(|item| item.role_key.clone())
-                    .or_else(|| role.map(|role| role.role_key.clone())),
-                "departmentId": role.map(|role| role.department_id.clone()),
                 "state": agent.state,
                 "online": runtime.is_some_and(|item| item.online),
                 "sessionId": runtime.map(|item| item.session_id.clone()),
@@ -664,16 +561,9 @@ fn build_directory_snapshot<R: tauri::Runtime>(
             continue;
         }
 
-        let role = runtime
-            .role_key
-            .as_ref()
-            .and_then(|role_key| roles.iter().find(|role| role.role_key == *role_key));
         agent_entries.push(json!({
             "agentId": runtime.agent_id,
             "name": runtime.agent_id,
-            "roleId": role.map(|item| item.id.clone()),
-            "roleKey": runtime.role_key,
-            "departmentId": role.map(|item| item.department_id.clone()),
             "state": "ready",
             "online": runtime.online,
             "sessionId": runtime.session_id,
@@ -686,8 +576,6 @@ fn build_directory_snapshot<R: tauri::Runtime>(
         "workspaceId": workspace_id,
         "directoryVersion": updated_at_ms.to_string(),
         "updatedAtMs": updated_at_ms,
-        "departments": departments,
-        "roles": roles,
         "agents": agent_entries,
         "runtimes": runtimes,
     }))
@@ -871,13 +759,6 @@ fn dev_bootstrap_agents(
     let repo = resolve_agent_repository(app).map_err(map_command_error)?;
     repo.ensure_schema()
         .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
-    seed_agent_defaults(&repo, workspace.workspace_id.as_str())?;
-    let roles = repo
-        .list_roles(workspace.workspace_id.as_str())
-        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
-    let agents = repo
-        .list_agents(workspace.workspace_id.as_str())
-        .map_err(|error| BridgeError::new("LOCAL_BRIDGE_INTERNAL", error.to_string()))?;
 
     let cwd_mode = parse_bootstrap_cwd_mode(request.cwd_mode.as_deref())?;
     let shell_name = request
@@ -893,16 +774,8 @@ fn dev_bootstrap_agents(
 
     let mut bootstrapped_agents = Vec::with_capacity(targets.len());
     for agent_id in targets {
-        let role_key = require_bootstrap_role_key(
-            &agent_id,
-            resolve_bootstrap_role_key(&agent_id, &agents, &roles),
-        )?;
-        let terminal_env = build_agent_terminal_env(
-            workspace.workspace_id.as_str(),
-            &agent_id,
-            Some(role_key.as_str()),
-            &agent_id,
-        );
+        let terminal_env =
+            build_agent_terminal_env(workspace.workspace_id.as_str(), &agent_id, &agent_id);
         let terminal_env = augment_terminal_env_for_agent(
             app,
             state,
@@ -939,7 +812,6 @@ fn dev_bootstrap_agents(
                 workspace_id: workspace.workspace_id.to_string(),
                 agent_id: agent_id.clone(),
                 station_id: agent_id.clone(),
-                role_key: Some(role_key.clone()),
                 session_id: session.session_id.clone(),
                 tool_kind,
                 resolved_cwd: Some(session.resolved_cwd.clone()),
@@ -951,7 +823,6 @@ fn dev_bootstrap_agents(
         bootstrapped_agents.push(json!({
             "agentId": agent_id,
             "stationId": agent_id,
-            "roleKey": role_key,
             "sessionId": session.session_id,
             "toolKind": tool_kind,
             "resolvedCwd": session.resolved_cwd,
@@ -970,49 +841,15 @@ fn dev_bootstrap_agents(
     }))
 }
 
-fn resolve_bootstrap_role_key(
-    agent_id: &str,
-    agents: &[gt_agent::AgentProfile],
-    roles: &[gt_agent::AgentRole],
-) -> Option<String> {
-    agents
-        .iter()
-        .find(|agent| agent.id == agent_id)
-        .and_then(|agent| roles.iter().find(|role| role.id == agent.role_id))
-        .map(|role| role.role_key.clone())
-        .or_else(|| {
-            roles
-                .iter()
-                .find(|role| role.role_key == agent_id)
-                .map(|role| role.role_key.clone())
-        })
-}
-
-fn require_bootstrap_role_key(
-    agent_id: &str,
-    role_key: Option<String>,
-) -> Result<String, BridgeError> {
-    role_key.ok_or_else(|| {
-        BridgeError::new(
-            "LOCAL_BRIDGE_INVALID_PARAMS",
-            format!("bootstrap roleKey is required for target: {agent_id}"),
-        )
-    })
-}
-
 fn build_agent_terminal_env(
     workspace_id: &str,
     agent_id: &str,
-    role_key: Option<&str>,
     station_id: &str,
 ) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     env.insert("GTO_WORKSPACE_ID".to_string(), workspace_id.to_string());
     env.insert("GTO_AGENT_ID".to_string(), agent_id.to_string());
     env.insert("GTO_STATION_ID".to_string(), station_id.to_string());
-    if let Some(role_key) = role_key.map(str::trim).filter(|value| !value.is_empty()) {
-        env.insert("GTO_ROLE_KEY".to_string(), role_key.to_string());
-    }
     env
 }
 

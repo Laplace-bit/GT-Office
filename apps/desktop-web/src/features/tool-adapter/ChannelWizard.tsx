@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   desktopApi,
-  type AgentRole,
   type AgentProfile,
   type ChannelConnectorAccount,
   type ChannelRouteBinding,
@@ -21,7 +20,6 @@ interface ChannelWizardProps {
   onClose: () => void
   onSuccess: (message: string) => void
   editingBinding: ChannelRouteBinding | null
-  roles: AgentRole[]
   agents: AgentProfile[]
   connectorAccounts: ChannelConnectorAccount[]
   addedChannels: ConnectorChannel[]
@@ -459,7 +457,6 @@ export function ChannelWizard(props: ChannelWizardProps) {
       onClose={props.onClose}
       onSuccess={props.onSuccess}
       editingBinding={props.editingBinding}
-      roles={props.roles}
       agents={props.agents}
       connectorAccounts={props.connectorAccounts}
       telegramWebhook={props.telegramWebhook}

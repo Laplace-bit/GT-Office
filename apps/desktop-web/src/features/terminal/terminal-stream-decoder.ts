@@ -9,6 +9,11 @@ export function createTerminalChunkDecoder(): TerminalChunkDecoder {
 }
 
 function base64ToBytes(base64Chunk: string): Uint8Array {
+  // Fast path: native Uint8Array.fromBase64 (TC39 Stage 3, available in
+  // Chromium ≥ 128 and modern WKWebView engines used by Tauri).
+  if (typeof (Uint8Array as unknown as { fromBase64?: unknown }).fromBase64 === 'function') {
+    return (Uint8Array as unknown as { fromBase64: (s: string) => Uint8Array }).fromBase64(base64Chunk)
+  }
   const atobFn = globalThis.atob
   if (typeof atobFn === 'function') {
     const binary = atobFn(base64Chunk)

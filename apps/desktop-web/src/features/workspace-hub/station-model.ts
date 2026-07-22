@@ -1,15 +1,9 @@
-import type { AgentProfile, AgentRole, AgentScope } from '../../shell/integration/desktop-api.js'
-import { buildStationWorkdirs, type StationRole } from '../workspace/station-workdir-model.js'
+import type { AgentProfile, AgentScope } from '../../shell/integration/desktop-api.js'
 
 export type StationToolKind = 'claude' | 'codex' | 'shell' | 'unknown'
 
-export type { StationRole } from '../workspace/station-workdir-model.js'
-
 export interface CreateStationInput {
   name: string
-  roleId: string
-  role: StationRole
-  roleName: string
   tool: string
   workdir: string
   customWorkdir: boolean
@@ -22,15 +16,9 @@ export interface UpdateStationInput extends CreateStationInput {
   id: string
 }
 
-export const stationRoleOrder: StationRole[] = ['orchestrator', 'analyst', 'generator', 'evaluator']
-
 export interface AgentStation {
   id: string
   name: string
-  roleId: string
-  role: StationRole
-  roleName: string
-  roleWorkdirRel: string
   agentWorkdirRel: string
   customWorkdir: boolean
   scope: AgentScope
@@ -76,22 +64,12 @@ function createDefaultStationSeed(input: DefaultStationSeed): DefaultStationSeed
 
 export function mapAgentProfileToStation(
   agent: AgentProfile,
-  rolesById: Map<string, AgentRole>,
-): AgentStation | null {
-  const role = rolesById.get(agent.roleId)
-  if (!role) {
-    return null
-  }
-  const fallbackWorkdirs = buildStationWorkdirs(role.roleKey, agent.name)
+): AgentStation {
   const normalizedWorkdir = agent.workdir?.trim() || '.'
   const customWorkdir = normalizedWorkdir !== '.'
   return createAgentStation({
     id: agent.id,
     name: agent.name,
-    roleId: role.id,
-    role: role.roleKey,
-    roleName: role.roleName,
-    roleWorkdirRel: fallbackWorkdirs.roleWorkdirRel,
     agentWorkdirRel: normalizedWorkdir,
     customWorkdir,
     scope: agent.scope,
@@ -106,15 +84,12 @@ export function mapAgentProfileToStation(
   })
 }
 
-type DefaultStationSeed = Omit<AgentStation, 'roleWorkdirRel' | 'agentWorkdirRel' | 'customWorkdir' | 'toolKind' | 'orderIndex'>
+type DefaultStationSeed = Omit<AgentStation, 'agentWorkdirRel' | 'customWorkdir' | 'toolKind' | 'orderIndex'>
 
 const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKind }> = [
   createDefaultStationSeed({
     id: 'agent-01',
     name: 'Orchestrator-01',
-    roleId: 'global_role_orchestrator',
-    role: 'orchestrator',
-    roleName: 'Orchestrator',
     scope: 'station',
     tool: 'claude code',
     terminalSessionId: 'ts_101',
@@ -124,9 +99,6 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-02',
     name: 'Analyst-01',
-    roleId: 'global_role_analyst',
-    role: 'analyst',
-    roleName: 'Analyst',
     scope: 'station',
     tool: 'claude code',
     terminalSessionId: 'ts_102',
@@ -136,9 +108,6 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-03',
     name: 'Generator-01',
-    roleId: 'global_role_generator',
-    role: 'generator',
-    roleName: 'Generator',
     scope: 'station',
     tool: 'codex cli',
     terminalSessionId: 'ts_103',
@@ -148,9 +117,6 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
   createDefaultStationSeed({
     id: 'agent-04',
     name: 'Evaluator-01',
-    roleId: 'global_role_evaluator',
-    role: 'evaluator',
-    roleName: 'Evaluator',
     scope: 'station',
     tool: 'codex cli',
     terminalSessionId: 'ts_104',
@@ -162,7 +128,7 @@ const defaultStationSeeds: Array<DefaultStationSeed & { toolKind: StationToolKin
 const defaultStationCards: AgentStation[] = defaultStationSeeds.map((station, index) =>
   createAgentStation({
     ...station,
-    ...buildStationWorkdirs(station.role, station.name),
+    agentWorkdirRel: '.',
     customWorkdir: false,
     promptFileName: null,
     promptFileRelativePath: null,

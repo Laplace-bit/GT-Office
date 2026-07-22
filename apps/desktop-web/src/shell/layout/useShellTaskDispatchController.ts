@@ -202,7 +202,6 @@ export function useShellTaskDispatchController({
         workspaceId: input.workspaceId,
         agentId: input.targetStationId,
         stationId: input.targetStationId,
-        roleKey: registrationStation.role,
         sessionId: registrationSessionId,
         toolKind: normalizeStationToolKind(registrationStation.tool),
         resolvedCwd: registrationResolvedCwd,

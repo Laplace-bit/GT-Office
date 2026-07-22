@@ -6,8 +6,7 @@ import {
   type UpdateStationInput,
 } from '@features/workspace-hub'
 import { resolveStationMutationErrorMessage } from '@features/workspace-hub/station-mutation-error'
-import { buildRoleWorkdirRel } from '@features/workspace'
-import { desktopApi, type AgentRole, type RestorableSystemRole } from '../integration/desktop-api'
+import { desktopApi } from '../integration/desktop-api'
 import type { Locale } from '../i18n/ui-locale'
 import { logPerformanceDebug } from '../state/performance-debug'
 import {
@@ -29,8 +28,6 @@ export interface ShellStationController {
   stations: AgentStation[]
   setStations: Dispatch<SetStateAction<AgentStation[]>>
   stationsLoadedWorkspaceId: string | null
-  agentRoles: AgentRole[]
-  restorableSystemRoles: RestorableSystemRole[]
   stationSavePending: boolean
   loadStationsFromDatabase: (workspaceId: string) => Promise<void>
   addStation: (input: CreateStationInput) => Promise<void>
@@ -49,8 +46,6 @@ export function useShellStationController({
 }: UseShellStationControllerInput): ShellStationController {
   const [stations, setStations] = useState<AgentStation[]>(initialStations)
   const [stationsLoadedWorkspaceId, setStationsLoadedWorkspaceId] = useState<string | null>(null)
-  const [agentRoles, setAgentRoles] = useState<AgentRole[]>([])
-  const [restorableSystemRoles, setRestorableSystemRoles] = useState<RestorableSystemRole[]>([])
   const [stationSavePending, setStationSavePending] = useState(false)
   const latestRequestedWorkspaceIdRef = useRef<string | null>(activeWorkspaceId)
 
@@ -61,10 +56,7 @@ export function useShellStationController({
   const loadStationsFromDatabase = useCallback(async (workspaceId: string) => {
     const startedAt = performance.now()
     latestRequestedWorkspaceIdRef.current = workspaceId
-    const [roleResponse, agentResponse] = await Promise.all([
-      desktopApi.agentRoleList(workspaceId),
-      desktopApi.agentList(workspaceId),
-    ])
+    const agentResponse = await desktopApi.agentList(workspaceId)
     if (latestRequestedWorkspaceIdRef.current !== workspaceId) {
       logPerformanceDebug('workspace-stations', 'drop stale station load result', {
         workspaceId,
@@ -72,20 +64,14 @@ export function useShellStationController({
       })
       return
     }
-    const activeRoles = roleResponse.roles.filter((role) => role.status !== 'disabled')
-    const roleMap = new Map(activeRoles.map((role) => [role.id, role]))
-    setAgentRoles(activeRoles)
-    setRestorableSystemRoles(roleResponse.restorableSystemRoles ?? [])
     setStations(
       agentResponse.agents
-        .map((agent) => mapAgentProfileToStation(agent, roleMap))
-        .filter((station): station is AgentStation => station !== null),
+        .map((agent) => mapAgentProfileToStation(agent)),
     )
     setStationsLoadedWorkspaceId(workspaceId)
     logPerformanceDebug('workspace-stations', 'loaded station snapshot', {
       workspaceId,
       durationMs: Math.round(performance.now() - startedAt),
-      roleCount: activeRoles.length,
       stationCount: agentResponse.agents.length,
     })
   }, [])
@@ -94,15 +80,11 @@ export function useShellStationController({
     if (!desktopApi.isTauriRuntime()) {
       latestRequestedWorkspaceIdRef.current = null
       setStationsLoadedWorkspaceId(null)
-      setAgentRoles([])
-      setRestorableSystemRoles([])
       return
     }
     if (!activeWorkspaceId) {
       latestRequestedWorkspaceIdRef.current = null
       setStationsLoadedWorkspaceId(null)
-      setAgentRoles([])
-      setRestorableSystemRoles([])
       setStations([])
       return
     }
@@ -129,7 +111,6 @@ export function useShellStationController({
           await desktopApi.agentCreate({
             workspaceId: activeWorkspaceId,
             name: input.name,
-            roleId: input.roleId,
             tool: input.tool,
             workdir: input.workdir,
             customWorkdir: input.customWorkdir,
@@ -156,7 +137,6 @@ export function useShellStationController({
     },
     [
       activeWorkspaceId,
-      agentRoles,
       loadStationsFromDatabase,
       localeRef,
       setActiveStationId,
@@ -182,7 +162,6 @@ export function useShellStationController({
             workspaceId: activeWorkspaceId,
             agentId: stationId,
             name: input.name,
-            roleId: input.roleId,
             tool: input.tool,
             workdir: input.workdir,
             customWorkdir: input.customWorkdir,
@@ -209,12 +188,8 @@ export function useShellStationController({
             : {
                 ...station,
                 name: input.name,
-                roleId: input.roleId,
-                role: input.role,
-                roleName: input.roleName,
                 tool: input.tool,
                 agentWorkdirRel: input.workdir,
-                roleWorkdirRel: buildRoleWorkdirRel(input.role),
                 customWorkdir: input.customWorkdir,
               },
         ),
@@ -224,7 +199,6 @@ export function useShellStationController({
     },
     [
       activeWorkspaceId,
-      agentRoles,
       loadStationsFromDatabase,
       localeRef,
       setEditingStation,
@@ -270,8 +244,6 @@ export function useShellStationController({
     stations,
     setStations,
     stationsLoadedWorkspaceId,
-    agentRoles,
-    restorableSystemRoles,
     stationSavePending,
     loadStationsFromDatabase,
     addStation,

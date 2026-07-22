@@ -26,7 +26,7 @@ import {
 import { StationCard } from './StationCard'
 import { StationActivityComet } from './StationActivityComet'
 import { resolveStationCardStatusMeta } from './station-card-header-model'
-import type { AgentStation, StationRole } from './station-model'
+import type { AgentStation } from './station-model'
 import type { WorkbenchContainer as WorkbenchContainerModel } from './workbench-container-model'
 import {
   resolveFocusStageStationVisibility,
@@ -80,7 +80,7 @@ interface WorkbenchCanvasPanelProps {
   container: WorkbenchContainerModel
   containerIndex: number
   stations: AgentStation[]
-  roleFilter?: StationRole | 'all'
+  roleFilter?: string
   activeGlobalStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>
   taskSignalByStationId: Partial<Record<string, StationTaskSignal>>
@@ -577,9 +577,6 @@ function WorkbenchCanvasPanelView({
 
     for (const station of stations) {
       if (station.scope === 'designer') {
-        continue
-      }
-      if (roleFilter !== 'all' && station.role !== roleFilter) {
         continue
       }
       nextTargetVisibleStations.push(station)

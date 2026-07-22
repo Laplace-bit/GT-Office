@@ -330,8 +330,6 @@ pub struct AgentRuntimeRegistration {
     pub workspace_id: String,
     pub agent_id: String,
     pub station_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role_key: Option<String>,
     pub session_id: String,
     #[serde(default)]
     pub tool_kind: AgentToolKind,

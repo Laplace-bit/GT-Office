@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { desktopApi, type AgentRole, type AgentProfile, type ChannelConnectorAccount, type ChannelRouteBinding } from '@shell/integration/desktop-api'
+import { desktopApi, type AgentProfile, type ChannelConnectorAccount, type ChannelRouteBinding } from '@shell/integration/desktop-api'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import {
   buildChannelBotBindingGroups,
@@ -77,7 +77,6 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
   const [feishuWebhook, setFeishuWebhook] = useState('')
   const [telegramWebhook, setTelegramWebhook] = useState('')
 
-  const [roles, setRoles] = useState<AgentRole[]>([])
   const [agents, setAgents] = useState<AgentProfile[]>([])
   const [bindings, setBindings] = useState<ChannelRouteBinding[]>([])
   const [connectorAccounts, setConnectorAccounts] = useState<ChannelConnectorAccount[]>([])
@@ -117,10 +116,8 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
       desktopApi.channelBindingList(workspaceId ?? undefined).then((response) => setBindings(response.bindings)),
     ]
     if (workspaceId) {
-      tasks.push(desktopApi.agentRoleList(workspaceId).then((response) => setRoles(response.roles)))
       tasks.push(desktopApi.agentList(workspaceId).then((response) => setAgents(response.agents)))
     } else {
-      setRoles([])
       setAgents([])
     }
     try {
@@ -383,7 +380,6 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
         onClose={handleWizardClose}
         onSuccess={handleWizardSuccess}
         editingBinding={editingBinding}
-        roles={roles}
         agents={agents}
         connectorAccounts={connectorAccounts}
         addedChannels={addedChannels}
@@ -422,7 +418,6 @@ export function ChannelManagerPane({ locale, workspaceId, variant = 'embedded', 
           workspaceId={workspaceId}
           channel={configChannel}
           botGroups={configuredChannelBotGroups.filter((g) => g.channel === configChannel)}
-          roles={roles}
           agents={agents}
           onClose={() => setConfigChannel(null)}
           onDeleteBinding={handleRequestDeleteBinding}

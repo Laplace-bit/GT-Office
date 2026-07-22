@@ -28,6 +28,7 @@ export interface StationTerminalInactiveMouseGestureInput {
 export interface StationTerminalAutoFocusState {
   active: boolean
   sessionId: string | null
+  inputReady?: boolean
 }
 
 export interface StationTerminalAutoFocusInput {
@@ -106,7 +107,9 @@ export function shouldRequestStationTerminalAutoFocus({
   if (!previous.active) {
     return true
   }
-  return !previous.sessionId && Boolean(next.sessionId)
+  const previousInputReady = previous.inputReady ?? Boolean(previous.sessionId)
+  const nextInputReady = next.inputReady ?? Boolean(next.sessionId)
+  return (!previous.sessionId && Boolean(next.sessionId)) || (!previousInputReady && nextInputReady)
 }
 
 export function shouldConsumeInactiveStationTerminalMouseGesture({

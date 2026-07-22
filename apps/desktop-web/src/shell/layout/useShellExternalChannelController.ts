@@ -70,7 +70,7 @@ export interface ShellExternalChannelController {
   clearStationTaskSignals: () => void
   removeStationTaskSignal: (stationId: string) => void
   pruneStationTaskSignals: (validStationIds: Set<string>) => void
-  channelBotBindingsByStationId: (stations: Array<{ id: string; role: string }>) => ReturnType<typeof buildStationChannelBotBindingMap>
+  channelBotBindingsByStationId: (stations: Array<{ id: string }>) => ReturnType<typeof buildStationChannelBotBindingMap>
 }
 
 const INITIAL_EXTERNAL_CHANNEL_STATUS: ExternalChannelStatusState = {
@@ -672,7 +672,7 @@ export function useShellExternalChannelController({
   }, [clearStationTaskSignalTimer])
 
   const channelBotBindingsByStationId = useCallback(
-    (stations: Array<{ id: string; role: string }>) =>
+    (stations: Array<{ id: string }>) =>
       buildStationChannelBotBindingMap(
         stations,
         externalChannelStatus.bindings ?? [],

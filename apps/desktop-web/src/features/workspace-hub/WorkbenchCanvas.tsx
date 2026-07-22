@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import type { AgentStation, StationRole } from './station-model'
+import type { AgentStation } from './station-model'
 import { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
 import { WorkbenchUtilityActions } from './WorkbenchUtilityActions'
 import {
@@ -89,7 +89,7 @@ interface WorkbenchCanvasProps {
   minimizedDockPortalTarget?: HTMLElement | null
   workspaceTransitioning?: boolean
   stations: AgentStation[]
-  roleFilter?: StationRole | 'all'
+  roleFilter?: string
   containers: WorkbenchContainerModel[]
   activeStationId: string
   terminalByStation: Record<string, WorkbenchStationRuntime>

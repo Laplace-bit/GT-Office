@@ -44,10 +44,15 @@ test('terminal debug panel reduced motion removes pressed scale movement', () =>
   )
 })
 
-test('station terminal keeps the WebGL, system monospace, and extended scrollback path enabled', () => {
+test('station terminal keeps WebGL outside macOS WebKit plus system monospace and extended scrollback', () => {
   assert.match(stationTerminalSource, /const TERMINAL_SCROLLBACK_LINES = 20_000/)
   assert.match(stationTerminalSource, /scrollback: TERMINAL_SCROLLBACK_LINES/)
   assert.match(stationTerminalSource, /lineHeight: 1\.2/)
-  assert.match(stationTerminalSource, /new webglModule\.WebglAddon\(\)/)
+  assert.match(stationTerminalSource, /allowProposedApi:\s*true/)
+  assert.match(
+    stationTerminalSource,
+    /shouldUseStationTerminalWebglRenderer\(isMacOsWebKitEnvironmentRef\.current\)/,
+  )
+  assert.match(stationTerminalSource, /new webglModule\.WebglAddon\(false\)/)
   assert.match(stationTerminalSource, /ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace/)
 })

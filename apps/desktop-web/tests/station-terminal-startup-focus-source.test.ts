@@ -18,3 +18,12 @@ test('retries a pending startup terminal focus request when the window wakes', (
     /const handleWindowWake = \(\) => \{[\s\S]*?pendingAutoFocusRef\.current[\s\S]*?focusTerminalRequestRef\.current\?\.\(\)[\s\S]*?scheduleViewportWake\('window-wake'\)/,
   )
 })
+
+test('retries terminal focus when the current session becomes input-ready', () => {
+  const source = readTerminalSource()
+
+  assert.match(
+    source,
+    /inputReady: shouldAcceptStationTerminalLocalInput\(\{ sessionId, stateRaw \}\)[\s\S]*?\}, \[isActive, sessionId, stateRaw\]\)/,
+  )
+})

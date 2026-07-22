@@ -1,7 +1,7 @@
 //! Designer agent station — workspace-level persistent station that replaces
 //! the headless single-shot freeform completion (sub-project B).
 //!
-//! The station is a real agent profile (role: `business-designer`, workdir:
+//! The station is a real agent profile (scope: `designer`, workdir:
 //! `.gtoffice/docs`) whose terminal session is launched by the frontend via
 //! the existing station/terminal infra (`tool_launch` / `StationXtermTerminal`).
 //! Scenario prompts and annotation captures are injected into the terminal as
@@ -15,9 +15,7 @@ use tauri::{AppHandle, State};
 
 use crate::{
     app_state::AppState,
-    commands::agent::{
-        agent_create_with_repo, resolve_agent_repository, seed_agent_defaults, AgentCreateRequest,
-    },
+    commands::agent::{agent_create_with_repo, resolve_agent_repository, AgentCreateRequest},
 };
 use gt_agent::{AgentRepository, AgentScope};
 
@@ -26,7 +24,6 @@ use super::{
     DesignerDocumentDetail, DesignerFreeformCompletionScenario,
 };
 
-const DESIGNER_ROLE_KEY: &str = "business-designer";
 const DESIGNER_AGENT_NAME: &str = "Business Designer";
 const DESIGNER_AGENT_WORKDIR: &str = ".gtoffice/docs";
 
@@ -49,24 +46,13 @@ pub(crate) fn ensure_agent_station_at(
     let workspace_root = resolve_workspace_root(state, workspace_id)?;
     let repo = resolve_agent_repository(app)?;
     repo.ensure_schema().map_err(|error| error.to_string())?;
-    seed_agent_defaults(&repo, workspace_id)?;
-
-    let roles = repo
-        .list_roles(workspace_id)
-        .map_err(|error| error.to_string())?;
-    let designer_role = roles
-        .iter()
-        .find(|role| role.role_key == DESIGNER_ROLE_KEY)
-        .ok_or_else(|| {
-            format!("BUSINESS_DESIGNER_ROLE_MISSING: role '{DESIGNER_ROLE_KEY}' not seeded")
-        })?;
 
     let agents = repo
         .list_agents(workspace_id)
         .map_err(|error| error.to_string())?;
     if let Some(existing) = agents
         .iter()
-        .find(|agent| agent.role_id == designer_role.id)
+        .find(|agent| agent.scope == AgentScope::Designer)
     {
         return Ok(json!({ "agent": existing, "created": false }));
     }
@@ -78,7 +64,6 @@ pub(crate) fn ensure_agent_station_at(
         workspace_id: workspace_id.to_string(),
         agent_id: None,
         name: DESIGNER_AGENT_NAME.to_string(),
-        role_id: designer_role.id.clone(),
         tool: Some("codex".to_string()),
         workdir: Some(DESIGNER_AGENT_WORKDIR.to_string()),
         custom_workdir: Some(true),

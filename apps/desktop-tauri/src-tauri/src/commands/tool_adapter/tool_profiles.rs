@@ -394,7 +394,6 @@ fn resolve_launch_cwd(context: Option<&Value>, workspace_root: &Path) -> Option<
         "launchCwd",
         "agentWorkdirRel",
         "workdirRel",
-        "roleWorkdirRel",
     ];
     for key in candidates {
         if let Some(value) = context_string(context, &[key]) {
@@ -467,26 +466,21 @@ fn build_initial_prompt(context: Option<&Value>) -> Option<String> {
 fn build_launch_env(
     workspace_id: &str,
     agent_id: &str,
-    role_key: Option<&str>,
     station_id: &str,
 ) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     env.insert("GTO_WORKSPACE_ID".to_string(), workspace_id.to_string());
     env.insert("GTO_AGENT_ID".to_string(), agent_id.to_string());
     env.insert("GTO_STATION_ID".to_string(), station_id.to_string());
-    if let Some(role_key) = role_key.map(str::trim).filter(|value| !value.is_empty()) {
-        env.insert("GTO_ROLE_KEY".to_string(), role_key.to_string());
-    }
     env
 }
 
 fn build_runtime_identity(
     context: Option<&Value>,
     tool_kind: AgentToolKind,
-) -> (String, String, Option<String>, String) {
+) -> (String, String, String) {
     let provided_agent_id = context_string(context, &["agentId"]);
     let provided_station_id = context_string(context, &["stationId"]);
-    let role_key = context_string(context, &["roleKey"]);
     let submit_sequence =
         context_string(context, &["submitSequence"]).unwrap_or_else(|| "\r".to_string());
 
@@ -501,7 +495,7 @@ fn build_runtime_identity(
         .unwrap_or(fallback_id);
     let station_id = provided_station_id.unwrap_or_else(|| agent_id.clone());
 
-    (agent_id, station_id, role_key, submit_sequence)
+    (agent_id, station_id, submit_sequence)
 }
 
 #[tauri::command]
@@ -540,7 +534,7 @@ pub fn tool_launch(
     let shell_name =
         context_string(context.as_ref(), &["shell"]).unwrap_or_else(|| "auto".to_string());
     let initial_prompt = build_initial_prompt(context.as_ref());
-    let (agent_id, station_id, role_key, submit_sequence) =
+    let (agent_id, station_id, submit_sequence) =
         build_runtime_identity(context.as_ref(), tool_kind);
 
     if let Some(cwd) = resolved_cwd.as_deref() {
@@ -555,7 +549,7 @@ pub fn tool_launch(
         }
     }
 
-    let mut env = build_launch_env(&workspace_id, &agent_id, role_key.as_deref(), &station_id);
+    let mut env = build_launch_env(&workspace_id, &agent_id, &station_id);
     env.extend(context_env_map(context.as_ref()));
     let env =
         augment_terminal_env_for_agent(&app, state.inner(), &workspace_id, tool_kind, true, env)?;
@@ -599,7 +593,6 @@ pub fn tool_launch(
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
             station_id: station_id.clone(),
-            role_key: role_key.clone(),
             session_id: session.session_id.clone(),
             tool_kind,
             resolved_cwd: Some(session.resolved_cwd.clone()),
@@ -621,7 +614,6 @@ pub fn tool_launch(
         "toolSessionId": agent_id,
         "terminalSessionId": session.session_id,
         "stationId": station_id,
-        "roleKey": role_key,
         "resolvedCwd": session.resolved_cwd,
         "shell": shell_name,
         "submitSequence": submit_sequence,

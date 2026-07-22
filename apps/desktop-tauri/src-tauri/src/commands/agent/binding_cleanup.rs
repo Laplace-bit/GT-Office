@@ -25,9 +25,7 @@ pub(crate) fn collect_direct_agent_binding_dependencies(
         .list_route_bindings(Some(workspace_id))
         .into_iter()
         .filter(|binding| {
-            !binding.target_agent_id.trim().is_empty()
-                && !binding.target_agent_id.starts_with("role:")
-                && binding.target_agent_id == agent_id
+            !binding.target_agent_id.trim().is_empty() && binding.target_agent_id == agent_id
         })
         .collect()
 }

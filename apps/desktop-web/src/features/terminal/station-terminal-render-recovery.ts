@@ -12,6 +12,12 @@ export interface StationTerminalRendererRecoveryInput {
   currentRenderEventSeq: number
 }
 
+export interface StationTerminalTextureAtlasRecoveryTarget {
+  rows: number
+  clearTextureAtlas: () => void
+  refresh: (start: number, end: number) => void
+}
+
 export interface StationTerminalRendererRecoveryFrameDrain {
   handle: StationTerminalFrameFlushHandle | null
   cancel: () => void
@@ -52,6 +58,17 @@ export function shouldRecycleStationTerminalRenderer({
     return false
   }
   return true
+}
+
+export function refreshStationTerminalAfterTextureAtlasRecovery(
+  terminal: StationTerminalTextureAtlasRecoveryTarget,
+): void {
+  try {
+    terminal.clearTextureAtlas()
+  } catch {
+    // A context-loss fallback may have disposed the renderer before its focus event arrives.
+  }
+  terminal.refresh(0, Math.max(0, terminal.rows - 1))
 }
 
 function normalizeStationTerminalRendererRecoveryFrameCount(value: number): number {

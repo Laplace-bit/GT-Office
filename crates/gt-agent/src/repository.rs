@@ -1,4 +1,4 @@
-use crate::{AgentProfile, AgentRole, AgentScope, AgentState, OrganizationDepartment, RoleStatus};
+use crate::{AgentProfile, AgentScope, AgentState};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -18,7 +18,6 @@ pub struct CreateAgentInput {
     pub workspace_id: String,
     pub agent_id: Option<String>,
     pub name: String,
-    pub role_id: String,
     pub tool: String,
     pub workdir: Option<String>,
     pub custom_workdir: bool,
@@ -36,7 +35,6 @@ pub struct UpdateAgentInput {
     pub workspace_id: String,
     pub agent_id: String,
     pub name: String,
-    pub role_id: String,
     pub tool: String,
     pub workdir: Option<String>,
     pub custom_workdir: bool,
@@ -47,27 +45,10 @@ pub struct UpdateAgentInput {
 
 pub trait AgentRepository: Send + Sync {
     fn ensure_schema(&self) -> AgentResult<()>;
-    fn seed_defaults(&self, workspace_id: &str) -> AgentResult<()>;
     fn reset_workspace_state(&self, workspace_id: &str) -> AgentResult<()>;
-    fn list_departments(&self, workspace_id: &str) -> AgentResult<Vec<OrganizationDepartment>>;
-    fn list_roles(&self, workspace_id: &str) -> AgentResult<Vec<AgentRole>>;
-    fn list_deleted_system_role_seed_ids(&self, workspace_id: &str) -> AgentResult<Vec<String>>;
     fn list_agents(&self, workspace_id: &str) -> AgentResult<Vec<AgentProfile>>;
     fn create_agent(&self, input: CreateAgentInput) -> AgentResult<AgentProfile>;
     fn update_agent(&self, input: UpdateAgentInput) -> AgentResult<AgentProfile>;
     fn delete_agent(&self, workspace_id: &str, agent_id: &str) -> AgentResult<bool>;
     fn reorder_agents(&self, workspace_id: &str, ordered_ids: Vec<String>) -> AgentResult<()>;
-    fn upsert_role(&self, workspace_id: &str, role: AgentRole) -> AgentResult<AgentRole>;
-    fn set_role_status(
-        &self,
-        workspace_id: &str,
-        role_id: &str,
-        status: RoleStatus,
-    ) -> AgentResult<bool>;
-    fn delete_role(&self, workspace_id: &str, role_id: &str) -> AgentResult<bool>;
-    fn restore_system_role(
-        &self,
-        workspace_id: &str,
-        role_id: &str,
-    ) -> AgentResult<Option<AgentRole>>;
 }

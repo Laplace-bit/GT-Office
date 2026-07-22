@@ -2101,7 +2101,6 @@ export function useShellTerminalController({
           workspaceId: input.workspaceId,
           agentId: input.station.id,
           stationId: input.station.id,
-          roleKey: input.station.role,
           sessionId,
           toolKind: normalizeStationToolKind(input.station.tool),
           resolvedCwd: input.resolvedCwd,
@@ -2703,15 +2702,12 @@ export function useShellTerminalController({
       ) {
         return
       }
-      const stationRole =
-        stationsRef.current.find((station) => station.id === agentId)?.role ?? null
       const submitSequence = stationSubmitSequenceRef.current[agentId] ?? null
       void desktopApi
         .agentRuntimeRegister({
           workspaceId: runtime.workspaceId,
           agentId,
           stationId: agentId,
-          roleKey: stationRole,
           sessionId: runtime.sessionId,
           toolKind: runtime.toolKind as AgentRuntimeRegisterRequest['toolKind'],
           resolvedCwd: runtime.resolvedCwd,
@@ -2859,7 +2855,6 @@ export function useShellTerminalController({
             const terminalEnv = {
               GTO_WORKSPACE_ID: activeWorkspaceId,
               GTO_AGENT_ID: station.id,
-              GTO_ROLE_KEY: station.role,
               GTO_STATION_ID: station.id,
             }
             const session = await desktopApi.terminalCreate(launchWorkspaceId, {
@@ -3329,7 +3324,6 @@ export function useShellTerminalController({
         workspaceId: input.workspaceId,
         agentId: input.stationId,
         stationId: input.stationId,
-        roleKey: currentStation.role,
         sessionId: runtimeRegistrationCleanup.sessionId,
         toolKind: normalizeStationToolKind(currentStation.tool),
         resolvedCwd: runtimeRegistrationCleanup.resolvedCwd,
@@ -3354,14 +3348,12 @@ export function useShellTerminalController({
         const runtime = stationTerminalsRef.current[stationId]
         const sessionId = runtime?.sessionId ?? null
         const station = stationsRef.current.find((entry) => entry.id === stationId)
-        const stationRole = station?.role ?? null
         if (workspaceId && sessionId) {
           void desktopApi
             .agentRuntimeRegister({
               workspaceId,
               agentId: stationId,
               stationId,
-              roleKey: stationRole,
               sessionId,
               toolKind: normalizeStationToolKind(station?.tool),
               resolvedCwd: runtime?.resolvedCwd ?? null,
@@ -3738,11 +3730,9 @@ export function useShellTerminalController({
           context: {
             agentId: station.id,
             stationId: station.id,
-            roleKey: station.role,
             toolKind: station.toolKind,
             cwd: launchesFromWorkspaceRoot ? null : station.agentWorkdirRel,
             agentWorkdirRel: launchesFromWorkspaceRoot ? undefined : station.agentWorkdirRel,
-            roleWorkdirRel: station.roleWorkdirRel,
             resolvedCwd: null,
             cwdMode: launchesFromWorkspaceRoot ? 'workspace_root' : 'custom',
             loginShell: false,
@@ -3802,7 +3792,6 @@ export function useShellTerminalController({
                 workspaceId,
                 agentId: station.id,
                 stationId: station.id,
-                roleKey: station.role,
                 sessionId: droppedRuntimeCleanup.sessionId,
                 toolKind: normalizeStationToolKind(station.tool),
                 resolvedCwd: droppedRuntimeCleanup.resolvedCwd,
@@ -3979,7 +3968,6 @@ export function useShellTerminalController({
           workspaceId,
           agentId: station.id,
           stationId: station.id,
-          roleKey: station.role,
           sessionId,
           toolKind: normalizeStationToolKind(station.tool),
           resolvedCwd: stationTerminalsRef.current[stationId]?.resolvedCwd ?? options?.sessionCwd ?? null,

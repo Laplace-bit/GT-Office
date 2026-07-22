@@ -199,7 +199,7 @@ function TaskCenterPaneView({
       return stations
     }
     return stations.filter((station) => {
-      const searchText = `${station.name} ${station.id} ${station.role}`.toLowerCase()
+      const searchText = `${station.name} ${station.id}`.toLowerCase()
       return searchText.includes(keyword)
     })
   }, [stations, targetFilter])

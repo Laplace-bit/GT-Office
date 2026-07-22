@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  refreshStationTerminalAfterTextureAtlasRecovery,
   scheduleStationTerminalAppearanceSyncFrame,
   scheduleStationTerminalRenderRefreshFrame,
   scheduleStationTerminalRendererRecoveryFrameDrain,
@@ -92,6 +93,38 @@ test('does not recycle empty terminals that have nothing to restore', () => {
     }),
     false,
   )
+})
+
+test('repairs a terminal focus redraw by rebuilding the glyph texture atlas first', () => {
+  const calls: string[] = []
+
+  refreshStationTerminalAfterTextureAtlasRecovery({
+    rows: 24,
+    clearTextureAtlas: () => {
+      calls.push('clear-texture-atlas')
+    },
+    refresh: (start, end) => {
+      calls.push(`refresh:${start}:${end}`)
+    },
+  })
+
+  assert.deepEqual(calls, ['clear-texture-atlas', 'refresh:0:23'])
+})
+
+test('still refreshes terminal content when texture atlas recovery is unavailable', () => {
+  const calls: string[] = []
+
+  refreshStationTerminalAfterTextureAtlasRecovery({
+    rows: 1,
+    clearTextureAtlas: () => {
+      throw new Error('renderer already disposed')
+    },
+    refresh: (start, end) => {
+      calls.push(`refresh:${start}:${end}`)
+    },
+  })
+
+  assert.deepEqual(calls, ['refresh:0:0'])
 })
 
 test('render refresh frame runs on the next animation frame and clears fallback', () => {

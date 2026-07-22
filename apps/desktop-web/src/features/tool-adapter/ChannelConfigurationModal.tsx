@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { t, type Locale } from '@shell/i18n/ui-locale'
 import { AppIcon } from '@shell/ui/icons'
-import { type AgentRole, type AgentProfile, type ChannelRouteBinding } from '@shell/integration/desktop-api'
+import { type AgentProfile, type ChannelRouteBinding } from '@shell/integration/desktop-api'
 import { type ConnectorChannel } from './ChannelManagerPane'
 import { AiConfigOverlay } from '../settings/ai-providers/shared/AiConfigOverlay'
 import { ChannelBotCard } from './ChannelBotCard'
@@ -13,7 +13,6 @@ interface ChannelConfigurationModalProps {
   workspaceId: string | null
   channel: ConnectorChannel
   botGroups: ChannelBotBindingGroup[]
-  roles: AgentRole[]
   agents: AgentProfile[]
   onClose: () => void
   onDeleteBinding: (binding: ChannelRouteBinding) => void
@@ -49,7 +48,6 @@ export function ChannelConfigurationModal({
   workspaceId,
   channel,
   botGroups,
-  roles,
   agents,
   onClose,
   onDeleteBinding,
@@ -111,7 +109,6 @@ export function ChannelConfigurationModal({
             onClose={handleWizardClose}
             onSuccess={handleSuccess}
             editingBinding={editingBinding}
-            roles={roles}
             agents={agents}
             connectorAccounts={connectorAccounts}
             addedChannels={addedChannels}
@@ -144,7 +141,6 @@ export function ChannelConfigurationModal({
                   key={`${group.channel}:${group.accountId}`}
                   group={group}
                   locale={locale}
-                  roles={roles}
                   agents={agents}
                   onEditBinding={handleEdit}
                   onDeleteBinding={onDeleteBinding}
