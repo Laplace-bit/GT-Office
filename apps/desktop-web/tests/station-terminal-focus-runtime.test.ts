@@ -73,6 +73,19 @@ test('dispatches terminal focus requests once runtime helpers are ready', () => 
   )
 })
 
+test('keeps the startup focus intent pending until the document is focused', () => {
+  assert.deepEqual(
+    resolveStationTerminalFocusRequest({
+      focusRuntimeReady: true,
+      documentFocused: false,
+    }),
+    {
+      shouldDispatch: false,
+      shouldPersistPending: true,
+    },
+  )
+})
+
 test('flushes pending terminal focus only after runtime helpers are ready', () => {
   assert.equal(
     shouldFlushPendingStationTerminalFocus({

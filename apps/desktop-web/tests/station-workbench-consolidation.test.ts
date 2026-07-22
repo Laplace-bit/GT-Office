@@ -52,12 +52,14 @@ test('primary station launch keeps mouse focus available for the terminal', () =
   )
 })
 
-test('idle session history scans start only for the active station', () => {
+test('idle session history is available regardless of the active station', () => {
   const stationCard = readSource('features/workspace-hub/StationCard.tsx')
   const terminalStationPane = readSource('features/workspace-hub/TerminalStationPane.tsx')
 
-  assert.match(stationCard, /active && !shouldRenderTerminal && workspaceId && sessionProvider/)
-  assert.match(terminalStationPane, /active && !shouldRenderTerminal && workspaceId && sessionProvider/)
+  assert.doesNotMatch(stationCard, /active && !shouldRenderTerminal && workspaceId && sessionProvider/)
+  assert.doesNotMatch(terminalStationPane, /active && !shouldRenderTerminal && workspaceId && sessionProvider/)
+  assert.match(stationCard, /!shouldRenderTerminal && workspaceId && sessionProvider/)
+  assert.match(terminalStationPane, /!shouldRenderTerminal && workspaceId && sessionProvider/)
 })
 
 test('station card chrome avoids nested backdrop filters during terminal work', () => {

@@ -1083,6 +1083,7 @@ function StationXtermTerminalView({
         const requestTerminalFocus = (retryFrames = 8) => {
           cancelScheduledTerminalFocus()
           if (terminalHasDomFocus()) {
+            pendingAutoFocusRef.current = false
             recordFocusDiagnostic('focus-skip', 'already-has-focus')
             return
           }
@@ -1105,6 +1106,7 @@ function StationXtermTerminalView({
               return
             }
             if (terminalHasDomFocus()) {
+              pendingAutoFocusRef.current = false
               scheduleRefresh()
               recordFocusDiagnostic('focus-success')
               return
@@ -1127,9 +1129,10 @@ function StationXtermTerminalView({
         focusTerminalRequestRef.current = () => {
           const resolution = resolveStationTerminalFocusRequest({
             focusRuntimeReady: focusRuntimeReadyRef.current,
+            documentFocused: resolveTerminalDocument(host, document).hasFocus(),
           })
-          pendingAutoFocusRef.current = resolution.shouldPersistPending
           if (!resolution.shouldDispatch) {
+            pendingAutoFocusRef.current = resolution.shouldPersistPending
             return
           }
           requestTerminalFocus()
@@ -1548,6 +1551,9 @@ function StationXtermTerminalView({
           if (!active) {
             return
           }
+          if (pendingAutoFocusRef.current) {
+            focusTerminalRequestRef.current?.()
+          }
           cancelScheduledFitRetry()
           readyFitBackoffMs = TERMINAL_FIT_RETRY_BACKOFF_MIN_MS
           if (fitAndRefresh()) {
@@ -1593,6 +1599,9 @@ function StationXtermTerminalView({
           }
         }
         const handleWindowWake = () => {
+          if (pendingAutoFocusRef.current) {
+            focusTerminalRequestRef.current?.()
+          }
           scheduleViewportWake('window-wake')
         }
         hostWindow.addEventListener('resize', handleWindowWake)

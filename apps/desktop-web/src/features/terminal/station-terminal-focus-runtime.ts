@@ -7,6 +7,7 @@ import {
 
 export interface StationTerminalFocusRequestInput {
   focusRuntimeReady: boolean
+  documentFocused?: boolean
 }
 
 export interface StationTerminalFocusRequestResolution {
@@ -66,8 +67,9 @@ function normalizeStationTerminalFocusRetryFrames(value: number): number {
 
 export function resolveStationTerminalFocusRequest({
   focusRuntimeReady,
+  documentFocused = true,
 }: StationTerminalFocusRequestInput): StationTerminalFocusRequestResolution {
-  if (!focusRuntimeReady) {
+  if (!focusRuntimeReady || !documentFocused) {
     return {
       shouldDispatch: false,
       shouldPersistPending: true,

@@ -157,7 +157,7 @@ function TerminalStationPaneView({
     }
     return resolveAgentWorkdirAbs(workspaceCwd, station.agentWorkdirRel)
   }, [workspaceCwd, station.agentWorkdirRel])
-  const sessionHistoryWorkspaceId = active && !shouldRenderTerminal && workspaceId && sessionProvider ? workspaceId : null
+  const sessionHistoryWorkspaceId = !shouldRenderTerminal && workspaceId && sessionProvider ? workspaceId : null
   const sessionHistory = useSessionHistory(
     sessionHistoryWorkspaceId,
     { discoverCwd, provider: sessionProvider },
