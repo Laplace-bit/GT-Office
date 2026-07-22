@@ -9,6 +9,7 @@ import {
   applyWorkbenchContainerCustomLayoutChange,
   applyWorkbenchContainerFullscreenStationChange,
   applyWorkbenchContainerLayoutModeChange,
+  applyWorkbenchStationMove,
 } from '../src/features/workspace-hub/workbench-container-layout-state.js'
 import { DEFAULT_WORKBENCH_CUSTOM_LAYOUT } from '../src/features/workspace-hub/workbench-layout-model.js'
 
@@ -143,4 +144,53 @@ test('workbench restore preserves valid fullscreen station ids', () => {
   )
 
   assert.equal(restored[0]?.fullscreenStationId, 'station-1')
+})
+
+test('station drag can reorder stations within its current workbench container', () => {
+  const containers = [
+    createWorkbenchContainer({
+      id: 'container-1',
+      stationIds: ['station-1', 'station-2', 'station-3'],
+      activeStationId: 'station-2',
+    }),
+  ]
+
+  const next = applyWorkbenchStationMove(containers, 'station-1', {
+    containerId: 'container-1',
+    anchorStationId: 'station-3',
+    placement: 'after',
+  })
+
+  assert.deepEqual(next[0]?.stationIds, ['station-2', 'station-3', 'station-1'])
+  assert.equal(next[0]?.activeStationId, 'station-1')
+})
+
+test('station drag inserts into another container at the hovered station', () => {
+  const containers = [
+    createWorkbenchContainer({
+      id: 'container-1',
+      stationIds: ['station-1', 'station-2'],
+      activeStationId: 'station-1',
+      fullscreenStationId: 'station-1',
+      minimizedStationIds: ['station-1'],
+    }),
+    createWorkbenchContainer({
+      id: 'container-2',
+      stationIds: ['station-3', 'station-4'],
+      activeStationId: 'station-3',
+    }),
+  ]
+
+  const next = applyWorkbenchStationMove(containers, 'station-1', {
+    containerId: 'container-2',
+    anchorStationId: 'station-4',
+    placement: 'before',
+  })
+
+  assert.deepEqual(next[0]?.stationIds, ['station-2'])
+  assert.equal(next[0]?.activeStationId, 'station-2')
+  assert.equal(next[0]?.fullscreenStationId, null)
+  assert.deepEqual(next[0]?.minimizedStationIds, [])
+  assert.deepEqual(next[1]?.stationIds, ['station-3', 'station-1', 'station-4'])
+  assert.equal(next[1]?.activeStationId, 'station-1')
 })

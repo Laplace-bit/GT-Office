@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -124,11 +123,7 @@ interface WorkbenchCanvasPanelProps {
   showUtilityBar?: boolean
   onCreateContainer?: () => void
   onBeginFloatingDrag?: (containerId: string, event: ReactPointerEvent<HTMLElement>) => void
-  onStationDragStart?: (event: ReactDragEvent<HTMLElement>, stationId: string, sourceContainerId: string) => void
   onStationDragPointerStart?: (stationId: string, sourceContainerId: string, event: ReactPointerEvent<HTMLElement>) => void
-  onStationDragEnd?: () => void
-  onStationDragHover?: (containerId: string | null) => void
-  onStationDrop?: (event: ReactDragEvent<HTMLElement>, targetContainerId: string) => void
   onBeginNativeWindowDrag?: (event: ReactPointerEvent<HTMLElement>) => void
   onReturnToWorkspace?: () => void
   onOpenStationManage?: () => void
@@ -541,11 +536,7 @@ function WorkbenchCanvasPanelView({
   showUtilityBar = false,
   onCreateContainer,
   onBeginFloatingDrag,
-  onStationDragStart,
   onStationDragPointerStart,
-  onStationDragEnd,
-  onStationDragHover,
-  onStationDrop,
   onBeginNativeWindowDrag,
   onReturnToWorkspace,
   onOpenStationManage,
@@ -1389,13 +1380,6 @@ function WorkbenchCanvasPanelView({
               hiddenStationAnimation?.stationId === station.id
             }
             draggable={!detachedReadonly}
-            onStationDragStart={
-              onStationDragStart
-                ? (event) => {
-                    onStationDragStart(event, station.id, container.id)
-                  }
-                : undefined
-            }
             onStationDragPointerStart={
               onStationDragPointerStart
                 ? (event) => {
@@ -1403,7 +1387,6 @@ function WorkbenchCanvasPanelView({
                   }
                 : undefined
             }
-            onStationDragEnd={onStationDragEnd}
             workspaceId={workspaceId}
             workspaceCwd={workspaceCwd}
             onSelectStation={handleSelectStation}
@@ -1458,9 +1441,7 @@ function WorkbenchCanvasPanelView({
       onRestoreStateCaptured,
       onResizeTerminal,
       onSendInputData,
-      onStationDragStart,
       onStationDragPointerStart,
-      onStationDragEnd,
       taskSignalByStationId,
       terminalByStation,
       workspaceTransitioning,
@@ -1481,36 +1462,6 @@ function WorkbenchCanvasPanelView({
       ]
         .filter(Boolean)
         .join(' ')}
-      onDragOver={
-        onStationDrop
-          ? (event) => {
-              event.preventDefault()
-              event.dataTransfer.dropEffect = 'move'
-              onStationDragHover?.(container.id)
-            }
-          : undefined
-      }
-      onDragLeave={
-        onStationDragHover
-          ? (event) => {
-              const related = event.relatedTarget as Node | null
-              if (related && event.currentTarget.contains(related)) {
-                return
-              }
-              onStationDragHover(null)
-            }
-          : undefined
-      }
-      onDrop={
-        onStationDrop
-          ? (event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onStationDragHover?.(null)
-              onStationDrop(event, container.id)
-            }
-          : undefined
-      }
     >
       <header
         className={['canvas-header', container.mode === 'floating' && !detachedReadonly ? 'draggable' : ''].join(' ')}

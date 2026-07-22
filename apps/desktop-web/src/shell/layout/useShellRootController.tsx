@@ -31,10 +31,6 @@ import {
   type WorkbenchLayoutMode,
 } from '@features/workspace-hub'
 import {
-  defaultStationOverviewState,
-  filterStationsForOverview,
-} from '@features/workspace'
-import {
   getNavItems,
   getPaneModels,
 } from './navigation-model'
@@ -81,6 +77,20 @@ import type { SessionRelaunchRequest } from '@features/session'
 
 interface ShellRootProps {
   workspaceWindowId?: string
+}
+
+function filterStationsForSearch(stations: AgentStation[], query: string): AgentStation[] {
+  const normalizedQuery = query.trim().toLowerCase()
+  return stations
+    .filter((station) => {
+      if (!normalizedQuery) {
+        return true
+      }
+      const searchable =
+        `${station.id} ${station.name} ${station.role} ${station.roleName} ${station.tool} ${station.agentWorkdirRel}`.toLowerCase()
+      return searchable.includes(normalizedQuery)
+    })
+    .sort((left, right) => left.orderIndex - right.orderIndex)
 }
 
 export function useShellRootController({ workspaceWindowId }: ShellRootProps = {}) {
@@ -133,7 +143,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   const [canvasLayoutMode] = useState<WorkbenchLayoutMode>(initialCanvasLayout.mode)
   const [canvasCustomLayout] = useState<WorkbenchCustomLayout>(initialCanvasLayout.customLayout)
   const [pendingScrollStationId, setPendingScrollStationId] = useState<string | null>(null)
-  const [stationOverviewState, setStationOverviewState] = useState(defaultStationOverviewState)
+  const [stationSearchQuery, setStationSearchQuery] = useState('')
   const [activeStationId, setActiveStationId] = useState(initialStations[0]?.id ?? '')
   const [workbenchContainers, setWorkbenchContainers] = useState<WorkbenchContainerModel[]>(() =>
     createInitialWorkbenchContainers(initialStations, buildDefaultWorkbenchContainerId, initialCanvasLayout),
@@ -267,7 +277,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     loadStationsFromDatabase,
     addStation,
     updateStation,
-    reorderStations,
   } = useShellStationController({
     initialStations,
     activeWorkspaceId,
@@ -335,7 +344,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     terminalSessionCount,
     stationAgentRunningById,
     batchLaunchableAgentCount,
-    runtimeStateByStationId,
     writeStationTerminalWithSubmit,
   } = terminalController
   const deleteCleanupSubmitting = stationDeleteCleanupSubmitting
@@ -645,8 +653,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
   }, [activeGitSummary, activeNavId, hasUnavailableGitRepository, locale, paneModels])
 
   const filteredStations = useMemo(
-    () => filterStationsForOverview(stations, runtimeStateByStationId, stationOverviewState),
-    [runtimeStateByStationId, stationOverviewState, stations],
+    () => filterStationsForSearch(stations, stationSearchQuery),
+    [stationSearchQuery, stations],
   )
 
   const channelBotBindingsByStationId = useMemo(
@@ -658,13 +666,13 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     if (activeNavId !== 'stations') {
       return
     }
-    if (filteredStations.length === 0) {
+    if (stations.length === 0) {
       return
     }
-    if (!filteredStations.some((station) => station.id === activeStationId)) {
-      setActiveStationId(filteredStations[0].id)
+    if (!stations.some((station) => station.id === activeStationId)) {
+      setActiveStationId(stations[0].id)
     }
-  }, [activeNavId, activeStationId, filteredStations])
+  }, [activeNavId, activeStationId, stations])
 
   const handlePickStationWorkdir = useMemo(
     () => async (): Promise<string | null> => {
@@ -1069,15 +1077,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     [loadFileContent, requestFileEditorCommand],
   )
 
-  const handleStationOverviewViewChange = useCallback((patch: Partial<typeof stationOverviewState>) => {
-    setStationOverviewState((prev) => ({ ...prev, ...patch }))
-  }, [])
-
-  const handleStationOverviewSelectStation = useCallback((stationId: string) => {
-    setActiveStationId(stationId)
-  }, [])
-
-  const handleStationOverviewEditStation = useCallback((station: AgentStation) => {
+  const handleStationEdit = useCallback((station: AgentStation) => {
     setEditingStation(createStationEditInput(station))
     setIsStationManageOpen(true)
   }, [])
@@ -1202,7 +1202,6 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     workspaceId: presentedWorkspaceId,
     workspaceCwd: presentedWorkspaceRoot,
     stations,
-    roleFilter: stationOverviewState.roleFilter,
     activeStationId,
     terminalByStation: stationTerminals,
     agentRunningByStationId: stationAgentRunningById,
@@ -1239,6 +1238,7 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     onFocusFloatingContainer: focusFloatingWorkbenchContainer,
     onOpenStationManage: handleCanvasOpenStationManage,
     onOpenStationSearch: handleCanvasOpenStationSearch,
+    onEditStation: handleStationEdit,
     onRemoveStation: handleCanvasRemoveStation,
   }
   const pinnedWorkbenchCanvasProps = showPinnedWorkbenchPane && pinnedWorkbenchContainer
@@ -1387,19 +1387,8 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
         onDeletePath: deletePathInWorkspace,
         onMovePath: movePathInWorkspace,
         onOpenSearch: requestFileSearch,
-      },
-    taskCenterPaneProps: taskComposerBaseProps,
-    stationOverviewPaneProps: {
-      locale,
-      stations,
-      activeStationId,
-      runtimeStateByStationId,
-      view: stationOverviewState,
-      onViewChange: handleStationOverviewViewChange,
-      onSelectStation: handleStationOverviewSelectStation,
-      onEditStation: handleStationOverviewEditStation,
-      onReorderStations: reorderStations,
     },
+    taskCenterPaneProps: taskComposerBaseProps,
     gitOperationsPaneProps: {
       controller: gitController,
     },
@@ -1597,13 +1586,13 @@ export function useShellRootController({ workspaceWindowId }: ShellRootProps = {
     stationSearchModalProps: {
         open: isStationSearchOpen,
         locale,
-        query: stationOverviewState.query,
+        query: stationSearchQuery,
         stations: filteredStations,
         onClose: () => {
           setIsStationSearchOpen(false)
         },
         onQueryChange: (value) => {
-          setStationOverviewState((prev) => ({ ...prev, query: value }))
+          setStationSearchQuery(value)
         },
         onSelectStation: handleStationSearchSelectStation,
       },

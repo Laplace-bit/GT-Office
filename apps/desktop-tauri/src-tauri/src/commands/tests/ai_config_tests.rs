@@ -18,6 +18,34 @@ fn provider_env_injection_ignores_non_provider_tools() {
 }
 
 #[test]
+fn terminal_command_path_uses_a_compact_bootstrap_when_callers_do_not_supply_path() {
+    let path = terminal_command_path_base(None);
+    let expected = terminal_command_bootstrap_path()
+        .split(terminal_command_path_separator())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    assert_eq!(path, expected);
+    assert!(terminal_command_path_parts_len(&path) <= TERMINAL_COMMAND_PATH_MAX_BYTES);
+}
+
+#[test]
+fn terminal_command_path_bounds_an_explicitly_bloated_path() {
+    let oversized = (0..2048)
+        .map(|index| format!("/very/long/custom/bin/{index:04}"))
+        .collect::<Vec<_>>()
+        .join(if cfg!(windows) { ";" } else { ":" });
+
+    let path = terminal_command_path_base(Some(&oversized));
+
+    assert!(terminal_command_path_parts_len(&path) <= TERMINAL_COMMAND_PATH_MAX_BYTES);
+    assert_eq!(
+        path.first().map(String::as_str),
+        Some("/very/long/custom/bin/0000")
+    );
+}
+
+#[test]
 fn agent_tool_kind_from_param_normalizes_known_values() {
     assert_eq!(
         agent_tool_kind_from_param(Some(" Claude ".to_string())),

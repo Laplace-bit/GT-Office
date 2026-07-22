@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Circle, GripHorizontal, Play } from 'lucide-react'
 import type { AgentStation } from './station-model'
@@ -73,9 +73,6 @@ interface StationIconButtonProps {
   ariaPressed?: boolean
   onClick: (event: MouseEvent<HTMLButtonElement>) => void
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void
-  draggable?: boolean
-  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
-  onDragEnd?: (event: DragEvent<HTMLButtonElement>) => void
   children: ReactNode
 }
 
@@ -86,9 +83,6 @@ function StationIconButton({
   ariaPressed,
   onClick,
   onPointerDown,
-  draggable = false,
-  onDragStart,
-  onDragEnd,
   children,
 }: StationIconButtonProps) {
   return (
@@ -100,9 +94,6 @@ function StationIconButton({
       title={tooltip}
       onClick={onClick}
       onPointerDown={onPointerDown}
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
     >
       {children}
     </button>
@@ -131,6 +122,7 @@ interface StationCardProps {
   workspaceId?: string | null
   workspaceCwd?: string | null
   onSelectStation: (stationId: string) => void
+  onEditStation?: (station: AgentStation) => void
 
   onLaunchStationTerminal: (stationId: string) => void
   onLaunchCliAgent: (stationId: string) => void
@@ -156,9 +148,7 @@ interface StationCardProps {
   onRunAction: (station: AgentStation, action: StationActionDescriptor) => void
   commands?: ToolCommandSummary[]
   draggable?: boolean
-  onStationDragStart?: (event: DragEvent<HTMLButtonElement>, stationId: string) => void
   onStationDragPointerStart?: (event: ReactPointerEvent<HTMLElement>, stationId: string) => void
-  onStationDragEnd?: () => void
 }
 
 function StationCardView({
@@ -176,6 +166,7 @@ function StationCardView({
   workspaceId,
   workspaceCwd,
   onSelectStation,
+  onEditStation,
   onLaunchStationTerminal,
   onLaunchCliAgent,
   onSessionRelaunch,
@@ -192,9 +183,7 @@ function StationCardView({
   onRunAction,
   commands = [],
   draggable = false,
-  onStationDragStart,
   onStationDragPointerStart,
-  onStationDragEnd,
 }: StationCardProps) {
   const rootRef = useRef<HTMLElement | null>(null)
   const terminalSinkRef = useRef<StationTerminalSink | null>(null)
@@ -322,6 +311,7 @@ function StationCardView({
 
   const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
+  const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const sessionProvider = resolveStationSessionProvider(station)
   const discoverCwd = useMemo(() => {
     if (!workspaceCwd) {
@@ -329,8 +319,9 @@ function StationCardView({
     }
     return resolveAgentWorkdirAbs(workspaceCwd, station.agentWorkdirRel)
   }, [workspaceCwd, station.agentWorkdirRel])
+  const sessionHistoryWorkspaceId = active && !shouldRenderTerminal && workspaceId && sessionProvider ? workspaceId : null
   const sessionHistory = useSessionHistory(
-    !hasTerminalSession && workspaceId && sessionProvider ? workspaceId : null,
+    sessionHistoryWorkspaceId,
     { discoverCwd, provider: sessionProvider },
   )
   const handleSessionDiscover = useCallback(() => {
@@ -346,7 +337,6 @@ function StationCardView({
     },
     [onSessionRelaunch, station.id],
   )
-  const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const shouldAutoLaunchTerminal = shouldAutoLaunchStationTerminalFromSurface(runtime)
 
   const roleText = roleLabel(locale, station)
@@ -557,6 +547,9 @@ function StationCardView({
               tooltip={primaryLaunchButtonLabel}
               ariaLabel={primaryLaunchButtonLabel}
               ariaPressed={launchState === 'live'}
+              onPointerDown={(event) => {
+                event.preventDefault()
+              }}
               onClick={(event) => {
                 event.stopPropagation()
                 handlePrimaryLaunch()
@@ -580,6 +573,9 @@ function StationCardView({
               className="station-terminal-launch-btn"
               tooltip={t(locale, 'workbench.stationLaunchTerminal')}
               ariaLabel={t(locale, 'workbench.stationLaunchTerminal')}
+              onPointerDown={(event) => {
+                event.preventDefault()
+              }}
               onClick={(event) => {
                 event.stopPropagation()
                 activateStationAndOpenTerminal()
@@ -587,28 +583,24 @@ function StationCardView({
             >
               <AppIcon name="terminal" className="vb-icon vb-icon-station-button" aria-hidden="true" />
             </StationIconButton>
+            {onEditStation ? (
+              <StationIconButton
+                className="station-edit-btn"
+                tooltip={t(locale, 'station.overview.editRole')}
+                ariaLabel={t(locale, 'station.overview.editRole')}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onEditStation(station)
+                }}
+              >
+                <AppIcon name="user-pen" className="vb-icon vb-icon-station-button" aria-hidden="true" />
+              </StationIconButton>
+            ) : null}
             {draggable ? (
               <StationIconButton
                 className="station-drag-handle"
                 tooltip={t(locale, 'workbench.dragStation')}
                 ariaLabel={t(locale, 'workbench.dragStation')}
-                draggable={draggable}
-                onDragStart={
-                  onStationDragStart
-                    ? (event) => {
-                        event.stopPropagation()
-                        onStationDragStart(event, station.id)
-                      }
-                    : undefined
-                }
-                onDragEnd={
-                  onStationDragEnd
-                    ? (event) => {
-                        event.stopPropagation()
-                        onStationDragEnd()
-                      }
-                    : undefined
-                }
                 onPointerDown={
                   onStationDragPointerStart
                     ? (event) => {
@@ -718,7 +710,7 @@ function StationCardView({
         </>
       ) : (
         <div className="station-terminal-idle-state">
-          {workspaceId && sessionProvider ? (
+          {sessionHistoryWorkspaceId ? (
             <SessionHistoryList
               locale={locale}
               cards={sessionHistory.cards}
@@ -772,6 +764,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.isFocusHidden === next.isFocusHidden &&
     prev.draggable === next.draggable &&
     prev.onSelectStation === next.onSelectStation &&
+    prev.onEditStation === next.onEditStation &&
     prev.onLaunchStationTerminal === next.onLaunchStationTerminal &&
     prev.onLaunchCliAgent === next.onLaunchCliAgent &&
     prev.workspaceId === next.workspaceId &&
@@ -790,9 +783,7 @@ function areStationCardPropsEqual(prev: StationCardProps, next: StationCardProps
     prev.onMinimizeStation === next.onMinimizeStation &&
     prev.onRunAction === next.onRunAction &&
     prev.commands === next.commands &&
-    prev.onStationDragStart === next.onStationDragStart &&
     prev.onStationDragPointerStart === next.onStationDragPointerStart &&
-    prev.onStationDragEnd === next.onStationDragEnd &&
     (prev.runtime?.sessionId ?? null) === (next.runtime?.sessionId ?? null) &&
     (prev.runtime?.stateRaw ?? null) === (next.runtime?.stateRaw ?? null) &&
     !didStationTerminalRenderabilityChange(prev.runtime, next.runtime) &&

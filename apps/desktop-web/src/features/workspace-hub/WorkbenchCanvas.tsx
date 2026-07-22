@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { AgentStation, StationRole } from './station-model'
 import { WorkbenchCanvasPanel } from './WorkbenchCanvasPanel'
@@ -71,6 +71,12 @@ interface StationPointerDragState {
   active: boolean
 }
 
+interface StationDropTarget {
+  containerId: string
+  anchorStationId: string | null
+  placement: 'before' | 'after'
+}
+
 interface WorkbenchCanvasProps {
   locale: Locale
   appearanceVersion: string
@@ -116,7 +122,12 @@ interface WorkbenchCanvasProps {
   onToggleContainerTopmost: (containerId: string) => void
   onCreateContainer: () => void
   onDeleteContainer: (containerId: string) => void
-  onMoveStationToContainer: (stationId: string, targetContainerId: string) => void
+  onMoveStationToContainer: (
+    stationId: string,
+    targetContainerId: string,
+    anchorStationId?: string | null,
+    placement?: 'before' | 'after',
+  ) => void
   onMoveFloatingContainer: (containerId: string, input: { x: number; y: number }) => void
   onResizeFloatingContainer: (containerId: string, frame: WorkbenchContainerFrame) => void
   onFocusFloatingContainer: (containerId: string) => void
@@ -125,11 +136,10 @@ interface WorkbenchCanvasProps {
   onScrollToStationHandled?: (stationId: string) => void
   onOpenStationManage: () => void
   onOpenStationSearch: () => void
+  onEditStation: (station: AgentStation) => void
   onRemoveStation: (stationId: string) => void
 }
 
-const STATION_DRAG_MIME = 'application/x-gto-workbench-station'
-const STATION_DRAG_FALLBACK_MIME = 'text/plain'
 const FLOATING_RESIZE_DIRECTIONS: readonly FloatingResizeDirection[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']
 const FLOATING_EDGE_GUTTER_PX = 12
 
@@ -216,28 +226,6 @@ function resizeFloatingFrame(
   }
 }
 
-function parseDraggedStation(event: ReactDragEvent<HTMLElement>): { stationId: string; sourceContainerId: string } | null {
-  for (const mimeType of [STATION_DRAG_MIME, STATION_DRAG_FALLBACK_MIME]) {
-    const raw = event.dataTransfer.getData(mimeType)
-    if (!raw) {
-      continue
-    }
-    try {
-      const parsed = JSON.parse(raw) as { stationId?: string; sourceContainerId?: string }
-      if (!parsed.stationId || !parsed.sourceContainerId) {
-        continue
-      }
-      return {
-        stationId: parsed.stationId,
-        sourceContainerId: parsed.sourceContainerId,
-      }
-    } catch {
-      continue
-    }
-  }
-  return null
-}
-
 function buildFloatingCanvasStyle(
   container: WorkbenchContainerModel,
   _surfaceRect: DOMRect | null,
@@ -259,7 +247,7 @@ function resolveFloatingInteractionRect(_surfaceRect: DOMRect | null): DOMRect {
   return new DOMRect(0, 0, window.innerWidth, window.innerHeight)
 }
 
-function resolveContainerIdAtPoint(clientX: number, clientY: number): string | null {
+function resolveStationDropTargetAtPoint(clientX: number, clientY: number): StationDropTarget | null {
   if (typeof document === 'undefined') {
     return null
   }
@@ -267,7 +255,32 @@ function resolveContainerIdAtPoint(clientX: number, clientY: number): string | n
   if (!(target instanceof HTMLElement)) {
     return null
   }
-  return target.closest<HTMLElement>('[data-container-id]')?.dataset.containerId ?? null
+  const container = target.closest<HTMLElement>('[data-container-id]')
+  const containerId = container?.dataset.containerId ?? null
+  if (!containerId) {
+    return null
+  }
+  const station = target.closest<HTMLElement>('[data-station-id]')
+  const anchorStationId = station?.dataset.stationId ?? null
+  if (!station || !anchorStationId || !container?.contains(station)) {
+    return { containerId, anchorStationId: null, placement: 'after' }
+  }
+  const rect = station.getBoundingClientRect()
+  return {
+    containerId,
+    anchorStationId,
+    placement: clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+  }
+}
+
+function isMovableStationDropTarget(
+  stationDrag: StationPointerDragState,
+  target: StationDropTarget | null,
+): target is StationDropTarget {
+  if (!target) {
+    return false
+  }
+  return target.containerId !== stationDrag.sourceContainerId || target.anchorStationId !== stationDrag.stationId
 }
 
 function WorkbenchCanvasView({
@@ -321,6 +334,7 @@ function WorkbenchCanvasView({
   onScrollToStationHandled,
   onOpenStationManage,
   onOpenStationSearch,
+  onEditStation,
   onRemoveStation,
 }: WorkbenchCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
@@ -385,11 +399,9 @@ function WorkbenchCanvasView({
           }
         }
         if (stationDrag.active) {
-          const nextTargetContainerId = resolveContainerIdAtPoint(event.clientX, event.clientY)
+          const target = resolveStationDropTargetAtPoint(event.clientX, event.clientY)
           setDragTargetContainerId(
-            nextTargetContainerId && nextTargetContainerId !== stationDrag.sourceContainerId
-              ? nextTargetContainerId
-              : null,
+            isMovableStationDropTarget(stationDrag, target) ? target.containerId : null,
           )
         }
       }
@@ -415,26 +427,34 @@ function WorkbenchCanvasView({
         resizeFloatingFrame(interaction.frame, interaction.direction, dx, dy, interaction.rect),
       )
     }
-    const clearDrag = (event?: PointerEvent) => {
+    const clearDrag = (event?: PointerEvent, commit = true) => {
       const stationDrag = stationPointerDragRef.current
-      if (stationDrag?.active && event) {
-        const targetContainerId = resolveContainerIdAtPoint(event.clientX, event.clientY)
-        if (targetContainerId && targetContainerId !== stationDrag.sourceContainerId) {
-          onMoveStationToContainer(stationDrag.stationId, targetContainerId)
-          onSelectStation(targetContainerId, stationDrag.stationId)
+      if (commit && stationDrag?.active && event) {
+        const target = resolveStationDropTargetAtPoint(event.clientX, event.clientY)
+        if (isMovableStationDropTarget(stationDrag, target)) {
+          onMoveStationToContainer(
+            stationDrag.stationId,
+            target.containerId,
+            target.anchorStationId,
+            target.placement,
+          )
+          onSelectStation(target.containerId, stationDrag.stationId)
         }
       }
       stationPointerDragRef.current = null
       setDragTargetContainerId(null)
       floatingInteractionRef.current = null
     }
+    const cancelDrag = () => {
+      clearDrag(undefined, false)
+    }
     window.addEventListener('pointermove', handlePointerMove)
     window.addEventListener('pointerup', clearDrag)
-    window.addEventListener('pointercancel', clearDrag)
+    window.addEventListener('pointercancel', cancelDrag)
     return () => {
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', clearDrag)
-      window.removeEventListener('pointercancel', clearDrag)
+      window.removeEventListener('pointercancel', cancelDrag)
     }
   }, [onMoveFloatingContainer, onMoveStationToContainer, onResizeFloatingContainer, onSelectStation])
 
@@ -467,33 +487,6 @@ function WorkbenchCanvasView({
     onScrollToStationHandled?.(scrollToStationId)
   }, [containers, onReclaimDetachedContainer, onScrollToStationHandled, onSelectStation, scrollToStationId])
 
-  const handleStationDragStart = useCallback(
-    (event: ReactDragEvent<HTMLElement>, stationId: string, sourceContainerId: string) => {
-      const payload = JSON.stringify({
-        stationId,
-        sourceContainerId,
-      })
-      event.dataTransfer.effectAllowed = 'move'
-      // WKWebView may drop custom MIME payloads during DOM drag-and-drop, so keep a text fallback.
-      event.dataTransfer.setData(STATION_DRAG_FALLBACK_MIME, payload)
-      event.dataTransfer.setData(STATION_DRAG_MIME, payload)
-    },
-    [],
-  )
-
-  const handleContainerDrop = useCallback(
-    (event: ReactDragEvent<HTMLElement>, targetContainerId: string) => {
-      const dragged = parseDraggedStation(event)
-      setDragTargetContainerId(null)
-      if (!dragged || dragged.sourceContainerId === targetContainerId) {
-        return
-      }
-      onMoveStationToContainer(dragged.stationId, targetContainerId)
-      onSelectStation(targetContainerId, dragged.stationId)
-    },
-    [onMoveStationToContainer, onSelectStation],
-  )
-
   const handleFloatingDragStart = useCallback(
     (containerId: string, event: ReactPointerEvent<HTMLElement>) => {
       const container = containers.find((item) => item.id === containerId)
@@ -522,6 +515,7 @@ function WorkbenchCanvasView({
       }
       event.preventDefault()
       event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
       stationPointerDragRef.current = {
         stationId,
         sourceContainerId,
@@ -644,14 +638,9 @@ function WorkbenchCanvasView({
                     onTogglePinnedWorkbenchContainer={onTogglePinnedWorkbenchContainer}
                     minimizedDockPortalTarget={minimizedDockPortalTarget}
                     onCreateContainer={onCreateContainer}
-                    onStationDragStart={handleStationDragStart}
                     onStationDragPointerStart={handleStationPointerDragStart}
-                    onStationDragEnd={() => setDragTargetContainerId(null)}
-                    onStationDragHover={setDragTargetContainerId}
-                    onStationDrop={(event, targetContainerId) => {
-                      handleContainerDrop(event, targetContainerId)
-                    }}
                     onOpenStationManage={onOpenStationManage}
+                    onEditStation={onEditStation}
                   />
                 )
               })}
@@ -729,14 +718,9 @@ function WorkbenchCanvasView({
                     onTogglePinnedWorkbenchContainer={onTogglePinnedWorkbenchContainer}
                     onCreateContainer={onCreateContainer}
                     onBeginFloatingDrag={handleFloatingDragStart}
-                    onStationDragStart={handleStationDragStart}
                     onStationDragPointerStart={handleStationPointerDragStart}
-                    onStationDragEnd={() => setDragTargetContainerId(null)}
-                    onStationDragHover={setDragTargetContainerId}
-                    onStationDrop={(event, targetContainerId) => {
-                      handleContainerDrop(event, targetContainerId)
-                    }}
                     onOpenStationManage={onOpenStationManage}
+                    onEditStation={onEditStation}
                   />
                   {FLOATING_RESIZE_DIRECTIONS.map((direction) => (
                     <div

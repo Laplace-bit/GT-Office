@@ -318,7 +318,6 @@ export interface ShellTerminalController {
   stationAgentRunningById: Record<string, boolean>
   batchLaunchableAgentCount: number
   toolCommandReloadKey: string
-  runtimeStateByStationId: Record<string, string>
 
   // Workspace presentation switch support
   resetTerminalStateOnWorkspaceSwitch: () => void
@@ -2796,9 +2795,14 @@ export function useShellTerminalController({
           }
 
           const launchWorkspaceId = activeWorkspaceId
+          setStationTerminalState(stationId, {
+            stateRaw: 'launching',
+            unreadCount: 0,
+          })
           try {
             const station = stationsRef.current.find((item) => item.id === stationId)
             if (!station) {
+              setStationTerminalState(stationId, { stateRaw: 'failed' })
               appendStationTerminalOutput(
                 stationId,
                 t(locale, 'system.launchFailed', {
@@ -2817,6 +2821,7 @@ export function useShellTerminalController({
                   stationTerminalsRef.current[stationId],
                 )
               ) {
+                setStationTerminalState(stationId, { stateRaw: 'failed' })
                 appendStationTerminalOutput(
                   stationId,
                   t(locale, 'system.launchFailed', {
@@ -2928,6 +2933,7 @@ export function useShellTerminalController({
                 stationTerminalsRef.current[stationId],
               )
             ) {
+              setStationTerminalState(stationId, { stateRaw: 'failed' })
               appendStationTerminalOutput(
                 stationId,
                 t(locale, 'system.launchFailed', {
@@ -4592,15 +4598,6 @@ export function useShellTerminalController({
   )
 
   // ── Computed values ────────────────────────────────────────────────────
-  const runtimeStateByStationId = useMemo(
-    () =>
-      Object.entries(stationTerminals).reduce<Record<string, string>>((acc, [stationId, runtime]) => {
-        acc[stationId] = runtime.stateRaw
-        return acc
-      }, {}),
-    [stationTerminals],
-  )
-
   const terminalSessionCount = useMemo(
     () => Object.values(stationTerminals).filter((runtime) => runtime.sessionId).length,
     [stationTerminals],
@@ -4824,7 +4821,6 @@ export function useShellTerminalController({
     stationAgentRunningById,
     batchLaunchableAgentCount,
     toolCommandReloadKey,
-    runtimeStateByStationId,
 
     // Workspace presentation switch support
     resetTerminalStateOnWorkspaceSwitch,

@@ -23,3 +23,12 @@ test('shell terminal controller normalizes cached output sequence checks before 
   assert.match(cachedPayloadQueueBlock, /resolveTerminalOutputSequenceAction\(payload\.seq,\s*seq\)/)
   assert.doesNotMatch(cachedPayloadQueueBlock, /payload\.seq\s*<=\s*seq/)
 })
+
+test('shell terminal controller exposes launch state before terminal creation and failure state on rejection', () => {
+  const ensureSessionBlock =
+    controllerSource.match(/const ensureStationTerminalSession = useMemo\([\s\S]*?\n  const focusStationTerminal/m)?.[0] ?? ''
+
+  assert.notEqual(ensureSessionBlock, '', 'station terminal launch path should exist')
+  assert.match(ensureSessionBlock, /setStationTerminalState\(stationId, \{\s*stateRaw: 'launching'/)
+  assert.match(ensureSessionBlock, /setStationTerminalState\(stationId, \{ stateRaw: 'failed' \}\)/)
+})

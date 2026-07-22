@@ -13,6 +13,7 @@ import {
   applyWorkbenchContainerFullscreenStationChange,
   applyWorkbenchContainerLayoutModeChange,
   applyWorkbenchContainerMinimizedStationIdsChange,
+  applyWorkbenchStationMove,
 } from '@features/workspace-hub/workbench-container-layout-state'
 import { desktopApi } from '../integration/desktop-api'
 import {
@@ -46,7 +47,12 @@ export interface ShellWorkbenchController {
   toggleWorkbenchContainerTopmost: (containerId: string) => void
   detachWorkbenchContainer: (containerId: string) => void
   reclaimDetachedContainer: (containerId: string) => void
-  moveStationToWorkbenchContainer: (stationId: string, targetContainerId: string) => void
+  moveStationToWorkbenchContainer: (
+    stationId: string,
+    targetContainerId: string,
+    anchorStationId?: string | null,
+    placement?: 'before' | 'after',
+  ) => void
   moveFloatingWorkbenchContainer: (containerId: string, input: { x: number; y: number }) => void
   resizeFloatingWorkbenchContainer: (
     containerId: string,
@@ -339,40 +345,31 @@ export function useShellWorkbenchController({
   )
 
   const moveStationToWorkbenchContainer = useCallback(
-    (stationId: string, targetContainerId: string) => {
+    (
+      stationId: string,
+      targetContainerId: string,
+      anchorStationId: string | null = null,
+      placement: 'before' | 'after' = 'after',
+    ) => {
       setActiveStationId(stationId)
       setWorkbenchContainers((prev) => {
-        const sourceIndex = prev.findIndex((container) => container.stationIds.includes(stationId))
-        const targetIndex = prev.findIndex((container) => container.id === targetContainerId)
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
-          return prev
-        }
-        const source = prev[sourceIndex]
-        const target = prev[targetIndex]
-        if (target.stationIds.includes(stationId)) {
+        const next = applyWorkbenchStationMove(prev, stationId, {
+          containerId: targetContainerId,
+          anchorStationId,
+          placement,
+        })
+        if (next === prev) {
           return prev
         }
         const now = Date.now()
-        const next = [...prev]
-        const remainingStationIds = source.stationIds.filter((id) => id !== stationId)
-        next[sourceIndex] = {
-          ...source,
-          stationIds: remainingStationIds,
-          activeStationId:
-            source.activeStationId === stationId
-              ? remainingStationIds[0] ?? null
-              : source.activeStationId,
-          fullscreenStationId:
-            source.fullscreenStationId === stationId ? null : source.fullscreenStationId,
-          minimizedStationIds: source.minimizedStationIds.filter((id) => id !== stationId),
-        }
-        next[targetIndex] = {
-          ...target,
-          stationIds: [...target.stationIds, stationId],
-          activeStationId: stationId,
-          lastActiveAtMs: now,
-        }
-        return next
+        return next.map((container) =>
+          container.id === targetContainerId
+            ? {
+                ...container,
+                lastActiveAtMs: now,
+              }
+            : container,
+        )
       })
     },
     [setActiveStationId, setWorkbenchContainers],

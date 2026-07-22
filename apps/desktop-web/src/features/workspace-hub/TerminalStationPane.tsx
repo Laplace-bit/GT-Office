@@ -15,6 +15,7 @@ import {
   StationXtermTerminal,
   type StationTerminalSinkBindingHandler,
 } from '@features/terminal'
+import { shouldRenderStationTerminal } from '@features/terminal/station-terminal-runtime-state'
 import { recordStationTerminalFocusDiagnostic } from '@features/terminal/station-terminal-focus-diagnostics'
 import type { StationChannelBotBindingSummary } from '@features/tool-adapter'
 import type { RenderedScreenSnapshot, ToolCommandSummary } from '@shell/integration/desktop-api'
@@ -111,6 +112,7 @@ function TerminalStationPaneView({
 }: TerminalStationPaneProps) {
   const taskAckEmoji = taskSignal ? resolveStationTaskAckEmoji(taskSignal.nonce) : ''
   const hasTerminalSession = Boolean(runtime?.sessionId)
+  const shouldRenderTerminal = shouldRenderStationTerminal(runtime)
   const activitySignal = useStationActivitySignal(active ? 0 : runtime?.unreadCount)
   const visibleChannelBindingSummaries = (channelBotBindings ?? []).slice(0, 2)
   const hiddenChannelBindingCount = Math.max(0, (channelBotBindings ?? []).length - visibleChannelBindingSummaries.length)
@@ -155,8 +157,9 @@ function TerminalStationPaneView({
     }
     return resolveAgentWorkdirAbs(workspaceCwd, station.agentWorkdirRel)
   }, [workspaceCwd, station.agentWorkdirRel])
+  const sessionHistoryWorkspaceId = active && !shouldRenderTerminal && workspaceId && sessionProvider ? workspaceId : null
   const sessionHistory = useSessionHistory(
-    !hasTerminalSession && workspaceId && sessionProvider ? workspaceId : null,
+    sessionHistoryWorkspaceId,
     { discoverCwd, provider: sessionProvider },
   )
   const handleSessionDiscover = useCallback(() => {
@@ -309,7 +312,7 @@ function TerminalStationPaneView({
         </>
       ) : (
         <div className="terminal-station-pane-idle-state">
-          {workspaceId && sessionProvider ? (
+          {sessionHistoryWorkspaceId ? (
             <SessionHistoryList
               locale={locale}
               cards={sessionHistory.cards}

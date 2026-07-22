@@ -386,3 +386,94 @@ fn pty_provider_describes_session_processes_and_tracks_spawned_commands() {
 
     let _ = provider.kill_session(&session.session_id);
 }
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn pty_provider_does_not_inherit_parent_env_noise() {
+    // The PTY shell must start from a clean whitelist env, not the full parent
+    // (test process) env. Verify a non-whitelist variable set in the parent
+    // process is NOT visible inside the spawned shell, while a whitelisted
+    // variable (HOME) still is.
+    let noise_key = format!(
+        "GTO_TEST_PTY_NOISE_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    std::env::set_var(&noise_key, "should-not-leak");
+    // Smuggle a sentinel into the parent PATH so we can detect whether the
+    // spawned shell inherited it (it must not).
+    let sentinel_dir = "/__GTO_PTY_PATH_SENTINEL__";
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var("PATH", format!("{sentinel_dir}:{original_path}"));
+    let home = std::env::var("HOME").unwrap_or_default();
+
+    let workspace_dir = TempDir::create("gtoffice-terminal-pty-env-sanitize");
+    let workspace_service = InMemoryWorkspaceService::new();
+    let workspace = workspace_service
+        .open(&workspace_dir.path)
+        .expect("open workspace");
+    let provider = PtyTerminalProvider::new(workspace_service, AllowAllPolicyEvaluator);
+    let receiver = provider
+        .take_event_receiver()
+        .expect("take terminal event receiver");
+
+    let session = provider
+        .create_session(TerminalCreateRequest {
+            workspace_id: workspace.workspace_id.clone(),
+            shell: Some("/bin/bash".to_string()),
+            cwd: None,
+            cwd_mode: TerminalCwdMode::WorkspaceRoot,
+            env: BTreeMap::new(),
+            agent_tool_kind: None,
+            login_shell: Some(false),
+        })
+        .expect("create pty session");
+    provider
+        .set_session_visibility(&session.session_id, true)
+        .expect("set session visible");
+
+    provider
+        .write_session(
+            &session.session_id,
+            &format!(
+                "printf '__GTO_ENV_PROBE__%s|%s|%s\\n' \"${{{noise_key}:-__CLEAN__}}\" \"${{HOME:-__NO_HOME__}}\" \"$PATH\"\n"
+            ),
+        )
+        .expect("write env probe");
+
+    let expected = format!(
+        "__GTO_ENV_PROBE____CLEAN__|{}|/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        home
+    );
+    let mut observed_output = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if let Ok(gt_terminal::TerminalRuntimeEvent::Output(output)) =
+            receiver.recv_timeout(Duration::from_millis(300))
+        {
+            observed_output.push_str(&String::from_utf8_lossy(&output.chunk));
+            if observed_output.contains(&expected) {
+                break;
+            }
+        }
+    }
+
+    std::env::remove_var(&noise_key);
+    std::env::set_var("PATH", &original_path);
+    let _ = provider.kill_session(&session.session_id);
+
+    assert!(
+        observed_output.contains(&expected),
+        "PTY shell should not inherit non-whitelist parent env and should use the minimal bootstrap PATH (expected `{expected}`), got: {observed_output}"
+    );
+    assert!(
+        !observed_output.contains("should-not-leak"),
+        "PTY shell leaked non-whitelist parent env var `{noise_key}`, got: {observed_output}"
+    );
+    assert!(
+        !observed_output.contains(sentinel_dir),
+        "PTY shell inherited parent PATH, got: {observed_output}"
+    );
+}

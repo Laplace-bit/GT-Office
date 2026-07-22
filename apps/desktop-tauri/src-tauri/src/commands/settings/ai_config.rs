@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -18,6 +17,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::app_state::AppState;
 pub(super) const GLOBAL_AI_CONFIG_CONTEXT: &str = "global";
+const TERMINAL_COMMAND_PATH_MAX_BYTES: usize = 16 * 1024;
 
 fn resolve_ai_config_repository(app: &AppHandle) -> Result<SqliteAiConfigRepository, String> {
     let base_dir = app
@@ -102,30 +102,24 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
         _ => return,
     };
 
+    // Do not inherit PATH from the Tauri parent process. In development that
+    // parent can carry thousands of toolchain entries, which is then passed to
+    // the PTY as an explicit env var and makes login-profile child processes
+    // fail with E2BIG. A terminal starts from a compact bootstrap PATH; an
+    // explicit PATH supplied by a caller remains supported and bounded.
+    let mut parts = terminal_command_path_base(env_map.get("PATH").map(String::as_str));
+
     let Some(executable) = AgentInstaller::launch_executable_hint(agent_type) else {
+        env_map.insert("PATH".to_string(), terminal_command_path_join(&parts));
         return;
     };
 
     env_map.insert(override_var.to_string(), executable.clone());
 
-    let current_path = env_map
-        .get("PATH")
-        .cloned()
-        .or_else(|| env::var("PATH").ok())
-        .unwrap_or_default();
-    let separator = if cfg!(windows) { ';' } else { ':' };
-    let mut parts = current_path
-        .split(separator)
-        .filter(|part| !part.trim().is_empty())
-        .map(|part| part.to_string())
-        .collect::<Vec<_>>();
-
     // Prepend the executable's parent directory to PATH
     if let Some(parent) = Path::new(&executable).parent() {
         let parent_str = parent.to_string_lossy().trim().to_string();
-        if !parent_str.is_empty() && !parts.iter().any(|part| part == &parent_str) {
-            parts.insert(0, parent_str);
-        }
+        prepend_terminal_command_path_part(&mut parts, parent_str);
     }
 
     // For node-wrapped commands (e.g. codex), also prepend the node runtime
@@ -133,9 +127,7 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
     if AgentInstaller::requires_node_env(agent_type) {
         if let Some(node_dir) = AgentInstaller::find_node_runtime_dir() {
             let node_dir_str = node_dir.to_string_lossy().trim().to_string();
-            if !node_dir_str.is_empty() && !parts.iter().any(|part| part == &node_dir_str) {
-                parts.insert(0, node_dir_str);
-            }
+            prepend_terminal_command_path_part(&mut parts, node_dir_str);
         }
     }
 
@@ -146,12 +138,73 @@ fn augment_terminal_command_env(tool_kind: AgentToolKind, env_map: &mut BTreeMap
     let common_dirs = AgentInstaller::common_binary_dirs();
     for dir in common_dirs.into_iter().rev() {
         let dir_str = dir.to_string_lossy().trim().to_string();
-        if !dir_str.is_empty() && !parts.iter().any(|part| part == &dir_str) {
-            parts.insert(0, dir_str);
-        }
+        prepend_terminal_command_path_part(&mut parts, dir_str);
     }
 
-    env_map.insert("PATH".to_string(), parts.join(&separator.to_string()));
+    env_map.insert("PATH".to_string(), terminal_command_path_join(&parts));
+}
+
+fn terminal_command_path_base(explicit_path: Option<&str>) -> Vec<String> {
+    let mut parts = Vec::new();
+    if let Some(path) = explicit_path.map(str::trim).filter(|path| !path.is_empty()) {
+        for part in path.split(terminal_command_path_separator()) {
+            append_terminal_command_path_part(&mut parts, part.trim().to_string());
+        }
+    }
+    for part in terminal_command_bootstrap_path().split(terminal_command_path_separator()) {
+        append_terminal_command_path_part(&mut parts, part.to_string());
+    }
+    parts
+}
+
+fn terminal_command_bootstrap_path() -> &'static str {
+    if cfg!(windows) {
+        "C:\\Windows\\System32;C:\\Windows"
+    } else {
+        "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    }
+}
+
+fn terminal_command_path_separator() -> char {
+    if cfg!(windows) {
+        ';'
+    } else {
+        ':'
+    }
+}
+
+fn terminal_command_path_parts_len(parts: &[String]) -> usize {
+    parts.iter().map(String::len).sum::<usize>() + parts.len().saturating_sub(1)
+}
+
+fn append_terminal_command_path_part(parts: &mut Vec<String>, part: String) {
+    if part.is_empty() || parts.iter().any(|existing| existing == &part) {
+        return;
+    }
+    let next_len = terminal_command_path_parts_len(parts)
+        .saturating_add(part.len())
+        .saturating_add(usize::from(!parts.is_empty()));
+    if next_len <= TERMINAL_COMMAND_PATH_MAX_BYTES {
+        parts.push(part);
+    }
+}
+
+fn prepend_terminal_command_path_part(parts: &mut Vec<String>, part: String) {
+    if part.is_empty() {
+        return;
+    }
+    parts.retain(|existing| existing != &part);
+    if part.len() > TERMINAL_COMMAND_PATH_MAX_BYTES {
+        return;
+    }
+    parts.insert(0, part);
+    while terminal_command_path_parts_len(parts) > TERMINAL_COMMAND_PATH_MAX_BYTES {
+        parts.pop();
+    }
+}
+
+fn terminal_command_path_join(parts: &[String]) -> String {
+    parts.join(&terminal_command_path_separator().to_string())
 }
 
 #[tauri::command]

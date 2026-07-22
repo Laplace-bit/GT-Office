@@ -13,7 +13,6 @@ import { GlobalTaskDispatchOverlay, TaskCenterPane } from '@features/task-center
 import { SettingsModal } from '@features/settings'
 import { ChannelStudio, CommunicationChannelsPane } from '@features/tool-adapter'
 import { StationManageModal, StationSearchModal, WorkbenchCanvas } from '@features/workspace-hub'
-import { StationOverviewPane } from '@features/workspace'
 import { NotificationList } from '../../components/notification/NotificationList'
 import { t, type Locale } from '../i18n/ui-locale'
 import {
@@ -71,7 +70,6 @@ interface ShellRootViewProps {
   onRightPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
   fileTreePaneProps: ComponentProps<typeof FileTreePane>
   taskCenterPaneProps: ComponentProps<typeof TaskCenterPane>
-  stationOverviewPaneProps: ComponentProps<typeof StationOverviewPane>
   gitOperationsPaneProps: ComponentProps<typeof GitOperationsPane>
   communicationChannelsPaneProps: ComponentProps<typeof CommunicationChannelsPane>
   businessDesignerPaneProps: ComponentProps<typeof BusinessDesignerPane>
@@ -150,7 +148,6 @@ interface ShellLeftPaneContentProps {
   activeNavId: NavItemId
   fileTreePaneProps: ComponentProps<typeof FileTreePane>
   taskCenterPaneProps: ComponentProps<typeof TaskCenterPane>
-  stationOverviewPaneProps: ComponentProps<typeof StationOverviewPane>
   gitOperationsPaneProps: ComponentProps<typeof GitOperationsPane>
   communicationChannelsPaneProps: ComponentProps<typeof CommunicationChannelsPane>
   activePaneModel: PaneModel
@@ -160,7 +157,6 @@ function ShellLeftPaneContent({
   activeNavId,
   fileTreePaneProps,
   taskCenterPaneProps,
-  stationOverviewPaneProps,
   gitOperationsPaneProps,
   communicationChannelsPaneProps,
   activePaneModel,
@@ -175,9 +171,6 @@ function ShellLeftPaneContent({
           <TaskCenterPane {...taskCenterPaneProps} />
         </div>
       )
-    }
-    if (activeNavId === 'stations') {
-      return <StationOverviewPane {...stationOverviewPaneProps} />
     }
     if (activeNavId === 'git') {
       return <GitOperationsPane {...gitOperationsPaneProps} />
@@ -367,7 +360,6 @@ interface ShellMainLayoutProps {
   onRightPaneResizeKeyDown: KeyboardEventHandler<HTMLDivElement>
   fileTreePaneProps: ComponentProps<typeof FileTreePane>
   taskCenterPaneProps: ComponentProps<typeof TaskCenterPane>
-  stationOverviewPaneProps: ComponentProps<typeof StationOverviewPane>
   gitOperationsPaneProps: ComponentProps<typeof GitOperationsPane>
   communicationChannelsPaneProps: ComponentProps<typeof CommunicationChannelsPane>
   activePaneModel: PaneModel
@@ -399,7 +391,6 @@ function ShellMainLayout({
   onRightPaneResizeKeyDown,
   fileTreePaneProps,
   taskCenterPaneProps,
-  stationOverviewPaneProps,
   gitOperationsPaneProps,
   communicationChannelsPaneProps,
   businessDesignerPaneProps,
@@ -410,7 +401,7 @@ function ShellMainLayout({
   fileEditorPaneProps,
   gitHistoryPaneProps,
 }: ShellMainLayoutProps) {
-  const usesIntegratedLeftPane = activeNavId === 'designer'
+  const usesIntegratedLeftPane = activeNavId === 'designer' || activeNavId === 'stations'
 
   return (
     <>
@@ -428,7 +419,6 @@ function ShellMainLayout({
               activeNavId={activeNavId}
               fileTreePaneProps={fileTreePaneProps}
               taskCenterPaneProps={taskCenterPaneProps}
-              stationOverviewPaneProps={stationOverviewPaneProps}
               gitOperationsPaneProps={gitOperationsPaneProps}
               communicationChannelsPaneProps={communicationChannelsPaneProps}
               activePaneModel={activePaneModel}
@@ -535,7 +525,6 @@ export function ShellRootView({
   onRightPaneResizeKeyDown,
   fileTreePaneProps,
   taskCenterPaneProps,
-  stationOverviewPaneProps,
   gitOperationsPaneProps,
   communicationChannelsPaneProps,
   businessDesignerPaneProps,
@@ -621,7 +610,6 @@ export function ShellRootView({
           onRightPaneResizeKeyDown={onRightPaneResizeKeyDown}
           fileTreePaneProps={fileTreePaneProps}
           taskCenterPaneProps={taskCenterPaneProps}
-          stationOverviewPaneProps={stationOverviewPaneProps}
           gitOperationsPaneProps={gitOperationsPaneProps}
           communicationChannelsPaneProps={communicationChannelsPaneProps}
           businessDesignerPaneProps={businessDesignerPaneProps}

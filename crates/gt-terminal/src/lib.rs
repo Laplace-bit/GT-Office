@@ -1359,6 +1359,28 @@ where
 
         let mut command = CommandBuilder::new(&shell_name);
 
+        // Strip the inherited parent environment down to a minimal whitelist
+        // before applying caller-provided env and color vars. See
+        // `TERMINAL_SPAWN_ENV_WHITELIST` for the rationale.
+        command.env_clear();
+        for key in TERMINAL_SPAWN_ENV_WHITELIST {
+            if let Ok(value) = std::env::var(key) {
+                if !value.is_empty() {
+                    command.env(key, value);
+                }
+            }
+        }
+        // Locale is namespaced (`LANG`, `LC_*`); preserve whatever is set so
+        // the shell and CLI tools render text correctly.
+        for (key, value) in std::env::vars() {
+            if !value.is_empty() && (key == "LANG" || key.starts_with("LC_")) {
+                command.env(key, value);
+            }
+        }
+        // Seed a minimal PATH so the login shell can bootstrap before profiles
+        // rebuild it. Callers that skip the login shell must supply PATH via `env`.
+        command.env("PATH", minimal_bootstrap_path());
+
         let shell_lower = shell_name.to_lowercase();
         let use_login_shell = request.login_shell.unwrap_or(true);
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
@@ -1551,6 +1573,65 @@ fn terminate_process_tree(root_pid: u32) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Environment variables preserved from the parent process when spawning a
+/// PTY shell.
+///
+/// The PTY must not inherit the full parent (Tauri app) environment. In dev
+/// mode the app process inherits a bloated developer-shell env (`npm_*`,
+/// `CARGO_*`, `DYLD_*`, a very long `PATH`, …). Passing that verbatim to the
+/// login shell causes child commands (brew, jenv, …) to hit `E2BIG`
+/// ("Argument list too long") during `.zprofile`/`.zshrc` evaluation, and
+/// pollutes the terminal with tooling noise. Real terminal emulators start
+/// shells from a clean GUI-session env and let login profiles rebuild
+/// everything; we mirror that here by keeping only the minimal variables a
+/// login shell needs to bootstrap, plus anything the caller explicitly
+/// injects via `TerminalCreateRequest::env`.
+///
+/// `PATH` is intentionally NOT inherited: a login shell rebuilds PATH from
+/// profiles (e.g. `eval "$(brew shellenv)"`), and inheriting the parent's
+/// PATH makes those profile scripts *prepend* to an already-long PATH instead
+/// of replacing it, so the parent noise accumulates. We seed a minimal system
+/// PATH instead; callers that skip the login shell (agent fast-launch) must
+/// supply their own PATH via `env`.
+const TERMINAL_SPAWN_ENV_WHITELIST: &[&str] = &[
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "TZ",
+    "SSH_AUTH_SOCK",
+    "SSH_AGENT_PID",
+    // macOS GUI session (launchd)
+    "XPC_FLAGS",
+    "XPC_SERVICE_NAME",
+    "__CF_USER_TEXT_ENCODING",
+    // Windows session
+    "SYSTEMROOT",
+    "PATHEXT",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "USERPROFILE",
+    "USERNAME",
+    "PROGRAMDATA",
+    "ProgramFiles",
+    "COMPUTERNAME",
+];
+
+/// Minimal `PATH` used to bootstrap a login shell before profiles rebuild it.
+/// Keeping this small (instead of inheriting the parent's PATH) prevents
+/// profile scripts from prepending to an already-bloated PATH.
+fn minimal_bootstrap_path() -> &'static str {
+    if cfg!(target_os = "windows") {
+        // Windows resolves executables via PATHEXT + SystemRoot; keep it simple.
+        "C:\\Windows\\System32;C:\\Windows"
+    } else {
+        "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    }
 }
 
 fn resolve_shell_name(shell: Option<&str>) -> String {
