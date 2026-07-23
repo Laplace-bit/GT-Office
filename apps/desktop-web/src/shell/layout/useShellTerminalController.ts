@@ -2863,7 +2863,7 @@ export function useShellTerminalController({
               env: terminalEnv,
               agentToolKind: normalizeStationToolKind(station.tool),
               injectProviderEnv: false,
-              loginShell: true,
+              loginShell: false,
             })
             if (
               !shouldApplyStationSessionResult(

@@ -556,6 +556,7 @@ function StationCardView({
               tooltip={t(locale, 'workbench.stationLaunchTerminal')}
               ariaLabel={t(locale, 'workbench.stationLaunchTerminal')}
               onPointerDown={(event) => {
+                activateStationAndFocusTerminal()
                 event.preventDefault()
               }}
               onClick={(event) => {

@@ -1,12 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-const testDir = dirname(fileURLToPath(import.meta.url))
 const controllerSource = readFileSync(
-  resolve(testDir, '../../src/shell/layout/useShellTerminalController.ts'),
+  resolve(process.cwd(), 'src/shell/layout/useShellTerminalController.ts'),
   'utf8',
 )
 
@@ -32,6 +30,18 @@ test('shell terminal controller exposes launch state before terminal creation an
   assert.match(ensureSessionBlock, /setStationTerminalState\(stationId, \{\s*stateRaw: 'launching'/)
   assert.match(ensureSessionBlock, /resetStationTerminalOutput\(stationId, t\(locale, 'system\.terminalLaunching'\)\)/)
   assert.match(ensureSessionBlock, /setStationTerminalState\(stationId, \{ stateRaw: 'failed' \}\)/)
+})
+
+test('station terminal creation skips shell profiles so the new session becomes interactive promptly', () => {
+  const ensureSessionBlock =
+    controllerSource.match(/const ensureStationTerminalSession = useMemo\([\s\S]*?\n  const focusStationTerminal/m)?.[0] ?? ''
+
+  assert.notEqual(ensureSessionBlock, '', 'station terminal launch path should exist')
+  assert.match(
+    ensureSessionBlock,
+    /desktopApi\.terminalCreate\([\s\S]*?loginShell: false/,
+    'manual station terminal launch must not wait for user login-shell profiles',
+  )
 })
 
 test('terminal and agent launches immediately replace stale output and activate their target station', () => {

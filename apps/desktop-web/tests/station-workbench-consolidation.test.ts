@@ -1,13 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const testDir = dirname(fileURLToPath(import.meta.url))
+import { resolve } from 'node:path'
 
 function readSource(relativePath: string): string {
-  return readFileSync(resolve(testDir, '../../src', relativePath), 'utf8')
+  return readFileSync(resolve(process.cwd(), 'src', relativePath), 'utf8')
 }
 
 test('station navigation renders the workbench without a duplicate left panel', () => {
@@ -50,6 +47,20 @@ test('primary station launch keeps mouse focus available for the terminal', () =
     stationCard,
     /className="station-terminal-launch-btn"[\s\S]*?onPointerDown=\{\(event\) => \{[\s\S]*?event\.preventDefault\(\)/,
   )
+})
+
+test('inactive station terminal launch activates on pointer down before the launch click', () => {
+  const stationCard = readSource('features/workspace-hub/StationCard.tsx')
+  const terminalLaunchButton =
+    stationCard.match(/className="station-terminal-launch-btn"[\s\S]*?<\/StationIconButton>/)?.[0] ?? ''
+
+  assert.notEqual(terminalLaunchButton, '', 'station terminal launch button should exist')
+  assert.match(
+    terminalLaunchButton,
+    /onPointerDown=\{\(event\) => \{[\s\S]*?activateStationAndFocusTerminal\(\)[\s\S]*?event\.preventDefault\(\)/,
+    'pointer down must activate an inactive station before the click starts its terminal',
+  )
+  assert.match(terminalLaunchButton, /onClick=\{\(event\) => \{[\s\S]*?activateStationAndOpenTerminal\(\)/)
 })
 
 test('explicit terminal launch starts a fresh session even when the card shows closed history', () => {
