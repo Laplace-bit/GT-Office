@@ -26,7 +26,6 @@ export interface PaneModel {
 export function getNavItems(locale: Locale): NavItem[] {
   return [
     { id: 'files', label: t(locale, 'nav.files'), short: t(locale, 'nav.filesShort') },
-    { id: 'designer', label: t(locale, 'nav.designer'), short: t(locale, 'nav.designerShort') },
     { id: 'git', label: t(locale, 'nav.git'), short: 'Git' },
     { id: 'tasks', label: t(locale, 'nav.tasks'), short: t(locale, 'nav.tasksShort') },
     { id: 'channels', label: t(locale, 'nav.channels'), short: t(locale, 'nav.channelsShort') },
